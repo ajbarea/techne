@@ -1,0 +1,21 @@
+{
+  "name": "techne",
+  "description": "AJ's personal Claude Code skill collection — repo-hygiene skills for audit, slop cleanup, doc-sync, CI review, commit planning, and cross-repo drift detection.",
+  "author": {
+    "name": "AJ",
+    "email": "ajbareaa@gmail.com"
+  },
+  "repository": "https://github.com/ajbarea/techne",
+  "homepage": "https://github.com/ajbarea/techne",
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "skills",
+    "audit",
+    "drift",
+    "linting",
+    "documentation",
+    "ci",
+    "slop"
+  ]
+}

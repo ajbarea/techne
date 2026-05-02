@@ -1,0 +1,218 @@
+---
+name: sisters
+description: Cross-repo drift audit across AJ's sister repos (configured in ~/.claude/techne.toml; currently phalanx-fl, vFL, kourai-khryseai). Surfaces action-pin drift in CI workflows, toolchain pin drift in pyproject.toml (requires-python, ruff target-version, ruff/ty/pytest dev-dep specifiers), skill-context structural divergence, GitHub merge-setting drift, open-PR rollup, and stale-branch hygiene. Use this skill whenever the user asks to "audit the sisters", "check cross-repo drift", "compare the three repos", "are the sisters still in sync", after shipping or merging a change in one sister repo that might need to propagate (action bumps, Python version raise, ruff/ty/pytest pin moves, skill-context restructures), or when the user mentions phalanx-fl/vFL/kourai-khryseai together and wants a consistency check — even without the word "audit".
+disable-model-invocation: false
+allowed-tools: Bash(gh *) Bash(git *) Bash(ls *) Bash(wc *) Bash(sort *) Bash(uniq *) Bash(awk *) Bash(python3 *) Glob Grep Read
+---
+
+# Sisters Audit
+
+Audit the active sister repos for cross-repo drift. Report every finding, grouped by category. Leave fixing to follow-up work or the developer — this skill observes, it does not edit.
+
+## Config (load first)
+
+Active sister list, workspace root, and GitHub user are read from `~/.claude/techne.toml` at runtime. Run this preamble before any audit checks below — it sets `$SISTERS`, `$WORKSPACE`, and `$GITHUB_USER`:
+
+```
+eval "$(python3 - <<'PY'
+import tomllib, os, shlex
+with open(os.path.expanduser('~/.claude/techne.toml'), 'rb') as f:
+    d = tomllib.load(f)
+sisters = ' '.join(s['name'] for s in d['sisters'] if s.get('status', 'active') == 'active')
+ws = d.get('workspace_root', os.path.expanduser('~/ajsoftworks'))
+gu = d.get('github_user', 'ajbarea')
+print(f"SISTERS={shlex.quote(sisters)}")
+print(f"WORKSPACE={shlex.quote(ws)}")
+print(f"GITHUB_USER={shlex.quote(gu)}")
+PY
+)"
+```
+
+If `~/.claude/techne.toml` is missing or yields zero active sisters, stop and tell the user — don't guess. Each sister's canonical local path is `$WORKSPACE/<name>` and its GitHub slug is `$GITHUB_USER/<name>`.
+
+## What to check
+
+### 1. Action-pin drift
+
+For every `.github/workflows/*.yml` across the active sisters, extract `uses: <actor>/<action>@<version>` pins.
+
+```
+for repo in $SISTERS; do
+  grep -hE '^\s*uses:' $WORKSPACE/$repo/.github/workflows/*.yml 2>/dev/null \
+    | sed -E 's/^\s*uses:\s*//; s/\s*$//' \
+    | awk -v r="$repo" '{print r "\t" $0}'
+done | sort
+```
+
+Compute drift: any action (the `actor/action` part) pinned to *different* versions across repos. Report the action, each repo's pin, and which is newest. The newest pin in the set is the recommended target — unless the user has said otherwise.
+
+Don't flag per-action when all repos pin the same version, even if that version is behind upstream — that's a separate "upgrade" question, not drift. The skill's job is to catch *inconsistency*, not to evaluate absolute freshness.
+
+### 2. Skill-context structural parity
+
+Each repo has `.claude/skill-context.md`. Required top-level sections across all sisters:
+
+- `## repo`
+- `## audit (techne:audit)`
+- `## ci_audit (techne:ci-audit)`
+- `## slop_ground_truth (techne:deslop / techne:reslop / techne:docsync)`
+- `## scan_scope (techne:deslop / techne:reslop)`
+- `## docs_site (techne:docs-site)`
+
+Verify by grep:
+
+```
+for repo in $SISTERS; do
+  echo "--- $repo ---"
+  grep -E '^## ' $WORKSPACE/$repo/.claude/skill-context.md
+done
+```
+
+Report any repo missing a required section, and any repo that has sections the others lack (not necessarily bad — could be a legitimate per-repo addition — but worth surfacing for review).
+
+### 3. GitHub merge-setting drift
+
+Expected uniform settings (this is the canonical pin — if you're unsure, re-run this audit):
+
+- `allow_squash_merge: true`
+- `allow_merge_commit: false`
+- `allow_rebase_merge: false`
+- `delete_branch_on_merge: true`
+
+```
+for repo in $SISTERS; do
+  echo "--- $repo ---"
+  gh api "repos/$GITHUB_USER/$repo" --jq '{sq:.allow_squash_merge, mc:.allow_merge_commit, rb:.allow_rebase_merge, del:.delete_branch_on_merge}'
+done
+```
+
+Report any repo that drifts from the canonical expectation.
+
+### 4. Open PRs rollup
+
+```
+for repo in $SISTERS; do
+  gh pr list --repo "$GITHUB_USER/$repo" --state open --json number,title,headRefName,createdAt,isDraft,mergeable \
+    --jq ".[] | [\"$repo\", (.number|tostring), .title, .headRefName, .mergeable, .createdAt] | @tsv"
+done
+```
+
+For each PR, note age (`createdAt` → days-ago), mergeability, and whether the check rollup is clean. Flag any PR open longer than 14 days — that's a rot signal, not necessarily a bug.
+
+Don't pull full check details for every PR — that's the job of `techne:ci-audit`. Link to the PR URL and let the user drill down.
+
+### 5. Stale local branches
+
+For each repo, list branches that are **ahead** of `origin/main` and **not** the currently checked-out branch or `main` itself:
+
+```
+for repo in $SISTERS; do
+  echo "--- $repo ---"
+  (cd $WORKSPACE/$repo && git fetch --quiet origin && \
+    git for-each-ref --format='%(refname:short) %(upstream:track)' refs/heads/ \
+    | grep -v '^main ' \
+    | grep -v '\[gone\]' \
+    | awk '$2 ~ /ahead/ { print $0 }')
+done
+```
+
+Report each stale branch: repo, branch name, ahead-by count. Stale branches are work-in-progress that didn't ship — not automatically bad, but worth knowing about before a session.
+
+### 6. Local `main` divergence from `origin/main`
+
+Fast check: is any repo's local `main` out of sync with `origin/main`?
+
+```
+for repo in $SISTERS; do
+  cd $WORKSPACE/$repo
+  git fetch --quiet origin
+  behind=$(git rev-list --count main..origin/main 2>/dev/null)
+  ahead=$(git rev-list --count origin/main..main 2>/dev/null)
+  echo "$repo: ahead=$ahead behind=$behind"
+done
+```
+
+Report any non-zero ahead/behind. Behind = pull to catch up. Ahead = unpushed commits, investigate before continuing work.
+
+### 7. Toolchain pin drift in `pyproject.toml`
+
+Only inspect the *root* `pyproject.toml` of each repo — that's where the shared toolchain decisions live. Do not descend into workspace members (e.g., `kourai-khryseai/agents/*/pyproject.toml`); those are package-level, not toolchain-level, and would generate noise.
+
+Extract four pins per repo:
+
+- `requires-python` — the Python version envelope the project accepts.
+- `[tool.ruff] target-version` — which Python features ruff assumes when linting / autofixing.
+- Dev-dep specifier for `ruff` (in `[project.optional-dependencies.dev]` or `[dependency-groups.dev]`).
+- Dev-dep specifier for `ty`.
+- Dev-dep specifier for `pytest`.
+
+```
+for repo in $SISTERS; do
+  f=$WORKSPACE/$repo/pyproject.toml
+  echo "--- $repo ---"
+  grep -E '^requires-python\s*=' "$f"
+  awk '/^\[tool\.ruff\]$/{flag=1; next} /^\[/{flag=0} flag && /^target-version/' "$f"
+  grep -hE '"(ruff|ty|pytest)[">=<~!]' "$f" | sort -u
+done
+```
+
+Compute drift the same way as check 1 (action pins):
+
+- **`requires-python` drift** — differing lower bounds or upper caps across the sisters is drift. A repo with `>=3.9` while the others are `>=3.12,<3.14` is running on a looser envelope than its siblings and may regress on features the others use freely.
+- **`target-version` drift** — this must be consistent with `requires-python`'s lower bound. Flag both cross-repo drift and intra-repo mismatch (e.g., `requires-python = ">=3.12"` but `target-version = "py39"`).
+- **`ruff` / `ty` / `pytest` specifier drift** — any tool with different minimums across repos (`ruff>=0.8` vs `ruff>=0.9`) or that is unbounded in one repo (`"ruff"`) while bounded in another (`"ruff>=0.9"`) is drift.
+
+Unlike action pins, the newest pin is **not** automatically the target. `requires-python` lower bounds often encode a support commitment that's deliberate per repo — raising vFL to `>=3.12` would break anyone running it on 3.9. Report the drift, then either:
+
+- **Tooling pins (ruff / ty / pytest)** → the newest pin is the default recommendation; these have no support-contract cost.
+- **`requires-python` / `target-version`** → surface the drift but do not recommend; ask the user which envelope they want to converge on.
+
+## Output format
+
+A single block, no preamble (concrete repo names below are illustrative — substitute the actual entries from `$SISTERS`):
+
+```
+## Sisters audit — <UTC timestamp>
+
+### Merge settings
+- phalanx-fl: squash-only, delete-on-merge ✓
+- vFL: ...
+- kourai-khryseai: ...
+
+### Skill-context parity
+- All sisters have required sections. ✓
+  (or list drift: "phalanx-fl missing `## docs_site (techne:docs-site)`")
+
+### Action-pin drift
+- `astral-sh/setup-uv`: phalanx-fl@v8.1.0, vFL@v8.1.0, kourai@v8.0.0 → bump kourai
+- (else: "No drift — all pins consistent across repos.")
+
+### Toolchain pin drift (`pyproject.toml`)
+- `ruff`: phalanx-fl unbounded, vFL `>=0.8`, kourai `>=0.9` → bump phalanx + vFL to `>=0.9`
+- `requires-python`: phalanx-fl `>=3.11,<3.14`, vFL `>=3.9`, kourai `>=3.12,<3.14` → surfaced for user (support-contract drift, no automatic target)
+- (else: "No drift — all toolchain pins consistent.")
+
+### Open PRs
+- phalanx-fl: 0 open
+- vFL: 1 open (#12, 3d old, mergeable)
+- kourai-khryseai: 2 open (#14 mergeable; #15 has failing checks → run /techne:ci-audit)
+
+### Stale branches
+- kourai-khryseai: `feat/experiment-xyz` (ahead 3)
+- (else: "Clean.")
+
+### Local main sync
+- All sisters: ahead=0 behind=0. ✓
+
+### Verdict
+
+<"N drift items to address." | "All sisters coherent.">
+```
+
+## Rules
+
+- Read-only. Never edit files, push branches, or modify GitHub settings. If the audit surfaces something that needs fixing, say so and stop.
+- If one repo is in a broken state (e.g., `.claude/skill-context.md` missing), report it and continue the other checks — don't abort.
+- `gh` calls go through the user's authenticated CLI; if auth fails, surface the error and stop that check (don't retry).
+- Do not invoke `techne:ci-audit` recursively. If a PR has failing checks, *name* it and tell the user to run `techne:ci-audit` separately.
+- The active sister list comes from `~/.claude/techne.toml`. If the file is missing, malformed, or yields zero active sisters, stop and ask — don't invent paths.

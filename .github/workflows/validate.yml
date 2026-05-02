@@ -1,0 +1,54 @@
+name: validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Manifests parse as JSON
+        run: |
+          jq empty .claude-plugin/marketplace.json
+          jq empty plugins/techne/.claude-plugin/plugin.json
+
+      - name: SKILL.md frontmatter is well-formed
+        run: |
+          set -e
+          for skill in plugins/techne/skills/*/SKILL.md; do
+            python3 - "$skill" <<'PY'
+          import re, sys
+          path = sys.argv[1]
+          with open(path) as f:
+              content = f.read()
+          m = re.match(r'^---\n(.*?)\n---\n', content, re.DOTALL)
+          if not m:
+              sys.exit(f'{path}: missing frontmatter')
+          fm = m.group(1)
+          for required in ('name:', 'description:'):
+              if required not in fm:
+                  sys.exit(f'{path}: missing {required}')
+          print(f'{path}: ok')
+          PY
+          done
+
+      - name: No stale ~/.claude/skills/_shared paths
+        run: |
+          if grep -rn '\.claude/skills/_shared' plugins/techne/skills/; then
+            echo "FAIL: SKILL.md still references the old absolute _shared path"
+            exit 1
+          fi
+
+      - name: No legacy aj-* skill name references
+        run: |
+          if grep -rohE 'aj-(audit|auto-commit|ci-audit|deslop|docs-site|docsync|reslop|sisters)' plugins/techne/skills/; then
+            echo "FAIL: SKILL.md still references aj-* names"
+            exit 1
+          fi

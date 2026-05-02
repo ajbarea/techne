@@ -1,0 +1,17 @@
+{
+  "name": "techne",
+  "version": "1.0.0",
+  "description": "AJ's personal Claude Code skill collection.",
+  "owner": {
+    "name": "AJ",
+    "email": "ajbareaa@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "techne",
+      "description": "Repo-hygiene skills for audit, slop cleanup, doc-sync, CI review, commit planning, and cross-repo drift detection.",
+      "source": "./plugins/techne",
+      "category": "development"
+    }
+  ]
+}
