@@ -1,8 +1,8 @@
 ---
 name: sisters
-description: Cross-repo drift audit across AJ's sister repos (configured in ~/.claude/techne.toml; currently phalanx-fl, vFL, kourai-khryseai). Surfaces action-pin drift in CI workflows, toolchain pin drift in pyproject.toml (requires-python, ruff target-version, ruff/ty/pytest dev-dep specifiers), skill-context structural divergence, GitHub merge-setting drift, open-PR rollup, and stale-branch hygiene. Use this skill whenever the user asks to "audit the sisters", "check cross-repo drift", "compare the three repos", "are the sisters still in sync", after shipping or merging a change in one sister repo that might need to propagate (action bumps, Python version raise, ruff/ty/pytest pin moves, skill-context restructures), or when the user mentions phalanx-fl/vFL/kourai-khryseai together and wants a consistency check — even without the word "audit".
+description: Cross-repo drift audit across AJ's sister repos (currently phalanx-fl, vFL, kourai-khryseai; configured in `~/.claude/techne.toml`). Read-only inspection of CI action pins, toolchain pins in pyproject.toml, skill-context structural parity, GitHub merge settings, open PRs, and branch hygiene. Triggers on phrases like "audit the sisters", "are the sisters in sync", "check cross-repo drift", or when multiple sister repos are mentioned together for a consistency check.
 disable-model-invocation: false
-allowed-tools: Bash(gh *) Bash(git *) Bash(ls *) Bash(wc *) Bash(sort *) Bash(uniq *) Bash(awk *) Bash(python3 *) Glob Grep Read
+allowed-tools: Bash(gh api repos/*) Bash(gh pr list*) Bash(gh auth status) Bash(git fetch *) Bash(git for-each-ref *) Bash(git rev-list *) Bash(git branch *) Bash(grep *) Bash(awk *) Bash(sed *) Bash(sort *) Bash(uniq *) Bash(wc *) Bash(ls *) Bash(python3 *) Bash(cd *) Glob Grep Read
 ---
 
 # Sisters Audit
