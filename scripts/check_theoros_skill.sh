@@ -26,4 +26,9 @@ for heading in '## Repo context' '## Required YAML fields' '## Lifecycle' '## Dr
     grep -qF "$heading" "$SKILL" || { printf "FAIL: required section missing: %s\n" "$heading" >&2; exit 1; }
 done
 
+# 5. README mentions the theoros skill bullet.
+README="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/README.md"
+grep -qF '`techne:theoros`' "$README" || { printf 'FAIL: techne README missing theoros bullet\n' >&2; exit 1; }
+grep -qiF 'tmux attach' "$README" || { printf 'FAIL: techne README bullet should mention tmux attach\n' >&2; exit 1; }
+
 printf 'OK: techne:theoros SKILL.md passes structural checks\n'
