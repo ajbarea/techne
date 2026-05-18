@@ -39,10 +39,10 @@ jobs:
           python-version-file: "pyproject.toml"
 
       - name: Install Dependencies
-        run: uv sync --group dev
+        run: uv sync --group dev --frozen
 
       - name: Build Documentation
-        run: uv run zensical build --clean
+        run: uv run zensical build --clean --strict
 
       - name: Configure Pages
         uses: actions/configure-pages@v6.0.0
