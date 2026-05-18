@@ -1,0 +1,100 @@
+/* =====================================================================
+   Techne Landing Page Sections — Content Blocks & Grids
+   ===================================================================== */
+
+/* Landing Section Container */
+.landing-section {
+  padding: 3.5rem 0;
+}
+
+.landing-section--intro,
+.landing-section--cta {
+  background: color-mix(in srgb, var(--bronze-metallic) 4%, transparent);
+  border-radius: 1rem;
+  margin: 1.5rem 0;
+  padding: 3.5rem 0;
+}
+
+/* Section Inner Wrapper */
+.section-inner {
+  max-width: 64rem;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+
+/* Section Title */
+.section-title {
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  font-weight: 700;
+  margin: 0 0 1rem;
+  background: var(--bronze-gradient);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+/* Section Lead Text */
+.section-lead {
+  font-size: 1.05rem;
+  line-height: 1.65;
+  color: color-mix(in srgb, var(--bronze-light) 85%, white);
+  max-width: 52rem;
+}
+
+/* Skill Grid */
+.skill-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+/* Skill Card */
+.skill-card {
+  display: block;
+  padding: 1.25rem;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: 0.75rem;
+  text-decoration: none;
+  color: inherit;
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.skill-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--bronze-metallic) 50%, transparent);
+  background: color-mix(in srgb, var(--bronze-metallic) 6%, transparent);
+}
+
+/* Skill Card Title */
+.skill-card .skill-name {
+  font-family: var(--md-code-font, "JetBrains Mono"), monospace;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--bronze-light);
+  margin-bottom: 0.5rem;
+}
+
+/* Skill Card Description */
+.skill-card p {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.55;
+  color: color-mix(in srgb, var(--bronze-light) 70%, white);
+}
+
+/* Responsive adjustments */
+@media (max-width: 480px) {
+  .skill-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-buttons {
+    flex-direction: column;
+  }
+
+  .hero-buttons .md-button {
+    width: 100%;
+  }
+}
