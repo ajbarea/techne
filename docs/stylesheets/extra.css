@@ -1,0 +1,170 @@
+:root {
+  /* Bronze + obsidian palette */
+  --bronze-light: #E8C28A;
+  --bronze-mid: #C49866;
+  --bronze-dark: #8B5A2B;
+  --bronze-deep: #5C3D1C;
+  --bronze-metallic: #C9944A;
+  --bronze-gradient: linear-gradient(135deg, #8B5A2B 0%, #C9944A 35%, #E8C28A 50%, #C9944A 65%, #8B5A2B 100%);
+
+  --obsidian: #050609;
+  --night: #0b1019;
+  --glass-bg: color-mix(in srgb, #fff 3%, transparent);
+  --glass-border: color-mix(in srgb, var(--bronze-metallic) 22%, transparent);
+
+  --hero-bg-image: url('../assets/hero.png');
+
+  /* Zensical (Material) overrides */
+  --md-primary-fg-color: var(--bronze-light);
+  --md-accent-fg-color: var(--bronze-light);
+}
+
+[data-md-color-scheme="slate"] {
+  --md-default-bg-color: var(--night);
+  --md-default-bg-color--light: #131a26;
+  --md-default-bg-color--lighter: #1a2230;
+  --md-primary-fg-color: var(--bronze-light);
+  --md-accent-fg-color: var(--bronze-light);
+  --md-typeset-a-color: var(--bronze-light);
+}
+
+/* Hero block on the landing page */
+.hero {
+  position: relative;
+  min-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  padding: 6rem 1.5rem 4rem;
+  background:
+    radial-gradient(ellipse at center, transparent 0%, var(--night) 75%),
+    var(--hero-bg-image) center / cover no-repeat,
+    var(--night);
+  border-radius: 1rem;
+  margin-bottom: 3rem;
+  overflow: hidden;
+}
+
+.hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 60%, var(--night) 100%);
+  pointer-events: none;
+}
+
+.hero h1 {
+  position: relative;
+  font-size: clamp(2.5rem, 6vw, 4.5rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  background: var(--bronze-gradient);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  margin: 0 0 1rem;
+}
+
+.hero-subtitle {
+  position: relative;
+  font-size: clamp(1rem, 2vw, 1.25rem);
+  color: color-mix(in srgb, var(--bronze-light) 80%, white);
+  max-width: 42rem;
+  margin: 0 0 2rem;
+}
+
+.hero-buttons {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: center;
+}
+
+.hero-buttons .md-button {
+  border-color: var(--glass-border);
+}
+
+.hero-buttons .md-button--primary {
+  background: var(--bronze-gradient);
+  border-color: transparent;
+  color: var(--obsidian);
+  font-weight: 700;
+}
+
+/* Landing sections */
+.landing-section {
+  padding: 3.5rem 0;
+}
+
+.landing-section--intro,
+.landing-section--cta {
+  background: color-mix(in srgb, var(--bronze-metallic) 4%, transparent);
+  border-radius: 1rem;
+  margin: 1.5rem 0;
+}
+
+.section-inner {
+  max-width: 64rem;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+
+.section-title {
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  font-weight: 700;
+  margin: 0 0 1rem;
+  background: var(--bronze-gradient);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+.section-lead {
+  font-size: 1.05rem;
+  line-height: 1.65;
+  color: color-mix(in srgb, var(--bronze-light) 85%, white);
+  max-width: 52rem;
+}
+
+/* Skill grid */
+.skill-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.skill-card {
+  display: block;
+  padding: 1.25rem;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: 0.75rem;
+  text-decoration: none;
+  color: inherit;
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.skill-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--bronze-metallic) 50%, transparent);
+  background: color-mix(in srgb, var(--bronze-metallic) 6%, transparent);
+}
+
+.skill-card .skill-name {
+  font-family: var(--md-code-font, "JetBrains Mono"), monospace;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--bronze-light);
+  margin-bottom: 0.5rem;
+}
+
+.skill-card p {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.55;
+  color: color-mix(in srgb, var(--bronze-light) 70%, white);
+}
