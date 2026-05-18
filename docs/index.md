@@ -84,7 +84,7 @@ hide:
 
   <p class="section-lead">Skills become available as <code>techne:&lt;name&gt;</code> and invoke the same way as any other Claude Code skill.</p>
 
-  <div class="hero-buttons">
+  <div class="hero-buttons" markdown="1">
 
 [:octicons-rocket-24: Get Started](getting-started.md){ .md-button .md-button--primary }
 [:octicons-gear-24: Configuration](configuration.md){ .md-button }
