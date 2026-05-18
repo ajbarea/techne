@@ -11,17 +11,17 @@ Cross-repo drift audit across the sister repos listed in `~/.claude/techne.toml`
 
 ## What it audits
 
-- **CI action pins** — same SHA / version across repos?
-- **Toolchain pins** — `pyproject.toml` Python, ruff, uv versions consistent?
-- **Skill-context parity** — same structural shape in `.claude/skill-context.md`?
-- **GitHub merge settings** — squash, branch protection, required checks aligned?
-- **Open PRs** — anything stale or stuck?
-- **Branch hygiene** — orphaned branches, drift from `main`?
+- **CI action pins**: same SHA / version across repos?
+- **Toolchain pins**: `pyproject.toml` Python, ruff, uv versions consistent?
+- **Skill-context parity**: same structural shape in `.claude/skill-context.md`?
+- **GitHub merge settings**: squash, branch protection, required checks aligned?
+- **Open PRs**: anything stale or stuck?
+- **Branch hygiene**: orphaned branches, drift from `main`?
 
 ## What it does NOT do
 
 - Doesn't sweep, prune, or modify the team repo (read-only by policy).
-- Doesn't auto-fix without review — surfaces drift, you decide.
+- Doesn't auto-fix without review; surfaces drift, you decide.
 
 ## Configuration
 

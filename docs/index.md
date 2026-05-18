@@ -22,15 +22,15 @@ hide:
 
 </div>
 
-<section class="landing-section landing-section--intro">
-  <div class="section-inner">
+<section class="landing-section landing-section--intro" markdown>
+  <div class="section-inner" markdown>
     <h2 class="section-title">What is techne?</h2>
     <p class="section-lead">A Claude Code plugin shipping nine skills that audit builds, tame CI noise, hunt doc/code drift, and keep sister repos in lockstep. Built for AJ's own multi-repo workflow; usable by anyone who lives in <code>~/.claude/</code>.</p>
   </div>
 </section>
 
-<section class="landing-section">
-  <div class="section-inner">
+<section class="landing-section" markdown>
+  <div class="section-inner" markdown>
     <h2 class="section-title">The Skills</h2>
     <div class="skill-grid">
       <a href="skills/audit/" class="skill-card">
@@ -73,8 +73,8 @@ hide:
   </div>
 </section>
 
-<section class="landing-section landing-section--cta">
-  <div class="section-inner">
+<section class="landing-section landing-section--cta" markdown>
+  <div class="section-inner" markdown>
     <h2 class="section-title">Install</h2>
 
 ```bash

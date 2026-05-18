@@ -30,12 +30,12 @@ status = "active"
 | `github_user` | string | yes | Your GitHub username; used to construct repo URLs. |
 | `workspace_root` | string | yes | Absolute path to the parent directory containing your sister repos. |
 | `sisters[].name` | string | yes | Directory name under `workspace_root`. |
-| `sisters[].status` | string | yes | `"active"` to include, `"backburner"` to skip without removing. |
+| `sisters[].status` | string | no | Defaults to `"active"`. Set to `"backburner"` to skip without removing. |
 
 ### Status semantics
 
-- **`active`** — included in cross-repo audits, drift checks, sync sweeps.
-- **`backburner`** — skipped but not deleted. Used for repos you want to remember without actively maintaining.
+- **`active`**: included in cross-repo audits, drift checks, sync sweeps.
+- **`backburner`**: skipped but not deleted. Used for repos you want to remember without actively maintaining.
 
 ## Per-skill configuration
 

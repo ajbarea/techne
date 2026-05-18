@@ -18,16 +18,26 @@ Analyzes pending git changes and writes a structured, conventional-commit plan t
 ## Output shape
 
 ```markdown
-## Commit 1 — feat: add language selector to footer
-- app/components/layout/TheFooter.vue
-- app/data/locales.ts
+feat(auth): add JWT refresh token rotation
 
-## Commit 2 — chore: bump axe-core/playwright to 4.12
-- package.json
-- package-lock.json
+- Added rotating refresh tokens with 7-day expiry
+- Wired new endpoint into the auth router
+- Covered rotation edge cases in tests
+
+Files: src/auth/tokens.py, src/auth/routes.py, tests/auth/test_tokens.py
+
+---
+
+fix(parser): handle trailing whitespace in CSV headers
+
+- Stripped whitespace before column-name comparison
+- Added regression test for the original bug
+
+Files: src/parser/csv.py, tests/parser/test_csv.py
 ```
 
 ## Notes
 
 - `COMMITS.md` is local-only by convention; don't `git add` it.
-- The skill doesn't run `git commit` itself — you stage and commit in batches.
+- The skill doesn't run `git commit` itself. You stage and commit in batches.
+- Say `go` after reviewing the plan and the skill will execute the full branch → commits → push → PR chain.

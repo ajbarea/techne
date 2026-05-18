@@ -1,6 +1,6 @@
 # techne
 
-Nine Claude Code skills that audit builds, tame CI noise, hunt doc/code drift, and keep sister repos in lockstep — installable as a single `/plugin`.
+Nine Claude Code skills that audit builds, tame CI noise, hunt doc/code drift, and keep sister repos in lockstep, installable as a single `/plugin`.
 
 ```bash
 /plugin marketplace add ajbarea/techne
@@ -13,9 +13,9 @@ Nine Claude Code skills that audit builds, tame CI noise, hunt doc/code drift, a
 | --- | --- |
 | `techne:audit` | Runs the repo's `make` targets in dependency order and reconciles terminal output against `logs/dev-*.log` archives. |
 | `techne:auto-commit` | Groups working-tree changes into a structured `COMMITS.md` plan for staged review before anything lands. |
-| `techne:ci-audit` | Audits GitHub Actions runs on the current branch/PR — surfaces warnings, failures, and noise; fixes what's fixable in-repo. |
+| `techne:ci-audit` | Audits GitHub Actions runs on the current branch/PR: surfaces warnings, failures, and noise; fixes what's fixable in-repo. |
 | `techne:deslop` | Scans comments and docstrings for AI-generated slop and proposes tightened rewrites. |
-| `techne:docs-site` | Maintains the Zensical-powered docs site — config, deploy pipeline, theming, link integrity. |
+| `techne:docs-site` | Maintains the Zensical-powered docs site: config, deploy pipeline, theming, link integrity. |
 | `techne:docsync` | Verifies documentation claims (CLI commands, paths, config keys, signatures) against the actual code. |
 | `techne:reslop` | Rewrites docstrings grounded in the implementation rather than deleting them outright. |
 | `techne:sisters` | Cross-repo drift audit across the sister repos listed in `~/.claude/techne.toml`. |
@@ -34,7 +34,7 @@ Skills become available as `techne:<name>` and can be invoked the same way as an
 
 ## Configuration
 
-`techne:sisters` reads `~/.claude/techne.toml` at runtime — user-controlled config that lists the active sister repos to compare against.
+`techne:sisters` reads `~/.claude/techne.toml` at runtime (user-controlled config that lists the active sister repos to compare against).
 
 ```toml
 github_user   = "ajbarea"
@@ -73,11 +73,11 @@ techne (plugin)
 └── theoros       ── observed tmux REPL session
 ```
 
-Each skill is self-contained — invoke one without pulling in the others. They share a convention of writing intermediate artifacts (plans, audit reports) to disk for human review before mutating the repo.
+Each skill is self-contained. Invoke one without pulling in the others. They share a convention of writing intermediate artifacts (plans, audit reports) to disk for human review before mutating the repo.
 
 ## Why "techne"
 
-Greek τέχνη — craft, the practical knowledge of how to make a thing well. Sister project to [kourai-khryseai](https://github.com/ajbarea/kourai-khryseai), where Techne is the coder agent.
+Greek τέχνη: craft, the practical knowledge of how to make a thing well. Sister project to [kourai-khryseai](https://github.com/ajbarea/kourai-khryseai), where Techne is the coder agent.
 
 ## License
 

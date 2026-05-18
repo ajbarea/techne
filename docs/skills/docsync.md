@@ -10,12 +10,12 @@ Verifies documentation claims (CLI commands, file paths, config keys, function s
 
 ## What it checks
 
-- **CLI commands** — does `make foo` still exist?
-- **File paths** — does the doc claim a file lives where it actually does?
-- **Config keys** — `zensical.toml`, `pyproject.toml`, `*.yaml` keys referenced in docs.
-- **Function signatures** — Python/TS function references in docs vs actual definitions.
-- **Version numbers** — pinned versions, badges, "requires X+" claims.
-- **Environment variables** — `.env` keys referenced in docs.
+- **CLI commands**: does `make foo` still exist?
+- **File paths**: does the doc claim a file lives where it actually does?
+- **Config keys**: `zensical.toml`, `pyproject.toml`, `*.yaml` keys referenced in docs.
+- **Function signatures**: Python/TS function references in docs vs actual definitions.
+- **Version numbers**: pinned versions, badges, "requires X+" claims.
+- **Environment variables**: `.env` keys referenced in docs.
 
 ## What it produces
 
