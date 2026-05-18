@@ -9,7 +9,7 @@
 
 .landing-section--intro,
 .landing-section--cta {
-  background: color-mix(in srgb, var(--bronze-metallic) 4%, transparent);
+  background: var(--surface-bg-soft);
   border-radius: 1rem;
   margin: 1.5rem 0;
   padding: 3.5rem 0;
@@ -37,7 +37,7 @@
 .section-lead {
   font-size: 1.05rem;
   line-height: 1.65;
-  color: color-mix(in srgb, var(--bronze-light) 85%, white);
+  color: var(--muted-text-color);
   max-width: 52rem;
 }
 
@@ -72,7 +72,7 @@
   font-family: var(--md-code-font, "JetBrains Mono"), monospace;
   font-size: 1rem;
   font-weight: 700;
-  color: var(--bronze-light);
+  color: var(--link-color);
   margin-bottom: 0.5rem;
 }
 
@@ -81,7 +81,7 @@
   margin: 0;
   font-size: 0.92rem;
   line-height: 1.55;
-  color: color-mix(in srgb, var(--bronze-light) 70%, white);
+  color: var(--card-text-color);
 }
 
 /* Responsive adjustments */

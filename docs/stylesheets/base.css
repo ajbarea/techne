@@ -5,6 +5,7 @@
 /* Ensure consistent typography across the site */
 body {
   font-family: var(--md-text-font, "Inter"), sans-serif;
+  color: var(--body-text-color);
 }
 
 code,
@@ -14,21 +15,21 @@ pre {
 
 /* Ensure links use bronze color */
 a {
-  color: var(--bronze-light);
+  color: var(--link-color);
   text-decoration: none;
   transition: color 0.2s ease;
 }
 
 a:hover {
-  color: var(--bronze-mid);
+  color: var(--link-hover-color);
 }
 
 /* Improve readability of code blocks */
 .md-typeset code {
-  background-color: color-mix(in srgb, var(--bronze-metallic) 8%, transparent);
+  background-color: var(--inline-code-bg);
   border-radius: 0.25rem;
   padding: 0.1rem 0.35rem;
-  color: var(--bronze-light);
+  color: var(--inline-code-color);
 }
 
 /* Smooth transitions across the site */

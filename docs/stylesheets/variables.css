@@ -24,25 +24,69 @@
   --night-lighter: #131a26;
   --night-lightest: #1a2230;
 
+  /* Assets */
+  --hero-bg-image: url("../assets/hero.png");
+
+  /* Surface, text, and component tokens */
+  --surface-bg: var(--night);
+  --surface-bg-elevated: var(--night-lighter);
+  --surface-bg-soft: color-mix(in srgb, var(--bronze-metallic) 4%, transparent);
+  --body-text-color: color-mix(in srgb, var(--bronze-light) 86%, white);
+  --muted-text-color: color-mix(in srgb, var(--bronze-light) 74%, white);
+  --hero-subtitle-color: color-mix(in srgb, var(--bronze-light) 80%, white);
+  --card-text-color: color-mix(in srgb, var(--bronze-light) 70%, white);
+  --inline-code-bg: color-mix(in srgb, var(--bronze-metallic) 8%, transparent);
+  --inline-code-color: var(--bronze-light);
+  --link-color: var(--bronze-light);
+  --link-hover-color: var(--bronze-mid);
+  --hero-overlay-color: var(--night);
+  --primary-button-fg: var(--obsidian);
+
   /* Glass Effects */
   --glass-bg: color-mix(in srgb, #fff 3%, transparent);
   --glass-border: color-mix(in srgb, var(--bronze-metallic) 22%, transparent);
 
-  /* Assets */
-  --hero-bg-image: url("../assets/hero.png");
-
   /* Zensical Material Theme Overrides */
   --md-primary-fg-color: var(--bronze-light);
   --md-accent-fg-color: var(--bronze-light);
+  --md-typeset-a-color: var(--link-color);
 }
 
 [data-md-color-scheme="slate"] {
-  --md-default-bg-color: var(--night);
-  --md-default-bg-color--light: var(--night-lighter);
+  --md-default-bg-color: var(--surface-bg);
+  --md-default-bg-color--light: var(--surface-bg-elevated);
   --md-default-bg-color--lighter: var(--night-lightest);
   --md-primary-fg-color: var(--bronze-light);
   --md-accent-fg-color: var(--bronze-light);
-  --md-typeset-a-color: var(--bronze-light);
+  --md-typeset-a-color: var(--link-color);
+}
+
+[data-md-color-scheme="default"] {
+  --md-default-bg-color: #f7f3ed;
+  --md-default-bg-color--light: #fbf8f4;
+  --md-default-bg-color--lighter: #ffffff;
+  --md-default-fg-color: #2f2618;
+  --md-default-fg-color--light: #4a3b28;
+  --md-default-fg-color--lighter: #73614c;
+  --md-primary-fg-color: #8b5a2b;
+  --md-accent-fg-color: #a76f38;
+
+  --surface-bg: #f7f3ed;
+  --surface-bg-elevated: #fdf9f2;
+  --surface-bg-soft: color-mix(in srgb, var(--bronze-metallic) 10%, #fff);
+  --body-text-color: #2f2618;
+  --muted-text-color: #4f3f2a;
+  --hero-subtitle-color: #4b3a27;
+  --card-text-color: #4a3a27;
+  --inline-code-bg: color-mix(in srgb, var(--bronze-metallic) 20%, #fff);
+  --inline-code-color: #5c3d1c;
+  --link-color: #8b5a2b;
+  --link-hover-color: #5c3d1c;
+  --glass-bg: color-mix(in srgb, #fff 86%, var(--bronze-metallic) 14%);
+  --glass-border: color-mix(in srgb, var(--bronze-dark) 28%, transparent);
+  --hero-overlay-color: color-mix(in srgb, #2b2116 82%, transparent);
+  --primary-button-fg: #2b2012;
+  --md-typeset-a-color: var(--link-color);
 }
 
 /* Color Swatches (for design documentation) */
