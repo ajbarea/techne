@@ -34,39 +34,39 @@ hide:
     <h2 class="section-title">The Skills</h2>
     <div class="skill-grid">
       <a href="skills/audit/" class="skill-card">
-        <div class="skill-name"><code>techne:audit</code></div>
+        <div class="skill-name"><code>/audit</code></div>
         <p>Runs your repo's <code>make</code> targets in dependency order and reconciles terminal output against <code>logs/dev-*.log</code> archives.</p>
       </a>
       <a href="skills/auto-commit/" class="skill-card">
-        <div class="skill-name"><code>techne:auto-commit</code></div>
+        <div class="skill-name"><code>/auto-commit</code></div>
         <p>Groups working-tree changes into a structured <code>COMMITS.md</code> plan for staged review before anything lands.</p>
       </a>
       <a href="skills/ci-audit/" class="skill-card">
-        <div class="skill-name"><code>techne:ci-audit</code></div>
+        <div class="skill-name"><code>/ci-audit</code></div>
         <p>Audits GitHub Actions runs on the current branch/PR for warnings, failures, and noise. Fixes what's fixable in-repo.</p>
       </a>
       <a href="skills/deslop/" class="skill-card">
-        <div class="skill-name"><code>techne:deslop</code></div>
+        <div class="skill-name"><code>/deslop</code></div>
         <p>Scans comments and docstrings for AI-generated slop and proposes tightened rewrites.</p>
       </a>
       <a href="skills/docs-site/" class="skill-card">
-        <div class="skill-name"><code>techne:docs-site</code></div>
+        <div class="skill-name"><code>/docs-site</code></div>
         <p>Maintains the Zensical-powered docs site: config, deploy pipeline, theming, link integrity.</p>
       </a>
       <a href="skills/docsync/" class="skill-card">
-        <div class="skill-name"><code>techne:docsync</code></div>
+        <div class="skill-name"><code>/docsync</code></div>
         <p>Verifies documentation claims (CLI commands, paths, config keys, signatures) against the actual code.</p>
       </a>
       <a href="skills/reslop/" class="skill-card">
-        <div class="skill-name"><code>techne:reslop</code></div>
+        <div class="skill-name"><code>/reslop</code></div>
         <p>Rewrites docstrings grounded in the implementation rather than deleting them outright.</p>
       </a>
       <a href="skills/sisters/" class="skill-card">
-        <div class="skill-name"><code>techne:sisters</code></div>
+        <div class="skill-name"><code>/sisters</code></div>
         <p>Cross-repo drift audit across the sister repos listed in <code>~/.claude/techne.toml</code>.</p>
       </a>
       <a href="skills/theoros/" class="skill-card">
-        <div class="skill-name"><code>techne:theoros</code></div>
+        <div class="skill-name"><code>/theoros</code></div>
         <p>Starts an observed live dev session: Claude drives the REPL in a named tmux session; you spectate read-only via <code>tmux attach -r</code>.</p>
       </a>
     </div>
@@ -83,7 +83,7 @@ hide:
 /plugin install techne@techne
 ```
 
-Skills become available as `techne:<name>` and invoke the same way as any other Claude Code skill.
+Install once, invoke with `/skill-name`. Just like any other Claude Code skill.
 {: .section-lead }
 
 [:octicons-rocket-24: Get Started](getting-started.md){ .md-button .md-button--primary }

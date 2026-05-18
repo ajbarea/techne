@@ -30,7 +30,7 @@ status = "active"
 2. **Run the audit**:
 
 ```bash
-techne:sisters
+/sisters
 ```
 
 Expected output: A drift report showing which repos have stale Python versions, pinned action SHAs, or branch hygiene issues.
@@ -46,7 +46,7 @@ Update `phalanx-fl/pyproject.toml`:
 4. **Verify** — Run sisters again to confirm alignment:
 
 ```bash
-techne:sisters --report-only
+/sisters --report-only
 ```
 
 ---
@@ -60,13 +60,13 @@ techne:sisters --report-only
 1. **Audit doc/code drift**:
 
 ```bash
-techne:docsync
+/docsync
 ```
 
 Expected output: A drift report grouped by file.
 
 Example issues:
-- `docs/getting-started.md:42` — CLI command `techne:audit --verbose` doesn't exist
+- `docs/getting-started.md:42` — CLI command `/audit --verbose` doesn't exist
 - `README.md:5` — Function signature `fetch_user(user_id)` is now `fetch_user(user_id: int) -> Optional[User]`
 - `docs/configuration.md:10` — Config key `site_author` → should be `author`
 
@@ -81,13 +81,13 @@ Example issues:
 3. **Audit site mechanics** — Ensure the docs site itself is healthy:
 
 ```bash
-techne:docs-site
+/docs-site
 ```
 
 4. **Rewrite stale docstrings** — If prose is wrong but needs rewrite (not deletion):
 
 ```bash
-techne:reslop --file src/api.py
+/reslop --file src/api.py
 ```
 
 Before:
@@ -111,7 +111,7 @@ def get_users() -> List[User]:
 5. **Clean up slop** — Remove AI-generated verbose comments:
 
 ```bash
-techne:deslop docs/ src/
+/deslop docs/ src/
 ```
 
 6. **Tag & release** — Once docs match code, tag and release.
@@ -137,7 +137,7 @@ You have unstaged changes in many files.
 2. **Draft a commit plan**:
 
 ```bash
-techne:auto-commit
+/auto-commit
 ```
 
 Output: Creates `COMMITS.md` with grouped commits:
@@ -175,7 +175,7 @@ Files: src/auth/utils.py, src/auth/tokens.py, src/auth/refresh.py
 4. **Clean up commits** — Before committing, scan for slop:
 
 ```bash
-techne:deslop src/auth/
+/deslop src/auth/
 ```
 
 Removes verbose comments like:
@@ -196,7 +196,7 @@ def is_valid(token):
 5. **Validate the build locally**:
 
 ```bash
-techne:audit
+/audit
 ```
 
 Ensure lint, test, and any other make targets pass.
@@ -212,7 +212,7 @@ Say "go" to the skill, and it:
 7. **Monitor CI**:
 
 ```bash
-techne:ci-audit
+/ci-audit
 ```
 
 After CI finishes, audit the run for warnings or deprecations. Fix any in-repo issues (e.g., outdated GitHub Actions pins).
@@ -237,7 +237,7 @@ theoros:
 2. **Start the observed session**:
 
 ```bash
-techne:theoros
+/theoros
 ```
 
 Output:
@@ -283,7 +283,7 @@ They see the session in real time as you (Claude) run:
 1. **Audit CI warnings**:
 
 ```bash
-techne:ci-audit
+/ci-audit
 ```
 
 Output: Categorized report:
@@ -315,7 +315,7 @@ git diff .github/workflows/
 4. **Commit and push**:
 
 ```bash
-techne:auto-commit
+/auto-commit
 # Review COMMITS.md
 # Say "go" to auto-commit
 ```
@@ -336,13 +336,13 @@ techne:auto-commit
 
 ```bash
 # In phalanx-fl
-techne:docsync docs/api.md
+/docsync docs/api.md
 
 # In vFL
-techne:docsync docs/api.md
+/docsync docs/api.md
 
 # In kourai-khryseai
-techne:docsync docs/api.md
+/docsync docs/api.md
 ```
 
 Each produces a drift report for its repo.
@@ -361,7 +361,7 @@ grep -A 20 "def.*metrics" kourai-khryseai/src/api.py
 4. **Verify with sisters** (optional):
 
 ```bash
-techne:sisters
+/sisters
 ```
 
 To ensure all three repos are at matching toolchain versions (dependencies that might affect API behavior).
