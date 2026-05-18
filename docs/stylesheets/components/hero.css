@@ -2,7 +2,6 @@
    Techne Hero Section — Full-Viewport Landing
    ===================================================================== */
 
-/* Hide footer and nav on hero page */
 body.hero-page .md-footer {
   display: none !important;
 }
@@ -18,108 +17,170 @@ body.hero-page .md-content__inner {
   margin-top: 0 !important;
 }
 
-/* Hero Container */
+.md-typeset .hero,
 .hero {
   position: relative;
-  min-height: 68vh;
+  height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
-  justify-content: center;
   align-items: center;
+  justify-content: flex-end;
   text-align: center;
-  padding: clamp(4rem, 8vw, 6rem) 1.5rem clamp(3rem, 6vw, 4rem);
   background:
     radial-gradient(
       ellipse at center,
-      transparent 0%,
-      color-mix(in srgb, var(--hero-overlay-color) 95%, transparent) 82%
+      transparent 20%,
+      color-mix(in srgb, var(--obsidian) 20%, transparent) 60%,
+      color-mix(in srgb, var(--obsidian) 60%, transparent) 100%
     ),
     linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--hero-overlay-color) 16%, transparent) 0%,
-      color-mix(in srgb, var(--hero-overlay-color) 90%, transparent) 100%
+      to bottom,
+      color-mix(in srgb, var(--obsidian) 40%, transparent) 0%,
+      color-mix(in srgb, var(--obsidian) 10%, transparent) 40%,
+      color-mix(in srgb, var(--obsidian) 80%, transparent) 80%,
+      var(--obsidian) 100%
     ),
-    var(--hero-bg-image) center 1.75rem / contain no-repeat,
-    var(--surface-bg);
-  border-radius: 1rem;
-  margin-bottom: 3rem;
+    var(--hero-bg-image) center 48px / contain no-repeat;
+  color: var(--bronze-light);
+  margin: -1.2rem -0.8rem 0;
+  padding: 1rem 2rem 5rem;
   overflow: hidden;
 }
 
-.hero::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(180deg, transparent 60%, var(--surface-bg) 100%);
-  pointer-events: none;
-}
-
-/* Hero Title */
+.md-typeset .hero h1,
 .hero h1 {
-  position: relative;
-  font-size: clamp(2.5rem, 6vw, 4.5rem);
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  background: var(--bronze-gradient);
-  background-clip: text;
-  -webkit-background-clip: text;
-  color: transparent;
-  margin: 0 0 1rem;
-  z-index: 1;
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  font-weight: 900;
+  margin-top: 0;
+  padding-top: 0;
+  margin-bottom: 0.3rem;
+  letter-spacing: -0.04em;
+  background: var(--bronze-gradient) !important;
+  background-clip: text !important;
+  -webkit-background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  color: transparent !important;
+  filter:
+    drop-shadow(0 0 1px color-mix(in srgb, #000 90%, transparent))
+    drop-shadow(0 0 3px color-mix(in srgb, #000 70%, transparent))
+    drop-shadow(0 2px 8px color-mix(in srgb, var(--bronze-metallic) 40%, transparent));
 }
 
-/* Hero Subtitle */
 .hero-subtitle {
-  position: relative;
-  font-size: clamp(1rem, 2vw, 1.25rem);
+  font-size: clamp(0.85rem, 1.5vw, 1.1rem);
+  font-weight: 300;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
   color: var(--hero-subtitle-color);
-  max-width: 42rem;
-  margin: 0 0 2rem;
-  z-index: 1;
+  opacity: 0.9;
+  margin-bottom: 1rem;
+  text-shadow:
+    0 0 4px color-mix(in srgb, #000 90%, transparent),
+    0 0 8px color-mix(in srgb, #000 60%, transparent);
+  max-width: 700px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
-/* Hero Buttons */
 .hero-buttons {
-  position: relative;
+  margin-top: 0.5rem;
   display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
   justify-content: center;
-  align-items: center;
-  z-index: 1;
 }
 
 .hero-buttons > p {
   display: flex;
-  flex-wrap: wrap;
   justify-content: center;
   align-items: center;
-  gap: 1rem;
+  flex-wrap: wrap;
+  column-gap: 0.85rem;
+  row-gap: 0.85rem;
   margin: 0;
 }
 
 .hero-buttons .md-button {
+  min-width: 200px;
+  padding: 0.7rem 1.8rem !important;
+  font-size: 0.85rem !important;
+  text-align: center;
+  margin: 0 !important;
+  border-radius: 3rem !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.1em !important;
+  box-shadow: none !important;
   border-color: var(--glass-border);
-  transition: all 0.2s ease;
 }
 
-.hero-buttons .md-button:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px color-mix(in srgb, var(--bronze-metallic) 30%, transparent);
+.hero .md-button:not(.md-button--primary) {
+  color: var(--bronze-light) !important;
 }
 
-.hero-buttons .md-button--primary {
-  background: var(--bronze-gradient);
-  border-color: transparent;
-  color: var(--primary-button-fg);
-  font-weight: 700;
-}
-
-.hero-buttons .md-button--primary:hover {
-  background: var(--bronze-gradient);
-  filter: brightness(1.1);
+.hero .md-button--primary {
+  background: var(--bronze-gradient) !important;
+  border-color: transparent !important;
+  color: var(--primary-button-fg) !important;
 }
 
 .hero-buttons--cta {
   margin-top: 1.25rem;
+}
+
+@media (max-width: 768px) {
+  .md-typeset .hero,
+  .hero {
+    background:
+      radial-gradient(
+        ellipse at center,
+        transparent 15%,
+        color-mix(in srgb, var(--obsidian) 25%, transparent) 55%,
+        color-mix(in srgb, var(--obsidian) 70%, transparent) 100%
+      ),
+      linear-gradient(
+        to bottom,
+        color-mix(in srgb, var(--obsidian) 50%, transparent) 0%,
+        color-mix(in srgb, var(--obsidian) 15%, transparent) 25%,
+        color-mix(in srgb, var(--obsidian) 60%, transparent) 60%,
+        color-mix(in srgb, var(--obsidian) 90%, transparent) 80%,
+        var(--obsidian) 95%
+      ),
+      var(--hero-bg-image) center 48px / contain no-repeat;
+    padding: 1rem 1.2rem 2rem;
+    height: 100vh;
+    height: 100dvh;
+  }
+
+  .md-typeset .hero h1,
+  .hero h1 {
+    font-size: clamp(1.6rem, 8vw, 2.4rem);
+    margin-bottom: 0.2rem;
+  }
+
+  .hero-subtitle {
+    font-size: clamp(0.65rem, 2.5vw, 0.85rem);
+    margin-bottom: 0.6rem;
+    padding: 0 0.5rem;
+  }
+
+  .hero-buttons {
+    width: 100%;
+    align-items: center;
+  }
+
+  .hero-buttons > p {
+    flex-direction: column;
+    row-gap: 0.5rem;
+    column-gap: 0;
+    width: 100%;
+    align-items: center;
+  }
+
+  .hero-buttons .md-button {
+    min-width: 0;
+    width: 70%;
+    max-width: 260px;
+    padding: 0.6rem 1.2rem !important;
+    font-size: 0.78rem !important;
+  }
 }
