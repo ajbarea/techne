@@ -22,15 +22,15 @@ hide:
 
 </div>
 
-<section class="landing-section landing-section--intro" markdown>
-  <div class="section-inner" markdown>
+<section class="landing-section landing-section--intro">
+  <div class="section-inner">
     <h2 class="section-title">What is techne?</h2>
     <p class="section-lead">A Claude Code plugin shipping nine skills that audit builds, tame CI noise, hunt doc/code drift, and keep sister repos in lockstep. Built for AJ's own multi-repo workflow; usable by anyone who lives in <code>~/.claude/</code>.</p>
   </div>
 </section>
 
-<section class="landing-section" markdown>
-  <div class="section-inner" markdown>
+<section class="landing-section">
+  <div class="section-inner">
     <h2 class="section-title">The Skills</h2>
     <div class="skill-grid">
       <a href="skills/audit/" class="skill-card">
@@ -84,7 +84,7 @@ hide:
 
   <p class="section-lead">Skills become available as <code>techne:&lt;name&gt;</code> and invoke the same way as any other Claude Code skill.</p>
 
-  <div class="hero-buttons" markdown>
+  <div class="hero-buttons">
 
 [:octicons-rocket-24: Get Started](getting-started.md){ .md-button .md-button--primary }
 [:octicons-gear-24: Configuration](configuration.md){ .md-button }
