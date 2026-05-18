@@ -13,7 +13,7 @@ Runs your repo's `make` targets in dependency order and reconciles terminal outp
 - Walks the repo's `Makefile` dependency graph (`setup` → `lint` → `test` → end-to-end).
 - Runs each target and captures terminal output.
 - Diffs the live terminal output against the most recent `logs/dev-*-<target>.log` archive.
-- Surfaces any drift — silent failures, missing log lines, or commands that fall through dependencies.
+- Surfaces any drift: silent failures, missing log lines, or commands that fall through dependencies.
 
 Two modes:
 

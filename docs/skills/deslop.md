@@ -1,6 +1,6 @@
 # `techne:deslop`
 
-Scans the codebase for AI-generated slop in comments and docstrings — temporal markers, self-referential AI framing, narrative WHAT-comments, marketing padding — and proposes tightened rewrites.
+Scans the codebase for AI-generated slop in comments and docstrings (temporal markers, self-referential AI framing, narrative WHAT-comments, marketing padding) and proposes tightened rewrites.
 
 ## When to use
 
@@ -10,10 +10,10 @@ Scans the codebase for AI-generated slop in comments and docstrings — temporal
 
 ## What it targets
 
-- **Temporal markers** — "as of 2025", "currently", "now we"
-- **Self-referential AI framing** — "this function helps you", "let me explain"
-- **Narrative WHAT-comments** — comments that restate what the code clearly does
-- **Marketing padding** — "robust", "elegant", "powerful", "seamless"
+- **Temporal markers**: "as of 2025", "currently", "now we"
+- **Self-referential AI framing**: "this function helps you", "let me explain"
+- **Narrative WHAT-comments**: comments that restate what the code clearly does
+- **Marketing padding**: "robust", "elegant", "powerful", "seamless"
 
 ## What it produces
 
@@ -21,7 +21,7 @@ A diff or report of proposed rewrites. The skill doesn't auto-commit; you review
 
 ## Sibling
 
-[`techne:reslop`](reslop.md) goes further — it rewrites docstrings grounded in the actual implementation instead of just trimming them.
+[`techne:reslop`](reslop.md) goes further: it rewrites docstrings grounded in the actual implementation instead of just trimming them.
 
 ## Reads
 
