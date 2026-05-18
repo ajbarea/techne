@@ -73,22 +73,21 @@ hide:
   </div>
 </section>
 
-<section class="landing-section landing-section--cta" markdown>
+<section class="landing-section landing-section--cta">
   <div class="section-inner" markdown>
-    <h2 class="section-title">Install</h2>
+
+## Install
 
 ```bash
 /plugin marketplace add ajbarea/techne
 /plugin install techne@techne
 ```
 
-  <p class="section-lead">Skills become available as <code>techne:&lt;name&gt;</code> and invoke the same way as any other Claude Code skill.</p>
-
-  <div class="hero-buttons" markdown>
+Skills become available as `techne:<name>` and invoke the same way as any other Claude Code skill.
+{: .section-lead }
 
 [:octicons-rocket-24: Get Started](getting-started.md){ .md-button .md-button--primary }
 [:octicons-gear-24: Configuration](configuration.md){ .md-button }
 
-  </div>
   </div>
 </section>
