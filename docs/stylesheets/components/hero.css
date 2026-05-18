@@ -21,20 +21,26 @@ body.hero-page .md-content__inner {
 /* Hero Container */
 .hero {
   position: relative;
-  min-height: 60vh;
+  min-height: 68vh;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
   text-align: center;
-  padding: 6rem 1.5rem 4rem;
-  background: radial-gradient(
+  padding: clamp(4rem, 8vw, 6rem) 1.5rem clamp(3rem, 6vw, 4rem);
+  background:
+    radial-gradient(
       ellipse at center,
       transparent 0%,
-      var(--night) 75%
+      color-mix(in srgb, var(--hero-overlay-color) 95%, transparent) 82%
     ),
-    var(--hero-bg-image) center / cover no-repeat,
-    var(--night);
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--hero-overlay-color) 16%, transparent) 0%,
+      color-mix(in srgb, var(--hero-overlay-color) 90%, transparent) 100%
+    ),
+    var(--hero-bg-image) center 1.75rem / contain no-repeat,
+    var(--surface-bg);
   border-radius: 1rem;
   margin-bottom: 3rem;
   overflow: hidden;
@@ -44,7 +50,7 @@ body.hero-page .md-content__inner {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, transparent 60%, var(--night) 100%);
+  background: linear-gradient(180deg, transparent 60%, var(--surface-bg) 100%);
   pointer-events: none;
 }
 
@@ -66,7 +72,7 @@ body.hero-page .md-content__inner {
 .hero-subtitle {
   position: relative;
   font-size: clamp(1rem, 2vw, 1.25rem);
-  color: color-mix(in srgb, var(--bronze-light) 80%, white);
+  color: var(--hero-subtitle-color);
   max-width: 42rem;
   margin: 0 0 2rem;
   z-index: 1;
@@ -79,7 +85,17 @@ body.hero-page .md-content__inner {
   flex-wrap: wrap;
   gap: 1rem;
   justify-content: center;
+  align-items: center;
   z-index: 1;
+}
+
+.hero-buttons > p {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 1rem;
+  margin: 0;
 }
 
 .hero-buttons .md-button {
@@ -95,11 +111,15 @@ body.hero-page .md-content__inner {
 .hero-buttons .md-button--primary {
   background: var(--bronze-gradient);
   border-color: transparent;
-  color: var(--obsidian);
+  color: var(--primary-button-fg);
   font-weight: 700;
 }
 
 .hero-buttons .md-button--primary:hover {
   background: var(--bronze-gradient);
   filter: brightness(1.1);
+}
+
+.hero-buttons--cta {
+  margin-top: 1.25rem;
 }
