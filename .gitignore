@@ -6,6 +6,16 @@
 # Python (CI scripts may cache)
 __pycache__/
 *.pyc
+*.egg-info/
+
+# uv-managed environment
+.venv/
+
+# Zensical build output (rebuilt by .github/workflows/docs.yml on push)
+site/
+
+# Generic caches
+.cache/
 
 # AJ working-doc convention: COMMITS.md is always local
 COMMITS.md
