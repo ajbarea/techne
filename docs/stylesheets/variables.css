@@ -25,7 +25,7 @@
   --night-lightest: #1a2230;
 
   /* Assets */
-  --hero-bg-image: url("../assets/hero.png");
+  --hero-bg-image: url("../../assets/hero.png");
 
   /* Surface, text, and component tokens */
   --surface-bg: var(--night);
