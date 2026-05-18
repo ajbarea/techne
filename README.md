@@ -1,6 +1,6 @@
 # techne
 
-Eight Claude Code skills that audit builds, tame CI noise, hunt doc/code drift, and keep sister repos in lockstep — installable as a single `/plugin`.
+Nine Claude Code skills that audit builds, tame CI noise, hunt doc/code drift, and keep sister repos in lockstep — installable as a single `/plugin`.
 
 ```bash
 /plugin marketplace add ajbarea/techne
@@ -19,6 +19,7 @@ Eight Claude Code skills that audit builds, tame CI noise, hunt doc/code drift, 
 | `techne:docsync` | Verifies documentation claims (CLI commands, paths, config keys, signatures) against the actual code. |
 | `techne:reslop` | Rewrites docstrings grounded in the implementation rather than deleting them outright. |
 | `techne:sisters` | Cross-repo drift audit across the sister repos listed in `~/.claude/techne.toml`. |
+| `techne:theoros` | Starts an observed live dev session: Claude drives the REPL in a named `tmux` session; you spectate read-only via `tmux attach -r`. |
 
 ## Install
 
@@ -68,7 +69,8 @@ techne (plugin)
 ├── docs-site     ── manages Zensical site + deploy
 ├── docsync       ── doc claims ↔ implementation
 ├── reslop        ── rewrites docstrings from code
-└── sisters       ── cross-repo drift across sisters
+├── sisters       ── cross-repo drift across sisters
+└── theoros       ── observed tmux REPL session
 ```
 
 Each skill is self-contained — invoke one without pulling in the others. They share a convention of writing intermediate artifacts (plans, audit reports) to disk for human review before mutating the repo.
