@@ -47,10 +47,12 @@ per-step:
 ==============================================================================
 ```
 
-Techne ships `scripts/dev-runner.sh` as a reference implementation. Copy it into your repo:
+Techne ships `scripts/dev-runner.sh` as a reference implementation. Pull it into your repo:
 
 ```bash
-cp <path-to-techne>/scripts/dev-runner.sh scripts/
+mkdir -p scripts
+curl -fsSL https://raw.githubusercontent.com/ajbarea/techne/main/scripts/dev-runner.sh \
+  -o scripts/dev-runner.sh
 chmod +x scripts/dev-runner.sh
 ```
 
@@ -117,8 +119,8 @@ session_name: <your-repo-slug>-theoros
 
 Each `##` section maps to one skill family. Adopt only the sections for the skills you intend to use; absent sections trigger a "skill needs scaffolding" message instead of a silent failure.
 
-**Required for:** `techne:audit`, `techne:sisters`, `techne:theoros`.
-**Recommended for:** `techne:deslop`, `techne:reslop`, `techne:docsync`, `techne:docs-site`, `techne:ci-audit`.
+**Required for:** `techne:audit`, `techne:theoros`.
+**Recommended for:** `techne:sisters` (used for cross-repo skill-context parity checks), `techne:deslop`, `techne:reslop`, `techne:docsync`, `techne:docs-site`, `techne:ci-audit`.
 
 ## `~/.claude/techne.toml` (user-level sister config)
 
@@ -141,10 +143,12 @@ The file is intentionally local-only and is rewritten on every run.
 
 ## The docs-site workflow
 
-`techne:docs-site` manages a Zensical-built GitHub Pages workflow. Techne ships a reference workflow at `.github-template/workflows/docs.yml`. Copy it into your repo:
+`techne:docs-site` manages a Zensical-built GitHub Pages workflow. Techne ships a reference workflow at `.github-template/workflows/docs.yml`. Pull it into your repo:
 
 ```bash
-cp <path-to-techne>/.github-template/workflows/docs.yml .github/workflows/
+mkdir -p .github/workflows
+curl -fsSL https://raw.githubusercontent.com/ajbarea/techne/main/.github-template/workflows/docs.yml \
+  -o .github/workflows/docs.yml
 ```
 
 Then enable Pages in your GitHub repo settings (Settings -> Pages -> Source: GitHub Actions). The workflow runs on every push to `main` and on manual dispatch.
