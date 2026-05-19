@@ -17,6 +17,20 @@ if [[ $# -lt 1 ]]; then
   exit 64
 fi
 
+# Portable nanosecond timestamp. Falls back gracefully:
+#   - python3 (works on macOS + Linux + WSL)
+#   - GNU date +%s%N (Linux)
+#   - Second precision via date +%s padded to ns (universal fallback)
+get_ns() {
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import time; print(time.time_ns())'
+  elif date +%s%N 2>/dev/null | grep -qE '^[0-9]+$'; then
+    date +%s%N
+  else
+    printf '%s000000000\n' "$(date +%s)"
+  fi
+}
+
 TARGET="$1"
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 LOG_DIR="logs"
@@ -28,7 +42,7 @@ mkdir -p "$LOG_DIR"
 # Truncate the stable-name pointer before each run; archives are append-only.
 : > "$LATEST"
 
-START_NS="$(date +%s%N)"
+START_NS="$(get_ns)"
 
 # Run the make target. Tee stdout+stderr to the archive and the stable pointer
 # concurrently so the user sees live output while archives accumulate.
@@ -37,7 +51,7 @@ make "$TARGET" 2>&1 | tee -a "$ARCHIVE" "$LATEST"
 RC=${PIPESTATUS[0]}
 set -e
 
-END_NS="$(date +%s%N)"
+END_NS="$(get_ns)"
 ELAPSED_SEC="$(awk -v s="$START_NS" -v e="$END_NS" 'BEGIN { printf "%.2f", (e - s) / 1e9 }')"
 
 STATUS="PASS"
