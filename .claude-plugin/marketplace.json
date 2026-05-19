@@ -1,7 +1,7 @@
 {
   "name": "techne",
   "version": "1.0.0",
-  "description": "AJ's personal Claude Code skill collection.",
+  "description": "An opinionated Claude Code skill collection for repo hygiene, audits, and doc/code drift.",
   "owner": {
     "name": "AJ",
     "email": "ajbareaa@gmail.com"
