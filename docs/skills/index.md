@@ -1,6 +1,6 @@
 # Skills
 
-Nine skills, grouped by what they do.
+The included skills, grouped by what they do.
 
 ## Build hygiene
 

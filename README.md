@@ -1,6 +1,6 @@
 # techne
 
-Nine Claude Code skills that audit builds, tame CI noise, hunt doc/code drift, and keep sister repos in lockstep, installable as a single `/plugin`.
+Opinionated Claude Code skills for repo hygiene: audit builds, tame CI noise, hunt doc/code drift, keep linked repos in lockstep. Installable as a single `/plugin`.
 
 ```bash
 /plugin marketplace add ajbarea/techne
@@ -32,24 +32,26 @@ Add the marketplace and install the plugin from inside Claude Code:
 
 Skills become available as `techne:<name>` and can be invoked the same way as any other Claude Code skill.
 
+> **First-time setup:** techne is opinionated about a few conventions (Makefile pattern, dev-runner archive, `.claude/skill-context.md`). See [Conventions](docs/conventions.md) for the minimum each skill needs.
+
 ## Configuration
 
 `techne:sisters` reads `~/.claude/techne.toml` at runtime (user-controlled config that lists the active sister repos to compare against).
 
 ```toml
-github_user   = "ajbarea"
-workspace_root = "/home/ajbar/ajsoftworks"
+github_user   = "your-github-username"
+workspace_root = "/path/to/your/workspace"
 
 [[sisters]]
-name   = "phalanx-fl"
+name   = "repo-one"
 status = "active"
 
 [[sisters]]
-name   = "vFL"
+name   = "repo-two"
 status = "active"
 
 [[sisters]]
-name   = "kourai-khryseai"
+name   = "repo-three"
 status = "active"
 ```
 
@@ -77,7 +79,7 @@ Each skill is self-contained. Invoke one without pulling in the others. They sha
 
 ## Why "techne"
 
-Greek τέχνη: craft, the practical knowledge of how to make a thing well. Sister project to [kourai-khryseai](https://github.com/ajbarea/kourai-khryseai), where Techne is the coder agent.
+Greek τέχνη: craft, the practical knowledge of how to make a thing well.
 
 ## License
 

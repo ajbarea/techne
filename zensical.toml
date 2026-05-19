@@ -1,6 +1,6 @@
 [project]
 site_name = "techne"
-site_description = "Nine Claude Code skills. One /plugin install. Sister-repo hygiene, audit pipelines, doc/code drift checks, and CI noise control."
+site_description = "Opinionated Claude Code skills for repo hygiene: audit pipelines, hunt doc/code drift, tame CI noise, sync linked repos. One /plugin install."
 site_author = "AJ Barea"
 site_url = "https://ajbarea.github.io/techne/"
 repo_url = "https://github.com/ajbarea/techne"
@@ -32,6 +32,7 @@ nav = [
   ]},
   { "Architecture" = "architecture.md" },
   { "Examples" = "examples.md" },
+  { "Conventions" = "conventions.md" },
   { "Configuration" = "configuration.md" },
 ]
 

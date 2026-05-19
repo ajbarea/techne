@@ -7,19 +7,19 @@
 ### Schema
 
 ```toml
-github_user = "ajbarea"
-workspace_root = "/home/ajbar/ajsoftworks"
+github_user = "your-github-username"
+workspace_root = "/path/to/your/workspace"
 
 [[sisters]]
-name = "phalanx-fl"
+name = "repo-one"
 status = "active"
 
 [[sisters]]
-name = "vFL"
+name = "repo-two"
 status = "active"
 
 [[sisters]]
-name = "kourai-khryseai"
+name = "repo-three"
 status = "active"
 ```
 

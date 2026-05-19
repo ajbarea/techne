@@ -1,7 +1,7 @@
 [project]
 name = "techne"
 version = "0.1.0"
-description = "AJ's personal Claude Code skill collection, distributed as a plugin."
+description = "An opinionated Claude Code skill collection for repo hygiene, audits, and doc/code drift."
 requires-python = ">=3.12,<3.14"
 dependencies = []
 

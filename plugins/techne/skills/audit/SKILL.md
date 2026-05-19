@@ -1,6 +1,6 @@
 ---
 name: audit
-description: Run the repo's make targets in dependency order (setup → lint → test → end-to-end) and verify each command's terminal output against its `logs/dev-<ts>-<cmd>.log` archive. Supports a full audit and a fast variant. Use whenever the user wants to validate the toolchain is clean, run lint+test locally before pushing, or reconcile terminal output against the dev-runner log archives — phrasings like "run the audit", "is the build clean", "check my toolchain", "am I ready to push", "make sure CI will pass", "verify make targets".
+description: Run the repo's make targets in dependency order (setup → lint → test → end-to-end) and verify each command's terminal output against its `logs/dev-<ts>-<cmd>.log` archive. Supports a full audit and a fast variant. Use whenever the user wants to validate the toolchain is clean, run lint+test locally before pushing, or reconcile terminal output against the dev-runner log archives — phrasings like "run the audit", "is the build clean", "check my toolchain", "am I ready to push", "make sure CI will pass", "verify make targets". Requires the `logs/dev-<ts>-<cmd>.log` archive convention; see `docs/conventions.md`.
 disable-model-invocation: false
 allowed-tools: Bash Glob Read Grep
 ---
@@ -12,7 +12,7 @@ Run the full `make` audit in phases. Each phase builds on the previous; the orde
 ## Repo context
 
 ```!
-cat .claude/skill-context.md 2>/dev/null || echo "(no .claude/skill-context.md — this skill needs one; ask the user to add one with at minimum an `## audit` section listing the toolchain phases, stop-early phase, and log archive location)"
+cat .claude/skill-context.md 2>/dev/null || echo "(no .claude/skill-context.md — abort and direct the user to \`docs/conventions.md\` in the techne docs for the canonical scaffolding template)"
 ```
 
 The injected content above is the source of truth for this repo's toolchain. Read the `## audit` section (and `## repo` for context) and use those phases — do not fall back to hardcoded defaults. Specifically, expect it to supply:

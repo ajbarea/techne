@@ -10,7 +10,7 @@ hide:
 
 # τέχνη · techne
 
-**Nine Claude Code skills. One `/plugin` install. Sister-repo hygiene built in.**
+**Opinionated Claude Code skills for repo hygiene. One `/plugin` install.**
 { .hero-subtitle }
 
 <div class="hero-buttons" markdown>
@@ -25,7 +25,7 @@ hide:
 <section class="landing-section landing-section--intro">
   <div class="section-inner">
     <h2 class="section-title">What is techne?</h2>
-    <p class="section-lead">A Claude Code plugin shipping nine skills that audit builds, tame CI noise, hunt doc/code drift, and keep sister repos in lockstep. Built for AJ's own multi-repo workflow; usable by anyone who lives in <code>~/.claude/</code>.</p>
+    <p class="section-lead">A Claude Code plugin for repo hygiene: audit builds, tame CI noise, hunt doc/code drift, and keep linked repos in lockstep. Opinionated kit; adopt the conventions and the skills work for any developer.</p>
   </div>
 </section>
 
