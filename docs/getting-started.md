@@ -6,9 +6,9 @@ Install techne and run your first skill in minutes.
 
 You'll need:
 
-- **Claude Code** — The IDE plugin (visit the marketplace to install if you haven't already)
-- **GitHub CLI** (`gh`) — Several skills use this to interact with GitHub. Install: [github.com/cli/cli](https://github.com/cli/cli)
-- **A git repository** — All skills work within git repos. Initialize one if needed: `git init`
+- **Claude Code**: The IDE plugin (visit the marketplace to install if you haven't already)
+- **GitHub CLI** (`gh`): Several skills use this to interact with GitHub. Install: [github.com/cli/cli](https://github.com/cli/cli)
+- **A git repository**: All skills work within git repos. Initialize one if needed: `git init`
 
 ## Installation
 
@@ -37,13 +37,13 @@ Choose based on what you're trying to do:
 
 | Want to... | Use | Time |
 |---|---|---|
-| Validate your local build is clean (lint, test, etc.) | [`techne:audit`](skills/audit.md) | 2–5 min |
-| Organize your pending changes into logical commits | [`techne:auto-commit`](skills/auto-commit.md) | 3–10 min |
-| Check GitHub Actions for warnings and failures | [`techne:ci-audit`](skills/ci-audit.md) | 2–5 min |
-| Clean up AI-generated slop in your code | [`techne:deslop`](skills/deslop.md) | 5–15 min |
-| Verify documentation claims match the code | [`techne:docsync`](skills/docsync.md) | 5–10 min |
-| Maintain your Zensical docs site | [`techne:docs-site`](skills/docs-site.md) | 2–5 min |
-| Audit sister repos for consistency | [`techne:sisters`](skills/sisters.md) | 5–10 min |
+| Validate your local build is clean (lint, test, etc.) | [`techne:audit`](skills/audit.md) | 2-5 min |
+| Organize your pending changes into logical commits | [`techne:auto-commit`](skills/auto-commit.md) | 3-10 min |
+| Check GitHub Actions for warnings and failures | [`techne:ci-audit`](skills/ci-audit.md) | 2-5 min |
+| Clean up AI-generated slop in your code | [`techne:deslop`](skills/deslop.md) | 5-15 min |
+| Verify documentation claims match the code | [`techne:docsync`](skills/docsync.md) | 5-10 min |
+| Maintain your Zensical docs site | [`techne:docs-site`](skills/docs-site.md) | 2-5 min |
+| Audit sister repos for consistency | [`techne:sisters`](skills/sisters.md) | 5-10 min |
 
 ### 2. Run Your First Skill
 
@@ -56,11 +56,11 @@ techne:audit
 Expected output:
 
 ```
-Running techne:audit on /home/ajbar/ajsoftworks/my-project
+Running techne:audit on <your-repo>
 
-Target: setup ... ✓ (log matches)
-Target: lint  ... ✓ (log matches)
-Target: test  ... ✓ (log matches)
+Target: setup ... OK (log matches)
+Target: lint  ... OK (log matches)
+Target: test  ... OK (log matches)
 
 All targets passed. Your build is clean.
 ```
@@ -125,19 +125,19 @@ See [Configuration](configuration.md) for all options.
 If you manage multiple repositories (sister repos), create `~/.claude/techne.toml`:
 
 ```toml
-github_user = "ajbarea"
-workspace_root = "/home/ajbar/ajsoftworks"
+github_user = "your-github-username"
+workspace_root = "/path/to/your/workspace"
 
 [[sisters]]
-name = "phalanx-fl"
+name = "repo-one"
 status = "active"
 
 [[sisters]]
-name = "vFL"
+name = "repo-two"
 status = "active"
 
 [[sisters]]
-name = "kourai-khryseai"
+name = "repo-three"
 status = "active"
 ```
 
@@ -186,8 +186,8 @@ A: Run the skill again with increased verbosity (most skills support `--verbose`
 
 ## Next Steps
 
-- **[Explore All Skills](skills/index.md)** — Detailed reference for each of the nine skills
-- **[Architecture Guide](architecture.md)** — Understand how skills fit together
-- **[Real-World Examples](examples.md)** — See skills in action across different workflows
-- **[Configuration Reference](configuration.md)** — Customize skills for your repos
-- **[techne on GitHub](https://github.com/ajbarea/techne)** — Source code and issue tracker
+- **[Explore All Skills](skills/index.md)**: Detailed reference for each skill
+- **[Architecture Guide](architecture.md)**: Understand how skills fit together
+- **[Real-World Examples](examples.md)**: See skills in action across different workflows
+- **[Configuration Reference](configuration.md)**: Customize skills for your repos
+- **[techne on GitHub](https://github.com/ajbarea/techne)**: Source code and issue tracker
