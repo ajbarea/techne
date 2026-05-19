@@ -1,84 +1,32 @@
 # `techne:deslop`
 
-Scans the codebase for AI-generated slop in comments and docstrings (temporal markers, self-referential AI framing, narrative WHAT-comments, marketing padding) and proposes tightened rewrites.
+Scan comments and docstrings for AI-generated low-value prose and propose tightened rewrites or deletions. Keeps why-comments and non-obvious references; cuts everything else.
 
 ## When to use
 
-- After other AI assistants (Copilot, Gemini, GPT) have touched a repo.
-- Auditing pending changes for verbose, low-value commentary.
-- Cleaning up a codebase that's drifted toward over-narrated comments.
-- Pre-release: eliminate slop before shipping.
-
-## What it targets
-
-- **Temporal markers**: "as of 2025", "currently", "now we"
-- **Self-referential AI framing**: "this function helps you", "let me explain"
-- **Narrative WHAT-comments**: comments that restate what the code clearly does
-- **Marketing padding**: "robust", "elegant", "powerful", "seamless", "state-of-the-art"
-- **Redundant docstrings**: multi-line docstrings that just repeat the function signature
+- After other AI assistants have touched a repo and left behind verbose, self-narrating commentary.
+- Pre-release audit: "Clean up the codebase before we ship."
+- Auditing pending changes for temporal markers, marketing padding, or narrative WHAT-comments.
+- Anytime a comment or docstring makes you wince.
 
 ## Usage
 
-```bash
-# Scan entire codebase
-techne:deslop
+Invoke by name in Claude Code:
 
-# Scan only pending changes
-techne:deslop --staged
-
-# Scan specific file(s)
-techne:deslop src/auth.py src/parser.py
+```
+/techne:deslop
 ```
 
-## Configuration
+Default scope is the whole repo minus vendored/generated paths. Narrow scope by naming a path:
 
-Optional `.claude/skill-context.md`:
-
-```yaml
-deslop:
-  file_patterns:
-    - "**/*.py"
-    - "**/*.ts"
-    - "**/*.vue"
-  skip_files:
-    - "vendor/*"
-    - "node_modules/*"
-  strictness: "medium"  # loose, medium, strict
+```
+/techne:deslop scripts/
 ```
 
-## What it produces
-
-A diff or report of proposed rewrites. The skill doesn't auto-commit; you review the changes.
-
-Examples:
-
-```python
-# Before
-def fetch_user(user_id):
-    """
-    This function helps you fetch a user from the database.
-    It takes a user ID and returns the user object.
-    """
-    return db.get(user_id)
-
-# After
-def fetch_user(user_id):
-    """Retrieve user from database by ID."""
-    return db.get(user_id)
-```
-
-## Troubleshooting
-
-**"False positives"**: Increase `strictness` to "strict" to reduce noise, or skip certain patterns in skill context.
-
-**"Too aggressive"**: Lower `strictness` to "loose". The skill is opinionated about prose quality; adjust to your taste.
+The skill fans out parallel subagents per area, consolidates findings, then asks `apply all / apply selected / skip?` before editing.
 
 ## See also
 
-- [`techne:reslop`](reslop.md) — rewrites docstrings grounded in the implementation rather than deleting them.
-- [`techne:docsync`](docsync.md) — verifies documentation claims against code.
-
-## Reads
-
-- `<repo>/**/*.py`, `*.ts`, `*.vue`, etc. (configurable)
-- Pending git diff (when scanning changes only)
+- [`techne:reslop`](reslop.md): when the answer is better prose, not less prose.
+- [`techne:docsync`](docsync.md): verify factual claims in docs after a deslop pass.
+- [Conventions](../conventions.md): `## scan_scope` section in `.claude/skill-context.md` for repo-specific skip paths.
