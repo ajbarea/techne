@@ -1,6 +1,6 @@
 ---
 name: sisters
-description: Cross-repo drift audit across AJ's sister repos (currently phalanx-fl, vFL, kourai-khryseai; configured in `~/.claude/techne.toml`). Read-only inspection of CI action pins, toolchain pins in pyproject.toml, skill-context structural parity, GitHub merge settings, open PRs, and branch hygiene. Triggers on phrases like "audit the sisters", "are the sisters in sync", "check cross-repo drift", or when multiple sister repos are mentioned together for a consistency check.
+description: Cross-repo drift audit across linked repos listed in `~/.claude/techne.toml` (configurable per-user). Read-only inspection of CI action pins, toolchain pins in pyproject.toml, skill-context structural parity, GitHub merge settings, open PRs, and branch hygiene. Triggers on phrases like "audit the sisters", "are the sisters in sync", "check cross-repo drift", or when multiple sister repos are mentioned together for a consistency check.
 disable-model-invocation: false
 allowed-tools: Bash(gh api repos/*) Bash(gh pr list*) Bash(gh auth status) Bash(git fetch *) Bash(git for-each-ref *) Bash(git rev-list *) Bash(git branch *) Bash(grep *) Bash(awk *) Bash(sed *) Bash(sort *) Bash(uniq *) Bash(wc *) Bash(ls *) Bash(python3 *) Bash(cd *) Glob Grep Read
 ---
@@ -20,7 +20,7 @@ with open(os.path.expanduser('~/.claude/techne.toml'), 'rb') as f:
     d = tomllib.load(f)
 sisters = ' '.join(s['name'] for s in d['sisters'] if s.get('status', 'active') == 'active')
 ws = d.get('workspace_root', os.path.expanduser('~/ajsoftworks'))
-gu = d.get('github_user', 'ajbarea')
+gu = d.get('github_user', '')
 print(f"SISTERS={shlex.quote(sisters)}")
 print(f"WORKSPACE={shlex.quote(ws)}")
 print(f"GITHUB_USER={shlex.quote(gu)}")
@@ -136,7 +136,7 @@ Report any non-zero ahead/behind. Behind = pull to catch up. Ahead = unpushed co
 
 ### 7. Toolchain pin drift in `pyproject.toml`
 
-Only inspect the *root* `pyproject.toml` of each repo — that's where the shared toolchain decisions live. Do not descend into workspace members (e.g., `kourai-khryseai/agents/*/pyproject.toml`); those are package-level, not toolchain-level, and would generate noise.
+Only inspect the *root* `pyproject.toml` of each repo — that's where the shared toolchain decisions live. Do not descend into workspace members (e.g., `<repo>/agents/*/pyproject.toml`); those are package-level, not toolchain-level, and would generate noise.
 
 Extract four pins per repo:
 
@@ -162,7 +162,7 @@ Compute drift the same way as check 1 (action pins):
 - **`target-version` drift** — this must be consistent with `requires-python`'s lower bound. Flag both cross-repo drift and intra-repo mismatch (e.g., `requires-python = ">=3.12"` but `target-version = "py39"`).
 - **`ruff` / `ty` / `pytest` specifier drift** — any tool with different minimums across repos (`ruff>=0.8` vs `ruff>=0.9`) or that is unbounded in one repo (`"ruff"`) while bounded in another (`"ruff>=0.9"`) is drift.
 
-Unlike action pins, the newest pin is **not** automatically the target. `requires-python` lower bounds often encode a support commitment that's deliberate per repo — raising vFL to `>=3.12` would break anyone running it on 3.9. Report the drift, then either:
+Unlike action pins, the newest pin is **not** automatically the target. `requires-python` lower bounds often encode a support commitment that's deliberate per repo — raising a repo's lower bound can break users on older Python. Report the drift, then either:
 
 - **Tooling pins (ruff / ty / pytest)** → the newest pin is the default recommendation; these have no support-contract cost.
 - **`requires-python` / `target-version`** → surface the drift but do not recommend; ask the user which envelope they want to converge on.
@@ -175,30 +175,30 @@ A single block, no preamble (concrete repo names below are illustrative — subs
 ## Sisters audit — <UTC timestamp>
 
 ### Merge settings
-- phalanx-fl: squash-only, delete-on-merge ✓
-- vFL: ...
-- kourai-khryseai: ...
+- repo-a: squash-only, delete-on-merge ✓
+- repo-b: ...
+- repo-c: ...
 
 ### Skill-context parity
 - All sisters have required sections. ✓
-  (or list drift: "phalanx-fl missing `## docs_site (techne:docs-site)`")
+  (or list drift: "repo-a missing `## docs_site (techne:docs-site)`")
 
 ### Action-pin drift
-- `astral-sh/setup-uv`: phalanx-fl@v8.1.0, vFL@v8.1.0, kourai@v8.0.0 → bump kourai
+- `astral-sh/setup-uv`: repo-a@v8.1.0, repo-b@v8.1.0, repo-c@v8.0.0 → bump repo-c
 - (else: "No drift — all pins consistent across repos.")
 
 ### Toolchain pin drift (`pyproject.toml`)
-- `ruff`: phalanx-fl unbounded, vFL `>=0.8`, kourai `>=0.9` → bump phalanx + vFL to `>=0.9`
-- `requires-python`: phalanx-fl `>=3.11,<3.14`, vFL `>=3.9`, kourai `>=3.12,<3.14` → surfaced for user (support-contract drift, no automatic target)
+- `ruff`: repo-a unbounded, repo-b `>=0.8`, repo-c `>=0.9` → bump repo-a + repo-b to `>=0.9`
+- `requires-python`: repo-a `>=3.11,<3.14`, repo-b `>=3.9`, repo-c `>=3.12,<3.14` → surfaced for user (support-contract drift, no automatic target)
 - (else: "No drift — all toolchain pins consistent.")
 
 ### Open PRs
-- phalanx-fl: 0 open
-- vFL: 1 open (#12, 3d old, mergeable)
-- kourai-khryseai: 2 open (#14 mergeable; #15 has failing checks → run /techne:ci-audit)
+- repo-a: 0 open
+- repo-b: 1 open (#12, 3d old, mergeable)
+- repo-c: 2 open (#14 mergeable; #15 has failing checks → run /techne:ci-audit)
 
 ### Stale branches
-- kourai-khryseai: `feat/experiment-xyz` (ahead 3)
+- repo-c: `feat/experiment-xyz` (ahead 3)
 - (else: "Clean.")
 
 ### Local main sync

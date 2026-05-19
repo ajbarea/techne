@@ -137,7 +137,7 @@ Optional additions still at tier 1:
 
 When you outgrow tier 1 and want a Makefile target, prerequisite gating, and a persistent state file, add three files. Use kourai-khryseai as the worked reference:
 
-- `scripts/theoros.sh` — copy from `kourai-khryseai/scripts/theoros.sh`; the script is repo-agnostic (it reads everything from `.claude/skill-context.md`).
+- `scripts/theoros.sh` — copy from the worked reference repo's `scripts/theoros.sh`; the script is repo-agnostic (it reads everything from `.claude/skill-context.md`).
 - Makefile targets:
   ```makefile
   theoros:                   ## Start observed live dev session
