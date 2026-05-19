@@ -32,6 +32,8 @@ Add the marketplace and install the plugin from inside Claude Code:
 
 Skills become available as `techne:<name>` and can be invoked the same way as any other Claude Code skill.
 
+> **First-time setup:** techne is opinionated about a few conventions (Makefile pattern, dev-runner archive, `.claude/skill-context.md`). See [Conventions](docs/conventions.md) for the minimum each skill needs.
+
 ## Configuration
 
 `techne:sisters` reads `~/.claude/techne.toml` at runtime (user-controlled config that lists the active sister repos to compare against).
