@@ -158,7 +158,7 @@ A: Yes. Use `.claude/skill-context.md` for per-repo overrides, and `~/.claude/te
 A: Only if you approve. Skills like `auto-commit` stage and commit, but they ask for your permission first. Skills like `audit` and `docsync` are read-only by default; they surface issues, you decide whether to fix them.
 
 **Q: What's the difference between `deslop` and `reslop`?**  
-A: `deslop` finds and trims AI-slop (verbose, redundant prose). `reslop` rewrites docstrings grounded in the actual code. Use `deslop` for triage; use `reslop` when you want replacement prose, not deletion. See [Examples](examples.md#example-2-pre-release-documentation-audit) for a real workflow.
+A: `deslop` finds and trims AI-slop (verbose, redundant prose). `reslop` rewrites docstrings grounded in the actual code. Use `deslop` for triage; use `reslop` when you want replacement prose, not deletion. See [Examples](examples.md#pre-release-documentation-audit) for a real workflow.
 
 **Q: How do I debug issues?**  
 A: Run the skill again with increased verbosity (most skills support `--verbose` or `--debug`). If a skill gets stuck, you can always cancel and try a different approach.
