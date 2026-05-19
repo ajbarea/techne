@@ -42,8 +42,8 @@ docs-site:
   site_name: "techne"
   check_external_links: false  # only check internal links
   ignore_paths:
-    - "docs/plans/*"
-    - "docs/specs/*"
+    - "docs/superpowers/plans/**"
+    - "docs/superpowers/specs/**"
 ```
 
 ## What it audits
