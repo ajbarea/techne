@@ -42,6 +42,7 @@ jobs:
         run: uv sync --group dev --frozen
 
       - name: Build Documentation
+        # --strict treats Zensical warnings as errors. Remove if you want lenient builds.
         run: uv run zensical build --clean --strict
 
       - name: Configure Pages
