@@ -19,3 +19,7 @@ site/
 
 # AJ working-doc convention: COMMITS.md is always local
 COMMITS.md
+
+# Transient AI-status artifacts, never committable
+IMPROVEMENTS.md
+DEPLOYMENT_READY.md
