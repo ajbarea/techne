@@ -19,8 +19,8 @@ import tomllib, os, shlex
 with open(os.path.expanduser('~/.claude/techne.toml'), 'rb') as f:
     d = tomllib.load(f)
 sisters = ' '.join(s['name'] for s in d['sisters'] if s.get('status', 'active') == 'active')
-ws = d.get('workspace_root', os.path.expanduser('~/ajsoftworks'))
-gu = d.get('github_user', '')
+ws = d['workspace_root']  # required; fails loudly with KeyError on misconfig
+gu = d['github_user']     # required; fails loudly with KeyError on misconfig
 print(f"SISTERS={shlex.quote(sisters)}")
 print(f"WORKSPACE={shlex.quote(ws)}")
 print(f"GITHUB_USER={shlex.quote(gu)}")
