@@ -21,7 +21,7 @@ No `make` wrapper — validation runs as inline workflow steps. Mirrors the stru
 
 ### Phase 1 — Setup
 
-1. `uv sync` — pulls the `[dependency-groups.dev]` set (currently just `zensical>=0.0.24`); fast because runtime deps are empty by design.
+1. `uv sync` — pulls the `[dependency-groups.dev]` set (`ruff>=0.9` + `zensical>=0.0.24`).
 
 ### Phase 2 — Manifest validation
 
@@ -30,14 +30,19 @@ No `make` wrapper — validation runs as inline workflow steps. Mirrors the stru
 
 ### Phase 3 — Skill structural validation
 
-4. For each `plugins/techne/skills/*/SKILL.md`, the Python snippet in `validate.yml` confirms frontmatter contains `name:` and `description:` keys. Run locally with the same loop.
+4. `uv run python scripts/validate_skill_frontmatter.py` — every `plugins/techne/skills/*/SKILL.md` has well-formed frontmatter with `name:` and `description:`. (Previously inline in `validate.yml`; extracted so the check is testable and reusable.)
 5. `bash scripts/check_theoros_skill.sh` — theoros-specific structural check (the only skill with bespoke validation today; the script doubles as a template for adding bespoke checks for future skills).
 
-### Phase 4 — Docs site smoke
+### Phase 4 — Lint
 
-6. `uv run zensical build --strict --clean` — strict-mode build catches broken internal links + missing nav targets. (`make` not wired; invoke directly.)
+6. `uv run ruff check scripts/` + `uv run ruff format --check scripts/` — narrow scope today (just the validator script). Extend selection as more Python lands.
+7. `shellcheck scripts/*.sh` — catches real bugs in `dev-runner.sh` + `check_theoros_skill.sh`. `ubuntu-latest` ships shellcheck so no install step.
 
-Fast audit = `uv sync → jq manifests → frontmatter loop → zensical build --strict`. Four steps.
+### Phase 5 — Docs site smoke
+
+8. `uv run zensical build --strict --clean` — strict-mode build catches broken internal links + missing nav targets.
+
+Fast audit = `uv sync → jq manifests → validate_skill_frontmatter.py → ruff → shellcheck → zensical build --strict`. Six steps.
 
 Stop-early phase: any manifest parse failure or missing frontmatter blocks the rest — the plugin won't install at the consumer side.
 
@@ -47,9 +52,10 @@ Do-not-run targets: none specific to this repo. (`uv run zensical serve` is inte
 
 Referenced configs a CI failure can trace to:
 
-- `pyproject.toml` (mostly empty; `requires-python` + dev-deps)
+- `pyproject.toml` (`requires-python`, `[tool.ruff]`, dev-deps)
 - `.claude-plugin/marketplace.json`, `plugins/techne/.claude-plugin/plugin.json`
 - `plugins/techne/skills/*/SKILL.md` frontmatter (every skill)
+- `scripts/validate_skill_frontmatter.py` (the frontmatter validator)
 - `.github/workflows/validate.yml` (structural CI)
 - `.github/workflows/docs.yml` (docs deploy)
 - `zensical.toml` (docs site config + nav)
@@ -57,7 +63,9 @@ Referenced configs a CI failure can trace to:
 Tool error markers (extend the default grep set):
 
 - `jq` (manifest JSON parse errors)
-- `missing frontmatter`, `missing name:`, `missing description:` (from the validate.yml Python snippet)
+- `missing frontmatter`, `missing name:`, `missing description:` (from `validate_skill_frontmatter.py`)
+- `ruff` (Python lint failures in `scripts/`)
+- `shellcheck` (bash script issues in `scripts/`)
 - `zensical` (docs build errors — usually broken internal links from the strict mode)
 
 Expected external PR checks: none beyond `validate` + `docs` (no codecov, no GitGuardian configured today). Worth filing whether to add GitGuardian for parity with the other sisters.
