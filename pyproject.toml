@@ -7,8 +7,20 @@ dependencies = []
 
 [dependency-groups]
 dev = [
+    "ruff>=0.9",
     "zensical>=0.0.24",
 ]
 
 [tool.uv]
 package = false
+
+# ruff config — narrow scope today (just scripts/) since the only tracked
+# Python in this repo is the SKILL.md frontmatter validator. The sister
+# floor is `ruff>=0.9`, `target-version = "py312"`. Extend `select` as more
+# Python lands.
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "RUF"]

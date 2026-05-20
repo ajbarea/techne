@@ -12,7 +12,14 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6.0.2
+
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+
+      - name: Install dev dependencies
+        run: uv sync
 
       - name: Manifests parse as JSON
         run: |
@@ -20,24 +27,16 @@ jobs:
           jq empty plugins/techne/.claude-plugin/plugin.json
 
       - name: SKILL.md frontmatter is well-formed
+        run: uv run python scripts/validate_skill_frontmatter.py
+
+      - name: Ruff lint + format check (scripts/)
         run: |
-          set -e
-          for skill in plugins/techne/skills/*/SKILL.md; do
-            python3 - "$skill" <<'PY'
-          import re, sys
-          path = sys.argv[1]
-          with open(path) as f:
-              content = f.read()
-          m = re.match(r'^---\n(.*?)\n---\n', content, re.DOTALL)
-          if not m:
-              sys.exit(f'{path}: missing frontmatter')
-          fm = m.group(1)
-          for required in ('name:', 'description:'):
-              if required not in fm:
-                  sys.exit(f'{path}: missing {required}')
-          print(f'{path}: ok')
-          PY
-          done
+          uv run ruff check scripts/
+          uv run ruff format --check scripts/
+
+      - name: Shellcheck (scripts/*.sh)
+        # ubuntu-latest ships shellcheck, no install needed.
+        run: shellcheck scripts/*.sh
 
       - name: No stale ~/.claude/skills/_shared paths
         run: |
