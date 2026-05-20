@@ -36,7 +36,10 @@ jobs:
 
       - name: Shellcheck (scripts/*.sh)
         # ubuntu-latest ships shellcheck, no install needed.
-        run: shellcheck scripts/*.sh
+        # --severity=warning filters out SC2016-style info-level findings (e.g.
+        # "expressions don't expand in single quotes" where single-quoting is
+        # intentional). Warnings + errors still gate the build.
+        run: shellcheck --severity=warning scripts/*.sh
 
       - name: No stale ~/.claude/skills/_shared paths
         run: |
