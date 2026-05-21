@@ -53,11 +53,11 @@ Don't flag per-action when all repos pin the same version, even if that version 
 Each repo has `.claude/skill-context.md`. Required top-level sections across all sisters:
 
 - `## repo`
-- `## audit (techne:audit)`
-- `## ci_audit (techne:ci-audit)`
-- `## slop_ground_truth (techne:deslop / techne:reslop / techne:docsync)`
-- `## scan_scope (techne:deslop / techne:reslop)`
-- `## docs_site (techne:docs-site)`
+- `## audit`
+- `## ci_audit`
+- `## slop_ground_truth`
+- `## scan_scope`
+- `## docs_site`
 
 Verify by grep:
 
@@ -181,7 +181,7 @@ A single block, no preamble (concrete repo names below are illustrative — subs
 
 ### Skill-context parity
 - All sisters have required sections. ✓
-  (or list drift: "repo-a missing `## docs_site (techne:docs-site)`")
+  (or list drift: "repo-a missing `## docs_site`")
 
 ### Action-pin drift
 - `astral-sh/setup-uv`: repo-a@v8.1.0, repo-b@v8.1.0, repo-c@v8.0.0 → bump repo-c
