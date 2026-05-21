@@ -26,6 +26,14 @@ Techne is a collection of independent, composable skills that share conventions 
 
 Skills are independent; each invocable without the others; but share conventions: `.claude/skill-context.md` for per-repo config, `~/.claude/techne.toml` for user-level config, the dev-runner log archive at `logs/dev-*.log`. Every skill writes a plan, report, or diff to disk first, then waits for human review before mutating the repo. Read-only audits plus explicit human approval; never silent edits. See [Conventions](conventions.md) for the standard file locations and adoption path.
 
+## Stale-assumption audit
+
+Each skill encodes assumptions about the ecosystem it audits: `techne:audit` assumes the dev-runner archive convention, `techne:ci-audit` assumes a particular GitHub Actions failure shape, `techne:docs-site` assumes the Zensical strict-build target, `techne:auto-commit` assumes Conventional Commits. Those assumptions decay as upstream tools, action SHAs, model families, and platform features ship.
+
+The maintenance invariant: whenever a Claude Code release, MCP spec revision, GitHub Actions schema change, or frontier-model capability shift lands, audit which skill in this repo exists to compensate for a gap that may now be closed — and which skill's structural assumption has just gone stale. Skills are not write-once; they are kept in sync with the moving substrate they audit. Treat any skill last touched more than a quarter ago as suspect until re-verified against current platform docs.
+
+This invariant runs philosophically — there is no automated check; it's a stance the maintainer holds when reading release notes. The sibling sister repos apply the same audit to their own code (see `phalanx-fl`, `vFL`, `kourai-khryseai` ROADMAPs); techne's variant is meta — it audits the audit tools themselves.
+
 ## See also
 
 - [Conventions](conventions.md): the standard file locations and adoption path
