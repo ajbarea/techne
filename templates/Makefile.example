@@ -4,66 +4,60 @@
 ## Pull via:
 ##   curl -fsSL https://raw.githubusercontent.com/ajbarea/techne/main/templates/Makefile.example -o Makefile
 ##
-## Pair with scripts/dev-runner.sh so each invocation writes a
-## logs/dev-<UTC>-<target>.log archive that techne:audit reconciles
-## against the terminal exit code. See docs/conventions.md.
+## Replace each `TODO` target body with your stack's invocation. Common stacks:
+##   uv:    `uv sync --group dev`           |  `uv run pytest`     |  `uv run ruff check . && uv run ruff format --check .`
+##   npm:   `npm ci`                        |  `npm test`          |  `npm run lint`
+##   cargo: `cargo fetch`                   |  `cargo test --all`  |  `cargo fmt --check && cargo clippy`
+##   pnpm:  `pnpm install --frozen-lockfile`|  `pnpm test`         |  `pnpm lint`
 ##
-## Help convention: a `## description` comment after the target name is
-## picked up by the help target below. Keep descriptions one line.
+## For archived runs that techne:audit can reconcile, wrap from OUTSIDE the
+## Makefile:
+##   ./scripts/dev-runner.sh lint      # writes logs/dev-<UTC>-lint.log
+## Do NOT call dev-runner.sh from inside a Makefile recipe — it invokes
+## `make` and would recurse.
+##
+## Help convention: a `## description` comment after the target name drives
+## the help target below. Keep descriptions one line.
 ##
 
 .PHONY: help setup fix lint test test-unit build validate ci audit clean docs dev
 .DEFAULT_GOAL := help
 
-# Replace DEV with the runner you actually use. Defaults to dev-runner.sh so
-# every target archives by default; drop the prefix on a target you don't
-# want archived (e.g. interactive servers, help).
-DEV := ./scripts/dev-runner.sh
-
-# Stack-specific invocations live behind dev-runner.sh, so this file stays
-# the same shape across uv / npm / cargo / mixed repos. Examples for the
-# body of each target (pick one, delete the rest):
-#
-#   uv:    uv sync --group dev      |  uv run pytest      |  uv run ruff check .
-#   npm:   npm ci                   |  npm test           |  npm run lint
-#   cargo: cargo fetch              |  cargo test --all   |  cargo clippy
-#   pnpm:  pnpm install --frozen-lockfile  |  pnpm test   |  pnpm lint
-
-setup:                  ## Install dependencies for the project
-	@$(DEV) setup
+setup:                  ## Install project dependencies
+	@echo "[setup] TODO: replace with uv sync / npm ci / cargo fetch / pnpm install"; exit 1
 
 fix:                    ## Run every auto-fixer; skip the check pass
-	@$(DEV) fix
+	@echo "[fix] TODO: replace with ruff --fix + format / eslint --fix + prettier --write / cargo fmt"; exit 1
 
 lint:                   ## Lint + format check (no auto-fix)
-	@$(DEV) lint
+	@echo "[lint] TODO: replace with ruff check + ruff format --check / npm run lint / cargo clippy"; exit 1
 
 test-unit:              ## Unit tests only (fast)
-	@$(DEV) test-unit
+	@echo "[test-unit] TODO: replace with pytest -m 'not slow' / vitest / cargo test --lib"; exit 1
 
 test:                   ## Full test suite
-	@$(DEV) test
+	@echo "[test] TODO: replace with pytest / npm test / cargo test --all"; exit 1
 
 build:                  ## Produce the deployable artifact
-	@$(DEV) build
+	@echo "[build] TODO: replace with uv build / npm run build / cargo build --release"; exit 1
 
 validate: lint test-unit build  ## Fast pre-push gate (lint + unit + build)
 
 ci: lint test build     ## Mirror CI end-to-end
 
-audit:                  ## Security audit (pip-audit / npm audit / cargo audit)
-	@$(DEV) audit
+audit:                  ## Security audit
+	@echo "[audit] TODO: replace with pip-audit / npm audit / cargo audit"; exit 1
 
 clean:                  ## Remove build artifacts and caches
-	@$(DEV) clean
+	@echo "[clean] TODO: replace with rm -rf .ruff_cache build/ dist/ / npm run clean / cargo clean"; exit 1
 
 # Interactive / long-running targets. Mark these under `do_not_run:` in
 # .claude/skill-context.md so techne:audit skips them.
 docs:                   ## Serve docs site locally (do-not-run)
-	@$(DEV) docs
+	@echo "[docs] TODO: replace with uv run zensical serve / npm run docs / etc."; exit 1
 
 dev:                    ## Start dev server (do-not-run)
-	@$(DEV) dev
+	@echo "[dev] TODO: replace with uv run dev / npm run dev / cargo run / etc."; exit 1
 
 help:                   ## Show this help
 	@grep -hE '^[a-zA-Z][a-zA-Z0-9_-]*:.*?##' $(MAKEFILE_LIST) \

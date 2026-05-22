@@ -50,7 +50,9 @@ curl -fsSL https://raw.githubusercontent.com/ajbarea/techne/main/templates/Makef
   -o Makefile
 ```
 
-Then replace the `DEV := ./scripts/dev-runner.sh` body of each target with the stack-specific invocation (uv, npm, cargo, ...) and delete the targets that don't apply.
+Each target body is a `TODO` stub that exits 1 until replaced — copy the matching invocation from the inline cheat-sheet (uv / npm / cargo / pnpm) and delete the targets that don't apply.
+
+For archived runs that `techne:audit` reconciles, wrap `make` from outside via `./scripts/dev-runner.sh <target>`. Do not call `dev-runner.sh` from inside a Makefile recipe — it invokes `make` and would recurse.
 
 **Required for:** `techne:audit`.
 **Recommended for:** `techne:ci-audit`, `techne:theoros`.
