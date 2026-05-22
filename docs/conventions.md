@@ -6,25 +6,51 @@ Each section flags which skill(s) depend on it. A repo can adopt only what it us
 
 ## The Makefile pattern
 
-Techne's skills invoke your toolchain through `make` targets, not through raw tool commands. Wrap your build, lint, test, and check pipelines behind one-word targets:
+Techne's skills invoke your toolchain through `make` targets, not through raw tool commands. Wrap your build, lint, test, and check pipelines behind one-word targets so the same skill works against any stack (uv, npm, cargo, just, raw shell).
+
+### Canonical target vocabulary
+
+The four required targets are `setup`, `lint`, `test`, `ci`. Repos that have adopted techne in production also share this richer set; lean on these names when they fit so cross-repo audits see one shape:
+
+| Target      | Purpose                                                       |
+| ----------- | ------------------------------------------------------------- |
+| `setup`     | Install dependencies (uv sync / npm ci / cargo fetch / ...)   |
+| `fix`       | Run every auto-fixer; one-way door, no check pass             |
+| `lint`      | Format + lint check (no auto-fix)                             |
+| `test-unit` | Unit tests only (fast feedback)                               |
+| `test`      | Full test suite                                               |
+| `build`     | Produce the deployable artifact                               |
+| `validate`  | Fast pre-push gate (typically `lint test-unit build`)         |
+| `ci`        | Mirror CI end-to-end                                          |
+| `audit`     | Security audit (pip-audit / npm audit / cargo audit)          |
+| `clean`     | Remove build artifacts and caches                             |
+| `docs`      | Serve docs site locally (mark `do_not_run` for `techne:audit`)|
+| `dev`       | Start dev server (mark `do_not_run` for `techne:audit`)       |
+| `help`      | Show available targets                                        |
+
+### Self-documenting help
+
+Add a `## description` comment after each target name. A single grep+awk help target then renders the list at runtime, so every Makefile is its own README:
 
 ```makefile
-.PHONY: setup lint test ci
-
-setup:
-	uv sync --group dev
-
-lint:
-	uv run ruff check .
-	uv run ruff format --check .
-
-test:
-	uv run pytest
-
-ci: lint test
+help:                   ## Show this help
+	@grep -hE '^[a-zA-Z][a-zA-Z0-9_-]*:.*?##' $(MAKEFILE_LIST) \
+		| sort \
+		| awk 'BEGIN {FS = ":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
 ```
 
-The interface is stable across heterogeneous tools (uv, npm, cargo, just, raw shell), CI-friendly, and self-documenting via `make help` if you adopt one of the standard help patterns.
+Set `.DEFAULT_GOAL := help` so a bare `make` invocation surfaces the menu.
+
+### Starter template
+
+Techne ships a polyglot starter at `templates/Makefile.example`. Pull it into a new repo:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ajbarea/techne/main/templates/Makefile.example \
+  -o Makefile
+```
+
+Then replace the `DEV := ./scripts/dev-runner.sh` body of each target with the stack-specific invocation (uv, npm, cargo, ...) and delete the targets that don't apply.
 
 **Required for:** `techne:audit`.
 **Recommended for:** `techne:ci-audit`, `techne:theoros`.
