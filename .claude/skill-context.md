@@ -17,45 +17,54 @@ audits the skill collection itself.
 
 ## audit
 
-No `make` wrapper — validation runs as inline workflow steps. Mirrors the structure of `validate.yml` for hand-reproduction:
+Audit drives the wrapper `make` targets, which mirror `.github/workflows/validate.yml` + `docs.yml`:
 
 ### Phase 1 — Setup
 
-1. `uv sync` — pulls the `[dependency-groups.dev]` set (`ruff>=0.9` + `zensical>=0.0.24`).
+1. `make check-env` — confirm `uv` + `jq` + `shellcheck` are on PATH (hard prereqs).
+2. `make setup` — `uv sync` pulls the `[dependency-groups.dev]` set (`ruff>=0.9` + `zensical>=0.0.24`).
 
 ### Phase 2 — Manifest validation
 
-2. `jq empty .claude-plugin/marketplace.json` — marketplace JSON parses.
-3. `jq empty plugins/techne/.claude-plugin/plugin.json` — plugin JSON parses.
+3. `make manifests` — `jq empty` on `.claude-plugin/marketplace.json` + `plugins/techne/.claude-plugin/plugin.json`.
 
 ### Phase 3 — Skill structural validation
 
-4. `uv run python scripts/validate_skill_frontmatter.py` — every `plugins/techne/skills/*/SKILL.md` has well-formed frontmatter with `name:` and `description:`. (Previously inline in `validate.yml`; extracted so the check is testable and reusable.)
-5. `bash scripts/check_theoros_skill.sh` — theoros-specific structural check (the only skill with bespoke validation today; the script doubles as a template for adding bespoke checks for future skills).
+4. `make frontmatter` — `validate_skill_frontmatter.py` (every `plugins/techne/skills/*/SKILL.md` has well-formed `name:` + `description:`) + `check_theoros_skill.sh` (theoros-specific section + README cross-reference checks).
 
 ### Phase 4 — Lint
 
-6. `uv run ruff check scripts/` + `uv run ruff format --check scripts/` — narrow scope today (just the validator script). Extend selection as more Python lands.
-7. `shellcheck scripts/*.sh` — catches real bugs in `dev-runner.sh` + `check_theoros_skill.sh`. `ubuntu-latest` ships shellcheck so no install step.
+5. `make lint` — `ruff check scripts/` + `ruff format --check scripts/`. Narrow scope today; the validator script is the only tracked Python.
+6. `make shellcheck` — `shellcheck --severity=warning scripts/*.sh`. Catches real bugs in `dev-runner.sh` + `check_theoros_skill.sh`. ubuntu-latest ships shellcheck.
+7. `make guards` — grep guards: no `.claude/skills/_shared` references, no legacy `aj-*` skill names.
 
 ### Phase 5 — Docs site smoke
 
-8. `uv run zensical build --strict --clean` — strict-mode build catches broken internal links + missing nav targets.
+8. `make build` — `zensical build --strict --clean`. Strict-mode catches broken internal links + missing nav targets; mirrors `docs.yml`'s deploy job.
 
-Fast audit = `uv sync → jq manifests → validate_skill_frontmatter.py → ruff → shellcheck → zensical build --strict`. Six steps.
+### End-to-end rollups
 
-Stop-early phase: any manifest parse failure or missing frontmatter blocks the rest — the plugin won't install at the consumer side.
+9. `make validate` — `lint + shellcheck + test` (where `test` = manifests + frontmatter + guards). Fast pre-push gate.
+10. `make ci` — `setup + validate + build`. Mirrors validate.yml + docs.yml in one shot.
 
-Do-not-run targets: none specific to this repo. (`uv run zensical serve` is interactive and out of scope for automated audit.)
+Fast audit = `make setup → make validate`. Stop-early phase: `check-env` / `setup` — any missing tool or sync failure blocks the rest.
+
+Do-not-run targets:
+
+- `make docs` — `zensical serve` (interactive local docs server)
+
+Log archives: techne's Makefile does not call `scripts/dev-runner.sh` from inside its own recipes (per the "wrap from outside" rule the convention itself documents). For archived runs of any target, invoke `./scripts/dev-runner.sh <target>` externally.
 
 ## ci_audit
 
 Referenced configs a CI failure can trace to:
 
 - `pyproject.toml` (`requires-python`, `[tool.ruff]`, dev-deps)
+- `Makefile` (wrapper-target canonical pipeline; mirrors validate.yml + docs.yml)
 - `.claude-plugin/marketplace.json`, `plugins/techne/.claude-plugin/plugin.json`
 - `plugins/techne/skills/*/SKILL.md` frontmatter (every skill)
 - `scripts/validate_skill_frontmatter.py` (the frontmatter validator)
+- `scripts/check_theoros_skill.sh` (theoros structural check)
 - `.github/workflows/validate.yml` (structural CI)
 - `.github/workflows/docs.yml` (docs deploy)
 - `zensical.toml` (docs site config + nav)
@@ -68,7 +77,7 @@ Tool error markers (extend the default grep set):
 - `shellcheck` (bash script issues in `scripts/`)
 - `zensical` (docs build errors — usually broken internal links from the strict mode)
 
-Expected external PR checks: none beyond `validate` + `docs` (no codecov, no GitGuardian configured today). Worth filing whether to add GitGuardian for parity with the other sisters.
+Expected external PR checks: `validate` (in-repo) + `GitGuardian Security Checks` (org-level secret scanner, configured outside this repo's workflows). No codecov.
 
 ## slop_ground_truth
 
