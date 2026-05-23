@@ -12,29 +12,28 @@ has crept in — extract it back to ROADMAP.
 
 ## In flight
 
-### 2026-05-23 — Drop system tool deps in Makefile + CI
+### 2026-05-23 — Sisters audit: `allow_auto_merge` drift detection
 
-**Why.** `make test` failed in clean WSL because `manifests` required `jq`
-and `shellcheck` was a separate system install. AJ's environment has
-neither. The sister-template Makefile inherited the same brittleness, so
-every consumer sister hit the same wall.
+**Why.** A cross-sister auto-merge audit run on 2026-05-23 found that 5 of 6
+sisters had `allow_auto_merge=false`. The setting is required for
+`gh pr merge --auto` to queue PRs for hands-off merge on green CI; without
+it every PR has to be hand-merged after the last check flips. The
+`techne:sisters` audit didn't surface this drift because the merge-settings
+check only looked at squash / merge_commit / rebase / delete_branch.
 
 **Decisions.**
-- Replace `jq empty` with `python3 -m json.tool` — Python stdlib, already
-  required by `uv`-driven targets; zero new deps.
-- Replace system `shellcheck` with the `shellcheck-py` PyPI package — ships
-  a vendored binary, installable via `uv sync`, identical CLI surface.
-- CI workflow drops inline `jq`/`shellcheck` steps and dogfoods `make`
-  targets instead — eliminates local-vs-CI drift, makes the Makefile the
-  single source of truth for what "validate" means.
+- Add `allow_auto_merge: true` to the canonical merge-settings pin.
+- Extend the audit query to surface the new field.
+- Update the sample report format so the recommended remediation is
+  visible inline (one-liner `gh api -X PATCH ... -f allow_auto_merge=true`).
+- All 5 drifted sisters were auto-fixed in the same audit run (out-of-band,
+  before this PR was opened).
 
 **Definition of done.**
-- `make ci` runs end-to-end in WSL without any apt-installed deps. ✓
-- `validate.yml` calls `make setup` / `make lint` / `make shellcheck` /
-  `make test` instead of inline scripts. ✓
-- `check-env` no longer enforces `jq` / system `shellcheck`. ✓
-- No other sister Makefile uses `jq` (audited 2026-05-23); template
-  (`templates/Makefile.example`) is placeholder-only, no fix needed.
+- SKILL.md canonical-settings list includes `allow_auto_merge`. ✓
+- Audit query extracts the field. ✓
+- Sample output illustrates the drift case + remediation. ✓
+- `make ci` green. ✓
 
 ## Skill collection state
 
