@@ -103,6 +103,14 @@ wild.
 
 One-liner per item, newest first. Detail moves to git history when work lands.
 
+- 2026-05-23 — **Sisters audit: `make clean` log-retention policy
+  drift** — new check 10 verifies every sister with a `logs/` directory
+  implements age-based pruning of `dev-*-*.log` archives (canonical
+  threshold: 30 days, standard hot-tier). Detection covers Python-script
+  (`LOG_ARCHIVE_MAX_AGE_DAYS = N`) and Makefile-inline (`find -mtime +N
+  -delete`) shapes. Catches the 2026-05-23 drift where three Python
+  sisters had three different policies (wholesale wipe / archive nuke /
+  no-op); all four sisters with logs/ now aligned [#21]
 - 2026-05-23 — **Sisters audit: branch-protection drift detection** —
   new check 8 verifies `main` is protected with ≥1 required check and no
   force-push/deletion; ldqis was the drifted sister and was auto-fixed
