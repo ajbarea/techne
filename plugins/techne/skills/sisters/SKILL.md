@@ -224,6 +224,39 @@ done
 
 Report any sister that uses `codecov/codecov-action` but is missing `codecov.yml`, or has the config but doesn't set `comment: false`. Sisters not using codecov-action are silently skipped — this is a conditional check.
 
+### 10. `make clean` log-retention policy
+
+Every sister with a `logs/` directory should implement age-based pruning of `dev-*-*.log` archives instead of wiping `logs/` wholesale (or doing nothing). Canonical threshold: **30 days** (standard hot-tier log retention). The `*-latest.log` active handle must be preserved.
+
+Detection covers both implementation shapes:
+
+- **Python-script-delegated clean** (phalanx-fl, vFL, kourai-khryseai): `LOG_ARCHIVE_MAX_AGE_DAYS = N` constant in `scripts/clean_build.py` or `scripts/dev.py`.
+- **Makefile-inline clean** (ldqis): `find logs … -mtime +N -delete` recipe line.
+
+```
+for repo in $SISTERS; do
+  [ -d "$WORKSPACE/$repo/logs" ] || { echo "$repo: no logs/ dir — skip"; continue; }
+  py_thr=$(grep -hE 'LOG_ARCHIVE_MAX_AGE_DAYS[[:space:]]*=[[:space:]]*[0-9]+' \
+             $WORKSPACE/$repo/scripts/*.py 2>/dev/null \
+           | grep -oE '[0-9]+' | head -1)
+  mf_thr=$(grep -hE '\-mtime[[:space:]]+\+[0-9]+' \
+             "$WORKSPACE/$repo/Makefile" 2>/dev/null \
+           | grep -oE '\+[0-9]+' | tr -d '+' | head -1)
+  threshold="${py_thr:-$mf_thr}"
+  if [ -z "$threshold" ]; then
+    echo "$repo: logs/ present, no age-based prune -> add 30-day prune to clean"
+  else
+    echo "$repo: ${threshold}-day age-based log prune ✓"
+  fi
+done
+```
+
+Report:
+
+- Any sister with `logs/` but no age-based prune (wholesale-wipe or no-op is drift).
+- Any sister whose threshold differs from 30 days (the canonical pin) — flag the value and ask whether to converge.
+- Sisters with no `logs/` dir are silently skipped — this is a conditional check.
+
 ## Output format
 
 A single block, no preamble (concrete repo names below are illustrative — substitute the actual entries from `$SISTERS`):
@@ -269,6 +302,11 @@ A single block, no preamble (concrete repo names below are illustrative — subs
 - repo-a: codecov-action + codecov.yml with comment: false ✓
 - repo-b: no codecov-action — skip
 - repo-c: uses codecov-action but missing codecov.yml → add one (sister convention)
+
+### Clean log-retention policy
+- repo-a: 30-day age-based log prune ✓
+- repo-b: no logs/ dir — skip
+- repo-c: logs/ present, no age-based prune → add 30-day prune to clean
 
 ### Verdict
 
