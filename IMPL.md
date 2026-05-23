@@ -12,27 +12,29 @@ has crept in — extract it back to ROADMAP.
 
 ## In flight
 
-### 2026-05-23 — Sisters audit: `allow_auto_merge` drift detection
+### 2026-05-23 — Sisters audit: codecov.yml drift detection
 
-**Why.** A cross-sister auto-merge audit run on 2026-05-23 found that 5 of 6
-sisters had `allow_auto_merge=false`. The setting is required for
-`gh pr merge --auto` to queue PRs for hands-off merge on green CI; without
-it every PR has to be hand-merged after the last check flips. The
-`techne:sisters` audit didn't surface this drift because the merge-settings
-check only looked at squash / merge_commit / rebase / delete_branch.
+**Why.** Today's audit + PR #10 (ldqis codecov upload) surfaced that ldqis
+was the only codecov-using sister without a `codecov.yml`. Without the
+config, the Codecov bot posts an inline PR comment on every push — pure
+noise once the patch-coverage status check is visible. The merge-settings
++ skill-context checks didn't catch this because codecov config sits
+*outside* the GitHub-API-discoverable surface.
 
 **Decisions.**
-- Add `allow_auto_merge: true` to the canonical merge-settings pin.
-- Extend the audit query to surface the new field.
-- Update the sample report format so the recommended remediation is
-  visible inline (one-liner `gh api -X PATCH ... -f allow_auto_merge=true`).
-- All 5 drifted sisters were auto-fixed in the same audit run (out-of-band,
-  before this PR was opened).
+- Add audit check 8: any sister whose `.github/workflows/` invokes
+  `codecov/codecov-action` should carry a `codecov.yml` or `.codecov.yml`
+  at the repo root with `comment: false`.
+- Conditional check: sisters not using codecov-action are silently
+  skipped. No false positives for ajbarea.github.io / techne (no
+  codecov-action).
+- Sample report block updated to show the success and drift cases inline.
 
 **Definition of done.**
-- SKILL.md canonical-settings list includes `allow_auto_merge`. ✓
-- Audit query extracts the field. ✓
-- Sample output illustrates the drift case + remediation. ✓
+- SKILL.md gains check 8 with the bash recipe. ✓
+- Output-format example shows the conditional-pass + drift case. ✓
+- Smoke-tested across all 6 sisters: 4 codecov-users pass, 2 non-users
+  skip cleanly. ✓
 - `make ci` green. ✓
 
 ## Skill collection state

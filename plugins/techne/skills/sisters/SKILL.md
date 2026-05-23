@@ -168,6 +168,33 @@ Unlike action pins, the newest pin is **not** automatically the target. `require
 - **Tooling pins (ruff / ty / pytest)** → the newest pin is the default recommendation; these have no support-contract cost.
 - **`requires-python` / `target-version`** → surface the drift but do not recommend; ask the user which envelope they want to converge on.
 
+### 8. Codecov config presence + bot-comment silencing
+
+Any sister whose CI workflows invoke `codecov/codecov-action` should also carry a `codecov.yml` (or `.codecov.yml`) at the repo root with `comment: false`. Without the config, the bot posts an inline PR comment on every push — pure noise once the patch-coverage status check is visible. Sisters drifted past this once already (ldqis 2026-05-23).
+
+```
+for repo in $SISTERS; do
+  uses_codecov=0
+  if grep -rq 'codecov/codecov-action' $WORKSPACE/$repo/.github/workflows/ 2>/dev/null; then
+    uses_codecov=1
+  fi
+  [ $uses_codecov -eq 0 ] && { echo "$repo: no codecov-action — skip"; continue; }
+  cfg=""
+  for candidate in codecov.yml .codecov.yml; do
+    [ -f "$WORKSPACE/$repo/$candidate" ] && { cfg=$candidate; break; }
+  done
+  if [ -z "$cfg" ]; then
+    echo "$repo: uses codecov-action but has no codecov.yml -> add one (sister convention: comment: false + target auto/2% + informational)"
+  elif ! grep -q '^comment:[[:space:]]*false' $WORKSPACE/$repo/$cfg; then
+    echo "$repo: $cfg present but missing 'comment: false' -> bot comments will spam PRs"
+  else
+    echo "$repo: codecov-action + $cfg with comment: false ✓"
+  fi
+done
+```
+
+Report any sister that uses `codecov/codecov-action` but is missing `codecov.yml`, or has the config but doesn't set `comment: false`. Sisters not using codecov-action are silently skipped — this is a conditional check.
+
 ## Output format
 
 A single block, no preamble (concrete repo names below are illustrative — substitute the actual entries from `$SISTERS`):
@@ -204,6 +231,11 @@ A single block, no preamble (concrete repo names below are illustrative — subs
 
 ### Local main sync
 - All sisters: ahead=0 behind=0. ✓
+
+### Codecov config
+- repo-a: codecov-action + codecov.yml with comment: false ✓
+- repo-b: no codecov-action — skip
+- repo-c: uses codecov-action but missing codecov.yml → add one (sister convention)
 
 ### Verdict
 

@@ -103,6 +103,9 @@ wild.
 
 One-liner per item, newest first. Detail moves to git history when work lands.
 
+- 2026-05-23 — **Sisters audit: `allow_auto_merge` drift detection** —
+  canonical merge-settings pin extended; 5/6 sisters auto-fixed
+  out-of-band [#17]
 - 2026-05-23 — **Makefile + CI drop system jq/shellcheck deps**: `make`
   targets and `validate.yml` no longer require apt installs; CI dogfoods
   `make setup` / `make lint` / `make shellcheck` / `make test` [#16]
