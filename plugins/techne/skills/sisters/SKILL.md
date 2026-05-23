@@ -78,11 +78,12 @@ Expected uniform settings (this is the canonical pin — if you're unsure, re-ru
 - `allow_merge_commit: false`
 - `allow_rebase_merge: false`
 - `delete_branch_on_merge: true`
+- `allow_auto_merge: true` — needed so `gh pr merge --auto` works; without it every PR has to be hand-merged after CI flips green
 
 ```
 for repo in $SISTERS; do
   echo "--- $repo ---"
-  gh api "repos/$GITHUB_USER/$repo" --jq '{sq:.allow_squash_merge, mc:.allow_merge_commit, rb:.allow_rebase_merge, del:.delete_branch_on_merge}'
+  gh api "repos/$GITHUB_USER/$repo" --jq '{sq:.allow_squash_merge, mc:.allow_merge_commit, rb:.allow_rebase_merge, del:.delete_branch_on_merge, am:.allow_auto_merge}'
 done
 ```
 
@@ -175,9 +176,9 @@ A single block, no preamble (concrete repo names below are illustrative — subs
 ## Sisters audit — <UTC timestamp>
 
 ### Merge settings
-- repo-a: squash-only, delete-on-merge ✓
+- repo-a: squash-only, delete-on-merge, auto-merge ✓
 - repo-b: ...
-- repo-c: ...
+- repo-c: auto-merge disabled → `gh api -X PATCH repos/$GITHUB_USER/repo-c -f allow_auto_merge=true`
 
 ### Skill-context parity
 - All sisters have required sections. ✓

@@ -103,6 +103,9 @@ wild.
 
 One-liner per item, newest first. Detail moves to git history when work lands.
 
+- 2026-05-23 — **Makefile + CI drop system jq/shellcheck deps**: `make`
+  targets and `validate.yml` no longer require apt installs; CI dogfoods
+  `make setup` / `make lint` / `make shellcheck` / `make test` [#16]
 - 2026-05-22 — **Makefile dogfood** + `check_theoros_skill.sh` wired
   into `make frontmatter` + `check-env` install hints [#14]
 - 2026-05-22 — **Makefile template** (`templates/Makefile.example`) +
