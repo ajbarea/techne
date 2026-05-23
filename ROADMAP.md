@@ -107,8 +107,8 @@ One-liner per item, newest first. Detail moves to git history when work lands.
   new check 8 verifies `main` is protected with ≥1 required check and no
   force-push/deletion; ldqis was the drifted sister and was auto-fixed
   out-of-band with 5 required checks matching its CI [#19]
-- 2026-05-23 — **Sisters audit: codecov.yml + comment-silencing drift**
-  — conditional check 9 (now); flags any codecov-action user missing
+- 2026-05-23 — **Sisters audit: `codecov.yml` + comment-silencing drift**
+  — conditional check 9; flags any codecov-action user missing
   `codecov.yml` or `comment: false` [#18]
 - 2026-05-23 — **Sisters audit: `allow_auto_merge` drift detection** —
   canonical merge-settings pin extended; 5/6 sisters auto-fixed
