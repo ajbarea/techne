@@ -168,7 +168,36 @@ Unlike action pins, the newest pin is **not** automatically the target. `require
 - **Tooling pins (ruff / ty / pytest)** → the newest pin is the default recommendation; these have no support-contract cost.
 - **`requires-python` / `target-version`** → surface the drift but do not recommend; ask the user which envelope they want to converge on.
 
-### 8. Codecov config presence + bot-comment silencing
+### 8. Branch protection on `main`
+
+Every sister should have branch protection on `main` with at least one required status check, no force-pushes, and no branch deletions. Sisters drifted past this once already (ldqis 2026-05-23, found by the audit and fixed inline). Don't require a specific number of contexts — that varies by repo's CI shape — just check that at least one is wired and that force-push/deletion are blocked.
+
+```
+for repo in $SISTERS; do
+  raw=$(gh api "repos/$GITHUB_USER/$repo/branches/main/protection" 2>&1)
+  if echo "$raw" | grep -q '"Branch not protected"'; then
+    echo "$repo: main NOT protected -> enable protection with required CI checks"
+    continue
+  fi
+  printf '%s' "$raw" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+ctx = (d.get("required_status_checks") or {}).get("contexts") or []
+fp = (d.get("allow_force_pushes") or {}).get("enabled", False)
+ad = (d.get("allow_deletions") or {}).get("enabled", False)
+issues = []
+if not ctx: issues.append("no required checks")
+if fp: issues.append("force-pushes allowed")
+if ad: issues.append("deletions allowed")
+status = "drift: " + ", ".join(issues) if issues else f"protected, {len(ctx)} required check(s) ✓"
+print(f"'"$repo"': {status}")
+'
+done
+```
+
+Report any sister whose `main` is unprotected, has zero required checks, or has `allow_force_pushes` / `allow_deletions` set. `enforce_admins` stays optional — AJ intentionally leaves admin override on so audit fixes can ship the same session.
+
+### 9. Codecov config presence + bot-comment silencing
 
 Any sister whose CI workflows invoke `codecov/codecov-action` should also carry a `codecov.yml` (or `.codecov.yml`) at the repo root with `comment: false`. Without the config, the bot posts an inline PR comment on every push — pure noise once the patch-coverage status check is visible. Sisters drifted past this once already (ldqis 2026-05-23).
 
@@ -231,6 +260,10 @@ A single block, no preamble (concrete repo names below are illustrative — subs
 
 ### Local main sync
 - All sisters: ahead=0 behind=0. ✓
+
+### Branch protection
+- All sisters: protected with required checks, no force-push, no deletions ✓
+  (or list drift: "repo-c: main NOT protected → enable protection")
 
 ### Codecov config
 - repo-a: codecov-action + codecov.yml with comment: false ✓
