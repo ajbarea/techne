@@ -19,38 +19,13 @@ jobs:
           enable-cache: true
 
       - name: Install dev dependencies
-        run: uv sync
+        run: make setup
 
-      - name: Manifests parse as JSON
-        run: |
-          jq empty .claude-plugin/marketplace.json
-          jq empty plugins/techne/.claude-plugin/plugin.json
-
-      - name: SKILL.md frontmatter is well-formed
-        run: uv run python scripts/validate_skill_frontmatter.py
-
-      - name: Ruff lint + format check (scripts/)
-        run: |
-          uv run ruff check scripts/
-          uv run ruff format --check scripts/
+      - name: Lint (ruff check + format)
+        run: make lint
 
       - name: Shellcheck (scripts/*.sh)
-        # ubuntu-latest ships shellcheck, no install needed.
-        # --severity=warning filters out SC2016-style info-level findings (e.g.
-        # "expressions don't expand in single quotes" where single-quoting is
-        # intentional). Warnings + errors still gate the build.
-        run: shellcheck --severity=warning scripts/*.sh
+        run: make shellcheck
 
-      - name: No stale ~/.claude/skills/_shared paths
-        run: |
-          if grep -rn '\.claude/skills/_shared' plugins/techne/skills/; then
-            echo "FAIL: SKILL.md still references the old absolute _shared path"
-            exit 1
-          fi
-
-      - name: No legacy aj-* skill name references
-        run: |
-          if grep -rohE 'aj-(audit|auto-commit|ci-audit|deslop|docs-site|docsync|reslop|sisters)' plugins/techne/skills/; then
-            echo "FAIL: SKILL.md still references aj-* names"
-            exit 1
-          fi
+      - name: Structural checks (manifests + frontmatter + guards)
+        run: make test

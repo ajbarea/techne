@@ -9,15 +9,13 @@
 
 check-env:              ## Verify required tools are on PATH
 	@command -v uv >/dev/null || { echo "uv not on PATH (https://docs.astral.sh/uv/)"; exit 1; }
-	@command -v jq >/dev/null || { echo "jq not on PATH (apt install jq / brew install jq)"; exit 1; }
-	@command -v shellcheck >/dev/null || { echo "shellcheck not on PATH (apt install shellcheck / brew install shellcheck)"; exit 1; }
 
 setup: check-env        ## Install dev dependencies (uv sync)
 	@uv sync
 
-manifests:              ## Verify plugin + marketplace manifest JSON
-	@jq empty .claude-plugin/marketplace.json
-	@jq empty plugins/techne/.claude-plugin/plugin.json
+manifests:              ## Verify plugin + marketplace manifest JSON (stdlib json.tool)
+	@uv run python -m json.tool .claude-plugin/marketplace.json >/dev/null
+	@uv run python -m json.tool plugins/techne/.claude-plugin/plugin.json >/dev/null
 
 frontmatter:            ## Verify SKILL.md frontmatter + theoros structural checks
 	@uv run python scripts/validate_skill_frontmatter.py
@@ -31,8 +29,8 @@ lint:                   ## ruff check + format check on scripts/
 	@uv run ruff check scripts/
 	@uv run ruff format --check scripts/
 
-shellcheck:             ## shellcheck on scripts/*.sh
-	@shellcheck --severity=warning scripts/*.sh
+shellcheck:             ## shellcheck on scripts/*.sh (via shellcheck-py PyPI binary)
+	@uv run shellcheck --severity=warning scripts/*.sh
 
 guards:                 ## Stale-path + legacy-name grep guards
 	@if grep -rn '\.claude/skills/_shared' plugins/techne/skills/; then \
