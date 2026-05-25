@@ -83,11 +83,6 @@ wild.
   toggle; Dependabot keeps SHA pins fresh once adopted.
   research(2026-05): github.blog/changelog/2025-08-15 (policy enforcement
   + immutable releases).
-- **Dependabot config drift check in `/techne:sisters`** — compare each
-  sister's `.github/dependabot.yml` against
-  `templates/dependabot.yml.example`: ecosystem coverage vs detected
-  manifests, plus schedule/group shape. Closes the gap where the
-  template exists but nothing enforces sisters tracking it.
 - **Renovate revisit trigger** — if the fleet consolidates into a
   monorepo or wants cross-repo shared presets + auto-merge, re-evaluate
   Renovate (shared `extends` preset). Also re-enable the `uv` ecosystem
@@ -123,6 +118,13 @@ wild.
 
 One-liner per item, newest first. Detail moves to git history when work lands.
 
+- 2026-05-25 — **Sisters audit: Dependabot config coverage (check 11)** —
+  `/techne:sisters` now verifies each sister's `.github/dependabot.yml`
+  covers its shipped manifests (uv/npm/cargo/docker/github-actions),
+  recognizing documented deferrals and skipping `templates/` + `tools/`
+  noise (mirrors check 7's primary-manifest scope). Also refreshed the
+  stale check-list summaries in `docs/skills/sisters.md` +
+  `docs/examples.md` (they'd fallen behind checks 8–10)
 - 2026-05-25 — **Dependabot fleet rollout** — canonical
   `templates/dependabot.yml.example` + techne's own
   `.github/dependabot.yml` (uv + github-actions), rolled out per-ecosystem

@@ -8,7 +8,7 @@ You maintain a few related repos and want to make sure their CI pins, toolchain 
 
 1. Configure the linked repos in `~/.claude/techne.toml` (see [Configuration](configuration.md)).
 2. Run `/techne:sisters`.
-3. Read the drift report. It groups findings by category: action-pin drift, toolchain-pin drift, GitHub merge-setting drift, open PRs, stale branches, local `main` divergence.
+3. Read the drift report. It groups findings by category: action-pin drift, toolchain-pin drift, GitHub merge-setting + branch-protection drift, Codecov config, log-retention, Dependabot coverage, open PRs, stale branches, local `main` divergence.
 4. Apply fixes in each repo. Re-run `/techne:sisters` to confirm the drift is gone.
 
 The skill is read-only; you commit the fixes manually.

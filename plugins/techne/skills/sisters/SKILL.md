@@ -257,6 +257,55 @@ Report:
 - Any sister whose threshold differs from 30 days (the canonical pin) — flag the value and ask whether to converge.
 - Sisters with no `logs/` dir are silently skipped — this is a conditional check.
 
+### 11. Dependabot config coverage
+
+Every sister should carry `.github/dependabot.yml` covering each dependency surface it actually ships. The canonical config + per-ecosystem guidance live in `templates/dependabot.yml.example`. This check maps detected manifests to expected `package-ecosystem` entries and flags gaps — except where the config documents a deliberate deferral.
+
+Scope mirrors check 7: inspect primary manifests only. Skip `templates/` (scaffolding emitted to generated projects) and `tools/` (dev experiments) — those aren't the repo's shipped dependency surface and only generate noise. `uv` is the canonical Python ecosystem (GA 2025-03-13); `pip` still provides coverage but should be migrated. Docker maps from a literal `Dockerfile` only — Dependabot doesn't auto-detect `*.Dockerfile` custom names (dependabot/feedback#145), so a repo using that convention legitimately omits docker.
+
+```
+for repo in $SISTERS; do
+  cfg="$WORKSPACE/$repo/.github/dependabot.yml"
+  [ -f "$cfg" ] || cfg="$WORKSPACE/$repo/.github/dependabot.yaml"
+  if [ ! -f "$cfg" ]; then
+    echo "$repo: NO .github/dependabot.yml -> add one (template: templates/dependabot.yml.example)"
+    continue
+  fi
+  declared=$(grep -oE "package-ecosystem:[[:space:]]*['\"]?[a-z-]+" "$cfg" \
+             | grep -oE '[a-z-]+$' | sort -u | tr '\n' ' ')
+  manifests=$(git -C "$WORKSPACE/$repo" ls-files 2>/dev/null | grep -vE '(^|/)(templates|tools)/')
+  expected=""
+  echo "$manifests" | grep -qE '(^|/)(pyproject\.toml|uv\.lock)$' && expected="$expected uv"
+  echo "$manifests" | grep -qE '(^|/)package\.json$'            && expected="$expected npm"
+  echo "$manifests" | grep -qE '(^|/)Cargo\.toml$'              && expected="$expected cargo"
+  echo "$manifests" | grep -qE '(^|/)Dockerfile$'               && expected="$expected docker"
+  expected="$expected github-actions"
+  missing=""
+  for eco in $expected; do
+    if [ "$eco" = uv ]; then
+      echo " $declared " | grep -qE ' (uv|pip) ' && continue
+    else
+      echo " $declared " | grep -q " $eco " && continue
+    fi
+    # documented deferral: an in-config comment naming the ecosystem + defer/skip
+    grep -iE '^[[:space:]]*#' "$cfg" | grep -i "$eco" | grep -qiE 'defer|skip' && continue
+    missing="$missing $eco"
+  done
+  if [ -n "$missing" ]; then
+    echo "$repo: missing ecosystem(s) for present manifests:$missing | declared: $declared"
+  else
+    echo "$repo: coverage OK | declared: $declared"
+  fi
+done
+```
+
+Report:
+
+- Any sister with no `.github/dependabot.yml`.
+- Any sister with a shipped manifest (`pyproject.toml`/`uv.lock`, `package.json`, `Cargo.toml`, literal `Dockerfile`) but no matching `package-ecosystem` entry and no documented deferral.
+- Any sister still on the `pip` ecosystem — flag for migration to native `uv`.
+- Deferrals (e.g., kourai's `uv` pending dependabot-core#14004) are recognized via an in-config comment naming the ecosystem + "defer"/"skip", so they don't false-positive.
+
 ## Output format
 
 A single block, no preamble (concrete repo names below are illustrative — substitute the actual entries from `$SISTERS`):
@@ -307,6 +356,10 @@ A single block, no preamble (concrete repo names below are illustrative — subs
 - repo-a: 30-day age-based log prune ✓
 - repo-b: no logs/ dir — skip
 - repo-c: logs/ present, no age-based prune → add 30-day prune to clean
+
+### Dependabot coverage
+- All sisters: dependabot.yml covers every shipped manifest (deferrals documented) ✓
+  (or list drift: "repo-c: has package.json but no npm ecosystem → add it")
 
 ### Verdict
 
