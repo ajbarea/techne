@@ -12,11 +12,7 @@ has crept in — extract it back to ROADMAP.
 
 ## In flight
 
-Nothing currently open. The 2026-05-23 audit-checks expansion (system-dep
-drop in Makefile + 4 new sister-audit checks: `allow_auto_merge`,
-`codecov.yml` / `comment: false`, branch protection on `main`, and
-`make clean` log-retention policy) shipped as [#16], [#17], [#18], [#19],
-[#21] — see ROADMAP `## Shipped`.
+Nothing currently open.
 
 Next natural pickup: any of the queued skills from ROADMAP
 `## Queued / unprioritized` (`narrative-coherence`, `positioning`,
