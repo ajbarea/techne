@@ -183,6 +183,36 @@ Then enable Pages in your GitHub repo settings (Settings -> Pages -> Source: Git
 
 **Required for:** `techne:docs-site`.
 
+## Pinning GitHub Actions to commit SHAs
+
+Every remote `uses:` reference in `.github/workflows/` is pinned to a full
+40-character commit SHA, with the human-readable tag kept as a trailing comment:
+
+```yaml
+- uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+```
+
+Git tags are mutable — anyone with write access to an action's repo can repoint a
+tag at a malicious commit. The tj-actions/changed-files compromise (2025-03, ~23k
+repos) rewrote every tag to exfiltrate CI secrets. A commit SHA is immutable, so a
+SHA-pinned workflow runs exactly the code you reviewed.
+
+- **Generate the pins** with [`pinact run`](https://github.com/suzuki-shunsuke/pinact)
+  — it resolves each tag to its SHA and appends the `# tag` comment.
+- **Stay fresh** with Dependabot's `github-actions` *version* updates, which bump
+  both the SHA and the comment. GitHub emits Dependabot *security alerts* only for
+  semver-pinned actions, so SHA-pinning trades the (rarely-firing) actions-CVE alert
+  for tag-mutation immunity — the version-update PRs are GitHub's recommended
+  companion. A `cooldown` (e.g. `default-days: 7`) holds a freshly-published release
+  before the bump PR lands. research(2026-05): GitHub Docs "Secure use reference";
+  CNCF "Securing GitHub Actions CI dependencies" recipe (2026-05-04).
+- **Keep it pinned** with `make guards` (`scripts/check_action_pins.sh`), which fails
+  the build if any remote `uses:` ref is not a full SHA. Local (`./…`) and
+  `docker://…` refs are exempt.
+
+**Enforced by:** `make guards` (techne dogfoods this in its own `validate.yml`).
+**Audited by:** `techne:sisters` (action-pin consistency across the fleet).
+
 ## Adopting incrementally
 
 You don't need all conventions at once. Common starting points:

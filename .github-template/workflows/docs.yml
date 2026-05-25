@@ -1,3 +1,6 @@
+# Starter workflow — actions are tag-pinned here for readability. After copying,
+# pin every `uses:` ref to a full commit SHA (`pinact run`); Dependabot then keeps
+# the SHA + `# vX.Y.Z` comment fresh. See techne docs/conventions.md.
 name: Documentation
 
 on:

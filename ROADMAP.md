@@ -74,15 +74,6 @@ wild.
 - **`/techne:workspace-orphans`** — content-bearing files outside the
   active sister perimeter. Same plans file, item #4. n=1 today;
   build when n≥2.
-- **GitHub Actions SHA-pinning hardening** — pin actions to full commit
-  SHAs (immutable) over version tags fleet-wide; the
-  tj-actions/changed-files compromise (2025-03, ~23k repos, CI-secret
-  exfiltration via rewritten tags) is the cautionary case. Deferred, not
-  skipped: tag pins keep Dependabot security alerts working, and
-  SHA-pinning is a deliberate per-workflow sweep rather than a config
-  toggle; Dependabot keeps SHA pins fresh once adopted.
-  research(2026-05): github.blog/changelog/2025-08-15 (policy enforcement
-  + immutable releases).
 - **Renovate revisit trigger** — if the fleet consolidates into a
   monorepo or wants cross-repo shared presets + auto-merge, re-evaluate
   Renovate (shared `extends` preset). Also re-enable the `uv` ecosystem
@@ -125,3 +116,18 @@ wild.
 ## Shipped
 
 Detail lives in git history (`git log`) and the live skill code. This log is pruned once work is durably shipped.
+
+- 2026-05-25 — **GitHub Actions SHA-pinning (fleet hardening).** Reversed the prior
+  deferral after re-checking May-2026 best practice. Every workflow `uses:` ref is
+  pinned to a full commit SHA (`# vX.Y.Z` comment preserved), enforced by `make
+  guards` → `scripts/check_action_pins.sh`, documented in docs/conventions.md. The
+  deferral's premise ("tag pins keep Dependabot security alerts working") was the
+  wrong tradeoff: GitHub emits actions alerts only for semver pins, but the dominant
+  threat is tag *mutation* (tj-actions/changed-files, 2025-03) — alerts can't catch
+  it, SHA-pinning prevents it. Freshness stays via the existing Dependabot *version*
+  updates (GitHub's recommended companion), now with a 7-day `cooldown`. Generated
+  via the authenticated `gh api` (resolves annotated tags → commit; no third-party
+  binary). research(2026-05): GitHub Docs "Secure use reference"; CNCF "Securing
+  GitHub Actions CI dependencies" recipe (2026-05-04); StepSecurity pinning guide.
+  Propagating the pins to the other 5 sisters as follow-on PRs (cooldown extends to
+  the remaining Dependabot ecosystems as a separate sweep).

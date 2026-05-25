@@ -32,13 +32,14 @@ lint:                   ## ruff check + format check on scripts/
 shellcheck:             ## shellcheck on scripts/*.sh (via shellcheck-py PyPI binary)
 	@uv run shellcheck --severity=warning scripts/*.sh
 
-guards:                 ## Stale-path + legacy-name grep guards
+guards:                 ## Stale-path + legacy-name + action-pin guards
 	@if grep -rn '\.claude/skills/_shared' plugins/techne/skills/; then \
 		echo "FAIL: SKILL.md still references the old absolute _shared path"; exit 1; \
 	fi
 	@if grep -rohE 'aj-(audit|auto-commit|ci-audit|deslop|docs-site|docsync|reslop|sisters)' plugins/techne/skills/; then \
 		echo "FAIL: SKILL.md still references aj-* names"; exit 1; \
 	fi
+	@bash scripts/check_action_pins.sh
 
 test: manifests frontmatter guards  ## Structural checks (manifests + frontmatter + guards)
 
