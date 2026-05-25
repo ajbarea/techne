@@ -81,16 +81,6 @@ Each skill is self-contained. Invoke one without pulling in the others. They sha
 
 Greek τέχνη: craft, the practical knowledge of how to make a thing well.
 
-## Sister ecosystem
-
-Techne governs a family of sister repos exploring agentic AI and federated learning from complementary angles. The skills here run against the others to keep them in sync.
-
-- **[kourai-khryseai](https://github.com/ajbarea/kourai-khryseai)** — Innovation. Multi-agent software-development forge: maidens-as-specialists over A2A, MCP sidecars, transparent human-on-the-loop.
-- **[phalanx-fl](https://github.com/ajbarea/phalanx-fl)** — Research. Federated-learning reference platform on Flower + Ray. Eight aggregation strategies with the attack vocabulary.
-- **[vFL](https://github.com/ajbarea/vFL)** — Performance. Same FL strategies as Rust kernels via PyO3 + FastMCP + Prefect Horizon.
-- **[ldqis](https://github.com/ajbarea/ldqis)** — Lab identity. Public website for the Laboratory of Data Quality and Intelligent Security at RIT.
-- **[ajbarea.github.io](https://github.com/ajbarea/ajbarea.github.io)** — Visibility. Portfolio that tells the ecosystem story end-to-end.
-
 ## License
 
 MIT.
