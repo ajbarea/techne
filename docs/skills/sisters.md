@@ -1,6 +1,6 @@
 # `techne:sisters`
 
-Cross-repo drift audit across the sister repos listed in `~/.claude/techne.toml`. Read-only inspection: CI action pins, toolchain pins in `pyproject.toml`, skill-context structural parity, GitHub merge settings, open PRs, and branch hygiene.
+Cross-repo drift audit across the sister repos listed in `~/.claude/techne.toml`. Read-only inspection: CI action pins, toolchain pins in `pyproject.toml`, skill-context structural parity, GitHub merge settings + branch protection, Codecov config, `make clean` log-retention, Dependabot config coverage, open PRs, and branch hygiene.
 
 ## When to use
 
@@ -16,7 +16,7 @@ Invoke by name in Claude Code:
 /techne:sisters
 ```
 
-The skill reads the active sister list from `~/.claude/techne.toml`, runs all checks in parallel, and outputs a single audit block grouped by category: merge settings, skill-context parity, action-pin drift, toolchain-pin drift, open PRs, stale branches, and local main sync.
+The skill reads the active sister list from `~/.claude/techne.toml`, runs all checks in parallel, and outputs a single audit block grouped by category: merge settings, skill-context parity, action-pin drift, toolchain-pin drift, branch protection, Codecov config, log-retention policy, Dependabot coverage, open PRs, stale branches, and local main sync.
 
 The skill is read-only. It surfaces findings; it does not edit files, push branches, or change GitHub settings.
 
