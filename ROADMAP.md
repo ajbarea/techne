@@ -129,5 +129,6 @@ Detail lives in git history (`git log`) and the live skill code. This log is pru
   via the authenticated `gh api` (resolves annotated tags → commit; no third-party
   binary). research(2026-05): GitHub Docs "Secure use reference"; CNCF "Securing
   GitHub Actions CI dependencies" recipe (2026-05-04); StepSecurity pinning guide.
-  Propagating the pins to the other 5 sisters as follow-on PRs (cooldown extends to
-  the remaining Dependabot ecosystems as a separate sweep).
+  All 5 follow-on pin PRs merged; `cooldown` (`default-days: 7`) now covers every
+  Dependabot ecosystem fleet-wide. Remaining: propagate the `check_action_pins.sh`
+  guard to the other sisters (only techne enforces it today).
