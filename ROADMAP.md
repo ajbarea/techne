@@ -87,6 +87,14 @@ wild.
   monorepo or wants cross-repo shared presets + auto-merge, re-evaluate
   Renovate (shared `extends` preset). Also re-enable the `uv` ecosystem
   on kourai once dependabot-core#14004 (workspace mis-targeting) closes.
+- **uv toolchain-floor churn** — Dependabot's uv ecosystem bumps pyproject
+  floors (not just uv.lock), and `versioning-strategy: lockfile-only` isn't
+  supported for uv yet (dependabot-core#12162, open as of 2026-05). So
+  ruff/ty floors drift across sisters unevenly as releases land — caught and
+  re-aligned via `/techne:sisters` check 7 (e.g. 2026-05-25). When #12162
+  lands, add `versioning-strategy: lockfile-only` to the uv entries (template
+  + repos) to stop the churn; Renovate's `update-lockfile` rangeStrategy
+  already does this if the fleet ever moves there.
 
 ---
 

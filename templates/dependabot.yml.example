@@ -20,6 +20,11 @@ updates:
   # reads pyproject.toml + uv.lock directly. CAVEAT: uv *workspaces* hit
   # dependabot-core#14004 (mis-targets members as deps); omit on workspace
   # repos until it closes (github-actions alone is still safe there).
+  # CAVEAT 2: the uv ecosystem bumps the pyproject *floor* (not just uv.lock),
+  # and `versioning-strategy: lockfile-only` isn't supported for uv yet
+  # (dependabot-core#12162). So ruff/ty floors churn + drift across sisters
+  # unevenly — /techne:sisters check 7 catches it. Add lockfile-only here once
+  # #12162 lands.
   - package-ecosystem: "uv"
     directory: "/"
     schedule:
