@@ -93,7 +93,9 @@ updates:
         update-types: ["minor", "patch"]
 
   # --- GitHub Actions --- keeps workflow action pins fresh fleet-wide; this
-  # is what previously had to be hand-synced every session.
+  # is what previously had to be hand-synced every session. Pin every `uses:`
+  # ref to a full commit SHA (see techne docs/conventions.md "Pinning GitHub
+  # Actions"); Dependabot bumps both the SHA and its `# vX.Y.Z` comment.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
@@ -101,6 +103,12 @@ updates:
       day: "monday"
     open-pull-requests-limit: 10
     labels: ["dependencies"]
+    # research(2026-05): SHA-pinned actions get Dependabot *version* updates but
+    # not *security alerts* (GitHub alerts only on semver pins). cooldown holds a
+    # newly-published release 7 days so a compromise can surface before the bump
+    # PR lands — the layered complement to SHA-pinning (CNCF 2026-05 recipe).
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: "ci(deps)"
       include: "scope"

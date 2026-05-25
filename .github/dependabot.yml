@@ -25,6 +25,10 @@ updates:
       day: "monday"
     open-pull-requests-limit: 10
     labels: ["dependencies"]
+    # SHA-pinned actions get version updates (not security alerts); cooldown holds
+    # a freshly-published release 7 days so a compromise can surface before the bump.
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: "ci(deps)"
       include: "scope"
