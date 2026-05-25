@@ -1,0 +1,105 @@
+# Canonical Dependabot config for techne sisters. Copy to
+# <repo>/.github/dependabot.yml and keep only the ecosystems the repo uses.
+# /techne:sisters audits drift against this template.
+#
+# research(2026-05): Dependabot over Renovate for this fleet — sisters are
+# separate GitHub-only repos and Dependabot is native (no Mend app / OAuth to
+# install, so it ships without a manual gate). Renovate wins for monorepos +
+# org-wide shared presets + cross-repo auto-merge; the per-repo-copy model
+# here mirrors templates/Makefile.example. Revisit if the fleet consolidates.
+# Sources: docs.renovatebot.com/bot-comparison; github.blog dependabot uv GA.
+#
+# Each entry: weekly Monday, minor+patch grouped into one PR (majors arrive
+# individually for review), "dependencies" label (Dependabot auto-creates it),
+# conventional-commit prefix (squash-merge titles).
+version: 2
+
+updates:
+  # --- Python (uv) ---
+  # research(2026-05): use "uv", not "pip" — native ecosystem (GA 2025-03-13),
+  # reads pyproject.toml + uv.lock directly. CAVEAT: uv *workspaces* hit
+  # dependabot-core#14004 (mis-targets members as deps); omit on workspace
+  # repos until it closes (github-actions alone is still safe there).
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels: ["dependencies"]
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    groups:
+      uv:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # --- Node (npm / pnpm) --- set directory to the package.json root (e.g.
+  # "/" or "/frontend"); directories: ["/a", "/b"] covers several at once.
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels: ["dependencies"]
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    groups:
+      npm:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # --- Rust (cargo) --- workspace-aware at the root Cargo.toml/Cargo.lock.
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels: ["dependencies"]
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    groups:
+      cargo:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # --- Docker --- research(2026-05): auto-detects only literal "Dockerfile"
+  # and "Dockerfile.*"; NOT "*.Dockerfile" custom names (dependabot/feedback#145).
+  # directories: ["/", "/frontend"] covers multiple Dockerfile dirs; the
+  # docker manager does not update docker-compose image pins.
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels: ["dependencies"]
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    groups:
+      docker:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # --- GitHub Actions --- keeps workflow action pins fresh fleet-wide; this
+  # is what previously had to be hand-synced every session.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels: ["dependencies"]
+    commit-message:
+      prefix: "ci(deps)"
+      include: "scope"
+    groups:
+      github-actions:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]

@@ -26,8 +26,10 @@ dogfood gates) rather than per-skill feature work.
 
 Every consumer sister carries the canonical Makefile vocabulary
 (`make setup` / `make lint` / `make test` / `make validate` / `make ci`),
-the canonical `.claude/skill-context.md` layout, and the canonical
-`scripts/dev-runner.sh` wrapper for archived runs. techne itself
+the canonical `.claude/skill-context.md` layout, the canonical
+`scripts/dev-runner.sh` wrapper for archived runs, and the canonical
+`.github/dependabot.yml` (template: `templates/dependabot.yml.example`).
+techne itself
 dogfoods the same shape (see [#14](https://github.com/ajbarea/techne/pull/14)).
 Drift between the template (`templates/Makefile.example`) and the live
 sisters surfaces through `/techne:sisters` — when a sister forks ahead
@@ -72,6 +74,24 @@ wild.
 - **`/techne:workspace-orphans`** — content-bearing files outside the
   active sister perimeter. Same plans file, item #4. n=1 today;
   build when n≥2.
+- **GitHub Actions SHA-pinning hardening** — pin actions to full commit
+  SHAs (immutable) over version tags fleet-wide; the
+  tj-actions/changed-files compromise (2025-03, ~23k repos, CI-secret
+  exfiltration via rewritten tags) is the cautionary case. Deferred, not
+  skipped: tag pins keep Dependabot security alerts working, and
+  SHA-pinning is a deliberate per-workflow sweep rather than a config
+  toggle; Dependabot keeps SHA pins fresh once adopted.
+  research(2026-05): github.blog/changelog/2025-08-15 (policy enforcement
+  + immutable releases).
+- **Dependabot config drift check in `/techne:sisters`** — compare each
+  sister's `.github/dependabot.yml` against
+  `templates/dependabot.yml.example`: ecosystem coverage vs detected
+  manifests, plus schedule/group shape. Closes the gap where the
+  template exists but nothing enforces sisters tracking it.
+- **Renovate revisit trigger** — if the fleet consolidates into a
+  monorepo or wants cross-repo shared presets + auto-merge, re-evaluate
+  Renovate (shared `extends` preset). Also re-enable the `uv` ecosystem
+  on kourai once dependabot-core#14004 (workspace mis-targeting) closes.
 
 ---
 
@@ -103,6 +123,14 @@ wild.
 
 One-liner per item, newest first. Detail moves to git history when work lands.
 
+- 2026-05-25 — **Dependabot fleet rollout** — canonical
+  `templates/dependabot.yml.example` + techne's own
+  `.github/dependabot.yml` (uv + github-actions), rolled out per-ecosystem
+  across all six sisters. research(2026-05): Dependabot over Renovate
+  (native, no Mend-app gate); native `uv` ecosystem over `pip`; `uv`
+  deferred on kourai's uv-workspace (dependabot-core#14004 open) and
+  docker skipped there (`*.Dockerfile` custom names undetected,
+  dependabot/feedback#145). Added to the sister-toolchain parity vocab
 - 2026-05-23 — **Sisters audit: `make clean` log-retention policy
   drift** — new check 10 verifies every sister with a `logs/` directory
   implements age-based pruning of `dev-*-*.log` archives (canonical
