@@ -79,7 +79,7 @@ Each skill is self-contained. Invoke one without pulling in the others. They sha
 
 ## Why "techne"
 
-Greek τέχνη: craft, the practical knowledge of how to make a thing well.
+Greek τέχνη: craft, the practical knowledge of how to make a thing well. That's what these skills are for — the craft of keeping a repo honest: audits, drift checks, clean commits, clean prose.
 
 ## License
 
