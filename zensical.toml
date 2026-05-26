@@ -5,7 +5,7 @@ site_author = "AJ Barea"
 site_url = "https://ajbarea.github.io/techne/"
 repo_url = "https://github.com/ajbarea/techne"
 repo_name = "ajbarea/techne"
-copyright = "AJ Barea · 2026"
+copyright = "AJ Barea"
 
 extra_css = [
   "stylesheets/variables.css",
@@ -38,6 +38,7 @@ nav = [
 
 [project.theme]
 name = "material"
+custom_dir = "overrides"
 language = "en"
 font.text = "Inter"
 font.code = "JetBrains Mono"
