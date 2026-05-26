@@ -90,8 +90,8 @@ MIT.
 <div align="center">
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://res.cloudinary.com/dumwa1w5x/image/upload/q_auto,f_auto,e_negate/v1779302138/brand_gwqy8l.png">
-  <img src="https://res.cloudinary.com/dumwa1w5x/image/upload/q_auto,f_auto/v1779302138/brand_gwqy8l.png" alt="" height="16" />
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/brand-white.png">
+  <img src="docs/assets/brand.png" alt="" height="16" />
 </picture>&nbsp;&nbsp;2026 <a href="https://ajbarea.github.io/">AJ Barea</a>
 
 </div>
