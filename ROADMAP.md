@@ -117,6 +117,23 @@ wild.
 
 Detail lives in git history (`git log`) and the live skill code. This log is pruned once work is durably shipped.
 
+- 2026-05-26 — **zizmor GHA static analysis (techne dogfood).** Adopted
+  [zizmor](https://github.com/zizmorcore/zizmor) as a dev dep + `make zizmor`
+  target, wired into `make validate` and the validate.yml gate — extending the
+  GHA-security layer beyond `check_action_pins.sh` (pinning-only) to zizmor's
+  security audits (template injection, excessive-permissions, artipacked,
+  unpinned-uses, …). Fixed what it surfaced in techne's own workflows:
+  least-privilege per-job permissions on docs.yml (`pages: write` + `id-token:
+  write` moved off the workflow level onto the deploy job only — build needs
+  just `contents: read`, since `configure-pages` defaults to `enablement: false`
+  and Pages is already enabled), plus `persist-credentials: false` on every
+  checkout (artipacked). research(2026-05): Trail of Bits "We hardened zizmor"
+  (2026-05-22); zizmor audit docs; zizmor + actionlint are complementary
+  (security vs correctness). Remaining: propagate to the sisters — every FL/docs
+  sister carries the same docs.yml workflow-level permission over-grant +
+  artipacked, each needing its findings triaged (separate PRs). actionlint and
+  zizmor SARIF→code-scanning upload are later enhancements.
+
 - 2026-05-25 — **GitHub Actions SHA-pinning (fleet hardening).** Reversed the prior
   deferral after re-checking May-2026 best practice. Every workflow `uses:` ref is
   pinned to a full commit SHA (`# vX.Y.Z` comment preserved), enforced by `make

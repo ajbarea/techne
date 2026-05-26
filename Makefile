@@ -4,7 +4,7 @@
 ## that techne itself documents at docs/conventions.md.
 ##
 
-.PHONY: help check-env setup manifests frontmatter fix lint shellcheck guards test validate build ci clean docs
+.PHONY: help check-env setup manifests frontmatter fix lint shellcheck guards zizmor test validate build ci clean docs
 .DEFAULT_GOAL := help
 
 check-env:              ## Verify required tools are on PATH
@@ -41,9 +41,12 @@ guards:                 ## Stale-path + legacy-name + action-pin guards
 	fi
 	@bash scripts/check_action_pins.sh
 
+zizmor:                 ## zizmor GHA security scan (.github/workflows/)
+	@uv run zizmor .github/workflows/
+
 test: manifests frontmatter guards  ## Structural checks (manifests + frontmatter + guards)
 
-validate: lint shellcheck test  ## Fast pre-push gate
+validate: lint shellcheck zizmor test  ## Fast pre-push gate
 
 build:                  ## Build docs site (strict; mirrors docs.yml deploy)
 	@uv run zensical build --clean --strict
