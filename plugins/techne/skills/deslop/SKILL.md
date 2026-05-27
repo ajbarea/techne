@@ -1,6 +1,6 @@
 ---
 name: deslop
-description: Scan the codebase for AI-generated slop in comments and docstrings — temporal markers, self-referential AI framing, narrative WHAT-comments, marketing padding — and propose tightened rewrites. Use when the user wants to audit pending changes or the whole codebase for verbose, low-value commentary left by other assistants (Copilot, Gemini, GPT, etc.).
+description: Scan the codebase for AI-generated slop in comments and docstrings — temporal markers, self-referential AI framing, narrative WHAT-comments, marketing padding — and propose tightened rewrites, routing claim-bearing docstrings that need a code-grounded rewrite to its sibling /techne:reslop. Use when the user wants to audit pending changes or the whole codebase for verbose, low-value commentary left by other assistants (Copilot, Gemini, GPT, etc.).
 disable-model-invocation: false
 allowed-tools: Bash Glob Grep Read Edit Agent
 ---
@@ -68,7 +68,21 @@ User-specific calibration — patterns the user flags most often from their own 
 
 3. **Consolidate.** Merge findings grouped by file. Drop duplicates and obvious false positives. If two subagents disagree on the same line, prefer the less aggressive edit.
 
-4. **Present, then apply on request.** Default: show the list, then ask `apply all / apply selected / skip?`. If the user invoked the skill with `--apply` or clearly said "just fix them", skip the confirmation and run `Edit` directly.
+4. **Present, then apply on request.** Default: show the list, then ask `apply all / apply selected / skip?`. If the user invoked the skill with `--apply` or clearly said "just fix them", skip the confirmation and run `Edit` directly. Claim-bearing docstrings that need a code-grounded rewrite are routed to reslop first — see **Handoff** below.
+
+## Handoff to /techne:reslop
+
+Each hit gets one of three verdicts: **delete** (the name already says it), **trim in place** (the prose is accurate, just wordy — compress it on surface patterns), or **keep** (load-bearing why). A fourth case is reslop's, not deslop's:
+
+- A keep-worthy docstring whose **claims can't be verified from the comment alone** — behavioral assertions ("thread-safe", "idempotent"), perf/scale numbers, or vague marketing wrapped around a real function. Surface-trimming would just relabel an unchecked claim; the honest fix is reslop's code-grounded rewrite (read the implementation + call sites + tests, then state what's true).
+
+Route those, gated on scope:
+
+- **Path-scoped run** (`/techne:deslop <path>`) → hand the grounding candidates to reslop: invoke `/techne:reslop <files>`, or follow `../reslop/SKILL.md` directly (read each target's implementation + call sites + tests; obey its hard rules), then fold the rewrites into the consolidated diff. Whether they auto-apply follows the same `--apply` / "just fix them" rule as deslop's own edits.
+- **Whole-repo / fleet sweep** (no path) → do **not** fire reslop; list the candidates as a `/techne:reslop <files>` to-do so the cheap sweep stays cheap.
+- **Count guard:** even when path-scoped, if more than ~10 docstrings need grounding, report the count and confirm before running them all — a deep read per symbol adds up.
+
+The reverse already holds: when reslop lands on something that should just be deleted, it hands back here rather than inventing filler.
 
 ## Don't touch
 

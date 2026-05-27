@@ -7,7 +7,7 @@ allowed-tools: Bash Glob Grep Read Edit Agent
 
 # Reslop
 
-Generative sibling of `/techne:deslop`. Where `/techne:deslop` deletes low-value prose, `/techne:reslop` *rewrites* it — grounded in the code, not in marketing instincts.
+Generative sibling of `/techne:deslop`. Where `/techne:deslop` deletes low-value prose, `/techne:reslop` *rewrites* it — grounded in the code, not in marketing instincts. On a path-scoped `/techne:deslop <path>` run, deslop auto-routes claim-bearing docstrings here; on a bare whole-repo sweep it lists them for you to run this directly.
 
 ## Repo context
 
