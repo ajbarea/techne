@@ -12,7 +12,9 @@ has crept in — extract it back to ROADMAP.
 
 ## In flight
 
-Nothing currently open.
+docsync cross-repo skill-context fix shipped 2026-05-27 (see ROADMAP
+`## Shipped`). Immediate next: self-host `/techne:docsync` on techne's own
+README + `docs/` as part of the current fleet docs-reliability sweep.
 
 Next natural pickup: any of the queued skills from ROADMAP
 `## Queued / unprioritized` (`narrative-coherence`, `positioning`,

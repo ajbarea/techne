@@ -117,6 +117,22 @@ wild.
 
 Detail lives in git history (`git log`) and the live skill code. This log is pruned once work is durably shipped.
 
+- 2026-05-27 — **docsync cross-repo skill-context fix.** `/techne:docsync` audits a doc
+  that may live in a different repo than CWD (e.g. `docsync ../velocity-fl/README.md`), but
+  it loaded `.claude/skill-context.md` via a load-time `` !`cat …` `` injection that always
+  reads CWD — so cross-repo runs verified claims against the *wrong* repo's context (the
+  workaround was `cd` into the target first). Replaced the injection with an explicit,
+  argument-aware `Read`: resolve the target repo root from the doc-path arg
+  (`git -C "$(dirname <doc>)" rev-parse --show-toplevel`) then read that repo's
+  skill-context. Correct for file / dir / no-arg (CWD) inputs and independent of injection
+  ordering. The 6 CWD-bound siblings (audit, ci-audit, theoros, docs-site, deslop, reslop)
+  keep the `` !`` `` block — they run *in* the repo, so CWD is the target; docsync is the only
+  path-argument skill, so its divergence is intentional. research(2026-05):
+  [code.claude.com/docs slash-commands](https://code.claude.com/docs/en/slash-commands) —
+  args are 0-based (`$0` = first), `!`cmd`` injection runs *before* the model sees content;
+  whether an arg interpolates *into* an injection block is undocumented, so the fix avoids
+  depending on it rather than betting on an unverified mechanic.
+
 - 2026-05-26 — **zizmor GHA static analysis (techne dogfood).** Adopted
   [zizmor](https://github.com/zizmorcore/zizmor) as a dev dep + `make zizmor`
   target, wired into `make validate` and the validate.yml gate — extending the

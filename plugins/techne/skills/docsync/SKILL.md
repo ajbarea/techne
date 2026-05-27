@@ -11,11 +11,13 @@ Compare documentation against the code it describes. Find where the docs say one
 
 ## Repo context
 
-```!
-cat .claude/skill-context.md 2>/dev/null || echo "(no .claude/skill-context.md — verification will use generic defaults)"
+`/techne:docsync` audits a doc that may live in a **different repo than your CWD** (e.g. `/techne:docsync ../velocity-fl/README.md`). Skill-context must therefore come from the *target's* repo, not CWD. A load-time `` !`cat .claude/skill-context.md` `` injection can't do this — it runs before the target path is parsed, so it always reads CWD. Resolve the repo root from the doc-path argument instead:
+
+```bash
+git -C "$(dirname "<target-doc>")" rev-parse --show-toplevel   # target repo root; with no path arg this resolves to the CWD repo
 ```
 
-The injected `## repo` section tells you the CLI entrypoint and runner module this repo exposes (so you know where `make`-target docs should verify against). `## slop_ground_truth` tells you where quantitative claims must trace to.
+Then `Read` `<root>/.claude/skill-context.md`. Its `## repo` section names the CLI entrypoint and runner module the repo exposes (so command and `make`-target claims verify against the right code); `## slop_ground_truth` names where quantitative claims must trace. No `.claude/skill-context.md` at the target root → fall back to generic verification defaults.
 
 ## Checkable claims
 
@@ -27,7 +29,7 @@ The injected `## repo` section tells you the CLI entrypoint and runner module th
 - **Version constraints** — Python / dependency pins. Verify against `pyproject.toml`, workflow files.
 - **Internal links / anchors** — `[see strategies](strategies.md#fedavg)`. Verify target exists.
 - **Exit codes and error messages** — Verify against the source that produces them.
-- **Performance / comparative claims** — `45× faster`, `under 10 ms`, `scales to 100 clients`, `sub-millisecond aggregation`. Verify against the injected `slop_ground_truth` sources. If the claim is not traceable to a measurement there, it is drift — propose one of: cite the specific test, replace with the measured number, or delete. Use the "Unsupported quantitative / comparative claims" section of `${CLAUDE_PLUGIN_ROOT}/_shared/hate-words.md` as the grep-seed pattern list.
+- **Performance / comparative claims** — `45× faster`, `under 10 ms`, `scales to 100 clients`, `sub-millisecond aggregation`. Verify against the `slop_ground_truth` sources from the target repo's skill-context. If the claim is not traceable to a measurement there, it is drift — propose one of: cite the specific test, replace with the measured number, or delete. Use the "Unsupported quantitative / comparative claims" section of `${CLAUDE_PLUGIN_ROOT}/_shared/hate-words.md` as the grep-seed pattern list.
 
 ## Ignore
 
