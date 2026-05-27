@@ -1,7 +1,8 @@
 # skill-context — techne
 
-Repo-specific facts for canonical techne skills. Injected into each skill at
-invocation via `!cat .claude/skill-context.md`. This is the meta-repo — the
+Repo-specific facts for canonical techne skills. Most skills load this via a
+load-time `` !`cat .claude/skill-context.md` `` injection; docsync reads it from
+the target doc's repo root instead (it audits docs in other repos). This is the meta-repo — the
 skills shipped here run against sister repos; running them inside this repo
 audits the skill collection itself.
 

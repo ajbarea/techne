@@ -32,7 +32,7 @@ Each skill encodes assumptions about the ecosystem it audits: `techne:audit` ass
 
 The maintenance invariant: whenever a Claude Code release, MCP spec revision, GitHub Actions schema change, or frontier-model capability shift lands, audit which skill in this repo exists to compensate for a gap that may now be closed — and which skill's structural assumption has just gone stale. Skills are not write-once; they are kept in sync with the moving substrate they audit. Treat any skill last touched more than a quarter ago as suspect until re-verified against current platform docs.
 
-This invariant runs philosophically — there is no automated check; it's a stance the maintainer holds when reading release notes. The sibling sister repos apply the same audit to their own code (see `phalanx-fl`, `vFL`, `kourai-khryseai` ROADMAPs); techne's variant is meta — it audits the audit tools themselves.
+This invariant runs philosophically — there is no automated check; it's a stance the maintainer holds when reading release notes. The sibling sister repos apply the same audit to their own code (see `phalanx-fl`, `velocity-fl`, `kourai-khryseai` ROADMAPs); techne's variant is meta — it audits the audit tools themselves.
 
 ## See also
 

@@ -12,9 +12,11 @@ has crept in — extract it back to ROADMAP.
 
 ## In flight
 
-docsync cross-repo skill-context fix shipped 2026-05-27 (see ROADMAP
-`## Shipped`). Immediate next: self-host `/techne:docsync` on techne's own
-README + `docs/` as part of the current fleet docs-reliability sweep.
+Nothing currently open. Shipped this session: the docsync cross-repo
+skill-context fix (ROADMAP `## Shipped`), plus a self-docsync pass over
+techne's own docs that cleared fabricated `skill-context.md` config keys +
+`--verbose`/`--debug` flags from `getting-started.md` and a stale `vFL`
+sister name in `architecture.md`.
 
 Next natural pickup: any of the queued skills from ROADMAP
 `## Queued / unprioritized` (`narrative-coherence`, `positioning`,

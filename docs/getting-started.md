@@ -103,22 +103,19 @@ See [Examples](examples.md) for real-world workflows.
 
 ### Per-Repo Configuration
 
-Some skills accept repo-specific overrides in `.claude/skill-context.md`. Example:
+Several skills read repo-specific facts from `.claude/skill-context.md` — one `##` section per skill family (markdown headers, not top-level keys). For example:
 
-```yaml
-audit:
-  skip_targets:
-    - docker-build
+```markdown
+## audit (techne:audit)
+phases: [setup, lint, test, ci]
+fast_subset: [lint, test]
 
-auto-commit:
-  create_pr: true
-  target_branch: main
-
-docsync:
-  check_code_blocks: true
+## slop_ground_truth (techne:deslop / techne:reslop / techne:docsync)
+authoritative_sources:
+  - "src/"
 ```
 
-See [Configuration](configuration.md) for all options.
+See [Conventions](conventions.md) for the full skeleton, and [Configuration](configuration.md) for the user-level `~/.claude/techne.toml`.
 
 ### Multi-Repo Configuration
 
@@ -161,7 +158,7 @@ A: Only if you approve. Skills like `auto-commit` stage and commit, but they ask
 A: `deslop` finds and trims AI-slop (verbose, redundant prose). `reslop` rewrites docstrings grounded in the actual code. Use `deslop` for triage; use `reslop` when you want replacement prose, not deletion. See [Examples](examples.md#pre-release-documentation-audit) for a real workflow.
 
 **Q: How do I debug issues?**  
-A: Run the skill again with increased verbosity (most skills support `--verbose` or `--debug`). If a skill gets stuck, you can always cancel and try a different approach.
+A: The skills are prompt-driven, not CLI tools with flags — steer them in natural language. Ask Claude to explain what a skill is doing, or tell it what looked wrong and rerun. If one gets stuck, cancel and try a different approach.
 
 ## Troubleshooting
 
@@ -175,14 +172,14 @@ A: Run the skill again with increased verbosity (most skills support `--verbose`
 - Authenticate: `gh auth login`
 
 **"Skill runs but output looks wrong"**  
-- Increase verbosity: `techne:audit --verbose`
+- Re-run and tell Claude what specifically looked off — there are no `--verbose`/`--debug` flags; the skills are prompt-driven, so natural language is the control surface.
 - Check `.claude/skill-context.md` for any overrides that might affect behavior.
 - Ask Claude to explain what the skill is doing.
 
 **"Sister repo config not working"**  
 - Verify `~/.claude/techne.toml` exists and is readable.
 - Check the repo names match your actual directories.
-- Run `techne:sisters --debug` to see which repos are detected.
+- Ask `techne:sisters` which repos it detected from the config.
 
 ## Next Steps
 
