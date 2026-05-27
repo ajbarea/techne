@@ -110,6 +110,11 @@ wild.
   the marketplace manifest, or changing the SKILL.md frontmatter shape,
   verify against [code.claude.com/docs/en/skills](https://code.claude.com/docs/en/skills)
   and Anthropic's current marketplace docs.
+- **Validation stays extracted + linted.** `scripts/validate_skill_frontmatter.py` is the
+  real frontmatter validator (extracted from an inline-YAML heredoc in `validate.yml`,
+  2026-05-20 PR #9) — do NOT re-inline it. `scripts/*.sh` run through `shellcheck
+  --severity=warning`, `scripts/*.py` through ruff; techne carries the same sister-toolchain
+  lint/test discipline it audits elsewhere.
 
 ---
 
