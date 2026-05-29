@@ -69,8 +69,6 @@ wild.
   audit. See [skill-ideas-from-audit-of-audit](./superpowers/plans/2026-05-21-skill-ideas-from-audit-of-audit.md) item #2.
 - **`/techne:positioning`** — identity-drift check (claim vs work).
   Same plans file, item #1.
-- **`/techne:research-grounded`** — flag IMPL/ROADMAP design choices
-  missing `# research(YYYY-MM):` provenance. Same plans file, item #3.
 - **`/techne:workspace-orphans`** — content-bearing files outside the
   active sister perimeter. Same plans file, item #4. n=1 today;
   build when n≥2.
@@ -122,6 +120,12 @@ wild.
 
 Detail lives in git history (`git log`) and the live skill code. This log is pruned once work is durably shipped.
 
+- 2026-05-29 — **`/techne:research-grounded` skill.** Audits IMPL.md / ROADMAP.md for committed
+  design decisions (library / framework / pattern / architecture choices) that lack a
+  `# research(YYYY-MM):` provenance tag, then web-searches to ground them — closing the loop
+  that, skipped, turned an SSML capability bet into 5 revertable PRs. Judgment over grep:
+  descriptive "instead of" prose and hypotheticals are filtered out. Validated on kourai
+  (8/10 grep candidates correctly ignored, 2 genuine gaps surfaced). Sibling of `/techne:docsync`.
 - 2026-05-27 — **docsync cross-repo skill-context fix.** `/techne:docsync` audits a doc
   that may live in a different repo than CWD (e.g. `docsync ../velocity-fl/README.md`), but
   it loaded `.claude/skill-context.md` via a load-time `` !`cat …` `` injection that always
