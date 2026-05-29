@@ -55,11 +55,11 @@ gating. Open coverage gaps:
 
 Skills are added when a pattern proves itself across multiple sisters
 (n≥2). Skills are deleted or merged when their domain collapses into a
-larger sibling. The current set (9 skills, 4 catalog dimensions —
-audit, drift, hygiene, observation) is stable; the next addition will
-likely be `narrative-coherence` or `positioning` once the
-2026-05-21 audit-of-audit drift class shows up a second time in the
-wild.
+larger sibling. The current set (10 skills, 4 catalog dimensions —
+audit, drift, hygiene, observation) is stable. `research-grounded`
+(the 2026-05-21 audit-of-audit item #3) shipped 2026-05-29 on direct
+request; `narrative-coherence` / `positioning` (items #2 / #1) remain
+queued for when that drift class recurs.
 
 ---
 

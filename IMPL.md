@@ -24,12 +24,12 @@ Next natural pickup: any of the queued skills from ROADMAP
 
 ## Skill collection state
 
-Nine skills shipped as of 2026-05-23, four catalog dimensions:
+Ten skills shipped as of 2026-05-29, four catalog dimensions:
 
 | Dimension | Skills |
 | --- | --- |
 | **Audit** | `audit`, `ci-audit` |
-| **Drift** | `docsync`, `docs-site`, `sisters` |
+| **Drift** | `docsync`, `docs-site`, `research-grounded`, `sisters` |
 | **Hygiene** | `auto-commit`, `deslop`, `reslop` |
 | **Observation** | `theoros` |
 
