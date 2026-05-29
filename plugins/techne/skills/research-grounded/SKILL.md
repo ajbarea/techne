@@ -42,13 +42,25 @@ Each of these, when committed in IMPL/ROADMAP, should carry an adjacent `# resea
 
 1. **Scope.** Default: `IMPL.md` + `ROADMAP.md` in the target repo. Accept a named file or a directory (e.g. `planning/`). For multiple files, fan out — one `Explore` subagent per file (see [Fan-out](#fan-out-pattern)).
 
-2. **Find candidate decisions.** Seed with a grep, then *read around each hit* — the grep finds candidates; judgment decides which are research-worthy per the lists above.
+2. **Find candidate decisions — two grep passes, then read the design sections.** The greps seed candidates; judgment decides which are research-worthy per the lists above.
+
+   **Pass A — decision verbs** (catches "Library … over …" and "Pattern over pattern" phrasing):
 
    ```bash
    grep -nEi 'chose|switched|adopted|replaced|opted for|we use|picked|migrated|over [A-Za-z.-]+ \(|instead of' ROADMAP.md IMPL.md
    ```
 
-   **Don't trust the grep.** Most `instead of` hits are descriptive prose, not technology choices — classify per-hit, not per-match.
+   **Pass B — capability & best-practice-as-fact** (catches the costliest class — "Version / API-surface bets stated as fact" — which carries *no* decision verb, so Pass A is blind to it):
+
+   ```bash
+   grep -nEi 'supports?|exposes?|provides?|enables?|natively|built-in|out of the box|standard|canonical|idiomatic|recommended|modern|best practice' ROADMAP.md IMPL.md
+   ```
+
+   Pass B surfaces "RealtimeTTS *exposes* word-timing for Kokoro", "*Standard* FastAPI 2026 setup", "the 2026 *modern* … *standard* is X" — claims a verb-grep never sees.
+
+   **Neither grep is sufficient — also read the doc's design / architecture sections directly.** Both passes are noisy *and* leaky: a bet phrased as a bare proper-noun list ("Postgres + SQLModel + asyncpg", "MapLibre + PMTiles", "on `Message.metadata`") trips no keyword at all. The real signal is **proper-noun library / protocol / API names**; `.claude/skill-context.md`'s `## repo` section tells you which tokens are this repo's technology choices. Classify per-hit, not per-match — most Pass A `instead of` hits and most Pass B `supports`/`standard` hits are descriptive prose.
+
+   > research(2026-05): off-the-shelf prose linters (proselint / write-good / Vale) flag *style* weasel-words ("very", "quite"), **not** capability-claims-missing-provenance — so this seed is bespoke by necessity, not a reinvented wheel.
 
 3. **Check provenance.** For each genuine decision, look for a `research(YYYY-MM):` (or `# research:`) tag on the same bullet or within a few lines. Present → grounded, skip. Absent → gap.
 
