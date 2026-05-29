@@ -26,6 +26,7 @@ nav = [
       { "deslop" = "skills/deslop.md" },
       { "docs-site" = "skills/docs-site.md" },
       { "docsync" = "skills/docsync.md" },
+      { "research-grounded" = "skills/research-grounded.md" },
       { "reslop" = "skills/reslop.md" },
       { "sisters" = "skills/sisters.md" },
       { "theoros" = "skills/theoros.md" },
