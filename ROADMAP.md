@@ -6,7 +6,7 @@ dated one-liner under [Shipped](#shipped). Historical design specs and
 plans archived under [`superpowers/plans/`](./superpowers/plans/) and
 [`superpowers/specs/`](./superpowers/specs/).
 
-Last reviewed: 2026-05-23.
+Last reviewed: 2026-05-30 (dependabot-core upstream re-check: #12162 closed → uv lockfile-only unblocked; #14004 still open).
 
 ---
 
@@ -75,15 +75,20 @@ queued for when that drift class recurs.
 - **Renovate revisit trigger** — if the fleet consolidates into a
   monorepo or wants cross-repo shared presets + auto-merge, re-evaluate
   Renovate (shared `extends` preset). Also re-enable the `uv` ecosystem
-  on kourai once dependabot-core#14004 (workspace mis-targeting) closes.
-- **uv toolchain-floor churn** — Dependabot's uv ecosystem bumps pyproject
-  floors (not just uv.lock), and `versioning-strategy: lockfile-only` isn't
-  supported for uv yet (dependabot-core#12162, open as of 2026-05). So
-  ruff/ty floors drift across sisters unevenly as releases land — caught and
-  re-aligned via `/techne:sisters` check 7 (e.g. 2026-05-25). When #12162
-  lands, add `versioning-strategy: lockfile-only` to the uv entries (template
-  + repos) to stop the churn; Renovate's `update-lockfile` rangeStrategy
-  already does this if the fleet ever moves there.
+  on kourai once dependabot-core#14004 (workspace mis-targeting) closes —
+  **re-checked 2026-05-30: still open**, so kourai's uv deferral stands.
+- **uv toolchain-floor churn → unblocked 2026-05-30.** Dependabot's uv ecosystem
+  bumps pyproject floors (not just uv.lock), so ruff/ty floors drift across
+  sisters unevenly as releases land — caught and re-aligned via `/techne:sisters`
+  check 7 (e.g. 2026-05-25). **dependabot-core#12162 (uv `versioning-strategy`
+  support) is now closed (`completed`, ~2026-02)**, so the queued fix is live: add
+  `versioning-strategy: lockfile-only` to the uv entries (template + repos) so
+  Dependabot stops bumping floors and the churn ends. Verify uv accepts the
+  `lockfile-only` value specifically before the fleet edit — #12162 tracked the
+  versioning-strategy umbrella (its requester wanted `increase`), so confirm the
+  exact value lands. Renovate's `update-lockfile` rangeStrategy is the equivalent
+  if the fleet ever moves there. `research(2026-05)`: dependabot/dependabot-core#12162
+  closed-completed (the open blocker this item waited on).
 
 ---
 
@@ -172,5 +177,7 @@ Detail lives in git history (`git log`) and the live skill code. This log is pru
   binary). research(2026-05): GitHub Docs "Secure use reference"; CNCF "Securing
   GitHub Actions CI dependencies" recipe (2026-05-04); StepSecurity pinning guide.
   All 5 follow-on pin PRs merged; `cooldown` (`default-days: 7`) now covers every
-  Dependabot ecosystem fleet-wide. Remaining: propagate the `check_action_pins.sh`
-  guard to the other sisters (only techne enforces it today).
+  Dependabot ecosystem fleet-wide. Remaining (DRY, not coverage): every sister
+  already enforces pin-pinning via an inline regex in its own `pin-check.yml`;
+  consolidating them onto techne's shared `check_action_pins.sh` is the open step.
+  Pin-pinning is fleet-wide today — only the *shared script* is techne-only.
