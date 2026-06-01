@@ -77,18 +77,24 @@ queued for when that drift class recurs.
   Renovate (shared `extends` preset). Also re-enable the `uv` ecosystem
   on kourai once dependabot-core#14004 (workspace mis-targeting) closes —
   **re-checked 2026-05-30: still open**, so kourai's uv deferral stands.
-- **uv toolchain-floor churn → unblocked 2026-05-30.** Dependabot's uv ecosystem
-  bumps pyproject floors (not just uv.lock), so ruff/ty floors drift across
-  sisters unevenly as releases land — caught and re-aligned via `/techne:sisters`
-  check 7 (e.g. 2026-05-25). **dependabot-core#12162 (uv `versioning-strategy`
-  support) is now closed (`completed`, ~2026-02)**, so the queued fix is live: add
-  `versioning-strategy: lockfile-only` to the uv entries (template + repos) so
-  Dependabot stops bumping floors and the churn ends. Verify uv accepts the
-  `lockfile-only` value specifically before the fleet edit — #12162 tracked the
-  versioning-strategy umbrella (its requester wanted `increase`), so confirm the
-  exact value lands. Renovate's `update-lockfile` rangeStrategy is the equivalent
-  if the fleet ever moves there. `research(2026-05)`: dependabot/dependabot-core#12162
-  closed-completed (the open blocker this item waited on).
+- **uv toolchain-floor churn — still deferred (re-verified 2026-06-01).** Dependabot's
+  uv ecosystem bumps pyproject floors (not just uv.lock), so ruff/ty floors drift
+  across sisters unevenly as releases land — caught and re-aligned via
+  `/techne:sisters` check 7 (e.g. 2026-05-25), which remains the mitigation. The
+  queued fix was `versioning-strategy: lockfile-only` on the uv entries, gated on
+  dependabot-core#12162. **2026-06-01 verification says not ready, despite the issue
+  closing:** #12162 closed (`completed`) but tracked the umbrella for its requester's
+  `increase` value, not `lockfile-only` for uv; astral's own uv↔Dependabot guide
+  (docs.astral.sh/uv/guides/integration/dependabot) documents only `package-ecosystem`
+  + `cooldown` and **never mentions `versioning-strategy`**, and current sources report
+  it "not fully supported for uv." Applying `lockfile-only` fleet-wide would push
+  unverified config (silently ignored at best, broken updates at worst), so the
+  template comment ("not supported for uv yet") stands — do **not** edit the fleet
+  until astral's guide or the GitHub options reference explicitly lists
+  `versioning-strategy` for the uv ecosystem. Renovate's `update-lockfile`
+  rangeStrategy is the equivalent if the fleet ever moves there. `research(2026-06)`:
+  astral uv-Dependabot guide (no versioning-strategy); #12162 closed for `increase`,
+  uv `lockfile-only` support unconfirmed.
 
 ---
 
