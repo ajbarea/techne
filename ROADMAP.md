@@ -72,6 +72,23 @@ queued for when that drift class recurs.
 - **`/techne:workspace-orphans`** — content-bearing files outside the
   active sister perimeter. Same plans file, item #4. n=1 today;
   build when n≥2.
+- **Execution-grounded triage pattern (watcher, not a build).** Anthropic's
+  [defending-code-reference-harness](https://github.com/anthropics/defending-code-reference-harness)
+  (autonomous C/C++ memory-safety vuln discovery) is **not** applicable to the
+  fleet as a tool — nothing here is C/C++, velocity-fl's Rust core has zero
+  `unsafe` blocks (no buffer-overflow / UAF class to fuzz), and the FL sisters'
+  "security" is adversarial-ML (Byzantine/Fang/DP), a different domain. The one
+  transferable idea is its **triage methodology**: stage findings
+  (scan → dedupe → *N-vote verify* → patch) and only let *execution-* or
+  *reproduction-verified* findings survive, to crush false positives. That maps
+  onto techne's audit family (`/techne:audit`, `/techne:ci-audit`) — a future
+  audit skill could adopt N-vote verification before it asserts a finding rather
+  than reporting single-pass. **Why only a watcher:** code-vuln scanning is
+  already covered by the built-in `/security-review` + `/code-review ultra`, so
+  techne should not grow a vuln-scan skill (no n≥2 gap); the *N-vote verification*
+  sub-pattern is the only piece worth borrowing, and only if a techne audit skill
+  starts emitting false positives that single-pass review can't filter. Logged so
+  the harness isn't re-evaluated from scratch next time it surfaces.
 - **Renovate revisit trigger** — if the fleet consolidates into a
   monorepo or wants cross-repo shared presets + auto-merge, re-evaluate
   Renovate (shared `extends` preset). Also re-enable the `uv` ecosystem
