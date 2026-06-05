@@ -17,6 +17,7 @@ The included skills, grouped by what they do.
 | [`techne:deslop`](deslop.md) | Scans comments and docstrings for AI-generated slop and proposes tightened rewrites. |
 | [`techne:reslop`](reslop.md) | Rewrites docstrings grounded in the implementation rather than deleting them outright. |
 | [`techne:docsync`](docsync.md) | Verifies documentation claims (CLI commands, paths, config keys, signatures) against the actual code. |
+| [`techne:research-grounded`](research-grounded.md) | Flags design decisions in `IMPL.md` / `ROADMAP.md` that lack `# research(YYYY-MM):` provenance, then web-searches to ground them. |
 
 ## Site and cross-repo
 

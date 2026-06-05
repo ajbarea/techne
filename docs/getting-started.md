@@ -35,15 +35,17 @@ Let's walk through a typical use case: **validating your local build before push
 
 Choose based on what you're trying to do:
 
-| Want to... | Use | Time |
-|---|---|---|
-| Validate your local build is clean (lint, test, etc.) | [`techne:audit`](skills/audit.md) | 2-5 min |
-| Organize your pending changes into logical commits | [`techne:auto-commit`](skills/auto-commit.md) | 3-10 min |
-| Check GitHub Actions for warnings and failures | [`techne:ci-audit`](skills/ci-audit.md) | 2-5 min |
-| Clean up AI-generated slop in your code | [`techne:deslop`](skills/deslop.md) | 5-15 min |
-| Verify documentation claims match the code | [`techne:docsync`](skills/docsync.md) | 5-10 min |
-| Maintain your Zensical docs site | [`techne:docs-site`](skills/docs-site.md) | 2-5 min |
-| Audit sister repos for consistency | [`techne:sisters`](skills/sisters.md) | 5-10 min |
+| Want to... | Use |
+|---|---|
+| Validate your local build is clean (lint, test, etc.) | [`techne:audit`](skills/audit.md) |
+| Organize your pending changes into logical commits | [`techne:auto-commit`](skills/auto-commit.md) |
+| Check GitHub Actions for warnings and failures | [`techne:ci-audit`](skills/ci-audit.md) |
+| Clean up AI-generated slop in your code | [`techne:deslop`](skills/deslop.md) |
+| Rewrite docstrings grounded in the code | [`techne:reslop`](skills/reslop.md) |
+| Verify documentation claims match the code | [`techne:docsync`](skills/docsync.md) |
+| Maintain your Zensical docs site | [`techne:docs-site`](skills/docs-site.md) |
+| Ground plan decisions in current best practice | [`techne:research-grounded`](skills/research-grounded.md) |
+| Audit sister repos for consistency | [`techne:sisters`](skills/sisters.md) |
 
 ### 2. Run Your First Skill
 
@@ -103,14 +105,14 @@ See [Examples](examples.md) for real-world workflows.
 
 ### Per-Repo Configuration
 
-Several skills read repo-specific facts from `.claude/skill-context.md` — one `##` section per skill family (markdown headers, not top-level keys). For example:
+Several skills read repo-specific facts from `.claude/skill-context.md`, one `##` section per skill family (markdown headers, not top-level keys). For example:
 
 ```markdown
-## audit (techne:audit)
+## audit
 phases: [setup, lint, test, ci]
 fast_subset: [lint, test]
 
-## slop_ground_truth (techne:deslop / techne:reslop / techne:docsync)
+## slop_ground_truth
 authoritative_sources:
   - "src/"
 ```
@@ -158,7 +160,7 @@ A: Only if you approve. Skills like `auto-commit` stage and commit, but they ask
 A: `deslop` finds and trims AI-slop (verbose, redundant prose). `reslop` rewrites docstrings grounded in the actual code. Use `deslop` for triage; use `reslop` when you want replacement prose, not deletion. See [Examples](examples.md#pre-release-documentation-audit) for a real workflow.
 
 **Q: How do I debug issues?**  
-A: The skills are prompt-driven, not CLI tools with flags — steer them in natural language. Ask Claude to explain what a skill is doing, or tell it what looked wrong and rerun. If one gets stuck, cancel and try a different approach.
+A: The skills are prompt-driven, not CLI tools with flags; steer them in natural language. Ask Claude to explain what a skill is doing, or tell it what looked wrong and rerun. If one gets stuck, cancel and try a different approach.
 
 ## Troubleshooting
 
@@ -172,7 +174,7 @@ A: The skills are prompt-driven, not CLI tools with flags — steer them in natu
 - Authenticate: `gh auth login`
 
 **"Skill runs but output looks wrong"**  
-- Re-run and tell Claude what specifically looked off — there are no `--verbose`/`--debug` flags; the skills are prompt-driven, so natural language is the control surface.
+- Re-run and tell Claude what specifically looked off. There are no `--verbose`/`--debug` flags; the skills are prompt-driven, so natural language is the control surface.
 - Check `.claude/skill-context.md` for any overrides that might affect behavior.
 - Ask Claude to explain what the skill is doing.
 

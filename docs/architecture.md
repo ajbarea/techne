@@ -8,6 +8,8 @@ Techne is a collection of independent, composable skills that share conventions 
 
 **Documentation and prose.** `techne:docs-site` maintains the Zensical-built Pages workflow, link integrity, and asset hygiene. `techne:docsync` verifies prose claims (CLI commands, paths, signatures, config keys) against the actual codebase. `techne:deslop` flags AI-generated slop in comments and docstrings; `techne:reslop` rewrites docstrings grounded in the implementation rather than deleting them outright.
 
+**Planning and provenance.** `techne:research-grounded` audits design decisions in `IMPL.md` / `ROADMAP.md` for missing `# research(YYYY-MM):` provenance, then web-searches to ground each choice against current best practice before it hardens into code.
+
 **Versioning and observability.** `techne:auto-commit` groups working-tree changes into a structured commit plan at `COMMITS.md` for staged review before anything lands. `techne:theoros` starts an observed live dev session in a tmux pane; Claude drives the REPL, the human spectates read-only via `tmux attach -r`.
 
 **Cross-repo consistency.** `techne:sisters` audits drift across the repos listed in `~/.claude/techne.toml`: CI action pins, toolchain pins, skill-context structural parity, GitHub merge settings, open PRs, branch hygiene. Read-only; reports findings, leaves fixes to follow-up work.
@@ -30,9 +32,9 @@ Skills are independent; each invocable without the others; but share conventions
 
 Each skill encodes assumptions about the ecosystem it audits: `techne:audit` assumes the dev-runner archive convention, `techne:ci-audit` assumes a particular GitHub Actions failure shape, `techne:docs-site` assumes the Zensical strict-build target, `techne:auto-commit` assumes Conventional Commits. Those assumptions decay as upstream tools, action SHAs, model families, and platform features ship.
 
-The maintenance invariant: whenever a Claude Code release, MCP spec revision, GitHub Actions schema change, or frontier-model capability shift lands, audit which skill in this repo exists to compensate for a gap that may now be closed — and which skill's structural assumption has just gone stale. Skills are not write-once; they are kept in sync with the moving substrate they audit. Treat any skill last touched more than a quarter ago as suspect until re-verified against current platform docs.
+The maintenance invariant: whenever a Claude Code release, MCP spec revision, GitHub Actions schema change, or frontier-model capability shift lands, audit which skill in this repo exists to compensate for a gap that may now be closed, and which skill's structural assumption has just gone stale. Skills are not write-once; they are kept in sync with the moving substrate they audit. Treat any skill last touched more than a quarter ago as suspect until re-verified against current platform docs.
 
-This invariant runs philosophically — there is no automated check; it's a stance the maintainer holds when reading release notes. The sibling sister repos apply the same audit to their own code (see `phalanx-fl`, `velocity-fl`, `kourai-khryseai` ROADMAPs); techne's variant is meta — it audits the audit tools themselves.
+This invariant runs philosophically; there is no automated check, it's a stance the maintainer holds when reading release notes. The sibling sister repos apply the same audit to their own code (see `phalanx-fl`, `velocity-fl`, `kourai-khryseai` ROADMAPs); techne's variant is meta, it audits the audit tools themselves.
 
 ## See also
 

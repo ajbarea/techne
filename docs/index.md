@@ -57,6 +57,10 @@ hide:
         <div class="skill-name"><code>/docsync</code></div>
         <p>Verifies documentation claims (CLI commands, paths, config keys, signatures) against the actual code.</p>
       </a>
+      <a href="skills/research-grounded/" class="skill-card">
+        <div class="skill-name"><code>/research-grounded</code></div>
+        <p>Flags design decisions in <code>IMPL.md</code> / <code>ROADMAP.md</code> that lack <code>research(YYYY-MM)</code> provenance, then web-searches to ground them.</p>
+      </a>
       <a href="skills/reslop/" class="skill-card">
         <div class="skill-name"><code>/reslop</code></div>
         <p>Rewrites docstrings grounded in the implementation rather than deleting them outright.</p>

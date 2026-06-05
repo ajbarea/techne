@@ -50,9 +50,9 @@ curl -fsSL https://raw.githubusercontent.com/ajbarea/techne/main/templates/Makef
   -o Makefile
 ```
 
-Each target body is a `TODO` stub that exits 1 until replaced — copy the matching invocation from the inline cheat-sheet (uv / npm / cargo / pnpm) and delete the targets that don't apply.
+Each target body is a `TODO` stub that exits 1 until replaced. Copy the matching invocation from the inline cheat-sheet (uv / npm / cargo / pnpm) and delete the targets that don't apply.
 
-For archived runs that `techne:audit` reconciles, wrap `make` from outside via `./scripts/dev-runner.sh <target>`. Do not call `dev-runner.sh` from inside a Makefile recipe — it invokes `make` and would recurse.
+For archived runs that `techne:audit` reconciles, wrap `make` from outside via `./scripts/dev-runner.sh <target>`. Do not call `dev-runner.sh` from inside a Makefile recipe; it invokes `make` and would recurse.
 
 **Required for:** `techne:audit`.
 **Recommended for:** `techne:ci-audit`, `techne:theoros`.
@@ -103,7 +103,7 @@ Several skills read a single per-repo file at `.claude/skill-context.md`. This i
 ## repo
 <one-paragraph description of what this repo is and who uses it>
 
-## audit (techne:audit)
+## audit
 phases:
   - setup
   - lint
@@ -114,18 +114,18 @@ stop_early: [setup]
 log_archive_glob: "logs/dev-*-{phase}.log"
 do_not_run: []
 
-## ci_audit (techne:ci-audit)
+## ci_audit
 workflows_path: ".github/workflows"
 ignore_warnings: []
 
-## slop_ground_truth (techne:deslop / techne:reslop / techne:docsync)
+## slop_ground_truth
 authoritative_sources:
   - "src/"
   - "tests/"
 test_locations:
   - "tests/"
 
-## scan_scope (techne:deslop / techne:reslop)
+## scan_scope
 include:
   - "src/"
   - "docs/"
@@ -133,12 +133,12 @@ exclude:
   - "site/"
   - ".venv/"
 
-## docs_site (techne:docs-site)
+## docs_site
 config: "zensical.toml"
 deploy_workflow: ".github/workflows/docs.yml"
 build_command: "uv run --group dev zensical build --clean"
 
-## theoros (techne:theoros)
+## theoros
 ```yaml
 repl_command: <your repo's REPL command>
 session_name: <your-repo-slug>-theoros
@@ -192,18 +192,18 @@ Every remote `uses:` reference in `.github/workflows/` is pinned to a full
 - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 ```
 
-Git tags are mutable — anyone with write access to an action's repo can repoint a
+Git tags are mutable; anyone with write access to an action's repo can repoint a
 tag at a malicious commit. The tj-actions/changed-files compromise (2025-03, ~23k
 repos) rewrote every tag to exfiltrate CI secrets. A commit SHA is immutable, so a
 SHA-pinned workflow runs exactly the code you reviewed.
 
-- **Generate the pins** with [`pinact run`](https://github.com/suzuki-shunsuke/pinact)
-  — it resolves each tag to its SHA and appends the `# tag` comment.
+- **Generate the pins** with [`pinact run`](https://github.com/suzuki-shunsuke/pinact).
+  It resolves each tag to its SHA and appends the `# tag` comment.
 - **Stay fresh** with Dependabot's `github-actions` *version* updates, which bump
   both the SHA and the comment. GitHub emits Dependabot *security alerts* only for
   semver-pinned actions, so SHA-pinning trades the (rarely-firing) actions-CVE alert
-  for tag-mutation immunity — the version-update PRs are GitHub's recommended
-  companion. A `cooldown` (e.g. `default-days: 7`) holds a freshly-published release
+  for tag-mutation immunity (the version-update PRs are GitHub's recommended
+  companion). A `cooldown` (e.g. `default-days: 7`) holds a freshly-published release
   before the bump PR lands. research(2026-05): GitHub Docs "Secure use reference";
   CNCF "Securing GitHub Actions CI dependencies" recipe (2026-05-04).
 - **Keep it pinned** with `make guards` (`scripts/check_action_pins.sh`), which fails
