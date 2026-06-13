@@ -1,6 +1,23 @@
+<div align="center">
+
+<img src="docs/assets/hero.png" width="420" alt="techne Hero Image">
+
 # techne
 
-Opinionated Claude Code skills for repo hygiene: audit builds, tame CI noise, hunt doc/code drift, keep linked repos in lockstep. Installable as a single `/plugin`.
+*Opinionated Claude Code skills for repo hygiene: audit builds, tame CI noise, hunt doc/code drift, keep linked repos in lockstep.*
+
+[![Validate](https://github.com/ajbarea/techne/actions/workflows/validate.yml/badge.svg)](https://github.com/ajbarea/techne/actions/workflows/validate.yml)
+[![Docs](https://github.com/ajbarea/techne/actions/workflows/docs.yml/badge.svg)](https://github.com/ajbarea/techne/actions/workflows/docs.yml)
+[![Python](https://img.shields.io/badge/Python-3.12+-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
+[![uv](https://img.shields.io/badge/uv-package_manager-DE5FE9?style=flat-square)](https://docs.astral.sh/uv/)
+[![Claude Code](https://img.shields.io/badge/Claude_Code-plugin-D97757?style=flat-square)](https://code.claude.com/docs)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
+
+</div>
+
+---
+
+Installable as a single `/plugin`:
 
 ```bash
 /plugin marketplace add ajbarea/techne
