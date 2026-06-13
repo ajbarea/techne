@@ -306,6 +306,33 @@ Report:
 - Any sister still on the `pip` ecosystem — flag for migration to native `uv`.
 - Deferrals (e.g., kourai's `uv` pending dependabot-core#14004) are recognized via an in-config comment naming the ecosystem + "defer"/"skip", so they don't false-positive.
 
+### 12. README header convention
+
+Solo sisters that ship a hero asset (`docs/assets/*hero*` or `*banner*`) should lead their README with the centered masthead: a `<div align="center">` wrapping, in order, the hero image, the `# Title`, a one-line italic tagline, then the badge rows — **Hero → Title → tagline → Badges**. Repos with no hero asset are exempt; `kind = "team"` repos and deliberately product/template-flavored tops (CTA-led, no shields badges, e.g. a fork-template PWA) are legitimate exceptions to *flag*, not auto-fail.
+
+```
+for repo in $SISTERS; do
+  rdme="$WORKSPACE/$repo/README.md"
+  [ -f "$rdme" ] || { echo "$repo: no README — skip"; continue; }
+  hero=$(ls "$WORKSPACE/$repo/docs/assets/" 2>/dev/null | grep -iE '(hero|banner)' | head -1)
+  [ -z "$hero" ] && { echo "$repo: no hero asset — convention N/A"; continue; }
+  hdr=$(head -25 "$rdme")
+  div=$(printf '%s\n' "$hdr" | grep -c '<div align="center">')
+  img_ln=$(printf '%s\n' "$hdr" | grep -nE '<img[^>]*docs/assets/|!\[.*\]\(docs/assets/' | head -1 | cut -d: -f1)
+  h1_ln=$(printf '%s\n' "$hdr" | grep -nE '^# ' | head -1 | cut -d: -f1)
+  if [ "$div" -ge 1 ] && [ -n "$img_ln" ] && [ -n "$h1_ln" ] && [ "$img_ln" -lt "$h1_ln" ]; then
+    echo "$repo: centered masthead, hero before title ✓"
+  else
+    echo "$repo: hero asset ($hero) present but header off-convention (div:$div img:${img_ln:-none} h1:${h1_ln:-none}) → align to Hero→Title→tagline→Badges, or confirm intentional"
+  fi
+done
+```
+
+Report:
+
+- Any solo sister with a hero asset whose README does not lead with the centered masthead (hero image before the `# Title`, inside `<div align="center">`).
+- Repos with no hero asset, `kind = "team"`, or an intentional product/template top are exempt — flag as a question, never an auto-fail.
+
 ## Output format
 
 A single block, no preamble (concrete repo names below are illustrative — substitute the actual entries from `$SISTERS`):
@@ -342,6 +369,11 @@ A single block, no preamble (concrete repo names below are illustrative — subs
 
 ### Local main sync
 - All sisters: ahead=0 behind=0. ✓
+
+### README header convention
+- repo-a: centered masthead, hero before title ✓
+- repo-b: no hero asset — N/A
+- repo-c: hero asset present but header off-convention → align (or confirm intentional)
 
 ### Branch protection
 - All sisters: protected with required checks, no force-push, no deletions ✓
