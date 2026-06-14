@@ -35,6 +35,7 @@ Installable as a single `/plugin`:
 | `techne:docs-site` | Maintains the Zensical-powered docs site: config, deploy pipeline, theming, link integrity. |
 | `techne:docsync` | Verifies documentation claims (CLI commands, paths, config keys, signatures) against the actual code. |
 | `techne:paper` | Scaffolds a new paper dir (LaTeX + results-harvest + shared bib + portfolio row) in a papers-style monorepo so it builds on day one. |
+| `techne:paper-review` | Pre-submission novelty + reviewer pass for a draft paper: grounds every novelty/claim verdict in retrieved prior work, flags related-work gaps, and surfaces lab-overlap for disclosure. |
 | `techne:research-grounded` | Flags design decisions in IMPL/ROADMAP that lack `# research(YYYY-MM):` provenance, then web-searches to ground them. |
 | `techne:reslop` | Rewrites docstrings grounded in the implementation rather than deleting them outright. |
 | `techne:sisters` | Cross-repo drift audit across the sister repos listed in `~/.claude/techne.toml`. |
@@ -83,15 +84,18 @@ Set `status = "backburner"` to skip a repo without removing it.
         │
         ▼
 techne (plugin)
-├── audit         ── verifies build targets vs. logs/
-├── auto-commit   ── groups diffs into COMMITS.md
-├── ci-audit      ── reads gh runs, fixes warnings in-repo
-├── deslop        ── flags AI-slop prose
-├── docs-site     ── manages Zensical site + deploy
-├── docsync       ── doc claims ↔ implementation
-├── reslop        ── rewrites docstrings from code
-├── sisters       ── cross-repo drift across sisters
-└── theoros       ── observed tmux REPL session
+├── audit             ── verifies build targets vs. logs/
+├── auto-commit       ── groups diffs into COMMITS.md
+├── ci-audit          ── reads gh runs, fixes warnings in-repo
+├── deslop            ── flags AI-slop prose
+├── docs-site         ── manages Zensical site + deploy
+├── docsync           ── doc claims ↔ implementation
+├── paper             ── scaffolds a new paper dir (LaTeX + harvest)
+├── paper-review      ── grounded novelty + reviewer pass for a draft
+├── research-grounded ── flags un-grounded design decisions
+├── reslop            ── rewrites docstrings from code
+├── sisters           ── cross-repo drift across sisters
+└── theoros           ── observed tmux REPL session
 ```
 
 Each skill is self-contained. Invoke one without pulling in the others. They share a convention of writing intermediate artifacts (plans, audit reports) to disk for human review before mutating the repo.

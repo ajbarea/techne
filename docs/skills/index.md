@@ -37,3 +37,4 @@ The included skills, grouped by what they do.
 | Skill | Purpose |
 |---|---|
 | [`techne:paper`](paper.md) | Scaffolds a new paper dir (LaTeX + results-harvest + shared bib + portfolio row) in a papers-style monorepo so it builds on day one. |
+| [`techne:paper-review`](paper-review.md) | Pre-submission novelty + reviewer pass: grounds every novelty/claim verdict in retrieved prior work, flags related-work gaps, and surfaces lab-overlap for disclosure. |
