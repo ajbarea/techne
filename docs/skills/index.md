@@ -31,3 +31,9 @@ The included skills, grouped by what they do.
 | Skill | Purpose |
 |---|---|
 | [`techne:theoros`](theoros.md) | Starts an observed live dev session: Claude drives the REPL in a named tmux session; you spectate read-only via `tmux attach -r`. |
+
+## Research
+
+| Skill | Purpose |
+|---|---|
+| [`techne:paper`](paper.md) | Scaffolds a new paper dir (LaTeX + results-harvest + shared bib + portfolio row) in a papers-style monorepo so it builds on day one. |
