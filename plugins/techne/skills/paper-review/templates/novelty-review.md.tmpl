@@ -1,0 +1,68 @@
+# Novelty & reviewer review — __TITLE__
+
+**Paper:** `papers/__NAME__/` · **Reviewed:** __DATE__ · **Source repo:** `__SISTER__`
+**Substrate:** OpenAlex (+ Semantic Scholar if keyed) · web-search backstop
+**Status:** advisory — this report does not edit the paper.
+
+> Grounding rule: every verdict below cites a paper retrieved this run (see § Provenance) with a
+> verbatim snippet. Verdicts without a retrieved record are marked **unverified**.
+
+## 1. Novelty per contribution
+
+### C1 — __CONTRIBUTION_1__
+- **Verdict:** _(novel | incremental | overlaps-with)_
+- **Closest prior work:** _Title_ (year) · doi:_…_ · cites _N_
+  > "verbatim snippet from the retrieved abstract"
+- **Distinct because:** …
+
+_(repeat per stated contribution)_
+
+## 2. Related-work coverage gaps
+
+Retrieved papers that are relevant but absent from `references.bib`:
+
+| Paper | Year | DOI | Why it belongs | Closest draft claim |
+|---|---|---|---|---|
+| … | | | | |
+
+## 3. Claim-support check
+
+Each flagged claim (`first`, `N×`, `outperforms`, `state-of-the-art`) → supported / unsupported /
+overclaim.
+
+| Claim (location) | Type | Verdict | Evidence |
+|---|---|---|---|
+| "~135× …" (abstract) | quantitative | … | harvest `__SISTER__/…` · or "verify against source" |
+| "first …" | first-ness | … | retrieval: closest prior = … |
+
+## 4. Lab-overlap — surface, do not adjudicate
+
+Adjacency to the lab line recorded in `__LAB_LINE__`. **This section renders no solo-vs-lab
+verdict** — that boundary is agreed with the advisor.
+
+**Adjacent lab papers:**
+- _Lab paper_ (venue, status) — overlaps this draft's claim(s): …
+
+**Disclosure checklist (COPE — related/overlapping work):**
+- [ ] Cite the adjacent lab paper(s) in the draft.
+- [ ] Hold the framing the rail requires (e.g. systems/reproducibility, not a new algorithm).
+- [ ] Disclose the relationship to the venue editor.
+- [ ] Agree the solo-vs-lab boundary with the advisor before submitting.
+
+> Verdict deferred — agree the boundary with the advisor.
+
+## Summary
+
+- Contributions: __N__ · novel __M__ / overlaps __K__
+- Related-work gaps: __P__ uncited
+- Claim-support: __FLAGS__
+- Lab-overlap: **needs discussion** (see §4)
+
+## Provenance
+
+Every query run this session and the records it returned (re-runnable):
+
+```
+OpenAlex  title_and_abstract.search:<query>  →  [titles / DOIs returned]
+…
+```
