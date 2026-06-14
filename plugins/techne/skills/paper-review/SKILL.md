@@ -1,6 +1,6 @@
 ---
 name: paper-review
-description: Use when a draft research paper needs a pre-submission novelty and reviewer pass — whether its contributions are actually new, what related work it misses, whether its claims hold up, and whether it overlaps a lab or co-author line that must be disclosed. Triggers include "review my paper for novelty", "is this contribution novel", "novelty check before submitting", "what related work am I missing", "paper-review <name>".
+description: Use when a draft research paper needs a pre-submission novelty and reviewer pass — whether its contributions are actually new, what related work it misses, whether its claims hold up, and whether it overlaps a lab or co-author line that must be disclosed. Triggers include "review my paper for novelty", "is this contribution novel", "novelty check before submitting", "what related work am I missing", "verify my citations are real", "paper-review <name>".
 disable-model-invocation: false
 allowed-tools: Bash Glob Grep Read Edit WebSearch WebFetch Agent
 ---
@@ -40,8 +40,18 @@ truth, default `LINEAGE.md`), `retrieval` (default OpenAlex + web; Semantic Scho
 
 ## Procedure
 
-Refuse if `papers/<name>/` does not exist. Locate `main.tex` and its `\input` files. Then run
-four phases — OpenNovelty's pipeline (arXiv 2601.01576):
+Refuse if `papers/<name>/` does not exist. Locate `main.tex` and its `\input` files. Then run a
+mandatory citation-integrity gate, then OpenNovelty's four-phase pipeline (arXiv 2601.01576):
+
+0. **Citation integrity (MANDATORY — do this first).** Before assessing novelty, verify the
+   draft's *own* citations are real. Extract every `\cite` key and its `references.bib` entry;
+   verify each against an authoritative record — arXiv ids via the arXiv API, DOIs / venues via
+   OpenAlex or DOI content-negotiation. See [citation-verify](references/citation-verify.md).
+   Confirm the id/DOI resolves to the *same* paper (title match), with correct authors and year,
+   and read the abstract to check any claim the draft makes *about* that work ("parameter-free",
+   "first to"). A fabricated id, a mismatched title, or an unsupported claim-about-a-paper is a
+   **stop-ship** finding — fix or flag it before anything else. A single wrong citation sinks the
+   paper.
 
 1. **Extract claims.** Parse `main.tex` for the title, abstract, and stated contributions (the
    `% (C1) …` or `\item` list after "Our contributions" / "In this paper"). Collect flag-claims:
@@ -62,6 +72,8 @@ four phases — OpenNovelty's pipeline (arXiv 2601.01576):
 
 4. **Synthesize** into the configured report from
    [the template](templates/novelty-review.md.tmpl):
+   - **§0 Citation integrity** — each cited work → verified (source) / mismatch-fixed /
+     **stop-ship**; stop-ship findings first. No fabricated or mischaracterized citations.
    - **§1 Novelty** — per contribution: verdict + closest prior work (cited + snippet) + what is
      distinct.
    - **§2 Related-work gaps** — retrieved papers absent from `references.bib` (cross-check DOIs
@@ -79,6 +91,9 @@ lab-overlap: needs-discussion). **Never edit the paper** — this pass is adviso
 
 ## Common mistakes
 
+- **Trusting the draft's existing citations.** Verify them too (§0) — a seed bib or a recalled
+  citation can be fabricated or mischaracterized. arXiv id → arXiv API; venue → OpenAlex / DOI; a
+  claim *about* a paper → its abstract. A single wrong citation sinks the paper.
 - **Asserting novelty from memory.** The failure this skill exists to stop. No verdict without a
   retrieved record + a quoted snippet logged in § Provenance.
 - **Inventing or half-remembering a citation.** A fabricated reference is worse than none. If a

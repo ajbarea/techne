@@ -27,7 +27,10 @@ draft.
 
 ## What it grounds
 
-Every novelty verdict cites a paper retrieved that run with a verbatim snippet, logged in a
+A mandatory pre-check (§0) first verifies the draft's *own* citations against authoritative
+records (arXiv API / OpenAlex / DOI): a fabricated id, an id that resolves to a different paper,
+or a mischaracterized claim about a cited work is a stop-ship finding. Then every novelty verdict
+cites a paper retrieved that run with a verbatim snippet, logged in a
 provenance appendix so the search is re-runnable. A verdict with no retrieved record is marked
 **unverified**. The lab-overlap section surfaces adjacency and a COPE disclosure checklist but
 renders no verdict — the solo-vs-lab boundary is a human agreement.

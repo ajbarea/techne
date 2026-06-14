@@ -7,6 +7,18 @@
 > Grounding rule: every verdict below cites a paper retrieved this run (see § Provenance) with a
 > verbatim snippet. Verdicts without a retrieved record are marked **unverified**.
 
+## 0. Citation integrity (mandatory pre-check)
+
+Every citation the draft makes, verified against an authoritative record. **Stop-ship** findings
+(a fabricated id, an id that resolves to a different paper, or an unsupported claim about a cited
+work) block submission and are listed first.
+
+| Cited key | id / DOI | Authoritative source | Status |
+|---|---|---|---|
+| … | | arXiv API / OpenAlex / DOI | verified / mismatch-fixed / **stop-ship** |
+
+> No fabricated citations: __YES/NO__ · claims-about-papers checked against abstracts: __YES/NO__
+
 ## 1. Novelty per contribution
 
 ### C1 — __CONTRIBUTION_1__
