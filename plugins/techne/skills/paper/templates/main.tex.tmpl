@@ -1,0 +1,42 @@
+% __NAME__ — research paper scaffold (techne:paper).
+% Build: __ENGINE__ main.tex   (or Overleaf). Target venue: __VENUE__.
+% SCAFFOLD: write prose into the "% HARVEST:" blocks. Result numbers come from harvest.py,
+% never hand-typed. Swap \documentclass to the venue's class at submission time.
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\title{__TITLE__}
+\author{__AUTHOR__\\ __AFFIL__\\ \texttt{__EMAIL__}}
+\date{Draft \today}
+\begin{document}
+\maketitle
+
+\begin{abstract}
+% HARVEST: the contribution in 5-7 sentences -- problem, approach, what is new, evidence.
+TODO (abstract).
+\end{abstract}
+
+\section{Introduction and Related Work}
+% HARVEST: the problem + positioning against prior work (add \cite{} keys to __BIB__.bib).
+% State the contributions explicitly.
+TODO.
+
+\section{Design}
+% HARVEST: the system / method. Cite real source paths or symbols from the code repo.
+TODO.
+
+\section{Evaluation}
+% HARVEST: frame the evaluation, then \input the auto-generated table (run harvest.py first):
+% \input{figures/eval-table.tex}
+TODO.
+
+\section{Conclusion}
+% HARVEST: recap + future work.
+TODO.
+
+\nocite{*} % build-enabler so an empty bibliography compiles; DELETE once real \cite{} exist.
+\bibliographystyle{plain}
+\bibliography{__BIB__}
+\end{document}
