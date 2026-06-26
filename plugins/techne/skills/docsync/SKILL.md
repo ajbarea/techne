@@ -11,7 +11,7 @@ Compare documentation against the code it describes. Find where the docs say one
 
 ## Repo context
 
-`/techne:docsync` audits a doc that may live in a **different repo than your CWD** (e.g. `/techne:docsync ../velocity-fl/README.md`). Skill-context must therefore come from the *target's* repo, not CWD. A load-time `` !`cat .claude/skill-context.md` `` injection can't do this — it runs before the target path is parsed, so it always reads CWD. Resolve the repo root from the doc-path argument instead:
+`/techne:docsync` audits a doc that may live in a **different repo than your CWD** (e.g. `/techne:docsync ../velocity-fl/README.md`). Skill-context must therefore come from the *target's* repo, not CWD. A load-time bang-backtick `cat .claude/skill-context.md` injection (worded, not shown literally, because the skill loader executes any literal bang-backtick form on load, even from prose like this) can't do this — it runs before the target path is parsed, so it always reads CWD. Resolve the repo root from the doc-path argument instead:
 
 ```bash
 git -C "$(dirname "<target-doc>")" rev-parse --show-toplevel   # target repo root; with no path arg this resolves to the CWD repo
@@ -38,6 +38,8 @@ Then `Read` `<root>/.claude/skill-context.md`. Its `## repo` section names the C
 - Roadmap language ("we plan to", "coming soon"). Aspirational, not drift.
 - Code examples that are intentionally illustrative.
 - Screenshots, images, external URLs.
+- **Static-site-generator pretty-URLs.** Docs built with MkDocs / Zensical / Docusaurus link to directory-style built URLs (`topic/`), not the source `.md`. A link to `topic/` for a `topic.md` source resolves on the built site; "correcting" it to `topic.md` would 404. Verify against the build's URL convention, not the source filename.
+- **Plugin-namespaced slash commands.** For a Claude Code plugin command defined in `commands/<name>.md`, the canonical invocation is `/<plugin>:<name>` (e.g. `/makesense:config`). The bare `/<name>` or the filename is not the reference, and the `/<plugin>:` prefix is not drift.
 
 ## Workflow
 
