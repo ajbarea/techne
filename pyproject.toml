@@ -7,10 +7,10 @@ dependencies = []
 
 [dependency-groups]
 dev = [
-    "ruff>=0.15.16",
-    "zensical>=0.0.45",
+    "ruff>=0.15.18",
+    "zensical>=0.0.46",
     "shellcheck-py>=0.11",
-    "zizmor>=1.25",
+    "zizmor>=1.26.1",
 ]
 
 [tool.uv]
