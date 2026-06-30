@@ -34,6 +34,7 @@ Installable as a single `/plugin`:
 | `techne:deslop` | Scans comments and docstrings for AI-generated slop and proposes tightened rewrites. |
 | `techne:docs-site` | Maintains the Zensical-powered docs site: config, deploy pipeline, theming, link integrity. |
 | `techne:docsync` | Verifies documentation claims (CLI commands, paths, config keys, signatures) against the actual code. |
+| `techne:elenchus` | Adversarial pre-merge review: drives `/code-review`, then reproduces the load-bearing claim, traces every consumer across the whole repo, and walks a bug-class rubric for reachable destructive ops, unmirrored parallel-path guards, migration crashes, and dead-but-green features. |
 | `techne:paper` | Scaffolds a new paper dir (LaTeX + results-harvest + shared bib + portfolio row) in a papers-style monorepo so it builds on day one. |
 | `techne:paper-review` | Pre-submission novelty + reviewer pass for a draft paper: grounds every novelty/claim verdict in retrieved prior work, flags related-work gaps, and surfaces lab-overlap for disclosure. |
 | `techne:research-grounded` | Flags design decisions in IMPL/ROADMAP that lack `# research(YYYY-MM):` provenance, then web-searches to ground them. |
@@ -90,6 +91,7 @@ techne (plugin)
 ├── deslop            ── flags AI-slop prose
 ├── docs-site         ── manages Zensical site + deploy
 ├── docsync           ── doc claims ↔ implementation
+├── elenchus          ── adversarial pre-merge review (reproduce + trace + rubric)
 ├── paper             ── scaffolds a new paper dir (LaTeX + harvest)
 ├── paper-review      ── grounded novelty + reviewer pass for a draft
 ├── research-grounded ── flags un-grounded design decisions

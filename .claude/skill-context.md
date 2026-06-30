@@ -118,6 +118,20 @@ Subagent scan-area split:
 - action_pins (expected current, 2026-05): `actions/checkout@v6.0.2`, `astral-sh/setup-uv@v8.1.0`, `actions/setup-python@v6.2.0`, `actions/configure-pages@v6.0.0`, `actions/upload-pages-artifact@v5.0.0`, `actions/deploy-pages@v5.0.0`
 - nav structure: per-skill docs under `docs/skills/`, plus top-level Getting Started / Configuration / Conventions / Examples / Architecture pages
 
+## elenchus
+
+```yaml
+test_command: make validate   # lint + shellcheck + zizmor + structural test (frontmatter/guards/manifests)
+run_command: <none — exercise a skill by invoking it on a target repo; verify it emits a structured, severity-ranked review with CONFIRMED/PLAUSIBLE verdicts>
+load_bearing_surfaces:
+  - "plugins/techne/skills/*/SKILL.md frontmatter (name/description drive discovery; validated by make frontmatter)"
+  - ".claude-plugin/marketplace.json + plugins/techne/.claude-plugin/plugin.json (the published manifest pair)"
+feature_works_means:
+  - "the skill fires on its trigger phrases, reads .claude/skill-context.md, and produces a review that names the load-bearing claim and either breaks it or clears it — not a diff restatement"
+```
+
+A repo of review/hygiene skills has few destructive ops of its own; the irreversibles to watch are the mutating make targets (`make fix` rewrites `scripts/`) and any skill that edits in place — trace what reaches them before approving a change to one.
+
 ## meta_repo_caveat
 
 This repo is the **source** of the techne skills that ship to the other sisters. When `/techne:sisters` runs, it reads the consumer-side `.claude/skill-context.md` from each linked repo — including this one. The recursion is intentional: techne is a self-hosted sister so structural drift in its own skill collection (renamed SKILL.md frontmatter, deleted skill directories, stale marketplace.json) gets caught the same way it catches drift elsewhere.
