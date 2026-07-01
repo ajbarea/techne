@@ -51,6 +51,9 @@ Walk every cell. For each, either find the falsifying case or explicitly clear i
 ### Phase 4 — Report
 Emit the structured report (format below). End with an explicit merge verdict and what you are holding on, if anything.
 
+### Phase 5 — Post the distilled summary
+If an open PR exists for the branch under review, post the distilled summary (contract in **Posting the summary** below) as a **single** `gh pr comment`. This is default behavior, not opt-in — the review of record belongs on the PR. Skip only when there is no PR (local / pre-PR review → the report stays in-session) or the invoker explicitly said to keep it local.
+
 ## The rubric (load-bearing)
 
 | # | Cell | The question that finds the bug |
@@ -83,6 +86,20 @@ Severity-ranked, most-actionable first. Each finding:
 - **Fix** — the deep fix, with a regression test that locks it
 
 Close with: a one-line **merge verdict** (mergeable / hold on finding #N / not mergeable + why), and a **Verified clean** list of what you checked and cleared.
+
+## Posting the summary (Phase 5)
+
+Default: after emitting the in-session report, post a **single** distilled comment to the PR. Write the body to a temp file and post with `gh pr comment <N> --body-file <file>` (a file, not inline `--body`, so multi-line Markdown survives). One comment per run — never inline per-line comments, never a multi-comment dump. Post even on a clean pass; the record that an independent adversarial pass ran is the point.
+
+Guard: only when `gh pr view --json number,url` resolves an **open** PR for the current branch. No PR (local or pre-PR review) → skip posting, keep the report in-session. Honor an explicit "keep it local" from the invoker.
+
+Distill — the comment is the verdict and the actionable core, not the full transcript:
+- **Merge verdict** — one line: mergeable / hold on finding #N / not mergeable + why.
+- **Findings** — Blocking and Should-fix only, each as: `path:line` — one-line failure scenario — the fix. Drop Minor/Informational (they stay in-session) unless nothing else remains.
+- **Verified clean** — the one-line list of what was scrutinized and cleared.
+- **No signature or AI-attribution footer** — post as a plain review comment.
+
+Clean-pass shape: verdict `mergeable`, a `Findings: none blocking` line, and the Verified-clean list — a few lines, not a placeholder wall.
 
 ## Scaffolding `## elenchus` into a repo (optional, tier-1)
 
