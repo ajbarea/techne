@@ -7,8 +7,8 @@ dependencies = []
 
 [dependency-groups]
 dev = [
-    "ruff>=0.15.20",
-    "zensical>=0.0.46",
+    "ruff>=0.15.21",
+    "zensical>=0.0.50",
     "shellcheck-py>=0.11",
     "zizmor>=1.26.1",
 ]
