@@ -1,20 +1,20 @@
 # AI-slop hate-word glossary
 
-Canonical cross-skill list. Referenced by `/aj-deslop`, `/aj-reslop`, `/aj-docsync`.
+Canonical cross-skill list. Referenced by `/techne:deslop`, `/techne:reslop`, `/techne:docsync`.
 Update this file, not the individual skills.
 
 Each section is a **candidate generator**, not a verdict — a hit only starts
 the conversation. Always filter against the Keep rules of the skill that's
-using the list. "Robust" inside a user-facing error message is fine;
-"robust implementation" in a docstring is slop.
+using the list. "Comprehensive" in a doc that genuinely lists every option is
+fine; "comprehensive solution" in a docstring is slop.
 
 ## Marketing / hype padding
 
-- `robust`, `comprehensive`, `elegant(ly)?`, `holistic`
+- `comprehensive`, `elegant(ly)?`, `holistic`
 - `powerful`, `blazing(ly)?`, `lightning[- ]fast`, `battle[- ]tested`
 - `production[- ]ready`, `enterprise[- ]grade`, `industry[- ]standard`
 - `seamless(ly)?`, `effortlessly`, `with ease`, `painlessly`
-- `simply`, `just` (as a filler, not a verb), `out[- ]of[- ]the[- ]box`
+- `out[- ]of[- ]the[- ]box`
 - `state[- ]of[- ]the[- ]art`, `cutting[- ]edge`, `next[- ]generation`
 - `future[- ]proof` (unless the code provably is)
 - `game[- ]?chang(er|ing)`, `revolutionary`, `transformative` (as adjectives for your own code)

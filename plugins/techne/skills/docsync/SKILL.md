@@ -83,7 +83,7 @@ For a whole `docs/` directory, spawn one `Explore` subagent per doc file. Each r
 
 ## While you're in there
 
-A doc update is also a chance to trim slop. If a fix requires rewriting a sentence, apply the `${CLAUDE_PLUGIN_ROOT}/_shared/hate-words.md` filter before you commit to the new wording — don't let the rewrite reintroduce "robust", "seamless", "effortlessly" and friends. If the file has heavy slop unrelated to the drift, mention it once and suggest running `/techne:deslop` after — don't quietly expand scope.
+A doc update is also a chance to trim slop. If a fix requires rewriting a sentence, apply the `${CLAUDE_PLUGIN_ROOT}/_shared/hate-words.md` filter before you commit to the new wording — don't let the rewrite reintroduce "seamless", "effortlessly" and friends. If the file has heavy slop unrelated to the drift, mention it once and suggest running `/techne:deslop` after — don't quietly expand scope.
 
 ## Why this skill is quiet
 

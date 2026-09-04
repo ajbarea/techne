@@ -24,7 +24,7 @@ The injected `## scan_scope` section (if present) supplies this repo's skip-path
 - **Temporal markers** — "(April 2026 best-practice order)", "as of 2024", "latest version". These rot.
 - **Self-referential AI framing** — "designed so an AI assistant who did not see the live terminal can reconstruct", "AI-DEBUG HINTS", "helps LLMs understand", "for model consumption".
 - **Narrative WHAT-comments** — `# Now we iterate through the list`, `# Return the result`. If the identifier already tells you, the comment is dead weight.
-- **Marketing language** — "robust", "comprehensive", "elegant", "best-practice", "production-ready", "seamless", "powerful", "effortlessly", "with ease", "painlessly", "simply", "just" (as filler), "out of the box", "blazingly", "lightning-fast", "battle-tested", "state-of-the-art", "cutting-edge" when describing your own code. See `${CLAUDE_PLUGIN_ROOT}/_shared/hate-words.md` for the canonical cross-skill list.
+- **Marketing language** — "comprehensive", "elegant", "best-practice", "production-ready", "seamless", "powerful", "effortlessly", "with ease", "painlessly", "out of the box", "blazingly", "lightning-fast", "battle-tested", "state-of-the-art", "cutting-edge" when describing your own code. See `${CLAUDE_PLUGIN_ROOT}/_shared/hate-words.md` for the canonical cross-skill list.
 - **Unmeasured performance claims** — "10× faster", "sub-millisecond", "scales to thousands of clients", "near-zero overhead" in comments/docstrings that don't cite a measurement. The source of truth is whatever `slop_ground_truth` names in the injected skill-context; any numeric performance/scale claim not traceable there is slop — propose deletion, or a link to the measurement. See the "Unsupported quantitative / comparative claims" section in `${CLAUDE_PLUGIN_ROOT}/_shared/hate-words.md`.
 - **Task-context rot** — "added for issue #123", "fix for the auth bug", `TODO(copilot):`. Belongs in the PR description, not the source.
 - **Signature restatement** — docstrings that only repeat the type annotations in prose.
@@ -44,7 +44,7 @@ Rule of thumb: if deleting the comment wouldn't confuse a future reader, delete 
 
 The canonical pattern list lives at **`${CLAUDE_PLUGIN_ROOT}/_shared/hate-words.md`** — update *that* file when adding new patterns, not this one. Subagents should `Grep` every section of the shared glossary (case-insensitive, across the scoped paths) to build a candidate list fast, then filter each hit against the Cut/Keep rules above.
 
-A hit is *not* automatically slop — it's just a cheap starting point. "Robust" inside a user-facing error message is fine; "robust implementation" in a docstring is slop.
+A hit is *not* automatically slop — it's just a cheap starting point. "Comprehensive" in a doc that genuinely lists every option is fine; "comprehensive solution" in a docstring is slop.
 
 User-specific calibration — patterns the user flags most often from their own prompt-engineering flow:
 
