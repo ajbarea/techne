@@ -195,7 +195,7 @@ print(f"'"$repo"': {status}")
 done
 ```
 
-Report any sister whose `main` is unprotected, has zero required checks, or has `allow_force_pushes` / `allow_deletions` set. `enforce_admins` stays optional — AJ intentionally leaves admin override on so audit fixes can ship the same session.
+Report any sister whose `main` is unprotected, has zero required checks, or has `allow_force_pushes` / `allow_deletions` set. `enforce_admins` stays optional — leaving admin override on lets audit fixes ship in the same session, so treat it as a deliberate choice rather than drift unless the repo says otherwise.
 
 ### 9. Codecov config presence + bot-comment silencing
 
