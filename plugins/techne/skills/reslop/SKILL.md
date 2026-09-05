@@ -60,11 +60,11 @@ The injected `## slop_ground_truth` section (if present) names the files or docs
 
 ```
 <package>/simulation_runner.py:120  _load_strategy
-  old: """Robust strategy loader that elegantly handles all edge cases
+  old: """Comprehensive strategy loader that elegantly handles all edge cases
          and seamlessly integrates with the federated simulation pipeline.
          Under the hood it imports the strategy module and instantiates it."""
   new: """Import a simulation strategy by name; raise ValueError if unknown."""
-  why: original used marketing prose ("robust", "elegantly", "seamlessly") and restated mechanism the function body already shows.
+  why: original used marketing prose ("comprehensive", "elegantly", "seamlessly") and restated mechanism the function body already shows.
 ```
 
 Include the `why:` line only when the edit is borderline — skip it for obvious cuts.

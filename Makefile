@@ -32,12 +32,18 @@ lint:                   ## ruff check + format check on scripts/
 shellcheck:             ## shellcheck on scripts/*.sh (via shellcheck-py PyPI binary)
 	@uv run shellcheck --severity=warning scripts/*.sh
 
+# Skill names are derived from the directory listing, so a new skill is guarded
+# the day it lands rather than when someone remembers to extend the pattern.
+SKILL_NAMES := $(shell find plugins/techne/skills -mindepth 1 -maxdepth 1 -type d -printf '%f|' 2>/dev/null | sed 's/|$$//')
+# Excluded because they name the forbidden patterns in order to document them.
+GUARD_SKIP := ':!Makefile' ':!ROADMAP.md' ':!.claude/skill-context.md'
+
 guards:                 ## Stale-path + legacy-name + action-pin guards
-	@if grep -rn '\.claude/skills/_shared' plugins/techne/skills/; then \
-		echo "FAIL: SKILL.md still references the old absolute _shared path"; exit 1; \
+	@if git grep -n --untracked -E '\.claude/skills/_shared' -- $(GUARD_SKIP); then \
+		echo "FAIL: still references the old absolute _shared path"; exit 1; \
 	fi
-	@if grep -rohE 'aj-(audit|auto-commit|ci-audit|deslop|docs-site|docsync|reslop|sisters)' plugins/techne/skills/; then \
-		echo "FAIL: SKILL.md still references aj-* names"; exit 1; \
+	@if git grep -n --untracked -E '\baj-($(SKILL_NAMES))\b' -- $(GUARD_SKIP); then \
+		echo "FAIL: still references aj-* names"; exit 1; \
 	fi
 	@bash scripts/check_action_pins.sh
 
