@@ -30,6 +30,7 @@ Installable as a single `/plugin`:
 | --- | --- |
 | `techne:audit` | Runs the repo's `make` targets in dependency order and reconciles terminal output against `logs/dev-*.log` archives. |
 | `techne:auto-commit` | Groups working-tree changes into a structured `COMMITS.md` plan for staged review before anything lands. |
+| `techne:catchup` | Reads every comment, review, and state change on a repo's issues and PRs since you last participated, then reports who is blocked on whom. |
 | `techne:ci-audit` | Audits GitHub Actions runs on the current branch/PR: surfaces warnings, failures, and noise; fixes what's fixable in-repo. |
 | `techne:deslop` | Scans comments and docstrings for AI-generated slop and proposes tightened rewrites. |
 | `techne:docs-site` | Maintains the Zensical-powered docs site: config, deploy pipeline, theming, link integrity. |
@@ -87,6 +88,7 @@ Set `status = "backburner"` to skip a repo without removing it.
 techne (plugin)
 ├── audit             ── verifies build targets vs. logs/
 ├── auto-commit       ── groups diffs into COMMITS.md
+├── catchup           ── who is blocked on whom since you last looked
 ├── ci-audit          ── reads gh runs, fixes warnings in-repo
 ├── deslop            ── flags AI-slop prose
 ├── docs-site         ── manages Zensical site + deploy

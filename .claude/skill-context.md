@@ -9,12 +9,12 @@ audits the skill collection itself.
 ## repo
 
 - name: techne
-- package_root: `plugins/techne/skills/` (13 skills as `SKILL.md` + supporting markdown), `plugins/techne/_shared/` (canonical glossaries shared across skills), `scripts/` (validation helpers)
+- package_root: `plugins/techne/skills/` (one directory per skill, each a `SKILL.md` plus supporting markdown), `plugins/techne/_shared/` (canonical glossaries shared across skills), `scripts/` (validation helpers)
 - language: Markdown (skill bodies) + Python (validation snippets in workflows) + Bash (structural-check scripts)
 - cli_entrypoint: none — skills are invoked from the consumer's Claude Code via `/plugin install techne@techne` then `/techne:<skill>`. The repo itself is `package = false` in `pyproject.toml`.
 - runner_module: no Python runner; CI gates run inline in `.github/workflows/validate.yml`.
 - default_branch: `main`
-- has: 13 skills (`audit`, `auto-commit`, `ci-audit`, `deslop`, `docs-site`, `docsync`, `elenchus`, `paper`, `paper-review`, `research-grounded`, `reslop`, `sisters`, `theoros`), plugin manifest at `plugins/techne/.claude-plugin/plugin.json`, marketplace manifest at `.claude-plugin/marketplace.json`, Zensical-powered docs site, no docker, no frontend
+- has: a skill per directory under `plugins/techne/skills/` (list them rather than trusting any written-down set), plugin manifest at `plugins/techne/.claude-plugin/plugin.json`, marketplace manifest at `.claude-plugin/marketplace.json`, Zensical-powered docs site, no docker, no frontend
 
 ## audit
 
@@ -86,7 +86,7 @@ Source of truth for skill-level claims:
 
 - **Skill descriptions:** `plugins/techne/skills/<name>/SKILL.md` frontmatter `description:` field is the canonical one-line summary surfaced in the plugin registry; README and `docs/skills/*.md` cross-references must match.
 - **Marketplace metadata:** `.claude-plugin/marketplace.json` lists each skill; the descriptions there must align with the SKILL.md frontmatter.
-- **Skill count:** `find plugins/techne/skills -mindepth 1 -maxdepth 1 -type d | wc -l` is the canonical count. Count + skill-list claims in README, ROADMAP, IMPL, **and this file** (e.g. "13 skills") must all trace here — adding a skill touches every one.
+- **Skill inventory:** the directory listing of `plugins/techne/skills/` is the only source of truth. Don't write a skill count into prose anywhere — a number in three files is three things to forget when a skill lands, and it drifted twice before it was removed. README's per-skill table is the one place a written inventory earns its keep, because each row carries a description rather than restating an integer.
 
 Any quantitative or list-shape claim not traceable to one of those is slop.
 
