@@ -33,11 +33,11 @@ shellcheck:             ## shellcheck on scripts/*.sh (via shellcheck-py PyPI bi
 	@uv run shellcheck --severity=warning scripts/*.sh
 
 guards:                 ## Stale-path + legacy-name + action-pin guards
-	@if grep -rn '\.claude/skills/_shared' plugins/techne/skills/; then \
-		echo "FAIL: SKILL.md still references the old absolute _shared path"; exit 1; \
+	@if grep -rn '\.claude/skills/_shared' plugins/techne/; then \
+		echo "FAIL: still references the old absolute _shared path"; exit 1; \
 	fi
-	@if grep -rohE 'aj-(audit|auto-commit|ci-audit|deslop|docs-site|docsync|reslop|sisters)' plugins/techne/skills/; then \
-		echo "FAIL: SKILL.md still references aj-* names"; exit 1; \
+	@if grep -rohE 'aj-(audit|auto-commit|ci-audit|deslop|docs-site|docsync|elenchus|paper-review|paper|research-grounded|reslop|sisters|theoros)' plugins/techne/; then \
+		echo "FAIL: still references aj-* names"; exit 1; \
 	fi
 	@bash scripts/check_action_pins.sh
 
