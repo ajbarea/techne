@@ -5,8 +5,8 @@ Update this file, not the individual skills.
 
 Each section is a **candidate generator**, not a verdict — a hit only starts
 the conversation. Always filter against the Keep rules of the skill that's
-using the list. "Comprehensive" in a doc that genuinely lists every option is
-fine; "comprehensive solution" in a docstring is slop.
+using the list. "Comprehensive" in a CLI `--help` string that really does list
+every flag is fine; "comprehensive solution" in a docstring is slop.
 
 ## Marketing / hype padding
 
