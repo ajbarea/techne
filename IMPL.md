@@ -3,9 +3,8 @@
 The active TODO list for whatever's in flight **right now** — current
 PR, open design question blocking me, immediate next pickup. Queued
 specs, cross-skill themes, and "next up" ordering live in
-[ROADMAP.md](./ROADMAP.md). Historical design specs archived under
-[`superpowers/specs/`](./superpowers/specs/). Git history is the
-permanent record.
+[ROADMAP.md](./ROADMAP.md). Git history is the permanent record of
+how each skill was designed.
 
 If this file is more than ~50 lines, something queued or referential
 has crept in — extract it back to ROADMAP.

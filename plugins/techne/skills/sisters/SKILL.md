@@ -170,7 +170,7 @@ Unlike action pins, the newest pin is **not** automatically the target. `require
 
 ### 8. Branch protection on `main`
 
-Every sister should have branch protection on `main` with at least one required status check, no force-pushes, and no branch deletions. Sisters drifted past this once already (ldqis 2026-05-23, found by the audit and fixed inline). Don't require a specific number of contexts — that varies by repo's CI shape — just check that at least one is wired and that force-push/deletion are blocked.
+Every sister should have branch protection on `main` with at least one required status check, no force-pushes, and no branch deletions. Sisters have drifted past this before; the audit caught it and it was fixed inline. Don't require a specific number of contexts — that varies by repo's CI shape — just check that at least one is wired and that force-push/deletion are blocked.
 
 ```
 for repo in $SISTERS; do
@@ -195,11 +195,11 @@ print(f"'"$repo"': {status}")
 done
 ```
 
-Report any sister whose `main` is unprotected, has zero required checks, or has `allow_force_pushes` / `allow_deletions` set. `enforce_admins` stays optional — AJ intentionally leaves admin override on so audit fixes can ship the same session.
+Report any sister whose `main` is unprotected, has zero required checks, or has `allow_force_pushes` / `allow_deletions` set. `enforce_admins` stays optional — leaving admin override on lets audit fixes ship in the same session, so treat it as a deliberate choice rather than drift unless the repo says otherwise.
 
 ### 9. Codecov config presence + bot-comment silencing
 
-Any sister whose CI workflows invoke `codecov/codecov-action` should also carry a `codecov.yml` (or `.codecov.yml`) at the repo root with `comment: false`. Without the config, the bot posts an inline PR comment on every push — pure noise once the patch-coverage status check is visible. Sisters drifted past this once already (ldqis 2026-05-23).
+Any sister whose CI workflows invoke `codecov/codecov-action` should also carry a `codecov.yml` (or `.codecov.yml`) at the repo root with `comment: false`. Without the config, the bot posts an inline PR comment on every push — pure noise once the patch-coverage status check is visible. Sisters have drifted past this before.
 
 ```
 for repo in $SISTERS; do
@@ -231,7 +231,7 @@ Every sister with a `logs/` directory should implement age-based pruning of `dev
 Detection covers both implementation shapes:
 
 - **Python-script-delegated clean** (phalanx-fl, vFL, kourai-khryseai): `LOG_ARCHIVE_MAX_AGE_DAYS = N` constant in `scripts/clean_build.py` or `scripts/dev.py`.
-- **Makefile-inline clean** (ldqis): `find logs … -mtime +N -delete` recipe line.
+- **Makefile-inline clean**: `find logs … -mtime +N -delete` recipe line.
 
 ```
 for repo in $SISTERS; do

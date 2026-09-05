@@ -1,6 +1,6 @@
 ---
 name: elenchus
-description: Adversarial pre-merge code review — drive /code-review, then run the three passes diff-reading skips (reproduce the load-bearing claim, trace every consumer, review against the whole repo) and the bug-class rubric that catches reachable destructive ops, unmirrored parallel-path guards, migration crashes, and dead features that still pass CI. Use before merging a substantive change, when asked to "review like Ben's robot", "hunt edge cases", "break this before merge", "is this actually mergeable", or to give a self-authored change an independent pass. Reads optional per-repo hints from the `## elenchus` section of `.claude/skill-context.md`.
+description: Adversarial pre-merge code review — drive /code-review, then run the three passes diff-reading skips (reproduce the load-bearing claim, trace every consumer, review against the whole repo) and the bug-class rubric that catches reachable destructive ops, unmirrored parallel-path guards, migration crashes, and dead features that still pass CI. Use before merging a substantive change, when asked to "review it like a hostile reviewer", "hunt edge cases", "break this before merge", "is this actually mergeable", or to give a self-authored change an independent pass. Reads optional per-repo hints from the `## elenchus` section of `.claude/skill-context.md`.
 disable-model-invocation: false
 allowed-tools: Bash Read Grep Glob Task Skill
 ---
@@ -98,7 +98,7 @@ Distill — the comment is the verdict and the actionable core, not the full tra
 - **Findings** — Blocking and Should-fix only, each as: `path:line` — one-line failure scenario — the fix. Drop Minor/Informational (they stay in-session) unless nothing else remains.
 - **Verified clean** — the one-line list of what was scrutinized and cleared.
 - **No signature or AI-attribution footer** — post as a plain review comment.
-- **Account-owner voice** — the comment publishes under the invoking developer's GitHub account, so write it as that person speaking: first person ("I reproduced...", "I'd hold on..."), teammates addressed as peers by name. Never refer to the account owner in third person or as "you" ("AJ prefers...", "the preference of you and Ben" are both wrong), and no assistant framing ("the review found..." is fine; "I ran this for AJ" is not). Same rule for any follow-up comment posted in the same thread after the review.
+- **Account-owner voice** — the comment publishes under the invoking developer's GitHub account, so write it as that person speaking: first person ("I reproduced...", "I'd hold on..."), teammates addressed as peers by name. Never refer to the account owner in third person or as "you" ("the author prefers...", "the preference of you and the reviewer" are both wrong), and no assistant framing ("the review found..." is fine; "I ran this for the account owner" is not). Same rule for any follow-up comment posted in the same thread after the review.
 
 Clean-pass shape: verdict `mergeable`, a `Findings: none blocking` line, and the Verified-clean list — a few lines, not a placeholder wall.
 

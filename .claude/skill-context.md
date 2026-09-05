@@ -9,12 +9,12 @@ audits the skill collection itself.
 ## repo
 
 - name: techne
-- package_root: `plugins/techne/skills/` (10 skills as `SKILL.md` + supporting markdown), `plugins/techne/_shared/` (canonical glossaries shared across skills), `superpowers/` (plans + specs), `scripts/` (validation helpers)
+- package_root: `plugins/techne/skills/` (13 skills as `SKILL.md` + supporting markdown), `plugins/techne/_shared/` (canonical glossaries shared across skills), `scripts/` (validation helpers)
 - language: Markdown (skill bodies) + Python (validation snippets in workflows) + Bash (structural-check scripts)
 - cli_entrypoint: none — skills are invoked from the consumer's Claude Code via `/plugin install techne@techne` then `/techne:<skill>`. The repo itself is `package = false` in `pyproject.toml`.
 - runner_module: no Python runner; CI gates run inline in `.github/workflows/validate.yml`.
 - default_branch: `main`
-- has: 10 skills (`audit`, `auto-commit`, `ci-audit`, `deslop`, `docs-site`, `docsync`, `research-grounded`, `reslop`, `sisters`, `theoros`), plugin manifest at `plugins/techne/.claude-plugin/plugin.json`, marketplace manifest at `.claude-plugin/marketplace.json`, Zensical-powered docs site, no docker, no frontend
+- has: 13 skills (`audit`, `auto-commit`, `ci-audit`, `deslop`, `docs-site`, `docsync`, `elenchus`, `paper`, `paper-review`, `research-grounded`, `reslop`, `sisters`, `theoros`), plugin manifest at `plugins/techne/.claude-plugin/plugin.json`, marketplace manifest at `.claude-plugin/marketplace.json`, Zensical-powered docs site, no docker, no frontend
 
 ## audit
 
@@ -86,7 +86,7 @@ Source of truth for skill-level claims:
 
 - **Skill descriptions:** `plugins/techne/skills/<name>/SKILL.md` frontmatter `description:` field is the canonical one-line summary surfaced in the plugin registry; README and `docs/skills/*.md` cross-references must match.
 - **Marketplace metadata:** `.claude-plugin/marketplace.json` lists each skill; the descriptions there must align with the SKILL.md frontmatter.
-- **Skill count:** `find plugins/techne/skills -mindepth 1 -maxdepth 1 -type d | wc -l` is the canonical count. Count + skill-list claims in README, ROADMAP, IMPL, **and this file** (e.g. "10 skills") must all trace here — adding a skill touches every one.
+- **Skill count:** `find plugins/techne/skills -mindepth 1 -maxdepth 1 -type d | wc -l` is the canonical count. Count + skill-list claims in README, ROADMAP, IMPL, **and this file** (e.g. "13 skills") must all trace here — adding a skill touches every one.
 
 Any quantitative or list-shape claim not traceable to one of those is slop.
 
@@ -97,7 +97,6 @@ Skip paths:
 - `.venv/`, `node_modules/`, `dist/`, `build/`, `site/`, `out/`
 - `__pycache__/`, `.ruff_cache/`, `.pytest_cache/`, `.cache/`
 - `uv.lock`
-- `superpowers/` (vendored upstream content — out of scope for slop / drift sweeps that target ajbarea's own prose)
 
 Subagent scan-area split:
 

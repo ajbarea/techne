@@ -2,9 +2,8 @@
 
 Long-horizon plan for the techne plugin. Session-by-session execution
 lives in [IMPL.md](./IMPL.md). When a milestone ships, it collapses to a
-dated one-liner under [Shipped](#shipped). Historical design specs and
-plans archived under [`superpowers/plans/`](./superpowers/plans/) and
-[`superpowers/specs/`](./superpowers/specs/).
+dated one-liner under [Shipped](#shipped). Git history is the
+permanent record of how each skill was designed.
 
 Last reviewed: 2026-05-30 (dependabot-core upstream re-check: #12162 closed → uv lockfile-only unblocked; #14004 still open).
 
@@ -44,34 +43,42 @@ gating. Open coverage gaps:
 - **Sister-graduation final gates.** `/techne:sisters` should detect
   unchecked M6-equivalent boxes in a sister's ROADMAP — today the
   audit only inspects infra parity, not the planning-doc handoff
-  state. Tracked alongside the [`narrative-coherence` sketch](./superpowers/plans/2026-05-21-skill-ideas-from-audit-of-audit.md).
+  state. Tracked alongside `narrative-coherence` below.
 - **Workspace orphan detection.** A directory in `~/ajsoftworks/`
   that isn't in `~/.claude/techne.toml` may be a stale artifact or a
   pre-promotion sister; surfacing the difference would let the
-  workspace stay tidy without manual sweeps. Sketched under #4 in
-  the same plans file; n=1 today so not a build.
+  workspace stay tidy without manual sweeps. n=1 today, so not a
+  build.
 
 ### Skill-collection evolution
 
 Skills are added when a pattern proves itself across multiple sisters
 (n≥2). Skills are deleted or merged when their domain collapses into a
-larger sibling. The current set (10 skills, 4 catalog dimensions —
+larger sibling. The current set (13 skills, 4 catalog dimensions —
 audit, drift, hygiene, observation) is stable. `research-grounded`
-(the 2026-05-21 audit-of-audit item #3) shipped 2026-05-29 on direct
-request; `narrative-coherence` / `positioning` (items #2 / #1) remain
-queued for when that drift class recurs.
+(from the 2026-05-21 audit-of-audit) shipped 2026-05-29 on direct
+request; `narrative-coherence` and `positioning` remain queued for when
+that drift class recurs.
 
 ---
 
 ## Queued / unprioritized
 
 - **`/techne:narrative-coherence`** — cross-sister README ecosystem
-  audit. See [skill-ideas-from-audit-of-audit](./superpowers/plans/2026-05-21-skill-ideas-from-audit-of-audit.md) item #2.
+  audit. Reads each sister's README and checks whether they
+  cross-reference each other into a coherent ecosystem story, surfacing
+  missing reciprocal links. Distinct from `/techne:sisters`, which
+  checks dev-infra coherence rather than narrative coherence.
 - **`/techne:positioning`** — identity-drift check (claim vs work).
-  Same plans file, item #1.
+  Reads each sister's README hero, ROADMAP top, and recent commits,
+  drafts a one-line "what does this project claim to be?", and flags
+  where the claim has drifted from the work. Distinct from
+  `/techne:docsync`, which checks technical claims against code; this
+  goes after marketing-shape drift.
 - **`/techne:workspace-orphans`** — content-bearing files outside the
-  active sister perimeter. Same plans file, item #4. n=1 today;
-  build when n≥2.
+  active sister perimeter. Scans the workspace root for directories
+  absent from `~/.claude/techne.toml`, which are either stale artifacts
+  or pre-promotion sisters. n=1 today; build when n≥2.
 - **Execution-grounded triage pattern (watcher, not a build).** Anthropic's
   [defending-code-reference-harness](https://github.com/anthropics/defending-code-reference-harness)
   (autonomous C/C++ memory-safety vuln discovery) is **not** applicable to the
