@@ -19,6 +19,13 @@ The included skills, grouped by what they do.
 | [`techne:docsync`](docsync.md) | Verifies documentation claims (CLI commands, paths, config keys, signatures) against the actual code. |
 | [`techne:research-grounded`](research-grounded.md) | Flags design decisions in `IMPL.md` / `ROADMAP.md` that lack `# research(YYYY-MM):` provenance, then web-searches to ground them. |
 
+## Review and collaboration
+
+| Skill | Purpose |
+|---|---|
+| [`techne:catchup`](catchup.md) | Reads every comment, review, and state change on one repo since you last participated, then reports who is blocked on whom. |
+| [`techne:elenchus`](elenchus.md) | Adversarial pre-merge review: drives `/code-review`, then reproduces the load-bearing claim, traces every consumer, and applies a fixed bug-class rubric. |
+
 ## Site and cross-repo
 
 | Skill | Purpose |
