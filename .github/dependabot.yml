@@ -20,6 +20,9 @@ updates:
       uv:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+      uv-security:
+        applies-to: security-updates
+        patterns: ["*"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -39,3 +42,6 @@ updates:
       github-actions:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+      github-actions-security:
+        applies-to: security-updates
+        patterns: ["*"]
