@@ -31,7 +31,10 @@ python3 scripts/sweep.py <repo> [--since ISO8601] [--window-days N] [--prs N] [-
 
 `<repo>` is a bare name (resolved against `workspace_root` in `~/.claude/techne.toml`) or an explicit `owner/name`. With no argument it uses the current directory's clone.
 
-The script emits JSON on stdout: the resolved repo, the anchor and how it was derived, an `events` list of everything after the anchor, and `open_prs` with review counts and unresolved-thread counts. One GraphQL call covers all four surfaces.
+The script emits JSON on stdout: the resolved repo, the anchor and how it was derived, an
+`events` list of everything after the anchor, and `open_prs` / `open_issues` carrying the
+standing state -- review counts, unresolved threads, CI, merge state, comment counts and
+who spoke last. One GraphQL call covers all four surfaces.
 
 Read the JSON. Do not re-fetch what it already returned. In particular it already
 carries `checks`, `mergeable`, and `mergeStateStatus` per open PR, so a follow-up
@@ -49,7 +52,11 @@ has no more.
 - `events_omitted` — more events existed than the cap. Anything mentioning the user, or on an item they opened, is always kept; the rest was filled newest-first. Raise `--max-events` to see more.
 - `state_changes_collapsed` — bulk merges/closes were reduced to counts and issue numbers.
 - `window_capped` — the anchor was older than the window, so the report starts later than the user's actual last visit.
-- `anchor_source` — if it says no participation was found, the window is a fallback, not a real anchor.
+- `anchor_source` — if it says no participation was found, the window is a fallback, not a
+  real anchor. It names the action that set the anchor, and they are not equivalent:
+  "the issue you opened" means the user filed something and left, so the repo may hold
+  plenty they have never read, whereas "your latest comment" means they were reading the
+  thread. Quote it rather than flattening it to "your last activity".
 
 Say so in the report whenever any of these is set. A silent partial answer is worse than a stated one.
 
@@ -79,7 +86,11 @@ Three buckets, each event in exactly one. When uncertain, choose the more urgent
 
 **🔵 Waiting on them**
 
-- The user's PR or issue with no review and no response
+- The user's PR or issue with no review and no response. Read this from `open_prs` and
+  `open_issues`, not from `events`: an item nobody answered generates no event, so it is
+  invisible in a quiet sweep unless you look at the standing state. An issue with
+  `comments: 0` that the user opened is the clearest "waiting on them" there is.
+- An item where `last_commenter` is the user and nobody has replied since
 - A question the user asked that is still unanswered
 - A PR the user reviewed whose blocking items are still unaddressed
 - Someone else's open PR with `reviews: 0` and no review requested from the user. Nobody
@@ -138,9 +149,12 @@ which is omitted only when the user lacks write access or every open PR already 
 review. **Quote the actual words** of anything blocking — a paraphrase of "go ahead and merge that" loses the instruction.
 
 If nothing came back, say so in one line. That is a valid and common result; padding it
-with restated history defeats the purpose. **Still report the open-PR buckets** — `events`
-is empty relative to the anchor, but an approved PR of the user's has been sitting open
-the whole time and is exactly what a catch-up exists to surface.
+with restated history defeats the purpose. **Still report the standing state** — `events`
+is empty relative to the anchor, but an approved PR of the user's, or six issues they
+filed that nobody answered, have been sitting there the whole time and are exactly what a
+catch-up exists to surface. "No new events" and "nothing is waiting on you" are different
+claims; only the first is supported by an empty `events` list, and reporting the second
+from it is the characteristic failure of this skill.
 
 When the sweep is empty and the user wants more than "nothing changed", the useful
 follow-up is not a wider window but the repo's **review conventions** — what reviewers

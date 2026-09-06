@@ -342,9 +342,21 @@ def find_anchor(events, repo_slug, me):
     # user authored is not participation, and counting it silently drops every
     # comment made before it.
     ACTIONS = {"comment", "review", "inline_comment", "pr_opened", "issue_opened", "pr_merged"}
-    mine = [e["ts"] for e in events if e["is_self"] and e["kind"] in ACTIONS]
-    source = "your latest comment/review" if mine else None
-    anchor = max(mine) if mine else None
+    # Label the anchor by the action that actually set it. Reporting an issue you
+    # opened as "your latest comment/review" overstates the sweep: it implies you
+    # read the thread, when you may only have filed it and walked away.
+    LABELS = {
+        "comment": "your latest comment",
+        "review": "your latest review",
+        "inline_comment": "your latest review comment",
+        "pr_opened": "the PR you opened",
+        "issue_opened": "the issue you opened",
+        "pr_merged": "your latest merge",
+    }
+    mine = [e for e in events if e["is_self"] and e["kind"] in ACTIONS]
+    latest = max(mine, key=lambda e: e["ts"]) if mine else None
+    source = LABELS.get(latest["kind"], "your latest activity") if latest else None
+    anchor = latest["ts"] if latest else None
 
     # `gh api --jq` prints a bare string, not JSON, so take it verbatim rather
     # than parsing it.
@@ -482,6 +494,25 @@ def main():
                 }
                 for p in pr_nodes
                 if p["state"] == "OPEN"
+            ],
+            "open_issues": [
+                {
+                    "number": i["number"],
+                    "title": i["title"],
+                    "author": (i.get("author") or {}).get("login"),
+                    "assignees": [a["login"] for a in i["assignees"]["nodes"]],
+                    "comments": len(i["comments"]["nodes"]),
+                    "last_commenter": (
+                        ((i["comments"]["nodes"][-1].get("author") or {}).get("login"))
+                        if i["comments"]["nodes"]
+                        else None
+                    ),
+                    "createdAt": i["createdAt"],
+                    "updatedAt": i["updatedAt"],
+                    "url": i["url"],
+                }
+                for i in repo["issues"]["nodes"]
+                if i["state"] == "OPEN"
             ],
             "events": reported,
         },

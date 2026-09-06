@@ -35,6 +35,8 @@ Four surfaces, because a comment-only sweep misses the quiet events:
 3. Inline review comments on the diff
 4. State changes carrying no comment at all — merges, closes, approvals, new PRs
 
+It also reports standing state -- open PRs and open issues -- separately from events, because an item nobody answered produces no event at all. An issue you filed and nobody replied to is waiting on them just as much as a blocking review is, and it will never appear in a list of things that happened.
+
 The fourth is the one hand-runs forget. A teammate can merge four PRs and silently address five review items without writing a word.
 
 All four come from a single GraphQL call in `scripts/sweep.py`, rather than the two REST calls per open PR the surfaces would otherwise cost. The same call carries each open PR's CI rollup and merge state, so reporting never costs a follow-up `gh pr view`.
