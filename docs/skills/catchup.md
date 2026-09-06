@@ -41,7 +41,9 @@ All four come from a single GraphQL call in `scripts/sweep.py`, rather than the 
 
 The scan spans every PR and issue state, not just open ones, newest-updated first. That is deliberate: a blocking review posted moments before someone merged lives on a merged PR, and an open-only scan would never see it.
 
-It also reads your permission on the repo and any review explicitly requested from you. Where you hold write access, a teammate's unreviewed PR is named in the verdict as work you can pick up -- it stays in "waiting on them", since nobody asked, but it does not go unmentioned.
+It also reads your permission on the repo and any review explicitly requested from you. Where you hold write access, every open PR of someone else's that nobody has reviewed is listed under **🔍 No review yet**, oldest first. Being asked is not a precondition: an unreviewed PR is a gap in the team's review ceremony whoever ends up filling it, and it is a standing state rather than an event, so it appears even on a quiet sweep that reports no new activity.
+
+The catch-up names the gap and stops there. Running the review itself is [`techne:elenchus`](elenchus.md).
 
 ## Options
 

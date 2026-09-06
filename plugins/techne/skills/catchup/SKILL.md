@@ -108,16 +108,21 @@ Since your last activity: <anchor> (<anchor_source>)
 ### ✅ No action
 - <merged/closed items, one line each, collapsed where repetitive>
 
+### 🔍 No review yet
+- #<n> <author>, opened <how long ago>, <checks> — nobody has reviewed this
+
 ### Verdict
 <"Nothing is waiting on you." | "N items need you; #<n> is the oldest.">
 <optional: the unreviewed PR worth picking up>
 ```
 
-**Name the available review in the verdict.** When `viewer_permission` is `WRITE`,
-`MAINTAIN`, or `ADMIN`, the user is a collaborator and someone else's unreviewed PR is
-work they can pick up, even though nobody asked and it therefore stays in "waiting on
-them". Say so in one line, oldest first. On `READ` or `NONE` they cannot review, so stay
-silent.
+**Always report the review gap.** Any open PR by someone else with `reviews: 0` goes in
+the `### 🔍 No review yet` section, oldest first, whenever `viewer_permission` is `WRITE`,
+`MAINTAIN`, or `ADMIN`. Being asked is not a precondition -- wanting to see what a
+teammate built is reason enough, and an unreviewed PR is a gap in the team's ceremony
+whoever fills it. Print the section even when every event bucket is empty; a stale
+unreviewed PR is a standing state, not an event, so it will never show up in `events`.
+On `READ` or `NONE` the user cannot review, so omit the section entirely.
 
 Judge this from `viewer_permission`, never from `viewer_reviews_in_scan`. A count of past
 reviews is history, not remit: a user who is adopting team review ceremony has zero prior
@@ -125,7 +130,12 @@ reviews on every repo they are about to start reviewing, and gating the nudge on
 count would suppress it exactly when it is most useful. The count is context for how
 established the habit is -- never the decider.
 
-Omit empty buckets rather than printing empty headings. **Quote the actual words** of anything blocking — a paraphrase of "go ahead and merge that" loses the instruction.
+Offer, do not perform. The catch-up names the gap and stops; running the review is
+[`techne:elenchus`](../elenchus/SKILL.md), scaled to the diff.
+
+Omit empty buckets rather than printing empty headings -- except `🔍 No review yet`,
+which is omitted only when the user lacks write access or every open PR already has a
+review. **Quote the actual words** of anything blocking — a paraphrase of "go ahead and merge that" loses the instruction.
 
 If nothing came back, say so in one line. That is a valid and common result; padding it
 with restated history defeats the purpose. **Still report the open-PR buckets** — `events`
