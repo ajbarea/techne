@@ -57,6 +57,8 @@ query($owner:String!, $name:String!, $prs:Int!, $issues:Int!, $nested:Int!) {
         author { login }
         mergedBy { login }
         reviewDecision
+        mergeable mergeStateStatus
+        commits(last:1) { nodes { commit { statusCheckRollup { state } } } }
         comments(last:$nested) { nodes { createdAt author { login } body } }
         reviews(last:$nested) { nodes { submittedAt state author { login } body } }
         reviewThreads(last:$nested) {
@@ -276,6 +278,33 @@ def collect(repo, me):
     return events
 
 
+def _checks_state(pr):
+    """SUCCESS/FAILURE/PENDING/None for the head commit's combined checks."""
+    nodes = (pr.get("commits") or {}).get("nodes") or []
+    if not nodes:
+        return None
+    rollup = (nodes[0].get("commit") or {}).get("statusCheckRollup")
+    return rollup.get("state") if rollup else None
+
+
+def _viewer_reviews(pr_nodes, me):
+    """How many reviews the user has authored here, across the scanned PRs."""
+    return sum(
+        1
+        for pr in pr_nodes
+        for r in pr["reviews"]["nodes"]
+        if (r.get("author") or {}).get("login") == me
+    )
+
+
+def _tally_states(nodes):
+    """Count nodes by state, so a scan total is never read as an open count."""
+    tally = {}
+    for n in nodes:
+        tally[n["state"]] = tally.get(n["state"], 0) + 1
+    return tally
+
+
 def find_anchor(events, repo_slug, me):
     """Latest moment the user participated: comment, review, or commit."""
     # Only deliberate actions anchor the window. A state change on an item the
@@ -392,7 +421,12 @@ def main():
                 "new_events": len(new_events),
                 "reported": len(reported),
                 "scanned_prs": len(pr_nodes),
+                "scanned_prs_by_state": _tally_states(pr_nodes),
                 "scanned_issues": len(repo["issues"]["nodes"]),
+                "scanned_issues_by_state": _tally_states(repo["issues"]["nodes"]),
+                "pr_cap": args.prs,
+                "issue_cap": args.issues,
+                "viewer_reviews_in_scan": _viewer_reviews(pr_nodes, me),
             },
             "state_changes_collapsed": state_collapsed,
             "events_omitted": omitted,
@@ -403,6 +437,9 @@ def main():
                     "author": (p.get("author") or {}).get("login"),
                     "isDraft": p["isDraft"],
                     "reviewDecision": p.get("reviewDecision"),
+                    "mergeable": p.get("mergeable"),
+                    "mergeStateStatus": p.get("mergeStateStatus"),
+                    "checks": _checks_state(p),
                     "reviews": len(p["reviews"]["nodes"]),
                     "unresolved_threads": sum(
                         1 for t in p["reviewThreads"]["nodes"] if not t.get("isResolved")

@@ -33,9 +33,17 @@ python3 scripts/sweep.py <repo> [--since ISO8601] [--window-days N] [--prs N] [-
 
 The script emits JSON on stdout: the resolved repo, the anchor and how it was derived, an `events` list of everything after the anchor, and `open_prs` with review counts and unresolved-thread counts. One GraphQL call covers all four surfaces.
 
-Read the JSON. Do not re-fetch what it already returned.
+Read the JSON. Do not re-fetch what it already returned. In particular it already
+carries `checks`, `mergeable`, and `mergeStateStatus` per open PR, so a follow-up
+`gh pr view` for CI or merge state is always redundant.
 
 **Check these fields before reporting. Each one means the picture is partial:**
+
+The scan covers PRs and issues in **every** state, newest-updated first, because a
+review that landed moments before a merge lives on a merged PR. `scanned_prs_by_state`
+breaks the total down; report the breakdown rather than a bare total, which readers
+otherwise take to mean open items. `scanned_prs` below `pr_cap` means the repo simply
+has no more.
 
 - `truncated` — the scan hit the page limit. Re-run with a higher `--prs`/`--issues` if it matters. Never describe a truncated scan as complete.
 - `events_omitted` — more events existed than the cap. Anything mentioning the user, or on an item they opened, is always kept; the rest was filled newest-first. Raise `--max-events` to see more.
@@ -63,13 +71,16 @@ Three buckets, each event in exactly one. When uncertain, choose the more urgent
 - An item assigned to them with activity after the anchor
 - **Their own PR that is approved and mergeable but still open** — nobody else will chase this
 - Someone saying they are blocked pending the user's action
+- Someone else's open PR with `reviews: 0` **when `viewer_reviews_in_scan` is non-zero** — the
+  user reviews in this repo, so an unreviewed PR is sitting on their desk
 
 **🔵 Waiting on them**
 
 - The user's PR or issue with no review and no response
 - A question the user asked that is still unanswered
 - A PR the user reviewed whose blocking items are still unaddressed
-- Someone else's open PR with `reviews: 0`
+- Someone else's open PR with `reviews: 0`, **when `viewer_reviews_in_scan` is 0** — the
+  user does not review in this repo, so an unreviewed PR is not theirs to unblock
 
 **✅ No action**
 
@@ -100,7 +111,19 @@ Since your last activity: <anchor> (<anchor_source>)
 
 Omit empty buckets rather than printing empty headings. **Quote the actual words** of anything blocking — a paraphrase of "go ahead and merge that" loses the instruction.
 
-If nothing came back, say so in one line. That is a valid and common result; padding it with restated history defeats the purpose.
+If nothing came back, say so in one line. That is a valid and common result; padding it
+with restated history defeats the purpose. **Still report the open-PR buckets** — `events`
+is empty relative to the anchor, but an approved PR of the user's has been sitting open
+the whole time and is exactly what a catch-up exists to surface.
+
+When the sweep is empty and the user wants more than "nothing changed", the useful
+follow-up is not a wider window but the repo's **review conventions** — what reviewers
+here consistently push back on. That is a separate, opt-in pass: never run it by default,
+and never read every comment. Filter the corpus first (drop the user's own comments and
+anything under ~100 characters, which is where the LGTM noise lives) and read only what
+survives. On a 46-PR repo that turned ~10K tokens of raw threads into ~4K of signal.
+Report what reviewers said as claims, and verify any that touch current code before
+repeating them.
 
 ## Rules
 

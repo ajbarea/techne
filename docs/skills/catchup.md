@@ -23,6 +23,7 @@ The skill anchors on your most recent comment, review, commit, or merge in that 
 |---|---|
 | ⏳ Waiting on you | A review to answer, a question addressed to you, or your own approved PR still sitting unmerged. |
 | 🔵 Waiting on them | Your PR awaiting review, your unanswered question, or blocking items you raised that are still unaddressed. |
+| | An unreviewed PR of someone else's lands in whichever bucket your own history says: it is yours to unblock only if you review in this repo at all. |
 | ✅ No action | Merged, closed, informational, or your own activity. |
 
 ## What it reads
@@ -36,7 +37,9 @@ Four surfaces, because a comment-only sweep misses the quiet events:
 
 The fourth is the one hand-runs forget. A teammate can merge four PRs and silently address five review items without writing a word.
 
-All four come from a single GraphQL call in `scripts/sweep.py`, rather than the two REST calls per open PR the surfaces would otherwise cost.
+All four come from a single GraphQL call in `scripts/sweep.py`, rather than the two REST calls per open PR the surfaces would otherwise cost. The same call carries each open PR's CI rollup and merge state, so reporting never costs a follow-up `gh pr view`.
+
+The scan spans every PR and issue state, not just open ones, newest-updated first. That is deliberate: a blocking review posted moments before someone merged lives on a merged PR, and an open-only scan would never see it.
 
 ## Options
 
