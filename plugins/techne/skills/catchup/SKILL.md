@@ -71,16 +71,19 @@ Three buckets, each event in exactly one. When uncertain, choose the more urgent
 - An item assigned to them with activity after the anchor
 - **Their own PR that is approved and mergeable but still open** — nobody else will chase this
 - Someone saying they are blocked pending the user's action
-- Someone else's open PR with `reviews: 0` **when `viewer_reviews_in_scan` is non-zero** — the
-  user reviews in this repo, so an unreviewed PR is sitting on their desk
+- **`review_requested_from_me: true`** — someone asked the user for a review. This is the
+  strongest signal in the sweep and outranks everything else about the PR: an explicit ask
+  is waiting on them even if they have never reviewed in this repo before.
+- `review_requested_from_teams` naming a team the user belongs to. The sweep reports slugs
+  without resolving membership, so judge it and say the ask was team-wide.
 
 **🔵 Waiting on them**
 
 - The user's PR or issue with no review and no response
 - A question the user asked that is still unanswered
 - A PR the user reviewed whose blocking items are still unaddressed
-- Someone else's open PR with `reviews: 0`, **when `viewer_reviews_in_scan` is 0** — the
-  user does not review in this repo, so an unreviewed PR is not theirs to unblock
+- Someone else's open PR with `reviews: 0` and no review requested from the user. Nobody
+  asked, so it is not blocking on them — but see the verdict rule below.
 
 **✅ No action**
 
@@ -107,7 +110,20 @@ Since your last activity: <anchor> (<anchor_source>)
 
 ### Verdict
 <"Nothing is waiting on you." | "N items need you; #<n> is the oldest.">
+<optional: the unreviewed PR worth picking up>
 ```
+
+**Name the available review in the verdict.** When `viewer_permission` is `WRITE`,
+`MAINTAIN`, or `ADMIN`, the user is a collaborator and someone else's unreviewed PR is
+work they can pick up, even though nobody asked and it therefore stays in "waiting on
+them". Say so in one line, oldest first. On `READ` or `NONE` they cannot review, so stay
+silent.
+
+Judge this from `viewer_permission`, never from `viewer_reviews_in_scan`. A count of past
+reviews is history, not remit: a user who is adopting team review ceremony has zero prior
+reviews on every repo they are about to start reviewing, and gating the nudge on that
+count would suppress it exactly when it is most useful. The count is context for how
+established the habit is -- never the decider.
 
 Omit empty buckets rather than printing empty headings. **Quote the actual words** of anything blocking — a paraphrase of "go ahead and merge that" loses the instruction.
 

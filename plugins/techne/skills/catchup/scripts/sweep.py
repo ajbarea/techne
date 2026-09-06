@@ -51,6 +51,7 @@ MAX_EVENTS = 80
 QUERY = """
 query($owner:String!, $name:String!, $prs:Int!, $issues:Int!, $nested:Int!) {
   repository(owner:$owner, name:$name) {
+    viewerPermission
     pullRequests(first:$prs, orderBy:{field:UPDATED_AT, direction:DESC}) {
       nodes {
         number title state isDraft url createdAt updatedAt mergedAt closedAt
@@ -59,6 +60,15 @@ query($owner:String!, $name:String!, $prs:Int!, $issues:Int!, $nested:Int!) {
         reviewDecision
         mergeable mergeStateStatus
         commits(last:1) { nodes { commit { statusCheckRollup { state } } } }
+        reviewRequests(first:20) {
+          nodes {
+            requestedReviewer {
+              __typename
+              ... on User { login }
+              ... on Team { slug }
+            }
+          }
+        }
         comments(last:$nested) { nodes { createdAt author { login } body } }
         reviews(last:$nested) { nodes { submittedAt state author { login } body } }
         reviewThreads(last:$nested) {
@@ -297,6 +307,27 @@ def _viewer_reviews(pr_nodes, me):
     )
 
 
+def _review_request(pr, me):
+    """Who a review was explicitly asked of: the user, a team, or nobody.
+
+    Being asked is the signal, and it is forward-looking -- a first review on a
+    repo is still a review that was requested. Team requests are reported by
+    slug rather than resolved, because membership needs a separate org call the
+    token may not carry; a team ask is surfaced for the user to judge.
+    """
+    direct, teams = False, []
+    for node in pr.get("reviewRequests", {}).get("nodes", []):
+        r = node.get("requestedReviewer") or {}
+        if r.get("__typename") == "User" and r.get("login") == me:
+            direct = True
+        elif r.get("__typename") == "Team":
+            teams.append(r.get("slug"))
+    return {
+        "review_requested_from_me": direct,
+        "review_requested_from_teams": teams,
+    }
+
+
 def _tally_states(nodes):
     """Count nodes by state, so a scan total is never read as an open count."""
     tally = {}
@@ -427,6 +458,7 @@ def main():
                 "pr_cap": args.prs,
                 "issue_cap": args.issues,
                 "viewer_reviews_in_scan": _viewer_reviews(pr_nodes, me),
+                "viewer_permission": repo.get("viewerPermission"),
             },
             "state_changes_collapsed": state_collapsed,
             "events_omitted": omitted,
@@ -440,6 +472,7 @@ def main():
                     "mergeable": p.get("mergeable"),
                     "mergeStateStatus": p.get("mergeStateStatus"),
                     "checks": _checks_state(p),
+                    **_review_request(p, me),
                     "reviews": len(p["reviews"]["nodes"]),
                     "unresolved_threads": sum(
                         1 for t in p["reviewThreads"]["nodes"] if not t.get("isResolved")
