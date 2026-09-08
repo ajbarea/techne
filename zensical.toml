@@ -30,6 +30,7 @@ nav = [
       { "elenchus" = "skills/elenchus.md" },
       { "paper" = "skills/paper.md" },
       { "paper-review" = "skills/paper-review.md" },
+      { "pdf" = "skills/pdf.md" },
       { "research-grounded" = "skills/research-grounded.md" },
       { "reslop" = "skills/reslop.md" },
       { "sisters" = "skills/sisters.md" },

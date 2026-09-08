@@ -1,0 +1,105 @@
+// Print template for markdown documents rendered via cmarker.
+// Placeholders are double-brace delimited and filled by scripts/render.py.
+
+#import "@preview/cmarker:0.1.10"
+
+#let serif = {{SERIF}}
+#let sans = {{SANS}}
+#let mono = {{MONO}}
+
+#let ink = rgb("#1a1a1a")
+#let ink-strong = rgb("#111111")
+#let accent = rgb("#6b4a1f")
+#let muted = rgb("#4a4a4a")
+#let rule-light = rgb("#d8d0c4")
+#let rule-head = rgb("#b9ad9a")
+#let rule-row = rgb("#e6e0d6")
+#let quote-bar = rgb("#c9bda8")
+#let code-bg = rgb("#f2efe9")
+#let link-blue = rgb("#2a5680")
+
+#set document(title: {{TITLE}})
+#set page(paper: "us-letter", margin: (top: 0.9in, bottom: 0.9in, x: 0.95in))
+#set text(font: serif, size: 11.2pt, fill: ink)
+// Matched to a 1.55 line-height and a 0.7em paragraph margin at 11.2pt.
+#set par(leading: 0.8821em, spacing: 1.6187em, justify: false)
+#set list(spacing: 1.85em, indent: 0.6em)
+#set enum(spacing: 1.85em, indent: 0.6em)
+#set line(stroke: 0.5pt + rule-light)
+
+#show link: set text(fill: link-blue)
+#show strong: set text(weight: 700, fill: ink-strong)
+
+#show raw.where(block: false): it => box(
+  fill: code-bg,
+  outset: (y: 0.22em),
+  inset: (x: 0.32em),
+  radius: 2pt,
+  text(font: mono, size: 9.4pt, it),
+)
+#show raw.where(block: true): it => block(
+  fill: code-bg,
+  width: 100%,
+  inset: (x: 0.7em, y: 0.6em),
+  radius: 2pt,
+  text(font: mono, size: 9.4pt, it),
+)
+
+#show heading.where(level: 2): it => block(
+  above: 1.6em, below: 0.5em, breakable: false, width: 100%,
+  stack(
+    spacing: 0.25em,
+    text(font: sans, size: 11.5pt, weight: 700, tracking: 0.02em, fill: accent,
+         upper(it.body)),
+    line(length: 100%),
+  ),
+)
+
+#show heading.where(level: 3): it => block(
+  above: 1.2em, below: 0.35em, breakable: false,
+  text(font: sans, size: 10.8pt, weight: 600, fill: ink-strong, it.body),
+)
+
+#show quote.where(block: true): it => block(
+  above: 0.8em, below: 0.8em, inset: (left: 1em),
+  stroke: (left: 2.5pt + quote-bar),
+  text(fill: muted, it.body),
+)
+
+// Tables: uppercase sans header over a heavier rule, hairline separators
+// carried on row tops so the final row closes without one.
+// cmarker hands back a table with an explicit `inset: 0% + 5pt`, which beats a
+// set rule and segments the rules. Re-emit without it so this template's insets
+// apply, keeping cmarker's auto columns so a long prose column still shrinks to
+// the measure. The dropped inset is what makes the guard false on the second
+// pass, an inner `show table` does not stop the recursion.
+#show table: t => {
+  set text(size: 9.8pt)
+  set par(leading: 8.72pt, spacing: 8.72pt)
+  if t.inset == 0% + 5pt {
+    table(columns: t.columns, align: t.align, ..t.children)
+  } else { t }
+}
+#set table(
+  stroke: (x, y) => (
+    top: if y > 1 { 0.5pt + rule-row } else { none },
+    bottom: if y == 0 { 1pt + rule-head } else { none },
+  ),
+  inset: (left: 0em, right: 0.6em, top: 8.77pt, bottom: 8.77pt),
+  column-gutter: 0pt,
+  row-gutter: 0pt,
+  align: (x, y) => if y == 0 { bottom + left } else { top + left },
+)
+#show table.cell.where(y: 0): it => text(
+  font: sans, size: 8.8pt, tracking: 0.03em, fill: accent, upper(it.body),
+)
+
+// Title block, kept out of the markdown so the subtitle can carry its own style.
+#block(above: 0em, below: 14.3pt)[
+  #text(font: sans, size: 19pt, weight: 600, tracking: -0.01em, fill: ink-strong, {{TITLE}})
+]
+#if {{SUBTITLE}} != none {
+  block(below: 18.98pt)[#text(size: 11.6pt, fill: muted, emph({{SUBTITLE}}))]
+}
+
+#cmarker.render(read({{BODY_PATH}}), smart-punctuation: true, h1-level: 1)
