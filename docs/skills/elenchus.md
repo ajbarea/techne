@@ -34,6 +34,17 @@ Independence is restored mechanically, not by willpower. `/code-review` at `high
 
 Reachable destructive operations, unmirrored guards across parallel code paths, migration crashes, and dead features that still pass CI — the classes that are invisible in a diff and obvious the moment the code is run or its callers traced.
 
+## What it posts
+
+When an open PR exists for the branch, elenchus posts one distilled comment as the review of record. Who opened the PR decides the shape, derived live from `gh`:
+
+- **Someone else's PR**: merge verdict, then blocking and should-fix findings, then the verified-clean list.
+- **Your own PR**: findings, refutations, and the verified-clean list, with **no merge verdict**. A verdict published on your own PR pre-empts the human reviewer the method depends on, and reads to teammates as approving your own work.
+
+Either shape publishes the work rather than the machinery. The comment never claims the review was "independent" and never names the tooling that ran it, because neither is checkable by a teammate.
+
+Skipped when there is no open PR, or when you say to keep the review local.
+
 ## Configuration
 
 Reads optional per-repo hints from the `## elenchus` section of `.claude/skill-context.md`: known destructive operations, load-bearing surfaces, reproduce recipes, and what "the feature works" means in this repo. Falls back to `## audit`, `## theoros`, then the `Makefile`. Runs without any config.
