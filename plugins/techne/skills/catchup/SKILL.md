@@ -1,8 +1,8 @@
 ---
 name: catchup
-description: Reads every comment, review, inline review thread, and state change on one GitHub repo's issues and PRs since the user last participated, then reports what is waiting on them, what is waiting on someone else, and what needs nothing. Read-only; never merges, comments, labels, or closes. Use when the user returns to a repo after time away, or before they resume work on an issue or PR — phrasings like "catch me up on <repo>", "did anything change", "is anyone waiting on me", "what did I miss", "any new comments", "sitrep on <repo>", "re-read the threads before I start". Accepts a bare repo name and resolves it against the local clone, so repos owned by a collaborator work.
+description: Use when the user returns to a GitHub repo after time away, or before they resume work on an issue or PR — phrasings like "catch me up on <repo>", "did anything change", "is anyone waiting on me", "what did I miss", "any new comments", "sitrep on <repo>", "re-read the threads before I start". Use when they ask whether a teammate replied, whether anything is blocked on them, or what happened while they were gone. Accepts a bare repo name, an owner/name, or a path to a clone or any directory inside one, so a collaborator's repo and a repo nested inside another both work. Read-only; never merges, comments, labels, or closes.
 disable-model-invocation: false
-allowed-tools: Bash(python3 *) Bash(gh *) Read
+allowed-tools: Bash(python3 *) Bash(gh *) Bash(git show *) Bash(git log *) Read
 ---
 
 # Catchup
@@ -29,7 +29,7 @@ The events that matter are frequently the ones nobody narrated. A teammate merge
 python3 scripts/sweep.py <repo> [--since ISO8601] [--window-days N] [--prs N] [--issues N]
 ```
 
-`<repo>` is a bare name (resolved against `workspace_root` in `~/.claude/techne.toml`) or an explicit `owner/name`. With no argument it uses the current directory's clone.
+`<repo>` is a bare name (resolved against `workspace_root` in `~/.claude/techne.toml`), an explicit `owner/name`, or a path to a clone or to any directory inside one. With no argument it uses the current directory's clone.
 
 The script emits JSON on stdout: the resolved repo, the anchor and how it was derived, an
 `events` list of everything after the anchor, and `open_prs` / `open_issues` carrying the
@@ -52,6 +52,14 @@ has no more.
 - `events_omitted` — more events existed than the cap. Anything mentioning the user, or on an item they opened, is always kept; the rest was filled newest-first. Raise `--max-events` to see more.
 - `state_changes_collapsed` — bulk merges/closes were reduced to counts and issue numbers.
 - `window_capped` — the anchor was older than the window, so the report starts later than the user's actual last visit.
+- `nested_clones` — a path argument had other clones checked out beneath it. Sweep each and
+  give it its own block. The outer repo's quiet result says nothing about them, and a repo
+  parked inside another's working tree is where a team's real threads frequently live.
+- `mergeable_unresolved` — GitHub never settled these PRs' mergeability. Report them as
+  unknown; never read an unsettled value as clean.
+- `counts.pre_anchor_retained` — events aimed at the user that a later commit's anchor would
+  have hidden. They carry `before_anchor: true`. Pushing is not reading, so report them as
+  unread rather than as already seen.
 - `anchor_source` — if it says no participation was found, the window is a fallback, not a
   real anchor. It names the action that set the anchor, and they are not equivalent:
   "the issue you opened" means the user filed something and left, so the repo may hold
@@ -66,6 +74,11 @@ Bucket placement is a claim about the **current** state, not about the last comm
 
 When a comment claims something was fixed, report it as a claim, not a fact. Verify it against the code or say it is unverified.
 
+When an open PR of the user's is older than the newest merge to the default branch, read the
+lines it targets on that branch and say whether the change still lands. `CLEAN`, `MERGEABLE`
+and a green check say nothing about whether the change is still wanted: if the merge already
+made the same edit, the PR is a no-op that merges green and changes nothing.
+
 ### Step 3: Bucket every event
 
 Three buckets, each event in exactly one. When uncertain, choose the more urgent bucket.
@@ -77,6 +90,9 @@ Three buckets, each event in exactly one. When uncertain, choose the more urgent
 - An unresolved review thread on their PR (`unresolved_threads > 0`)
 - An item assigned to them with activity after the anchor
 - **Their own PR that is approved and mergeable but still open** — nobody else will chase this
+- **`mergeable: CONFLICTING` on the user's PR** — someone else's merge broke it. Nobody said
+  anything and no event was emitted, so it exists only in the standing state, and only the
+  user can clear it
 - Someone saying they are blocked pending the user's action
 - **`review_requested_from_me: true`** — someone asked the user for a review. This is the
   strongest signal in the sweep and outranks everything else about the PR: an explicit ask
@@ -104,7 +120,8 @@ Three buckets, each event in exactly one. When uncertain, choose the more urgent
 
 ## Output format
 
-One block, no preamble.
+One block per repo, no preamble. Several repos means the block repeated once each, then a
+single verdict across all of them.
 
 ```
 ## Catch-up — <owner/repo>
@@ -112,6 +129,7 @@ Since your last activity: <anchor> (<anchor_source>)
 
 ### ⏳ Waiting on you
 - #<n> <actor> <time> — "<their words, quoted>"
+- #<n> <what changed> — cause: #<m>, <the merge or push that did it>
 
 ### 🔵 Waiting on them
 - #<n> <what>, <how long it has been sitting>
@@ -126,6 +144,9 @@ Since your last activity: <anchor> (<anchor_source>)
 <"Nothing is waiting on you." | "N items need you; #<n> is the oldest.">
 <optional: the unreviewed PR worth picking up>
 ```
+
+The second `⏳` line is the shape for an item that changed with nobody saying anything: no
+quote exists, so the cause carries the entry. Name what landed, not just that something did.
 
 **Always report the review gap.** Any open PR by someone else with `reviews: 0` goes in
 the `### 🔍 No review yet` section, oldest first, whenever `viewer_permission` is `WRITE`,

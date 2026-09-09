@@ -15,13 +15,15 @@ Read every comment, review, and state change on one repo's issues and PRs since 
 /techne:catchup <reponame>
 ```
 
-A bare repo name resolves against the local clone's remote under `workspace_root`, so team repos owned by a collaborator resolve correctly. With no argument, the skill uses the current directory's remote.
+A bare repo name resolves against the local clone's remote under `workspace_root`, so team repos owned by a collaborator resolve correctly. An `owner/name` works, and so does a path to a clone or to any directory inside one. With no argument, the skill uses the current directory's remote.
 
-The skill anchors on your most recent comment, review, commit, or merge in that repo and reports everything after it, bucketed three ways:
+Given a path, it also reports any clone checked out beneath it. A repo parked inside another repo's working tree answers to the outer clone, so sweeping the outer one alone would report "nothing to catch up on" while the real threads sit a directory down.
+
+The skill anchors on your most recent comment, review, commit, or merge in that repo and reports everything after it, bucketed three ways. A commit cannot bury a comment aimed at you: pushing is not reading, so anything addressed to you before a later commit's anchor is retained and flagged.
 
 | Bucket | Meaning |
 |---|---|
-| ⏳ Waiting on you | A review to answer, a question addressed to you, or your own approved PR still sitting unmerged. |
+| ⏳ Waiting on you | A review to answer, a question addressed to you, your own approved PR still sitting unmerged, or your PR that someone else's merge silently broke. |
 | 🔵 Waiting on them | Your PR awaiting review, your unanswered question, or blocking items you raised that are still unaddressed. |
 | | A review someone explicitly requested from you is always "waiting on you", including the first one you are ever asked for on that repo. |
 | ✅ No action | Merged, closed, informational, or your own activity. |

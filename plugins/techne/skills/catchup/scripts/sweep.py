@@ -8,14 +8,18 @@ The per-PR REST loop this replaces cost two calls per open PR.
 Usage:
     sweep.py <repo> [--since ISO8601] [--window-days N] [--prs N] [--issues N]
 
-<repo> is "owner/name", or a bare name resolved against workspace_root in
-~/.claude/techne.toml. Writes JSON to stdout; diagnostics to stderr.
+<repo> is "owner/name", a bare name resolved against workspace_root in
+~/.claude/techne.toml, or a path to a clone or to any directory inside one.
+Clones nested beneath a path argument are reported, not swept.
+Writes JSON to stdout; diagnostics to stderr.
 """
 
 import argparse
 import json
+import os
 import subprocess
 import sys
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -34,6 +38,29 @@ FALLBACK_WINDOW_DAYS = 14
 
 # An anchor older than this stops being a catch-up and becomes a history dump.
 MAX_WINDOW_DAYS = 30
+
+# Nested-clone scan. Depth 4 reaches a repo parked a few folders down without
+# walking a monorepo; the ignore list skips the trees that hold no clone of
+# ours but do hold thousands of directories.
+NESTED_MAX_DEPTH = 4
+NESTED_CLONE_CAP = 10
+IGNORE_DIRS = {
+    "node_modules",
+    "venv",
+    ".venv",
+    "vendor",
+    "target",
+    "dist",
+    "build",
+    ".tox",
+    "site-packages",
+    "__pycache__",
+}
+
+# GitHub computes `mergeable` lazily, so the first query returns UNKNOWN and
+# the answer lands a second or two later.
+MERGEABLE_ATTEMPTS = 3
+MERGEABLE_DELAY_S = 1.5
 
 # A busy repo can emit thousands of events. Conversational events carry the
 # signal and are kept in full; bulk state changes are collapsed to counts past
@@ -115,25 +142,73 @@ def workspace_root():
     return Path.cwd().parent
 
 
-def resolve_repo(name):
-    """Resolve a bare repo name to owner/name.
+def git_root(path):
+    """Toplevel of the clone containing `path`, or None if there is none.
 
-    Uses `gh repo view` inside the local clone rather than parsing the remote
-    URL: remotes come in SSH and HTTPS forms with an optional .git suffix, and a
-    parse that leaves the suffix attached yields owner/repo.git, which 404s on
-    every later call.
+    Asks git rather than testing `path/.git`, because only the toplevel holds
+    that entry: a caller who points at a subdirectory -- the assignment folder
+    rather than the repo root -- would otherwise fail to resolve at all.
     """
-    if name and "/" in name:
-        return name
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(path), "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        return None
+    return Path(proc.stdout.strip()) if proc.returncode == 0 else None
+
+
+def nested_clones(root, start):
+    """Clones checked out beneath `start` that are not `root` itself.
+
+    A repo living inside another repo's working tree is invisible to git -C,
+    which answers for the outer clone. Sweeping the outer repo then reports
+    "nothing to catch up on" while the team's actual threads sit one directory
+    down -- a false all-clear, which is the one wrong answer a catch-up cannot
+    recover from. Surface them so the caller sweeps each.
+    """
+    found, start = [], Path(start)
+    for dirpath, dirnames, _ in os.walk(start):
+        here = Path(dirpath)
+        if ".git" in dirnames and here != root:
+            found.append(here)
+            dirnames[:] = []  # a clone's own subtree holds no sibling clone
+            continue
+        if len(here.relative_to(start).parts) >= NESTED_MAX_DEPTH or len(found) >= NESTED_CLONE_CAP:
+            dirnames[:] = []
+            continue
+        dirnames[:] = [d for d in dirnames if d not in IGNORE_DIRS and not d.startswith(".")]
+    return found
+
+
+def resolve_repo(name):
+    """Resolve an argument to (owner/name, clone root or None).
+
+    Accepts owner/name, a bare name under workspace_root, a path to a clone or
+    to any directory inside one, or nothing (cwd). Uses `gh repo view` in the
+    clone rather than parsing the remote URL: remotes come in SSH and HTTPS
+    forms with an optional .git suffix, and a parse that leaves the suffix
+    attached yields owner/repo.git, which 404s on every later call.
+    """
     candidates = []
     if name:
-        candidates.append(workspace_root() / name)
+        path = Path(name).expanduser()
+        if path.exists():
+            candidates.append(path)
+        elif "/" in name:
+            return name, None  # owner/name, not a path on this machine
+        else:
+            candidates.append(workspace_root() / name)
     candidates.append(Path.cwd())
     for path in candidates:
-        if (path / ".git").exists():
-            return run(
-                ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"], cwd=path
+        root = git_root(path)
+        if root:
+            slug = run(
+                ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"], cwd=root
             )
+            return slug, root
     hint = f" (looked in {candidates[0]})" if name else ""
     sys.exit(
         f"catchup: cannot resolve repo {name!r}{hint}. "
@@ -297,6 +372,51 @@ def _checks_state(pr):
     return rollup.get("state") if rollup else None
 
 
+def _settle_mergeable(slug, pr_nodes):
+    """Re-poll open PRs whose mergeability GitHub has not computed yet.
+
+    `mergeable` is UNKNOWN until GitHub builds a test merge commit, and it only
+    starts building when something asks. The first query therefore returns
+    UNKNOWN on exactly the PRs a catch-up most needs to judge -- including one
+    that has silently started conflicting -- and settles moments later. Doing
+    it here keeps "read the JSON, do not re-fetch" true for the caller.
+
+    Returns the numbers still unresolved, so an unsettled value is reported as
+    unknown rather than read as clean.
+    """
+    pending = [p for p in pr_nodes if p.get("state") == "OPEN" and p.get("mergeable") == "UNKNOWN"]
+    for _ in range(MERGEABLE_ATTEMPTS):
+        if not pending:
+            break
+        time.sleep(MERGEABLE_DELAY_S)
+        still = []
+        for pr in pending:
+            try:
+                fresh = json.loads(
+                    run(
+                        [
+                            "gh",
+                            "pr",
+                            "view",
+                            str(pr["number"]),
+                            "--repo",
+                            slug,
+                            "--json",
+                            "mergeable,mergeStateStatus",
+                        ]
+                    )
+                )
+            except SystemExit:
+                still.append(pr)  # transient failure must not kill the sweep
+                continue
+            pr["mergeable"] = fresh.get("mergeable")
+            pr["mergeStateStatus"] = fresh.get("mergeStateStatus")
+            if pr["mergeable"] == "UNKNOWN":
+                still.append(pr)
+        pending = still
+    return [p["number"] for p in pending]
+
+
 def _viewer_reviews(pr_nodes, me):
     """How many reviews the user has authored here, across the scanned PRs."""
     return sum(
@@ -337,7 +457,12 @@ def _tally_states(nodes):
 
 
 def find_anchor(events, repo_slug, me):
-    """Latest moment the user participated: comment, review, or commit."""
+    """Latest moment the user participated: comment, review, or commit.
+
+    Returns (anchor, source, participation) -- the third being the last time
+    the user actually read or wrote something here, which a later commit can
+    overtake. The caller needs both, because pushing is not reading.
+    """
     # Only deliberate actions anchor the window. A state change on an item the
     # user authored is not participation, and counting it silently drops every
     # comment made before it.
@@ -369,15 +494,16 @@ def find_anchor(events, repo_slug, me):
             f'[.[] | select(.author.login == "{me}") | .commit.author.date] | max',
         ]
     ).strip('"')
+    participation = anchor
     if commit_ts and commit_ts != "null":
         if anchor is None or commit_ts > anchor:
             anchor, source = commit_ts, "your latest commit"
-    return anchor, source
+    return anchor, source, participation
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("repo", nargs="?", help="owner/name, or a bare repo name")
+    ap.add_argument("repo", nargs="?", help="owner/name, a bare repo name, or a path")
     ap.add_argument("--since", help="ISO8601 override for the anchor")
     ap.add_argument("--window-days", type=int, default=MAX_WINDOW_DAYS)
     ap.add_argument("--prs", type=int, default=DEFAULT_PRS)
@@ -390,8 +516,15 @@ def main():
     )
     args = ap.parse_args()
 
-    slug = resolve_repo(args.repo)
+    slug, clone_root = resolve_repo(args.repo)
     owner, name = slug.split("/", 1)
+    # Only meaningful when the caller pointed at a directory; an owner/name
+    # argument resolves no clone, so there is nothing beneath it to scan.
+    nested = (
+        [str(c) for c in nested_clones(clone_root, Path(args.repo).expanduser())]
+        if clone_root and args.repo and Path(args.repo).expanduser().exists()
+        else []
+    )
     me = run(["gh", "api", "user", "--jq", ".login"])
 
     repo = graphql(owner, name, args.prs, args.issues)
@@ -406,9 +539,9 @@ def main():
     floor = (now - timedelta(days=args.window_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     if args.since:
-        anchor, source, capped = args.since, "--since override", False
+        anchor, source, capped, participation = args.since, "--since override", False, None
     else:
-        anchor, source = find_anchor(events, slug, me)
+        anchor, source, participation = find_anchor(events, slug, me)
         capped = False
         if anchor is None:
             anchor = (now - timedelta(days=FALLBACK_WINDOW_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -419,6 +552,23 @@ def main():
     # ISO8601 Z strings from the GitHub API are fixed-width UTC, so lexical
     # comparison is chronological. Do not mix in a differently formatted stamp.
     new_events = [e for e in events if e["ts"] > anchor]
+
+    # A commit can push the anchor past comments the user never read: pushing is
+    # not reading. Retain anything aimed at them in that gap rather than drop it
+    # silently. Skipped when the window is capped, where the gap is already wide
+    # and `window_capped` says the picture is partial.
+    pre_anchor = []
+    if participation and participation < anchor and not capped:
+        pre_anchor = [
+            e
+            for e in events
+            if participation < e["ts"] <= anchor
+            and not e["is_self"]
+            and (e["mentions_me"] or e["number"] in my_items)
+        ]
+        for event in pre_anchor:
+            event["before_anchor"] = True
+        new_events = sorted(new_events + pre_anchor, key=lambda e: e["ts"])
 
     # Keep every conversational event; collapse bulk state flips so a busy repo
     # cannot flood the context with merge/close noise.
@@ -450,6 +600,7 @@ def main():
     omitted = len(candidates) - len(reported)
 
     pr_nodes = repo["pullRequests"]["nodes"]
+    mergeable_unresolved = _settle_mergeable(slug, pr_nodes)
     truncated = len(pr_nodes) >= args.prs or len(repo["issues"]["nodes"]) >= args.issues
 
     json.dump(
@@ -460,9 +611,12 @@ def main():
             "anchor_source": source,
             "window_capped": capped,
             "truncated": truncated,
+            "nested_clones": nested,
+            "mergeable_unresolved": mergeable_unresolved,
             "counts": {
                 "new_events": len(new_events),
                 "reported": len(reported),
+                "pre_anchor_retained": len(pre_anchor),
                 "scanned_prs": len(pr_nodes),
                 "scanned_prs_by_state": _tally_states(pr_nodes),
                 "scanned_issues": len(repo["issues"]["nodes"]),
