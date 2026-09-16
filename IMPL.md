@@ -14,9 +14,13 @@ has crept in — extract it back to ROADMAP.
 Nothing currently open. Shipped this session: `/techne:latex`
 (ROADMAP `## Shipped`), the build-and-gate sibling of `/techne:pdf`,
 the repo's first pytest suite, which it brought with it, and coverage
-for `techne:pdf`'s `render.py` under the same harness (74 tests).
+for `render.py` and `sweep.py` under the same harness (114 tests).
+Every skill-shipped Python file now has tests.
 
-Next skill-shipped Python to cover: `catchup`'s `sweep.py`.
+Known gap, not yet covered: the event-cap logic in `sweep.py`'s `main()`,
+which decides what survives when a busy repo overflows `--max-events`.
+It is a closure over local state, so covering it means lifting it out
+the way `collapse_cascade` was.
 
 Next natural pickup: any of the queued skills from ROADMAP
 `## Queued / unprioritized` (`narrative-coherence`, `positioning`,

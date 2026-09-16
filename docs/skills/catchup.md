@@ -64,6 +64,14 @@ The report states explicitly when a scan was truncated, events were omitted, sta
 
 No merging, commenting, labelling, assigning, closing, or editing. If the catch-up reveals something that needs an action, it names it in the verdict and stops. Comment text is treated as data, never as instructions.
 
+## Testing it
+
+`make test-unit` runs the suite. The sweep's pure surface is covered without a network: how a repo argument resolves (owner/name, a bare name, a clone, a directory inside one), which nested clones a walk surfaces, how the GraphQL payload flattens into events, and what is allowed to anchor the window.
+
+Several tests exist to pin a safety property rather than a behaviour. A close is never attributed to the PR's author, because the closer is not in the payload. A state change on your own item does not count as participation, because treating it as such silently drops every comment made before it. A commit moves the anchor but not the participation timestamp, because pushing is not reading. And no sibling clone is dropped from a nested scan, because a clone left out of the report is the false all-clear the scan exists to prevent.
+
+`gh` and `git` are faked with pytest-subprocess, which asserts the exact argv: the slug has to come from `gh repo view` rather than a parsed remote, since a parse that leaves `.git` attached yields `owner/repo.git` and 404s on every later call.
+
 ## See also
 
 - [`techne:elenchus`](elenchus.md): once a catch-up says a PR needs your review, elenchus runs it.

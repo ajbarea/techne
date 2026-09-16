@@ -8,6 +8,7 @@ dependencies = []
 [dependency-groups]
 dev = [
     "pytest>=8.4",
+    "pytest-subprocess>=1.5",
     "ruff>=0.16.5",
     "zensical>=0.0.57",
     "shellcheck-py>=0.11",

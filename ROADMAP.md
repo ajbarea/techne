@@ -192,6 +192,23 @@ Detail lives in git history (`git log`) and the live skill code. This log is pru
   because the first one fetches cmarker from Typst Universe, and declares it with
   `TECHNE_NO_TYPST=1`. Both opt-out flags now also skip on a machine that *has* the toolchain,
   so the declaration means the same thing everywhere.
+- 2026-09-16 — **`techne:catchup` sweep.py covered (114 tests total).** Closes the last
+  untested skill-shipped Python. Covers repo resolution across all four argument shapes, the
+  nested-clone walk, the GraphQL flattening, and what is allowed to anchor a window. Most of
+  these pin a safety property the code documents in prose: a close is never attributed to the
+  author, a state change on your own item is not participation, a commit moves the anchor but
+  not the participation timestamp, and no sibling clone is dropped from a scan. `gh` and `git`
+  are faked with pytest-subprocess (`# research(2026-09)`: preferred over hand-rolled
+  monkeypatch for subprocess, and it asserts the exact argv, which matters because the slug
+  must come from `gh repo view` and not a parsed remote). Snapshot testing (syrupy) was
+  considered for the payload flattening and declined: snapshots record what the output is, not
+  why, and their failure mode is blessing a diff to get green, which is the opposite of what
+  this suite is for. monkeypatch stays where the assertion is about a command's environment,
+  since `fp.calls` records argv only and cannot see `max_print_line`.
+- 2026-09-16 — **Observation, not yet acted on.** `NESTED_CLONE_CAP` reads like a cap on the
+  number of clones reported; it only prunes how deep the walk descends, and sibling clones at
+  one level are all returned. That is the safer behaviour (a dropped clone is a false
+  all-clear) but the name says otherwise. Pinned by test as-is.
 - 2026-05-29 — **`/techne:research-grounded` skill.** Audits IMPL.md / ROADMAP.md for committed
   design decisions (library / framework / pattern / architecture choices) that lack a
   `# research(YYYY-MM):` provenance tag, then web-searches to ground them — closing the loop

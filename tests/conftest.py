@@ -2,6 +2,13 @@
 
 Skills ship standalone scripts, not packages, so there is nothing to install
 and nothing on sys.path. Each one is loaded from its path by file.
+
+Two ways of faking a subprocess are in use, and the split is deliberate. Use
+pytest-subprocess (`fp`) to stand in for a command's output and to assert the
+exact argv, which is what the catchup sweep needs across many gh and git calls.
+Use monkeypatch where the assertion is about the environment a command runs in:
+`fp.calls` records argv only, so it cannot see that the latex build sets
+max_print_line, which is the line the log parsing depends on.
 """
 
 from __future__ import annotations
@@ -17,6 +24,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 SKILLS = ROOT / "plugins" / "techne" / "skills"
 LATEX_SCRIPT = SKILLS / "latex" / "scripts" / "latex.py"
 RENDER_SCRIPT = SKILLS / "pdf" / "scripts" / "render.py"
+SWEEP_SCRIPT = SKILLS / "catchup" / "scripts" / "sweep.py"
 
 
 def _load(name: str, path: pathlib.Path) -> types.ModuleType:
@@ -37,6 +45,11 @@ def lx() -> types.ModuleType:
 def rn() -> types.ModuleType:
     """render.py imports typst lazily, so the module loads without the wheel."""
     return _load("techne_render", RENDER_SCRIPT)
+
+
+@pytest.fixture(scope="session")
+def sw() -> types.ModuleType:
+    return _load("techne_sweep", SWEEP_SCRIPT)
 
 
 @pytest.fixture
