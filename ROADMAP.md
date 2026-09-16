@@ -155,6 +155,21 @@ that drift class recurs.
 
 Detail lives in git history (`git log`) and the live skill code. This log is pruned once work is durably shipped.
 
+- 2026-09-16 — **`/techne:latex` skill.** Builds a LaTeX document and gates the result on its
+  log, its `.blg`, its PDF and the assignment prompt it answers, in one command. Build and
+  verify are fused because `latexmk` exits 0 on a document whose every citation resolved to
+  `[?]`, so a separate verify step is one that gets skipped on the run where it mattered;
+  the exit code carries the verdict (0 clean / 1 no build / 2 built-but-wrong). Log wrapping
+  is fixed upstream with `max_print_line` rather than by parsing texlogsieve's prose, which
+  is what makes plain regex gates reliable. Engine decided as latexmk + local TeX Live: not
+  tectonic, whose bundled biblatex against a system biber is a known skew class and
+  `biblatex-chicago` sits in its path. Validated on both class families (QML homework:
+  quantikz/braket, 28 surviving FILL badges caught, 7/7 prompt headers matched across the
+  read-only clone; CISC-810 cooking paper: biblatex-chicago + biber, clean). Two defects
+  found by running it rather than reading it — an anchored `.blg` regex that let a missing
+  citation read as a clean build, and a fatal-error cascade that reported three phantom
+  undefined refs. Absorbs the hand-rolled per-assignment `make check` in
+  `classes/csci739-*/03-assignments/hw1/`, which is deleted.
 - 2026-05-29 — **`/techne:research-grounded` skill.** Audits IMPL.md / ROADMAP.md for committed
   design decisions (library / framework / pattern / architecture choices) that lack a
   `# research(YYYY-MM):` provenance tag, then web-searches to ground them — closing the loop

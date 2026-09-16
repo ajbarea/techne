@@ -28,6 +28,7 @@ nav = [
       { "docs-site" = "skills/docs-site.md" },
       { "docsync" = "skills/docsync.md" },
       { "elenchus" = "skills/elenchus.md" },
+      { "latex" = "skills/latex.md" },
       { "paper" = "skills/paper.md" },
       { "paper-review" = "skills/paper-review.md" },
       { "pdf" = "skills/pdf.md" },
