@@ -29,8 +29,15 @@ jobs:
       - name: Shellcheck (scripts/*.sh)
         run: make shellcheck
 
-      - name: Structural checks (manifests + frontmatter + guards)
+      - name: Structural checks + pytest
         run: make test
+        env:
+          # No TeX Live on the runner, so techne:latex's end-to-end cases cannot
+          # build. Declaring the opt-out is what keeps them from skipping unseen:
+          # without this the suite fails rather than reporting a green run that
+          # tested nothing. The gate parsers themselves run here unconditionally.
+          TECHNE_NO_TEX: "1"
+
 
       - name: GHA security (zizmor)
         run: make zizmor

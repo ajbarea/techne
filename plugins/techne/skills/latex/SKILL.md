@@ -106,6 +106,12 @@ python .../latex.py 03-assignments/hw1 \
   the start of the line silently matches nothing. That bug shipped once and made
   a missing citation read as a clean build.
 
+## Changing a gate
+
+The regexes are covered by `make test-unit` in the techne repo, against fixture
+log text. Add the fixture with the change; every defect in this script so far
+has been a misclassification a three-line test would have caught.
+
 ## Not this skill
 
 - Markdown in, PDF out: `techne:pdf`.

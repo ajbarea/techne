@@ -170,6 +170,17 @@ Detail lives in git history (`git log`) and the live skill code. This log is pru
   citation read as a clean build, and a fatal-error cascade that reported three phantom
   undefined refs. Absorbs the hand-rolled per-assignment `make check` in
   `classes/csci739-*/03-assignments/hw1/`, which is deleted.
+- 2026-09-16 — **First pytest suite (45 tests).** techne had no unit tests: `make test` was
+  JSON validity, SKILL.md frontmatter and grep guards. `latex.py` earned the harness, since
+  both defects it shipped with were misclassifications in pure functions. Tier 1 covers the
+  log/`.blg`/coverage gates against fixture text and runs everywhere; tier 2 builds four real
+  documents and asserts the exit code. `collapse_cascade` and `verdict` were lifted out of
+  `main()` so the cascade regression is a unit test rather than only an end-to-end one.
+  CI does not install TeX Live (it would take a 14s pipeline to minutes), so the opt-out is
+  declared instead of implied: a guard test fails when the toolchain is absent and
+  `TECHNE_NO_TEX=1` is unset, and `validate.yml` sets it with the reason. Verified in both
+  directions, absent-and-undeclared fails and absent-and-declared skips visibly, so green by
+  absence cannot happen here. `tests/` is repo-level so `pdf/scripts/render.py` inherits it.
 - 2026-05-29 — **`/techne:research-grounded` skill.** Audits IMPL.md / ROADMAP.md for committed
   design decisions (library / framework / pattern / architecture choices) that lack a
   `# research(YYYY-MM):` provenance tag, then web-searches to ground them — closing the loop

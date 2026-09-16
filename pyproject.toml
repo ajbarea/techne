@@ -7,6 +7,7 @@ dependencies = []
 
 [dependency-groups]
 dev = [
+    "pytest>=8.4",
     "ruff>=0.16.5",
     "zensical>=0.0.57",
     "shellcheck-py>=0.11",
@@ -20,6 +21,13 @@ package = false
 # Python in this repo is the SKILL.md frontmatter validator. The sister
 # floor is `ruff>=0.9`, `target-version = "py312"`. Extend `select` as more
 # Python lands.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Skill scripts are standalone files, not packages; conftest.py loads them by
+# path and tests import it directly.
+pythonpath = ["tests"]
+addopts = "-q --strict-markers"
+
 [tool.ruff]
 target-version = "py312"
 line-length = 100

@@ -41,6 +41,12 @@ One class is advisory. Coverage regexes problem headers out of the assignment pr
 
 latexmk driving local TeX Live pdflatex. Not tectonic: it ships its own biblatex against the system biber, and the resulting version skew is a known issue class rather than an accident, which `biblatex-chicago` + biber is squarely in the path of. Not texlogsieve or texfot either, good as they are at summarizing for a human: the log wrapping they exist to repair is repaired upstream instead, by unwrapping the log at the source with `max_print_line`.
 
+## Testing it
+
+`make test-unit` runs the suite. The gate parsers are covered by unit tests over fixture log text, which is where every defect found so far has lived: a regex that matched nothing, or a finding reported when it should have been suppressed. Four end-to-end cases build real documents and assert the exit code.
+
+Those need TeX Live, and CI does not install it. Rather than let them skip unnoticed, a guard test fails when the toolchain is missing and `TECHNE_NO_TEX=1` is not set; `validate.yml` sets it and says why. The suite therefore either built the documents or declared in writing that it did not.
+
 ## See also
 
 - [`techne:pdf`](pdf.md): markdown in, PDF out, a different pipeline.

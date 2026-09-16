@@ -292,6 +292,39 @@ def find_prompt(tex: pathlib.Path) -> tuple[pathlib.Path | None, str]:
     return None, f"{len(candidates)} possible prompts ({names}); pass --prompt to pick one"
 
 
+def collapse_cascade(found: list[Finding]) -> list[Finding]:
+    """Order by severity, and drop what only exists because the build died.
+
+    A run that errored wrote no .aux, so every ref and cite in the document
+    reads as undefined. Reporting that cascade buries the one line to fix.
+    """
+    found = sorted(found, key=lambda f: RANK[f.severity])
+    if not any(f.severity == ERROR for f in found):
+        return found
+    hidden = sum(f.severity in (BLOCK, WARN, REVIEW) for f in found)
+    found = [f for f in found if f.severity in (ERROR, INFO)]
+    if hidden:
+        found.append(
+            Finding(INFO, "cascade", f"{hidden} downstream finding(s) hidden until it is fixed")
+        )
+    return found
+
+
+def verdict(found: list[Finding], pdf: pathlib.Path, log: pathlib.Path) -> tuple[int, str]:
+    """Exit code and the one line that explains it."""
+    errors = sum(f.severity == ERROR for f in found)
+    blocks = sum(f.severity == BLOCK for f in found)
+    reviews = sum(f.severity == REVIEW for f in found)
+    if errors:
+        return 1, f"FAILED to build: {errors} error(s). Log: {log}"
+    if blocks:
+        return 2, f"BUILT but not submittable: {blocks} blocker(s). Log: {log}"
+    line = f"CLEAN: {pdf}"
+    if reviews:
+        line += f" -- {reviews} coverage item(s) to confirm by eye"
+    return 0, line
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument(
@@ -342,35 +375,14 @@ def main() -> int:
     if code != 0 and not any(f.severity == ERROR for f in found):
         found.append(Finding(ERROR, "build", f"latexmk exited {code}, log says nothing"))
 
-    found.sort(key=lambda f: RANK[f.severity])
-    # A build that died wrote no .aux, so every ref and cite reads as undefined.
-    # Reporting that cascade buries the one error that actually has to be fixed.
-    if any(f.severity == ERROR for f in found):
-        hidden = sum(f.severity in (BLOCK, WARN, REVIEW) for f in found)
-        found = [f for f in found if f.severity in (ERROR, INFO)]
-        if hidden:
-            found.append(
-                Finding(INFO, "cascade", f"{hidden} downstream finding(s) hidden until it is fixed")
-            )
-
+    found = collapse_cascade(found)
     print(f"{tex.parent}/{tex.name}")
     for finding in found:
         print(f"  {finding}")
 
-    errors = sum(f.severity == ERROR for f in found)
-    blocks = sum(f.severity == BLOCK for f in found)
-    reviews = sum(f.severity == REVIEW for f in found)
-    if errors:
-        print(f"\nFAILED to build: {errors} error(s). Log: {log}")
-        return 1
-    if blocks:
-        print(f"\nBUILT but not submittable: {blocks} blocker(s). Log: {log}")
-        return 2
-    verdict = f"\nCLEAN: {pdf}"
-    if reviews:
-        verdict += f" -- {reviews} coverage item(s) to confirm by eye"
-    print(verdict)
-    return 0
+    code, line = verdict(found, pdf, log)
+    print(f"\n{line}")
+    return code
 
 
 if __name__ == "__main__":

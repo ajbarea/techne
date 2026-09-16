@@ -12,7 +12,11 @@ has crept in — extract it back to ROADMAP.
 ## In flight
 
 Nothing currently open. Shipped this session: `/techne:latex`
-(ROADMAP `## Shipped`), the build-and-gate sibling of `/techne:pdf`.
+(ROADMAP `## Shipped`), the build-and-gate sibling of `/techne:pdf`,
+and the repo's first pytest suite, which it brought with it.
+
+`tests/` is repo-level, not per-skill: `pdf/scripts/render.py` is the
+obvious next thing to cover under the same harness.
 
 Next natural pickup: any of the queued skills from ROADMAP
 `## Queued / unprioritized` (`narrative-coherence`, `positioning`,

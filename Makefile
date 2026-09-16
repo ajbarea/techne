@@ -4,7 +4,7 @@
 ## that techne itself documents at docs/conventions.md.
 ##
 
-.PHONY: help check-env setup manifests frontmatter fix lint shellcheck guards zizmor test validate build ci clean docs
+.PHONY: help check-env setup manifests frontmatter fix lint shellcheck guards test-unit zizmor test validate build ci clean docs
 .DEFAULT_GOAL := help
 
 check-env:              ## Verify required tools are on PATH
@@ -23,14 +23,14 @@ frontmatter:            ## Verify SKILL.md frontmatter + theoros structural chec
 
 # Paths must match lint's, or fix cannot repair what lint rejects.
 fix:                    ## Auto-fix ruff issues in scripts/ and skill-shipped Python
-	@uv run ruff check --fix scripts/ plugins/
-	@uv run ruff format scripts/ plugins/
+	@uv run ruff check --fix scripts/ plugins/ tests/
+	@uv run ruff format scripts/ plugins/ tests/
 
 # Covers scripts/ and any Python a skill ships. The catchup skill's sweep.py sat
 # outside scripts/ and so went unlinted entirely until the paths were widened.
 lint:                   ## ruff check + format check on scripts/ and skill-shipped Python
-	@uv run ruff check scripts/ plugins/
-	@uv run ruff format --check scripts/ plugins/
+	@uv run ruff check scripts/ plugins/ tests/
+	@uv run ruff format --check scripts/ plugins/ tests/
 
 shellcheck:             ## shellcheck on scripts/*.sh (via shellcheck-py PyPI binary)
 	@uv run shellcheck --severity=warning scripts/*.sh
@@ -50,10 +50,15 @@ guards:                 ## Stale-path + legacy-name + action-pin guards
 	fi
 	@bash scripts/check_action_pins.sh
 
+# End-to-end cases need TeX Live. Where it is absent, TECHNE_NO_TEX=1 declares
+# the opt-out; without it the suite fails rather than skipping them unnoticed.
+test-unit:              ## pytest over skill-shipped Python
+	@uv run pytest
+
 zizmor:                 ## zizmor GHA security scan (.github/workflows/)
 	@uv run zizmor .github/workflows/
 
-test: manifests frontmatter guards  ## Structural checks (manifests + frontmatter + guards)
+test: manifests frontmatter guards test-unit  ## Structural checks + pytest
 
 validate: lint shellcheck zizmor test  ## Fast pre-push gate
 
