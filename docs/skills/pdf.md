@@ -32,6 +32,12 @@ Every run prints the font families each PDF actually embedded. `--check-fonts Li
 
 Content is verified by diffing normalized `pdftotext` output against the markdown, not by looking at the page. Wrapped table cells reorder under `-layout` and repeated `table.header` rows appear once per page; both are extraction artifacts. Anything else is a real difference.
 
+## Testing it
+
+`make test-unit` runs the suite. The markdown front end is covered by unit tests: what `_typst_str` escapes and in what order, what `split_front_matter` lifts out of a document and what it leaves in the body, and that the template has no placeholder the renderer forgot to fill. Four end-to-end cases compile real documents through Typst and check the words survive the round trip.
+
+Those need the typst wheel, and the first compile fetches cmarker from Typst Universe. CI declines that network dependency and sets `TECHNE_NO_TYPST=1` to say so; without the declaration the suite fails rather than skipping the renders unnoticed.
+
 ## See also
 
 - [`techne:paper`](paper.md): LaTeX manuscripts in a papers monorepo, a different pipeline.

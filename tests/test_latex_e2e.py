@@ -18,7 +18,11 @@ from conftest import LATEX_SCRIPT
 
 NEEDED = ("latexmk", "pdftotext", "pdfinfo", "pdffonts")
 MISSING = [tool for tool in NEEDED if not shutil.which(tool)]
-needs_tex = pytest.mark.skipif(bool(MISSING), reason=f"not installed: {', '.join(MISSING)}")
+OPTED_OUT = os.environ.get("TECHNE_NO_TEX") == "1"
+needs_tex = pytest.mark.skipif(
+    OPTED_OUT or bool(MISSING),
+    reason="opted out of TeX builds" if OPTED_OUT else f"not installed: {', '.join(MISSING)}",
+)
 
 CLEAN = r"""
 \documentclass{article}
@@ -68,9 +72,9 @@ def run(target, *args):
 def test_the_toolchain_is_present_or_its_absence_is_declared():
     """Green by absence is the failure this guards. Either the builds below
     ran, or the environment said in writing that it opted out of them."""
-    if not MISSING:
+    if not MISSING and not OPTED_OUT:
         return
-    assert os.environ.get("TECHNE_NO_TEX") == "1", (
+    assert OPTED_OUT, (
         f"missing {', '.join(MISSING)} and TECHNE_NO_TEX is unset: the end-to-end "
         "tests would have skipped silently. Install TeX Live and poppler, or set "
         "TECHNE_NO_TEX=1 to opt out on purpose."

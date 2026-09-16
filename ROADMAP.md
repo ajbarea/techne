@@ -181,6 +181,17 @@ Detail lives in git history (`git log`) and the live skill code. This log is pru
   `TECHNE_NO_TEX=1` is unset, and `validate.yml` sets it with the reason. Verified in both
   directions, absent-and-undeclared fails and absent-and-declared skips visibly, so green by
   absence cannot happen here. `tests/` is repo-level so `pdf/scripts/render.py` inherits it.
+- 2026-09-16 — **`techne:pdf` render.py covered (74 tests total).** Unit tests over the
+  markdown front end: `_typst_str`'s escape order (escaping quotes before backslashes closes
+  the Typst string and spills the rest of a title into code), what `split_front_matter` lifts
+  versus leaves in the body across nine document shapes, and an assertion that no template
+  placeholder goes unfilled, which is the drift a new `{{TOKEN}}` would otherwise cause
+  silently. Four end-to-end cases compile through Typst and check the words survive
+  `pdftotext`, the verification the skill documents. The typst wheel is pulled per-run rather
+  than pinned as a dev dependency, matching how the skill itself runs. CI declines the compile
+  because the first one fetches cmarker from Typst Universe, and declares it with
+  `TECHNE_NO_TYPST=1`. Both opt-out flags now also skip on a machine that *has* the toolchain,
+  so the declaration means the same thing everywhere.
 - 2026-05-29 — **`/techne:research-grounded` skill.** Audits IMPL.md / ROADMAP.md for committed
   design decisions (library / framework / pattern / architecture choices) that lack a
   `# research(YYYY-MM):` provenance tag, then web-searches to ground them — closing the loop

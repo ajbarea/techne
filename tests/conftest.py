@@ -14,7 +14,9 @@ import types
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-LATEX_SCRIPT = ROOT / "plugins" / "techne" / "skills" / "latex" / "scripts" / "latex.py"
+SKILLS = ROOT / "plugins" / "techne" / "skills"
+LATEX_SCRIPT = SKILLS / "latex" / "scripts" / "latex.py"
+RENDER_SCRIPT = SKILLS / "pdf" / "scripts" / "render.py"
 
 
 def _load(name: str, path: pathlib.Path) -> types.ModuleType:
@@ -29,6 +31,12 @@ def _load(name: str, path: pathlib.Path) -> types.ModuleType:
 @pytest.fixture(scope="session")
 def lx() -> types.ModuleType:
     return _load("techne_latex", LATEX_SCRIPT)
+
+
+@pytest.fixture(scope="session")
+def rn() -> types.ModuleType:
+    """render.py imports typst lazily, so the module loads without the wheel."""
+    return _load("techne_render", RENDER_SCRIPT)
 
 
 @pytest.fixture

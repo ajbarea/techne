@@ -37,6 +37,10 @@ jobs:
           # without this the suite fails rather than reporting a green run that
           # tested nothing. The gate parsers themselves run here unconditionally.
           TECHNE_NO_TEX: "1"
+          # techne:pdf's renders compile through Typst, whose first run fetches
+          # cmarker from Typst Universe. Declining that keeps the pipeline
+          # hermetic; the markdown front end is covered here unconditionally.
+          TECHNE_NO_TYPST: "1"
 
 
       - name: GHA security (zizmor)

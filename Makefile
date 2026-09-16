@@ -50,10 +50,13 @@ guards:                 ## Stale-path + legacy-name + action-pin guards
 	fi
 	@bash scripts/check_action_pins.sh
 
-# End-to-end cases need TeX Live. Where it is absent, TECHNE_NO_TEX=1 declares
-# the opt-out; without it the suite fails rather than skipping them unnoticed.
+# End-to-end cases need TeX Live (latex) and the typst wheel (pdf). Where either
+# is absent, TECHNE_NO_TEX / TECHNE_NO_TYPST declares the opt-out; without the
+# declaration the suite fails rather than skipping them unnoticed. The wheel is
+# pulled per-run rather than pinned as a dev dependency, matching how the skill
+# itself runs.
 test-unit:              ## pytest over skill-shipped Python
-	@uv run pytest
+	@uv run --with typst pytest
 
 zizmor:                 ## zizmor GHA security scan (.github/workflows/)
 	@uv run zizmor .github/workflows/
