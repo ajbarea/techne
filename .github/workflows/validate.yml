@@ -43,6 +43,9 @@ jobs:
           TECHNE_NO_TYPST: "1"
 
 
+      - name: Build docs site (same command docs.yml deploys with)
+        run: make build
+
       - name: GHA security (zizmor)
         run: make zizmor
         env:

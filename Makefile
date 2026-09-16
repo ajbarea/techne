@@ -63,7 +63,10 @@ zizmor:                 ## zizmor GHA security scan (.github/workflows/)
 
 test: manifests frontmatter guards test-unit  ## Structural checks + pytest
 
-validate: lint shellcheck zizmor test  ## Fast pre-push gate
+# `build` belongs here: a dependency bump can leave lint and tests green and
+# still abort the site build, and docs.yml only runs on push to main, so
+# nothing else would catch it before it landed.
+validate: lint shellcheck zizmor test build  ## Fast pre-push gate
 
 build:                  ## Build docs site (strict; mirrors docs.yml deploy)
 	@uv run zensical build --clean --strict

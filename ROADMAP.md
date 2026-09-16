@@ -205,6 +205,13 @@ Detail lives in git history (`git log`) and the live skill code. This log is pru
   why, and their failure mode is blessing a diff to get green, which is the opposite of what
   this suite is for. monkeypatch stays where the assertion is about a command's environment,
   since `fp.calls` records argv only and cannot see `max_print_line`.
+- 2026-09-16 — **`make validate` builds the site, and CI does too.** A dependency bump left
+  lint, tests and zizmor green while aborting the docs build: zensical 0.0.60 moved search
+  into Rust and removed the `engine` option this repo set. Nothing would have caught it,
+  because `docs.yml` runs on push to main rather than on pull requests, and `validate` did not
+  include `build` — drift from techne's own published target vocabulary, which defines
+  validate as `lint test-unit build`. Added to both the target and `validate.yml`, and
+  verified by restoring the bad option and watching the gate fail (exit 2). Cost: 0.4s.
 - 2026-09-16 — **sweep.py: functional core, and a constant that now says what it does.**
   The event budget lived in `main()` as a closure over local state, so the rule that matters
   most there — anything addressed to the user survives the cap, everything else competes on
