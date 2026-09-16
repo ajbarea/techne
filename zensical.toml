@@ -87,7 +87,9 @@ toggle.icon = "lucide/moon"
 toggle.name = "Switch to dark mode"
 
 [project.plugins]
-search = { engine = "disco" }
+# `engine` was dropped in zensical 0.0.60, which moved search into Rust and
+# stopped exposing a choice. Setting it now aborts the build.
+search = {}
 social = {}
 
 [project.extra]
