@@ -205,10 +205,16 @@ Detail lives in git history (`git log`) and the live skill code. This log is pru
   why, and their failure mode is blessing a diff to get green, which is the opposite of what
   this suite is for. monkeypatch stays where the assertion is about a command's environment,
   since `fp.calls` records argv only and cannot see `max_print_line`.
-- 2026-09-16 — **Observation, not yet acted on.** `NESTED_CLONE_CAP` reads like a cap on the
-  number of clones reported; it only prunes how deep the walk descends, and sibling clones at
-  one level are all returned. That is the safer behaviour (a dropped clone is a false
-  all-clear) but the name says otherwise. Pinned by test as-is.
+- 2026-09-16 — **sweep.py: functional core, and a constant that now says what it does.**
+  The event budget lived in `main()` as a closure over local state, so the rule that matters
+  most there — anything addressed to the user survives the cap, everything else competes on
+  recency — could only be exercised end-to-end. Lifted to `select_reported` and
+  `retain_pre_anchor`, both pure (`# research(2026-09)`: functional core / imperative shell,
+  the standard frame for making a CLI's decisions testable without mocks), and covered by 15
+  tests. `NESTED_CLONE_CAP` renamed to `NESTED_STOP_DESCENT_AFTER`: it never capped the
+  result, it stops the walk going deeper, and truncating the result would produce the false
+  all-clear the scan exists to catch. Verified behaviour-identical by diffing a live sweep of
+  this repo before and after.
 - 2026-05-29 — **`/techne:research-grounded` skill.** Audits IMPL.md / ROADMAP.md for committed
   design decisions (library / framework / pattern / architecture choices) that lack a
   `# research(YYYY-MM):` provenance tag, then web-searches to ground them — closing the loop

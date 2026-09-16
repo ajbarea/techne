@@ -17,10 +17,8 @@ the repo's first pytest suite, which it brought with it, and coverage
 for `render.py` and `sweep.py` under the same harness (114 tests).
 Every skill-shipped Python file now has tests.
 
-Known gap, not yet covered: the event-cap logic in `sweep.py`'s `main()`,
-which decides what survives when a busy repo overflows `--max-events`.
-It is a closure over local state, so covering it means lifting it out
-the way `collapse_cascade` was.
+The event budget is covered now too: it was a closure in `sweep.py`'s
+`main()` and is `select_reported` / `retain_pre_anchor` today. 129 tests.
 
 Next natural pickup: any of the queued skills from ROADMAP
 `## Queued / unprioritized` (`narrative-coherence`, `positioning`,

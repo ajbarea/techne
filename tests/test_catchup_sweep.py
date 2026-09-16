@@ -384,10 +384,158 @@ def test_the_depth_limit_stops_the_walk(sw, tmp_path):
 
 
 def test_no_sibling_clone_is_silently_dropped(sw, tmp_path):
-    """NESTED_CLONE_CAP prunes how deep the walk goes, and deliberately does
-    not truncate the result: a clone left out of the report is the false
+    """NESTED_STOP_DESCENT_AFTER stops the walk going deeper and deliberately
+    does not truncate the result: a clone left out of the report is the false
     all-clear this whole function exists to prevent."""
     outer = make_clone(tmp_path / "outer")
-    for n in range(sw.NESTED_CLONE_CAP + 5):
+    for n in range(sw.NESTED_STOP_DESCENT_AFTER + 5):
         make_clone(outer / f"repo{n:02d}")
-    assert len(sw.nested_clones(outer, outer)) == sw.NESTED_CLONE_CAP + 5
+    assert len(sw.nested_clones(outer, outer)) == sw.NESTED_STOP_DESCENT_AFTER + 5
+
+
+# ------------------------------------------------- pre-anchor retention --
+
+
+def ev(ts, *, is_self=False, mentions=False, number=1, kind="comment"):
+    return {
+        "ts": ts,
+        "kind": kind,
+        "is_self": is_self,
+        "mentions_me": mentions,
+        "number": number,
+        "title": "t",
+        "url": "u",
+    }
+
+
+def test_a_mention_the_anchor_skipped_is_pulled_back(sw):
+    """A commit moved the anchor past a comment the user never read."""
+    gap = ev("2026-09-05T00:00:00Z", mentions=True)
+    merged, pre = sw.retain_pre_anchor(
+        [gap], [], "2026-09-01T00:00:00Z", "2026-09-10T00:00:00Z", set(), False
+    )
+    assert pre == [gap]
+    assert merged == [gap]
+    assert gap["before_anchor"] is True
+
+
+def test_activity_on_my_own_item_is_pulled_back_too(sw):
+    gap = ev("2026-09-05T00:00:00Z", number=7)
+    _, pre = sw.retain_pre_anchor(
+        [gap], [], "2026-09-01T00:00:00Z", "2026-09-10T00:00:00Z", {7}, False
+    )
+    assert pre == [gap]
+
+
+def test_unrelated_chatter_in_the_gap_stays_dropped(sw):
+    gap = ev("2026-09-05T00:00:00Z", number=99)
+    _, pre = sw.retain_pre_anchor(
+        [gap], [], "2026-09-01T00:00:00Z", "2026-09-10T00:00:00Z", {7}, False
+    )
+    assert pre == []
+
+
+def test_my_own_comment_in_the_gap_is_not_something_to_catch_up_on(sw):
+    gap = ev("2026-09-05T00:00:00Z", is_self=True, mentions=True)
+    _, pre = sw.retain_pre_anchor(
+        [gap], [], "2026-09-01T00:00:00Z", "2026-09-10T00:00:00Z", set(), False
+    )
+    assert pre == []
+
+
+def test_nothing_is_pulled_back_when_the_window_was_capped(sw):
+    """The gap is already wide there, and window_capped says so."""
+    gap = ev("2026-09-05T00:00:00Z", mentions=True)
+    _, pre = sw.retain_pre_anchor(
+        [gap], [], "2026-09-01T00:00:00Z", "2026-09-10T00:00:00Z", set(), True
+    )
+    assert pre == []
+
+
+def test_no_participation_means_no_gap_to_pull_from(sw):
+    gap = ev("2026-09-05T00:00:00Z", mentions=True)
+    _, pre = sw.retain_pre_anchor([gap], [], None, "2026-09-10T00:00:00Z", set(), False)
+    assert pre == []
+
+
+def test_an_anchor_set_by_participation_leaves_no_gap(sw):
+    gap = ev("2026-09-05T00:00:00Z", mentions=True)
+    _, pre = sw.retain_pre_anchor(
+        [gap], [], "2026-09-10T00:00:00Z", "2026-09-10T00:00:00Z", set(), False
+    )
+    assert pre == []
+
+
+def test_retained_events_are_merged_in_time_order(sw):
+    gap = ev("2026-09-05T00:00:00Z", mentions=True)
+    later = ev("2026-09-20T00:00:00Z")
+    merged, _ = sw.retain_pre_anchor(
+        [gap], [later], "2026-09-01T00:00:00Z", "2026-09-10T00:00:00Z", set(), False
+    )
+    assert [e["ts"] for e in merged] == ["2026-09-05T00:00:00Z", "2026-09-20T00:00:00Z"]
+
+
+# ------------------------------------------------------ event selection --
+
+
+def test_everything_is_reported_when_under_budget(sw):
+    events = [ev(f"2026-09-0{n}T00:00:00Z") for n in range(1, 4)]
+    reported, collapsed, omitted = sw.select_reported(events, set(), 80)
+    assert len(reported) == 3
+    assert collapsed is None
+    assert omitted == 0
+
+
+def test_a_merge_storm_collapses_to_a_tally(sw):
+    state = [
+        ev(f"2026-09-{n:02d}T00:00:00Z", kind="pr_merged", number=n)
+        for n in range(1, sw.MAX_STATE_EVENTS + 6)
+    ]
+    reported, collapsed, _ = sw.select_reported(state, set(), 80)
+    assert collapsed["pr_merged"]["count"] == sw.MAX_STATE_EVENTS + 5
+    assert len(collapsed["pr_merged"]["numbers"]) == sw.MAX_STATE_EVENTS + 5
+    assert len(reported) == sw.MAX_STATE_EVENTS
+
+
+def test_conversation_is_never_collapsed(sw):
+    talk = [
+        ev(f"2026-09-{n:02d}T00:00:00Z", kind="comment", number=n)
+        for n in range(1, sw.MAX_STATE_EVENTS + 6)
+    ]
+    reported, collapsed, _ = sw.select_reported(talk, set(), 80)
+    assert collapsed is None
+    assert len(reported) == len(talk)
+
+
+def test_a_mention_survives_a_flood_of_unrelated_chatter(sw):
+    """The one comment that matters must not be buried by a busy upstream."""
+    mention = ev("2026-09-01T00:00:00Z", mentions=True, number=1)
+    noise = [ev(f"2026-09-{n:02d}T00:00:00Z", number=50 + n) for n in range(2, 20)]
+    reported, _, omitted = sw.select_reported([mention, *noise], set(), 5)
+    assert mention in reported
+    assert len(reported) == 5
+    assert omitted == len(noise) + 1 - 5
+
+
+def test_unaddressed_events_compete_on_recency(sw):
+    noise = [ev(f"2026-09-{n:02d}T00:00:00Z", number=50 + n) for n in range(1, 11)]
+    reported, _, _ = sw.select_reported(noise, set(), 3)
+    assert [e["ts"] for e in reported] == [
+        "2026-09-08T00:00:00Z",
+        "2026-09-09T00:00:00Z",
+        "2026-09-10T00:00:00Z",
+    ]
+
+
+def test_more_addressed_events_than_budget_are_all_still_kept(sw):
+    """Being over budget is not a reason to drop something aimed at the user."""
+    mine = [ev(f"2026-09-{n:02d}T00:00:00Z", mentions=True, number=n) for n in range(1, 9)]
+    reported, _, omitted = sw.select_reported(mine, set(), 3)
+    assert len(reported) == 8
+    assert omitted == 0
+
+
+def test_reported_events_come_back_in_time_order(sw):
+    events = [ev("2026-09-09T00:00:00Z"), ev("2026-09-02T00:00:00Z", mentions=True)]
+    reported, _, _ = sw.select_reported(events, set(), 80)
+    assert [e["ts"] for e in reported] == ["2026-09-02T00:00:00Z", "2026-09-09T00:00:00Z"]

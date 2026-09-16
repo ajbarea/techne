@@ -41,9 +41,11 @@ MAX_WINDOW_DAYS = 30
 
 # Nested-clone scan. Depth 4 reaches a repo parked a few folders down without
 # walking a monorepo; the ignore list skips the trees that hold no clone of
-# ours but do hold thousands of directories.
+# ours but do hold thousands of directories. Finding this many clones stops the
+# walk going deeper -- it deliberately does not truncate the result, because a
+# clone left out of the report is the false all-clear the scan exists to catch.
 NESTED_MAX_DEPTH = 4
-NESTED_CLONE_CAP = 10
+NESTED_STOP_DESCENT_AFTER = 10
 IGNORE_DIRS = {
     "node_modules",
     "venv",
@@ -176,7 +178,8 @@ def nested_clones(root, start):
             found.append(here)
             dirnames[:] = []  # a clone's own subtree holds no sibling clone
             continue
-        if len(here.relative_to(start).parts) >= NESTED_MAX_DEPTH or len(found) >= NESTED_CLONE_CAP:
+        too_deep = len(here.relative_to(start).parts) >= NESTED_MAX_DEPTH
+        if too_deep or len(found) >= NESTED_STOP_DESCENT_AFTER:
             dirnames[:] = []
             continue
         dirnames[:] = [d for d in dirnames if d not in IGNORE_DIRS and not d.startswith(".")]
@@ -501,6 +504,65 @@ def find_anchor(events, repo_slug, me):
     return anchor, source, participation
 
 
+def addressed_to(event, my_items):
+    """Aimed at the user: a mention, or activity on an item they opened."""
+    return event["mentions_me"] or event["number"] in my_items
+
+
+def retain_pre_anchor(events, new_events, participation, anchor, my_items, capped):
+    """Pull back events the anchor skipped over but the user never read.
+
+    A commit can push the anchor past comments made before it: pushing is not
+    reading. Anything aimed at the user in that gap is retained rather than
+    dropped silently, and marked so the caller can say why it is there.
+
+    Skipped when the window is capped, where the gap is already wide and
+    `window_capped` has already said the picture is partial.
+    """
+    if not (participation and participation < anchor and not capped):
+        return new_events, []
+    pre_anchor = [
+        e
+        for e in events
+        if participation < e["ts"] <= anchor and not e["is_self"] and addressed_to(e, my_items)
+    ]
+    for event in pre_anchor:
+        event["before_anchor"] = True
+    return sorted(new_events + pre_anchor, key=lambda e: e["ts"]), pre_anchor
+
+
+def select_reported(new_events, my_items, max_events):
+    """Choose what survives the event budget. Returns (reported, collapsed, omitted).
+
+    Two separate squeezes, in order. Bulk state flips collapse to a per-kind
+    tally first, so a merge storm cannot flood the context. Then, if the result
+    is still over budget, anything aimed at the user is kept whole and only the
+    rest competes on recency -- a busy upstream repo must not be able to bury
+    the one comment that was addressed to them.
+    """
+    signal = [e for e in new_events if e["kind"] in SIGNAL_KINDS]
+    state = [e for e in new_events if e["kind"] not in SIGNAL_KINDS]
+    state_collapsed = None
+    if len(state) > MAX_STATE_EVENTS:
+        by_kind = {}
+        for e in state:
+            by_kind.setdefault(e["kind"], []).append(e["number"])
+        state_collapsed = {
+            k: {"count": len(v), "numbers": sorted(set(v))} for k, v in by_kind.items()
+        }
+        state = state[-MAX_STATE_EVENTS:]
+    candidates = sorted(signal + state, key=lambda e: e["ts"])
+
+    if len(candidates) > max_events:
+        keep = [e for e in candidates if addressed_to(e, my_items)]
+        rest = [e for e in candidates if not addressed_to(e, my_items)]
+        budget = max(0, max_events - len(keep))
+        reported = sorted(keep + rest[-budget:], key=lambda e: e["ts"])
+    else:
+        reported = candidates
+    return reported, state_collapsed, len(candidates) - len(reported)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("repo", nargs="?", help="owner/name, a bare repo name, or a path")
@@ -553,51 +615,10 @@ def main():
     # comparison is chronological. Do not mix in a differently formatted stamp.
     new_events = [e for e in events if e["ts"] > anchor]
 
-    # A commit can push the anchor past comments the user never read: pushing is
-    # not reading. Retain anything aimed at them in that gap rather than drop it
-    # silently. Skipped when the window is capped, where the gap is already wide
-    # and `window_capped` says the picture is partial.
-    pre_anchor = []
-    if participation and participation < anchor and not capped:
-        pre_anchor = [
-            e
-            for e in events
-            if participation < e["ts"] <= anchor
-            and not e["is_self"]
-            and (e["mentions_me"] or e["number"] in my_items)
-        ]
-        for event in pre_anchor:
-            event["before_anchor"] = True
-        new_events = sorted(new_events + pre_anchor, key=lambda e: e["ts"])
-
-    # Keep every conversational event; collapse bulk state flips so a busy repo
-    # cannot flood the context with merge/close noise.
-    signal = [e for e in new_events if e["kind"] in SIGNAL_KINDS]
-    state = [e for e in new_events if e["kind"] not in SIGNAL_KINDS]
-    state_collapsed = None
-    if len(state) > MAX_STATE_EVENTS:
-        by_kind = {}
-        for e in state:
-            by_kind.setdefault(e["kind"], []).append(e["number"])
-        state_collapsed = {
-            k: {"count": len(v), "numbers": sorted(set(v))} for k, v in by_kind.items()
-        }
-        state = state[-MAX_STATE_EVENTS:]
-    candidates = sorted(signal + state, key=lambda e: e["ts"])
-
-    # Anything aimed at the user survives the cap. Everything else competes on
-    # recency, so a busy upstream repo cannot bury the one comment that matters.
-    def addressed(e):
-        return e["mentions_me"] or e["number"] in my_items
-
-    if len(candidates) > args.max_events:
-        keep = [e for e in candidates if addressed(e)]
-        rest = [e for e in candidates if not addressed(e)]
-        budget = max(0, args.max_events - len(keep))
-        reported = sorted(keep + rest[-budget:], key=lambda e: e["ts"])
-    else:
-        reported = candidates
-    omitted = len(candidates) - len(reported)
+    new_events, pre_anchor = retain_pre_anchor(
+        events, new_events, participation, anchor, my_items, capped
+    )
+    reported, state_collapsed, omitted = select_reported(new_events, my_items, args.max_events)
 
     pr_nodes = repo["pullRequests"]["nodes"]
     mergeable_unresolved = _settle_mergeable(slug, pr_nodes)
