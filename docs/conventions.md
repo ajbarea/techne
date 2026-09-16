@@ -144,6 +144,13 @@ repl_command: <your repo's REPL command>
 session_name: <your-repo-slug>-theoros
 ```
 
+## latex
+```yaml
+markers: [FILL, TODO, XXX]   # draft words that must not survive into a built PDF
+overfull_pt: 5.0             # report overfull boxes at or above this
+engine: pdf                  # latexmk engine flag: pdf, xelatex, lualatex
+```
+
 ## elenchus
 ```yaml
 test_command: <how to run the suite, e.g. make test>
@@ -160,7 +167,7 @@ feature_works_means:
 Each `##` section maps to one skill family. Adopt only the sections for the skills you intend to use; absent sections trigger a "skill needs scaffolding" message instead of a silent failure.
 
 **Required for:** `techne:audit`, `techne:theoros`.
-**Recommended for:** `techne:sisters` (used for cross-repo skill-context parity checks), `techne:deslop`, `techne:reslop`, `techne:docsync`, `techne:docs-site`, `techne:ci-audit`, `techne:elenchus` (tier-0 works with no config; the `## elenchus` block sharpens each phase).
+**Recommended for:** `techne:sisters` (used for cross-repo skill-context parity checks), `techne:deslop`, `techne:reslop`, `techne:docsync`, `techne:docs-site`, `techne:ci-audit`, `techne:latex` (defaults work with no config; the `## latex` block sets per-repo draft markers and thresholds), `techne:elenchus` (tier-0 works with no config; the `## elenchus` block sharpens each phase).
 
 ## `~/.claude/techne.toml` (user-level sister config)
 

@@ -13,11 +13,13 @@ made below and the runner is in this skill.
 ## Run it
 
 ```
-python ${CLAUDE_PLUGIN_ROOT}/skills/latex/scripts/latex.py <path>
+uv run --quiet python ${CLAUDE_PLUGIN_ROOT}/skills/latex/scripts/latex.py <path>
 ```
 
 `<path>` is a `.tex`, or a directory holding exactly one file with
-`\documentclass`. Nothing needs installing beyond TeX Live and poppler.
+`\documentclass`. The script has no Python dependencies; it needs TeX Live and
+poppler. Invoke it through `uv run` rather than `python`, which is absent on a
+machine that ships only `python3`.
 
 Read the exit code, not the output's tone:
 
@@ -66,7 +68,7 @@ for `--prompt`. For `classes/csci739-*`, the prompt lives in the read-only clone
 repo, not next to the solutions, so pass it:
 
 ```
-python .../latex.py 03-assignments/hw1 \
+uv run --quiet python .../latex.py 03-assignments/hw1 \
   --prompt ../csci739-quantum-machine-learning-hw/"Homework 1"/main.tex
 ```
 

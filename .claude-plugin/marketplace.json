@@ -1,7 +1,7 @@
 {
   "name": "techne",
   "version": "1.0.0",
-  "description": "An opinionated Claude Code skill collection for repo hygiene, audits, and doc/code drift.",
+  "description": "An opinionated Claude Code skill collection for repo hygiene, audits, doc/code drift, and building documents from source.",
   "owner": {
     "name": "AJ",
     "email": "ajbareaa@gmail.com"
@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "techne",
-      "description": "Repo-hygiene skills for audit, slop cleanup, doc-sync, CI review, commit planning, and cross-repo drift detection.",
+      "description": "Repo-hygiene skills for audit, slop cleanup, doc-sync, CI review, commit planning, cross-repo drift detection, and document builds.",
       "source": "./plugins/techne",
       "category": "development"
     }

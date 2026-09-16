@@ -1,6 +1,6 @@
 {
   "name": "techne",
-  "description": "AJ's personal Claude Code skill collection — repo-hygiene skills for audit, slop cleanup, doc-sync, CI review, commit planning, and cross-repo drift detection.",
+  "description": "AJ's personal Claude Code skill collection — repo-hygiene skills for audit, slop cleanup, doc-sync, CI review, commit planning, cross-repo drift detection, and document builds.",
   "author": {
     "name": "AJ",
     "email": "ajbareaa@gmail.com"
