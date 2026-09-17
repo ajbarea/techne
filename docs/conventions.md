@@ -84,12 +84,13 @@ curl -fsSL https://raw.githubusercontent.com/ajbarea/techne/main/scripts/dev-run
 chmod +x scripts/dev-runner.sh
 ```
 
-Then call it from your Makefile targets (or invoke directly):
+Then invoke it from the shell, never from a Makefile recipe (it runs `make` itself, so the recipe would recurse):
 
-```makefile
-lint:
-	@./scripts/dev-runner.sh lint
+```bash
+./scripts/dev-runner.sh lint
 ```
+
+Above the `SUMMARY` block, each output line is tagged `[<time>] [OUT  ] [<target>] <line>`, and a failing run adds `[<time>] [ERROR] [<target>] exit <rc>`. That is the same shape a Python `scripts/dev.py` runner writes, so `techne:audit` reads either.
 
 **Required for:** `techne:audit`.
 
@@ -171,7 +172,7 @@ Each `##` section maps to one skill family. Adopt only the sections for the skil
 
 ## `~/.claude/techne.toml` (user-level sister config)
 
-`techne:sisters` reads a user-level config file at `~/.claude/techne.toml` that lists the repos to audit drift across. See the **Configuration** section of the README for the worked example.
+`techne:sisters` reads a user-level config file at `~/.claude/techne.toml` that lists the repos to audit drift across. See [Configuration](configuration.md) for the schema and a worked example.
 
 **Required for:** `techne:sisters`.
 
@@ -198,7 +199,9 @@ curl -fsSL https://raw.githubusercontent.com/ajbarea/techne/main/.github-templat
   -o .github/workflows/docs.yml
 ```
 
-Then enable Pages in your GitHub repo settings (Settings -> Pages -> Source: GitHub Actions). The workflow runs on every push to `main` and on manual dispatch.
+Then enable Pages in your GitHub repo settings (Settings -> Pages -> Source: GitHub Actions). The workflow runs on pushes to `main` that touch the docs, its config or the workflow itself, and on manual dispatch.
+
+Its actions are pinned to the same commit SHAs as techne's own `docs.yml`, and `make guards` fails if the two drift apart. Dependabot only watches `.github/workflows/`, so after copying, your repo's Dependabot keeps the pins fresh.
 
 **Required for:** `techne:docs-site`.
 

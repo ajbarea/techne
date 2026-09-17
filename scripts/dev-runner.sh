@@ -6,9 +6,15 @@
 # Usage:
 #   ./scripts/dev-runner.sh <make-target>
 #
-# Drop-in: copy this file into your repo's scripts/ and call it from
-# Makefile targets, or invoke directly. The script does not edit anything
-# outside logs/.
+# Drop-in: copy this file into your repo's scripts/ and invoke it from the
+# shell. Never call it from a Makefile recipe: it runs `make` itself, so the
+# recipe would recurse. The script does not edit anything outside logs/.
+#
+# Archive lines use the same shape as a Python scripts/dev.py runner, so
+# techne:audit reads either:
+#   [<local ISO-8601 time>] [OUT  ] [<target>] <merged stdout+stderr line>
+#   [<local ISO-8601 time>] [ERROR] [<target>] exit <rc>
+# The terminal still sees the untagged output.
 
 set -euo pipefail
 
@@ -31,6 +37,17 @@ get_ns() {
   fi
 }
 
+# Sets STAMP rather than printing it, so tagging a line forks nothing on bash 5.
+stamp() {
+  if [[ -n "${EPOCHREALTIME:-}" ]]; then
+    local now="${EPOCHREALTIME/,/.}"
+    local frac="${now#*.}"
+    printf -v STAMP '%(%Y-%m-%dT%H:%M:%S)T.%s' "${now%.*}" "${frac:0:3}"
+  else
+    STAMP="$(date +%Y-%m-%dT%H:%M:%S)"
+  fi
+}
+
 TARGET="$1"
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 LOG_DIR="logs"
@@ -44,10 +61,17 @@ mkdir -p "$LOG_DIR"
 
 START_NS="$(get_ns)"
 
-# Run the make target. Tee stdout+stderr to the archive and the stable pointer
-# concurrently so the user sees live output while archives accumulate.
+exec 3>>"$ARCHIVE" 4>>"$LATEST"
+
+# Echo each line untagged for the user, and tagged into both logs as it arrives.
 set +e
-make "$TARGET" 2>&1 | tee -a "$ARCHIVE" "$LATEST"
+make "$TARGET" 2>&1 | while IFS= read -r line || [[ -n "$line" ]]; do
+  printf '%s\n' "$line"
+  stamp
+  printf -v tagged '[%s] [OUT  ] [%s] %s' "$STAMP" "$TARGET" "$line"
+  printf '%s\n' "$tagged" >&3
+  printf '%s\n' "$tagged" >&4
+done
 RC=${PIPESTATUS[0]}
 set -e
 
@@ -59,6 +83,8 @@ STEPS_FAILED=0
 if [[ $RC -ne 0 ]]; then
   STATUS="FAIL"
   STEPS_FAILED=1
+  stamp
+  printf '[%s] [ERROR] [%s] exit %d\n' "$STAMP" "$TARGET" "$RC" | tee -a "$ARCHIVE" "$LATEST" >/dev/null
 fi
 
 {
@@ -76,4 +102,5 @@ fi
   echo "=============================================================================="
 } | tee -a "$ARCHIVE" "$LATEST"
 
+exec 3>&- 4>&-
 exit "$RC"
