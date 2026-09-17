@@ -1,6 +1,6 @@
 # Starter docs workflow for techne:docs-site. Copy to .github/workflows/docs.yml.
-# Actions are pinned to commit SHAs, matching techne's own docs.yml (`make guards`
-# fails if they drift); your repo's Dependabot bumps the SHA and `# vX.Y.Z` comment.
+# Actions are pinned to commit SHAs. After copying, your repo's Dependabot bumps
+# each SHA together with its `# vX.Y.Z` comment.
 name: Documentation
 
 on:
