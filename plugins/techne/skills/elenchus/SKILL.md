@@ -2,7 +2,7 @@
 name: elenchus
 description: Adversarial pre-merge code review — drive /code-review, then run the three passes diff-reading skips (reproduce the load-bearing claim, trace every consumer, review against the whole repo) and the bug-class rubric that catches reachable destructive ops, unmirrored parallel-path guards, migration crashes, and dead features that still pass CI. Use before merging a substantive change, when asked to "review it like a hostile reviewer", "hunt edge cases", "break this before merge", "is this actually mergeable", or to give a self-authored change an independent pass. Reads optional per-repo hints from the `## elenchus` section of `.claude/skill-context.md`.
 disable-model-invocation: false
-allowed-tools: Bash Read Grep Glob Task Skill
+allowed-tools: Bash Read Grep Glob Agent Skill
 ---
 
 # Elenchus
@@ -16,7 +16,7 @@ This skill exists because the same model that writes a change is a poor judge of
 If you (or this session) authored the change under review, you are the wrong reviewer **by construction** — you cannot un-know what it was supposed to do. Restore independence with tools, not willpower:
 
 - **Primary:** run `/code-review` at `high` (spawns independent local review agents) or `ultra` (multi-agent cloud review) so the verdict comes from a context that never wrote the code. Scale to risk: `ultra`/`high` for anything destructive, security/governance-sensitive, or shipping to a sensitive target.
-- **Fallback / supplement:** dispatch a fresh review subagent (the `Task`/Agent tool) with the diff and this rubric but **no authorship narrative**.
+- **Fallback / supplement:** dispatch a fresh review subagent (the `Agent` tool) with the diff and this rubric but **no authorship narrative**.
 
 **Never hand-read your own diff and call it reviewed.** A clean self-eyeball is not a review; it is the author agreeing with themselves.
 
