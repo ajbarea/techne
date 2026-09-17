@@ -34,43 +34,67 @@ hide:
     <h2 class="section-title">The Skills</h2>
     <div class="skill-grid">
       <a href="skills/audit/" class="skill-card">
-        <div class="skill-name"><code>/audit</code></div>
+        <div class="skill-name"><code>/techne:audit</code></div>
         <p>Runs your repo's <code>make</code> targets in dependency order and reconciles terminal output against <code>logs/dev-*.log</code> archives.</p>
       </a>
       <a href="skills/auto-commit/" class="skill-card">
-        <div class="skill-name"><code>/auto-commit</code></div>
+        <div class="skill-name"><code>/techne:auto-commit</code></div>
         <p>Groups working-tree changes into a structured <code>COMMITS.md</code> plan for staged review before anything lands.</p>
       </a>
+      <a href="skills/catchup/" class="skill-card">
+        <div class="skill-name"><code>/techne:catchup</code></div>
+        <p>Reads every comment, review, and state change on a repo since you last participated, then reports who is blocked on whom.</p>
+      </a>
       <a href="skills/ci-audit/" class="skill-card">
-        <div class="skill-name"><code>/ci-audit</code></div>
+        <div class="skill-name"><code>/techne:ci-audit</code></div>
         <p>Audits GitHub Actions runs on the current branch/PR for warnings, failures, and noise. Fixes what's fixable in-repo.</p>
       </a>
       <a href="skills/deslop/" class="skill-card">
-        <div class="skill-name"><code>/deslop</code></div>
+        <div class="skill-name"><code>/techne:deslop</code></div>
         <p>Scans comments and docstrings for AI-generated slop and proposes tightened rewrites.</p>
       </a>
       <a href="skills/docs-site/" class="skill-card">
-        <div class="skill-name"><code>/docs-site</code></div>
+        <div class="skill-name"><code>/techne:docs-site</code></div>
         <p>Maintains the Zensical-powered docs site: config, deploy pipeline, theming, link integrity.</p>
       </a>
       <a href="skills/docsync/" class="skill-card">
-        <div class="skill-name"><code>/docsync</code></div>
+        <div class="skill-name"><code>/techne:docsync</code></div>
         <p>Verifies documentation claims (CLI commands, paths, config keys, signatures) against the actual code.</p>
       </a>
+      <a href="skills/elenchus/" class="skill-card">
+        <div class="skill-name"><code>/techne:elenchus</code></div>
+        <p>Adversarial pre-merge review: reproduces the load-bearing claim, traces every consumer, and walks a bug-class rubric.</p>
+      </a>
+      <a href="skills/latex/" class="skill-card">
+        <div class="skill-name"><code>/techne:latex</code></div>
+        <p>Builds a LaTeX document and gates it on its log, its PDF, and the assignment it answers.</p>
+      </a>
+      <a href="skills/paper/" class="skill-card">
+        <div class="skill-name"><code>/techne:paper</code></div>
+        <p>Scaffolds a new paper directory in a papers-style monorepo so it builds on day one.</p>
+      </a>
+      <a href="skills/paper-review/" class="skill-card">
+        <div class="skill-name"><code>/techne:paper-review</code></div>
+        <p>Pre-submission novelty and reviewer pass, with every verdict grounded in retrieved prior work.</p>
+      </a>
+      <a href="skills/pdf/" class="skill-card">
+        <div class="skill-name"><code>/techne:pdf</code></div>
+        <p>Renders markdown to print-quality PDFs through a Typst template, then verifies fonts and content against the source.</p>
+      </a>
       <a href="skills/research-grounded/" class="skill-card">
-        <div class="skill-name"><code>/research-grounded</code></div>
+        <div class="skill-name"><code>/techne:research-grounded</code></div>
         <p>Flags design decisions in <code>IMPL.md</code> / <code>ROADMAP.md</code> that lack <code>research(YYYY-MM)</code> provenance, then web-searches to ground them.</p>
       </a>
       <a href="skills/reslop/" class="skill-card">
-        <div class="skill-name"><code>/reslop</code></div>
+        <div class="skill-name"><code>/techne:reslop</code></div>
         <p>Rewrites docstrings grounded in the implementation rather than deleting them outright.</p>
       </a>
       <a href="skills/sisters/" class="skill-card">
-        <div class="skill-name"><code>/sisters</code></div>
+        <div class="skill-name"><code>/techne:sisters</code></div>
         <p>Cross-repo drift audit across the sister repos listed in <code>~/.claude/techne.toml</code>.</p>
       </a>
       <a href="skills/theoros/" class="skill-card">
-        <div class="skill-name"><code>/theoros</code></div>
+        <div class="skill-name"><code>/techne:theoros</code></div>
         <p>Starts an observed live dev session: Claude drives the REPL in a named tmux session; you spectate read-only via <code>tmux attach -r</code>.</p>
       </a>
     </div>
@@ -84,7 +108,7 @@ hide:
       <pre><code>/plugin marketplace add ajbarea/techne
 /plugin install techne@techne</code></pre>
     </div>
-    <p class="section-lead">Install once, invoke with <code>/skill-name</code>. Just like any other Claude Code skill.</p>
+    <p class="section-lead">Install once, then invoke a skill as <code>/techne:&lt;name&gt;</code> or describe the task and let Claude pick it.</p>
     <div class="hero-buttons hero-buttons--cta">
       <a href="getting-started/" class="md-button md-button--primary">Get Started</a>
       <a href="configuration/" class="md-button">Configuration</a>

@@ -139,7 +139,7 @@ Report any non-zero ahead/behind. Behind = pull to catch up. Ahead = unpushed co
 
 Only inspect the *root* `pyproject.toml` of each repo — that's where the shared toolchain decisions live. Do not descend into workspace members (e.g., `<repo>/agents/*/pyproject.toml`); those are package-level, not toolchain-level, and would generate noise.
 
-Extract four pins per repo:
+Extract five pins per repo:
 
 - `requires-python` — the Python version envelope the project accepts.
 - `[tool.ruff] target-version` — which Python features ruff assumes when linting / autofixing.

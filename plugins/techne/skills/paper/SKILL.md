@@ -33,6 +33,10 @@ Read the `## paper` section of `<repo>/.claude/skill-context.md` for: `author`,
 `affiliation`, `email`, `bib` (default `../references`), `engine` (default `tectonic`, else
 `pdflatex`), and `portfolio` (default `LINEAGE.md`). Use sensible defaults if absent.
 
+tectonic suits the scaffold's classic `\bibliography{}` + BibTeX. If a paper moves to
+`biblatex` with `biber`, build it with latexmk through `techne:latex` instead: tectonic ships
+its own biblatex, which skews against a system biber.
+
 ## Procedure
 
 1. Refuse if `papers/<name>/` already exists — never overwrite a paper.

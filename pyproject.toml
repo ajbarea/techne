@@ -1,7 +1,7 @@
 [project]
 name = "techne"
-version = "0.1.0"
-description = "An opinionated Claude Code skill collection for repo hygiene, audits, and doc/code drift."
+version = "1.0.0"
+description = "An opinionated Claude Code skill collection for repo hygiene, audits, doc/code drift, and document builds."
 requires-python = ">=3.12"
 dependencies = []
 
@@ -18,10 +18,6 @@ dev = [
 [tool.uv]
 package = false
 
-# ruff config — narrow scope today (just scripts/) since the only tracked
-# Python in this repo is the SKILL.md frontmatter validator. The sister
-# floor is `ruff>=0.9`, `target-version = "py312"`. Extend `select` as more
-# Python lands.
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # Skill scripts are standalone files, not packages; conftest.py loads them by
@@ -29,6 +25,7 @@ testpaths = ["tests"]
 pythonpath = ["tests"]
 addopts = "-q --strict-markers"
 
+# Linted paths live in the Makefile's lint and fix targets.
 [tool.ruff]
 target-version = "py312"
 line-length = 100

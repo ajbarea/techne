@@ -21,8 +21,8 @@ retrieved paper, never asserted from memory.
 Reads the `## paper-review` section of `.claude/skill-context.md` (overlap source of truth,
 retrieval substrate, report path), extracts the draft's contributions, retrieves comparable
 prior work from OpenAlex (web-search backstop; Semantic Scholar only with a key), and writes
-`papers/<name>/novelty-review.md` with four sections: novelty per contribution, related-work
-gaps, claim-support, and a lab-overlap disclosure section. Advisory only — it never edits the
+`papers/<name>/novelty-review.md`: citation integrity, novelty per contribution, related-work
+gaps, claim-support, a lab-overlap disclosure section, and a provenance log of every query. Advisory only — it never edits the
 draft.
 
 ## What it grounds

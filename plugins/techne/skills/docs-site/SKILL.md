@@ -44,7 +44,7 @@ Run as many in parallel as the scope calls for:
 
 5. **Workflow sanity (`docs.yml`).**
    - Trigger `paths` covers `docs/**`, `zensical.toml`, and the workflow itself.
-   - Action versions are pinned to a tag (not `@main`), and major versions look current. The injected `docs_site.action_pins` (if present) lists the expected versions.
+   - Every remote `uses:` is pinned to a full 40-character commit SHA with a trailing `# vX.Y.Z` comment, never a tag or `@main`: tags are mutable. Majors in the comments look current. The injected `docs_site.action_pins` (if present) says where the expected pins live.
    - Build command matches the injected `docs_site.build_command` (typically `uv run zensical build --clean` or `uv tool run zensical build --clean`).
    - `pages: write` permission present; `id-token: write` present for OIDC deploy.
 
@@ -66,9 +66,10 @@ docs/assets/unused-diagram.png
     fix: delete, or wire into a page
 
 .github/workflows/docs.yml:23
-  astral-sh/setup-uv@v8.0.0 — pinned, current
+  astral-sh/setup-uv@v8.0.0 — tag, not a SHA
+    fix: pin to the commit SHA with a `# v8.0.0` comment (`pinact run`)
 .github/workflows/docs.yml:39
-  actions/configure-pages@v6.0.0 — pinned, current
+  actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0 — pinned, current
 ```
 
 End with a one-line verdict and an `apply all / apply selected / skip?` prompt if any fixes are straightforward edits.

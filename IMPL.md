@@ -11,28 +11,33 @@ has crept in — extract it back to ROADMAP.
 
 ## In flight
 
-Nothing currently open. Shipped this session: `/techne:latex`
-(ROADMAP `## Shipped`), the build-and-gate sibling of `/techne:pdf`,
-the repo's first pytest suite, which it brought with it, and coverage
-for `render.py` and `sweep.py` under the same harness (114 tests).
-Every skill-shipped Python file now has tests.
+**v1.0.0 release polish** (branch `docs/release-polish`).
 
-The event budget is covered now too: it was a closure in `sweep.py`'s
-`main()` and is `select_reported` / `retain_pre_anchor` today. 129 tests.
-
-Next natural pickup: any of the queued skills from ROADMAP
-`## Queued / unprioritized` (`narrative-coherence`, `positioning`,
-`workspace-orphans`) once their n≥2 trigger fires.
+- **Why:** a file-by-file pass before the first release found the docs underselling the
+  skill set and several skill texts contradicting the fleet's own conventions.
+- **Decisions:** the plugin stays unversioned, so installs follow the commit SHA and every
+  push reaches users. `# research(2026-09)`: code.claude.com plugin-marketplaces, "if you
+  omit `version`, Claude Code uses the source's resolved commit SHA"; setting `version`
+  pins users until a bump. Releases are plain `vX.Y.Z` git tags plus a GitHub release,
+  for citation. `{name}--vX.Y.Z` tags exist for dependency ranges, which techne has none of.
+  Bundled scripts are addressed as `${CLAUDE_SKILL_DIR}/scripts/…` (the documented
+  variable; confirmed substituted in Claude Code 2.1.274).
+- **Scope:** every skill listed everywhere; `dev-runner.sh` writes the `[OUT  ]` / `[ERROR]`
+  lines `techne:audit` reads; starter docs workflow SHA-pinned and guarded against the live
+  pins; skill-context facts; `CITATION.cff` version and date.
+- **Out of scope:** a Zenodo DOI (needs the Zenodo GitHub integration switched on first).
+- **Done when:** `make validate` green, CI green, merged, `v1.0.0` tagged and released.
 
 ## Skill collection state
 
-Sixteen skills shipped as of 2026-09-16, five catalog dimensions:
+Shipped skills by catalog dimension (the directory listing of `plugins/techne/skills/` is the source of truth):
 
 | Dimension | Skills |
 | --- | --- |
 | **Audit** | `audit`, `ci-audit` |
 | **Drift** | `docsync`, `docs-site`, `research-grounded`, `sisters` |
 | **Hygiene** | `auto-commit`, `deslop`, `reslop` |
+| **Review** | `catchup`, `elenchus` |
 | **Observation** | `theoros` |
 | **Document build** | `latex`, `pdf`, `paper`, `paper-review` |
 

@@ -13,7 +13,7 @@ made below and the runner is in this skill.
 ## Run it
 
 ```
-uv run --quiet python ${CLAUDE_PLUGIN_ROOT}/skills/latex/scripts/latex.py <path>
+uv run --quiet python ${CLAUDE_SKILL_DIR}/scripts/latex.py <path>
 ```
 
 `<path>` is a `.tex`, or a directory holding exactly one file with
@@ -64,12 +64,14 @@ incomplete on the strength of it, and do not suppress it either.
 
 The prompt is auto-detected only when exactly one `*.extracted.md` sits beside
 the source that is not the document's own sidecar. Two candidates means it asks
-for `--prompt`. For `classes/csci739-*`, the prompt lives in the read-only clone
-repo, not next to the solutions, so pass it:
+for `--prompt`. Pass it too when the prompt lives somewhere else, such as a
+read-only course repo cloned beside the solutions. A repo whose prompts always
+live elsewhere should say where in its agent instructions (`AGENTS.md` or
+`CLAUDE.md`):
 
 ```
 uv run --quiet python .../latex.py 03-assignments/hw1 \
-  --prompt ../csci739-quantum-machine-learning-hw/"Homework 1"/main.tex
+  --prompt ../course-hw-repo/"Homework 1"/main.tex
 ```
 
 ## The toolchain, and why

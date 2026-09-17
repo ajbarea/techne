@@ -17,12 +17,7 @@
 
 ---
 
-Installable as a single `/plugin`:
-
-```bash
-/plugin marketplace add ajbarea/techne
-/plugin install techne@techne
-```
+Installable as a single `/plugin`; see [Install](#install).
 
 ## What's in the box
 
@@ -36,9 +31,11 @@ Installable as a single `/plugin`:
 | `techne:docs-site` | Maintains the Zensical-powered docs site: config, deploy pipeline, theming, link integrity. |
 | `techne:docsync` | Verifies documentation claims (CLI commands, paths, config keys, signatures) against the actual code. |
 | `techne:elenchus` | Adversarial pre-merge review: drives `/code-review`, then reproduces the load-bearing claim, traces every consumer across the whole repo, and walks a bug-class rubric for reachable destructive ops, unmirrored parallel-path guards, migration crashes, and dead-but-green features. |
+| `techne:latex` | Builds a LaTeX document and gates it on its log, its PDF, and the assignment it answers; a clean `latexmk` exit is not the signal. |
 | `techne:paper` | Scaffolds a new paper dir (LaTeX + results-harvest + shared bib + portfolio row) in a papers-style monorepo so it builds on day one. |
 | `techne:paper-review` | Pre-submission novelty + reviewer pass for a draft paper: grounds every novelty/claim verdict in retrieved prior work, flags related-work gaps, and surfaces lab-overlap for disclosure. |
 | `techne:research-grounded` | Flags design decisions in IMPL/ROADMAP that lack `# research(YYYY-MM):` provenance, then web-searches to ground them. |
+| `techne:pdf` | Renders markdown to print-quality PDFs through a Typst template, then verifies fonts and content against the source. |
 | `techne:reslop` | Rewrites docstrings grounded in the implementation rather than deleting them outright. |
 | `techne:sisters` | Cross-repo drift audit across the sister repos listed in `~/.claude/techne.toml`. |
 | `techne:theoros` | Starts an observed live dev session: Claude drives the REPL in a named `tmux` session; you spectate read-only via `tmux attach -r`. |
@@ -52,7 +49,7 @@ Add the marketplace and install the plugin from inside Claude Code:
 /plugin install techne@techne
 ```
 
-Skills become available as `techne:<name>` and can be invoked the same way as any other Claude Code skill.
+Invoke a skill as `/techne:<name>`, or describe the task and Claude picks the matching skill. Run `/skills` to confirm they loaded.
 
 > **First-time setup:** techne is opinionated about a few conventions (Makefile pattern, dev-runner archive, `.claude/skill-context.md`). See [Conventions](docs/conventions.md) for the minimum each skill needs.
 
@@ -94,8 +91,10 @@ techne (plugin)
 ├── docs-site         ── manages Zensical site + deploy
 ├── docsync           ── doc claims ↔ implementation
 ├── elenchus          ── adversarial pre-merge review (reproduce + trace + rubric)
+├── latex             ── builds LaTeX and gates the PDF on its log
 ├── paper             ── scaffolds a new paper dir (LaTeX + harvest)
 ├── paper-review      ── grounded novelty + reviewer pass for a draft
+├── pdf               ── markdown to print PDF via Typst, verified
 ├── research-grounded ── flags un-grounded design decisions
 ├── reslop            ── rewrites docstrings from code
 ├── sisters           ── cross-repo drift across sisters
@@ -106,7 +105,7 @@ Each skill is self-contained. Invoke one without pulling in the others. They sha
 
 ## Why "techne"
 
-Greek τέχνη: craft, the practical knowledge of how to make a thing well. That's what these skills are for — the craft of keeping a repo honest: audits, drift checks, clean commits, clean prose.
+Greek τέχνη: craft, the practical knowledge of how to make a thing well. That's what these skills are for: the craft of keeping a repo honest through audits, drift checks, clean commits and clean prose.
 
 ## License
 

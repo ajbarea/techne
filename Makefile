@@ -71,7 +71,7 @@ validate: lint shellcheck zizmor test build  ## Fast pre-push gate
 build:                  ## Build docs site (strict; mirrors docs.yml deploy)
 	@uv run zensical build --clean --strict
 
-ci: setup validate build  ## Mirror CI end-to-end (validate.yml + docs.yml build)
+ci: setup validate      ## Mirror CI end-to-end (validate.yml, which includes the docs build)
 
 clean:                  ## Remove ruff + build caches
 	@rm -rf .ruff_cache .pytest_cache site/

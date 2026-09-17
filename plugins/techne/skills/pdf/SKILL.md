@@ -24,7 +24,7 @@ first, report what changed, and promote only when the user says so. Overwriting
 a document someone is about to send is not yours to decide.
 
 ```
-uv run --quiet --with typst python ${CLAUDE_PLUGIN_ROOT}/skills/pdf/scripts/render.py <src> <out-dir>
+uv run --quiet --with typst python ${CLAUDE_SKILL_DIR}/scripts/render.py <src> <out-dir>
 ```
 
 Nothing needs installing: the `typst` wheel bundles the compiler, and `cmarker`
