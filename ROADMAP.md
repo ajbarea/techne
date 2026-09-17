@@ -5,7 +5,7 @@ lives in [IMPL.md](./IMPL.md). When a milestone ships, it collapses to a
 dated one-liner under [Shipped](#shipped). Git history is the
 permanent record of how each skill was designed.
 
-Last reviewed: 2026-05-30 (dependabot-core upstream re-check: #12162 closed → uv lockfile-only unblocked; #14004 still open).
+Last reviewed: 2026-09-17 (v1.0.0 release pass).
 
 ---
 
@@ -54,8 +54,9 @@ gating. Open coverage gaps:
 
 Skills are added when a pattern proves itself across multiple sisters
 (n≥2). Skills are deleted or merged when their domain collapses into a
-larger sibling. The current set spans four catalog dimensions (audit,
-drift, hygiene, observation) and is stable. `research-grounded`
+larger sibling. The current set spans six catalog dimensions (audit,
+drift, hygiene, review, observation, document build); IMPL.md maps each
+skill to one. `research-grounded`
 (from the 2026-05-21 audit-of-audit) shipped 2026-05-29 on direct
 request; `narrative-coherence` and `positioning` remain queued for when
 that drift class recurs.
@@ -154,6 +155,20 @@ that drift class recurs.
 ## Shipped
 
 Detail lives in git history (`git log`) and the live skill code. This log is pruned once work is durably shipped.
+
+- 2026-09-17 — **v1.0.0, and a release pass over every file.** The README, landing page,
+  Getting Started, Architecture and IMPL each listed a different subset of the skills; every
+  skill now appears in each. Skill texts that contradicted the fleet were corrected:
+  `docs-site` blessed tag-pinned actions that `make guards` rejects, `conventions.md` showed
+  calling `dev-runner.sh` from a Makefile recipe (it recurses), and `dev-runner.sh` wrote
+  untagged archives while `techne:audit` greps for the `[OUT  ]` / `[ERROR]` lines a
+  `scripts/dev.py` runner writes; the shell runner now writes the same shape. The starter
+  `.github-template/workflows/docs.yml` had fallen a major or two behind with none of the
+  zizmor hardening, because Dependabot never reads that directory; it now copies the live
+  pins, and `check_action_pins.sh` fails when the two differ (verified by drifting a SHA and
+  reverting a pin to a tag). `catchup`, `latex` and `pdf` address their scripts through
+  `${CLAUDE_SKILL_DIR}`. `CITATION.cff` added; the plugin stays unversioned so installs keep
+  following the commit SHA, and releases are git tags.
 
 - 2026-09-16 — **`/techne:latex` skill.** Builds a LaTeX document and gates the result on its
   log, its `.blg`, its PDF and the assignment prompt it answers, in one command. Build and

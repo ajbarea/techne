@@ -6,7 +6,7 @@ Install techne and run your first skill in minutes.
 
 You'll need:
 
-- **Claude Code**: The IDE plugin (visit the marketplace to install if you haven't already)
+- **Claude Code**: the CLI, desktop app, or IDE extension. See [code.claude.com/docs](https://code.claude.com/docs).
 - **GitHub CLI** (`gh`): Several skills use this to interact with GitHub. Install: [github.com/cli/cli](https://github.com/cli/cli)
 - **A git repository**: All skills work within git repos. Initialize one if needed: `git init`
 
@@ -22,10 +22,10 @@ From inside Claude Code:
 Verify the install:
 
 ```bash
-/help techne:audit
+/skills
 ```
 
-This should display the help text for the `audit` skill. If you see "Command not found", refresh Claude Code and try again.
+The `techne:*` skills should be listed. If they are not, run `/reload-plugins` and check again.
 
 ## First Workflow
 
@@ -39,39 +39,33 @@ Choose based on what you're trying to do:
 |---|---|
 | Validate your local build is clean (lint, test, etc.) | [`techne:audit`](skills/audit.md) |
 | Organize your pending changes into logical commits | [`techne:auto-commit`](skills/auto-commit.md) |
+| Catch up on a repo's threads since you last looked | [`techne:catchup`](skills/catchup.md) |
 | Check GitHub Actions for warnings and failures | [`techne:ci-audit`](skills/ci-audit.md) |
 | Clean up AI-generated slop in your code | [`techne:deslop`](skills/deslop.md) |
 | Rewrite docstrings grounded in the code | [`techne:reslop`](skills/reslop.md) |
 | Verify documentation claims match the code | [`techne:docsync`](skills/docsync.md) |
 | Maintain your Zensical docs site | [`techne:docs-site`](skills/docs-site.md) |
+| Review a change adversarially before merge | [`techne:elenchus`](skills/elenchus.md) |
+| Build a LaTeX document and check the PDF is right | [`techne:latex`](skills/latex.md) |
+| Turn markdown into print-quality PDFs | [`techne:pdf`](skills/pdf.md) |
+| Scaffold or review a research paper | [`techne:paper`](skills/paper.md), [`techne:paper-review`](skills/paper-review.md) |
 | Ground plan decisions in current best practice | [`techne:research-grounded`](skills/research-grounded.md) |
 | Audit sister repos for consistency | [`techne:sisters`](skills/sisters.md) |
+| Drive a REPL while someone watches | [`techne:theoros`](skills/theoros.md) |
 
 ### 2. Run Your First Skill
 
 Example: `techne:audit` to validate the build.
 
 ```bash
-techne:audit
+/techne:audit
 ```
 
-Expected output:
-
-```
-Running techne:audit on <your-repo>
-
-Target: setup ... OK (log matches)
-Target: lint  ... OK (log matches)
-Target: test  ... OK (log matches)
-
-All targets passed. Your build is clean.
-```
-
-If any target fails or drifts, the skill will highlight it clearly and suggest fixes.
+It runs the phases your `.claude/skill-context.md` lists, then prints one table row per command (terminal exit code, archive `SUMMARY` rc, steps, elapsed) and a one-line verdict such as `Full audit clean.` A failing row names the archive to open.
 
 ### 3. Review & Approve
 
-All skills write a plan, report, or diff to disk **before** making changes. Review it carefully, then approve:
+Skills that change files show you the plan, report, or diff **before** making changes. Review it, then approve:
 
 ```bash
 # You see a report or diff
@@ -86,17 +80,17 @@ Once you're comfortable with one skill, combine them:
 
 ```bash
 # Validate locally
-techne:audit
+/techne:audit
 
 # Organize your changes
-techne:auto-commit
+/techne:auto-commit
 # Review COMMITS.md, then say "go"
 
 # Check GitHub Actions output
-techne:ci-audit
+/techne:ci-audit
 
 # Clean up prose before merging
-techne:deslop src/
+/techne:deslop src/
 ```
 
 See [Examples](examples.md) for real-world workflows.
@@ -148,13 +142,13 @@ Then use `techne:sisters` to audit cross-repo consistency. See [Configuration](c
 A: Yes! Each skill is independent. You can use `audit` without `ci-audit`, or `docsync` without any others.
 
 **Q: What if a skill tries to modify my code and I disagree?**  
-A: All skills write a plan or diff first. Review it, edit manually if needed, and approve before execution. You're always in control.
+A: Skills that edit show a plan or diff first. Review it, edit manually if needed, and approve before execution.
 
 **Q: Can I customize skill behavior?**  
 A: Yes. Use `.claude/skill-context.md` for per-repo overrides, and `~/.claude/techne.toml` for multi-repo config. See [Configuration](configuration.md).
 
 **Q: Does `techne` modify my git history?**  
-A: Only if you approve. Skills like `auto-commit` stage and commit, but they ask for your permission first. Skills like `audit` and `docsync` are read-only by default; they surface issues, you decide whether to fix them.
+A: Only if you approve. `auto-commit` branches, commits, pushes and opens a PR only after you say "go" on its plan. `audit`, `catchup` and `sisters` are read-only; `docsync` and `ci-audit` edit files but leave committing to you.
 
 **Q: What's the difference between `deslop` and `reslop`?**  
 A: `deslop` finds and trims AI-slop (verbose, redundant prose). `reslop` rewrites docstrings grounded in the actual code. Use `deslop` for triage; use `reslop` when you want replacement prose, not deletion. See [Examples](examples.md#pre-release-documentation-audit) for a real workflow.
@@ -164,10 +158,10 @@ A: The skills are prompt-driven, not CLI tools with flags; steer them in natural
 
 ## Troubleshooting
 
-**"Command not found: techne:audit"**  
+**`/techne:audit` is not recognized**  
 - Ensure you ran `/plugin install techne@techne` inside Claude Code.
-- Refresh Claude Code and try again.
-- Check that you're in a git repository (`git status` should work).
+- Run `/reload-plugins`, then `/skills` to confirm the `techne:*` skills are listed.
+- To pick up a newer techne, run `/plugin install techne@techne` again, or enable auto-update for the marketplace in `/plugin`.
 
 **"gh: command not found"**  
 - Install GitHub CLI: [github.com/cli/cli](https://github.com/cli/cli)

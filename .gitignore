@@ -17,6 +17,12 @@ site/
 # Generic caches
 .cache/
 
+# scripts/dev-runner.sh archives
+logs/
+
+# Claude Code session worktrees
+.claude/worktrees/
+
 # AJ working-doc convention: COMMITS.md is always local
 COMMITS.md
 

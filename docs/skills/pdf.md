@@ -17,7 +17,7 @@ Invoke by name in Claude Code:
 /techne:pdf
 ```
 
-Or run the generator directly. `<src>` takes a single `.md` or a directory of them:
+Or run the generator directly from a techne checkout. `<src>` takes a single `.md` or a directory of them:
 
 ```
 uv run --quiet --with typst python \

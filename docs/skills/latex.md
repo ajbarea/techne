@@ -17,7 +17,7 @@ Invoke by name in Claude Code:
 /techne:latex
 ```
 
-Or run the builder directly. The path is a `.tex`, or a directory holding exactly one file with `\documentclass`:
+Or run the builder directly from a techne checkout. The path is a `.tex`, or a directory holding exactly one file with `\documentclass`:
 
 ```
 uv run --quiet python plugins/techne/skills/latex/scripts/latex.py <path>

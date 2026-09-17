@@ -7,7 +7,7 @@ Adversarial pre-merge code review. Drives `/code-review`, then runs the three pa
 ## When to use
 
 - Before merging any substantive change, especially a self-authored one.
-- "Review like Ben's robot." / "Hunt edge cases." / "Break this before merge." / "Is this actually mergeable?"
+- "Review it like a hostile reviewer." / "Hunt edge cases." / "Break this before merge." / "Is this actually mergeable?"
 - Anything destructive, security-sensitive, or governance-related, at `high` or `ultra` effort.
 
 ## Usage

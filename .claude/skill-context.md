@@ -9,10 +9,10 @@ audits the skill collection itself.
 ## repo
 
 - name: techne
-- package_root: `plugins/techne/skills/` (one directory per skill, each a `SKILL.md` plus supporting markdown), `plugins/techne/_shared/` (canonical glossaries shared across skills), `scripts/` (validation helpers)
-- language: Markdown (skill bodies) + Python (validation snippets in workflows) + Bash (structural-check scripts)
+- package_root: `plugins/techne/skills/` (one directory per skill, each a `SKILL.md` plus supporting markdown, templates and scripts), `plugins/techne/_shared/` (canonical glossaries shared across skills), `scripts/` (validation helpers), `tests/` (pytest over skill-shipped Python)
+- language: Markdown (skill bodies) + Python (skill-shipped scripts under `plugins/techne/skills/*/scripts/`, the frontmatter validator, pytest) + Bash (guard and runner scripts)
 - cli_entrypoint: none — skills are invoked from the consumer's Claude Code via `/plugin install techne@techne` then `/techne:<skill>`. The repo itself is `package = false` in `pyproject.toml`.
-- runner_module: no Python runner; CI gates run inline in `.github/workflows/validate.yml`.
+- runner_module: no Python runner; `.github/workflows/validate.yml` calls the Makefile targets.
 - default_branch: `main`
 - has: a skill per directory under `plugins/techne/skills/` (list them rather than trusting any written-down set), plugin manifest at `plugins/techne/.claude-plugin/plugin.json`, marketplace manifest at `.claude-plugin/marketplace.json`, Zensical-powered docs site, no docker, no frontend
 
@@ -22,12 +22,12 @@ Audit drives the wrapper `make` targets, which mirror `.github/workflows/validat
 
 ### Phase 1 — Setup
 
-1. `make check-env` — confirm `uv` + `jq` + `shellcheck` are on PATH (hard prereqs).
-2. `make setup` — `uv sync` pulls the `[dependency-groups.dev]` set (`ruff>=0.9` + `zensical>=0.0.24`).
+1. `make check-env` — confirm `uv` is on PATH (the only hard prereq; shellcheck and zizmor arrive as dev dependencies).
+2. `make setup` — `uv sync` pulls the `[dependency-groups.dev]` set (pytest, pytest-subprocess, ruff, zensical, shellcheck-py, zizmor).
 
 ### Phase 2 — Manifest validation
 
-3. `make manifests` — `jq empty` on `.claude-plugin/marketplace.json` + `plugins/techne/.claude-plugin/plugin.json`.
+3. `make manifests` — `python -m json.tool` on `.claude-plugin/marketplace.json` + `plugins/techne/.claude-plugin/plugin.json`.
 
 ### Phase 3 — Skill structural validation
 
@@ -35,18 +35,20 @@ Audit drives the wrapper `make` targets, which mirror `.github/workflows/validat
 
 ### Phase 4 — Lint
 
-5. `make lint` — `ruff check scripts/` + `ruff format --check scripts/`. Narrow scope today; the validator script is the only tracked Python.
-6. `make shellcheck` — `shellcheck --severity=warning scripts/*.sh`. Catches real bugs in `dev-runner.sh` + `check_theoros_skill.sh`. ubuntu-latest ships shellcheck.
-7. `make guards` — grep guards: no `.claude/skills/_shared` references, no legacy `aj-*` skill names.
+5. `make lint` — `ruff check` + `ruff format --check` over `scripts/`, `plugins/` and `tests/`.
+6. `make shellcheck` — `shellcheck --severity=warning scripts/*.sh`. The binary comes from the `shellcheck-py` dev dependency, so no system install is needed.
+7. `make guards` — grep guards (no `.claude/skills/_shared` references, no legacy `aj-*` skill names) plus `check_action_pins.sh`: every action SHA-pinned, and starter workflows under `.github-template/` matching the live pins.
+8. `make test-unit` — pytest over skill-shipped Python. Without TeX Live or the typst compile, set `TECHNE_NO_TEX=1` / `TECHNE_NO_TYPST=1`, or the guard tests fail rather than skip silently.
+9. `make zizmor` — GitHub Actions security scan of `.github/workflows/`.
 
 ### Phase 5 — Docs site smoke
 
-8. `make build` — `zensical build --strict --clean`. Strict-mode catches broken internal links + missing nav targets; mirrors `docs.yml`'s deploy job.
+10. `make build` — `zensical build --strict --clean`. Strict-mode catches broken internal links + missing nav targets; mirrors `docs.yml`'s deploy job.
 
 ### End-to-end rollups
 
-9. `make validate` — `lint + shellcheck + test` (where `test` = manifests + frontmatter + guards). Fast pre-push gate.
-10. `make ci` — `setup + validate + build`. Mirrors validate.yml + docs.yml in one shot.
+11. `make validate` — `lint + shellcheck + zizmor + test + build` (where `test` = manifests + frontmatter + guards + test-unit). Pre-push gate; mirrors `validate.yml`.
+12. `make ci` — `setup + validate`.
 
 Fast audit = `make setup → make validate`. Stop-early phase: `check-env` / `setup` — any missing tool or sync failure blocks the rest.
 
@@ -72,9 +74,11 @@ Referenced configs a CI failure can trace to:
 
 Tool error markers (extend the default grep set):
 
-- `jq` (manifest JSON parse errors)
+- `json.tool` / `Expecting` (manifest JSON parse errors)
 - `missing frontmatter`, `missing name:`, `missing description:` (from `validate_skill_frontmatter.py`)
-- `ruff` (Python lint failures in `scripts/`)
+- `ruff` (Python lint failures in `scripts/`, `plugins/`, `tests/`)
+- `FAILED` / `passed` (pytest)
+- `zizmor` (workflow security findings)
 - `shellcheck` (bash script issues in `scripts/`)
 - `zensical` (docs build errors — usually broken internal links from the strict mode)
 
@@ -102,7 +106,8 @@ Subagent scan-area split:
 
 - Skills: `plugins/techne/skills/**/SKILL.md` + sibling markdown files (templates, references)
 - Shared resources: `plugins/techne/_shared/**/*.md` (slop glossary, etc.)
-- Scripts: `scripts/*.sh`
+- Scripts: `scripts/*.sh`, `scripts/*.py`, `plugins/techne/skills/*/scripts/*.py`
+- Tests: `tests/*.py`
 - Config / build: `pyproject.toml`, `.claude-plugin/marketplace.json`, `plugins/techne/.claude-plugin/plugin.json`, `.github/workflows/**`, `zensical.toml`
 - Docs: `docs/**/*.md`, `README.md`
 
@@ -114,7 +119,7 @@ Subagent scan-area split:
 - js_files: `docs/javascripts/`
 - build_command: `uv run zensical build --clean`
 - site_url: `https://ajbarea.github.io/techne/`
-- action_pins (expected current, 2026-05): `actions/checkout@v6.0.2`, `astral-sh/setup-uv@v8.1.0`, `actions/setup-python@v6.2.0`, `actions/configure-pages@v6.0.0`, `actions/upload-pages-artifact@v5.0.0`, `actions/deploy-pages@v5.0.0`
+- action_pins: the full-SHA pins in `.github/workflows/docs.yml` are the expected set (Dependabot keeps them current); `.github-template/workflows/docs.yml` must match them, which `make guards` enforces
 - nav structure: per-skill docs under `docs/skills/`, plus top-level Getting Started / Configuration / Conventions / Examples / Architecture pages
 
 ## elenchus
