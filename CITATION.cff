@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: If you use techne, please cite it as below.
+title: "techne: opinionated Claude Code skills for repo hygiene"
+abstract: >-
+  A Claude Code plugin of skills for keeping repositories honest: audits of
+  local builds and CI runs, drift checks between documentation and code and
+  across linked repositories, adversarial pre-merge review, and document builds
+  from LaTeX and markdown sources that are gated on what the output actually
+  contains.
+type: software
+authors:
+  - given-names: Arnaldo
+    family-names: Barea
+    orcid: "https://orcid.org/0009-0001-7938-2376"
+repository-code: "https://github.com/ajbarea/techne"
+url: "https://ajbarea.github.io/techne/"
+license: MIT
+keywords:
+  - claude code
+  - agent skills
+  - developer tooling
+  - documentation drift
+  - code review
+  - continuous integration
