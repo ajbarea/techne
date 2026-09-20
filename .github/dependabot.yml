@@ -25,7 +25,13 @@ updates:
         patterns: ["*"]
 
   - package-ecosystem: "github-actions"
-    directory: "/"
+    # Both trees: `/` resolves to .github/workflows, and the starter templates
+    # are a second directory because scripts/check_action_pins.sh requires them
+    # to match the live pins. A non-root path is read literally, so the
+    # templates must stay plain, valid workflow YAML.
+    directories:
+      - "/"
+      - "/.github-template/workflows"
     schedule:
       interval: "weekly"
       day: "monday"

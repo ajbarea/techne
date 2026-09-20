@@ -108,6 +108,14 @@ updates:
   # is what previously had to be hand-synced every session. Pin every `uses:`
   # ref to a full commit SHA (see techne docs/conventions.md "Pinning GitHub
   # Actions"); Dependabot bumps both the SHA and its `# vX.Y.Z` comment.
+  # research(2026-09): a repo that keeps workflow-shaped YAML OUTSIDE
+  # .github/workflows (starter templates, a cookiecutter payload) needs
+  # `directories` (plural). "/" is special-cased to mean .github/workflows; any
+  # other path is read literally, so list it verbatim and keep those files
+  # plain valid workflow YAML. Without this Dependabot silently skips them and
+  # they rot behind the live pins — which is exactly what happened to techne's
+  # own .github-template/, where a pin-parity guard then blocked every bump.
+  #   directories: ["/", "/.github-template/workflows"]
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
