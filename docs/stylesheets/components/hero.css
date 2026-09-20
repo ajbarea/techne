@@ -68,10 +68,10 @@ body.hero-page .md-content__inner {
 }
 
 .hero-subtitle {
-  font-size: clamp(0.85rem, 1.5vw, 1.1rem);
+  font-size: clamp(1rem, 1.7vw, 1.3rem);
   font-weight: 300;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  letter-spacing: 0.005em;
+  line-height: 1.5;
   color: var(--hero-subtitle-color);
   opacity: 0.9;
   margin-bottom: 1rem;
