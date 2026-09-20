@@ -98,7 +98,8 @@ def pdf_fonts(pdf: pathlib.Path) -> list[str]:
 
 
 def render(src: pathlib.Path, out_dir: pathlib.Path) -> tuple[pathlib.Path, list[str]]:
-    import typst
+    # Installed by the skill at render time, not a declared dependency.
+    import typst  # ty: ignore[unresolved-import]
 
     with tempfile.TemporaryDirectory() as tmp:
         work = pathlib.Path(tmp)
