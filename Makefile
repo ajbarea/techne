@@ -28,9 +28,10 @@ fix:                    ## Auto-fix ruff issues in scripts/ and skill-shipped Py
 
 # Covers scripts/ and any Python a skill ships. The catchup skill's sweep.py sat
 # outside scripts/ and so went unlinted entirely until the paths were widened.
-lint:                   ## ruff check + format check on scripts/ and skill-shipped Python
+lint:                   ## ruff check + format check + ty on scripts/ and skill-shipped Python
 	@uv run ruff check scripts/ plugins/ tests/
 	@uv run ruff format --check scripts/ plugins/ tests/
+	@uv run ty check scripts/ plugins/ tests/
 
 shellcheck:             ## shellcheck on scripts/*.sh (via shellcheck-py PyPI binary)
 	@uv run shellcheck --severity=warning scripts/*.sh
