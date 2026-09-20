@@ -49,7 +49,11 @@
   margin-top: 1.5rem;
 }
 
-/* Skill Card */
+/* Skill Card
+   The card is one big <a>, so Material's `.md-typeset a` underline applies to
+   all of its text. That selector scores 0,1,1 and a bare `.skill-card` scores
+   0,1,0, so the reset below has to name the element to win. */
+.md-typeset a.skill-card,
 .skill-card {
   display: block;
   padding: 1.25rem;
