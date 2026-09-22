@@ -37,6 +37,7 @@ Installable as a single `/plugin`; see [Install](#install).
 | `techne:research-grounded` | Flags design decisions in IMPL/ROADMAP that lack `# research(YYYY-MM):` provenance, then web-searches to ground them. |
 | `techne:pdf` | Renders markdown to print-quality PDFs through a Typst template, then verifies fonts and content against the source. |
 | `techne:reslop` | Rewrites docstrings grounded in the implementation rather than deleting them outright. |
+| `techne:slides` | Gates a talk deck before it is presented: real slide titles, contrast, alt text, stray figures; renders it through the app that will show it. |
 | `techne:sisters` | Cross-repo drift audit across the sister repos listed in `~/.claude/techne.toml`. |
 | `techne:theoros` | Starts an observed live dev session: Claude drives the REPL in a named `tmux` session; you spectate read-only via `tmux attach -r`. |
 
@@ -98,6 +99,7 @@ techne (plugin)
 ├── research-grounded ── flags un-grounded design decisions
 ├── reslop            ── rewrites docstrings from code
 ├── sisters           ── cross-repo drift across sisters
+├── slides            ── talk deck gated and rendered, presenter briefed
 └── theoros           ── observed tmux REPL session
 ```
 

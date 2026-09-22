@@ -11,22 +11,19 @@ has crept in — extract it back to ROADMAP.
 
 ## In flight
 
-**v1.0.0 release polish** (branch `docs/release-polish`).
+**`techne:slides`** (branch `feat/slides-skill`).
 
-- **Why:** a file-by-file pass before the first release found the docs underselling the
-  skill set and several skill texts contradicting the fleet's own conventions.
-- **Decisions:** the plugin stays unversioned, so installs follow the commit SHA and every
-  push reaches users. `# research(2026-09)`: code.claude.com plugin-marketplaces, "if you
-  omit `version`, Claude Code uses the source's resolved commit SHA"; setting `version`
-  pins users until a bump. Releases are plain `vX.Y.Z` git tags plus a GitHub release,
-  for citation. `{name}--vX.Y.Z` tags exist for dependency ranges, which techne has none of.
-  Bundled scripts are addressed as `${CLAUDE_SKILL_DIR}/scripts/…` (the documented
-  variable; confirmed substituted in Claude Code 2.1.274).
-- **Scope:** every skill listed everywhere; `dev-runner.sh` writes the `[OUT  ]` / `[ERROR]`
-  lines `techne:audit` reads; starter docs workflow SHA-pinned and guarded against the live
-  pins; skill-context facts; `CITATION.cff` version and date.
-- **Out of scope:** a Zenodo DOI (needs the Zenodo GitHub integration switched on first).
-- **Done when:** `make validate` green, CI green, merged, `v1.0.0` tagged and released.
+- **Why:** a talk deck rebuilt for a student audience surfaced the same checks by hand
+  every time: real slide titles, contrast, fonts that survive Google Slides, numbers the
+  room does not need, and rendering through the app that will present it.
+- **Decisions:** Typst + Touying for decks presented as PDF, pptxgenjs when a `.pptx` is
+  required. The checker parses OOXML with the stdlib and needs no Office install; render
+  prefers PowerPoint over COM (reached from WSL) because LibreOffice substitutes fonts.
+  `# research(2026-09)`: WCAG 1.4.6 thresholds (7:1, large 4.5:1 at 18pt / 14pt bold);
+  pptxgenjs table margins are inches since v3.8.0 (read in `pptxgen.cjs.js`, docs say points).
+- **Scope:** `SKILL.md`, `scripts/slides.py` (`check`, `render`), unit tests, every listing.
+- **Out of scope:** a Touying template; the pptx API itself (the Anthropic `pptx` skill).
+- **Done when:** `make validate` green, independent review clean, CI green, merged.
 
 ## Skill collection state
 
@@ -39,7 +36,7 @@ Shipped skills by catalog dimension (the directory listing of `plugins/techne/sk
 | **Hygiene** | `auto-commit`, `deslop`, `reslop` |
 | **Review** | `catchup`, `elenchus` |
 | **Observation** | `theoros` |
-| **Document build** | `latex`, `pdf`, `paper`, `paper-review` |
+| **Document build** | `latex`, `pdf`, `paper`, `paper-review`, `slides` |
 
 When picking up the next session, replace the "In flight" block above
 with a full session plan (Why / Decisions / Scope / Out of scope /

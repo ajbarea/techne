@@ -35,6 +35,7 @@ nav = [
       { "research-grounded" = "skills/research-grounded.md" },
       { "reslop" = "skills/reslop.md" },
       { "sisters" = "skills/sisters.md" },
+      { "slides" = "skills/slides.md" },
       { "theoros" = "skills/theoros.md" },
   ]},
   { "Architecture" = "architecture.md" },

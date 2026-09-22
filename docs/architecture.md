@@ -14,7 +14,7 @@ Techne is a collection of independent, composable skills that share conventions 
 
 **Review and collaboration.** `techne:catchup` reads every comment, review and state change on a repo since you last participated and reports who is blocked on whom; read-only. `techne:elenchus` is adversarial pre-merge review: it drives `/code-review`, then reproduces the load-bearing claim, traces every consumer across the repo, and walks a bug-class rubric.
 
-**Documents and research.** `techne:latex` builds a LaTeX document and gates it on its log, its PDF and the assignment it answers. `techne:pdf` renders markdown to print-quality PDFs through Typst and verifies the words survived. `techne:paper` scaffolds a paper directory in a papers-style monorepo, and `techne:paper-review` runs a novelty and reviewer pass grounded in retrieved prior work.
+**Documents and research.** `techne:latex` builds a LaTeX document and gates it on its log, its PDF and the assignment it answers. `techne:pdf` renders markdown to print-quality PDFs through Typst and verifies the words survived. `techne:slides` gates a talk deck on titles, contrast, alt text and stray figures, then renders it through the app that will present it. `techne:paper` scaffolds a paper directory in a papers-style monorepo, and `techne:paper-review` runs a novelty and reviewer pass grounded in retrieved prior work.
 
 **Cross-repo consistency.** `techne:sisters` audits drift across the repos listed in `~/.claude/techne.toml`: CI action pins, toolchain pins, skill-context structural parity, GitHub merge settings, open PRs, branch hygiene. Read-only; reports findings, leaves fixes to follow-up work.
 

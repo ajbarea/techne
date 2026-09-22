@@ -25,6 +25,7 @@ SKILLS = ROOT / "plugins" / "techne" / "skills"
 LATEX_SCRIPT = SKILLS / "latex" / "scripts" / "latex.py"
 RENDER_SCRIPT = SKILLS / "pdf" / "scripts" / "render.py"
 SWEEP_SCRIPT = SKILLS / "catchup" / "scripts" / "sweep.py"
+SLIDES_SCRIPT = SKILLS / "slides" / "scripts" / "slides.py"
 
 
 def _load(name: str, path: pathlib.Path) -> types.ModuleType:
@@ -50,6 +51,11 @@ def rn() -> types.ModuleType:
 @pytest.fixture(scope="session")
 def sw() -> types.ModuleType:
     return _load("techne_sweep", SWEEP_SCRIPT)
+
+
+@pytest.fixture(scope="session")
+def sl() -> types.ModuleType:
+    return _load("techne_slides", SLIDES_SCRIPT)
 
 
 @pytest.fixture
