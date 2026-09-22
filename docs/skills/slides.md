@@ -24,21 +24,21 @@ uv run --quiet python plugins/techne/skills/slides/scripts/slides.py check <deck
 uv run --quiet --with pillow python plugins/techne/skills/slides/scripts/slides.py render <deck.pptx> <out-dir>
 ```
 
-`check` exits 0 when every gate passed, 1 when the file is not a readable deck, and 2 on a blocker. `render` exports a PDF through PowerPoint when it is installed (natively, or from WSL) and through LibreOffice otherwise, then writes one PNG per slide and 2x2 contact sheets.
+`check` exits 0 when every gate passed, 1 when the file is not a readable deck, and 2 on a blocker. `render` exports a PDF through PowerPoint when it is installed (natively, or from WSL) and through LibreOffice otherwise, then writes one PNG per slide and 2x2 contact sheets. Give it a folder of its own: it refuses a non-empty folder it did not create, because it replaces the PNGs and the PDF it finds there.
 
 ## What it checks
 
 | Severity | Gate | Catches |
 |---|---|---|
 | BLOCK | `no-title` | A slide whose title is a text box rather than a title placeholder. |
-| BLOCK | `contrast` | Text below 7:1, or 4.5:1 for large text (`--level AA` relaxes both). The colour behind each run is resolved through fills, the shape underneath, and the slide, layout and master backgrounds. |
+| BLOCK | `contrast` | Text below 7:1, or 4.5:1 for large text (`--level AA` relaxes both). The colour behind each run is resolved through fills, the shape underneath, and the slide, layout and master backgrounds; text over pictures, gradients, theme or translucent fills is counted as unchecked rather than guessed. |
 | BLOCK | `alt-text` | A picture with no description. |
 | BLOCK | `em-dash` | An em-dash in slide text. |
 | WARN | `small-text`, `font`, `no-notes`, `duplicate-title` | Text under 14pt, a font that will be substituted in PowerPoint or Google Slides, slides without speaker notes, titles a screen reader cannot tell apart. |
-| REVIEW | `figures`, `dense`, `long-title` | Numbers on talk slides (backup slides are exempt), walls of text, headlines that stopped being headlines. |
+| REVIEW | `figures`, `dense`, `long-title` | Numbers and walls of text on talk slides (slide 1 and everything after a `Backup slides` divider are exempt), and headlines that stopped being headlines on any slide. |
 
 Overflow and overlap are invisible to `check`. That is what `render` is for.
 
 ## Testing it
 
-`make test-unit` covers the gates against decks built in-test as minimal OOXML packages, so no Office install is needed: colour resolution under cards and over them, the multi-line placeholder tag pptxgenjs writes, slide order from the ID list rather than file names, which numbers count as figures, and that the PowerPoint export script only quits an instance it started.
+`make test-unit` covers the gates against decks built in-test as minimal OOXML packages, so no Office install is needed: colour resolution under cards and over them, picture, theme and gradient surfaces left unmeasured instead of misjudged, paragraphs kept apart so their numbers do not fuse, the multi-line placeholder tag pptxgenjs writes, slide order from the ID list rather than file names, which numbers count as figures, that a title inheriting its size is judged as large text, that a missing slide part is an error rather than a crash, that `render` refuses a folder holding someone else's files, and that the PowerPoint export script only quits an instance it started.

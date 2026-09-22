@@ -156,6 +156,12 @@ that drift class recurs.
 
 Detail lives in git history (`git log`) and the live skill code. This log is pruned once work is durably shipped.
 
+- 2026-09-22 — **`techne:slides`.** A stdlib OOXML checker gates a talk deck on real title
+  placeholders, contrast resolved through the surface actually behind the text, alt text,
+  portable fonts, and figures or walls of text on talk slides; a renderer exports through
+  PowerPoint (native or from WSL) or LibreOffice into a folder of its own. The skill carries
+  the toolchain split (Touying for PDF decks, pptxgenjs for `.pptx`) and writing for a
+  newcomer audience: claim headlines, an agenda, discussion stops, numbers kept to backup.
 - 2026-09-17 — **v1.0.0, and a release pass over every file.** The README, landing page,
   Getting Started, Architecture and IMPL each listed a different subset of the skills; every
   skill now appears in each. Skill texts that contradicted the fleet were corrected:

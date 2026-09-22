@@ -23,10 +23,15 @@ uv run --quiet --with pillow python ${CLAUDE_SKILL_DIR}/scripts/slides.py render
 Windows, or Windows reached from WSL) or LibreOffice; with Pillow it also writes
 2x2 contact sheets, which is the fastest way to look at a whole deck.
 
+**`render` needs a folder of its own.** It deletes old `slide-*.png` and
+`sheet-*.png` and overwrites `<deck>.pdf` there, so it refuses any non-empty
+folder it did not create (it marks its own with `.techne-slides`). Never point
+it at the deck's folder: that is where the PDF someone is about to send lives.
+
 | Code | Meaning |
 |---|---|
 | 0 | Every gate passed. `REVIEW` lines still need a decision. |
-| 1 | The file could not be read as a deck. |
+| 1 | The file, or a part it points at, could not be read. |
 | 2 | `BLOCK` findings. Fix them in the generator, not the packed XML. |
 
 ## The gates
@@ -34,14 +39,14 @@ Windows, or Windows reached from WSL) or LibreOffice; with Pillow it also writes
 | Severity | Gate | Catches |
 |---|---|---|
 | BLOCK | `no-title` | A slide with no title placeholder. A bold text box looks like a title; screen readers and the outline see an untitled slide. |
-| BLOCK | `contrast` | Text below 7:1 (4.5:1 for 18pt+, or 14pt+ bold). `--level AA` drops to 4.5:1 / 3:1. The colour behind the text is resolved: its own fill, else the topmost filled shape under its centre, else the slide, layout, then master background. |
+| BLOCK | `contrast` | Text below 7:1 (4.5:1 for 18pt+, or 14pt+ bold). `--level AA` drops to 4.5:1 / 3:1. The colour behind the text is resolved: its own fill, else the topmost filled shape under its centre, else the first of slide, layout and master that defines a background. Text over a picture, gradient, theme-styled or translucent fill, or inside a group, is counted as unchecked rather than guessed. A title with no size of its own takes the master's title size. |
 | BLOCK | `alt-text` | A picture with no description and no decorative flag. |
 | BLOCK | `em-dash` | An em-dash in slide text. |
 | WARN | `small-text` | An explicit size under `--min-pt` (14). The slide-number field is exempt. |
-| WARN | `font` | A family outside the set that renders in both PowerPoint and Google Slides. |
+| WARN | `font` | A family outside the set that renders in both PowerPoint and Google Slides. Theme references (`+mn-lt`, `+mj-lt`) resolve through the master's theme. |
 | WARN | `no-notes` / `duplicate-title` | Slides with nothing to say, or two slides a screen reader cannot tell apart. |
-| REVIEW | `figures` | Percentages, ratios, decimals, `x of y`, and long numbers on talk slides. Slides from the first one titled `Backup…` onward are exempt, and so is slide 1. |
-| REVIEW | `dense` / `long-title` | Body text over 60 words, titles over 14. |
+| REVIEW | `figures` / `dense` | Percentages, ratios, decimals, `x of y` and long numbers, or body text over 60 words, on talk slides. Slide 1 is exempt, and so is everything after a divider titled exactly `Backup`, `Backup slides` or `Appendix`. |
+| REVIEW | `long-title` | Titles over 14 words, on every slide. |
 
 What `check` cannot see: text overflowing its box, shapes overlapping, a
 diagram that reads wrong. That is what `render` is for. Look at every slide,
@@ -54,6 +59,11 @@ including the ones you did not change.
   Engineering students taught from claim headlines over visual evidence showed
   better comprehension and fewer misconceptions than with topic headlines over
   bullets ([2025 study](https://www.sciencedirect.com/science/article/pii/S2307187725001701)).
+- **An agenda slide right after the title.** The talk's parts, in order, in
+  plain words, plus where the discussion stops fall. It orients the room, and
+  it is the presenter's map when a question pulls the talk off course. Keep
+  the section names identical to the kicker labels on the slides they
+  introduce.
 - **One idea per slide, and little text.** The 7x7 rule is the right instinct: a
   slide holds phrases, and the explanation goes in the speaker notes, which
   are what the presenter says. When a `dense` review fires, cut and move the
@@ -112,8 +122,12 @@ including the ones you did not change.
 - **PowerPoint is single-instance.** `Quit()` on an instance the user already
   had open closes their presentations. `render` quits only an instance it
   started.
-- **PowerShell 5 misreads non-ASCII** in a `.ps1` without a BOM. Keep generated
-  scripts ASCII.
+- **PowerShell 5 reads a `.ps1` without a BOM as the ANSI code page**, so a
+  non-ASCII user name in a temp path arrives mangled. Write generated scripts
+  as UTF-8 with a BOM.
+- **Headless LibreOffice on the user's own profile** hands the job to an
+  already-open LibreOffice window, which may drop it, and `soffice` still exits
+  0. Give it a private `-env:UserInstallation` profile and check the PDF exists.
 
 ## Done means
 
