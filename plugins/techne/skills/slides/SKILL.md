@@ -125,6 +125,10 @@ including the ones you did not change.
 - **PowerShell 5 reads a `.ps1` without a BOM as the ANSI code page**, so a
   non-ASCII user name in a temp path arrives mangled. Write generated scripts
   as UTF-8 with a BOM.
+- **A deck open in PowerPoint is locked** (a `~$<name>.pptx` file sits beside
+  it). Copying over it fails, but a PDF beside it copies fine, which leaves a
+  mismatched pair. Publish the `.pptx` first and stop on failure; when it is
+  locked, write the new version under a new name and say so.
 - **Headless LibreOffice on the user's own profile** hands the job to an
   already-open LibreOffice window, which may drop it, and `soffice` still exits
   0. Give it a private `-env:UserInstallation` profile and check the PDF exists.
