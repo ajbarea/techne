@@ -51,6 +51,7 @@ Choose based on what you're trying to do:
 | Scaffold or review a research paper | [`techne:paper`](skills/paper.md), [`techne:paper-review`](skills/paper-review.md) |
 | Ground plan decisions in current best practice | [`techne:research-grounded`](skills/research-grounded.md) |
 | Audit sister repos for consistency | [`techne:sisters`](skills/sisters.md) |
+| Get a talk deck ready to present | [`techne:slides`](skills/slides.md) |
 | Drive a REPL while someone watches | [`techne:theoros`](skills/theoros.md) |
 
 ### 2. Run Your First Skill

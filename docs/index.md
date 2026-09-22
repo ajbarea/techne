@@ -93,6 +93,10 @@ hide:
         <div class="skill-name"><code>/techne:sisters</code></div>
         <p>Cross-repo drift audit across the sister repos listed in <code>~/.claude/techne.toml</code>.</p>
       </a>
+      <a href="skills/slides/" class="skill-card">
+        <div class="skill-name"><code>/techne:slides</code></div>
+        <p>Gates a talk deck before it is presented: real slide titles, contrast, alt text, stray figures; renders it through the app that will show it.</p>
+      </a>
       <a href="skills/theoros/" class="skill-card">
         <div class="skill-name"><code>/techne:theoros</code></div>
         <p>Starts an observed live dev session: Claude drives the REPL in a named tmux session; you spectate read-only via <code>tmux attach -r</code>.</p>

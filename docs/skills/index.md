@@ -47,3 +47,4 @@ The included skills, grouped by what they do.
 | [`techne:paper-review`](paper-review.md) | Pre-submission novelty + reviewer pass: grounds every novelty/claim verdict in retrieved prior work, flags related-work gaps, and surfaces lab-overlap for disclosure. |
 | [`techne:latex`](latex.md) | Builds a LaTeX document and gates it on its log, its PDF, and the assignment it answers; a clean `latexmk` exit is not the signal. |
 | [`techne:pdf`](pdf.md) | Renders markdown to print-quality PDFs through a Typst template, then verifies fonts and content against the source. |
+| [`techne:slides`](slides.md) | Gates a talk deck before it is presented: real slide titles, contrast, alt text, stray figures; renders it through the app that will show it. |
