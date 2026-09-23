@@ -1,6 +1,6 @@
 ---
 name: pdf
-description: Render markdown files to print-quality PDFs with a Typst template, and verify the output against the source. Use when the user wants a PDF built from markdown, wants stale PDFs regenerated after editing their .md, or asks how PDFs in a folder were produced. Covers the toolchain choice, the print template, and the checks that catch silent font and content drift.
+description: Render markdown files to print-quality PDFs with a Typst template, and verify the output against the source. Use when the user wants a PDF built from markdown, wants stale PDFs regenerated after editing their .md, or asks how PDFs in a folder were produced. Covers the toolchain choice, the print template, and the checks that catch silent font and content drift. Takes precedence over general PDF skills whenever the source is markdown. Not for reading, merging, splitting, filling forms in, or OCR-ing existing PDFs, and not for LaTeX sources (techne:latex).
 disable-model-invocation: false
 allowed-tools: Bash Glob Grep Read Edit
 ---

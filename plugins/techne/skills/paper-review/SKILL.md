@@ -1,6 +1,6 @@
 ---
 name: paper-review
-description: Use when a draft research paper needs a pre-submission novelty and reviewer pass — whether its contributions are actually new, what related work it misses, whether its claims hold up, and whether it overlaps a lab or co-author line that must be disclosed. Triggers include "review my paper for novelty", "is this contribution novel", "novelty check before submitting", "what related work am I missing", "verify my citations are real", "paper-review <name>".
+description: Run a pre-submission novelty and reviewer pass on a draft research paper, grounding every verdict in prior work retrieved this run: whether its contributions are actually new, what related work it misses, whether its claims hold up, whether its own citations are real, and whether it overlaps a lab or co-author line that must be disclosed. Use when a draft is nearing submission: "review my paper for novelty", "is this contribution novel", "novelty check before submitting", "what related work am I missing", "verify my citations are real", "paper-review <name>". Advisory only; never edits the paper.
 disable-model-invocation: false
 allowed-tools: Bash Glob Grep Read Edit WebSearch WebFetch Agent
 ---

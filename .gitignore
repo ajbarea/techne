@@ -20,6 +20,10 @@ site/
 # scripts/dev-runner.sh archives
 logs/
 
+# Routing evals: the assembled eval-only plugin and per-run results
+plugins/techne/eval-fixtures/with-rivals/
+plugins/techne/evals/results/
+
 # Claude Code session worktrees
 .claude/worktrees/
 

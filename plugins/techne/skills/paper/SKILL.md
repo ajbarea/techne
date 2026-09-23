@@ -1,6 +1,6 @@
 ---
 name: paper
-description: Use when starting or scaffolding a new research paper in a papers-style monorepo (a repo of LaTeX paper directories that share one bibliography). Triggers include "scaffold a paper", "start a new paper", "set up a paper dir", "new paper from <repo>", "add a paper to papers/".
+description: Scaffold a new research paper in a papers-style monorepo (a repo of LaTeX paper directories that share one bibliography): the LaTeX skeleton, a results-harvest script, the shared-bib wiring, and a portfolio row, built once so it compiles on day one. Use when starting a new paper: "scaffold a paper", "start a new paper", "set up a paper dir", "new paper from <repo>", "add a paper to papers/". Not for editing an existing paper's prose or for one-off documents outside such a repo.
 ---
 
 # Paper Scaffold
@@ -30,25 +30,28 @@ that reads the source repo's corpus, never hand-typed.
 ## Config
 
 Read the `## paper` section of `<repo>/.claude/skill-context.md` for: `author`,
-`affiliation`, `email`, `bib` (default `../references`), `engine` (default `tectonic`, else
-`pdflatex`), and `portfolio` (default `LINEAGE.md`). Use sensible defaults if absent.
+`affiliation`, `email`, `bib` (default `../references`), and `portfolio` (default
+`LINEAGE.md`). Use sensible defaults if absent.
 
-tectonic suits the scaffold's classic `\bibliography{}` + BibTeX. If a paper moves to
-`biblatex` with `biber`, build it with latexmk through `techne:latex` instead: tectonic ships
-its own biblatex, which skews against a system biber.
+Builds go through `techne:latex` (latexmk on TeX Live), the same runner the paper will build
+with until submission. An `engine` key in the config is ignored: tectonic ships its own
+biblatex, which skews against a system biber the moment a paper moves off classic BibTeX.
 
 ## Procedure
 
 1. Refuse if `papers/<name>/` already exists — never overwrite a paper.
 2. Copy `templates/main.tex.tmpl` → `papers/<name>/main.tex`, filling `__TITLE__` (title-cased
    from `<name>`; confirm with the user), `__AUTHOR__`, `__AFFIL__`, `__EMAIL__`, `__VENUE__`,
-   `__BIB__`, `__NAME__`, `__ENGINE__`.
+   `__BIB__`, `__NAME__`. Confirm no `__` placeholder survives.
 3. Copy `templates/harvest.py.tmpl` → `papers/<name>/harvest.py`, filling `__SISTER__`
    (`--from`, else `TODO`). Create `papers/<name>/figures/.gitkeep`.
 4. Append a row to the portfolio file's first-author table:
    `| <name> | <repo> | (contribution -- fill in) | scaffolded |`.
-5. Build-verify: run the configured engine in `papers/<name>/`. On success, report the PDF
-   path + size. If no engine is installed, print an Overleaf note instead of failing.
+5. Build-verify with the `techne:latex` runner:
+   `uv run --quiet python ${CLAUDE_PLUGIN_ROOT}/skills/latex/scripts/latex.py papers/<name>/main.tex`.
+   A fresh scaffold exits 2 with exactly one blocker, `draft-marker` for the template's
+   `TODO` placeholders; that is the expected result. Any other finding is a real failure.
+   Report the PDF path and size. Without TeX Live, say so and point at Overleaf instead.
 6. Report the directory, the build status, and: "write prose into the `% HARVEST:` blocks;
    run `python harvest.py` once `--from` is wired."
 

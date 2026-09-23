@@ -1,6 +1,6 @@
 ---
 name: slides
-description: Build a talk deck and gate it before it is presented. Use when making or revising slides, turning a paper or a draft deck into a talk, adapting a deck for a new audience, or asking whether a deck is ready to present. Covers the toolchain choice, how to write slides a newcomer can follow, the gates that catch a deck that opens fine but fails its audience (untitled slides, low contrast, missing alt text, stray figures), rendering through the app that will show it, and briefing the presenter.
+description: Build a talk deck and gate it before it is presented. Use when making or revising slides, turning a paper or a draft deck into a talk, adapting a deck for a new audience, or asking whether a deck is ready to present. Covers the toolchain choice, how to write slides a newcomer can follow, the gates that catch a deck that opens fine but fails its audience (untitled slides, low contrast, missing alt text, stray figures), rendering through the app that will show it, and briefing the presenter. Works alongside a general pptx skill, which owns the .pptx file API; this one owns what goes on the slides and whether the deck is ready.
 disable-model-invocation: false
 allowed-tools: Bash Glob Grep Read Edit Write
 ---

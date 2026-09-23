@@ -55,7 +55,7 @@ User-specific calibration — patterns the user flags most often from their own 
 
 1. **Scope.** Default to the whole repo minus vendored/generated paths. Use the skip-path list from the injected `scan_scope.skip` (fall back to: `.venv/`, `node_modules/`, `dist/`, `build/`, `site/`, `out/`, `__pycache__/`, `.ruff_cache/`, `.pytest_cache/`, `.hypothesis/`, `target/`, `uv.lock`, `Cargo.lock`, `docs/assets/`, `logs/`). If the user passed a path (e.g. `/techne:deslop scripts/`), restrict to that.
 
-2. **Fan out with Explore subagents in parallel.** One subagent per area, all dispatched in a single message. Use the split from the injected `scan_scope.areas` — typical shape:
+2. **Fan out with Explore subagents in parallel** when the scope spans several areas; a single file or a small directory is faster inline, with no subagents. One subagent per area, all dispatched in a single message. Use the split from the injected `scan_scope.areas` — typical shape:
    - Core package (e.g. `<package>/**/*.py`)
    - Scripts (`scripts/**/*.py`)
    - Tests (`tests/**/*.py`)
