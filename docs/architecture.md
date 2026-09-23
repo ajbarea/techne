@@ -42,6 +42,14 @@ The maintenance invariant: whenever a Claude Code release, MCP spec revision, Gi
 
 This invariant runs philosophically; there is no automated check, it's a stance the maintainer holds when reading release notes. The sibling sister repos apply the same audit to their own code (see `phalanx-fl`, `velocity-fl`, `kourai-khryseai` ROADMAPs); techne's variant is meta, it audits the audit tools themselves.
 
+## How the skills are tested
+
+Two layers, for two kinds of failure.
+
+**Scripts** (`make test-unit`). Every script a skill ships has pytest coverage: the LaTeX log gates, the markdown-to-Typst renderer, the catch-up sweep, the slide-deck checker, auto-commit's staleness fingerprint, and the theoros session lifecycle, which drives real tmux sessions. These run in CI.
+
+**Routing** (`make evals`). A skill that never fires does nothing, and a skill that fires on someone else's request does harm. `claude plugin eval` sends natural-language prompts to fresh sessions and records which skill Claude chose. Each skill has a case that must fire it, and collision cases must not: merging a PDF is not `techne:pdf`, an email catch-up is not `techne:catchup`, editing a slide's title is not `techne:slides`. Every case also loads stand-ins for the general PDF, PPTX, and inbox catch-up skills that share a session with techne, so an overlapping description fails a case instead of shipping. Evals run on your own credential and are not part of CI.
+
 ## See also
 
 - [Conventions](conventions.md): the standard file locations and adoption path

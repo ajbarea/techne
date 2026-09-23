@@ -4,7 +4,7 @@
 ## that techne itself documents at docs/conventions.md.
 ##
 
-.PHONY: help check-env setup manifests frontmatter fix lint shellcheck guards test-unit zizmor test validate build ci clean docs
+.PHONY: help check-env setup manifests frontmatter fix lint shellcheck guards test-unit zizmor test validate build ci clean docs evals evals-bash
 .DEFAULT_GOAL := help
 
 check-env:              ## Verify required tools are on PATH
@@ -33,8 +33,8 @@ lint:                   ## ruff check + format check + ty on scripts/ and skill-
 	@uv run ruff format --check scripts/ plugins/ tests/
 	@uv run ty check scripts/ plugins/ tests/
 
-shellcheck:             ## shellcheck on scripts/*.sh (via shellcheck-py PyPI binary)
-	@uv run shellcheck --severity=warning scripts/*.sh
+shellcheck:             ## shellcheck on repo and skill-shipped shell scripts (shellcheck-py binary)
+	@uv run shellcheck --severity=warning scripts/*.sh plugins/techne/skills/*/scripts/*.sh
 
 # Skill names are derived from the directory listing, so a new skill is guarded
 # the day it lands rather than when someone remembers to extend the pattern.
@@ -73,6 +73,24 @@ build:                  ## Build docs site (strict; mirrors docs.yml deploy)
 	@uv run zensical build --clean --strict
 
 ci: setup validate      ## Mirror CI end-to-end (validate.yml, which includes the docs build)
+
+# Routing evals run real Claude sessions on your own credential, so they cost money and
+# stay out of validate. Every routing case loads stand-ins for the general document and
+# catch-up skills techne shares a session with, so a collision shows up as a failed case.
+# Behavior cases build a fixture repo with a scaffold script and grade what the skill produced.
+evals:                  ## Routing + behavior evals (claude plugin eval; runs on your credential)
+	@bash scripts/eval-plugin.sh
+	@cd plugins/techne && claude plugin eval . --tag routing --ablation none --trust-plugin \
+		--no-publish -j 2 --threshold 0.9
+	@cd plugins/techne && claude plugin eval . --tag behavior --ablation none --trust-plugin \
+		--no-publish -j 2 --threshold 0.9 --scaffold
+
+# Cases that need Bash inside the run. The eval sandbox refuses to grant Bash on a machine
+# whose Docker credential store holds a symlink (Docker Desktop's WSL integration does).
+evals-bash:             ## Behavior evals that grant Bash (needs a symlink-free ~/.docker)
+	@cd plugins/techne && claude plugin eval . --tag behavior-bash --ablation none \
+		--trust-plugin --no-publish -j 2 --threshold 0.9 --scaffold \
+		--allow-tools Write 'Bash(git *)' 'Bash(bash *)'
 
 clean:                  ## Remove ruff + build caches
 	@rm -rf .ruff_cache .pytest_cache site/

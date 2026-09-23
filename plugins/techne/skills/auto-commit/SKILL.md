@@ -2,7 +2,7 @@
 name: auto-commit
 description: Analyze pending git changes and write a structured, conventional-commit plan to COMMITS.md so the user can review and stage commits in batches before committing. Use whenever the user wants to group working-tree or staged changes into sensible commits, draft commit messages for a dirty working tree, or prepare a commit plan from a diff.
 disable-model-invocation: false
-allowed-tools: Bash(git status) Bash(git diff *) Bash(git log *) Bash(git rev-parse *) Bash(git hash-object *) Read Write
+allowed-tools: Bash(git status) Bash(git diff *) Bash(git log *) Bash(git rev-parse *) Bash(bash *scripts/fingerprint.sh) Read Write
 ---
 
 # Auto-Commit Generator
@@ -23,9 +23,9 @@ Analyze pending git changes and group them into a structured commit plan written
    - `git diff --cached` (staged changes — don't skip this; staged work must be included in the plan)
    - `git log -20 --oneline` (to match the repo's existing commit style, e.g. scope names already in use)
    - `git rev-parse HEAD` (for the staleness header)
-   - `git diff HEAD | git hash-object --stdin` (fingerprint of the working tree for the staleness header)
+   - `bash ${CLAUDE_SKILL_DIR}/scripts/fingerprint.sh` (fingerprint of the working tree for the staleness header)
 
-3. **Trust `.gitignore`, with one exception: always exclude `COMMITS.md` itself.** Do not hardcode directory filters (no "skip `.claude/`", "skip `designs/`"). `git status` already respects `.gitignore`; if a file shows up, the user wants it tracked. The sole baked-in filter is `COMMITS.md` at the repo root — it is the regeneratable output of this skill, and including it in its own plan is circular (and leads to committing it to `main`, which the user has explicitly regretted). Drop it from every group; if `COMMITS.md` is the *only* pending change, treat the tree as clean and don't rewrite the file. Beyond that, if `git status` reports nothing worth committing, say so in one sentence and don't write the file.
+3. **Trust `.gitignore`, with one exception: always exclude `COMMITS.md` itself.** Do not hardcode directory filters (no "skip `.claude/`", "skip `designs/`"). `git status` already respects `.gitignore`; if a file shows up, the user wants it tracked. The sole baked-in filter is `COMMITS.md` at the repo root; it is the regeneratable output of this skill, and including it in its own plan is circular (and ends with the plan committed to `main`). Drop it from every group; if `COMMITS.md` is the *only* pending change, treat the tree as clean and don't rewrite the file. Beyond that, if `git status` reports nothing worth committing, say so in one sentence and don't write the file.
 
 4. **Group.** Decide the grouping that best reflects the actual work. See [Grouping](#grouping).
 
@@ -85,7 +85,7 @@ branch:     feat/dev-toolchain-upgrade
 -->
 ```
 
-`tree-hash` is the short (12-char) output of `git diff HEAD | git hash-object --stdin`. `scanned-at` is UTC ISO-8601.
+`tree-hash` is the output of `scripts/fingerprint.sh`: tracked edits, index state, and untracked file contents, excluding `COMMITS.md` itself. A `git diff HEAD` hash alone misses a new untracked file, so a plan made before that file appeared would still read as current. `scanned-at` is UTC ISO-8601.
 
 ## Output format
 
@@ -169,7 +169,7 @@ If either check fails, stop and report. Don't execute a stale plan — the group
 
 4. **Open the PR.** `gh pr create` with the plan as source material. Build the body from the commit headlines and bullets — drop the header comment and the `Suggested branch:` line (those were scaffolding). Format:
    ```
-   gh pr create --title "<short headline — prefer the lead commit's>" --body "$(cat <<'EOF'
+   gh pr create --title "<short headline, preferably the lead commit's>" --assignee @me [--label <label>] --body "$(cat <<'EOF'
    ## Summary
 
    - <1–3 bullets summarizing the overall shape>
@@ -184,6 +184,9 @@ If either check fails, stop and report. Don't execute a stale plan — the group
    EOF
    )"
    ```
+   Set the metadata at creation: assign the PR to its author (`--assignee @me`), and add
+   `--label` for any existing repo label that fits the lead commit type (`gh label list`;
+   `enhancement` for feat, `bug` for fix, `documentation` for docs). Never invent a label.
    Return the PR URL in the final chat message.
 
 5. **Delete `COMMITS.md` once the PR URL is in hand.** After step 4 returns the PR URL (meaning push and `gh pr create` both succeeded), run `rm COMMITS.md` — no `git rm`, it was never tracked — and include one line in the final response: `Cleaned up COMMITS.md (content is now in git history).` Git history now carries each commit group verbatim, so the scratchpad's job is done. If any earlier step fails, you won't reach step 5 anyway: leave `COMMITS.md` in place so the user can fix the blocker and re-run the plan.

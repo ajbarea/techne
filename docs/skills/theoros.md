@@ -22,17 +22,15 @@ The skill checks for an existing tmux session, starts one if absent, prints the 
 tmux attach -t <session_name> -r
 ```
 
-When done, the session tears down via `make theoros-down` (tier 2) or `tmux kill-session` (tier 1).
+When done, the skill runs its bundled `theoros.sh down`, which kills the session and removes the state file.
 
 ## Prerequisites
 
 The `## theoros` section of `.claude/skill-context.md` must supply at minimum `repl_command` and `session_name`. Without it the skill aborts and explains what to add.
 
-Two tiers:
-- **Tier 1**: two-field YAML block in skill-context, no other files needed.
-- **Tier 2**: `scripts/theoros.sh` + Makefile targets (`theoros`, `theoros-down`, `theoros-status`) for prerequisite gating and extended lifecycle.
+Optional fields add a split log pane (`ops_command`) and checks that must pass before the session starts (`prerequisites`). The lifecycle script (`up`, `down`, `status`) ships with the skill, so the repo needs no script or Makefile target of its own.
 
-The skill auto-detects tier 2 by checking for a `theoros:` target in the `Makefile`.
+A repo's own `make theoros`, if it has one, is for a human starting a session outside Claude Code. The skill does not call it, because such a target may launch its own autonomous driver.
 
 See [Conventions](../conventions.md) for the scaffolding walkthrough.
 

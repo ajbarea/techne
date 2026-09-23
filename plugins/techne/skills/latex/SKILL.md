@@ -1,6 +1,6 @@
 ---
 name: latex
-description: Build a LaTeX document and gate the result on its log, its PDF, and the assignment it answers. Use when a .tex needs compiling, when a build fails and the log needs triage, when checking a draft is finished before submitting it, or when asked whether a PDF is clean. Covers the engine choice, the gates that catch a document that compiled but is still wrong, and the log-reading traps.
+description: Build a LaTeX document and gate the result on its log, its PDF, and the assignment it answers. Use when a .tex needs compiling, when a build fails and the log needs triage, when checking a draft is finished before submitting it, or when asked whether a PDF built from LaTeX is clean. Covers the engine choice, the gates that catch a document that compiled but is still wrong, and the log-reading traps. Takes precedence over general PDF skills whenever the source is a .tex. Not for markdown (techne:pdf) or for editing an existing PDF.
 disable-model-invocation: false
 allowed-tools: Bash Glob Grep Read Edit
 ---

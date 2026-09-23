@@ -15,7 +15,7 @@ This skill exists because the same model that writes a change is a poor judge of
 
 If you (or this session) authored the change under review, you are the wrong reviewer **by construction** — you cannot un-know what it was supposed to do. Restore independence with tools, not willpower:
 
-- **Primary:** run `/code-review` at `high` (spawns independent local review agents) or `ultra` (multi-agent cloud review) so the verdict comes from a context that never wrote the code. Scale to risk: `ultra`/`high` for anything destructive, security/governance-sensitive, or shipping to a sensitive target.
+- **Primary:** run `/code-review` at `high`, which spawns independent local review agents, so the verdict comes from a context that never wrote the code. Scale to risk: `high` for anything destructive, security/governance-sensitive, or shipping to a sensitive target, where `ultra` (a billed multi-agent cloud review) is also worth recommending. `ultra` is user-triggered: name it to the user rather than trying to launch it.
 - **Fallback / supplement:** dispatch a fresh review subagent (the `Agent` tool) with the diff and this rubric but **no authorship narrative**.
 
 **Never hand-read your own diff and call it reviewed.** A clean self-eyeball is not a review; it is the author agreeing with themselves.

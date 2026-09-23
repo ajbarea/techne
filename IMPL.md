@@ -11,19 +11,24 @@ has crept in — extract it back to ROADMAP.
 
 ## In flight
 
-**`techne:slides`** (branch `feat/slides-skill`).
+**Skill routing and prose pass** (branch `chore/skill-routing-and-prose`).
 
-- **Why:** a talk deck rebuilt for a student audience surfaced the same checks by hand
-  every time: real slide titles, contrast, fonts that survive Google Slides, numbers the
-  room does not need, and rendering through the app that will present it.
-- **Decisions:** Typst + Touying for decks presented as PDF, pptxgenjs when a `.pptx` is
-  required. The checker parses OOXML with the stdlib and needs no Office install; render
-  prefers PowerPoint over COM (reached from WSL) because LibreOffice substitutes fonts.
-  `# research(2026-09)`: WCAG 1.4.6 thresholds (7:1, large 4.5:1 at 18pt / 14pt bold);
-  pptxgenjs table margins are inches since v3.8.0 (read in `pptxgen.cjs.js`, docs say points).
-- **Scope:** `SKILL.md`, `scripts/slides.py` (`check`, `render`), unit tests, every listing.
-- **Out of scope:** a Touying template; the pptx API itself (the Anthropic `pptx` skill).
-- **Done when:** `make validate` green, independent review clean, CI green, merged.
+- **Why:** general document skills (PDF, PPTX, inbox catch-up) now share sessions with techne,
+  and their descriptions claim any PDF or `.pptx` work. Nothing tested which skill fires.
+- **Decisions:** `# research(2026-09)`: platform.claude.com skill-authoring best practices
+  (what + when in the description, under 1,024 characters, SKILL.md under 500 lines,
+  references one level deep, scripts for deterministic work) and code.claude.com plugin-evals
+  (`tool_used: Skill` graders; a case's `plugins` list replaces the plugin under test, so
+  techne and the rival stand-ins are assembled into one eval-only plugin).
+- **Scope:** routing and scope lines in descriptions; `make evals` routing suite with
+  must-fire and must-not-fire cases; `paper` builds through `techne:latex`; `sisters` split
+  into a reference file with its pin-regex, team-exemption and non-Python fixes; behavior
+  cases for deslop, docsync and auto-commit against fixture repos; theoros ships
+  its lifecycle script and stops calling a repo's `make theoros`; auto-commit fingerprint
+  covers untracked files; elenchus recommends `ultra` instead of launching it.
+- **Out of scope:** behavioral evals for the prose-only skills beyond deslop, docsync and
+  auto-commit.
+- **Done when:** `make validate` green, routing suite passing, reviewed, CI green, merged.
 
 ## Skill collection state
 

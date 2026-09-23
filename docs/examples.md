@@ -42,7 +42,7 @@ A collaborator wants to watch you refactor a complex module in real time without
 2. Run `/techne:theoros`. It starts a detached tmux session named per the config.
 3. Share the session name with collaborators. They attach read-only: `tmux attach -r -t <session-name>`.
 4. You drive the work through Claude; collaborators see live output. The split-window layout is optional; add an `ops_command` to the skill-context if you want a tailing logs pane underneath the driver pane.
-5. Tear down with `make theoros-down` (if you've adopted the tier-2 Makefile targets) or `tmux kill-session -t <session-name>`.
+5. Tell Claude you are done; it runs the skill's `theoros.sh down`, which kills the session and removes its state file.
 
 ## CI noise cleanup
 

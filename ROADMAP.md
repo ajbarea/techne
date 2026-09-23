@@ -156,6 +156,14 @@ that drift class recurs.
 
 Detail lives in git history (`git log`) and the live skill code. This log is pruned once work is durably shipped.
 
+- 2026-09-22 — **Routing and prose pass, and the first evals.** Descriptions now say what each
+  skill is not for and where a general PDF or PPTX skill takes over. `make evals` runs a routing
+  suite (a must-fire case per skill, must-not-fire collision cases, rival stand-ins loaded in
+  every case) and behavior cases against fixture repos. Fixes found by running things:
+  `sisters` check 1 missed every `- uses:` pin, and its team exemption never read `kind`;
+  theoros called a repo's `make theoros`, which can start a second, permission-bypassing Claude,
+  so it now ships its own lifecycle script; auto-commit's staleness hash ignored untracked files;
+  `paper` builds through `techne:latex` instead of tectonic.
 - 2026-09-22 — **`techne:slides`.** A stdlib OOXML checker gates a talk deck on real title
   placeholders, contrast resolved through the surface actually behind the text, alt text,
   portable fonts, and figures or walls of text on talk slides; a renderer exports through

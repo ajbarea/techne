@@ -1,6 +1,6 @@
 ---
 name: catchup
-description: Use when the user returns to a GitHub repo after time away, or before they resume work on an issue or PR — phrasings like "catch me up on <repo>", "did anything change", "is anyone waiting on me", "what did I miss", "any new comments", "sitrep on <repo>", "re-read the threads before I start". Use when they ask whether a teammate replied, whether anything is blocked on them, or what happened while they were gone. Accepts a bare repo name, an owner/name, or a path to a clone or any directory inside one, so a collaborator's repo and a repo nested inside another both work. Read-only; never merges, comments, labels, or closes.
+description: Read every comment, review, and state change on a GitHub repo's issues and PRs since the user last participated, then report who is blocked on whom. Use when the user returns to a repo after time away, or before they resume work on an issue or PR: "catch me up on <repo>", "did anything change", "is anyone waiting on me", "what did I miss", "any new comments", "sitrep on <repo>", "re-read the threads before I start". Accepts a bare repo name, an owner/name, or a path to a clone or any directory inside one. Read-only; never merges, comments, labels, or closes. GitHub only: not for email, calendar, chat, or course-site catch-ups.
 disable-model-invocation: false
 allowed-tools: Bash(python3 *) Bash(gh *) Bash(git show *) Bash(git log *) Read
 ---

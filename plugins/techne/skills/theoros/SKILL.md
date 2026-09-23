@@ -1,6 +1,6 @@
 ---
 name: theoros
-description: Run an observed live dev session — Claude drives an interactive REPL in a named tmux session, the human spectates read-only via `tmux attach -r`. Use when the user wants to play through, debug, or explore a service's REPL together. Trigger phrases include "let's do a live smoke", "run a theoros session", "I want to spectate while you drive the CLI", "start an observed dev run". Reads per-repo facts from the `## theoros` section of `.claude/skill-context.md`.
+description: Run an observed live dev session: Claude drives an interactive REPL in a named tmux session while the human spectates read-only via `tmux attach -r`. Use when the user wants to play through, debug, or explore a service's REPL together. Trigger phrases include "let's do a live smoke", "run a theoros session", "I want to spectate while you drive the CLI", "start an observed dev run". Reads per-repo facts from the `## theoros` section of `.claude/skill-context.md`. Not for launching an app just to confirm a change works when nobody is watching.
 disable-model-invocation: false
 allowed-tools: Bash Read Grep
 ---
@@ -32,51 +32,39 @@ A markdown table outside the YAML block can specialise the aesthetic vs operatio
 
 ## Lifecycle
 
-When the user asks you to start a theoros session:
+Run everything from the target repo's root. The bundled script reads the `## theoros` YAML,
+runs the prerequisites, lays out the panes, and writes a state file:
 
-1. **Check for an existing session:**
-   ```bash
-   tmux has-session -t <session_name> 2>/dev/null
-   ```
-   If a session already exists, tell the user how to attach (`tmux attach -t <session_name> -r`) or tear it down. Do not clobber it.
+```bash
+bash ${CLAUDE_SKILL_DIR}/scripts/theoros.sh up       # start; refuses if the session exists
+bash ${CLAUDE_SKILL_DIR}/scripts/theoros.sh status   # the state file as JSON, or "not running"
+bash ${CLAUDE_SKILL_DIR}/scripts/theoros.sh down     # kill the session, remove the state file
+```
 
-2. **Detect tier 2:**
-   ```bash
-   grep -q '^theoros:' Makefile 2>/dev/null
-   ```
-   - Exit 0 → tier 2: shell out to `make theoros` (prefer this).
-   - Exit non-zero → tier 1: run tmux commands inline (steps 3–4 below).
+1. **Start it** with `up`. If the session already exists, the script refuses and prints the
+   attach command; tell the user, and do not clobber it.
+2. **Print the attach command** for the user: `tmux attach -t <session_name> -r`.
+3. **Drive it** per the rules below, and `down` when the session is done.
 
-3. **(Tier 1 only) Create the session inline:**
-   ```bash
-   tmux new-session -d -s <session_name> "<repl_command>"
-   ```
-   If `ops_command` is set, also:
-   ```bash
-   tmux split-window -t <session_name>:0 -v -l 40%
-   tmux send-keys -t <session_name>:0.1 "<ops_command>" Enter
-   ```
+**Do not run the repo's own `make theoros` from a conversation.** A repo may wire that target
+to its own launcher, and one such launcher starts a second, autonomous Claude in a pane with
+permissions bypassed. You are already the driver. A repo's `make theoros` is for a human
+starting a session outside Claude Code.
 
-4. **Verify the session is alive:**
-   ```bash
-   tmux has-session -t <session_name>
-   ```
-
-5. **Print attach instructions** for the user:
-   ```
-   tmux attach -t <session_name> -r
-   ```
-
-6. **Begin driving per the discipline rules below.**
-
-When the session is done: `make theoros-down` (tier 2) or `tmux kill-session -t <session_name>` (tier 1).
+With no bash or no script available, the inline equivalent is
+`tmux new-session -d -s <session_name> "<repl_command>"`, plus
+`tmux split-window -t "=<session_name>" -v -l 40% "<ops_command>"` when there is an ops command.
 
 ## Driving the REPL
 
-Send keys to the driver pane (always pane index `0.0`):
+Address panes by the ids `up` printed and `status` reports (`driver_pane`, `ops_pane`, e.g.
+`%12`), never by `<session>:0.0`: a tmux.conf with `base-index 1` or `pane-base-index 1`
+renumbers windows and panes, and the index points at nothing.
+
+Send keys to the driver pane:
 
 ```bash
-tmux send-keys -t <session_name>:0.0 '<text>' Enter
+tmux send-keys -t <driver_pane> '<text>' Enter
 ```
 
 Enter is a **separate argument**, never embedded inside the quoted string.
@@ -84,18 +72,21 @@ Enter is a **separate argument**, never embedded inside the quoted string.
 Read driver pane output:
 
 ```bash
-tmux capture-pane -t <session_name>:0.0 -p -S -<n>
+tmux capture-pane -t <driver_pane> -p -S -<n>
 ```
 
-`-p` prints to stdout; `-S -<n>` reads the last n lines of scrollback (default scrollback is 2000 lines).
+`-p` prints to stdout; `-S -<n>` reads the last n lines of scrollback (the script raises
+the session's limit to 50000 lines).
 
 Read ops pane output (split layout only):
 
 ```bash
-tmux capture-pane -t <session_name>:0.1 -p -S -<n>
+tmux capture-pane -t <ops_pane> -p -S -<n>
 ```
 
-Or query the underlying source directly — for `docker compose logs -f`, that means `docker compose logs <svc> | grep <pattern>`. The direct source query is the source of truth; the pane is informational for the human.
+Or query the underlying source directly: for `docker compose logs -f`, that means
+`docker compose logs <svc> | grep <pattern>`. The direct source query is the source of truth;
+the pane is informational for the human.
 
 ## Discipline rules
 
@@ -113,8 +104,6 @@ The ops pane is informational for the human's confidence. **Your source of truth
 
 ## Scaffolding theoros into a new repo
 
-### Tier 1 quick-start (any repo, ~30 seconds)
-
 Add to `.claude/skill-context.md`:
 
 ````markdown
@@ -126,44 +115,22 @@ session_name: <repo-slug>-theoros
 ```
 ````
 
-That is the full minimum. The skill runs tmux inline when invoked; you spectate with `tmux attach -t <repo-slug>-theoros -r`.
+That is the whole minimum. Optional additions:
 
-Optional additions still at tier 1:
-
-- `ops_command: <bottom-pane command>` — enables split layout
-- A markdown prose table beneath the YAML block listing aesthetic vs operational concerns specific to the repo
-
-### Tier 2 upgrade (for first-class `make theoros` ergonomics)
-
-When you outgrow tier 1 and want a Makefile target, prerequisite gating, and a persistent state file, add three files. Use kourai-khryseai as the worked reference:
-
-- `scripts/theoros.sh` — copy from the worked reference repo's `scripts/theoros.sh`; the script is repo-agnostic (it reads everything from `.claude/skill-context.md`).
-- Makefile targets:
-  ```makefile
-  theoros:                   ## Start observed live dev session
-  	@bash scripts/theoros.sh up
-
-  theoros-down:              ## Stop observed live dev session
-  	@bash scripts/theoros.sh down
-
-  theoros-status:            ## Show theoros session state (JSON)
-  	@bash scripts/theoros.sh status
-  ```
-- Extended `## theoros` YAML:
+- `ops_command: <bottom-pane command>` for the split layout, e.g. a multi-service log tail.
+- `prerequisites:`, a list of checks run before `up`; the first failure aborts with its message:
   ```yaml
-  repl_command: <command>
-  session_name: <name>
-  ops_command: <multi-service log tail or other ops command>
   prerequisites:
-    - command: <pre-check shell command>
-      message: "what to tell the user if it fails"
+    - command: docker info
+      message: "Start Docker first."
   ```
+- A markdown table beneath the YAML block listing the aesthetic and operational concerns
+  specific to the repo.
 
-The skill auto-detects tier 2 by grepping for `^theoros:` in `Makefile` and prefers `make theoros` when found.
+No repo-side script or Makefile target is needed: the lifecycle script ships with this skill.
 
 ## Teardown
 
-- Tier 1: `tmux kill-session -t <session_name>`
-- Tier 2: `make theoros-down`
-
-`/tmp/<session_name>.state` is removed on `down`. Logs (if `tmux pipe-pane` was opted into) survive `down`; tmux scrollback does not (it dies with the session).
+`bash ${CLAUDE_SKILL_DIR}/scripts/theoros.sh down` kills the session and removes
+`/tmp/<session_name>.state`. Tmux scrollback dies with the session; logs survive only if
+`tmux pipe-pane` was opted into.
