@@ -25,7 +25,7 @@ Analyze pending git changes and group them into a structured commit plan written
    - `git rev-parse HEAD` (for the staleness header)
    - `bash ${CLAUDE_SKILL_DIR}/scripts/fingerprint.sh` (fingerprint of the working tree for the staleness header)
 
-3. **Trust `.gitignore`, with one exception: always exclude `COMMITS.md` itself.** Do not hardcode directory filters (no "skip `.claude/`", "skip `designs/`"). `git status` already respects `.gitignore`; if a file shows up, the user wants it tracked. The sole baked-in filter is `COMMITS.md` at the repo root — it is the regeneratable output of this skill, and including it in its own plan is circular (and ends with the plan committed to `main`). Drop it from every group; if `COMMITS.md` is the *only* pending change, treat the tree as clean and don't rewrite the file. Beyond that, if `git status` reports nothing worth committing, say so in one sentence and don't write the file.
+3. **Trust `.gitignore`, with one exception: always exclude `COMMITS.md` itself.** Do not hardcode directory filters (no "skip `.claude/`", "skip `designs/`"). `git status` already respects `.gitignore`; if a file shows up, the user wants it tracked. The sole baked-in filter is `COMMITS.md` at the repo root; it is the regeneratable output of this skill, and including it in its own plan is circular (and ends with the plan committed to `main`). Drop it from every group; if `COMMITS.md` is the *only* pending change, treat the tree as clean and don't rewrite the file. Beyond that, if `git status` reports nothing worth committing, say so in one sentence and don't write the file.
 
 4. **Group.** Decide the grouping that best reflects the actual work. See [Grouping](#grouping).
 
@@ -169,7 +169,7 @@ If either check fails, stop and report. Don't execute a stale plan — the group
 
 4. **Open the PR.** `gh pr create` with the plan as source material. Build the body from the commit headlines and bullets — drop the header comment and the `Suggested branch:` line (those were scaffolding). Format:
    ```
-   gh pr create --title "<short headline — prefer the lead commit's>" --assignee @me [--label <label>] --body "$(cat <<'EOF'
+   gh pr create --title "<short headline, preferably the lead commit's>" --assignee @me [--label <label>] --body "$(cat <<'EOF'
    ## Summary
 
    - <1–3 bullets summarizing the overall shape>

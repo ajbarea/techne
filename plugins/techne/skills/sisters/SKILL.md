@@ -11,7 +11,7 @@ Audit the active sister repos for cross-repo drift. Report every finding, groupe
 
 ## Config (load first)
 
-Active sister list, workspace root, and GitHub user are read from `~/.claude/techne.toml` at runtime. Run this preamble before any audit checks below — it sets `$SISTERS`, `$TEAM_SISTERS` (active sisters marked `kind = "team"`), `$WORKSPACE`, and `$GITHUB_USER`:
+Active sister list, workspace root, and GitHub user are read from `~/.claude/techne.toml` at runtime. Run this preamble before any audit checks below; it sets `$SISTERS`, `$TEAM_SISTERS` (active sisters marked `kind = "team"`), `$WORKSPACE`, and `$GITHUB_USER`:
 
 ```
 eval "$(python3 - <<'PY'
@@ -92,7 +92,7 @@ A single block, no preamble (concrete repo names below are illustrative — subs
 
 ### README header convention
 - repo-a: centered masthead, hero before title ✓
-- repo-b: no hero asset — N/A
+- repo-b: no hero asset, convention N/A
 - repo-c: hero asset present but header off-convention → align (or confirm intentional)
 
 ### Branch protection
@@ -101,12 +101,12 @@ A single block, no preamble (concrete repo names below are illustrative — subs
 
 ### Codecov config
 - repo-a: codecov-action + codecov.yml with comment: false ✓
-- repo-b: no codecov-action — skip
+- repo-b: no codecov-action, skip
 - repo-c: uses codecov-action but missing codecov.yml → add one (sister convention)
 
 ### Clean log-retention policy
 - repo-a: 30-day age-based log prune ✓
-- repo-b: no logs/ dir — skip
+- repo-b: no logs/ dir, skip
 - repo-c: logs/ present, no age-based prune → add 30-day prune to clean
 
 ### Dependabot coverage

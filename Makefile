@@ -75,8 +75,8 @@ build:                  ## Build docs site (strict; mirrors docs.yml deploy)
 ci: setup validate      ## Mirror CI end-to-end (validate.yml, which includes the docs build)
 
 # Routing evals run real Claude sessions on your own credential, so they cost money and
-# stay out of validate. Every case loads stand-ins for the general document and catch-up
-# skills techne shares a session with, so a collision shows up as a failed case.
+# stay out of validate. Every routing case loads stand-ins for the general document and
+# catch-up skills techne shares a session with, so a collision shows up as a failed case.
 # Behavior cases build a fixture repo with a scaffold script and grade what the skill produced.
 evals:                  ## Routing + behavior evals (claude plugin eval; runs on your credential)
 	@bash scripts/eval-plugin.sh

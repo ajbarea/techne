@@ -22,10 +22,12 @@ has crept in — extract it back to ROADMAP.
   techne and the rival stand-ins are assembled into one eval-only plugin).
 - **Scope:** routing and scope lines in descriptions; `make evals` routing suite with
   must-fire and must-not-fire cases; `paper` builds through `techne:latex`; `sisters` split
-  into a reference file with its pin-regex, team-exemption and non-Python fixes; theoros ships
+  into a reference file with its pin-regex, team-exemption and non-Python fixes; behavior
+  cases for deslop, docsync and auto-commit against fixture repos; theoros ships
   its lifecycle script and stops calling a repo's `make theoros`; auto-commit fingerprint
   covers untracked files; elenchus recommends `ultra` instead of launching it.
-- **Out of scope:** behavioral evals of prose-only skills against fixture repos.
+- **Out of scope:** behavioral evals for the prose-only skills beyond deslop, docsync and
+  auto-commit.
 - **Done when:** `make validate` green, routing suite passing, reviewed, CI green, merged.
 
 ## Skill collection state

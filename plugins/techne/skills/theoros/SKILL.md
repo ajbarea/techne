@@ -53,14 +53,18 @@ starting a session outside Claude Code.
 
 With no bash or no script available, the inline equivalent is
 `tmux new-session -d -s <session_name> "<repl_command>"`, plus
-`tmux split-window -t <session_name>:0 -v -l 40% "<ops_command>"` when there is an ops command.
+`tmux split-window -t "=<session_name>" -v -l 40% "<ops_command>"` when there is an ops command.
 
 ## Driving the REPL
 
-Send keys to the driver pane (always pane index `0.0`):
+Address panes by the ids `up` printed and `status` reports (`driver_pane`, `ops_pane`, e.g.
+`%12`), never by `<session>:0.0`: a tmux.conf with `base-index 1` or `pane-base-index 1`
+renumbers windows and panes, and the index points at nothing.
+
+Send keys to the driver pane:
 
 ```bash
-tmux send-keys -t <session_name>:0.0 '<text>' Enter
+tmux send-keys -t <driver_pane> '<text>' Enter
 ```
 
 Enter is a **separate argument**, never embedded inside the quoted string.
@@ -68,18 +72,21 @@ Enter is a **separate argument**, never embedded inside the quoted string.
 Read driver pane output:
 
 ```bash
-tmux capture-pane -t <session_name>:0.0 -p -S -<n>
+tmux capture-pane -t <driver_pane> -p -S -<n>
 ```
 
-`-p` prints to stdout; `-S -<n>` reads the last n lines of scrollback (default scrollback is 2000 lines).
+`-p` prints to stdout; `-S -<n>` reads the last n lines of scrollback (the script raises
+the session's limit to 50000 lines).
 
 Read ops pane output (split layout only):
 
 ```bash
-tmux capture-pane -t <session_name>:0.1 -p -S -<n>
+tmux capture-pane -t <ops_pane> -p -S -<n>
 ```
 
-Or query the underlying source directly — for `docker compose logs -f`, that means `docker compose logs <svc> | grep <pattern>`. The direct source query is the source of truth; the pane is informational for the human.
+Or query the underlying source directly: for `docker compose logs -f`, that means
+`docker compose logs <svc> | grep <pattern>`. The direct source query is the source of truth;
+the pane is informational for the human.
 
 ## Discipline rules
 
