@@ -282,7 +282,7 @@ def test_script_times_talk_slides_only(sl, deck):
     path = deck([title("Intro")], [title("Main")], [title("Backup slides")], [title("Table")])
     code, out = sl.script(path, wpm=2)
     assert code == 0
-    assert "4 words on the talk slides, about 2 minutes at 2 words a minute." in out
+    assert "4 words on the talk slides, about 2.0 minutes at 2 words a minute." in out
     assert out.index("## 2. Main") < out.index("# Backup slides") < out.index("## 3. Backup")
     assert out.count("Say this.") == 4
 
@@ -292,6 +292,16 @@ def test_script_marks_slides_without_notes(sl, deck):
     assert code == 0
     assert "_No script on this slide._" in out
     assert out.startswith("# Script: deck.pptx")
+
+
+def test_script_rejects_nonpositive_wpm(sl, deck):
+    path = deck([title("Intro")])
+    assert sl.script(path, wpm=0)[0] == 1
+    assert sl.script(path, wpm=-5)[0] == 1
+
+
+def test_script_empty_deck_is_unreadable(sl, deck):
+    assert sl.script(deck())[0] == 1
 
 
 def test_script_unreadable_deck(sl, tmp_path):

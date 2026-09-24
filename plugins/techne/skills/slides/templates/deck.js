@@ -11,7 +11,7 @@ const W = 13.333, M = 0.65;
 // Every text colour clears 7:1 on the background it sits on (AAA), including on cards.
 const C = {
   bg: "FAFAF8", ink: "111111", body: "3A3A32", muted: "4F4F48", faint: "8A8A82",
-  rule: "E4E3DB", card: "F0EFE9", blue: "00527F", orange: "8F3A00",
+  rule: "E4E3DB", card: "F0EFE9", blue: "00527F", orange: "7F3300",
   dark: "111111", darkMuted: "C8C8C0", darkOrange: "F28C3C",
 };
 const F = "Calibri", MONO = "Consolas";

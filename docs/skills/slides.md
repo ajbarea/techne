@@ -26,7 +26,7 @@ uv run --quiet --with pillow python plugins/techne/skills/slides/scripts/slides.
 uv run --quiet python plugins/techne/skills/slides/scripts/slides.py script <deck.pptx> > script.md
 ```
 
-`check` exits 0 when every gate passed, 1 when the file is not a readable deck, and 2 on a blocker. `render` exports a PDF through PowerPoint when it is installed (natively, or from WSL) and through LibreOffice otherwise, then writes one PNG per slide and 2x2 contact sheets. `script` prints the speaker notes as one Markdown script with the talk length at 140 words a minute; backup slides come after the talk and are left out of the length. Give it a folder of its own: it refuses a non-empty folder it did not create, because it replaces the PNGs and the PDF it finds there.
+`check` exits 0 when every gate passed, 1 when the file is not a readable deck, and 2 on a blocker. `render` exports a PDF through PowerPoint when it is installed (natively, or from WSL) and through LibreOffice otherwise, then writes one PNG per slide and 2x2 contact sheets. Give it a folder of its own: it refuses a non-empty folder it did not create, because it replaces the PNGs and the PDF it finds there. `script` prints the speaker notes as one Markdown script with the talk length at 140 words a minute; backup slides come after the talk and are left out of the length.
 
 ## What it checks
 

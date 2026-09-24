@@ -374,6 +374,11 @@ class Slide:
             self.text_runs += [(r, fill) for r in runs(body) if r.text.strip()]
 
 
+def is_backup_divider(title: str) -> bool:
+    """True for the slide that ends the talk; it and every slide after it are backup."""
+    return bool(_BACKUP_TITLE.match(title))
+
+
 def _notes_text(pkg: Package, part: str) -> str:
     out = []
     for sp in pkg.xml(part).iter(f"{{{NS['p']}}}sp"):
@@ -426,7 +431,7 @@ def check(
             )
         else:
             titles.setdefault(s.title.casefold(), []).append(number)
-        in_backup = in_backup or bool(_BACKUP_TITLE.match(s.title))
+        in_backup = in_backup or is_backup_divider(s.title)
 
         pairs: dict[tuple[str, str, bool], str] = {}
         for run, behind in s.text_runs:
@@ -563,11 +568,15 @@ def verdict(found: list[Finding]) -> tuple[int, str]:
 
 def script(path: pathlib.Path, wpm: int = 140) -> tuple[int, str]:
     """The speaker notes as a read-aloud script in Markdown, with a talk-time estimate."""
+    if wpm <= 0:
+        return 1, f"--wpm must be positive, not {wpm}"
     try:
         pkg = Package(path)
         parts = pkg.slides()
     except (zipfile.BadZipFile, KeyError, ET.ParseError, OSError) as exc:
         return 1, f"{path}: {exc}"
+    if not parts:
+        return 1, f"{path}: no slides in sldIdLst"
     talk: list[str] = []
     backup: list[str] = []
     words = 0
@@ -577,7 +586,7 @@ def script(path: pathlib.Path, wpm: int = 140) -> tuple[int, str]:
             s = Slide(pkg, part, number)
         except (KeyError, ET.ParseError) as exc:
             return 1, f"{part}: {exc}"
-        in_backup = in_backup or bool(_BACKUP_TITLE.match(s.title))
+        in_backup = in_backup or is_backup_divider(s.title)
         heading = f"## {number}. {s.title or '(untitled)'}"
         body = s.notes or "_No script on this slide._"
         (backup if in_backup else talk).append(f"{heading}\n\n{body}\n")
@@ -586,7 +595,7 @@ def script(path: pathlib.Path, wpm: int = 140) -> tuple[int, str]:
     minutes = words / wpm
     head = [
         f"# Script: {path.name}\n",
-        f"{words} words on the talk slides, about {minutes:.0f} minutes at {wpm} words a minute.\n",
+        f"{words} words on the talk slides, about {minutes:.1f} minutes at {wpm} words a minute.\n",
     ]
     tail = ["# Backup slides\n", *backup] if backup else []
     return 0, "\n".join(head + talk + tail)
