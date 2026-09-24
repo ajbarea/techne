@@ -11,24 +11,19 @@ has crept in — extract it back to ROADMAP.
 
 ## In flight
 
-**Skill routing and prose pass** (branch `chore/skill-routing-and-prose`).
+**`techne:slides` from its gold-standard deck** (branch `feat/slides-newcomer`).
 
-- **Why:** general document skills (PDF, PPTX, inbox catch-up) now share sessions with techne,
-  and their descriptions claim any PDF or `.pptx` work. Nothing tested which skill fires.
-- **Decisions:** `# research(2026-09)`: platform.claude.com skill-authoring best practices
-  (what + when in the description, under 1,024 characters, SKILL.md under 500 lines,
-  references one level deep, scripts for deterministic work) and code.claude.com plugin-evals
-  (`tool_used: Skill` graders; a case's `plugins` list replaces the plugin under test, so
-  techne and the rival stand-ins are assembled into one eval-only plugin).
-- **Scope:** routing and scope lines in descriptions; `make evals` routing suite with
-  must-fire and must-not-fire cases; `paper` builds through `techne:latex`; `sisters` split
-  into a reference file with its pin-regex, team-exemption and non-Python fixes; behavior
-  cases for deslop, docsync and auto-commit against fixture repos; theoros ships
-  its lifecycle script and stops calling a repo's `make theoros`; auto-commit fingerprint
-  covers untracked files; elenchus recommends `ultra` instead of launching it.
-- **Out of scope:** behavioral evals for the prose-only skills beyond deslop, docsync and
-  auto-commit.
-- **Done when:** `make validate` green, routing suite passing, reviewed, CI green, merged.
+- **Why:** the makesense talk v2 (2026-09-23) is the deck AJ wants every future deck to match;
+  the skill had its gates but not the writing moves or the look that made it work.
+- **Decisions:** `# research(2026-09)`: plain-language and three-to-five-point guidance for
+  general audiences, concreteness fading, 130-150 words a minute, PowerPoint's recording
+  teleprompter reads the notes. pptxgenjs 4.0.1 is current.
+- **Scope:** newcomer writing guidance; notes as a read-aloud script plus a `script`
+  subcommand; `no-notes` exempts backup slides; `templates/deck.js` starter; routing case for
+  "make me a PowerPoint".
+- **Out of scope:** a Touying starter; checking the script's wording.
+- **Done when:** `make validate` green, the starter passes `check` and renders cleanly through
+  PowerPoint, the new routing case passes, reviewed, CI green, merged.
 
 ## Skill collection state
 

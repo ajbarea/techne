@@ -3,6 +3,7 @@
 
     python slides.py check  <deck.pptx> [--level AAA|AA] [--min-pt 14]
     python slides.py render <deck.pptx> <out-dir> [--renderer auto|powerpoint|libreoffice]
+    python slides.py script <deck.pptx> [--wpm 140]
 
 No Python dependencies. ``render`` needs poppler's ``pdftoppm`` plus either
 PowerPoint (native Windows, or Windows from WSL) or LibreOffice; with Pillow
@@ -474,7 +475,7 @@ def check(
         visible = " ".join([s.title, *s.body_text])
         if "—" in visible:
             found.append(Finding(BLOCK, "em-dash", "em-dash in slide text", number))
-        if not s.notes:
+        if not s.notes and not in_backup:
             no_notes.append(number)
         if len(s.title.split()) > title_words:
             found.append(
@@ -506,7 +507,7 @@ def check(
                 Finding(
                     REVIEW,
                     "dense",
-                    f"{words} words of body text (> {dense_words}); move the rest to the notes",
+                    f"{words} words of body text (> {dense_words}); move the rest to the script",
                     number,
                 )
             )
@@ -527,7 +528,9 @@ def check(
             )
         )
     if no_notes:
-        found.append(Finding(WARN, "no-notes", f"no speaker notes on slides {no_notes}"))
+        found.append(
+            Finding(WARN, "no-notes", f"no script in the speaker notes on slides {no_notes}")
+        )
     if unchecked:
         found.append(
             Finding(
@@ -556,6 +559,37 @@ def verdict(found: list[Finding]) -> tuple[int, str]:
         return 2, f"NOT READY: {blocks} blocker(s)."
     reviews = sum(f.severity == REVIEW for f in found)
     return 0, f"READY to render: 0 blockers, {reviews} item(s) to review."
+
+
+def script(path: pathlib.Path, wpm: int = 140) -> tuple[int, str]:
+    """The speaker notes as a read-aloud script in Markdown, with a talk-time estimate."""
+    try:
+        pkg = Package(path)
+        parts = pkg.slides()
+    except (zipfile.BadZipFile, KeyError, ET.ParseError, OSError) as exc:
+        return 1, f"{path}: {exc}"
+    talk: list[str] = []
+    backup: list[str] = []
+    words = 0
+    in_backup = False
+    for number, part in enumerate(parts, 1):
+        try:
+            s = Slide(pkg, part, number)
+        except (KeyError, ET.ParseError) as exc:
+            return 1, f"{part}: {exc}"
+        in_backup = in_backup or bool(_BACKUP_TITLE.match(s.title))
+        heading = f"## {number}. {s.title or '(untitled)'}"
+        body = s.notes or "_No script on this slide._"
+        (backup if in_backup else talk).append(f"{heading}\n\n{body}\n")
+        if not in_backup:
+            words += len(_WORD.findall(s.notes))
+    minutes = words / wpm
+    head = [
+        f"# Script: {path.name}\n",
+        f"{words} words on the talk slides, about {minutes:.0f} minutes at {wpm} words a minute.\n",
+    ]
+    tail = ["# Backup slides\n", *backup] if backup else []
+    return 0, "\n".join(head + talk + tail)
 
 
 # ----------------------------------------------------------------- render --
@@ -774,10 +808,17 @@ def main() -> int:
     r.add_argument("out", type=pathlib.Path)
     r.add_argument("--renderer", choices=("auto", "powerpoint", "libreoffice"), default="auto")
     r.add_argument("--dpi", type=int, default=80)
+    t = sub.add_parser("script", help="print the speaker notes as a read-aloud script")
+    t.add_argument("deck", type=pathlib.Path)
+    t.add_argument("--wpm", type=int, default=140)
     args = ap.parse_args()
 
     if args.cmd == "render":
         return render(args.deck, args.out, args.renderer, args.dpi)
+    if args.cmd == "script":
+        code, out = script(args.deck, args.wpm)
+        print(out, file=sys.stderr if code else sys.stdout)
+        return code
     found = check(args.deck, args.level, args.min_pt, args.dense_words, args.title_words)
     print(args.deck)
     for finding in found:

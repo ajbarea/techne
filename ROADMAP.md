@@ -156,6 +156,14 @@ that drift class recurs.
 
 Detail lives in git history (`git log`) and the live skill code. This log is pruned once work is durably shipped.
 
+- 2026-09-24 — **`techne:slides` learns from the deck it was built from.** The writing guidance
+  now carries what made the makesense talk land for newcomers: plain words on the slide with the
+  source's term in a footnote, one-line definitions where a term first appears, a concrete case
+  before the general rule, a story arc through failures and limits to a closing contrast, and
+  discussion slides that seed example answers. Numbers are a call per room, not a rule. Speaker
+  notes are a read-aloud script, exported by a new `script` subcommand with a talk-length
+  estimate; `no-notes` skips backup slides. A pptxgenjs starter deck (`templates/deck.js`)
+  carries the look, and a routing case checks that "make me a PowerPoint" loads the skill.
 - 2026-09-22 — **Routing and prose pass, and the first evals.** Descriptions now say what each
   skill is not for and where a general PDF or PPTX skill takes over. `make evals` runs a routing
   suite (a must-fire case per skill, must-not-fire collision cases, rival stand-ins loaded in

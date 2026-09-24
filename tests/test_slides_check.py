@@ -109,7 +109,7 @@ def deck(tmp_path):
     def _deck(
         *slides: list[str],
         bg: str = "FFFFFF",
-        notes: bool = True,
+        notes: bool | list[bool] = True,
         order: list[int] | None = None,
         slide_bg: str = "",
         minor_font: str | None = None,
@@ -164,7 +164,7 @@ def deck(tmp_path):
                     "</p:cSld></p:sld>",
                 )
                 rels = [("rId1", "slideLayout", "../slideLayouts/slideLayout1.xml")]
-                if notes:
+                if notes if isinstance(notes, bool) else notes[n - 1]:
                     rels.append(("rId2", "notesSlide", f"../notesSlides/notesSlide{n}.xml"))
                     z.writestr(
                         f"ppt/notesSlides/notesSlide{n}.xml",
@@ -266,6 +266,38 @@ def test_non_portable_font_warns(sl, deck, gates):
 
 def test_missing_notes_warn(sl, deck, gates):
     assert (WARN, "no-notes") in gates(sl.check(deck([title("T"), textbox("x")], notes=False)))
+
+
+def test_backup_slides_need_no_script(sl, deck, gates):
+    path = deck(
+        [title("Talk")], [title("Backup slides")], [title("Table")], notes=[True, False, False]
+    )
+    assert (WARN, "no-notes") not in gates(sl.check(path))
+
+
+# ---------------------------------------------------------------- script --
+
+
+def test_script_times_talk_slides_only(sl, deck):
+    path = deck([title("Intro")], [title("Main")], [title("Backup slides")], [title("Table")])
+    code, out = sl.script(path, wpm=2)
+    assert code == 0
+    assert "4 words on the talk slides, about 2 minutes at 2 words a minute." in out
+    assert out.index("## 2. Main") < out.index("# Backup slides") < out.index("## 3. Backup")
+    assert out.count("Say this.") == 4
+
+
+def test_script_marks_slides_without_notes(sl, deck):
+    code, out = sl.script(deck([title("Intro")], notes=False))
+    assert code == 0
+    assert "_No script on this slide._" in out
+    assert out.startswith("# Script: deck.pptx")
+
+
+def test_script_unreadable_deck(sl, tmp_path):
+    bad = tmp_path / "bad.pptx"
+    bad.write_text("not a zip")
+    assert sl.script(bad)[0] == 1
 
 
 def test_duplicate_titles_warn(sl, deck, gates):
