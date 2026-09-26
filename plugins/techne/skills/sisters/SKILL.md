@@ -35,7 +35,7 @@ If `~/.claude/techne.toml` is missing or yields zero active sisters, stop and te
 
 ## What to check
 
-Run all twelve, in order, using the commands in [references/checks.md](references/checks.md).
+Run all thirteen, in order, using the commands in [references/checks.md](references/checks.md).
 Each check reports per repo; one broken repo never aborts the others.
 
 | # | Check | Drift means | Recommend |
@@ -52,6 +52,7 @@ Each check reports per repo; one broken repo never aborts the others.
 | 10 | Log retention | `logs/` without a 30-day age-based prune in `make clean` | Add the prune |
 | 11 | Dependabot coverage | A shipped manifest with no matching ecosystem and no documented deferral | Add the ecosystem |
 | 12 | README header | A solo repo with a hero asset whose README does not open Hero → Title → tagline → Badges | Align, or confirm it is intentional |
+| 13 | Worktree ignore | `.claude/worktrees/` not ignored by a committed `.gitignore` (unignored, or only in `.git/info/exclude`) | Add `.claude/worktrees/` to `.gitignore` |
 
 ## Output format
 
@@ -112,6 +113,11 @@ A single block, no preamble (concrete repo names below are illustrative — subs
 ### Dependabot coverage
 - All sisters: dependabot.yml covers every shipped manifest (deferrals documented) ✓
   (or list drift: "repo-c: has package.json but no npm ecosystem → add it")
+
+### Worktree ignore
+- repo-a: ignored by .gitignore ✓
+- repo-b: ignored only by .git/info/exclude (machine-local) → add `.claude/worktrees/` to .gitignore
+- repo-c: not ignored → add `.claude/worktrees/` to .gitignore
 
 ### Verdict
 
