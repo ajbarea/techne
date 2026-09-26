@@ -17,6 +17,7 @@ Run from the shell after the config preamble in `SKILL.md`, which sets `$SISTERS
 - [10. `make clean` log-retention policy](#10-make-clean-log-retention-policy)
 - [11. Dependabot config coverage](#11-dependabot-config-coverage)
 - [12. README header convention](#12-readme-header-convention)
+- [13. Worktree ignore](#13-worktree-ignore)
 
 ## 1. Action-pin drift
 
@@ -320,3 +321,23 @@ Report:
 - Any solo sister with a hero asset whose README does not lead with the centered masthead (hero image before the `# Title`, inside `<div align="center">`).
 - Repos with no hero asset, `kind = "team"`, or an intentional product/template top are exempt; flag as a question, never an auto-fail.
 
+## 13. Worktree ignore
+
+Parallel sessions each work in their own git worktree under `.claude/worktrees/`, so every
+sister must ignore that path from a **committed** `.gitignore`. A rule that lives only in
+`.git/info/exclude` works on this machine and is gone on the next clone. Either an explicit
+`.claude/worktrees/` line or a broader committed rule such as `.claude/*` passes.
+
+```
+for repo in $SISTERS; do
+  src=$(git -C "$WORKSPACE/$repo" check-ignore -v --no-index .claude/worktrees/probe 2>/dev/null | cut -d: -f1)
+  case "$src" in
+    .gitignore) echo "$repo: ignored by .gitignore ✓" ;;
+    .git/info/exclude) echo "$repo: ignored only by .git/info/exclude (machine-local) → add .claude/worktrees/ to .gitignore" ;;
+    "") echo "$repo: not ignored → add .claude/worktrees/ to .gitignore" ;;
+    *) echo "$repo: ignored by $src (not the repo .gitignore) → add .claude/worktrees/ to .gitignore" ;;
+  esac
+done
+```
+
+Report any sister whose ignore source is not the repo's own `.gitignore`.
