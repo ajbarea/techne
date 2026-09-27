@@ -1,5 +1,6 @@
 """docs-site sync_shared.py: where each shared file lands, and what --check reports."""
 
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -129,3 +130,31 @@ def test_only_the_shared_files_are_synced(tmp_path: Path) -> None:
         assert not (repo / "overrides" / "stray.txt").exists()
     finally:
         stray.unlink()
+
+
+def test_nav_test_ignores_generated_pages_in_the_nav(tmp_path: Path) -> None:
+    repo = tmp_path / "site"
+    (repo / "docs").mkdir(parents=True)
+    (repo / "docs" / "index.md").write_text("# Home\n")
+    (repo / "zensical.toml").write_text(
+        '[project]\nnav = [{ "Home" = "index.md" }, { "Explorer" = "explorer/index.html" },'
+        ' { "Repo" = "https://github.com/x/y" }]\n'
+    )
+    (repo / "tests").mkdir()
+    shutil.copyfile(SHARED / "tests/test_docs_nav.py", repo / "tests/test_docs_nav.py")
+    ok = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", repo / "tests"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert ok.returncode == 0, ok.stdout
+    (repo / "docs" / "notes.md").write_text("# Notes\n")
+    stray = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", repo / "tests"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert stray.returncode == 1
+    assert "notes.md" in stray.stdout
