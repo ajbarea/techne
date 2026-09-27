@@ -4,7 +4,7 @@
 
 /* Landing Section Container */
 .landing-section {
-  padding: 3.5rem 0;
+  padding: 2.75rem 0;
 }
 
 .landing-section--intro,
@@ -12,7 +12,7 @@
   background: var(--surface-bg-soft);
   border-radius: 1rem;
   margin: 1.5rem 0;
-  padding: 3.5rem 0;
+  padding: 2.5rem 0;
 }
 
 /* Section Inner Wrapper */
@@ -22,7 +22,10 @@
   padding: 0 1.5rem;
 }
 
-/* Section Title */
+/* Section Title
+   `.md-typeset h2` sets a colour at 0,1,1, so the gradient needs the same
+   weight and a transparent fill to show through. */
+.md-typeset .section-title,
 .section-title {
   font-size: clamp(1.5rem, 3vw, 2rem);
   font-weight: 700;
@@ -30,6 +33,7 @@
   background: var(--bronze-gradient);
   background-clip: text;
   -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
   color: transparent;
 }
 
@@ -39,6 +43,10 @@
   line-height: 1.65;
   color: var(--muted-text-color);
   max-width: 52rem;
+}
+
+.md-typeset .section-lead:last-child {
+  margin-bottom: 0;
 }
 
 /* Skill Grid */

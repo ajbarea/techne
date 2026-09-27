@@ -58,6 +58,7 @@
   --md-default-bg-color--lighter: var(--night-lightest);
   --md-primary-fg-color: var(--bronze-light);
   --md-accent-fg-color: var(--bronze-light);
+  --md-accent-fg-color--transparent: color-mix(in srgb, var(--bronze-metallic) 14%, transparent);
   --md-typeset-a-color: var(--link-color);
 }
 
@@ -70,6 +71,7 @@
   --md-default-fg-color--lighter: #73614c;
   --md-primary-fg-color: #8b5a2b;
   --md-accent-fg-color: #a76f38;
+  --md-accent-fg-color--transparent: color-mix(in srgb, var(--bronze-metallic) 16%, transparent);
 
   --surface-bg: #f7f3ed;
   --surface-bg-elevated: #fdf9f2;
