@@ -67,8 +67,8 @@ Four files are the same on every sister docs site, and techne holds the canonica
 Change them here, never in a site, then sync each site and open its PR:
 
 ```bash
-uv run --quiet python ${CLAUDE_SKILL_DIR}/scripts/sync_shared.py <repo>          # write
-uv run --quiet python ${CLAUDE_SKILL_DIR}/scripts/sync_shared.py --check <repo>  # drift only
+python3 ${CLAUDE_SKILL_DIR}/scripts/sync_shared.py <repo>          # write
+python3 ${CLAUDE_SKILL_DIR}/scripts/sync_shared.py --check <repo>  # drift only
 ```
 
 `/techne:sisters` check 14 runs `--check` across the fleet.

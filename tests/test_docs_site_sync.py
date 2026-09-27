@@ -81,3 +81,51 @@ def test_a_repo_without_zensical_is_skipped(tmp_path: Path) -> None:
     result = run("--check", tmp_path / "plain")
     assert result.returncode == 0
     assert "no zensical.toml" in result.stdout
+
+
+def test_a_sites_own_version_is_refused_unless_forced(tmp_path: Path) -> None:
+    repo = site(tmp_path)
+    own = repo / "overrides" / "main.html"
+    own.parent.mkdir(parents=True)
+    own.write_text("{% extends 'base.html' %}{# the site's own #}\n")
+    refused = run(repo)
+    assert refused.returncode == 1
+    assert "overrides/main.html is the site's own version, refused" in refused.stdout
+    assert "the site's own" in own.read_text()
+    assert (repo / "docs/javascripts/reveal.js").is_file()
+
+    assert run("--force", repo).returncode == 0
+    assert own.read_bytes() == (SHARED / "overrides/main.html").read_bytes()
+
+
+def test_an_older_synced_copy_is_updated_without_force(tmp_path: Path) -> None:
+    repo = site(tmp_path)
+    run(repo)
+    old = repo / "docs/javascripts/reveal.js"
+    old.write_text("// Shared; the canonical copy is in techne. An older version.\n")
+    assert run(repo).returncode == 0
+    assert old.read_bytes() == (SHARED / "docs/javascripts/reveal.js").read_bytes()
+
+
+def test_a_symlinked_destination_is_refused(tmp_path: Path) -> None:
+    repo = site(tmp_path / "repo")
+    outside = tmp_path / "outside.js"
+    outside.write_text("// not the site's\n")
+    link = repo / "docs/javascripts/reveal.js"
+    link.parent.mkdir(parents=True)
+    link.symlink_to(outside)
+    result = run("--force", repo)
+    assert result.returncode == 1
+    assert "reveal.js is a symlink, refused" in result.stdout
+    assert outside.read_text() == "// not the site's\n"
+
+
+def test_only_the_shared_files_are_synced(tmp_path: Path) -> None:
+    stray = SHARED / "overrides" / "stray.txt"
+    stray.write_text("left behind\n")
+    try:
+        repo = site(tmp_path)
+        run(repo)
+        assert not (repo / "overrides" / "stray.txt").exists()
+    finally:
+        stray.unlink()

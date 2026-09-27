@@ -353,10 +353,16 @@ build runs `scripts/prune_site.py` deletes those pages and is exempt.
 
 ```
 SYNC="$WORKSPACE/techne/plugins/techne/skills/docs-site/scripts/sync_shared.py"
+[ -f "$SYNC" ] || echo "techne checkout has no sync_shared.py → pull techne main, then rerun check 14"
 for repo in $SISTERS; do
   r="$WORKSPACE/$repo"
-  [ -f "$r/zensical.toml" ] || continue
-  python3 "$SYNC" --check "$r" | grep -v '^shared docs-site files match$' || echo "$repo: shared files match ✓"
+  [ -f "$r/zensical.toml" ] && [ -f "$SYNC" ] || continue
+  out=$(python3 "$SYNC" --check "$r" 2>&1); rc=$?
+  case $rc in
+    0) echo "$repo: shared files match ✓" ;;
+    1) printf '%s\n' "$out" | grep -v '^shared docs-site files match$' ;;
+    *) echo "$repo: sync --check failed (exit $rc): $(printf '%s' "$out" | tail -1)" ;;
+  esac
   [ -f "$r/scripts/prune_site.py" ] && continue
   python3 - "$r" <<'PY'
 import re, sys, tomllib

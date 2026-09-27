@@ -26,8 +26,8 @@ The skill covers site mechanics, not prose accuracy. For prose drift (stale CLI 
 The files every sister site carries identically live once, in the skill's `templates/shared/`. Edit them there, then copy them into a site:
 
 ```
-uv run --quiet python plugins/techne/skills/docs-site/scripts/sync_shared.py <repo>
-uv run --quiet python plugins/techne/skills/docs-site/scripts/sync_shared.py --check <repo>
+python3 plugins/techne/skills/docs-site/scripts/sync_shared.py <repo>
+python3 plugins/techne/skills/docs-site/scripts/sync_shared.py --check <repo>
 ```
 
 `--check` writes nothing and exits 1 on drift; [`techne:sisters`](sisters.md) runs it across the fleet. A site sets `extra.og_image` and `extra.brand_mark` in `zensical.toml` for its card artwork and footer mark.
