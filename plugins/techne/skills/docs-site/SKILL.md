@@ -30,7 +30,7 @@ The injected `## docs_site` section (if present) supplies this repo's CSS file l
 
 Run as many in parallel as the scope calls for:
 
-1. **Nav vs filesystem.** Parse `zensical.toml` `nav` (sections may be nested); `Glob` `docs/**/*.md`. Every nav entry must exist as a file; every `.md` under `docs/` (except intentional sub-pages) should appear in nav. Report missing-in-nav and missing-on-disk separately.
+1. **Nav vs filesystem.** Parse `zensical.toml` `nav` (sections may be nested); `Glob` `docs/**/*.md`. Every nav entry must exist as a file; every `.md` under `docs/` must appear in nav, because Zensical publishes every file there and cannot exclude one. Working notes (plans, specs, handoffs) belong outside `docs/`. Report missing-in-nav and missing-on-disk separately.
 
 2. **Internal links.** `Grep` markdown link targets (`](foo.md)`, `](foo.md#bar)`) across `docs/**/*.md`. For each: check the file exists, and if an anchor is specified, `Grep` the target file for a heading that would produce that slug (lowercase, spaces → `-`, strip punctuation).
 
@@ -49,6 +49,33 @@ Run as many in parallel as the scope calls for:
    - `pages: write` permission present; `id-token: write` present for OIDC deploy.
 
 6. **Local build smoke test (optional, on request).** Run the injected `docs_site.build_command` and diff against the committed state. Never commit the resulting `site/` — it's gitignored.
+
+## Shared files
+
+Four files are the same on every sister docs site, and techne holds the canonical copies in
+`${CLAUDE_SKILL_DIR}/templates/shared/`, laid out as they sit in a site:
+
+- `overrides/main.html`: the home tab reads the site name; Open Graph and Twitter card tags. A
+  site with card artwork sets `extra.og_image` (a path under `docs/`) in `zensical.toml`.
+- `overrides/partials/copyright.html`: the footer. A site with a footer mark sets
+  `extra.brand_mark`.
+- `docs/javascripts/reveal.js`: the `hero-page` class and reveal-on-scroll for
+  `.landing-section`. A site's own effects (particles, hero art) go in their own file.
+- `tests/test_docs_nav.py`: fails when a `docs/` page is missing from the nav (skipped where
+  the build prunes unlisted pages, or there is no pytest suite).
+
+Change them here, never in a site, then sync each site and open its PR:
+
+```bash
+uv run --quiet python ${CLAUDE_SKILL_DIR}/scripts/sync_shared.py <repo>          # write
+uv run --quiet python ${CLAUDE_SKILL_DIR}/scripts/sync_shared.py --check <repo>  # drift only
+```
+
+`/techne:sisters` check 14 runs `--check` across the fleet.
+
+research(2026-09): Zensical cannot install a shared theme or module yet (both are on its
+roadmap, undated), and `custom_dir` takes a local path, so the copies are vendored and kept
+identical by the sync rather than referenced.
 
 ## Report format
 
