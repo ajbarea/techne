@@ -133,17 +133,17 @@ body.hero-page .md-content__inner {
   border-color: var(--glass-border);
 }
 
-.hero .md-button:not(.md-button--primary) {
+.hero-buttons .md-button:not(.md-button--primary) {
   color: var(--link-color) !important;
   background: var(--glass-bg);
 }
 
-.hero .md-button:not(.md-button--primary):hover,
-.hero .md-button:not(.md-button--primary):focus-visible {
+.hero-buttons .md-button:not(.md-button--primary):hover,
+.hero-buttons .md-button:not(.md-button--primary):focus-visible {
   border-color: var(--bronze-metallic);
 }
 
-.hero .md-button--primary {
+.hero-buttons .md-button--primary {
   background: var(--bronze-gradient) !important;
   border-color: transparent !important;
   color: var(--primary-button-fg) !important;
@@ -209,4 +209,10 @@ body.hero-page .md-content__inner {
     padding: 0.65rem 1.2rem !important;
     font-size: 0.8rem !important;
   }
+}
+
+/* Parchment: the secondary pill needs an edge, or it reads as a smudge. */
+[data-md-color-scheme="default"] .hero-buttons .md-button:not(.md-button--primary) {
+  border: 1px solid color-mix(in srgb, var(--bronze-dark) 45%, transparent) !important;
+  background: color-mix(in srgb, #fff 55%, transparent);
 }

@@ -89,6 +89,21 @@
   --hero-overlay-color: color-mix(in srgb, #2b2116 82%, transparent);
   --primary-button-fg: #2b2012;
   --md-typeset-a-color: var(--link-color);
+
+  /* Code highlighting, darkened to hold AA on the parchment code surface. */
+  --md-code-fg-color: #2f2618;
+  --md-code-hl-number-color: #9a3412;
+  --md-code-hl-special-color: #9d1f55;
+  --md-code-hl-function-color: #6d2fa3;
+  --md-code-hl-constant-color: #4c34a0;
+  --md-code-hl-keyword-color: #24519a;
+  --md-code-hl-string-color: #135c36;
+  --md-code-hl-name-color: #2f2618;
+  --md-code-hl-operator-color: #4a3b28;
+  --md-code-hl-punctuation-color: #4a3b28;
+  --md-code-hl-comment-color: #62513c;
+  --md-code-hl-generic-color: #4a3b28;
+  --md-code-hl-variable-color: #6b4418;
 }
 
 /* Color Swatches (for design documentation) */

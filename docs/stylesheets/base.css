@@ -51,3 +51,10 @@ a:hover {
 [data-md-color-scheme="default"] .landing-footer .brand-mark {
   filter: none;
 }
+
+/* Footer prev/next: the direction label sat at 70% opacity in the link colour,
+   under AA on parchment. Full opacity in the body's secondary text colour. */
+.md-footer__direction {
+  opacity: 1;
+  color: var(--muted-text-color);
+}

@@ -97,10 +97,40 @@
 }
 
 /* Responsive adjustments */
-@media (max-width: 480px) {
+@media (max-width: 600px) {
+  .landing-section {
+    padding: 2rem 0;
+  }
+
+  .section-inner {
+    padding: 0 1rem;
+  }
+
+  /* Seventeen cards stacked is a long scroll; on a phone each is a compact row. */
   .skill-grid {
     grid-template-columns: 1fr;
+    gap: 0.6rem;
+    margin-top: 1rem;
   }
+
+  .md-typeset a.skill-card,
+  .skill-card {
+    padding: 0.8rem 1rem;
+    border-radius: 0.6rem;
+  }
+
+  .skill-card .skill-name {
+    font-size: 0.9rem;
+    margin-bottom: 0.3rem;
+  }
+
+  .skill-card p {
+    font-size: 0.85rem;
+    line-height: 1.45;
+  }
+}
+
+@media (max-width: 480px) {
 
   .hero-buttons {
     flex-direction: column;
