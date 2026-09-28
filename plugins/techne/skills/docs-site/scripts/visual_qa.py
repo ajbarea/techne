@@ -89,16 +89,17 @@ MEASURE = r"""
 
 
 def sitemap_paths(base: str) -> list[str]:
+    """Page paths relative to the site root, wherever the build is being served.
+
+    The sitemap lists deployed URLs (https://host/repo/page/); the shortest one is the root,
+    so every page path is its URL minus that root.
+    """
     with urllib.request.urlopen(base + "sitemap.xml", timeout=20) as r:
         locs = re.findall(r"<loc>([^<]+)</loc>", r.read().decode())
-    site = re.match(r"https?://[^/]+(/.*)?", base)
-    prefix = (site.group(1) or "/") if site else "/"
-    paths = []
-    for loc in locs:
-        path = re.sub(r"^https?://[^/]+", "", loc)
-        path = path[len(prefix) :] if path.startswith(prefix) else path.lstrip("/")
-        paths.append(path)
-    return paths or [""]
+    if not locs:
+        return [""]
+    root = min(locs, key=len)
+    return [loc[len(root) :] if loc.startswith(root) else "" for loc in locs]
 
 
 def schemes_offered(page: Page) -> list[str]:
