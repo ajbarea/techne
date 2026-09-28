@@ -13,7 +13,9 @@ contact sheet (light and dark, desktop and phone) finds nothing off.
 - Links take the site's palette, never the theme default, and stay AA on their surface.
 - Nothing scrolls sideways at 390 wide. Wide tables scroll inside themselves.
 - No raw markup: attr-list braces, `:icon:` codes, `!!!`, `$...$` read as math.
-- Floating buttons (back to top, TOC) never cover body text on a phone.
+- Floating controls stay Zensical's own: the phone TOC button (`.md-sidebar--secondary`, 38px,
+  bottom right) and back-to-top. They pass over text only while it scrolls by; a custom
+  floating element that sits on text at rest, or lacks a solid background, fails.
 
 ## Landing page
 
@@ -33,9 +35,13 @@ contact sheet (light and dark, desktop and phone) finds nothing off.
 
 ## Verify
 
+Serve the build under its repo path, the way GitHub Pages does, so absolute links resolve:
+
 ```bash
+mkdir -p /tmp/serve && ln -sfn "$PWD/site" /tmp/serve/<repo>
+python3 -m http.server -d /tmp/serve 8000 &
 uv run --quiet --no-project --with playwright --with pillow \
-    python ${CLAUDE_SKILL_DIR}/scripts/visual_qa.py http://127.0.0.1:8000/ --out qa/
+    python ${CLAUDE_SKILL_DIR}/scripts/visual_qa.py http://127.0.0.1:8000/<repo>/ --out qa/
 ```
 
 Then open `qa/home-sheet.png` and at least two inner pages' sheets and look at them. The
