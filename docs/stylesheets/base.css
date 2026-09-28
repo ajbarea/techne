@@ -47,6 +47,14 @@ a:hover {
   filter: invert(1);
 }
 /* Light mode: brand mark stays dark on the (light) content-page footer */
-[data-md-color-scheme="default"] .md-copyright .brand-mark {
+[data-md-color-scheme="default"] .md-copyright .brand-mark,
+[data-md-color-scheme="default"] .landing-footer .brand-mark {
   filter: none;
+}
+
+/* Footer prev/next: the direction label sat at 70% opacity in the link colour,
+   under AA on parchment. Full opacity in the body's secondary text colour. */
+.md-footer__direction {
+  opacity: 1;
+  color: var(--muted-text-color);
 }

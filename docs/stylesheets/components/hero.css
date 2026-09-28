@@ -1,5 +1,8 @@
 /* =====================================================================
-   Techne Hero Section — Full-Viewport Landing
+   Techne Hero Section: Full-Viewport Landing
+   Copy on the left, the artwork on the right. The art is one element whose
+   edges are masked away, so it dissolves into whichever page colour sits
+   behind it. Light mode redraws it as a bronze etching on parchment.
    ===================================================================== */
 
 body.hero-page .md-footer {
@@ -20,87 +23,104 @@ body.hero-page .md-content__inner {
 .md-typeset .hero,
 .hero {
   position: relative;
-  height: 100vh;
-  height: 100dvh;
+  isolation: isolate;
+  min-height: calc(100vh - 3rem);
+  min-height: calc(100dvh - 3rem);
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: flex-end;
-  text-align: center;
-  background:
-    radial-gradient(
-      ellipse at center,
-      transparent 20%,
-      color-mix(in srgb, var(--obsidian) 20%, transparent) 60%,
-      color-mix(in srgb, var(--obsidian) 60%, transparent) 100%
-    ),
-    linear-gradient(
-      to bottom,
-      color-mix(in srgb, var(--obsidian) 40%, transparent) 0%,
-      color-mix(in srgb, var(--obsidian) 10%, transparent) 40%,
-      color-mix(in srgb, var(--obsidian) 80%, transparent) 80%,
-      var(--obsidian) 100%
-    ),
-    var(--hero-bg-image) center 48px / contain no-repeat;
-  color: var(--bronze-light);
+  align-items: flex-start;
+  justify-content: center;
+  text-align: left;
   margin: -1.2rem -0.8rem 0;
-  padding: 1rem 2rem 5rem;
+  padding: 4rem 6vw 4rem;
   overflow: hidden;
+  /* An opaque backdrop inside the isolated group, so the light-mode blend
+     below multiplies onto the page colour rather than onto nothing. */
+  background: var(--md-default-bg-color);
+  color: var(--hero-subtitle-color);
+}
+
+/* The artwork. The mask is an ellipse centred on the dagger, so the scene's
+   dark backdrop fades out before it reaches the copy. */
+.hero::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: 0;
+  bottom: 0;
+  right: -2vw;
+  width: min(58%, 52rem);
+  background: var(--hero-bg-image) 55% 62% / auto 96% no-repeat;
+  -webkit-mask-image: radial-gradient(ellipse 56% 50% at 58% 50%, #000 45%, transparent 100%);
+  mask-image: radial-gradient(ellipse 56% 50% at 58% 50%, #000 45%, transparent 100%);
+  pointer-events: none;
+}
+
+/* Parchment: invert the lightness only, then multiply the result onto the
+   page. The black backdrop becomes the paper and the gilt becomes ink. */
+[data-md-color-scheme="default"] .hero::before {
+  filter: invert(1) hue-rotate(180deg) sepia(0.4) contrast(1.2);
+  mix-blend-mode: multiply;
+}
+
+.hero > * {
+  max-width: min(34rem, 44vw);
 }
 
 .md-typeset .hero h1,
 .hero h1 {
-  font-size: clamp(2rem, 5vw, 3.5rem);
+  font-size: clamp(2.4rem, 5.4vw, 4.2rem);
   font-weight: 900;
-  margin-top: 0;
+  line-height: 1.05;
+  margin: 0 0 1.1rem;
   padding-top: 0;
-  margin-bottom: 0.3rem;
   letter-spacing: -0.04em;
   background: var(--bronze-gradient) !important;
   background-clip: text !important;
   -webkit-background-clip: text !important;
   -webkit-text-fill-color: transparent !important;
   color: transparent !important;
-  filter:
-    drop-shadow(0 0 1px color-mix(in srgb, #000 90%, transparent))
-    drop-shadow(0 0 3px color-mix(in srgb, #000 70%, transparent))
-    drop-shadow(0 2px 8px color-mix(in srgb, var(--bronze-metallic) 40%, transparent));
+  filter: drop-shadow(0 2px 10px color-mix(in srgb, var(--bronze-metallic) 35%, transparent));
+}
+
+[data-md-color-scheme="default"] .md-typeset .hero h1 {
+  background: linear-gradient(135deg, #5c3d1c 0%, #8b5a2b 45%, #b07a3c 70%, #7a4c22 100%) !important;
+  background-clip: text !important;
+  -webkit-background-clip: text !important;
+  filter: none;
+}
+
+/* A permalink on the page's own title is noise. */
+.md-typeset .hero h1 .headerlink {
+  display: none;
 }
 
 .hero-subtitle {
-  font-size: clamp(1rem, 1.7vw, 1.3rem);
-  font-weight: 300;
-  letter-spacing: 0.005em;
-  line-height: 1.5;
+  font-size: clamp(1.05rem, 1.6vw, 1.3rem);
+  font-weight: 400;
+  line-height: 1.55;
   color: var(--hero-subtitle-color);
-  opacity: 0.9;
-  margin-bottom: 1rem;
-  text-shadow:
-    0 0 4px color-mix(in srgb, #000 90%, transparent),
-    0 0 8px color-mix(in srgb, #000 60%, transparent);
-  max-width: 700px;
-  margin-left: auto;
-  margin-right: auto;
+  margin: 0 0 1.8rem;
+}
+
+.md-typeset .hero-subtitle code {
+  font-size: 0.9em;
 }
 
 .hero-buttons {
-  margin-top: 0.5rem;
   display: flex;
-  justify-content: center;
 }
 
 .hero-buttons > p {
   display: flex;
-  justify-content: center;
   align-items: center;
   flex-wrap: wrap;
-  column-gap: 0.85rem;
-  row-gap: 0.85rem;
+  gap: 0.85rem;
   margin: 0;
 }
 
 .hero-buttons .md-button {
-  min-width: 200px;
+  min-width: 12rem;
   padding: 0.7rem 1.8rem !important;
   font-size: 0.85rem !important;
   text-align: center;
@@ -113,11 +133,17 @@ body.hero-page .md-content__inner {
   border-color: var(--glass-border);
 }
 
-.hero .md-button:not(.md-button--primary) {
-  color: var(--bronze-light) !important;
+.hero-buttons .md-button:not(.md-button--primary) {
+  color: var(--link-color) !important;
+  background: var(--glass-bg);
 }
 
-.hero .md-button--primary {
+.hero-buttons .md-button:not(.md-button--primary):hover,
+.hero-buttons .md-button:not(.md-button--primary):focus-visible {
+  border-color: var(--bronze-metallic);
+}
+
+.hero-buttons .md-button--primary {
   background: var(--bronze-gradient) !important;
   border-color: transparent !important;
   color: var(--primary-button-fg) !important;
@@ -125,62 +151,68 @@ body.hero-page .md-content__inner {
 
 .hero-buttons--cta {
   margin-top: 1.25rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.85rem;
 }
 
-@media (max-width: 768px) {
+/* Narrow screens: the art sits above the copy instead of beside it. */
+@media (max-width: 900px) {
   .md-typeset .hero,
   .hero {
-    background:
-      radial-gradient(
-        ellipse at center,
-        transparent 15%,
-        color-mix(in srgb, var(--obsidian) 25%, transparent) 55%,
-        color-mix(in srgb, var(--obsidian) 70%, transparent) 100%
-      ),
-      linear-gradient(
-        to bottom,
-        color-mix(in srgb, var(--obsidian) 50%, transparent) 0%,
-        color-mix(in srgb, var(--obsidian) 15%, transparent) 25%,
-        color-mix(in srgb, var(--obsidian) 60%, transparent) 60%,
-        color-mix(in srgb, var(--obsidian) 90%, transparent) 80%,
-        var(--obsidian) 95%
-      ),
-      var(--hero-bg-image) center 48px / contain no-repeat;
-    padding: 1rem 1.2rem 2rem;
-    height: 100vh;
-    height: 100dvh;
+    min-height: 0;
+    align-items: center;
+    text-align: center;
+    justify-content: flex-start;
+    padding: min(86vw, 28rem) 1.2rem 3rem;
+  }
+
+  .hero::before {
+    top: 0;
+    bottom: auto;
+    left: 50%;
+    right: auto;
+    width: min(92vw, 30rem);
+    height: min(90vw, 29rem);
+    transform: translateX(-50%);
+    background-position: 60% center;
+    background-size: cover;
+    -webkit-mask-image: radial-gradient(ellipse 50% 50% at 55% 50%, #000 45%, transparent 100%);
+    mask-image: radial-gradient(ellipse 50% 50% at 55% 50%, #000 45%, transparent 100%);
+  }
+
+  .hero > * {
+    max-width: 34rem;
   }
 
   .md-typeset .hero h1,
   .hero h1 {
-    font-size: clamp(1.6rem, 8vw, 2.4rem);
-    margin-bottom: 0.2rem;
+    font-size: clamp(2rem, 10vw, 2.8rem);
+    margin-bottom: 0.8rem;
   }
 
   .hero-subtitle {
-    font-size: clamp(0.65rem, 2.5vw, 0.85rem);
-    margin-bottom: 0.6rem;
-    padding: 0 0.5rem;
+    font-size: 1rem;
+    margin-bottom: 1.4rem;
   }
 
-  .hero-buttons {
-    width: 100%;
-    align-items: center;
-  }
-
+  .hero-buttons,
   .hero-buttons > p {
-    flex-direction: column;
-    row-gap: 0.5rem;
-    column-gap: 0;
     width: 100%;
-    align-items: center;
+    justify-content: center;
   }
 
-  .hero-buttons .md-button {
+  .hero .hero-buttons .md-button {
     min-width: 0;
-    width: 70%;
-    max-width: 260px;
-    padding: 0.6rem 1.2rem !important;
-    font-size: 0.78rem !important;
+    flex: 1 1 11rem;
+    max-width: 16rem;
+    padding: 0.65rem 1.2rem !important;
+    font-size: 0.8rem !important;
   }
+}
+
+/* Parchment: the secondary pill needs an edge, or it reads as a smudge. */
+[data-md-color-scheme="default"] .hero-buttons .md-button:not(.md-button--primary) {
+  border: 1px solid color-mix(in srgb, var(--bronze-dark) 45%, transparent) !important;
+  background: color-mix(in srgb, #fff 55%, transparent);
 }
