@@ -341,3 +341,44 @@ done
 ```
 
 Report any sister whose ignore source is not the repo's own `.gitignore`.
+
+## 14. Docs-site shared files and nav coverage
+
+Every sister with a `zensical.toml` carries copies of the shared docs-site files (the
+`main.html` and `copyright.html` overrides, `reveal.js`, the nav test), whose canonical
+copies are in techne's `docs-site/templates/shared/`. A copy that differs has drifted: the fix
+goes into techne and is synced out, never edited in the site. Zensical publishes every file
+under `docs/`, so a page missing from the nav is a live page nobody can reach; a site whose
+build runs `scripts/prune_site.py` deletes those pages and is exempt.
+
+```
+SYNC="$WORKSPACE/techne/plugins/techne/skills/docs-site/scripts/sync_shared.py"
+[ -f "$SYNC" ] || echo "techne checkout has no sync_shared.py → pull techne main, then rerun check 14"
+for repo in $SISTERS; do
+  r="$WORKSPACE/$repo"
+  [ -f "$r/zensical.toml" ] && [ -f "$SYNC" ] || continue
+  out=$(python3 "$SYNC" --check "$r" 2>&1); rc=$?
+  case $rc in
+    0) echo "$repo: shared files match ✓" ;;
+    1) printf '%s\n' "$out" | grep -v '^shared docs-site files match$' ;;
+    *) echo "$repo: sync --check failed (exit $rc): $(printf '%s' "$out" | tail -1)" ;;
+  esac
+  [ -f "$r/scripts/prune_site.py" ] && continue
+  python3 - "$r" <<'PY'
+import re, sys, tomllib
+from pathlib import Path
+root = Path(sys.argv[1])
+def pages(e):
+    if isinstance(e, list): return {p for x in e for p in pages(x)}
+    if isinstance(e, dict): return {p for v in e.values() for p in pages(v)}
+    return set() if not isinstance(e, str) or re.match(r"https?://", e) else {e}
+nav = pages(tomllib.loads((root / "zensical.toml").read_text())["project"].get("nav", []))
+src = {p.relative_to(root / "docs").as_posix() for p in (root / "docs").rglob("*.md")}
+for page in sorted(src - nav):
+    print(f"{root.name}: docs/{page} published but not in the nav → list it or move it out of docs/")
+PY
+done
+```
+
+Report each drifted or missing shared file (fix: edit techne's copy, then
+`python3 "$SYNC" <repo>` and open a PR in the site) and each unlisted page.

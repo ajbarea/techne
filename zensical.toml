@@ -13,7 +13,7 @@ extra_css = [
   "stylesheets/components/hero.css",
   "stylesheets/components/landing.css",
 ]
-extra_javascript = ["javascripts/hero.js"]
+extra_javascript = ["javascripts/reveal.js"]
 
 nav = [
   { "Home" = "index.md" },
@@ -95,6 +95,7 @@ social = {}
 
 [project.extra]
 generator = false
+brand_mark = "assets/brand.png"
 
 [[project.extra.social]]
 icon = "fontawesome/brands/github"

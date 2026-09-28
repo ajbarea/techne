@@ -9,6 +9,7 @@ Audit and maintain the Zensical-powered documentation site as a build and deploy
 - Deploy workflow drifted (action version pins, build command, Pages permissions).
 - Internal links or anchors are broken after a page rename.
 - Assets under `docs/stylesheets/` or `docs/javascripts/` need an audit.
+- A shared file (the `main.html` and footer overrides, `reveal.js`, the nav test) changed and every site needs the new copy.
 
 ## Usage
 
@@ -19,6 +20,17 @@ Invoke by name in Claude Code:
 ```
 
 The skill covers site mechanics, not prose accuracy. For prose drift (stale CLI commands, wrong paths, outdated config keys in docs), use [`techne:docsync`](docsync.md).
+
+## Shared files
+
+The files every sister site carries identically live once, in the skill's `templates/shared/`. Edit them there, then copy them into a site:
+
+```
+python3 plugins/techne/skills/docs-site/scripts/sync_shared.py <repo>
+python3 plugins/techne/skills/docs-site/scripts/sync_shared.py --check <repo>
+```
+
+`--check` writes nothing and exits 1 on drift; [`techne:sisters`](sisters.md) runs it across the fleet. A site sets `extra.og_image` and `extra.brand_mark` in `zensical.toml` for its card artwork and footer mark.
 
 ## Prerequisites
 
