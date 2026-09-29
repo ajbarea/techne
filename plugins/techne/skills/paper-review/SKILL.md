@@ -91,17 +91,10 @@ lab-overlap: needs-discussion). **Never edit the paper** — this pass is adviso
 
 ## Common mistakes
 
-- **Trusting the draft's existing citations.** Verify them too (§0) — a seed bib or a recalled
-  citation can be fabricated or mischaracterized. arXiv id → arXiv API; venue → OpenAlex / DOI; a
-  claim *about* a paper → its abstract. A single wrong citation sinks the paper.
-- **Asserting novelty from memory.** The failure this skill exists to stop. No verdict without a
-  retrieved record + a quoted snippet logged in § Provenance.
 - **Inventing or half-remembering a citation.** A fabricated reference is worse than none. If a
   search did not return it, do not cite it.
 - **Eyeballing the bibliography.** §2 gaps come from parsing `references.bib` (DOIs + titles) and
   comparing to the retrieved set — not from guessing what is already cited.
-- **Adjudicating the lab boundary.** §4 surfaces adjacency + the disclosure checklist and stops.
-  Scoring it go/no-go usurps a human agreement.
 - **Relying on keyless Semantic Scholar.** It returns `429`. OpenAlex is primary; S2 only with a
   key.
 

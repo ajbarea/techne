@@ -98,7 +98,7 @@ These are load-bearing. Read them before every theoros session you drive.
 4. **Handoff is only for aesthetic judgment.** Defined by the table in skill-context.md when present, by the default split below when absent:
    - **Aesthetic (human):** does it sound right, feel right, look right, hang together coherently
    - **Operational (you):** did the request fire, did the log line emit, what was the value of X
-5. **If the human pastes a transcript, you forgot rules 1–4.** Acknowledge the slip explicitly and resume from where you were, this time driving the captures yourself.
+5. **If the human pastes a transcript, rules 1–4 slipped.** Resume from where you were, driving the captures yourself.
 
 The ops pane is informational for the human's confidence. **Your source of truth is your own queries**, not what is visible on the screen right now.
 
