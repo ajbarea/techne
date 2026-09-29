@@ -9,7 +9,7 @@ Run from the shell after the config preamble in `SKILL.md`, which sets `$SISTERS
 - [2. Skill-context structural parity](#2-skill-context-structural-parity)
 - [3. GitHub merge-setting drift](#3-github-merge-setting-drift)
 - [4. Open PRs rollup](#4-open-prs-rollup)
-- [5. Stale local branches](#5-stale-local-branches)
+- [5. Branch and worktree hygiene](#5-branch-and-worktree-hygiene)
 - [6. Local `main` divergence from `origin/main`](#6-local-main-divergence-from-originmain)
 - [7. Toolchain pin drift in `pyproject.toml`](#7-toolchain-pin-drift-in-pyprojecttoml)
 - [8. Branch protection on `main`](#8-branch-protection-on-main)
@@ -89,22 +89,19 @@ For each PR, note age (`createdAt` → days-ago), mergeability, and whether the 
 
 Don't pull full check details for every PR; that's the job of `techne:ci-audit`. Link to the PR URL and let the user drill down.
 
-## 5. Stale local branches
-
-For each repo, list branches that are **ahead** of `origin/main` and **not** the currently checked-out branch or `main` itself:
+## 5. Branch and worktree hygiene
 
 ```
-for repo in $SISTERS; do
-  echo "--- $repo ---"
-  (cd $WORKSPACE/$repo && git fetch --quiet origin && \
-    git for-each-ref --format='%(refname:short) %(upstream:track)' refs/heads/ \
-    | grep -v '^main ' \
-    | grep -v '\[gone\]' \
-    | awk '$2 ~ /ahead/ { print $0 }')
-done
+python3 ${CLAUDE_SKILL_DIR}/scripts/hygiene.py
 ```
 
-Report each stale branch: repo, branch name, ahead-by count. Stale branches are work-in-progress that didn't ship; not automatically bad, but worth knowing about before a session.
+One run covers every active sister: local branches, remote branches, worktrees, stashes and uncommitted changes in the main checkout. Each item lands in one of three groups:
+
+- **Safe to remove**: its PR merged into the default branch at this tip, or (a local branch with no PR) it is already in the default branch; a worktree on it is clean, unlocked, idle, not in use, and holds nothing ignored but build output.
+- **Needs a look**: unmerged commits, commits added after the merge, a PR merged into another branch, a closed-unmerged PR, a worktree that is dirty, busy, recently active or holding ignored work, a remote branch with no PR or someone else's.
+- **Info**: branches of open PRs, stashes, uncommitted changes in the main checkout.
+
+"Ahead of `origin/main`" is not used: a squash merge leaves every merged branch ahead forever. Report the groups per repo, and if anything is safe to remove, offer clean mode (SKILL.md).
 
 ## 6. Local `main` divergence from `origin/main`
 
