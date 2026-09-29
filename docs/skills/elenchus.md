@@ -36,12 +36,11 @@ Reachable destructive operations, unmirrored guards across parallel code paths, 
 
 ## What it posts
 
-When an open PR exists for the branch, elenchus posts one distilled comment as the review of record. Who opened the PR decides the shape, derived live from `gh`:
+When someone else opened the PR, elenchus posts one distilled comment as the review of record: merge verdict, then blocking and should-fix findings, then the verified-clean list. Authorship is derived live from `gh`.
 
-- **Someone else's PR**: merge verdict, then blocking and should-fix findings, then the verified-clean list.
-- **Your own PR**: findings, refutations, and the verified-clean list, with **no merge verdict**. A verdict published on your own PR pre-empts the human reviewer the method depends on, and reads to teammates as approving your own work.
+On your own PR it posts nothing. The report stays in the session for you to act on, and the PR stays free of a thread of you reviewing yourself.
 
-Either shape publishes the work rather than the machinery. The comment never claims the review was "independent" and never names the tooling that ran it, because neither is checkable by a teammate.
+The comment publishes the work rather than the machinery. It never claims the review was "independent" and never names the tooling that ran it, because neither is checkable by a teammate.
 
 Skipped when there is no open PR, or when you say to keep the review local.
 
