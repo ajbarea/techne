@@ -1,6 +1,8 @@
 ---
 name: paper
 description: Scaffold a new research paper in a papers-style monorepo (a repo of LaTeX paper directories that share one bibliography): the LaTeX skeleton, a results-harvest script, the shared-bib wiring, and a portfolio row, built once so it compiles on day one. Use when starting a new paper: "scaffold a paper", "start a new paper", "set up a paper dir", "new paper from <repo>", "add a paper to papers/". Not for editing an existing paper's prose or for one-off documents outside such a repo.
+disable-model-invocation: false
+allowed-tools: Bash Glob Grep Read Edit Write
 ---
 
 # Paper Scaffold

@@ -64,7 +64,7 @@ User-specific calibration — patterns the user flags most often from their own 
    - Config/build (`pyproject.toml`, `Makefile`, `.github/workflows/**`, `Cargo.toml`, `zensical.toml`, etc.)
    - Docs (only if user asks — docs prose is a different genre): `docs/**/*.md`
 
-   Brief each subagent with the slop/keep lists, the grep seed patterns, and the calibration examples below. Tell it to start with the grep pass for recall, then read surrounding context to confirm each hit against the Cut/Keep filter before reporting. Ask for a compact report: `file:line` + the offending text + a proposed replacement (or `delete`). Cap each report at ~30 findings so context stays cheap.
+   Brief each subagent with the slop/keep lists, the grep seed patterns, and the calibration examples below. Tell it to start with the grep pass for recall, then read surrounding context to confirm each hit against the Cut/Keep filter before reporting. Ask for a compact report: `file:line` + the offending text + a proposed replacement (or `delete`). If an area runs past ~30 findings, have it report the strongest 30 and state how many it held back — a truncated sweep must never read as a clean one.
 
 3. **Consolidate.** Merge findings grouped by file. Drop duplicates and obvious false positives. If two subagents disagree on the same line, prefer the less aggressive edit.
 
