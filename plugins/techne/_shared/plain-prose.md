@@ -63,15 +63,19 @@ source, not against the draft.
 
 ## Mechanical patterns
 
-Read by `_shared/prose_check.py`, which the latex and pdf gates run. Each line is
-`name | regex`, matched case-insensitively. Hits are `REVIEW` findings: a
-candidate for the eye, never a verdict. The em-dash pattern skips the ones
-IEEEtran sets after "Abstract" and "Index Terms". A pattern belongs here only when a hit
+Read by `_shared/prose_check.py`, which the latex and pdf gates run, together
+with the *Modern LLM tells* section of `_shared/hate-words.md` (reported as
+`llm-tell`). Vocabulary belongs in that glossary; this block holds the
+document-level patterns. Each line is `name | regex`, matched
+case-insensitively. Hits are `REVIEW` findings: a
+candidate for the eye, never a verdict. The em-dash pattern skips, case-sensitively,
+the ones IEEEtran sets after "Abstract" and "Index Terms". In markdown, `---`
+between words counts too, since Typst's smart punctuation sets it as one. A pattern belongs here only when a hit
 is almost always a line to rewrite.
 
 ```prose-patterns
-em-dash | (?<!Abstract)(?<!Terms)\u2014
-throat-clearing | \b(it is|it's) (worth noting|important to note|worth mentioning)\b|\bit should be (noted|emphasi[sz]ed)\b|\bneedless to say\b
+em-dash | (?-i:(?<!Abstract)(?<!Index Terms))\u2014
+throat-clearing | \b(it is|it's) (worth noting|important to note|worth mentioning)\b|\bit should be (noted|emphasi[sz]ed)\b
 self-commentary | \b(least|most) comfortable observation\b|\bthe (honest|interesting) (framing|shape)\b|\bthe direction of the error is\b
 ornate-verb | \b(leverag|utiliz|utilis|facilitat)(e|es|ed|ing)\b
 filler | \bin order to\b|\bthe fact that\b|\bserves to\b|\bplays? an? (key|crucial|vital|pivotal) role\b

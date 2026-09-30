@@ -16,13 +16,18 @@ lands on one line and the regexes below hold. Without it TeX breaks messages at
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import os
 import pathlib
 import re
 import subprocess
 import sys
-import types
+
+# The prose check ships in the plugin's _shared/ directory, beside the rubric it reads.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "_shared"))
+try:
+    import prose_check  # ty: ignore[unresolved-import]
+except ImportError:  # an install without _shared/
+    prose_check = None
 
 ERROR, BLOCK, WARN, REVIEW, INFO = "ERROR", "BLOCK", "WARN", "REVIEW", "INFO"
 RANK = {ERROR: 0, BLOCK: 1, WARN: 2, REVIEW: 3, INFO: 4}
@@ -53,8 +58,6 @@ _RERUN = re.compile(r"Rerun to get|Please \(re\)run|Rerun LaTeX")
 # Biber prefixes every line with its own module trace, so this cannot be anchored.
 _BLG_ERROR = re.compile(r"\b(?P<level>ERROR|WARN) - (?P<msg>.+)$")
 _NO_ENTRY = re.compile(r"(?:didn't find a database entry for|entry could not be found)")
-# The prose check ships in the plugin's _shared/ directory, beside the rubric it reads.
-PROSE_CHECK = pathlib.Path(__file__).resolve().parents[3] / "_shared" / "prose_check.py"
 # Problem headers, as they appear in both an assignment prompt and the answer PDF.
 _PROBLEM = re.compile(
     r"\b(?P<kind>Problem|Question|Exercise|Task|Bonus)\s*#?\s*(?P<num>\d{1,2}|[A-Z])\b"
@@ -284,23 +287,16 @@ def prompt_coverage(prompt: pathlib.Path, text: str) -> list[Finding]:
     return [Finding(INFO, "coverage", f"all {len(asked)} headers in {prompt.name} appear")]
 
 
-def load_prose_check(path: pathlib.Path = PROSE_CHECK) -> types.ModuleType | None:
-    spec = importlib.util.spec_from_file_location("techne_prose_check", path)
-    if not path.exists() or not spec or not spec.loader:
-        return None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
 def prose_findings(pdf: pathlib.Path) -> list[Finding]:
     """Advisory. Patterns from _shared/plain-prose.md; never decides the exit code."""
-    prose = load_prose_check()
-    if prose is None:
-        return [Finding(INFO, "prose", f"prose check not found at {PROSE_CHECK}")]
+    if prose_check is None:
+        return [Finding(INFO, "prose", "prose check not installed (no _shared/prose_check.py)")]
+    hits, skipped = prose_check.report(prose_check.pdf_text(pdf))
+    if skipped:
+        return [Finding(INFO, "prose", skipped)]
     return [
         Finding(REVIEW, "prose", f"{hit.count}x {hit.name}: \u201c{hit.example}\u201d")
-        for hit in prose.check(prose.pdf_text(pdf))
+        for hit in hits
     ]
 
 

@@ -59,6 +59,10 @@ grep -ioE 'doi\s*=\s*[{"][^}"]+' "$BIB" | grep -ioE '10\.[0-9]+/[^} "]+' | sort 
 grep -ioE 'title\s*=\s*[{"][^}"]+' "$BIB"                                            # cited titles
 ```
 
+A draft with an inline `thebibliography` has no `title =` fields. Take DOIs straight from the
+`.tex` (`grep -ioE '10\.[0-9]+/[^} ,]+' draft.tex | sort -u`) and read the titles from the
+quoted text of each `\bibitem`.
+
 For each retrieved DOI not in the cited-DOI set, the paper is a candidate gap. Normalize titles
 (lowercase, strip punctuation) to catch papers cited without a DOI. A retrieved paper that is
 both highly relevant and absent from both sets is a §2 related-work gap.

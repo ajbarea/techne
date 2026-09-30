@@ -1,36 +1,48 @@
 #!/usr/bin/env python3
-"""Flag prose patterns from plain-prose.md in a document's text.
+"""Flag prose patterns from plain-prose.md and hate-words.md in a document's text.
 
 Run with ``python prose_check.py <file>`` on a .md, .txt or .pdf (needs poppler
 for .pdf). The latex and pdf gates import it and report hits as REVIEW
 findings. It never decides an exit code: a hit is a line to look at, not a
 defect.
 
-The patterns live in the ``prose-patterns`` block of plain-prose.md beside this
-file, so the rubric a writer reads and the check a build runs cannot drift.
+Patterns come from the ``prose-patterns`` block of plain-prose.md and the
+"Modern LLM tells" section of hate-words.md, both beside this file, so the
+rubric a writer reads and the check a build runs cannot drift.
 """
 
 from __future__ import annotations
 
 import argparse
+import functools
 import pathlib
 import re
 import subprocess
 import sys
 from typing import NamedTuple
 
-RUBRIC = pathlib.Path(__file__).resolve().parent / "plain-prose.md"
+HERE = pathlib.Path(__file__).resolve().parent
+RUBRIC = HERE / "plain-prose.md"
+GLOSSARY = HERE / "hate-words.md"
+GLOSSARY_SECTION = "Modern LLM tells"
 LONG_SENTENCE_WORDS = 40
 
+Patterns = list[tuple[str, re.Pattern[str]]]
+
 _BLOCK = re.compile(r"```prose-patterns\n(?P<body>.*?)```", re.S)
-# The reference list is citations, not prose; everything after its heading is skipped.
-_REFERENCES = re.compile(r"^\s*(?:R\s?EFERENCES|References|Bibliography)\s*$", re.M)
+_BACKTICKED = re.compile(r"`([^`]+)`")
+# A reference list is citations, not prose. It ends at the next heading (an appendix) or the end.
+_REFERENCES = re.compile(r"^\s*(?:#{1,6}\s*)?(?:R\s?EFERENCES|References|Bibliography)\s*$", re.M)
+_NEXT_HEADING = re.compile(r"^\s*(?:#{1,6}\s+\S|(?:A\s?PPENDIX|Appendix)\b)", re.M)
 _HYPHEN_BREAK = re.compile(r"(\w)-\n(\w)")
-_PARAGRAPH = re.compile(r"\n\s*\n")
+# Paragraph breaks, and the start of a list item or table row: none of these ends in a full stop.
+_BLOCK_BREAK = re.compile(r"\n\s*\n|\n(?=\s*(?:[-*+•]\s|\d+[.)]\s|\|))")
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z(\[])")
-_ENDS_SENTENCE = re.compile(r"[.!?][\"'\u201d)\]]*$")
+_ENDS_SENTENCE = re.compile(r"[.!?][\"'”)\]]*$")
 _MD_CODE = re.compile(r"```.*?```|`[^`\n]*`", re.S)
 _MD_LINK_URL = re.compile(r"\]\([^)]*\)")
+# Between words only: a table separator row (| --- |) and a rule line are not dashes.
+_MD_TRIPLE_DASH = re.compile(r"(?<=\w)[ \t]*---[ \t]*(?=\w)")
 
 
 class Hit(NamedTuple):
@@ -39,7 +51,32 @@ class Hit(NamedTuple):
     example: str
 
 
-def load_patterns(rubric: pathlib.Path = RUBRIC) -> list[tuple[str, re.Pattern[str]]]:
+def _compile(name: str, regex: str, source: pathlib.Path) -> tuple[str, re.Pattern[str]]:
+    if not name or not regex:
+        raise ValueError(f"{source}: pattern line needs `name | regex`, got {name!r} | {regex!r}")
+    return name, re.compile(regex, re.I)
+
+
+def _glossary_terms(glossary: pathlib.Path) -> list[str]:
+    section = re.search(
+        rf"^## {re.escape(GLOSSARY_SECTION)}\n(?P<body>.*?)(?=^## |\Z)",
+        glossary.read_text(encoding="utf-8"),
+        re.M | re.S,
+    )
+    if not section:
+        return []
+    return [
+        term
+        for line in section["body"].splitlines()
+        if line.startswith("- ")
+        for term in _BACKTICKED.findall(line)
+    ]
+
+
+def load_patterns(
+    rubric: pathlib.Path = RUBRIC, glossary: pathlib.Path | None = GLOSSARY
+) -> Patterns:
+    """Raises ValueError or re.error on a malformed file; callers stay advisory."""
     match = _BLOCK.search(rubric.read_text(encoding="utf-8"))
     if not match:
         raise ValueError(f"no prose-patterns block in {rubric}")
@@ -47,22 +84,45 @@ def load_patterns(rubric: pathlib.Path = RUBRIC) -> list[tuple[str, re.Pattern[s
     for line in match["body"].splitlines():
         if not line.strip():
             continue
-        name, _, regex = line.partition("|")
-        patterns.append((name.strip(), re.compile(regex.strip(), re.I)))
+        name, bar, regex = line.partition("|")
+        if not bar:
+            raise ValueError(f"{rubric}: pattern line without `|`: {line!r}")
+        patterns.append(_compile(name.strip(), regex.strip(), rubric))
+
+    if glossary is not None and glossary.exists():
+        terms = _glossary_terms(glossary)
+        if terms:
+            joined = "|".join(rf"\b(?:{term})" for term in terms)
+            patterns.append(_compile("llm-tell", joined, glossary))
     return patterns
 
 
+@functools.cache
+def default_patterns() -> Patterns:
+    return load_patterns()
+
+
+def report(text: str) -> tuple[list[Hit], str]:
+    """The gates' entry point: hits, or why the check could not run. Never raises."""
+    try:
+        return check(text, default_patterns()), ""
+    except (OSError, ValueError, re.error) as exc:
+        return [], f"prose check skipped: {exc}"
+
+
 def body_of(text: str) -> str:
-    """Drop the reference list and rejoin words hyphenated across a line break."""
-    refs = list(_REFERENCES.finditer(text))
-    if refs:
-        text = text[: refs[-1].start()]
+    """Drop reference lists, keep appendices, and rejoin words hyphenated across a line."""
+    while match := _REFERENCES.search(text):
+        rest = text[match.end() :]
+        nxt = _NEXT_HEADING.search(rest)
+        text = text[: match.start()] + (rest[nxt.start() :] if nxt else "")
     return _HYPHEN_BREAK.sub(r"\1\2", text)
 
 
 def markdown_prose(text: str) -> str:
-    """Code and link targets are not prose."""
-    return _MD_LINK_URL.sub("]", _MD_CODE.sub(" ", text))
+    """Code and link targets are not prose. Typst's smart punctuation sets `---` as an em-dash."""
+    text = _MD_LINK_URL.sub("]", _MD_CODE.sub(" ", text))
+    return _MD_TRIPLE_DASH.sub("\u2014", text)
 
 
 def _snippet(text: str, start: int, end: int, pad: int = 30) -> str:
@@ -70,11 +130,9 @@ def _snippet(text: str, start: int, end: int, pad: int = 30) -> str:
 
 
 def check(
-    text: str,
-    patterns: list[tuple[str, re.Pattern[str]]] | None = None,
-    long_words: int = LONG_SENTENCE_WORDS,
+    text: str, patterns: Patterns | None = None, long_words: int = LONG_SENTENCE_WORDS
 ) -> list[Hit]:
-    patterns = load_patterns() if patterns is None else patterns
+    patterns = default_patterns() if patterns is None else patterns
     text = body_of(text)
     hits = []
     for name, regex in patterns:
@@ -83,11 +141,10 @@ def check(
             first = found[0]
             hits.append(Hit(name, len(found), _snippet(text, first.start(), first.end())))
 
-    # A title block, heading or table row has no full stop, so it is not a sentence.
     long = [
         sentence
-        for paragraph in _PARAGRAPH.split(text)
-        for sentence in _SENTENCE_END.split(" ".join(paragraph.split()))
+        for block in _BLOCK_BREAK.split(text)
+        for sentence in _SENTENCE_END.split(" ".join(block.split()))
         if len(sentence.split()) > long_words and _ENDS_SENTENCE.search(sentence)
     ]
     if long:
@@ -114,7 +171,10 @@ def main() -> int:
         if args.path.suffix == ".md":
             text = markdown_prose(text)
 
-    hits = check(text)
+    hits, skipped = report(text)
+    if skipped:
+        print(skipped, file=sys.stderr)
+        return 1
     for hit in hits:
         print(f"REVIEW {hit.name:<16} {hit.count}x  “{hit.example}”")
     if not hits:

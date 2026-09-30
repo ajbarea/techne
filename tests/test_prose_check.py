@@ -27,6 +27,7 @@ def test_the_rubric_block_parses_into_every_named_pattern(pc):
         "ornate-verb",
         "filler",
         "stacked-hedge",
+        "llm-tell",
     }
 
 
@@ -110,14 +111,49 @@ def test_the_cli_reads_markdown(pc, tmp_path, monkeypatch, capsys):
     assert "throat-clearing" in capsys.readouterr().out
 
 
-# ----------------------------------------------------------- latex wiring --
+def test_a_pattern_line_without_a_bar_is_an_error(pc, tmp_path):
+    """Without the bar the regex is empty and matches at every position."""
+    rubric = tmp_path / "plain-prose.md"
+    rubric.write_text("```prose-patterns\npassive \\bwas\\b\n```\n", encoding="utf-8")
+    with pytest.raises(ValueError):
+        pc.load_patterns(rubric, None)
+
+
+def test_the_glossary_llm_tells_are_checked(pc):
+    assert "llm-tell" in names(pc.check("We delve into the cache."))
+
+
+def test_markdown_triple_dash_between_words_counts_as_an_em_dash(pc):
+    """Typst's smart punctuation sets `---` as U+2014 in the PDF."""
+    assert "em-dash" in names(pc.check(pc.markdown_prose("The run failed --- twice.\n")))
+
+
+@pytest.mark.parametrize("md", ["One.\n\n---\n\nTwo.\n", "| A | B |\n| --- | --- |\n| x | y |\n"])
+def test_a_markdown_rule_or_table_separator_is_not_an_em_dash(pc, md):
+    assert "em-dash" not in names(pc.check(pc.markdown_prose(md)))
+
+
+def test_an_appendix_after_the_references_is_still_checked(pc):
+    text = "Body.\n\nREFERENCES\n\n[1] A cite.\n\nAPPENDIX A\n\nIt is worth noting this."
+    assert "throat-clearing" in names(pc.check(text))
+
+
+def test_a_markdown_reference_heading_is_recognised(pc):
+    text = "Body.\n\n## References\n\n- Leveraging caches, 2020.\n"
+    assert pc.check(text) == []
+
+
+def test_bullet_items_are_not_joined_into_one_sentence(pc):
+    item = "- " + " ".join(["word"] * 20) + "."
+    assert "long-sentence" not in names(pc.check("\n".join([item] * 4)))
+
+
+# ----------------------------------------------------------- gate wiring --
 
 
 def test_latex_reports_prose_hits_as_review(lx, monkeypatch, gates):
-    prose = lx.load_prose_check()
-    assert prose is not None, "latex.py cannot find _shared/prose_check.py"
-    monkeypatch.setattr(prose, "pdf_text", lambda _pdf: "It is worth noting this.")
-    monkeypatch.setattr(lx, "load_prose_check", lambda: prose)
+    assert lx.prose_check is not None, "latex.py cannot import _shared/prose_check.py"
+    monkeypatch.setattr(lx.prose_check, "pdf_text", lambda _pdf: "It is worth noting this.")
     found = lx.prose_findings(pathlib.Path("doc.pdf"))
     assert gates(found) == {(REVIEW, "prose")}
     assert "throat-clearing" in found[0].message
@@ -131,11 +167,25 @@ def test_prose_review_does_not_change_the_exit_code(lx):
 
 
 def test_a_missing_prose_check_is_reported_not_fatal(lx, monkeypatch, gates):
-    monkeypatch.setattr(lx, "load_prose_check", lambda: None)
+    monkeypatch.setattr(lx, "prose_check", None)
     assert gates(lx.prose_findings(pathlib.Path("doc.pdf"))) == {(INFO, "prose")}
 
 
-# ------------------------------------------------------------- pdf wiring --
+def test_a_malformed_rubric_is_reported_not_fatal(lx, rn, monkeypatch, gates, tmp_path):
+    """An advisory check must not turn a clean build into a traceback."""
+
+    def broken():
+        raise ValueError("no prose-patterns block")
+
+    monkeypatch.setattr(lx.prose_check, "default_patterns", broken)
+    monkeypatch.setattr(lx.prose_check, "pdf_text", lambda _pdf: "Text.")
+    assert gates(lx.prose_findings(pathlib.Path("doc.pdf"))) == {(INFO, "prose")}
+
+    src = tmp_path / "doc.md"
+    src.write_text("# T\n\nText.\n", encoding="utf-8")
+    monkeypatch.setattr(rn.prose_check, "default_patterns", broken)
+    (line,) = rn.prose_lines(src)
+    assert line.strip().startswith("INFO")
 
 
 def test_render_reports_prose_hits_in_the_markdown_source(rn, tmp_path):

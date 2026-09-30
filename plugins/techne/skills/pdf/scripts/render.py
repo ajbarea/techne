@@ -17,13 +17,18 @@ one), which is how a document quietly changes typeface between machines.
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import pathlib
 import re
 import subprocess
 import sys
 import tempfile
-import types
+
+# The prose check ships in the plugin's _shared/ directory, beside the rubric it reads.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "_shared"))
+try:
+    import prose_check  # ty: ignore[unresolved-import]
+except ImportError:  # an install without _shared/
+    prose_check = None
 
 # Ordered fallbacks. Libertinus Serif, New Computer Modern and DejaVu Sans Mono
 # ship inside the typst wheel, so the last entry of each list always resolves.
@@ -32,8 +37,6 @@ SANS = ["Helvetica Neue", "Helvetica", "TeX Gyre Heros", "Arial", "Libertinus Se
 MONO = ["SF Mono", "Menlo", "Consolas", "DejaVu Sans Mono"]
 
 TEMPLATE = pathlib.Path(__file__).resolve().parent.parent / "templates" / "document.typ.tmpl"
-# The prose check ships in the plugin's _shared/ directory, beside the rubric it reads.
-PROSE_CHECK = pathlib.Path(__file__).resolve().parents[3] / "_shared" / "prose_check.py"
 
 _H1 = re.compile(r"^#\s+(.*?)\s*$")
 _EM_ONLY = re.compile(r"^\*(?P<text>[^*].*?)\*$|^_(?P<alt>[^_].*?)_$")
@@ -113,25 +116,15 @@ def render(src: pathlib.Path, out_dir: pathlib.Path) -> tuple[pathlib.Path, list
     return dest, pdf_fonts(dest)
 
 
-def load_prose_check(path: pathlib.Path = PROSE_CHECK) -> types.ModuleType | None:
-    spec = importlib.util.spec_from_file_location("techne_prose_check", path)
-    if not path.exists() or not spec or not spec.loader:
-        return None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
 def prose_lines(src: pathlib.Path) -> list[str]:
     """Advisory REVIEW lines for the markdown source; never decides the exit code."""
-    prose = load_prose_check()
-    if prose is None:
-        return [f"  INFO   prose check not found at {PROSE_CHECK}"]
-    text = prose.markdown_prose(src.read_text(encoding="utf-8"))
-    return [
-        f"  REVIEW prose {hit.count}x {hit.name}: \u201c{hit.example}\u201d"
-        for hit in prose.check(text)
-    ]
+    if prose_check is None:
+        return ["  INFO   prose check not installed (no _shared/prose_check.py)"]
+    text = prose_check.markdown_prose(src.read_text(encoding="utf-8"))
+    hits, skipped = prose_check.report(text)
+    if skipped:
+        return [f"  INFO   {skipped}"]
+    return [f"  REVIEW prose {hit.count}x {hit.name}: \u201c{hit.example}\u201d" for hit in hits]
 
 
 def main(argv: list[str] | None = None) -> int:

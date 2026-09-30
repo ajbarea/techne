@@ -80,7 +80,8 @@ mandatory citation-integrity gate, then OpenNovelty's four-phase pipeline (arXiv
      **stop-ship**; stop-ship findings first. No fabricated or mischaracterized citations.
    - **§1 Novelty** — per contribution: verdict + closest prior work (cited + snippet) + what is
      distinct.
-   - **§2 Related-work gaps** — retrieved papers absent from `references.bib` (cross-check DOIs
+   - **§2 Related-work gaps** — retrieved papers absent from `references.bib`, or from the
+     `thebibliography` block of a bare `.tex` (cross-check DOIs
      and titles per the recipe). The closely-related work the author overlooked.
    - **§3 Claim-support** — each flag-claim → supported / unsupported / overclaim. First-ness
      from retrieval; quantitative claims against the `--from` repo's harvest output (else flag
@@ -90,7 +91,7 @@ mandatory citation-integrity gate, then OpenNovelty's four-phase pipeline (arXiv
      of a cited paper against its full text where it is open access (qualifiers are lost in
      abstracts), "consistent with X" only where the setups match, and a proposal's promises
      against what the time allows.
-   - **§3b Structure** — the sections the target venue expects. A manuscript with no Related
+   - **§3b Structure.** The sections the target venue expects. A manuscript with no Related
      Work or no References is a stop-ship finding, however clean the prose.
    - **§4 Lab-overlap — surface, do not adjudicate.** Parse `lab_line`; list adjacent lab papers
      and which draft claims overlap; emit the COPE disclosure checklist. **Never render a

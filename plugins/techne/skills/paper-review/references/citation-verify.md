@@ -15,6 +15,14 @@ grep -oE '^@[a-z]+\{[^,]+' references.bib | sed -E 's/^@[a-z]+\{//' | sort -u   
 
 A used key not defined in the bib is a broken citation. Then pull each entry's id / DOI / title.
 
+A draft with an inline `thebibliography` block has no `.bib`: take the defined keys from its
+`\bibitem`s and the ids, DOIs and titles from the item text, and point every recipe below at the
+`.tex` instead of `references.bib`.
+
+```bash
+grep -oE '\\bibitem(\[[^]]*\])?\{[^}]+\}' draft.tex | grep -oE '\{[^}]+\}$' | tr -d '{}' | sort -u
+```
+
 ## arXiv ids → arXiv API (authoritative)
 
 Batch every arXiv id in one call (use **https**; `http` can return an empty body):
@@ -46,7 +54,7 @@ Confirm the top hit's title matches; take authors / venue / year from the author
 ## Claims *about* a cited work
 
 A descriptor like "parameter-free", "first to", "state-of-the-art", or "outperforms X" applied
-to a *cited* paper is a claim about that paper — verify it against the paper's full text where
+to a *cited* paper is a claim about that paper. Verify it against the paper's full text where
 it is open access (arXiv PDF, open journal), else its abstract, never recall. (Real examples: a
 draft called ArKrum "parameter-free"; its abstract says it *estimates* the adversary count. A
 proposal summarized Kumar et al. as "expressive encodings stop the attack"; only the full text
