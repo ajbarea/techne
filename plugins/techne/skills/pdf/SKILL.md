@@ -10,6 +10,13 @@ allowed-tools: Bash Glob Grep Read Edit
 Markdown in, print-quality PDF out. Do not go looking for a converter: the
 decision is made and the generator is in this skill.
 
+## Write it plain first
+
+When writing or revising the markdown, read `${CLAUDE_PLUGIN_ROOT}/_shared/plain-prose.md` and
+write to it. Each render prints `REVIEW prose` lines for the patterns that
+file lists and for sentences over 40 words; they never change the exit code.
+`--no-prose` skips them.
+
 ## Run it
 
 The user gives a path and usually nothing else. Resolve the rest yourself:

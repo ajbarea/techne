@@ -156,6 +156,11 @@ that drift class recurs.
 
 Detail lives in git history (`git log`) and the live skill code. This log is pruned once work is durably shipped.
 
+- 2026-09-30 — **Plain prose at write time.** `_shared/plain-prose.md` is the rubric the latex,
+  pdf, paper and slides skills read before drafting, with before/after pairs from two real
+  rewrites. Its `prose-patterns` block drives a stdlib check the latex and pdf gates report as
+  `REVIEW prose`. paper-review checks claims against code, data and full-text sources, flags a
+  manuscript missing Related Work or References, and accepts a bare `.tex` path.
 - 2026-09-24 — **`techne:slides` learns from the deck it was built from.** The writing guidance
   now carries what made the makesense talk land for newcomers: plain words on the slide with the
   source's term in a footnote, one-line definitions where a term first appears, a concrete case

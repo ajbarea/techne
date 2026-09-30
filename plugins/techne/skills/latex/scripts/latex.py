@@ -22,6 +22,13 @@ import re
 import subprocess
 import sys
 
+# The prose check ships in the plugin's _shared/ directory, beside the rubric it reads.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "_shared"))
+try:
+    import prose_check  # ty: ignore[unresolved-import]
+except ImportError:  # an install without _shared/
+    prose_check = None
+
 ERROR, BLOCK, WARN, REVIEW, INFO = "ERROR", "BLOCK", "WARN", "REVIEW", "INFO"
 RANK = {ERROR: 0, BLOCK: 1, WARN: 2, REVIEW: 3, INFO: 4}
 
@@ -280,6 +287,19 @@ def prompt_coverage(prompt: pathlib.Path, text: str) -> list[Finding]:
     return [Finding(INFO, "coverage", f"all {len(asked)} headers in {prompt.name} appear")]
 
 
+def prose_findings(pdf: pathlib.Path) -> list[Finding]:
+    """Advisory. Patterns from _shared/plain-prose.md; never decides the exit code."""
+    if prose_check is None:
+        return [Finding(INFO, "prose", "prose check not installed (no _shared/prose_check.py)")]
+    hits, skipped = prose_check.report(prose_check.pdf_text(pdf))
+    if skipped:
+        return [Finding(INFO, "prose", skipped)]
+    return [
+        Finding(REVIEW, "prose", f"{hit.count}x {hit.name}: \u201c{hit.example}\u201d")
+        for hit in hits
+    ]
+
+
 def find_prompt(tex: pathlib.Path) -> tuple[pathlib.Path | None, str]:
     """A sidecar of the document itself is not the prompt it answers."""
     own = f"{tex.stem}.extracted"
@@ -321,7 +341,7 @@ def verdict(found: list[Finding], pdf: pathlib.Path, log: pathlib.Path) -> tuple
         return 2, f"BUILT but not submittable: {blocks} blocker(s). Log: {log}"
     line = f"CLEAN: {pdf}"
     if reviews:
-        line += f" -- {reviews} coverage item(s) to confirm by eye"
+        line += f" -- {reviews} item(s) to confirm by eye"
     return 0, line
 
 
@@ -337,6 +357,7 @@ def main() -> int:
         "(default: the lone *.extracted.md beside the source)",
     )
     ap.add_argument("--no-prompt", action="store_true", help="skip the coverage check entirely")
+    ap.add_argument("--no-prose", action="store_true", help="skip the plain-prose pattern check")
     ap.add_argument(
         "--markers",
         default=",".join(DEFAULT_MARKERS),
@@ -371,6 +392,9 @@ def main() -> int:
             found += prompt_coverage(prompt, text)
         elif ambiguous:
             found.append(Finding(INFO, "coverage", ambiguous))
+
+    if not args.no_prose and text:
+        found += prose_findings(pdf)
 
     if code != 0 and not any(f.severity == ERROR for f in found):
         found.append(Finding(ERROR, "build", f"latexmk exited {code}, log says nothing"))

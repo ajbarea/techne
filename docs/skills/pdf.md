@@ -30,6 +30,8 @@ Nothing needs installing. The `typst` wheel bundles the compiler, and `cmarker` 
 
 Every run prints the font families each PDF actually embedded. `--check-fonts LibertinusSerif TeXGyreHeros` turns that into a gate and exits non-zero on a mismatch, which is what catches a machine where a requested family is missing or unreadable and Typst has quietly fallen back.
 
+Each render also prints `REVIEW prose` lines for the markdown source: the patterns listed in `_shared/plain-prose.md` and sentences over 40 words, with code and link targets ignored. They never change the exit code; `--no-prose` skips them.
+
 Content is verified by diffing normalized `pdftotext` output against the markdown, not by looking at the page. Wrapped table cells reorder under `-layout` and repeated `table.header` rows appear once per page; both are extraction artifacts. Anything else is a real difference.
 
 ## Testing it

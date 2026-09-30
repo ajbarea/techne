@@ -23,6 +23,13 @@ import subprocess
 import sys
 import tempfile
 
+# The prose check ships in the plugin's _shared/ directory, beside the rubric it reads.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "_shared"))
+try:
+    import prose_check  # ty: ignore[unresolved-import]
+except ImportError:  # an install without _shared/
+    prose_check = None
+
 # Ordered fallbacks. Libertinus Serif, New Computer Modern and DejaVu Sans Mono
 # ship inside the typst wheel, so the last entry of each list always resolves.
 SERIF = ["Charter", "XCharter", "Libertinus Serif"]
@@ -109,6 +116,17 @@ def render(src: pathlib.Path, out_dir: pathlib.Path) -> tuple[pathlib.Path, list
     return dest, pdf_fonts(dest)
 
 
+def prose_lines(src: pathlib.Path) -> list[str]:
+    """Advisory REVIEW lines for the markdown source; never decides the exit code."""
+    if prose_check is None:
+        return ["  INFO   prose check not installed (no _shared/prose_check.py)"]
+    text = prose_check.markdown_prose(src.read_text(encoding="utf-8"))
+    hits, skipped = prose_check.report(text)
+    if skipped:
+        return [f"  INFO   {skipped}"]
+    return [f"  REVIEW prose {hit.count}x {hit.name}: \u201c{hit.example}\u201d" for hit in hits]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("src", type=pathlib.Path, help="markdown file or directory")
@@ -118,6 +136,9 @@ def main(argv: list[str] | None = None) -> int:
         metavar="FAMILY",
         nargs="+",
         help="fail unless every rendered PDF embeds exactly these families",
+    )
+    parser.add_argument(
+        "--no-prose", action="store_true", help="skip the plain-prose pattern check"
     )
     args = parser.parse_args(argv)
 
@@ -131,6 +152,9 @@ def main(argv: list[str] | None = None) -> int:
     for src in sources:
         dest, fonts = render(src, args.out)
         print(f"{dest}  [{', '.join(fonts)}]")
+        if not args.no_prose:
+            for line in prose_lines(src):
+                print(line)
         if args.check_fonts and sorted(args.check_fonts) != fonts:
             drift.append(f"{dest.name}: expected {sorted(args.check_fonts)}, got {fonts}")
 

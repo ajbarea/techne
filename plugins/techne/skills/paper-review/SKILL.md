@@ -27,7 +27,8 @@ verdict cites a record retrieved this run with a verbatim snippet, or it is mark
 
 ## Inputs
 
-- `<name>` — the paper directory under `papers/` (e.g. `velocity-fl-systems`).
+- `<name>` — the paper directory under `papers/` (e.g. `velocity-fl-systems`), or a path to
+  a `.tex`.
 - `--from <repo>` (optional) — the source code repo; grounds quantitative claims against its
   harvest output.
 
@@ -36,15 +37,18 @@ verdict cites a record retrieved this run with a verbatim snippet, or it is mark
 Read `## paper-review` from `<repo>/.claude/skill-context.md`: `lab_line` (overlap source of
 truth, default `LINEAGE.md`), `retrieval` (default OpenAlex + web; Semantic Scholar only if
 `S2_API_KEY` is set), `mailto` (OpenAlex polite pool, default `git config user.email`), `report`
-(default `papers/<name>/novelty-review.md`). Sensible defaults if absent.
+(default `papers/<name>/novelty-review.md`, or `<stem>.novelty-review.md` beside a `.tex` path). Sensible defaults if absent.
 
 ## Procedure
 
-Refuse if `papers/<name>/` does not exist. Locate `main.tex` and its `\input` files. Then run a
+`<name>` may also be a path to a `.tex` outside `papers/` (a course manuscript, say); then
+skip the `LINEAGE.md` overlap step unless a lab line is configured. Refuse if neither exists.
+Locate the root `.tex` (`main.tex` under `papers/`) and its `\input` files. Then run a
 mandatory citation-integrity gate, then OpenNovelty's four-phase pipeline (arXiv 2601.01576):
 
 0. **Citation integrity (MANDATORY — do this first).** Before assessing novelty, verify the
-   draft's *own* citations are real. Extract every `\cite` key and its `references.bib` entry;
+   draft's *own* citations are real. Extract every `\cite` key and its `references.bib` entry (or its
+   `\bibitem` in a `thebibliography` block);
    verify each against an authoritative record — arXiv ids via the arXiv API, DOIs / venues via
    OpenAlex or DOI content-negotiation. See [citation-verify](references/citation-verify.md).
    Confirm the id/DOI resolves to the *same* paper (title match), with correct authors and year,
@@ -76,11 +80,19 @@ mandatory citation-integrity gate, then OpenNovelty's four-phase pipeline (arXiv
      **stop-ship**; stop-ship findings first. No fabricated or mischaracterized citations.
    - **§1 Novelty** — per contribution: verdict + closest prior work (cited + snippet) + what is
      distinct.
-   - **§2 Related-work gaps** — retrieved papers absent from `references.bib` (cross-check DOIs
+   - **§2 Related-work gaps** — retrieved papers absent from `references.bib`, or from the
+     `thebibliography` block of a bare `.tex` (cross-check DOIs
      and titles per the recipe). The closely-related work the author overlooked.
    - **§3 Claim-support** — each flag-claim → supported / unsupported / overclaim. First-ness
      from retrieval; quantitative claims against the `--from` repo's harvest output (else flag
-     "verify against source").
+     "verify against source"). Then the checks in the *Claims* section of
+     `${CLAUDE_PLUGIN_ROOT}/_shared/plain-prose.md`: every number against the code or data
+     that produced it, every method description against the code that runs it, every summary
+     of a cited paper against its full text where it is open access (qualifiers are lost in
+     abstracts), "consistent with X" only where the setups match, and a proposal's promises
+     against what the time allows.
+   - **§3b Structure.** The sections the target venue expects. A manuscript with no Related
+     Work or no References is a stop-ship finding, however clean the prose.
    - **§4 Lab-overlap — surface, do not adjudicate.** Parse `lab_line`; list adjacent lab papers
      and which draft claims overlap; emit the COPE disclosure checklist. **Never render a
      too-close / go-no-go verdict** — that boundary is the author's and advisor's to agree.

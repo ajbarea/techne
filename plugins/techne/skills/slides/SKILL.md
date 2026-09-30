@@ -61,6 +61,9 @@ including the ones you did not change.
 `# research(2026-09)`
 
 The test for every slide: someone who has never heard the terms follows it.
+The slide text and the script follow `${CLAUDE_PLUGIN_ROOT}/_shared/plain-prose.md`; the
+guidance below is what a deck adds to it. To check a script, run
+`uv run --quiet python ${CLAUDE_PLUGIN_ROOT}/_shared/prose_check.py <deck>-script.md`.
 
 - **The headline is the slide's claim**, a short full sentence ("Every query
   passes a code-only checkpoint first"), not a topic ("Architecture").

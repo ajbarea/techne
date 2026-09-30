@@ -15,7 +15,7 @@ retrieved paper, never asserted from memory.
 ## Usage
 
 ```
-/techne:paper-review <name> [--from <repo>]
+/techne:paper-review <name | path/to/doc.tex> [--from <repo>]
 ```
 
 Reads the `## paper-review` section of `.claude/skill-context.md` (overlap source of truth,
@@ -34,6 +34,8 @@ cites a paper retrieved that run with a verbatim snippet, logged in a
 provenance appendix so the search is re-runnable. A verdict with no retrieved record is marked
 **unverified**. The lab-overlap section surfaces adjacency and a COPE disclosure checklist but
 renders no verdict — the solo-vs-lab boundary is a human agreement.
+
+Claim-support also runs the *Claims* checks in `_shared/plain-prose.md`: numbers against the code or data behind them, method descriptions against the code, summaries of cited papers against their full text where open access, and a proposal's promises against the time it has. A manuscript missing the sections its venue expects, such as Related Work or References, is a stop-ship finding.
 
 ## See also
 

@@ -10,6 +10,13 @@ allowed-tools: Bash Glob Grep Read Edit
 Build and gate in one command. Do not go looking for an engine: the decision is
 made below and the runner is in this skill.
 
+## Write it plain first
+
+Before drafting or revising the document's prose, read `${CLAUDE_PLUGIN_ROOT}/_shared/plain-prose.md`
+and write to it: one claim per sentence, counts rather than qualities, no
+restating lines, and every number and summary checked against its source. A
+draft that needs a separate concision pass was written in the wrong register.
+
 ## Run it
 
 ```
@@ -49,12 +56,13 @@ skipped on the run where it mattered.
 | BLOCK | `unsettled` | The log still asks for a rerun, so cross-references are stale. |
 | WARN | `overfull`, `font-substitution`, `package` | Largest five overfull boxes, then a count. |
 | REVIEW | `coverage` | Problem headers in the prompt with no match in the PDF. |
+| REVIEW | `prose` | Patterns from the `prose-patterns` block of `_shared/plain-prose.md`, plus sentences over 40 words. `--no-prose` skips it. |
 
 `--markers`, `--overfull-pt` and `--engine` move the thresholds. Read the
 `## latex` section of `<repo>/.claude/skill-context.md` for per-repo marker
 words before overriding them.
 
-## Coverage is a heuristic and never fails the build
+## Coverage and prose are heuristics and never fail the build
 
 It regexes `Problem|Question|Exercise|Task|Bonus` + a number out of the prompt
 and out of `pdftotext` output, then reports what it could not find. A document
