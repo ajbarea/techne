@@ -11,19 +11,19 @@ has crept in — extract it back to ROADMAP.
 
 ## In flight
 
-**`techne:slides` from its gold-standard deck** (branch `feat/slides-newcomer`).
+**Plain prose at write time** (branch `feat/plain-prose`).
 
-- **Why:** the makesense talk v2 (2026-09-23) is the deck AJ wants every future deck to match;
-  the skill had its gates but not the writing moves or the look that made it work.
-- **Decisions:** `# research(2026-09)`: plain-language and three-to-five-point guidance for
-  general audiences, concreteness fading, 130-150 words a minute, PowerPoint's recording
-  teleprompter reads the notes. pptxgenjs 4.0.1 is current.
-- **Scope:** newcomer writing guidance; notes as a read-aloud script plus a `script`
-  subcommand; `no-notes` exempts backup slides; `templates/deck.js` starter; routing case for
-  "make me a PowerPoint".
-- **Out of scope:** a Touying starter; checking the script's wording.
-- **Done when:** `make validate` green, the starter passes `check` and renders cleanly through
-  PowerPoint, the new routing case passes, reviewed, CI green, merged.
+- **Why:** two documents (a course proposal, a course manuscript) were drafted ornate and needed a
+  second concision pass, although a concise-prose preference was already recorded. The writing
+  skills gated the build, never the prose.
+- **Decisions:** `# research(2026-09)`: Vale is the standard prose linter, but it is a separate
+  binary and its rule packs target generic wordiness, not restating lines; a stdlib check that
+  reads its patterns from the rubric keeps one source and no dependency.
+- **Scope:** `_shared/plain-prose.md` (rubric + `prose-patterns`), `_shared/prose_check.py`,
+  `REVIEW prose` in the latex and pdf gates, rubric read before drafting in latex/pdf/paper/slides,
+  claims + structure checks and `.tex` paths in paper-review.
+- **Out of scope:** Word documents (not a techne skill; pointed at from global CLAUDE.md).
+- **Done when:** `make validate` green, reviewed, CI green, merged.
 
 ## Skill collection state
 

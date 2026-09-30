@@ -54,8 +54,9 @@ biblatex, which skews against a system biber the moment a paper moves off classi
    A fresh scaffold exits 2 with exactly one blocker, `draft-marker` for the template's
    `TODO` placeholders; that is the expected result. Any other finding is a real failure.
    Report the PDF path and size. Without TeX Live, say so and point at Overleaf instead.
-6. Report the directory, the build status, and: "write prose into the `% HARVEST:` blocks;
-   run `python harvest.py` once `--from` is wired."
+6. Report the directory, the build status, and: "write prose into the `% HARVEST:` blocks
+   following `_shared/plain-prose.md`; run `python harvest.py` once `--from` is wired."
+   Read `${CLAUDE_PLUGIN_ROOT}/_shared/plain-prose.md` yourself before writing any of the prose.
 
 ## Common mistakes
 

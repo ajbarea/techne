@@ -37,6 +37,8 @@ Errors come with `file:line`. Blockers are the things that compile without compl
 
 One class is advisory. Coverage regexes problem headers out of the assignment prompt and out of `pdftotext` output and reports what it could not locate. A document that renumbers its headers trips it while being complete, so it prints as `REVIEW` and never decides the exit code.
 
+Prose is advisory too. The skill has the writer read `_shared/plain-prose.md` before drafting, and the gate reports the patterns that file lists (em-dashes, throat-clearing, commentary on the paper itself, ornate verbs, filler, stacked hedges) and sentences over 40 words as `REVIEW prose`. The patterns live in the rubric, so what the writer reads and what the gate checks cannot drift. `--no-prose` skips it.
+
 ## Engine
 
 latexmk driving local TeX Live pdflatex. Not tectonic: it ships its own biblatex against the system biber, and the resulting version skew is a known issue class rather than an accident, which `biblatex-chicago` + biber is squarely in the path of. Not texlogsieve or texfot either, good as they are at summarizing for a human: the log wrapping they exist to repair is repaired upstream instead, by unwrapping the log at the source with `max_print_line`.

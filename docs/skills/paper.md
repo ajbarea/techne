@@ -18,7 +18,7 @@ on day one and you only write prose.
 Reads the `## paper` section of `.claude/skill-context.md` (author, bib path, portfolio
 file), scaffolds `papers/<name>/`, build-verifies through the `techne:latex` runner (a fresh
 scaffold's only finding is the template's `TODO` draft markers), and
-adds a row to the portfolio file. Then write prose into the `% HARVEST:` blocks; run
+adds a row to the portfolio file. Then write prose into the `% HARVEST:` blocks, following `_shared/plain-prose.md`; run
 `python harvest.py` to regenerate the evaluation table from the source repo's corpus.
 
 ## See also

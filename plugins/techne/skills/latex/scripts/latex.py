@@ -16,11 +16,13 @@ lands on one line and the regexes below hold. Without it TeX breaks messages at
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import os
 import pathlib
 import re
 import subprocess
 import sys
+import types
 
 ERROR, BLOCK, WARN, REVIEW, INFO = "ERROR", "BLOCK", "WARN", "REVIEW", "INFO"
 RANK = {ERROR: 0, BLOCK: 1, WARN: 2, REVIEW: 3, INFO: 4}
@@ -51,6 +53,8 @@ _RERUN = re.compile(r"Rerun to get|Please \(re\)run|Rerun LaTeX")
 # Biber prefixes every line with its own module trace, so this cannot be anchored.
 _BLG_ERROR = re.compile(r"\b(?P<level>ERROR|WARN) - (?P<msg>.+)$")
 _NO_ENTRY = re.compile(r"(?:didn't find a database entry for|entry could not be found)")
+# The prose check ships in the plugin's _shared/ directory, beside the rubric it reads.
+PROSE_CHECK = pathlib.Path(__file__).resolve().parents[3] / "_shared" / "prose_check.py"
 # Problem headers, as they appear in both an assignment prompt and the answer PDF.
 _PROBLEM = re.compile(
     r"\b(?P<kind>Problem|Question|Exercise|Task|Bonus)\s*#?\s*(?P<num>\d{1,2}|[A-Z])\b"
@@ -280,6 +284,26 @@ def prompt_coverage(prompt: pathlib.Path, text: str) -> list[Finding]:
     return [Finding(INFO, "coverage", f"all {len(asked)} headers in {prompt.name} appear")]
 
 
+def load_prose_check(path: pathlib.Path = PROSE_CHECK) -> types.ModuleType | None:
+    spec = importlib.util.spec_from_file_location("techne_prose_check", path)
+    if not path.exists() or not spec or not spec.loader:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def prose_findings(pdf: pathlib.Path) -> list[Finding]:
+    """Advisory. Patterns from _shared/plain-prose.md; never decides the exit code."""
+    prose = load_prose_check()
+    if prose is None:
+        return [Finding(INFO, "prose", f"prose check not found at {PROSE_CHECK}")]
+    return [
+        Finding(REVIEW, "prose", f"{hit.count}x {hit.name}: \u201c{hit.example}\u201d")
+        for hit in prose.check(prose.pdf_text(pdf))
+    ]
+
+
 def find_prompt(tex: pathlib.Path) -> tuple[pathlib.Path | None, str]:
     """A sidecar of the document itself is not the prompt it answers."""
     own = f"{tex.stem}.extracted"
@@ -321,7 +345,7 @@ def verdict(found: list[Finding], pdf: pathlib.Path, log: pathlib.Path) -> tuple
         return 2, f"BUILT but not submittable: {blocks} blocker(s). Log: {log}"
     line = f"CLEAN: {pdf}"
     if reviews:
-        line += f" -- {reviews} coverage item(s) to confirm by eye"
+        line += f" -- {reviews} item(s) to confirm by eye"
     return 0, line
 
 
@@ -337,6 +361,7 @@ def main() -> int:
         "(default: the lone *.extracted.md beside the source)",
     )
     ap.add_argument("--no-prompt", action="store_true", help="skip the coverage check entirely")
+    ap.add_argument("--no-prose", action="store_true", help="skip the plain-prose pattern check")
     ap.add_argument(
         "--markers",
         default=",".join(DEFAULT_MARKERS),
@@ -371,6 +396,9 @@ def main() -> int:
             found += prompt_coverage(prompt, text)
         elif ambiguous:
             found.append(Finding(INFO, "coverage", ambiguous))
+
+    if not args.no_prose and text:
+        found += prose_findings(pdf)
 
     if code != 0 and not any(f.severity == ERROR for f in found):
         found.append(Finding(ERROR, "build", f"latexmk exited {code}, log says nothing"))

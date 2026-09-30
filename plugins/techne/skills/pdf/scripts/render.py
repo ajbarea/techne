@@ -17,11 +17,13 @@ one), which is how a document quietly changes typeface between machines.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import pathlib
 import re
 import subprocess
 import sys
 import tempfile
+import types
 
 # Ordered fallbacks. Libertinus Serif, New Computer Modern and DejaVu Sans Mono
 # ship inside the typst wheel, so the last entry of each list always resolves.
@@ -30,6 +32,8 @@ SANS = ["Helvetica Neue", "Helvetica", "TeX Gyre Heros", "Arial", "Libertinus Se
 MONO = ["SF Mono", "Menlo", "Consolas", "DejaVu Sans Mono"]
 
 TEMPLATE = pathlib.Path(__file__).resolve().parent.parent / "templates" / "document.typ.tmpl"
+# The prose check ships in the plugin's _shared/ directory, beside the rubric it reads.
+PROSE_CHECK = pathlib.Path(__file__).resolve().parents[3] / "_shared" / "prose_check.py"
 
 _H1 = re.compile(r"^#\s+(.*?)\s*$")
 _EM_ONLY = re.compile(r"^\*(?P<text>[^*].*?)\*$|^_(?P<alt>[^_].*?)_$")
@@ -109,6 +113,27 @@ def render(src: pathlib.Path, out_dir: pathlib.Path) -> tuple[pathlib.Path, list
     return dest, pdf_fonts(dest)
 
 
+def load_prose_check(path: pathlib.Path = PROSE_CHECK) -> types.ModuleType | None:
+    spec = importlib.util.spec_from_file_location("techne_prose_check", path)
+    if not path.exists() or not spec or not spec.loader:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def prose_lines(src: pathlib.Path) -> list[str]:
+    """Advisory REVIEW lines for the markdown source; never decides the exit code."""
+    prose = load_prose_check()
+    if prose is None:
+        return [f"  INFO   prose check not found at {PROSE_CHECK}"]
+    text = prose.markdown_prose(src.read_text(encoding="utf-8"))
+    return [
+        f"  REVIEW prose {hit.count}x {hit.name}: \u201c{hit.example}\u201d"
+        for hit in prose.check(text)
+    ]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("src", type=pathlib.Path, help="markdown file or directory")
@@ -118,6 +143,9 @@ def main(argv: list[str] | None = None) -> int:
         metavar="FAMILY",
         nargs="+",
         help="fail unless every rendered PDF embeds exactly these families",
+    )
+    parser.add_argument(
+        "--no-prose", action="store_true", help="skip the plain-prose pattern check"
     )
     args = parser.parse_args(argv)
 
@@ -131,6 +159,9 @@ def main(argv: list[str] | None = None) -> int:
     for src in sources:
         dest, fonts = render(src, args.out)
         print(f"{dest}  [{', '.join(fonts)}]")
+        if not args.no_prose:
+            for line in prose_lines(src):
+                print(line)
         if args.check_fonts and sorted(args.check_fonts) != fonts:
             drift.append(f"{dest.name}: expected {sorted(args.check_fonts)}, got {fonts}")
 
