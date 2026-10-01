@@ -11,21 +11,11 @@ has crept in — extract it back to ROADMAP.
 
 ## In flight
 
-**Opt-in guard hooks** (branch `feat/opt-in-hooks`, issue #89).
+Nothing in flight. Opt-in guard hooks shipped in #95 (see ROADMAP).
 
-- **Why:** the commit and staging rules were prose a session had to remember, and a system
-  reminder could contradict them. Nothing enforced them.
-- **Decisions:** `# research(2026-10)`: plugin `userConfig` booleans reach hooks as
-  `CLAUDE_PLUGIN_OPTION_<KEY>=true`, so each guard defaults off and only the user who switches it
-  on gets it. Plugin hook denies hold in `bypassPermissions` (verified live). One handler with no
-  `if`: verified live that `Bash(git *)` skips `time git add`. A shell `case` on the option
-  variables keeps the all-off cost to one `sh` spawn. `claude plugin validate`
-  allows only the missing-`version` warning, since techne is unversioned on purpose.
-- **Scope:** `plugins/techne/hooks/`, `userConfig` in `plugin.json`, `tests/test_git_guards.py`,
-  `scripts/check_plugin_manifest.sh` + `make plugin-validate` in CI, Guards section in
-  `docs/configuration.md`.
-- **Out of scope:** the poll-loop blocker, which stays in claude-prefs.
-- **Done when:** `make validate` green, reviewed, CI green, merged.
+**Next pickup:** #96, backing the commit guards with Git 2.54 config-based `commit-msg` and
+`pre-commit` hooks set through `CLAUDE_ENV_FILE`, so commits the Bash parser cannot see are
+still checked. Blocked on Git 2.54 being available to test against.
 
 ## Skill collection state
 
