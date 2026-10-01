@@ -156,7 +156,7 @@ that drift class recurs.
 
 Detail lives in git history (`git log`) and the live skill code. This log is pruned once work is durably shipped.
 
-- 2026-10-01 — **Opt-in guard hooks.** techne's first `hooks/`: `PreToolUse` guards that refuse
+- 2026-10-01: **Opt-in guard hooks.** techne's first `hooks/`: `PreToolUse` guards that refuse
   attribution lines in commits and PRs and staging `COMMITS.md`, and warn on commits in a main
   checkout while worktrees exist. Each is a `userConfig` boolean, off until switched on in
   `/config`, and a repo can turn one off with `git config techne.<option> false`. CI now runs

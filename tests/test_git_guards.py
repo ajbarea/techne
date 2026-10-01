@@ -642,3 +642,89 @@ def test_optional_value_short_flags_are_not_split(scratch):
     (scratch / "COMMITS.md").write_text("edited\n")
     assert run_hook("git commit -uall -m x", scratch, on=[COMMITS_MD]) is None
     assert run_hook("git commit -SF00 -m x", scratch, on=[ATTRIBUTION, COMMITS_MD]) is None
+
+
+# --- round-four edges ----------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "{ git add COMMITS.md; }",
+        "if git diff --quiet; then :; else git add COMMITS.md; fi",
+        "! git add COMMITS.md",
+        "while false; do :; done; until true; do :; done; git add .",
+    ],
+)
+def test_shell_keywords_before_a_command(scratch, command):
+    assert denied(run_hook(command, scratch, on=[COMMITS_MD]))
+
+
+def test_keyword_before_a_commit(repo):
+    command = f"if true; then git commit -m x -m '{TRAILER}'; fi"
+    assert denied(run_hook(command, repo, on=[ATTRIBUTION]))
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        f"time -p git commit -m x -m '{TRAILER}'",
+        f"sudo -n git commit -m x -m '{TRAILER}'",
+        f"command -p git commit -m x -m '{TRAILER}'",
+    ],
+)
+def test_wrapper_flags_without_values(repo, command):
+    assert denied(run_hook(command, repo, on=[ATTRIBUTION]))
+
+
+def test_xargs_prompt_flag(scratch):
+    assert denied(run_hook("xargs -p git add COMMITS.md", scratch, on=[COMMITS_MD]))
+
+
+@pytest.mark.parametrize("command", ["cd -P . && git add .", "cd -- . && git add ."])
+def test_cd_flags(scratch, command):
+    assert denied(run_hook(command, scratch, on=[COMMITS_MD]))
+
+
+def test_cd_dash_and_pushd_popd(scratch, tmp_path):
+    other = tmp_path / "other"
+    other.mkdir()
+    assert denied(run_hook(f"cd {other} && cd - && git add .", scratch, on=[COMMITS_MD]))
+    assert denied(run_hook(f"pushd {scratch} && git add .", tmp_path, on=[COMMITS_MD]))
+    command = f"pushd {other} && popd && git add ."
+    assert denied(run_hook(command, scratch, on=[COMMITS_MD]))
+
+
+@pytest.mark.parametrize("form", ["$(cat body.md)", "$(< body.md)"])
+def test_message_read_through_cat_substitution(repo, form):
+    (repo / "body.md").write_text("Summary\n\n🤖 Generated with Claude Code\n")
+    command = f'gh pr create --title x --body "{form}"'
+    assert denied(run_hook(command, repo, on=[ATTRIBUTION]))
+    (repo / "msg.txt").write_text(f"feat: x\n\n{TRAILER}\n")
+    assert denied(run_hook('git commit -m "$(cat msg.txt)"', repo, on=[ATTRIBUTION]))
+
+
+def test_heredoc_to_an_unrelated_file_does_not_block(repo):
+    (repo / "body2.md").write_text("feat: clean\n")
+    command = "cat > /tmp/notes <<EOF\nnever add Claude-Session lines\nEOF\ngit commit -F body2.md"
+    assert run_hook(command, repo, on=[ATTRIBUTION]) is None
+
+
+def test_heredoc_to_the_message_file_is_scanned(repo):
+    command = f"cat > m.txt <<'EOF'\nfeat: x\n\n{TRAILER}\nEOF\ngit commit -F m.txt"
+    assert denied(run_hook(command, repo, on=[ATTRIBUTION]))
+
+
+def test_lowercase_commits_md_doc_page_is_allowed(repo):
+    (repo / "docs").mkdir()
+    (repo / "docs" / "commits.md").write_text("# Commit conventions\n")
+    assert run_hook("git add .", repo, on=[COMMITS_MD]) is None
+    _git(repo, "add", "docs/commits.md")
+    assert run_hook("git commit -m docs", repo, on=[COMMITS_MD]) is None
+
+
+def test_staged_rename_into_commits_md(scratch):
+    _git(scratch, "add", "b.txt")
+    _git(scratch, "commit", "-qm", "b")
+    _git(scratch, "mv", "-f", "b.txt", "COMMITS.md")
+    assert denied(run_hook("git commit -m x", scratch, on=[COMMITS_MD]))

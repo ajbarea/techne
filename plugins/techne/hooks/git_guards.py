@@ -33,7 +33,8 @@ ATTRIBUTION_RE = re.compile(
     r"|Generated with \[?Claude Code",
     re.IGNORECASE,
 )
-SCRATCH_NAME = "commits.md"
+# Exact case: a tracked docs/commits.md page is not the scratchpad.
+SCRATCH_NAME = "COMMITS.md"
 MAX_MESSAGE_FILE = 1 << 20
 # Per git call. A commit runs at most six, inside the 60s hooks.json timeout.
 GIT_TIMEOUT = 5
@@ -74,12 +75,24 @@ COMMIT_LONG_VALUE = {
 COMMIT_LONG_KNOWN = COMMIT_LONG_VALUE | {"--all", "--include", "--only"}
 ADD_SUBCOMMANDS = {"add", "stage"}
 # Words that run the next command; their flags (and a flag's value) are skipped.
-WRAPPERS = {
-    "env", "command", "builtin", "exec", "time", "nice", "nohup", "sudo", "timeout", "xargs",
-}  # fmt: skip
-WRAPPER_VALUE_FLAGS = {"-n", "-u", "-g", "-k", "-s", "-a", "-p", "-h", "-I", "-d", "-L", "-P"}
-# Wrapper flags that change directory: `env -C dir`, `sudo -D dir`, `--chdir=dir`.
-WRAPPER_CHDIR_FLAGS = {"-C", "-D", "--chdir"}
+# Words that run the next command: wrapper -> (flags taking a value, flags naming a dir).
+WRAPPERS: dict[str, tuple[set[str], set[str]]] = {
+    "env": ({"-u", "-S"}, {"-C", "--chdir"}),
+    "command": (set(), set()),
+    "builtin": (set(), set()),
+    "exec": ({"-a"}, set()),
+    "time": ({"-f", "-o"}, set()),
+    "nice": ({"-n"}, set()),
+    "nohup": (set(), set()),
+    "timeout": ({"-k", "-s"}, set()),
+    "sudo": ({"-u", "-g", "-h", "-p", "-C", "-r", "-t", "-U"}, {"-D", "--chdir"}),
+    "xargs": ({"-I", "-d", "-L", "-P", "-a", "-E", "-s", "-n"}, set()),
+}
+# Shell keywords that can precede a command in a list or compound command.
+RESERVED = {"{", "}", "!", "if", "then", "else", "elif", "fi", "do", "done", "while", "until"}
+CD_FLAGS = {"-L", "-P", "-e", "-@"}
+# `$(cat FILE)` or `$(< FILE)` inside a message value.
+CAT_SUBST_RE = re.compile(r"\$\(\s*(?:cat\s+|<\s*)([^\s()]+)\s*\)")
 # Commands whose arguments become file content, for a message file the command writes.
 WRITERS = {"echo", "printf"}
 GH_VALUE_FLAGS = {"-R", "--repo"}
@@ -115,17 +128,17 @@ def run_git(cwd: Path, repo_args: list[str], *args: str, check: bool = True) -> 
     return proc.stdout if proc.returncode == 0 or not check else None
 
 
-def strip_heredocs(text: str) -> tuple[str, list[str]]:
+def strip_heredocs(text: str) -> tuple[str, list[tuple[str, str]]]:
     """Remove heredoc bodies and line continuations so the command tokenizes.
 
     Tracks quoting as bash does: `<<` inside quotes is literal, except inside a
     `$(...)` within double quotes, the `-m "$(cat <<'EOF' ...)"` commit idiom.
     Drops `#` comments and rewrites `$'...'` as a plain single-quoted string.
-    Returns the stripped text and the heredoc bodies.
+    Returns the stripped text and each heredoc as (the line that opened it, its body).
     """
     out: list[str] = []
-    bodies: list[str] = []
-    pending: list[tuple[str, bool]] = []
+    bodies: list[tuple[str, str]] = []
+    pending: list[tuple[str, bool, str]] = []
     stack: list[str] = []  # "'", '"' or "$(" for each open quoting context
     i, n = 0, len(text)
     while i < n:
@@ -134,7 +147,7 @@ def strip_heredocs(text: str) -> tuple[str, list[str]]:
         if ch == "\n" and pending:
             out.append(ch)
             i += 1
-            for delim, dash in pending:
+            for delim, dash, opener in pending:
                 body: list[str] = []
                 while i < n:
                     j = text.find("\n", i)
@@ -143,7 +156,7 @@ def strip_heredocs(text: str) -> tuple[str, list[str]]:
                     if (line.lstrip("\t") if dash else line) == delim:
                         break
                     body.append(line)
-                bodies.append("\n".join(body))
+                bodies.append((opener, "\n".join(body)))
             pending = []
             continue
         if top == "'":
@@ -200,7 +213,10 @@ def strip_heredocs(text: str) -> tuple[str, list[str]]:
         elif ch == "<":
             m = HEREDOC_RE.match(text, i)
             if m and not text.startswith("<<<", i) and not text.endswith("<", 0, i):
-                pending.append((m.group(3), m.group(1) == "-"))
+                start = text.rfind("\n", 0, i) + 1
+                stop = text.find("\n", i)
+                opener = text[start : n if stop < 0 else stop]
+                pending.append((m.group(3), m.group(1) == "-", opener))
                 out.append(m.group(0))
                 i = m.end()
                 continue
@@ -260,15 +276,18 @@ def unwrap(argv: list[str]) -> tuple[list[str], list[str]]:
     """Strip leading assignments and wrappers; return the command and any chdir targets."""
     out = list(argv)
     chdirs: list[str] = []
-    while out and (ASSIGNMENT_RE.match(out[0]) or out[0] in WRAPPERS):
+    while out and (ASSIGNMENT_RE.match(out[0]) or out[0] in WRAPPERS or out[0] in RESERVED):
         word = out.pop(0)
         if word not in WRAPPERS:
             continue
-        while out and out[0].startswith("-"):
+        value_flags, chdir_flags = WRAPPERS[word]
+        while out and out[0].startswith("-") and out[0] != "-":
             flag, eq, value = out.pop(0).partition("=")
-            if flag in WRAPPER_CHDIR_FLAGS and (eq or out):
+            if flag == "--":
+                break
+            if flag in chdir_flags and (eq or out):
                 chdirs.append(value if eq else out.pop(0))
-            elif flag in WRAPPER_VALUE_FLAGS and not eq and out:
+            elif flag in value_flags and not eq and out:
                 out.pop(0)
         if word == "timeout" and out:
             out.pop(0)
@@ -307,7 +326,7 @@ def read_message_file(path: str, cwd: Path) -> str | None:
 
 
 def is_scratch_name(path: str) -> bool:
-    return Path(path).name.lower() == SCRATCH_NAME
+    return Path(path).name == SCRATCH_NAME
 
 
 def is_scratch_path(spec: str) -> bool:
@@ -325,6 +344,27 @@ def names_scratch(lines: str | None) -> list[str]:
     if not lines:
         return []
     return [p for p in lines.split("\0") if is_scratch_name(p)]
+
+
+def status_entries(cmd: Command, pathspecs: list[str] | None = None) -> list[tuple[str, str, str]]:
+    """Tracked entries of `git status` as (path, X, Y)."""
+    args = ["status", "--porcelain=v1", "-z", "--untracked-files=no"]
+    if pathspecs:
+        args += ["--", *pathspecs]
+    out = run_git(cmd.cwd, cmd.repo_args, *args) or ""
+    fields = out.split("\0")
+    entries: list[tuple[str, str, str]] = []
+    i = 0
+    while i < len(fields):
+        field = fields[i]
+        i += 1
+        if len(field) < 4:
+            continue
+        x, y, path = field[0], field[1], field[3:]
+        if x in "RC":
+            i += 1  # the rename source follows as its own field
+        entries.append((path, x, y))
+    return entries
 
 
 class Command:
@@ -468,7 +508,7 @@ class Verdict:
 
 
 class Guards:
-    def __init__(self, bodies: list[str]):
+    def __init__(self, bodies: list[tuple[str, str]]):
         self.bodies = bodies
         self.side_words: set[str] = set()
         self.writer_text = ""
@@ -490,17 +530,23 @@ class Guards:
             self._repo_off[cache_key] = off
         return repo_key(key).lower() not in self._repo_off[cache_key]
 
-    def check_attribution(self, what: str, texts: list[str], files: list[str], cwd: Path) -> None:
+    def check_attribution(
+        self, what: str, texts: list[str], files: list[str], cwd: Path, keyword: str
+    ) -> None:
         """Scan the message text, any message file, and text this command may write into it.
 
-        A heredoc counts only when the message comes from a file, stdin or `$(...)`. A
-        file read from stdin, missing, or named by another command here (a redirect,
-        `tee`) may be written by this command, so `echo`/`printf` arguments count too.
-        Filters such as grep or sed are not scanned: they remove lines, not add them.
+        A heredoc counts when the line that opens it names the guarded subcommand
+        (`keyword`) or a message file. `$(cat FILE)` and `$(< FILE)` in a value read
+        FILE. A file read from stdin, missing, or named by another command here (a
+        redirect, `tee`) may be written by this command, so `echo`/`printf` arguments
+        count too. Filters such as grep or sed are not scanned: they remove lines.
         """
+        files = list(files) + [m.group(1) for t in texts for m in CAT_SUBST_RE.finditer(t)]
+        names = {keyword, *files}
         scan = list(texts)
-        if files or any("<<" in t for t in texts):
-            scan += self.bodies
+        for opener, body in self.bodies:
+            if names & set(re.split(r"[\s;&|()<>\"']+", opener)):
+                scan.append(body)
         for path in files:
             content = None if path == "-" else read_message_file(path, cwd)
             if content is not None:
@@ -547,24 +593,22 @@ class Guards:
         if named:
             self.deny_scratch(f"`git commit` names {named[0]}")
             return
+        # `git status` works before the first commit, which `git diff HEAD` does not.
+        # X is index vs HEAD, Y is worktree vs index.
         hits: list[str] = []
-        if commit.pathspecs or commit.pathspec_file:
-            # A pathspec commit takes the working tree; an unknown pathspec list, all of it.
-            specs = (
-                ["--", *commit.pathspecs] if commit.pathspecs and not commit.pathspec_file else []
-            )
-            tree = run_git(cmd.cwd, cmd.repo_args, "diff", "-z", "--name-only", "HEAD", *specs)
-            if tree is None:  # no commits yet: everything comes from the index
-                tree = run_git(
-                    cmd.cwd, cmd.repo_args, "diff", "-z", "--cached", "--name-only", *specs
-                )
-            hits += names_scratch(tree)
-        if not (commit.pathspecs or commit.pathspec_file) or commit.include:
-            hits += names_scratch(
-                run_git(cmd.cwd, cmd.repo_args, "diff", "-z", "--cached", "--name-only")
-            )
-        if commit.all:
-            hits += names_scratch(run_git(cmd.cwd, cmd.repo_args, "diff", "-z", "--name-only"))
+        specs = bool(commit.pathspecs or commit.pathspec_file)
+        for path, x, y in status_entries(cmd):
+            if not is_scratch_name(path):
+                continue
+            staged, changed = x not in " ?", y not in " ?"
+            if (staged and (not specs or commit.include)) or (commit.all and changed):
+                hits.append(path)
+        if commit.pathspecs and not commit.pathspec_file:
+            for path, x, y in status_entries(cmd, commit.pathspecs):
+                if is_scratch_name(path) and (x not in " ?" or y not in " ?"):
+                    hits.append(path)
+        elif commit.pathspec_file:  # unknown pathspec list: any change to it counts
+            hits += [p for p, x, y in status_entries(cmd) if is_scratch_name(p) and (x + y).strip()]
         if hits:
             self.deny_scratch(f"this commit would include {hits[0]}")
 
@@ -606,6 +650,7 @@ class Guards:
                     break
         env = {**os.environ, "PWD": str(cwd)}
         stack: list[tuple[Path, dict[str, str]]] = []
+        dirstack: list[Path] = []
         for k, (argv, chdirs) in enumerate(unwrapped):
             group = groups[k]
             if group == [PUSH]:
@@ -626,10 +671,21 @@ class Guards:
             run_cwd = cwd
             for target in chdirs:
                 run_cwd = resolve_dir(run_cwd, target, env)
-            if name == "cd":
-                env["OLDPWD"] = str(cwd)
-                cwd = resolve_dir(cwd, argv[1] if len(argv) > 1 else "~", env)
-                env["PWD"] = str(cwd)
+            if name in {"cd", "pushd", "popd"}:
+                args = [a for a in argv[1:] if a not in CD_FLAGS]
+                args = args[1:] if args[:1] == ["--"] else args
+                old = cwd
+                if name == "popd":
+                    cwd = dirstack.pop() if dirstack else cwd
+                elif args[:1] == ["-"]:
+                    cwd = Path(env.get("OLDPWD", str(cwd)))
+                elif name == "pushd" and not args:
+                    continue
+                else:
+                    cwd = resolve_dir(cwd, args[0] if args else "~", env)
+                if name == "pushd":
+                    dirstack.append(old)
+                env["OLDPWD"], env["PWD"] = str(old), str(cwd)
                 continue
             try:
                 if name == "git":
@@ -648,7 +704,9 @@ class Guards:
         elif cmd.sub == "commit":
             commit = parse_commit(cmd.args)
             if self.enabled(ATTRIBUTION, cmd):
-                self.check_attribution("this commit message", commit.texts, commit.files, cmd.cwd)
+                self.check_attribution(
+                    "this commit message", commit.texts, commit.files, cmd.cwd, "commit"
+                )
             self.check_commit_scratch(cmd, commit)
             self.check_main_checkout(cmd)
 
@@ -670,7 +728,7 @@ class Guards:
             and self.enabled(ATTRIBUTION, Command(cwd))
         ):
             texts, files = parse_gh_pr(argv[1:])
-            self.check_attribution(f"`gh pr {words[1]}`", texts, files, cwd)
+            self.check_attribution(f"`gh pr {words[1]}`", texts, files, cwd, "pr")
 
 
 def main() -> int:
@@ -691,7 +749,7 @@ def main() -> int:
             # shlex rejected it: scan the whole command for attribution lines, and run
             # the other checks on a rough split.
             if guards.enabled(ATTRIBUTION, Command(cwd)):
-                guards.check_attribution("this command", [raw], [], cwd)
+                guards.check_attribution("this command", [raw], [], cwd, "")
             tokens = rough_tokenize(stripped)
         guards.run(split_subcommands(tokens), cwd)
     except Exception as exc:
@@ -700,7 +758,8 @@ def main() -> int:
         print(f"techne git guard error: {error}", file=sys.stderr)
         failed = True
     guards.verdict.emit()
-    return 1 if failed and not guards.verdict.denies else 0
+    # Claude Code reads the JSON only on exit 0, so any decision or warning wins.
+    return 1 if failed and not (guards.verdict.denies or guards.verdict.warnings) else 0
 
 
 if __name__ == "__main__":
