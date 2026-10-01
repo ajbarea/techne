@@ -11,18 +11,20 @@ has crept in — extract it back to ROADMAP.
 
 ## In flight
 
-**Plain prose at write time** (branch `feat/plain-prose`).
+**Opt-in guard hooks** (branch `feat/opt-in-hooks`, issue #89).
 
-- **Why:** two documents (a course proposal, a course manuscript) were drafted ornate and needed a
-  second concision pass, although a concise-prose preference was already recorded. The writing
-  skills gated the build, never the prose.
-- **Decisions:** `# research(2026-09)`: Vale is the standard prose linter, but it is a separate
-  binary and its rule packs target generic wordiness, not restating lines; a stdlib check that
-  reads its patterns from the rubric keeps one source and no dependency.
-- **Scope:** `_shared/plain-prose.md` (rubric + `prose-patterns`), `_shared/prose_check.py`,
-  `REVIEW prose` in the latex and pdf gates, rubric read before drafting in latex/pdf/paper/slides,
-  claims + structure checks and `.tex` paths in paper-review.
-- **Out of scope:** Word documents (not a techne skill; pointed at from global CLAUDE.md).
+- **Why:** the commit and staging rules were prose a session had to remember, and a system
+  reminder could contradict them. Nothing enforced them.
+- **Decisions:** `# research(2026-10)`: plugin `userConfig` booleans reach hooks as
+  `CLAUDE_PLUGIN_OPTION_<KEY>=true`, so each guard defaults off and only the user who switches it
+  on gets it. Plugin hook denies hold in `bypassPermissions` (verified live). One handler with no
+  `if`: verified live that `Bash(git *)` skips `time git add`. A shell `case` on the option
+  variables keeps the all-off cost to one `sh` spawn. `claude plugin validate`
+  allows only the missing-`version` warning, since techne is unversioned on purpose.
+- **Scope:** `plugins/techne/hooks/`, `userConfig` in `plugin.json`, `tests/test_git_guards.py`,
+  `scripts/check_plugin_manifest.sh` + `make plugin-validate` in CI, Guards section in
+  `docs/configuration.md`.
+- **Out of scope:** the poll-loop blocker, which stays in claude-prefs.
 - **Done when:** `make validate` green, reviewed, CI green, merged.
 
 ## Skill collection state

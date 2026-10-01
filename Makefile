@@ -4,7 +4,7 @@
 ## that techne itself documents at docs/conventions.md.
 ##
 
-.PHONY: help check-env setup manifests frontmatter fix lint shellcheck guards test-unit zizmor test validate build ci clean docs evals evals-bash
+.PHONY: help check-env setup manifests plugin-validate test-hooks-oldest frontmatter fix lint shellcheck guards test-unit zizmor test validate build ci clean docs evals evals-bash
 .DEFAULT_GOAL := help
 
 check-env:              ## Verify required tools are on PATH
@@ -16,6 +16,9 @@ setup: check-env        ## Install dev dependencies (uv sync)
 manifests:              ## Verify plugin + marketplace manifest JSON (stdlib json.tool)
 	@uv run python -m json.tool .claude-plugin/marketplace.json >/dev/null
 	@uv run python -m json.tool plugins/techne/.claude-plugin/plugin.json >/dev/null
+
+plugin-validate:        ## claude plugin validate on plugin + marketplace (hooks, userConfig)
+	@bash scripts/check_plugin_manifest.sh
 
 frontmatter:            ## Verify SKILL.md frontmatter + theoros structural checks
 	@uv run python scripts/validate_skill_frontmatter.py
@@ -59,6 +62,14 @@ guards:                 ## Stale-path + legacy-name + action-pin guards
 test-unit:              ## pytest over skill-shipped Python
 	@uv run --with typst pytest
 
+# The hooks run on the user's system python3, not the project venv. 3.9 is macOS's.
+HOOKS_OLDEST_PYTHON := 3.9
+
+test-hooks-oldest:      ## Hook tests with the hook run on the oldest supported python3
+	@py="$$(uv python find --no-project $(HOOKS_OLDEST_PYTHON) 2>/dev/null || { uv python install -q $(HOOKS_OLDEST_PYTHON) && uv python find --no-project $(HOOKS_OLDEST_PYTHON); })"; \
+	[ -n "$$py" ] || { echo "FAIL: no Python $(HOOKS_OLDEST_PYTHON) from uv"; exit 1; }; \
+	TECHNE_GUARD_PYTHON="$$py" uv run pytest tests/test_git_guards.py
+
 zizmor:                 ## zizmor GHA security scan (.github/workflows/)
 	@uv run zizmor .github/workflows/
 
@@ -67,7 +78,7 @@ test: manifests frontmatter guards test-unit  ## Structural checks + pytest
 # `build` belongs here: a dependency bump can leave lint and tests green and
 # still abort the site build, and docs.yml only runs on push to main, so
 # nothing else would catch it before it landed.
-validate: lint shellcheck zizmor test build  ## Fast pre-push gate
+validate: lint shellcheck zizmor plugin-validate test test-hooks-oldest build  ## Fast pre-push gate
 
 build:                  ## Build docs site (strict; mirrors docs.yml deploy)
 	@uv run zensical build --clean --strict
