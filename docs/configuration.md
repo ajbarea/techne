@@ -52,7 +52,7 @@ A refusal tells Claude the reason, so it can fix the command and retry. The hook
 
 What each guard reads:
 
-- Messages from `-m`, `--message`, `--trailer`, `-F`/`--file`, `--title`, `--body` and `--body-file`, including heredocs. A message file is read from disk; if it does not exist yet, the whole command is scanned.
+- Messages from `-m`, `--message`, `--trailer`, `-F`/`--file`, `--title`, `--body` and `--body-file`, including heredocs and line continuations. A message file is read from disk. When the same command may write it (stdin, a redirect, `tee`, `sed -i`, or a file that does not exist yet), the other commands' words are scanned too, so strip a line in its own call before committing.
 - The repo the command runs in, following `cd <dir> &&` and `git -C <dir>`.
 - For `COMMITS.md`, `git add --dry-run` with your arguments, so `.`, `-A`, globs and directories are covered and exclude pathspecs such as `':!COMMITS.md'` are respected. At commit time it checks the index, plus the working tree for `-a` and pathspec commits.
 

@@ -6,7 +6,8 @@ Claude Code exports to this process as CLAUDE_PLUGIN_OPTION_<KEY>. A repo turns
 an enabled guard off for itself with `git config techne.<optionInCamelCase> false`.
 
 Invoked as `git_guards.py git` or `git_guards.py gh`, one per hooks.json handler,
-so a compound command that runs both is checked once per tool.
+so a compound command that runs both is checked once per tool. A crash in one
+check still emits the denies already found.
 
 Parsing is best effort: subcommands inside `$(...)` or `bash -c` are not seen.
 Runs on the system python3, so it stays compatible with 3.9 (macOS's).
@@ -28,14 +29,18 @@ MAIN_CHECKOUT = "warn_main_checkout_commit"
 OPTIONS = (ATTRIBUTION, COMMITS_MD, MAIN_CHECKOUT)
 
 ATTRIBUTION_RE = re.compile(
-    r"Claude-Session|claude\.ai/code/session|Co-Authored-By:\s*Claude"
+    r"Claude-Session|claude\.ai/code/session|Co-Authored-By\s*[:=]\s*Claude"
     r"|Generated with \[?Claude Code",
     re.IGNORECASE,
 )
 SCRATCH_NAME = "commits.md"
 TRUE_VALUES = {"1", "true", "yes", "on"}
 MAX_MESSAGE_FILE = 1 << 20
-GIT_TIMEOUT = 10
+# Per git call. A commit runs at most six, inside the 60s hooks.json timeout.
+GIT_TIMEOUT = 5
+FALSE_VALUES = {"false", "no", "off", "0"}
+# Never run a repo's fsmonitor, and print paths raw so a basename check sees them.
+GIT_BASE = ("git", "-c", "core.fsmonitor=false", "-c", "core.quotePath=false")
 
 # shlex joins adjacent punctuation, so a separator is any run of these, such as "&&\n".
 SEPARATOR_RE = re.compile(r"^[;&|()\n]+$")
@@ -82,7 +87,7 @@ def run_git(cwd: Path, repo_args: list[str], *args: str) -> str | None:
     env = {**os.environ, "GIT_OPTIONAL_LOCKS": "0"}
     try:
         proc = subprocess.run(
-            ["git", "-c", "core.fsmonitor=false", "-C", str(cwd), *repo_args, *args],
+            [*GIT_BASE, "-C", str(cwd), *repo_args, *args],
             capture_output=True,
             text=True,
             timeout=GIT_TIMEOUT,
@@ -98,6 +103,7 @@ def strip_heredocs(text: str) -> tuple[str, list[str]]:
 
     Tracks quoting as bash does: `<<` inside quotes is literal, except inside a
     `$(...)` within double quotes, the `-m "$(cat <<'EOF' ...)"` commit idiom.
+    Drops `#` comments and rewrites `$'...'` as a plain single-quoted string.
     Returns the stripped text and the heredoc bodies.
     """
     out: list[str] = []
@@ -129,6 +135,17 @@ def strip_heredocs(text: str) -> tuple[str, list[str]]:
             out.append(ch)
             i += 1
             continue
+        if top == "$'":
+            if ch == "\\" and i + 1 < n:
+                nxt = text[i + 1]
+                out.append({"n": "\n", "t": "\t", "'": "'\\''"}.get(nxt, nxt))
+                i += 2
+                continue
+            if ch == "'":
+                stack.pop()
+            out.append(ch)
+            i += 1
+            continue
         if ch == "\\" and i + 1 < n:
             if text[i + 1] != "\n":
                 out.append(text[i : i + 2])
@@ -144,6 +161,15 @@ def strip_heredocs(text: str) -> tuple[str, list[str]]:
                 continue
             out.append(ch)
             i += 1
+            continue
+        if ch == "#" and (i == 0 or text[i - 1] in " \t\n;&|()"):
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+            continue
+        if text.startswith("$'", i):
+            stack.append("$'")
+            out.append("'")
+            i += 2
             continue
         if ch in "'\"":
             stack.append(ch)
@@ -170,10 +196,17 @@ def tokenize(text: str) -> list[str] | None:
     lexer = shlex.shlex(text, posix=True, punctuation_chars=";&|()<>\n")
     lexer.whitespace = " \t\r"
     lexer.whitespace_split = True
+    lexer.commenters = ""
     try:
         return list(lexer)
     except ValueError:
         return None
+
+
+def rough_tokenize(text: str) -> list[str]:
+    """Whitespace split for a command shlex rejects; quotes are dropped, not honored."""
+    words = re.findall(r"&&|\|\||[;|&\n()]|[^\s;|&()]+", text)
+    return [w.replace("'", "").replace('"', "") for w in words]
 
 
 def split_subcommands(tokens: list[str]) -> list[list[str]]:
@@ -183,7 +216,7 @@ def split_subcommands(tokens: list[str]) -> list[list[str]]:
             commands.append([])
         else:
             commands[-1].append(tok)
-    return [drop_redirections(c) for c in commands if c]
+    return [c for c in commands if c]
 
 
 def drop_redirections(argv: list[str]) -> list[str]:
@@ -233,9 +266,7 @@ def is_scratch_path(spec: str) -> bool:
 def names_scratch(lines: str | None) -> list[str]:
     if not lines:
         return []
-    return [
-        p for p in lines.replace("\0", "\n").split("\n") if Path(p).name.lower() == SCRATCH_NAME
-    ]
+    return [p for p in lines.split("\0") if Path(p).name.lower() == SCRATCH_NAME]
 
 
 class Command:
@@ -357,7 +388,7 @@ class Verdict:
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
                     "permissionDecision": "deny",
-                    "permissionDecisionReason": "\n".join(self.denies),
+                    "permissionDecisionReason": "\n".join(dict.fromkeys(self.denies)),
                 }
             }
         elif self.warnings:
@@ -375,35 +406,49 @@ class Guards:
     def __init__(self, raw: str, bodies: list[str]):
         self.raw = raw
         self.bodies = bodies
+        self.side_text = ""
         self.verdict = Verdict()
-        self._repo_cache: dict[tuple[str, tuple[str, ...], str], bool] = {}
+        self._repo_off: dict[tuple[str, tuple[str, ...]], set[str]] = {}
 
-    def enabled(self, key: str, cmd: Command | None = None) -> bool:
+    def enabled(self, key: str, cmd: Command) -> bool:
         if not option_on(key):
             return False
-        if cmd is None:
-            return True
-        cache_key = (str(cmd.cwd), tuple(cmd.repo_args), key)
-        if cache_key not in self._repo_cache:
-            value = run_git(cmd.cwd, cmd.repo_args, "config", "--type=bool", "--get", repo_key(key))
-            self._repo_cache[cache_key] = (value or "").strip() != "false"
-        return self._repo_cache[cache_key]
+        cache_key = (str(cmd.cwd), tuple(cmd.repo_args))
+        if cache_key not in self._repo_off:
+            listing = run_git(cmd.cwd, cmd.repo_args, "config", "--get-regexp", r"^techne\.") or ""
+            off = set()
+            for line in listing.splitlines():
+                name, _, value = line.partition(" ")
+                if value.strip().lower() in FALSE_VALUES:
+                    off.add(name.lower())
+            self._repo_off[cache_key] = off
+        return repo_key(key).lower() not in self._repo_off[cache_key]
 
     def check_attribution(self, what: str, texts: list[str], files: list[str], cwd: Path) -> None:
-        scan = list(texts) + self.bodies
+        """Scan the message text, any message file, and text this command may write into it.
+
+        A heredoc counts only when the message comes from a file, stdin or `$(...)`. A
+        file read from stdin, missing, or named elsewhere in the command (a redirect,
+        `tee`, `sed -i`) may be written by the command itself, so the other commands'
+        words are scanned as well.
+        """
+        scan = list(texts)
+        if files or any("<<" in t for t in texts):
+            scan += self.bodies
         for path in files:
             content = None if path == "-" else read_message_file(path, cwd)
-            if content is None:
-                scan.append(self.raw)
-            else:
+            if content is not None:
                 scan.append(content)
+            if content is None or path in self.side_text:
+                scan.append(self.side_text)
         for text in scan:
             for line in text.splitlines():
                 if ATTRIBUTION_RE.search(line):
                     self.verdict.denies.append(
                         f"techne: {what} carries an attribution line: {line.strip()!r}. "
-                        "Remove it and retry. To allow attribution lines in this repo, run "
-                        f"`git config {repo_key(ATTRIBUTION)} false`."
+                        "Remove it and retry; if another command in this call already removes "
+                        "it, run that command on its own first. To allow attribution lines in "
+                        f"this repo, run `git config {repo_key(ATTRIBUTION)} false`."
                     )
                     return
 
@@ -440,15 +485,22 @@ class Guards:
         if commit.pathspecs:
             hits += names_scratch(
                 run_git(
-                    cmd.cwd, cmd.repo_args, "diff", "--name-only", "HEAD", "--", *commit.pathspecs
+                    cmd.cwd,
+                    cmd.repo_args,
+                    "diff",
+                    "-z",
+                    "--name-only",
+                    "HEAD",
+                    "--",
+                    *commit.pathspecs,
                 )
             )
         if not commit.pathspecs or commit.include:
             hits += names_scratch(
-                run_git(cmd.cwd, cmd.repo_args, "diff", "--cached", "--name-only")
+                run_git(cmd.cwd, cmd.repo_args, "diff", "-z", "--cached", "--name-only")
             )
         if commit.all:
-            hits += names_scratch(run_git(cmd.cwd, cmd.repo_args, "diff", "--name-only"))
+            hits += names_scratch(run_git(cmd.cwd, cmd.repo_args, "diff", "-z", "--name-only"))
         if hits:
             self.deny_scratch(f"this commit would include {hits[0]}", cmd)
 
@@ -463,7 +515,7 @@ class Guards:
             "--git-dir",
             "--git-common-dir",
         )
-        if not dirs or len(set(dirs.split())) != 1:
+        if not dirs or len(set(dirs.splitlines())) != 1:
             return
         listing = run_git(cmd.cwd, cmd.repo_args, "worktree", "list", "--porcelain") or ""
         entries = [e for e in listing.split("\n\n") if e.startswith("worktree ")]
@@ -477,8 +529,17 @@ class Guards:
                 "commit. Prefer a worktree per session."
             )
 
-    def run(self, family: str, commands: list[list[str]], cwd: Path) -> None:
+    def run(self, family: str, groups: list[list[str]], cwd: Path) -> None:
+        """Check each subcommand; `groups` keep their redirections for the side text."""
+        commands = [drop_redirections(g) for g in groups]
+        self.side_text = "\n".join(
+            " ".join(groups[k])
+            for k, argv in enumerate(commands)
+            if not argv or Path(argv[0]).name not in {"git", "gh"}
+        )
         for argv in commands:
+            if not argv:
+                continue
             name = Path(argv[0]).name
             if name == "cd":
                 target = argv[1] if len(argv) > 1 else "~"
@@ -498,14 +559,18 @@ class Guards:
                         )
                     self.check_commit_scratch(cmd, commit)
                     self.check_main_checkout(cmd)
-            elif family == "gh" and name == "gh" and argv[1:2] == ["pr"]:
+            elif family == "gh" and name == "gh":
+                i = 1
+                while i < len(argv) and argv[i].startswith("-"):
+                    i += 2 if argv[i] in {"-R", "--repo"} else 1
                 if (
-                    len(argv) > 2
-                    and argv[2] in GH_PR_WRITERS
+                    argv[i : i + 1] == ["pr"]
+                    and len(argv) > i + 1
+                    and argv[i + 1] in GH_PR_WRITERS
                     and self.enabled(ATTRIBUTION, Command(argv, cwd))
                 ):
-                    texts, files = parse_gh_pr(argv[3:])
-                    self.check_attribution(f"`gh pr {argv[2]}`", texts, files, cwd)
+                    texts, files = parse_gh_pr(argv[i + 2 :])
+                    self.check_attribution(f"`gh pr {argv[i + 1]}`", texts, files, cwd)
 
 
 def main() -> int:
@@ -519,14 +584,20 @@ def main() -> int:
     stripped, bodies = strip_heredocs(raw)
     tokens = tokenize(stripped)
     guards = Guards(raw, bodies)
-    if tokens is None:
-        # Unparseable: fall back to scanning the whole command for attribution lines.
-        if guards.enabled(ATTRIBUTION, Command([], cwd)) and re.search(r"\b(git|gh)\b", raw):
-            guards.check_attribution("this command", [raw], [], cwd)
-    else:
+    failed = False
+    try:
+        if tokens is None:
+            # shlex rejected it: scan the whole command for attribution lines, and run
+            # the other checks on a rough split.
+            if guards.enabled(ATTRIBUTION, Command([], cwd)) and re.search(r"\b(git|gh)\b", raw):
+                guards.check_attribution("this command", [raw], [], cwd)
+            tokens = rough_tokenize(stripped)
         guards.run(family, split_subcommands(tokens), cwd)
+    except Exception as exc:
+        print(f"techne git guard error: {exc}", file=sys.stderr)
+        failed = True
     guards.verdict.emit()
-    return 0
+    return 1 if failed and not guards.verdict.denies else 0
 
 
 if __name__ == "__main__":

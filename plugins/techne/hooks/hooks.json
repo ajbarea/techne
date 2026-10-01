@@ -10,14 +10,14 @@
             "if": "Bash(git *)",
             "command": "python3",
             "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/git_guards.py", "git"],
-            "timeout": 30
+            "timeout": 60
           },
           {
             "type": "command",
-            "if": "Bash(gh pr *)",
+            "if": "Bash(gh *)",
             "command": "python3",
             "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/git_guards.py", "gh"],
-            "timeout": 30
+            "timeout": 60
           }
         ]
       }

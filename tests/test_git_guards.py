@@ -351,3 +351,96 @@ def test_manifest_options_match_the_guard_and_default_off():
     for spec in options.values():
         assert spec["type"] == "boolean"
         assert spec["default"] is False
+
+
+# --- parser edge cases ---------------------------------------------------------
+
+
+def test_comment_with_apostrophe_does_not_hide_add(scratch):
+    command = "# don't forget\ngit add -A && git commit -F - <<'EOF'\nIt's done\nEOF"
+    assert denied(run_hook(command, scratch, on=[COMMITS_MD]))
+
+
+def test_hash_inside_a_word_is_not_a_comment(scratch):
+    assert denied(run_hook("git add foo#bar COMMITS.md", scratch, on=[COMMITS_MD]))
+    assert denied(
+        run_hook(
+            f"gh pr create -t x --body See#89 -b '{TRAILER}'",
+            scratch,
+            on=[ATTRIBUTION],
+            family="gh",
+        )
+    )
+
+
+def test_ansi_c_quoted_message(repo):
+    command = "git commit -m $'feat: x\\n\\nit\\'s\\nCo-Authored-By: Claude <x>'"
+    assert denied(run_hook(command, repo, on=[ATTRIBUTION]))
+
+
+def test_trailer_equals_form(repo):
+    command = "git commit -m x --trailer 'Co-authored-by=Claude <noreply@anthropic.com>'"
+    assert denied(run_hook(command, repo, on=[ATTRIBUTION]))
+
+
+def test_message_file_rewritten_in_the_same_command(repo):
+    (repo / "msg.txt").write_text("feat: clean\n")
+    command = "printf 'feat: x\\n\\nCo-Authored-By: Claude\\n' > msg.txt && git commit -F msg.txt"
+    assert denied(run_hook(command, repo, on=[ATTRIBUTION]))
+    assert run_hook("git commit -F msg.txt", repo, on=[ATTRIBUTION]) is None
+
+
+def test_unrelated_heredoc_does_not_block_a_plain_commit(repo):
+    command = f"cat > notes.md <<'EOF'\nWe ban {TRAILER}\nEOF\ngit commit -m 'feat: x'"
+    assert run_hook(command, repo, on=[ATTRIBUTION]) is None
+
+
+def test_gh_global_repo_flag(repo):
+    command = f"gh -R owner/repo pr create --title x --body '{TRAILER}'"
+    assert denied(run_hook(command, repo, on=[ATTRIBUTION], family="gh"))
+
+
+def test_main_checkout_with_space_in_path(tmp_path):
+    main = tmp_path / "sp ace"
+    main.mkdir()
+    _git(main, "init", "-q")
+    _git(main, "commit", "-q", "--allow-empty", "-m", "init")
+    _git(main, "worktree", "add", "-q", str(tmp_path / "wt"))
+    assert warned(run_hook("git commit -m x", main, on=[MAIN_CHECKOUT]))
+
+
+def test_non_ascii_path_to_commits_md(repo):
+    (repo / "café").mkdir()
+    (repo / "café" / "COMMITS.md").write_text("plan\n")
+    assert denied(run_hook("git add .", repo, on=[COMMITS_MD]))
+    _git(repo, "add", "-f", "café/COMMITS.md")
+    assert denied(run_hook("git commit -m x", repo, on=[COMMITS_MD]))
+
+
+def test_rough_split_still_runs_the_commits_md_check(scratch):
+    command = "git add -A && echo 'unbalanced"
+    assert denied(run_hook(command, scratch, on=[COMMITS_MD]))
+
+
+def test_crash_in_one_check_keeps_earlier_denies(repo, monkeypatch, capsys):
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("techne_git_guards", GUARDS)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    def boom(self, cmd):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(mod.Guards, "check_main_checkout", boom)
+    for key in ALL:
+        monkeypatch.setenv(f"CLAUDE_PLUGIN_OPTION_{key.upper()}", "true")
+    payload = json.dumps(
+        {"cwd": str(repo), "tool_input": {"command": f"git commit -m '{TRAILER}'"}}
+    )
+    monkeypatch.setattr(sys, "stdin", __import__("io").StringIO(payload))
+    monkeypatch.setattr(sys, "argv", ["git_guards.py", "git"])
+    assert mod.main() == 0
+    out = capsys.readouterr()
+    assert denied(json.loads(out.out)) and "boom" in out.err
