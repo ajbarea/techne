@@ -54,14 +54,14 @@ def repo(tmp_path):
     return r
 
 
-def run_hook(command: str, cwd: pathlib.Path, *, on=ALL, family: str = "git") -> dict | None:
+def run_hook(command: str, cwd: pathlib.Path, *, on=ALL) -> dict | None:
     """Run the guard as Claude Code would; return its JSON output, or None when silent."""
     env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE_PLUGIN_OPTION_")}
     for key in on:
         env[f"CLAUDE_PLUGIN_OPTION_{key.upper()}"] = "true"
     payload = json.dumps({"cwd": str(cwd), "tool_input": {"command": command}})
     proc = subprocess.run(
-        [GUARD_PYTHON, str(GUARDS), family],
+        [GUARD_PYTHON, str(GUARDS)],
         input=payload,
         capture_output=True,
         text=True,
@@ -137,46 +137,45 @@ def test_attribution_reads_message_file(repo, tmp_path):
     ],
 )
 def test_attribution_trips_on_gh_pr(repo, command):
-    assert denied(run_hook(command, repo, on=[ATTRIBUTION], family="gh"))
+    assert denied(run_hook(command, repo, on=[ATTRIBUTION]))
 
 
 def test_attribution_reads_body_file(repo, tmp_path):
     body = tmp_path / "body.md"
     body.write_text(f"Summary\n\n{TRAILER}\n")
-    assert denied(run_hook(f"gh pr create -t x -F {body}", repo, on=[ATTRIBUTION], family="gh"))
+    assert denied(run_hook(f"gh pr create -t x -F {body}", repo, on=[ATTRIBUTION]))
 
 
 @pytest.mark.parametrize(
-    ("command", "family"),
+    "command",
     [
-        ("git commit -m 'feat: plain message' -m 'Body with no trailer.'", "git"),
-        ("git commit -m \"$(cat <<'EOF'\nfeat: x\n\nPlain body.\nEOF\n)\"", "git"),
-        ("gh pr create --title x --body 'Plain body'", "gh"),
-        ("gh pr view 7 --json body", "gh"),
-        (f"git log --grep '{TRAILER}'", "git"),
+        "git commit -m 'feat: plain message' -m 'Body with no trailer.'",
+        "git commit -m \"$(cat <<'EOF'\nfeat: x\n\nPlain body.\nEOF\n)\"",
+        "gh pr create --title x --body 'Plain body'",
+        "gh pr view 7 --json body",
+        f"git log --grep '{TRAILER}'",
+        f"echo '{TRAILER}'",
     ],
 )
-def test_attribution_passes_clean(repo, command, family):
-    assert run_hook(command, repo, on=[ATTRIBUTION], family=family) is None
+def test_attribution_passes_clean(repo, command):
+    assert run_hook(command, repo, on=[ATTRIBUTION]) is None
 
 
 def test_attribution_off_by_default(repo):
     assert run_hook(f"git commit -m x -m '{TRAILER}'", repo, on=[]) is None
-    assert run_hook(f"gh pr create -b '{TRAILER}'", repo, on=[], family="gh") is None
+    assert run_hook(f"gh pr create -b '{TRAILER}'", repo, on=[]) is None
 
 
 def test_attribution_repo_override(repo):
     _git(repo, "config", "techne.blockAttributionTrailers", "false")
     assert run_hook(f"git commit -m x -m '{TRAILER}'", repo, on=[ATTRIBUTION]) is None
-    assert run_hook(f"gh pr create -b '{TRAILER}'", repo, on=[ATTRIBUTION], family="gh") is None
+    assert run_hook(f"gh pr create -b '{TRAILER}'", repo, on=[ATTRIBUTION]) is None
 
 
-def test_each_family_checks_only_its_own_tool(repo):
+def test_compound_command_reports_each_tool(repo):
     command = f"git commit -m x -m '{TRAILER}' && gh pr create -b '{TRAILER}'"
-    git_reason = denied(run_hook(command, repo, on=[ATTRIBUTION]))
-    gh_reason = denied(run_hook(command, repo, on=[ATTRIBUTION], family="gh"))
-    assert git_reason and "commit message" in git_reason
-    assert gh_reason and "gh pr create" in gh_reason
+    reason = denied(run_hook(command, repo, on=[ATTRIBUTION]))
+    assert reason and "commit message" in reason and "gh pr create" in reason
 
 
 # --- COMMITS.md ----------------------------------------------------------------
@@ -332,17 +331,58 @@ def test_unparseable_command_falls_back_to_raw_scan(repo):
     assert run_hook(command, repo, on=[ATTRIBUTION]) is None
 
 
-def test_hooks_json_runs_the_guard_in_exec_form():
+def _handlers() -> list[dict]:
     config = json.loads(HOOKS_JSON.read_text())
-    handlers = [h for group in config["hooks"]["PreToolUse"] for h in group["hooks"]]
-    families = set()
-    for handler in handlers:
-        script, family = handler["args"]
-        assert handler["command"] == "python3"
-        assert script == "${CLAUDE_PLUGIN_ROOT}/hooks/git_guards.py"
-        assert handler["if"].startswith(f"Bash({family} ")
-        families.add(family)
-    assert families == {"git", "gh"}
+    return [h for group in config["hooks"]["PreToolUse"] for h in group["hooks"]]
+
+
+def run_handler(handler: dict, command: str, cwd: pathlib.Path, *, on) -> dict | None:
+    """Run a hooks.json command through sh, as Claude Code does for a shell-form hook."""
+    shell = handler["command"].replace("${CLAUDE_PLUGIN_ROOT}", str(PLUGIN))
+    env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE_PLUGIN_OPTION_")}
+    env.update({f"CLAUDE_PLUGIN_OPTION_{key.upper()}": "true" for key in on})
+    payload = json.dumps({"cwd": str(cwd), "tool_input": {"command": command}})
+    proc = subprocess.run(
+        ["sh", "-c", shell], input=payload, capture_output=True, text=True, env=env, check=False
+    )
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stdout) if proc.stdout.strip() else None
+
+
+def test_hooks_json_runs_one_unfiltered_handler():
+    # No `if`: Claude Code's `Bash(git *)` filter skips `time git ...` and `sudo git ...`.
+    (handler,) = _handlers()
+    assert "if" not in handler
+    assert '"${CLAUDE_PLUGIN_ROOT}/hooks/git_guards.py"' in handler["command"]
+    for key in ALL:
+        assert f"$CLAUDE_PLUGIN_OPTION_{key.upper()}" in handler["command"]
+
+
+@pytest.mark.parametrize("key", ALL)
+def test_hooks_json_handler_runs_the_guard_when_one_option_is_on(repo, key):
+    (repo / "COMMITS.md").write_text("plan\n")
+    (handler,) = _handlers()
+    out = run_handler(handler, f"time git add . && git commit -m x -m '{TRAILER}'", repo, on=[key])
+    if key == MAIN_CHECKOUT:
+        assert out is None  # no linked worktree, so nothing to warn about
+    else:
+        assert denied(out)
+
+
+def test_hooks_json_handler_skips_python_when_all_off(repo, tmp_path):
+    (handler,) = _handlers()
+    shell = handler["command"].replace("${CLAUDE_PLUGIN_ROOT}", str(PLUGIN))
+    empty = tmp_path / "bin"
+    empty.mkdir()
+    proc = subprocess.run(
+        ["/bin/sh", "-c", shell],
+        input="{}",
+        capture_output=True,
+        text=True,
+        env={"PATH": str(empty)},
+        check=False,
+    )
+    assert (proc.returncode, proc.stdout, proc.stderr) == (0, "", "")
 
 
 def test_manifest_options_match_the_guard_and_default_off():
@@ -368,7 +408,6 @@ def test_hash_inside_a_word_is_not_a_comment(scratch):
             f"gh pr create -t x --body See#89 -b '{TRAILER}'",
             scratch,
             on=[ATTRIBUTION],
-            family="gh",
         )
     )
 
@@ -397,7 +436,7 @@ def test_unrelated_heredoc_does_not_block_a_plain_commit(repo):
 
 def test_gh_global_repo_flag(repo):
     command = f"gh -R owner/repo pr create --title x --body '{TRAILER}'"
-    assert denied(run_hook(command, repo, on=[ATTRIBUTION], family="gh"))
+    assert denied(run_hook(command, repo, on=[ATTRIBUTION]))
 
 
 def test_main_checkout_with_space_in_path(tmp_path):
@@ -440,7 +479,102 @@ def test_crash_in_one_check_keeps_earlier_denies(repo, monkeypatch, capsys):
         {"cwd": str(repo), "tool_input": {"command": f"git commit -m '{TRAILER}'"}}
     )
     monkeypatch.setattr(sys, "stdin", __import__("io").StringIO(payload))
-    monkeypatch.setattr(sys, "argv", ["git_guards.py", "git"])
+    monkeypatch.setattr(sys, "argv", ["git_guards.py"])
     assert mod.main() == 0
     out = capsys.readouterr()
     assert denied(json.loads(out.out)) and "boom" in out.err
+
+
+# --- round-two edges -----------------------------------------------------------
+
+
+def test_cd_and_dash_c_targets_expand_variables(scratch, tmp_path, monkeypatch):
+    monkeypatch.setenv("TECHNE_TEST_REPO", str(scratch))
+    assert denied(run_hook('cd "$TECHNE_TEST_REPO" && git add .', tmp_path, on=[COMMITS_MD]))
+    assert denied(run_hook('git -C "$TECHNE_TEST_REPO" add .', tmp_path, on=[COMMITS_MD]))
+
+
+def test_unexpandable_cd_target_keeps_the_current_repo(scratch):
+    command = 'cd "$(git rev-parse --show-toplevel)" && git add .'
+    assert denied(run_hook(command, scratch, on=[COMMITS_MD]))
+
+
+def test_short_message_file_name_is_matched_as_a_word(repo):
+    (repo / "m").write_text("hello\n")
+    command = f"echo 'ma: {TRAILER} is banned' >> notes.txt; git commit -F m"
+    assert run_hook(command, repo, on=[ATTRIBUTION]) is None
+
+
+def test_strip_step_before_commit_is_not_blocked(repo):
+    (repo / "msg.txt").write_text(f"feat: x\n\n{TRAILER}\n")
+    command = f"grep -v '{TRAILER}' msg.txt > clean.txt && git commit -F clean.txt"
+    assert run_hook(command, repo, on=[ATTRIBUTION]) is None
+
+
+def test_message_piped_from_echo_on_stdin(repo):
+    command = f"echo 'feat: x\n\n{TRAILER}' | git commit -F -"
+    assert denied(run_hook(command, repo, on=[ATTRIBUTION]))
+
+
+def test_pathspec_commit_in_a_repo_without_commits(tmp_path):
+    fresh = tmp_path / "fresh"
+    fresh.mkdir()
+    _git(fresh, "init", "-q")
+    (fresh / "COMMITS.md").write_text("plan\n")
+    (fresh / "b").write_text("b\n")
+    _git(fresh, "add", "-f", "COMMITS.md", "b")
+    assert denied(run_hook("git commit -m init .", fresh, on=[COMMITS_MD]))
+
+
+def test_pathspec_from_file_commit(scratch):
+    _git(scratch, "add", "COMMITS.md")
+    _git(scratch, "commit", "-qm", "track it")
+    (scratch / "COMMITS.md").write_text("edited\n")
+    (scratch / "list").write_text("COMMITS.md\n")
+    assert denied(run_hook("git commit --pathspec-from-file=list -m x", scratch, on=[COMMITS_MD]))
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "time git add .",
+        "sudo -u me git add .",
+        "nice -n 5 git add .",
+        "timeout 30 git add .",
+        "git stage .",
+    ],
+)
+def test_wrappers_and_stage_alias(scratch, command):
+    assert denied(run_hook(command, scratch, on=[COMMITS_MD]))
+
+
+def test_abbreviated_long_option(repo):
+    assert denied(run_hook(f"git commit --mess '{TRAILER}'", repo, on=[ATTRIBUTION]))
+
+
+def test_gh_repo_flag_after_pr(repo):
+    command = f"gh pr --repo o/r create -t x -b '{TRAILER}'"
+    assert denied(run_hook(command, repo, on=[ATTRIBUTION]))
+
+
+def test_crash_in_one_subcommand_still_checks_the_next(scratch, monkeypatch, capsys):
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("techne_git_guards_2", GUARDS)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    def boom(self, cmd):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(mod.Guards, "check_main_checkout", boom)
+    for key in ALL:
+        monkeypatch.setenv(f"CLAUDE_PLUGIN_OPTION_{key.upper()}", "true")
+    command = "git commit -m x && git add COMMITS.md"
+    payload = json.dumps({"cwd": str(scratch), "tool_input": {"command": command}})
+    monkeypatch.setattr(sys, "stdin", __import__("io").StringIO(payload))
+    monkeypatch.setattr(sys, "argv", ["git_guards.py"])
+    assert mod.main() == 0
+    out = capsys.readouterr()
+    assert "COMMITS.md" in (denied(json.loads(out.out)) or "") and "boom" in out.err

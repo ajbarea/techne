@@ -1,5 +1,5 @@
 {
-  "description": "Opt-in guards on git commit, git add and gh pr. Each is off until switched on in /config.",
+  "description": "Opt-in guards on git commit, git add and gh pr. Each is off until switched on in /config; with all off, the shell stops before python3 starts.",
   "hooks": {
     "PreToolUse": [
       {
@@ -7,16 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "if": "Bash(git *)",
-            "command": "python3",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/git_guards.py", "git"],
-            "timeout": 60
-          },
-          {
-            "type": "command",
-            "if": "Bash(gh *)",
-            "command": "python3",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/git_guards.py", "gh"],
+            "command": "case \"$CLAUDE_PLUGIN_OPTION_BLOCK_ATTRIBUTION_TRAILERS$CLAUDE_PLUGIN_OPTION_BLOCK_COMMITS_MD$CLAUDE_PLUGIN_OPTION_WARN_MAIN_CHECKOUT_COMMIT\" in *true*) exec python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/git_guards.py\" ;; esac",
             "timeout": 60
           }
         ]

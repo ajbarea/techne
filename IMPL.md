@@ -17,8 +17,9 @@ has crept in — extract it back to ROADMAP.
   reminder could contradict them. Nothing enforced them.
 - **Decisions:** `# research(2026-10)`: plugin `userConfig` booleans reach hooks as
   `CLAUDE_PLUGIN_OPTION_<KEY>=true`, so each guard defaults off and only the user who switches it
-  on gets it. Plugin hook denies hold in `bypassPermissions` (verified live). One stdlib script
-  per tool family (`git`, `gh`) so a compound command is checked once. `claude plugin validate`
+  on gets it. Plugin hook denies hold in `bypassPermissions` (verified live). One handler with no
+  `if`: verified live that `Bash(git *)` skips `time git add`. A shell `case` on the option
+  variables keeps the all-off cost to one `sh` spawn. `claude plugin validate`
   allows only the missing-`version` warning, since techne is unversioned on purpose.
 - **Scope:** `plugins/techne/hooks/`, `userConfig` in `plugin.json`, `tests/test_git_guards.py`,
   `scripts/check_plugin_manifest.sh` + `make plugin-validate` in CI, Guards section in

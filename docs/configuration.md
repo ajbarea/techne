@@ -52,8 +52,8 @@ A refusal tells Claude the reason, so it can fix the command and retry. The hook
 
 What each guard reads:
 
-- Messages from `-m`, `--message`, `--trailer`, `-F`/`--file`, `--title`, `--body` and `--body-file`, including heredocs and line continuations. A message file is read from disk. When the same command may write it (stdin, a redirect, `tee`, `sed -i`, or a file that does not exist yet), the other commands' words are scanned too, so strip a line in its own call before committing.
-- The repo the command runs in, following `cd <dir> &&` and `git -C <dir>`.
+- Messages from `-m`, `--message`, `--trailer`, `-F`/`--file`, `--title`, `--body` and `--body-file`, including heredocs and line continuations. A message file is read from disk. When the same command may write it (stdin, a redirect or `tee`, or a file that does not exist yet), the arguments of `echo` and `printf` in that command are scanned too. A `grep -v` or `sed` that strips a line is not.
+- The repo the command runs in, following `cd <dir> &&` and `git -C <dir>` with variables expanded, through wrappers such as `time`, `sudo`, `nice` and `timeout`. `git stage` counts as `git add`, and `gh -R <repo>` is followed.
 - For `COMMITS.md`, `git add --dry-run` with your arguments, so `.`, `-A`, globs and directories are covered and exclude pathspecs such as `':!COMMITS.md'` are respected. At commit time it checks the index, plus the working tree for `-a` and pathspec commits.
 
 To turn an enabled guard off in one repo, set the option's camelCase name in that repo's git config:
@@ -64,7 +64,7 @@ git config techne.blockCommitsMd false
 git config techne.warnMainCheckoutCommit false
 ```
 
-The hooks need `python3` 3.9 or newer on `PATH`. They run read-only git commands in the target repo. Parsing is best effort: a git command inside `$(...)` or `bash -c` is not checked.
+The hook runs on every Bash call, since Claude Code's `Bash(git *)` filter skips commands such as `time git add`. With every option off, it stops in the shell and `python3` never starts. Once one is on, it needs `python3` 3.9 or newer on `PATH`, adds about 40 ms to each Bash call, and runs read-only git commands in the target repo. Parsing is best effort: a git command inside `$(...)` or `bash -c` is not checked.
 
 ## Per-skill configuration
 

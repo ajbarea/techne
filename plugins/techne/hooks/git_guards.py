@@ -5,9 +5,9 @@ Each guard is off until its userConfig option is switched on in /config, which
 Claude Code exports to this process as CLAUDE_PLUGIN_OPTION_<KEY>. A repo turns
 an enabled guard off for itself with `git config techne.<optionInCamelCase> false`.
 
-Invoked as `git_guards.py git` or `git_guards.py gh`, one per hooks.json handler,
-so a compound command that runs both is checked once per tool. A crash in one
-check still emits the denies already found.
+hooks.json runs it on every Bash call with no `if` filter, because Claude Code's
+`Bash(git *)` filter does not match `time git ...` or `sudo git ...`. A crash in
+one subcommand's check still checks the rest and emits the denies already found.
 
 Parsing is best effort: subcommands inside `$(...)` or `bash -c` are not seen.
 Runs on the system python3, so it stays compatible with 3.9 (macOS's).
@@ -34,7 +34,6 @@ ATTRIBUTION_RE = re.compile(
     re.IGNORECASE,
 )
 SCRATCH_NAME = "commits.md"
-TRUE_VALUES = {"1", "true", "yes", "on"}
 MAX_MESSAGE_FILE = 1 << 20
 # Per git call. A commit runs at most six, inside the 60s hooks.json timeout.
 GIT_TIMEOUT = 5
@@ -66,7 +65,15 @@ COMMIT_LONG_VALUE = {
     "--trailer",
     "--pathspec-from-file",
 }
-ADD_LONG_VALUE = {"--pathspec-from-file", "--chmod"}
+# Long options matched by unique prefix, as git does (`--mess` is `--message`).
+COMMIT_LONG_KNOWN = COMMIT_LONG_VALUE | {"--all", "--include", "--only"}
+ADD_SUBCOMMANDS = {"add", "stage"}
+# Words that run the next command; their flags (and a flag's value) are skipped.
+WRAPPERS = {"env", "command", "builtin", "exec", "time", "nice", "nohup", "sudo", "timeout"}
+WRAPPER_VALUE_FLAGS = {"-n", "-u", "-g", "-k", "-s"}
+# Commands whose arguments become file content, for a message file the command writes.
+WRITERS = {"echo", "printf"}
+GH_VALUE_FLAGS = {"-R", "--repo"}
 ADD_INTERACTIVE = {"-p", "--patch", "-i", "--interactive", "-e", "--edit"}
 # gh pr subcommands that write a PR title/body, or (merge) the squash commit message.
 GH_PR_WRITERS = {"create", "edit", "merge"}
@@ -75,7 +82,7 @@ GH_FILE = {"-F": "file", "--body-file": "file", "-T": "file", "--template": "fil
 
 
 def option_on(key: str) -> bool:
-    return os.environ.get(f"CLAUDE_PLUGIN_OPTION_{key.upper()}", "").strip().lower() in TRUE_VALUES
+    return os.environ.get(f"CLAUDE_PLUGIN_OPTION_{key.upper()}", "").strip().lower() == "true"
 
 
 def repo_key(key: str) -> str:
@@ -232,13 +239,24 @@ def drop_redirections(argv: list[str]) -> list[str]:
             skip = True
             continue
         out.append(tok)
-    while out and ASSIGNMENT_RE.match(out[0]):
-        out.pop(0)
-    if out and out[0] in {"env", "command"}:
-        out.pop(0)
-        while out and ASSIGNMENT_RE.match(out[0]):
+    while out and (ASSIGNMENT_RE.match(out[0]) or out[0] in WRAPPERS):
+        word = out.pop(0)
+        if word not in WRAPPERS:
+            continue
+        while out and out[0].startswith("-"):
+            if out.pop(0) in WRAPPER_VALUE_FLAGS and out:
+                out.pop(0)
+        if word == "timeout" and out:
             out.pop(0)
     return out
+
+
+def resolve_dir(cwd: Path, target: str) -> Path:
+    """Join a `cd` or `-C` target; one still holding `$` or a backtick stays in cwd."""
+    expanded = os.path.expandvars(os.path.expanduser(target))
+    if "$" in expanded or "`" in expanded:
+        return cwd
+    return cwd / expanded
 
 
 def read_message_file(path: str, cwd: Path) -> str | None:
@@ -288,7 +306,7 @@ def parse_git(argv: list[str], cwd: Path) -> Command | None:
         if tok in GIT_GLOBAL_VALUE and i + 1 < len(argv):
             value = argv[i + 1]
             if tok == "-C":
-                cmd.cwd = cmd.cwd / os.path.expanduser(value)
+                cmd.cwd = resolve_dir(cmd.cwd, value)
             elif tok in {"--git-dir", "--work-tree"}:
                 cmd.repo_args += [tok, str(cmd.cwd / os.path.expanduser(value))]
             i += 2
@@ -311,6 +329,7 @@ class Commit:
         self.pathspecs: list[str] = []
         self.all = False
         self.include = False
+        self.pathspec_file = False
 
 
 def parse_commit(args: list[str]) -> Commit:
@@ -324,6 +343,9 @@ def parse_commit(args: list[str]) -> Commit:
             break
         if tok.startswith("--"):
             name, eq, value = tok.partition("=")
+            if name not in COMMIT_LONG_KNOWN:
+                matches = [o for o in COMMIT_LONG_KNOWN if o.startswith(name)]
+                name = matches[0] if len(matches) == 1 else name
             if name in COMMIT_LONG_VALUE:
                 if not eq:
                     value = nxt or ""
@@ -332,6 +354,8 @@ def parse_commit(args: list[str]) -> Commit:
                     c.texts.append(value)
                 elif name == "--file":
                     c.files.append(value)
+                elif name == "--pathspec-from-file":
+                    c.pathspec_file = True
             elif name == "--all":
                 c.all = True
             elif name == "--include":
@@ -406,7 +430,9 @@ class Guards:
     def __init__(self, raw: str, bodies: list[str]):
         self.raw = raw
         self.bodies = bodies
-        self.side_text = ""
+        self.side_words: set[str] = set()
+        self.writer_text = ""
+        self.errors: list[str] = []
         self.verdict = Verdict()
         self._repo_off: dict[tuple[str, tuple[str, ...]], set[str]] = {}
 
@@ -428,9 +454,9 @@ class Guards:
         """Scan the message text, any message file, and text this command may write into it.
 
         A heredoc counts only when the message comes from a file, stdin or `$(...)`. A
-        file read from stdin, missing, or named elsewhere in the command (a redirect,
-        `tee`, `sed -i`) may be written by the command itself, so the other commands'
-        words are scanned as well.
+        file read from stdin, missing, or named by another command here (a redirect,
+        `tee`) may be written by this command, so `echo`/`printf` arguments count too.
+        Filters such as grep or sed are not scanned: they remove lines, not add them.
         """
         scan = list(texts)
         if files or any("<<" in t for t in texts):
@@ -439,16 +465,15 @@ class Guards:
             content = None if path == "-" else read_message_file(path, cwd)
             if content is not None:
                 scan.append(content)
-            if content is None or path in self.side_text:
-                scan.append(self.side_text)
+            if content is None or path in self.side_words:
+                scan.append(self.writer_text)
         for text in scan:
             for line in text.splitlines():
                 if ATTRIBUTION_RE.search(line):
                     self.verdict.denies.append(
                         f"techne: {what} carries an attribution line: {line.strip()!r}. "
-                        "Remove it and retry; if another command in this call already removes "
-                        "it, run that command on its own first. To allow attribution lines in "
-                        f"this repo, run `git config {repo_key(ATTRIBUTION)} false`."
+                        "Remove it and retry. To allow attribution lines in this repo, run "
+                        f"`git config {repo_key(ATTRIBUTION)} false`."
                     )
                     return
 
@@ -482,20 +507,18 @@ class Guards:
             self.deny_scratch(f"`git commit` names {named[0]}", cmd)
             return
         hits: list[str] = []
-        if commit.pathspecs:
-            hits += names_scratch(
-                run_git(
-                    cmd.cwd,
-                    cmd.repo_args,
-                    "diff",
-                    "-z",
-                    "--name-only",
-                    "HEAD",
-                    "--",
-                    *commit.pathspecs,
-                )
+        if commit.pathspecs or commit.pathspec_file:
+            # A pathspec commit takes the working tree; an unknown pathspec list, all of it.
+            specs = (
+                ["--", *commit.pathspecs] if commit.pathspecs and not commit.pathspec_file else []
             )
-        if not commit.pathspecs or commit.include:
+            tree = run_git(cmd.cwd, cmd.repo_args, "diff", "-z", "--name-only", "HEAD", *specs)
+            if tree is None:  # no commits yet: everything comes from the index
+                tree = run_git(
+                    cmd.cwd, cmd.repo_args, "diff", "-z", "--cached", "--name-only", *specs
+                )
+            hits += names_scratch(tree)
+        if not (commit.pathspecs or commit.pathspec_file) or commit.include:
             hits += names_scratch(
                 run_git(cmd.cwd, cmd.repo_args, "diff", "-z", "--cached", "--name-only")
             )
@@ -529,57 +552,72 @@ class Guards:
                 "commit. Prefer a worktree per session."
             )
 
-    def run(self, family: str, groups: list[list[str]], cwd: Path) -> None:
+    def run(self, groups: list[list[str]], cwd: Path) -> None:
         """Check each subcommand; `groups` keep their redirections for the side text."""
         commands = [drop_redirections(g) for g in groups]
-        self.side_text = "\n".join(
-            " ".join(groups[k])
-            for k, argv in enumerate(commands)
-            if not argv or Path(argv[0]).name not in {"git", "gh"}
-        )
+        for k, argv in enumerate(commands):
+            name = Path(argv[0]).name if argv else ""
+            if name not in {"git", "gh"}:
+                self.side_words.update(groups[k])
+            if name in WRITERS:
+                self.writer_text += "\n" + "\n".join(argv[1:])
         for argv in commands:
             if not argv:
                 continue
             name = Path(argv[0]).name
             if name == "cd":
-                target = argv[1] if len(argv) > 1 else "~"
-                cwd = cwd / os.path.expanduser(target)
+                cwd = resolve_dir(cwd, argv[1] if len(argv) > 1 else "~")
                 continue
-            if family == "git" and name == "git":
-                cmd = parse_git(argv, cwd)
-                if cmd is None:
-                    continue
-                if cmd.sub == "add":
-                    self.check_add(cmd)
-                elif cmd.sub == "commit":
-                    commit = parse_commit(cmd.args)
-                    if self.enabled(ATTRIBUTION, cmd):
-                        self.check_attribution(
-                            "this commit message", commit.texts, commit.files, cmd.cwd
-                        )
-                    self.check_commit_scratch(cmd, commit)
-                    self.check_main_checkout(cmd)
-            elif family == "gh" and name == "gh":
-                i = 1
-                while i < len(argv) and argv[i].startswith("-"):
-                    i += 2 if argv[i] in {"-R", "--repo"} else 1
-                if (
-                    argv[i : i + 1] == ["pr"]
-                    and len(argv) > i + 1
-                    and argv[i + 1] in GH_PR_WRITERS
-                    and self.enabled(ATTRIBUTION, Command(argv, cwd))
-                ):
-                    texts, files = parse_gh_pr(argv[i + 2 :])
-                    self.check_attribution(f"`gh pr {argv[i + 1]}`", texts, files, cwd)
+            try:
+                if name == "git":
+                    self.check_git(argv, cwd)
+                elif name == "gh":
+                    self.check_gh(argv, cwd)
+            except Exception as exc:  # one broken check must not skip the next subcommand
+                self.errors.append(f"{' '.join(argv)[:80]}: {exc}")
+
+    def check_git(self, argv: list[str], cwd: Path) -> None:
+        cmd = parse_git(argv, cwd)
+        if cmd is None:
+            return
+        if cmd.sub in ADD_SUBCOMMANDS:
+            self.check_add(cmd)
+        elif cmd.sub == "commit":
+            commit = parse_commit(cmd.args)
+            if self.enabled(ATTRIBUTION, cmd):
+                self.check_attribution("this commit message", commit.texts, commit.files, cmd.cwd)
+            self.check_commit_scratch(cmd, commit)
+            self.check_main_checkout(cmd)
+
+    def check_gh(self, argv: list[str], cwd: Path) -> None:
+        words: list[str] = []
+        i = 1
+        while i < len(argv) and len(words) < 2:
+            tok = argv[i]
+            if tok in GH_VALUE_FLAGS:
+                i += 2
+                continue
+            if not tok.startswith("-"):
+                words.append(tok)
+            i += 1
+        if (
+            len(words) == 2
+            and words[0] == "pr"
+            and words[1] in GH_PR_WRITERS
+            and self.enabled(ATTRIBUTION, Command(argv, cwd))
+        ):
+            texts, files = parse_gh_pr(argv[1:])
+            self.check_attribution(f"`gh pr {words[1]}`", texts, files, cwd)
 
 
 def main() -> int:
-    family = sys.argv[1] if len(sys.argv) > 1 else ""
     payload = sys.stdin.read()
-    if family not in {"git", "gh"} or not any(option_on(k) for k in OPTIONS):
+    if not any(option_on(k) for k in OPTIONS):
         return 0
     data = json.loads(payload or "{}")
     raw = (data.get("tool_input") or {}).get("command") or ""
+    if not re.search(r"\b(git|gh)\b", raw):
+        return 0
     cwd = Path(data.get("cwd") or os.getcwd())
     stripped, bodies = strip_heredocs(raw)
     tokens = tokenize(stripped)
@@ -589,12 +627,14 @@ def main() -> int:
         if tokens is None:
             # shlex rejected it: scan the whole command for attribution lines, and run
             # the other checks on a rough split.
-            if guards.enabled(ATTRIBUTION, Command([], cwd)) and re.search(r"\b(git|gh)\b", raw):
+            if guards.enabled(ATTRIBUTION, Command([], cwd)):
                 guards.check_attribution("this command", [raw], [], cwd)
             tokens = rough_tokenize(stripped)
-        guards.run(family, split_subcommands(tokens), cwd)
+        guards.run(split_subcommands(tokens), cwd)
     except Exception as exc:
-        print(f"techne git guard error: {exc}", file=sys.stderr)
+        guards.errors.append(str(exc))
+    for error in guards.errors:
+        print(f"techne git guard error: {error}", file=sys.stderr)
         failed = True
     guards.verdict.emit()
     return 1 if failed and not guards.verdict.denies else 0
