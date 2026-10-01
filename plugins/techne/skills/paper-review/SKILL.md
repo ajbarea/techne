@@ -34,7 +34,7 @@ verdict cites a record retrieved this run with a verbatim snippet, or it is mark
 
 ## Config
 
-Read `## paper-review` from `<repo>/.claude/skill-context.md`: `lab_line` (overlap source of
+Read `## paper-review` from `<repo>/.claude/skill-context.md` (`bash "${CLAUDE_PLUGIN_ROOT}/_shared/skill_context.sh" <target>` prints it): `lab_line` (overlap source of
 truth, default `LINEAGE.md`), `retrieval` (default OpenAlex + web; Semantic Scholar only if
 `S2_API_KEY` is set), `mailto` (OpenAlex polite pool, default `git config user.email`), `report`
 (default `papers/<name>/novelty-review.md`, or `<stem>.novelty-review.md` beside a `.tex` path). Sensible defaults if absent.

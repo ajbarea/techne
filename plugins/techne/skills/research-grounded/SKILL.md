@@ -11,13 +11,13 @@ Catch design decisions that were made without checking current best practice —
 
 ## Repo context
 
-`/techne:research-grounded` audits docs in the CWD repo by default, or a path you name (which may live in another repo). Resolve the repo root from the argument:
+`/techne:research-grounded` audits docs in the CWD repo by default, or a path you name (which may live in another repo). Read that repo's skill-context:
 
 ```bash
-git -C "$(dirname "<target-doc>")" rev-parse --show-toplevel   # no path arg → CWD repo root
+bash "${CLAUDE_PLUGIN_ROOT}/_shared/skill_context.sh" <target-doc>   # no path arg → CWD repo
 ```
 
-The target's `.claude/skill-context.md` isn't required, but its `## repo` section helps you tell a genuine technology choice from incidental prose.
+It isn't required, but its `## repo` section helps you tell a genuine technology choice from incidental prose.
 
 ## What needs provenance
 

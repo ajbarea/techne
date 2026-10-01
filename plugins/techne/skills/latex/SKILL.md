@@ -59,7 +59,7 @@ skipped on the run where it mattered.
 | REVIEW | `prose` | Patterns from the `prose-patterns` block of `_shared/plain-prose.md`, plus sentences over 40 words. `--no-prose` skips it. |
 
 `--markers`, `--overfull-pt` and `--engine` move the thresholds. Read the
-`## latex` section of `<repo>/.claude/skill-context.md` for per-repo marker
+`## latex` section of `<repo>/.claude/skill-context.md` (`bash "${CLAUDE_PLUGIN_ROOT}/_shared/skill_context.sh" <target>` prints it) for per-repo marker
 words before overriding them.
 
 ## Coverage and prose are heuristics and never fail the build

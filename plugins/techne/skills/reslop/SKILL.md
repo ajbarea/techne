@@ -12,8 +12,10 @@ Generative sibling of `/techne:deslop`. Where `/techne:deslop` deletes low-value
 ## Repo context
 
 ```!
-cat .claude/skill-context.md 2>/dev/null || echo "(no .claude/skill-context.md — rewrites will use conservative defaults for grounding numeric claims)"
+echo "<!-- skill-context: $(git rev-parse --show-toplevel 2>/dev/null || pwd) -->"; cat "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/skill-context.md" 2>/dev/null || echo "(no .claude/skill-context.md in this repo)"
 ```
+
+No context file: use conservative defaults for grounding numeric claims. The header names the repo it came from, which is the current directory's. When the target is a path in another repo, run `bash "${CLAUDE_PLUGIN_ROOT}/_shared/skill_context.sh" <target-path>` and use that output instead.
 
 The injected `## slop_ground_truth` section (if present) names the files or docs that ground quantitative claims for this repo. Never introduce a numeric claim that can't trace to one of those sources.
 

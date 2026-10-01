@@ -30,6 +30,31 @@ HYGIENE_SCRIPT = SKILLS / "sisters" / "scripts" / "hygiene.py"
 PROSE_SCRIPT = ROOT / "plugins" / "techne" / "_shared" / "prose_check.py"
 
 
+# The variables a git hook exports that point git at a repository.
+GIT_REPO_VARS = (
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_COMMON_DIR",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_PREFIX",
+)
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _no_inherited_git_repo():
+    """Unset the repo-locating git variables for the whole suite.
+
+    From a worktree a hook exports them as absolute paths, so a test's `git init`
+    in tmp_path would act on the real repo instead.
+    """
+    with pytest.MonkeyPatch.context() as mp:
+        for var in GIT_REPO_VARS:
+            mp.delenv(var, raising=False)
+        yield
+
+
 def _load(name: str, path: pathlib.Path) -> types.ModuleType:
     spec = importlib.util.spec_from_file_location(name, path)
     assert spec and spec.loader, f"cannot load {path}"

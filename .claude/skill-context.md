@@ -1,8 +1,8 @@
 # skill-context — techne
 
-Repo-specific facts for canonical techne skills. Most skills load this via a
-load-time `` !`cat .claude/skill-context.md` `` injection; docsync reads it from
-the target doc's repo root instead (it audits docs in other repos). This is the meta-repo — the
+Repo-specific facts for canonical techne skills. Skills load it at load time
+from the current directory's git root, and re-read it through
+`_shared/skill_context.sh <target>` when pointed at a path in another repo. This is the meta-repo — the
 skills shipped here run against sister repos; running them inside this repo
 audits the skill collection itself.
 

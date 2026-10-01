@@ -12,8 +12,10 @@ Find and remove low-value, AI-generated commentary in source files. Keep comment
 ## Repo context
 
 ```!
-cat .claude/skill-context.md 2>/dev/null || echo "(no .claude/skill-context.md — skill will use generic defaults for skip paths and scan split)"
+echo "<!-- skill-context: $(git rev-parse --show-toplevel 2>/dev/null || pwd) -->"; cat "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/skill-context.md" 2>/dev/null || echo "(no .claude/skill-context.md in this repo)"
 ```
+
+No context file: use generic defaults for skip paths and the scan split. The header names the repo it came from, which is the current directory's. When the target is a path in another repo, run `bash "${CLAUDE_PLUGIN_ROOT}/_shared/skill_context.sh" <target-path>` and use that output instead.
 
 The injected `## scan_scope` section (if present) supplies this repo's skip-path list and subagent scan-area split. The `## slop_ground_truth` section (if present) names the repo's source of truth for performance/scale claims — used when filtering unmeasured numeric claims. Use those over the generic defaults below when available.
 

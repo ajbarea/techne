@@ -31,7 +31,7 @@ that reads the source repo's corpus, never hand-typed.
 
 ## Config
 
-Read the `## paper` section of `<repo>/.claude/skill-context.md` for: `author`,
+Read the `## paper` section of `<repo>/.claude/skill-context.md` (`bash "${CLAUDE_PLUGIN_ROOT}/_shared/skill_context.sh" <target>` prints it) for: `author`,
 `affiliation`, `email`, `bib` (default `../references`), and `portfolio` (default
 `LINEAGE.md`). Use sensible defaults if absent.
 

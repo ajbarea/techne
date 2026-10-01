@@ -23,8 +23,10 @@ If you (or this session) authored the change under review, you are the wrong rev
 ## Repo context
 
 ```!
-cat .claude/skill-context.md 2>/dev/null || echo "(no .claude/skill-context.md — elenchus still runs tier-0; infer the test/run commands from the Makefile or ask. Add an optional \`## elenchus\` block for repo-specific hints; see Scaffolding below.)"
+echo "<!-- skill-context: $(git rev-parse --show-toplevel 2>/dev/null || pwd) -->"; cat "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/skill-context.md" 2>/dev/null || echo "(no .claude/skill-context.md in this repo)"
 ```
+
+No context file: elenchus still runs tier-0; infer the test and run commands from the Makefile or ask. Add an optional `## elenchus` block for repo-specific hints; see Scaffolding below. The header names the repo it came from, which is the current directory's. When the target is a path in another repo, run `bash "${CLAUDE_PLUGIN_ROOT}/_shared/skill_context.sh" <target-path>` and use that output instead.
 
 Read the `## elenchus` section if present (optional tier-1 hints — known destructive ops, load-bearing surfaces, reproduce recipes, what "the feature works" means here). For the commands to actually *run* the code, fall back in order to `## audit` (lint/test targets), `## theoros` (`repl_command`), then the repo `Makefile`. Tier-0 needs no config.
 
