@@ -29,6 +29,9 @@ jobs:
       - name: Shellcheck (scripts/*.sh)
         run: make shellcheck
 
+      - name: Plugin manifest + hooks (claude plugin validate)
+        run: make plugin-validate
+
       - name: Structural checks + pytest
         run: make test
         env:

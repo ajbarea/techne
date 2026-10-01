@@ -4,7 +4,7 @@
 ## that techne itself documents at docs/conventions.md.
 ##
 
-.PHONY: help check-env setup manifests frontmatter fix lint shellcheck guards test-unit zizmor test validate build ci clean docs evals evals-bash
+.PHONY: help check-env setup manifests plugin-validate frontmatter fix lint shellcheck guards test-unit zizmor test validate build ci clean docs evals evals-bash
 .DEFAULT_GOAL := help
 
 check-env:              ## Verify required tools are on PATH
@@ -16,6 +16,9 @@ setup: check-env        ## Install dev dependencies (uv sync)
 manifests:              ## Verify plugin + marketplace manifest JSON (stdlib json.tool)
 	@uv run python -m json.tool .claude-plugin/marketplace.json >/dev/null
 	@uv run python -m json.tool plugins/techne/.claude-plugin/plugin.json >/dev/null
+
+plugin-validate:        ## claude plugin validate on plugin + marketplace (hooks, userConfig)
+	@bash scripts/check_plugin_manifest.sh
 
 frontmatter:            ## Verify SKILL.md frontmatter + theoros structural checks
 	@uv run python scripts/validate_skill_frontmatter.py
@@ -67,7 +70,7 @@ test: manifests frontmatter guards test-unit  ## Structural checks + pytest
 # `build` belongs here: a dependency bump can leave lint and tests green and
 # still abort the site build, and docs.yml only runs on push to main, so
 # nothing else would catch it before it landed.
-validate: lint shellcheck zizmor test build  ## Fast pre-push gate
+validate: lint shellcheck zizmor plugin-validate test build  ## Fast pre-push gate
 
 build:                  ## Build docs site (strict; mirrors docs.yml deploy)
 	@uv run zensical build --clean --strict

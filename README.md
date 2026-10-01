@@ -77,6 +77,8 @@ status = "active"
 
 Set `status = "backburner"` to skip a repo without removing it.
 
+The plugin also ships three opt-in guards on `git commit`, `git add` and `gh pr`: block attribution lines, block staging `COMMITS.md`, and warn on commits in the main checkout. Each is off until you switch it on in `/config`. See [Configuration](docs/configuration.md#guards).
+
 ## How it fits together
 
 ```

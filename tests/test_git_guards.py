@@ -1,0 +1,336 @@
+"""Tests for the opt-in PreToolUse guards in plugins/techne/hooks/.
+
+Each case feeds the hook the JSON Claude Code sends on stdin and reads the decision
+from stdout, against a real throwaway repo. Every guard has a trip case, a clean
+case, a case with its option off, and a case with the per-repo override set.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import pathlib
+import subprocess
+import sys
+
+import pytest
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+PLUGIN = ROOT / "plugins" / "techne"
+GUARDS = PLUGIN / "hooks" / "git_guards.py"
+HOOKS_JSON = PLUGIN / "hooks" / "hooks.json"
+MANIFEST = PLUGIN / ".claude-plugin" / "plugin.json"
+
+ATTRIBUTION = "block_attribution_trailers"
+COMMITS_MD = "block_commits_md"
+MAIN_CHECKOUT = "warn_main_checkout_commit"
+ALL = (ATTRIBUTION, COMMITS_MD, MAIN_CHECKOUT)
+
+
+def _git(repo: pathlib.Path, *args: str) -> str:
+    env = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@t",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@t",
+    }
+    return subprocess.run(
+        ["git", *args], cwd=repo, check=True, capture_output=True, text=True, env=env
+    ).stdout
+
+
+@pytest.fixture
+def repo(tmp_path):
+    r = tmp_path / "repo"
+    r.mkdir()
+    _git(r, "init", "-q")
+    (r / "a.txt").write_text("a\n")
+    _git(r, "add", "a.txt")
+    _git(r, "commit", "-qm", "init")
+    return r
+
+
+def run_hook(command: str, cwd: pathlib.Path, *, on=ALL, family: str = "git") -> dict | None:
+    """Run the guard as Claude Code would; return its JSON output, or None when silent."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE_PLUGIN_OPTION_")}
+    for key in on:
+        env[f"CLAUDE_PLUGIN_OPTION_{key.upper()}"] = "true"
+    payload = json.dumps({"cwd": str(cwd), "tool_input": {"command": command}})
+    proc = subprocess.run(
+        [sys.executable, str(GUARDS), family],
+        input=payload,
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stdout) if proc.stdout.strip() else None
+
+
+def denied(out: dict | None) -> str | None:
+    if out and out["hookSpecificOutput"].get("permissionDecision") == "deny":
+        return out["hookSpecificOutput"]["permissionDecisionReason"]
+    return None
+
+
+def warned(out: dict | None) -> str | None:
+    if out and "permissionDecision" not in out["hookSpecificOutput"]:
+        assert out["systemMessage"] == out["hookSpecificOutput"]["additionalContext"]
+        return out["systemMessage"]
+    return None
+
+
+# --- attribution ---------------------------------------------------------------
+
+TRAILER = "Co-Authored-By: Claude <noreply@anthropic.com>"
+HEREDOC_COMMIT = (
+    "git commit -m \"$(cat <<'EOF'\nfeat: x\n\ndon't stop\n\n"
+    '🤖 Generated with [Claude Code](https://claude.com/claude-code)\nEOF\n)"'
+)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        f"git commit -m 'feat: x' -m '{TRAILER}'",
+        f"git commit -am 'feat: x\n\n{TRAILER}'",
+        f"git commit '-mfeat: x\n\n{TRAILER}'",
+        f"git commit --message='{TRAILER}'",
+        f"git commit -m 'feat: x' --trailer '{TRAILER}'",
+        "git commit -m 'feat: x\n\nClaude-Session: https://claude.ai/code/session_01abc'",
+        HEREDOC_COMMIT,
+        f"git commit -F - <<'EOF'\nfeat: x\n\n{TRAILER}\nEOF",
+        f"cat > msg.txt <<'EOF'\nfeat: x\n\n{TRAILER}\nEOF\ngit commit -F msg.txt",
+        f"git add a.txt && FOO=1 git -C . commit -m 'x' -m '{TRAILER}'",
+    ],
+)
+def test_attribution_trips_on_commit(repo, command):
+    reason = denied(run_hook(command, repo, on=[ATTRIBUTION]))
+    assert reason and "attribution line" in reason
+
+
+def test_attribution_reads_message_file(repo, tmp_path):
+    msg = tmp_path / "msg.txt"
+    msg.write_text(f"feat: x\n\n{TRAILER}\n")
+    assert denied(run_hook(f"git commit -F {msg}", repo, on=[ATTRIBUTION]))
+    assert denied(run_hook(f"git commit --file={msg}", repo, on=[ATTRIBUTION]))
+    msg.write_text("feat: x\n\nPlain body.\n")
+    assert run_hook(f"git commit -F {msg}", repo, on=[ATTRIBUTION]) is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "gh pr create --title x --body 'Body\n\nClaude-Session: https://claude.ai/code/session_1'",
+        f"gh pr create -t x -b '{TRAILER}'",
+        "gh pr create --title x --body-file - <<'EOF'\n🤖 Generated with Claude Code\nEOF",
+        f"gh pr merge 7 --squash --body '{TRAILER}'",
+        f"gh pr edit 7 --body='{TRAILER}'",
+    ],
+)
+def test_attribution_trips_on_gh_pr(repo, command):
+    assert denied(run_hook(command, repo, on=[ATTRIBUTION], family="gh"))
+
+
+def test_attribution_reads_body_file(repo, tmp_path):
+    body = tmp_path / "body.md"
+    body.write_text(f"Summary\n\n{TRAILER}\n")
+    assert denied(run_hook(f"gh pr create -t x -F {body}", repo, on=[ATTRIBUTION], family="gh"))
+
+
+@pytest.mark.parametrize(
+    ("command", "family"),
+    [
+        ("git commit -m 'feat: plain message' -m 'Body with no trailer.'", "git"),
+        ("git commit -m \"$(cat <<'EOF'\nfeat: x\n\nPlain body.\nEOF\n)\"", "git"),
+        ("gh pr create --title x --body 'Plain body'", "gh"),
+        ("gh pr view 7 --json body", "gh"),
+        (f"git log --grep '{TRAILER}'", "git"),
+    ],
+)
+def test_attribution_passes_clean(repo, command, family):
+    assert run_hook(command, repo, on=[ATTRIBUTION], family=family) is None
+
+
+def test_attribution_off_by_default(repo):
+    assert run_hook(f"git commit -m x -m '{TRAILER}'", repo, on=[]) is None
+    assert run_hook(f"gh pr create -b '{TRAILER}'", repo, on=[], family="gh") is None
+
+
+def test_attribution_repo_override(repo):
+    _git(repo, "config", "techne.blockAttributionTrailers", "false")
+    assert run_hook(f"git commit -m x -m '{TRAILER}'", repo, on=[ATTRIBUTION]) is None
+    assert run_hook(f"gh pr create -b '{TRAILER}'", repo, on=[ATTRIBUTION], family="gh") is None
+
+
+def test_each_family_checks_only_its_own_tool(repo):
+    command = f"git commit -m x -m '{TRAILER}' && gh pr create -b '{TRAILER}'"
+    git_reason = denied(run_hook(command, repo, on=[ATTRIBUTION]))
+    gh_reason = denied(run_hook(command, repo, on=[ATTRIBUTION], family="gh"))
+    assert git_reason and "commit message" in git_reason
+    assert gh_reason and "gh pr create" in gh_reason
+
+
+# --- COMMITS.md ----------------------------------------------------------------
+
+
+@pytest.fixture
+def scratch(repo):
+    (repo / "COMMITS.md").write_text("plan\n")
+    (repo / "b.txt").write_text("b\n")
+    return repo
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git add .",
+        "git add -A",
+        "git add --all",
+        "git add COMMITS.md",
+        "git add ./COMMITS.md b.txt",
+        "git add '*.md'",
+    ],
+)
+def test_commits_md_trips_on_add(scratch, command):
+    reason = denied(run_hook(command, scratch, on=[COMMITS_MD]))
+    assert reason and "COMMITS.md" in reason
+
+
+def test_commits_md_trips_through_cd(scratch, tmp_path):
+    assert denied(run_hook(f"cd {scratch} && git add .", tmp_path, on=[COMMITS_MD]))
+    assert denied(run_hook(f"git -C {scratch} add -A", tmp_path, on=[COMMITS_MD]))
+
+
+def test_commits_md_trips_in_subdirectory(repo):
+    (repo / "docs").mkdir()
+    (repo / "docs" / "COMMITS.md").write_text("plan\n")
+    assert denied(run_hook("git add docs", repo, on=[COMMITS_MD]))
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git add b.txt",
+        "git add . ':!COMMITS.md'",
+        "git add -A -- . ':(exclude)COMMITS.md'",
+        "git status",
+    ],
+)
+def test_commits_md_passes_clean_add(scratch, command):
+    assert run_hook(command, scratch, on=[COMMITS_MD]) is None
+
+
+def test_commits_md_passes_when_gitignored(scratch):
+    (scratch / ".gitignore").write_text("COMMITS.md\n")
+    assert run_hook("git add .", scratch, on=[COMMITS_MD]) is None
+
+
+def test_commits_md_trips_on_commit_of_staged_file(scratch):
+    _git(scratch, "add", "COMMITS.md")
+    reason = denied(run_hook("git commit -m 'feat: x'", scratch, on=[COMMITS_MD]))
+    assert reason and "would include COMMITS.md" in reason
+
+
+def test_commits_md_trips_on_commit_all_of_tracked_file(scratch):
+    _git(scratch, "add", "COMMITS.md")
+    _git(scratch, "commit", "-qm", "track it")
+    (scratch / "COMMITS.md").write_text("edited\n")
+    assert run_hook("git commit -m x", scratch, on=[COMMITS_MD]) is None
+    assert denied(run_hook("git commit -am x", scratch, on=[COMMITS_MD]))
+    assert denied(run_hook("git commit -m x -- COMMITS.md", scratch, on=[COMMITS_MD]))
+    assert denied(run_hook("git commit -m x .", scratch, on=[COMMITS_MD]))
+    assert run_hook("git commit -m x -- a.txt", scratch, on=[COMMITS_MD]) is None
+
+
+def test_commits_md_passes_clean_commit(scratch):
+    _git(scratch, "add", "b.txt")
+    assert run_hook("git commit -m x", scratch, on=[COMMITS_MD]) is None
+
+
+def test_commits_md_off_by_default(scratch):
+    assert run_hook("git add .", scratch, on=[]) is None
+    _git(scratch, "add", "COMMITS.md")
+    assert run_hook("git commit -m x", scratch, on=[]) is None
+
+
+def test_commits_md_repo_override(scratch):
+    _git(scratch, "config", "techne.blockCommitsMd", "false")
+    assert run_hook("git add .", scratch, on=[COMMITS_MD]) is None
+
+
+# --- main checkout -------------------------------------------------------------
+
+
+@pytest.fixture
+def linked(repo, tmp_path):
+    wt = tmp_path / "wt"
+    _git(repo, "worktree", "add", "-q", str(wt))
+    return wt
+
+
+def test_main_checkout_warns_with_linked_worktree(repo, linked):
+    out = run_hook("git commit -m x", repo, on=[MAIN_CHECKOUT])
+    message = warned(out)
+    assert message and str(linked) in message
+
+
+def test_main_checkout_passes_inside_worktree(repo, linked):
+    assert run_hook("git commit -m x", linked, on=[MAIN_CHECKOUT]) is None
+
+
+def test_main_checkout_passes_without_worktrees(repo):
+    assert run_hook("git commit -m x", repo, on=[MAIN_CHECKOUT]) is None
+
+
+def test_main_checkout_ignores_non_commit(repo, linked):
+    assert run_hook("git status && git add a.txt", repo, on=[MAIN_CHECKOUT]) is None
+
+
+def test_main_checkout_off_by_default(repo, linked):
+    assert run_hook("git commit -m x", repo, on=[]) is None
+
+
+def test_main_checkout_repo_override(repo, linked):
+    _git(repo, "config", "techne.warnMainCheckoutCommit", "false")
+    assert run_hook("git commit -m x", repo, on=[MAIN_CHECKOUT]) is None
+
+
+def test_deny_outranks_warning(repo, linked):
+    reason = denied(run_hook(f"git commit -m x -m '{TRAILER}'", repo))
+    assert reason and "main checkout" not in reason
+
+
+# --- parsing and wiring --------------------------------------------------------
+
+
+def test_outside_a_repo_is_silent(tmp_path):
+    assert run_hook("git add . && git commit -m x", tmp_path) is None
+
+
+def test_unparseable_command_falls_back_to_raw_scan(repo):
+    command = f"git commit -m 'unclosed {TRAILER}"
+    assert denied(run_hook(command, repo, on=[ATTRIBUTION]))
+
+
+def test_hooks_json_runs_the_guard_in_exec_form():
+    config = json.loads(HOOKS_JSON.read_text())
+    handlers = [h for group in config["hooks"]["PreToolUse"] for h in group["hooks"]]
+    families = set()
+    for handler in handlers:
+        script, family = handler["args"]
+        assert handler["command"] == "python3"
+        assert script == "${CLAUDE_PLUGIN_ROOT}/hooks/git_guards.py"
+        assert handler["if"].startswith(f"Bash({family} ")
+        families.add(family)
+    assert families == {"git", "gh"}
+
+
+def test_manifest_options_match_the_guard_and_default_off():
+    options = json.loads(MANIFEST.read_text())["userConfig"]
+    assert set(options) == set(ALL)
+    for spec in options.values():
+        assert spec["type"] == "boolean"
+        assert spec["default"] is False

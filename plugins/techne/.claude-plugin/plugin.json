@@ -17,5 +17,25 @@
     "documentation",
     "ci",
     "slop"
-  ]
+  ],
+  "userConfig": {
+    "block_attribution_trailers": {
+      "type": "boolean",
+      "title": "Block attribution lines in commits and PRs",
+      "description": "Refuse git commit and gh pr create/edit/merge when the message or body carries a Claude-Session link, a Co-Authored-By: Claude trailer, or a Generated with Claude Code line.",
+      "default": false
+    },
+    "block_commits_md": {
+      "type": "boolean",
+      "title": "Block staging COMMITS.md",
+      "description": "Refuse git add or git commit when it would stage or commit a COMMITS.md scratchpad.",
+      "default": false
+    },
+    "warn_main_checkout_commit": {
+      "type": "boolean",
+      "title": "Warn on commits in the main checkout",
+      "description": "Warn when git commit runs in a repo's main checkout while linked worktrees exist.",
+      "default": false
+    }
+  }
 }
