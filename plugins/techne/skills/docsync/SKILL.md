@@ -14,10 +14,10 @@ Compare documentation against the code it describes. Find where the docs say one
 `/techne:docsync` audits a doc that may live in a **different repo than your CWD** (e.g. `/techne:docsync ../velocity-fl/README.md`). Skill-context must therefore come from the *target's* repo, not CWD. A load-time bang-backtick `cat .claude/skill-context.md` injection (worded, not shown literally, because the skill loader executes any literal bang-backtick form on load, even from prose like this) can't do this — it runs before the target path is parsed, so it always reads CWD. Resolve the repo root from the doc-path argument instead:
 
 ```bash
-git -C "$(dirname "<target-doc>")" rev-parse --show-toplevel   # target repo root; with no path arg this resolves to the CWD repo
+bash "${CLAUDE_PLUGIN_ROOT}/_shared/skill_context.sh" <target-doc>   # with no path arg this reads the CWD repo
 ```
 
-Then `Read` `<root>/.claude/skill-context.md`. Its `## repo` section names the CLI entrypoint and runner module the repo exposes (so command and `make`-target claims verify against the right code); `## slop_ground_truth` names where quantitative claims must trace. No `.claude/skill-context.md` at the target root → fall back to generic verification defaults.
+The output is headed by the context file's path. Its `## repo` section names the CLI entrypoint and runner module the repo exposes (so command and `make`-target claims verify against the right code); `## slop_ground_truth` names where quantitative claims must trace. No `.claude/skill-context.md` at the target root → fall back to generic verification defaults.
 
 ## Checkable claims
 

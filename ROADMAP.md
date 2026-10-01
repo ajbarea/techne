@@ -156,6 +156,11 @@ that drift class recurs.
 
 Detail lives in git history (`git log`) and the live skill code. This log is pruned once work is durably shipped.
 
+- 2026-10-01 — **Skill-context follows the target repo.** Seven skills loaded `.claude/skill-context.md`
+  from the working directory, so a review started in one repo and aimed at another read the wrong
+  hints. The load-time read now uses the git root and prints which repo it read; it stays a
+  read-only `cat`, because a `bash <script>` injection fails the permission check outside bypass
+  mode. Path-taking skills re-read through `_shared/skill_context.sh <target>`, as docsync does.
 - 2026-09-30 — **Plain prose at write time.** `_shared/plain-prose.md` is the rubric the latex,
   pdf, paper and slides skills read before drafting, with before/after pairs from two real
   rewrites. Its `prose-patterns` block drives a stdlib check the latex and pdf gates report as

@@ -12,8 +12,10 @@ Audit the GitHub Actions runs on the current branch. Classify every warning / er
 ## Repo context
 
 ```!
-cat .claude/skill-context.md 2>/dev/null || echo "(no .claude/skill-context.md — skill will use generic defaults)"
+echo "<!-- skill-context: $(git rev-parse --show-toplevel 2>/dev/null || pwd) -->"; cat "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/skill-context.md" 2>/dev/null || echo "(no .claude/skill-context.md in this repo)"
 ```
+
+No context file: use generic defaults.
 
 The injected `## ci_audit` section (if present) tells you which repo-side configs a CI failure can trace back to, which tools show up in error output for this repo, and any expected external PR checks (Codecov, GitGuardian, etc.). Use those instead of the generic defaults below when available.
 

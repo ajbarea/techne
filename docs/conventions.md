@@ -96,7 +96,7 @@ Above the `SUMMARY` block, each output line is tagged `[<time>] [OUT  ] [<target
 
 ## `.claude/skill-context.md` (per-repo skill config)
 
-Several skills read a single per-repo file at `.claude/skill-context.md`. This is the copy-pasteable skeleton:
+Several skills read a single per-repo file at `.claude/skill-context.md`. They read it from the current directory's git root when they load, headed by that root's path. A skill pointed at a path in another repo re-reads it from that repo with `_shared/skill_context.sh <target>`. This is the copy-pasteable skeleton:
 
 ````markdown
 # Skill context
