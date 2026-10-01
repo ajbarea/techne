@@ -74,7 +74,6 @@ COMMIT_LONG_VALUE = {
 # Long options matched by unique prefix, as git does (`--mess` is `--message`).
 COMMIT_LONG_KNOWN = COMMIT_LONG_VALUE | {"--all", "--include", "--only"}
 ADD_SUBCOMMANDS = {"add", "stage"}
-# Words that run the next command; their flags (and a flag's value) are skipped.
 # Words that run the next command: wrapper -> (flags taking a value, flags naming a dir).
 WRAPPERS: dict[str, tuple[set[str], set[str]]] = {
     "env": ({"-u", "-S"}, {"-C", "--chdir"}),
@@ -92,7 +91,10 @@ WRAPPERS: dict[str, tuple[set[str], set[str]]] = {
 RESERVED = {"{", "}", "!", "if", "then", "else", "elif", "fi", "do", "done", "while", "until"}
 CD_FLAGS = {"-L", "-P", "-e", "-@"}
 # `$(cat FILE)` or `$(< FILE)` inside a message value.
-CAT_SUBST_RE = re.compile(r"\$\(\s*(?:cat\s+|<\s*)([^\s()]+)\s*\)")
+CAT_SUBST_RE = re.compile(r"\$\(\s*(?:cat\s+|<\s*)([^\s()<]+)\s*\)")
+# Redirections and commands that create the file they name.
+CREATE_REDIRECTS = {">", ">>", ">|", "&>", "&>>"}
+CREATORS = {"touch", "tee", "cp", "mv", "install"}
 # Commands whose arguments become file content, for a message file the command writes.
 WRITERS = {"echo", "printf"}
 GH_VALUE_FLAGS = {"-R", "--repo"}
@@ -214,6 +216,8 @@ def strip_heredocs(text: str) -> tuple[str, list[tuple[str, str]]]:
             m = HEREDOC_RE.match(text, i)
             if m and not text.startswith("<<<", i) and not text.endswith("<", 0, i):
                 start = text.rfind("\n", 0, i) + 1
+                while start >= 2 and text[start - 2] == "\\":  # back over continued lines
+                    start = text.rfind("\n", 0, start - 1) + 1
                 stop = text.find("\n", i)
                 opener = text[start : n if stop < 0 else stop]
                 pending.append((m.group(3), m.group(1) == "-", opener))
@@ -511,6 +515,7 @@ class Guards:
     def __init__(self, bodies: list[tuple[str, str]]):
         self.bodies = bodies
         self.side_words: set[str] = set()
+        self.created_scratch: list[str] = []
         self.writer_text = ""
         self.errors: list[str] = []
         self.verdict = Verdict()
@@ -531,27 +536,41 @@ class Guards:
         return repo_key(key).lower() not in self._repo_off[cache_key]
 
     def check_attribution(
-        self, what: str, texts: list[str], files: list[str], cwd: Path, keyword: str
+        self,
+        what: str,
+        texts: list[str],
+        files: list[str],
+        cwd: Path,
+        keyword: str,
+        argv: list[str],
+        env: dict[str, str],
     ) -> None:
         """Scan the message text, any message file, and text this command may write into it.
 
-        A heredoc counts when the line that opens it names the guarded subcommand
-        (`keyword`) or a message file. `$(cat FILE)` and `$(< FILE)` in a value read
-        FILE. A file read from stdin, missing, or named by another command here (a
-        redirect, `tee`) may be written by this command, so `echo`/`printf` arguments
-        count too. Filters such as grep or sed are not scanned: they remove lines.
+        Values are expanded with the variables known at this point, and the whole
+        argv is scanned joined, since nested quotes inside `$(...)` split a value.
+        A heredoc counts when the logical line that opens it names the guarded
+        subcommand (`keyword`), a message file, or a variable a value uses.
+        `$(cat FILE)` and `$(< FILE)` in a value read FILE. A file read from stdin,
+        missing, or named by another command here (a redirect, `tee`) may be written
+        by this command, so `echo`/`printf` arguments count too. Filters such as grep
+        or sed are not scanned: they remove lines.
         """
+        texts = [expand(t, env, unknown=None) for t in texts] + [" ".join(argv)]
         files = list(files) + [m.group(1) for t in texts for m in CAT_SUBST_RE.finditer(t)]
-        names = {keyword, *files}
+        variables = {m.group(1) or m.group(2) for t in texts for m in VAR_RE.finditer(t)}
+        names = {keyword, *variables, *(os.path.normpath(f) for f in files)}
         scan = list(texts)
         for opener, body in self.bodies:
-            if names & set(re.split(r"[\s;&|()<>\"']+", opener)):
+            words = {os.path.normpath(w) for w in re.split(r"[\s;&|()<>\"'=$]+", opener) if w}
+            if names & words:
                 scan.append(body)
+        side = {os.path.normpath(w) for w in self.side_words}
         for path in files:
             content = None if path == "-" else read_message_file(path, cwd)
             if content is not None:
                 scan.append(content)
-            if content is None or path in self.side_words:
+            if content is None or os.path.normpath(path) in side:
                 scan.append(self.writer_text)
         for text in scan:
             for line in text.splitlines():
@@ -577,6 +596,11 @@ class Guards:
         if named:
             self.deny_scratch(f"`git add` names {named[0]}")
             return
+        paths = [a for a in cmd.args if not a.startswith("-")]
+        broad = not paths or any(a in {".", ":/", "-A", "--all"} for a in cmd.args)
+        if self.created_scratch and broad:
+            self.deny_scratch(f"this command creates {self.created_scratch[0]} and then stages it")
+            return
         if any(a in ADD_INTERACTIVE for a in cmd.args):
             return
         # git add exits 1 when one named path is ignored, yet still adds the rest.
@@ -595,20 +619,20 @@ class Guards:
             return
         # `git status` works before the first commit, which `git diff HEAD` does not.
         # X is index vs HEAD, Y is worktree vs index.
+        # A deletion (D) removes the scratchpad from history's next commit; that passes.
         hits: list[str] = []
         specs = bool(commit.pathspecs or commit.pathspec_file)
-        for path, x, y in status_entries(cmd):
-            if not is_scratch_name(path):
-                continue
-            staged, changed = x not in " ?", y not in " ?"
+        entries = [e for e in status_entries(cmd) if is_scratch_name(e[0])]
+        for path, x, y in entries:
+            staged, changed = x not in " ?D", y not in " ?D"
             if (staged and (not specs or commit.include)) or (commit.all and changed):
+                hits.append(path)
+            elif commit.pathspec_file and (staged or changed):  # unknown pathspec list
                 hits.append(path)
         if commit.pathspecs and not commit.pathspec_file:
             for path, x, y in status_entries(cmd, commit.pathspecs):
-                if is_scratch_name(path) and (x not in " ?" or y not in " ?"):
+                if is_scratch_name(path) and (x not in " ?D" or y not in " ?D"):
                     hits.append(path)
-        elif commit.pathspec_file:  # unknown pathspec list: any change to it counts
-            hits += [p for p, x, y in status_entries(cmd) if is_scratch_name(p) and (x + y).strip()]
         if hits:
             self.deny_scratch(f"this commit would include {hits[0]}")
 
@@ -668,6 +692,8 @@ class Guards:
             if not argv:
                 continue
             name = Path(argv[0]).name
+            if name not in {"git", "gh"}:
+                self.note_created(group, argv, cwd)
             run_cwd = cwd
             for target in chdirs:
                 run_cwd = resolve_dir(run_cwd, target, env)
@@ -691,9 +717,18 @@ class Guards:
                 if name == "git":
                     self.check_git(argv, run_cwd, env)
                 elif name == "gh":
-                    self.check_gh(argv, run_cwd)
+                    self.check_gh(argv, run_cwd, env)
             except Exception as exc:  # one broken check must not skip the next subcommand
                 self.errors.append(f"{' '.join(argv)[:80]}: {exc}")
+
+    def note_created(self, group: list[str], argv: list[str], cwd: Path) -> None:
+        """Record a COMMITS.md this subcommand creates; a dry run cannot see it yet."""
+        targets = [group[j + 1] for j in range(len(group) - 1) if group[j] in CREATE_REDIRECTS]
+        if Path(argv[0]).name in CREATORS:
+            targets += [a for a in argv[1:] if not a.startswith("-")]
+        for target in targets:
+            if is_scratch_name(target) and not (cwd / os.path.expanduser(target)).exists():
+                self.created_scratch.append(target)
 
     def check_git(self, argv: list[str], cwd: Path, env: dict[str, str]) -> None:
         cmd = parse_git(argv, cwd, env)
@@ -705,12 +740,18 @@ class Guards:
             commit = parse_commit(cmd.args)
             if self.enabled(ATTRIBUTION, cmd):
                 self.check_attribution(
-                    "this commit message", commit.texts, commit.files, cmd.cwd, "commit"
+                    "this commit message",
+                    commit.texts,
+                    commit.files,
+                    cmd.cwd,
+                    "commit",
+                    argv,
+                    env,
                 )
             self.check_commit_scratch(cmd, commit)
             self.check_main_checkout(cmd)
 
-    def check_gh(self, argv: list[str], cwd: Path) -> None:
+    def check_gh(self, argv: list[str], cwd: Path, env: dict[str, str]) -> None:
         words: list[str] = []
         i = 1
         while i < len(argv) and len(words) < 2:
@@ -728,7 +769,7 @@ class Guards:
             and self.enabled(ATTRIBUTION, Command(cwd))
         ):
             texts, files = parse_gh_pr(argv[1:])
-            self.check_attribution(f"`gh pr {words[1]}`", texts, files, cwd, "pr")
+            self.check_attribution(f"`gh pr {words[1]}`", texts, files, cwd, "pr", argv, env)
 
 
 def main() -> int:
@@ -749,7 +790,7 @@ def main() -> int:
             # shlex rejected it: scan the whole command for attribution lines, and run
             # the other checks on a rough split.
             if guards.enabled(ATTRIBUTION, Command(cwd)):
-                guards.check_attribution("this command", [raw], [], cwd, "")
+                guards.check_attribution("this command", [raw], [], cwd, "", [], {})
             tokens = rough_tokenize(stripped)
         guards.run(split_subcommands(tokens), cwd)
     except Exception as exc:

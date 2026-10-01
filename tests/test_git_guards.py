@@ -728,3 +728,71 @@ def test_staged_rename_into_commits_md(scratch):
     _git(scratch, "commit", "-qm", "b")
     _git(scratch, "mv", "-f", "b.txt", "COMMITS.md")
     assert denied(run_hook("git commit -m x", scratch, on=[COMMITS_MD]))
+
+
+# --- round-five edges ----------------------------------------------------------
+
+
+def test_heredoc_on_a_continued_line(repo):
+    commit = f"git commit \\\n  -m \"$(cat <<'EOF'\nfeat\n\n{TRAILER}\nEOF\n)\""
+    pr = f"gh pr create --title x \\\n  --body \"$(cat <<'EOF'\nSummary\n\n{TRAILER}\nEOF\n)\""
+    assert denied(run_hook(commit, repo, on=[ATTRIBUTION]))
+    assert denied(run_hook(pr, repo, on=[ATTRIBUTION]))
+
+
+def test_message_through_a_variable(repo):
+    assert denied(run_hook(f"MSG='{TRAILER}'; git commit -m \"$MSG\"", repo, on=[ATTRIBUTION]))
+    command = f"MSG=$(cat <<'EOF'\nfeat\n\n{TRAILER}\nEOF\n)\ngit commit -m \"$MSG\""
+    assert denied(run_hook(command, repo, on=[ATTRIBUTION]))
+
+
+def test_nested_quotes_inside_substitution(repo):
+    command = (
+        'git commit -m "$(printf \\"%s\\\\n\\\\n%s\\" \\"feat\\" \\"Co-Authored-By: Claude\\")"'
+    )
+    assert denied(run_hook(command, repo, on=[ATTRIBUTION]))
+
+
+def test_removing_a_tracked_commits_md_passes(scratch):
+    _git(scratch, "add", "COMMITS.md")
+    _git(scratch, "commit", "-qm", "oops")
+    _git(scratch, "rm", "-q", "--cached", "COMMITS.md")
+    assert run_hook("git commit -m 'chore: untrack'", scratch, on=[COMMITS_MD]) is None
+    _git(scratch, "reset", "-q")
+    (scratch / "COMMITS.md").unlink()
+    assert run_hook("git commit -am 'chore: drop'", scratch, on=[COMMITS_MD]) is None
+
+
+def test_heredoc_commit_idiom_is_not_a_message_file(repo):
+    command = (
+        "printf 'see Claude-Session docs\\n' > notes.md && "
+        "git commit -m \"$(cat <<'EOF'\nfeat: x\nEOF\n)\""
+    )
+    assert run_hook(command, repo, on=[ATTRIBUTION]) is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        f"cat > ./msg.txt <<'EOF'\nfeat\n\n{TRAILER}\nEOF\ngit commit -F msg.txt",
+        f"cat > ./b.md <<'EOF'\nSummary\n\n{TRAILER}\nEOF\ngh pr create -t x -F b.md",
+    ],
+)
+def test_message_file_paths_are_normalized(repo, command):
+    assert denied(run_hook(command, repo, on=[ATTRIBUTION]))
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "echo x > COMMITS.md && git add -A && git commit -m x",
+        "touch COMMITS.md && git add .",
+    ],
+)
+def test_commits_md_created_in_the_same_call(repo, command):
+    assert denied(run_hook(command, repo, on=[COMMITS_MD]))
+
+
+def test_created_file_with_an_explicit_add_passes(repo):
+    (repo / "b.txt").write_text("b\n")
+    assert run_hook("echo x > COMMITS.md && git add b.txt", repo, on=[COMMITS_MD]) is None
