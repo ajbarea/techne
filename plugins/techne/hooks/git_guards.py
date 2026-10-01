@@ -9,6 +9,7 @@ Invoked as `git_guards.py git` or `git_guards.py gh`, one per hooks.json handler
 so a compound command that runs both is checked once per tool.
 
 Parsing is best effort: subcommands inside `$(...)` or `bash -c` are not seen.
+Runs on the system python3, so it stays compatible with 3.9 (macOS's).
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ GIT_TIMEOUT = 10
 SEPARATOR_RE = re.compile(r"^[;&|()\n]+$")
 REDIRECT_RE = re.compile(r"^[<>&]*[<>][<>&]*$")
 ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
-HEREDOC_RE = re.compile(r"(?<!<)<<(-?)\s*(['\"]?)([A-Za-z_][\w.-]*)\2")
+HEREDOC_RE = re.compile(r"<<(-?)\s*(['\"]?)([A-Za-z_][\w.-]*)\2")
 
 # Global git options that take the next token as their value.
 GIT_GLOBAL_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env"}
@@ -93,28 +94,76 @@ def run_git(cwd: Path, repo_args: list[str], *args: str) -> str | None:
 
 
 def strip_heredocs(text: str) -> tuple[str, list[str]]:
-    """Remove heredoc bodies so the command tokenizes; return the bodies separately."""
+    """Remove heredoc bodies and line continuations so the command tokenizes.
+
+    Tracks quoting as bash does: `<<` inside quotes is literal, except inside a
+    `$(...)` within double quotes, the `-m "$(cat <<'EOF' ...)"` commit idiom.
+    Returns the stripped text and the heredoc bodies.
+    """
     out: list[str] = []
     bodies: list[str] = []
     pending: list[tuple[str, bool]] = []
-    body: list[str] = []
-    for line in text.split("\n"):
-        if pending:
-            delim, dash = pending[0]
-            if (line.lstrip("\t") if dash else line) == delim:
+    stack: list[str] = []  # "'", '"' or "$(" for each open quoting context
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
+        top = stack[-1] if stack else ""
+        if ch == "\n" and pending:
+            out.append(ch)
+            i += 1
+            for delim, dash in pending:
+                body: list[str] = []
+                while i < n:
+                    j = text.find("\n", i)
+                    line = text[i:] if j < 0 else text[i:j]
+                    i = n if j < 0 else j + 1
+                    if (line.lstrip("\t") if dash else line) == delim:
+                        break
+                    body.append(line)
                 bodies.append("\n".join(body))
-                body = []
-                pending.pop(0)
-                if not pending:
-                    out.append("")
-            else:
-                body.append(line)
+            pending = []
             continue
-        out.append(line)
-        pending = [(m.group(3), m.group(1) == "-") for m in HEREDOC_RE.finditer(line)]
-    if body:
-        bodies.append("\n".join(body))
-    return "\n".join(out), bodies
+        if top == "'":
+            if ch == "'":
+                stack.pop()
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "\\" and i + 1 < n:
+            if text[i + 1] != "\n":
+                out.append(text[i : i + 2])
+            i += 2
+            continue
+        if top == '"':
+            if ch == '"':
+                stack.pop()
+            elif text.startswith("$(", i):
+                stack.append("$(")
+                out.append("$(")
+                i += 2
+                continue
+            out.append(ch)
+            i += 1
+            continue
+        if ch in "'\"":
+            stack.append(ch)
+        elif text.startswith("$(", i):
+            stack.append("$(")
+            out.append("$(")
+            i += 2
+            continue
+        elif ch == ")" and top == "$(":
+            stack.pop()
+        elif ch == "<":
+            m = HEREDOC_RE.match(text, i)
+            if m and not text.startswith("<<<", i) and not text.endswith("<", 0, i):
+                pending.append((m.group(3), m.group(1) == "-"))
+                out.append(m.group(0))
+                i = m.end()
+                continue
+        out.append(ch)
+        i += 1
+    return "".join(out), bodies
 
 
 def tokenize(text: str) -> list[str] | None:
@@ -419,7 +468,7 @@ class Guards:
         listing = run_git(cmd.cwd, cmd.repo_args, "worktree", "list", "--porcelain") or ""
         entries = [e for e in listing.split("\n\n") if e.startswith("worktree ")]
         paths = [e.split("\n", 1)[0][len("worktree ") :] for e in entries]
-        linked = [p for p, e in zip(paths[1:], entries[1:], strict=True) if "\nprunable" not in e]
+        linked = [paths[k] for k in range(1, len(entries)) if "\nprunable" not in entries[k]]
         if linked:
             self.verdict.warnings.append(
                 f"techne: committing in the main checkout of {paths[0]} "
@@ -472,7 +521,7 @@ def main() -> int:
     guards = Guards(raw, bodies)
     if tokens is None:
         # Unparseable: fall back to scanning the whole command for attribution lines.
-        if guards.enabled(ATTRIBUTION) and re.search(r"\b(git|gh)\b", raw):
+        if guards.enabled(ATTRIBUTION, Command([], cwd)) and re.search(r"\b(git|gh)\b", raw):
             guards.check_attribution("this command", [raw], [], cwd)
     else:
         guards.run(family, split_subcommands(tokens), cwd)

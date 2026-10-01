@@ -64,7 +64,7 @@ git config techne.blockCommitsMd false
 git config techne.warnMainCheckoutCommit false
 ```
 
-The hooks need `python3` on `PATH`. They run read-only git commands in the target repo. Parsing is best effort: a git command inside `$(...)` or `bash -c` is not checked.
+The hooks need `python3` 3.9 or newer on `PATH`. They run read-only git commands in the target repo. Parsing is best effort: a git command inside `$(...)` or `bash -c` is not checked.
 
 ## Per-skill configuration
 

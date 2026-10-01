@@ -21,6 +21,9 @@ GUARDS = PLUGIN / "hooks" / "git_guards.py"
 HOOKS_JSON = PLUGIN / "hooks" / "hooks.json"
 MANIFEST = PLUGIN / ".claude-plugin" / "plugin.json"
 
+# The hook runs on the user's system python3; `make test-hooks-oldest` sets this to 3.9.
+GUARD_PYTHON = os.environ.get("TECHNE_GUARD_PYTHON", sys.executable)
+
 ATTRIBUTION = "block_attribution_trailers"
 COMMITS_MD = "block_commits_md"
 MAIN_CHECKOUT = "warn_main_checkout_commit"
@@ -58,7 +61,7 @@ def run_hook(command: str, cwd: pathlib.Path, *, on=ALL, family: str = "git") ->
         env[f"CLAUDE_PLUGIN_OPTION_{key.upper()}"] = "true"
     payload = json.dumps({"cwd": str(cwd), "tool_input": {"command": command}})
     proc = subprocess.run(
-        [sys.executable, str(GUARDS), family],
+        [GUARD_PYTHON, str(GUARDS), family],
         input=payload,
         capture_output=True,
         text=True,
@@ -104,6 +107,8 @@ HEREDOC_COMMIT = (
         f"git commit -F - <<'EOF'\nfeat: x\n\n{TRAILER}\nEOF",
         f"cat > msg.txt <<'EOF'\nfeat: x\n\n{TRAILER}\nEOF\ngit commit -F msg.txt",
         f"git add a.txt && FOO=1 git -C . commit -m 'x' -m '{TRAILER}'",
+        f"git commit \\\n  -m 'feat: x' \\\n  -m '{TRAILER}'",
+        'git commit -m "$(cat <<\'EOF\'\nfeat: x\n\nSays "hi".\n\nClaude-Session: https://x\nEOF\n)"',
     ],
 )
 def test_attribution_trips_on_commit(repo, command):
@@ -128,6 +133,7 @@ def test_attribution_reads_message_file(repo, tmp_path):
         "gh pr create --title x --body-file - <<'EOF'\n🤖 Generated with Claude Code\nEOF",
         f"gh pr merge 7 --squash --body '{TRAILER}'",
         f"gh pr edit 7 --body='{TRAILER}'",
+        f"gh pr create --title 'feat: x' \\\n  --body '{TRAILER}'",
     ],
 )
 def test_attribution_trips_on_gh_pr(repo, command):
@@ -197,6 +203,15 @@ def scratch(repo):
 def test_commits_md_trips_on_add(scratch, command):
     reason = denied(run_hook(command, scratch, on=[COMMITS_MD]))
     assert reason and "COMMITS.md" in reason
+
+
+def test_commits_md_trips_across_line_continuation(scratch):
+    assert denied(run_hook("git add \\\n  b.txt \\\n  COMMITS.md", scratch, on=[COMMITS_MD]))
+
+
+def test_quoted_heredoc_marker_does_not_hide_later_commands(scratch):
+    command = "git commit -m 'docs: the <<EOF idiom'\ngit add COMMITS.md"
+    assert denied(run_hook(command, scratch, on=[COMMITS_MD]))
 
 
 def test_commits_md_trips_through_cd(scratch, tmp_path):
@@ -313,6 +328,8 @@ def test_outside_a_repo_is_silent(tmp_path):
 def test_unparseable_command_falls_back_to_raw_scan(repo):
     command = f"git commit -m 'unclosed {TRAILER}"
     assert denied(run_hook(command, repo, on=[ATTRIBUTION]))
+    _git(repo, "config", "techne.blockAttributionTrailers", "false")
+    assert run_hook(command, repo, on=[ATTRIBUTION]) is None
 
 
 def test_hooks_json_runs_the_guard_in_exec_form():
