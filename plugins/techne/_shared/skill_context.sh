@@ -6,9 +6,19 @@
 # none, so it resolves to the current directory's repo.
 set -u
 
-target="${1:-.}"
+arg="${1:-.}"
+target=$arg
 while [ ! -e "$target" ]; do target=$(dirname -- "$target"); done
 [ -d "$target" ] || target=$(dirname -- "$target")
+# Walking a path argument all the way back to . means none of it exists: a typo or
+# an unexpanded ~. Say so rather than silently reading the current repo.
+if [ "$target" = . ] && [ "$arg" != . ] && [[ $arg == */* ]]; then
+  printf "(target %s not found; showing the current directory's repo)\n" "$arg"
+fi
+# Inside a .git directory there is no work tree; resolve from its parent.
+case "/$target/" in
+  */.git/*) t="/$target/"; t=${t%%/.git/*}; t=${t#/}; target=${t:-.} ;;
+esac
 
 # A git hook exports GIT_DIR and GIT_WORK_TREE, which would override -C.
 root=$(env -u GIT_DIR -u GIT_WORK_TREE git -C "$target" rev-parse --show-toplevel 2>/dev/null) \

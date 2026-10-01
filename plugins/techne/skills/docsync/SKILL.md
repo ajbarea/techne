@@ -11,7 +11,7 @@ Compare documentation against the code it describes. Find where the docs say one
 
 ## Repo context
 
-`/techne:docsync` audits a doc that may live in a **different repo than your CWD** (e.g. `/techne:docsync ../velocity-fl/README.md`). Skill-context must therefore come from the *target's* repo, not CWD. A load-time bang-backtick `cat .claude/skill-context.md` injection (worded, not shown literally, because the skill loader executes any literal bang-backtick form on load, even from prose like this) can't do this — it runs before the target path is parsed, so it always reads CWD. Resolve the repo root from the doc-path argument instead:
+`/techne:docsync` audits a doc that may live in a **different repo than your CWD** (e.g. `/techne:docsync ../velocity-fl/README.md`), so read skill-context from the target's repo:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/_shared/skill_context.sh" <target-doc>   # with no path arg this reads the CWD repo

@@ -15,7 +15,7 @@ Audit and maintain the documentation site as a build/deploy artifact. `/techne:d
 echo "<!-- skill-context: $(git rev-parse --show-toplevel 2>/dev/null || pwd) -->"; cat "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/skill-context.md" 2>/dev/null || echo "(no .claude/skill-context.md in this repo)"
 ```
 
-No context file: use generic defaults for the CSS/JS stack.
+No context file: use generic defaults for the CSS/JS stack. The header names the repo it came from, which is the current directory's. When the target is a path in another repo, run `bash "${CLAUDE_PLUGIN_ROOT}/_shared/skill_context.sh" <target-path>` and use that output instead.
 
 The injected `## docs_site` section (if present) supplies this repo's CSS file list, JS file list, build command, site URL, and expected action pins. Use those over the generic defaults below when available.
 

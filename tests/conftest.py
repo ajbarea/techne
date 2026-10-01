@@ -14,7 +14,6 @@ max_print_line, which is the line the log parsing depends on.
 from __future__ import annotations
 
 import importlib.util
-import os
 import pathlib
 import sys
 import types
@@ -31,16 +30,29 @@ HYGIENE_SCRIPT = SKILLS / "sisters" / "scripts" / "hygiene.py"
 PROSE_SCRIPT = ROOT / "plugins" / "techne" / "_shared" / "prose_check.py"
 
 
-@pytest.fixture(autouse=True, scope="session")
-def _no_inherited_git_env():
-    """Drop GIT_* from the environment for the whole suite.
+# The variables a git hook exports that point git at a repository.
+GIT_REPO_VARS = (
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_COMMON_DIR",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_PREFIX",
+)
 
-    A git hook exports GIT_DIR and friends; from a worktree they are absolute, so a
-    test's `git init` in tmp_path would act on the real repo instead.
+
+@pytest.fixture(autouse=True, scope="session")
+def _no_inherited_git_repo():
+    """Unset the repo-locating git variables for the whole suite.
+
+    From a worktree a hook exports them as absolute paths, so a test's `git init`
+    in tmp_path would act on the real repo instead.
     """
-    saved = {k: os.environ.pop(k) for k in list(os.environ) if k.startswith("GIT_")}
-    yield
-    os.environ.update(saved)
+    with pytest.MonkeyPatch.context() as mp:
+        for var in GIT_REPO_VARS:
+            mp.delenv(var, raising=False)
+        yield
 
 
 def _load(name: str, path: pathlib.Path) -> types.ModuleType:

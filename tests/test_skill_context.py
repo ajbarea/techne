@@ -28,7 +28,14 @@ def repos(tmp_path):
     return _repo(tmp_path / "here", "HERE"), _repo(tmp_path / "there", "THERE")
 
 
+def _fenced(cwd: pathlib.Path, env: dict[str, str] | None = None) -> dict[str, str]:
+    """Stop git discovery at the test's tmp root, whatever repo encloses it."""
+    root = next(p for p in [cwd, *cwd.parents] if p.name.startswith("test_"))
+    return {**(env or os.environ), "GIT_CEILING_DIRECTORIES": str(root.parent)}
+
+
 def _run(cwd: pathlib.Path, *args: str, env: dict[str, str] | None = None) -> str:
+    env = _fenced(cwd, env)
     return subprocess.run(
         ["bash", str(RESOLVER), *args],
         cwd=cwd,
@@ -79,10 +86,28 @@ def test_cdpath_does_not_corrupt_the_fallback_root(tmp_path):
     assert out == f"(no .claude/skill-context.md in {loose / 'docs'})\n"
 
 
-@pytest.mark.parametrize("arg", ["42", "high", "fix/some-branch", "nonexistent/file.md"])
-def test_non_path_argument_falls_back_to_cwd(repos, arg):
+@pytest.mark.parametrize("arg", ["42", "high"])
+def test_bare_word_falls_back_to_cwd_silently(repos, arg):
     here, _ = repos
-    assert "## HERE" in _run(here, arg)
+    out = _run(here, arg)
+    assert out.startswith(f"<!-- skill-context: {here} -->")
+    assert "## HERE" in out
+
+
+@pytest.mark.parametrize(
+    "arg", ["~/velocity-fl/README.md", "velocty-fl/README.md", "fix/some-branch"]
+)
+def test_unresolvable_path_warns_before_falling_back(repos, arg):
+    here, _ = repos
+    out = _run(here, arg)
+    assert out.splitlines()[0] == f"(target {arg} not found; showing the current directory's repo)"
+    assert "## HERE" in out
+
+
+@pytest.mark.parametrize("inside", [".git", ".git/hooks"])
+def test_path_inside_git_dir_resolves_its_work_tree(repos, inside):
+    here, there = repos
+    assert "## THERE" in _run(here, str(there / inside))
 
 
 def test_repo_without_context_names_the_root(repos, tmp_path):
@@ -141,7 +166,12 @@ def test_every_skill_uses_the_canonical_load_line():
 
 def _load(cwd: pathlib.Path) -> str:
     return subprocess.run(
-        ["bash", "-c", LOAD_LINE], cwd=cwd, check=True, capture_output=True, text=True
+        ["bash", "-c", LOAD_LINE],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+        text=True,
+        env=_fenced(cwd),
     ).stdout
 
 
@@ -160,6 +190,13 @@ def test_load_line_outside_a_repo(tmp_path):
     ]
 
 
-def test_suite_runs_without_inherited_git_environment():
-    """conftest strips GIT_*; a hook-exported GIT_DIR would make `git init` hit the real repo."""
-    assert not [k for k in os.environ if k.startswith("GIT_")]
+def test_suite_runs_without_an_inherited_git_repo():
+    """A hook-exported GIT_DIR would make a test's `git init` hit the real repo."""
+    from conftest import GIT_REPO_VARS
+
+    assert not [var for var in GIT_REPO_VARS if var in os.environ]
+
+
+def test_no_skill_reads_context_relative_to_the_working_directory():
+    for skill in SKILLS.glob("*/SKILL.md"):
+        assert "cat .claude/skill-context.md" not in skill.read_text(encoding="utf-8"), skill
