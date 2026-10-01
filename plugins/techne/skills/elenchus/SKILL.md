@@ -54,9 +54,9 @@ Walk every cell. For each, either find the falsifying case or explicitly clear i
 Emit the structured report (format below). End with an explicit merge verdict and what you are holding on, if anything.
 
 ### Phase 5 — Post the distilled summary
-If an open PR exists for the branch under review, post the distilled summary (contract in **Posting the summary** below) as a **single** `gh pr comment`. This is default behavior, not opt-in — the review of record belongs on the PR. Skip only when there is no PR (local / pre-PR review → the report stays in-session) or the invoker explicitly said to keep it local.
+If an open PR exists for the branch under review **and someone else opened it**, post the distilled summary (contract in **Posting the summary** below) as a **single** `gh pr comment`. This is default behavior, not opt-in — the review of record belongs on the PR. Skip when there is no PR, when the account owner opened it, or when the invoker explicitly said to keep it local; the report then stays in-session.
 
-The in-session report and the posted comment are **not the same document**. The report ends in a verdict; whether the comment may is decided by who authored the PR. Derive that before writing the body — never assume.
+Derive authorship before posting — never assume.
 
 ## The rubric (load-bearing)
 
@@ -97,7 +97,7 @@ Default: after emitting the in-session report, post a **single** distilled comme
 
 Guard: only when `gh pr view --json number,url` resolves an **open** PR for the current branch. No PR (local or pre-PR review) → skip posting, keep the report in-session. Honor an explicit "keep it local" from the invoker.
 
-### Who authored the PR decides the comment's shape
+### Only on someone else's PR
 
 The comment publishes under the invoking developer's GitHub account, so the account owner is the one speaking. Derive authorship live — no config file, and no assuming from the repo you are standing in:
 
@@ -106,36 +106,30 @@ gh api user --jq .login                              # the account the comment p
 gh pr view <N> --json author --jq .author.login      # who opened the PR
 ```
 
-**Reviewing someone else's PR** (author ≠ account owner) — the comment is, in order:
+**Author == account owner → do not post.** The report stays in-session for the account owner to act on: fix the findings on the branch, and let the squash carry the result. A review comment on your own PR is the author talking to themselves in front of the reviewer, who reads the final diff, not the branch's history; it clutters the thread, and a verdict there pre-empts the human reviewer this entire method depends on.
+
+**Author ≠ account owner** — the comment is, in order:
 
 1. **Merge verdict** — one line: mergeable / hold on finding #N / not mergeable + why.
 2. **Findings** — Blocking and Should-fix only, each as: `path:line` — one-line failure scenario — the fix.
 3. **Verified clean** — the one-line list of what was scrutinized and cleared.
 
-**Reviewing the account owner's own PR** (author == account owner) — the comment is, in order:
-
-1. **Findings** — same shape, plus what was fixed and the commit that fixed it.
-2. **Refuted** — any finding that did not survive reproduction, and why it did not.
-3. **Verified clean** — the one-line list of what was scrutinized and cleared.
-
-and **no merge verdict line at all**. The verdict stays in the in-session report, for the account owner to act on. Publishing "mergeable" on your own PR pre-empts the human reviewer this entire method depends on, and reads to teammates as the author approving their own work before anyone else has looked.
-
 ### Never publish the review's provenance
 
-Independence is a property of how the review was *run* (the cardinal rule above), not a claim to make in the comment. On a self-authored PR the claim is also false as teammates read it: a `/code-review` or review subagent dispatched by the author is still the author's own tooling, in the author's own session.
+Publish the **work**, which anyone can check, never how it was run.
 
-- Never write "independent", "adversarial pass", "hostile review", "so the verdict would not come from whoever wrote the branch", or any variant of these about a review of the account owner's own branch.
+- Never write "independent", "adversarial pass", "hostile review", or any variant describing the review itself.
 - Never name the machinery: `/code-review`, `/techne:elenchus`, "review agents", "subagent", "effort level". Teammates cannot run it, so it is not evidence to them — it is jargon.
-- Publish the **work** instead, which anyone can check: "reproduced on a fresh clone under numpy 2.5.3", "traced every call site of `load_train` across the tree", "exercised CRLF, BOM, empty-file and arbitrary-cwd inputs".
+- Say what was done instead: "reproduced on a fresh clone under numpy 2.5.3", "traced every call site of `load_train` across the tree", "exercised CRLF, BOM, empty-file and arbitrary-cwd inputs".
 
-### Every comment, either shape
+### Every comment
 
 - **Account-owner voice** — write as that person speaking: first person ("I reproduced...", "I'd hold on..."), teammates addressed as peers by name. Never refer to the account owner in third person or as "you" ("the author prefers...", "the preference of you and the reviewer" are both wrong), and no assistant framing ("the review found..." is fine; "I ran this for the account owner" is not). Same rule for any follow-up comment in the same thread.
 - **No signature or AI-attribution footer** — post as a plain review comment.
 - **Keep it about the code.** No account or personal state (API credit, billing, subscription tier, what a local machine has installed). If it explains a gap, say the gap: "not exercised end to end" rather than why.
 - Drop Minor/Informational findings — they stay in-session — unless nothing else remains.
 
-Clean-pass shape: the Findings line reading `none blocking` and the Verified-clean list — a few lines, not a placeholder wall. Plus the verdict only when reviewing someone else's PR.
+Clean-pass shape: the verdict, the Findings line reading `none blocking`, and the Verified-clean list — a few lines, not a placeholder wall.
 
 ## Scaffolding `## elenchus` into a repo (optional, tier-1)
 
