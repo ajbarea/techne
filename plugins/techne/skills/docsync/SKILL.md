@@ -17,7 +17,7 @@ Compare documentation against the code it describes. Find where the docs say one
 bash "${CLAUDE_PLUGIN_ROOT}/_shared/skill_context.sh" <target-doc>   # with no path arg this reads the CWD repo
 ```
 
-The output is headed by the context file's path. Its `## repo` section names the CLI entrypoint and runner module the repo exposes (so command and `make`-target claims verify against the right code); `## slop_ground_truth` names where quantitative claims must trace. No `.claude/skill-context.md` at the target root → fall back to generic verification defaults.
+The output is headed by the repo root it read. Its `## repo` section names the CLI entrypoint and runner module the repo exposes (so command and `make`-target claims verify against the right code); `## slop_ground_truth` names where quantitative claims must trace. No `.claude/skill-context.md` at the target root → fall back to generic verification defaults.
 
 ## Checkable claims
 

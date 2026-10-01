@@ -43,7 +43,7 @@ def test_no_argument_reads_the_cwd_repo(repos):
     here, _ = repos
     out = _run(here)
     assert "## HERE" in out
-    assert str(here / ".claude" / "skill-context.md") in out
+    assert out.splitlines()[0] == f"<!-- skill-context: {here} -->"
 
 
 def test_subdirectory_cwd_still_finds_the_repo_root(repos):

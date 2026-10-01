@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Print .claude/skill-context.md from the repo that owns TARGET, headed by its path.
+# Print .claude/skill-context.md from the repo that owns TARGET, headed by the repo root.
 # Usage: skill_context.sh [target]
 # TARGET is a file or directory. Anything that is not an existing path (a PR
 # number, a branch, an effort level) resolves to the current directory's repo.
@@ -15,7 +15,7 @@ root=$(env -u GIT_DIR -u GIT_WORK_TREE git -C "$target" rev-parse --show-topleve
 ctx="$root/.claude/skill-context.md"
 
 if [ -f "$ctx" ]; then
-  printf '<!-- skill-context: %s -->\n' "$ctx"
+  printf '<!-- skill-context: %s -->\n' "$root"
   cat -- "$ctx"
 else
   printf '(no .claude/skill-context.md in %s)\n' "$root"
