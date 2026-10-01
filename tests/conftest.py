@@ -14,6 +14,7 @@ max_print_line, which is the line the log parsing depends on.
 from __future__ import annotations
 
 import importlib.util
+import os
 import pathlib
 import sys
 import types
@@ -28,6 +29,18 @@ SWEEP_SCRIPT = SKILLS / "catchup" / "scripts" / "sweep.py"
 SLIDES_SCRIPT = SKILLS / "slides" / "scripts" / "slides.py"
 HYGIENE_SCRIPT = SKILLS / "sisters" / "scripts" / "hygiene.py"
 PROSE_SCRIPT = ROOT / "plugins" / "techne" / "_shared" / "prose_check.py"
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _no_inherited_git_env():
+    """Drop GIT_* from the environment for the whole suite.
+
+    A git hook exports GIT_DIR and friends; from a worktree they are absolute, so a
+    test's `git init` in tmp_path would act on the real repo instead.
+    """
+    saved = {k: os.environ.pop(k) for k in list(os.environ) if k.startswith("GIT_")}
+    yield
+    os.environ.update(saved)
 
 
 def _load(name: str, path: pathlib.Path) -> types.ModuleType:

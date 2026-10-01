@@ -64,6 +64,21 @@ def test_relative_path_into_another_repo(repos):
     assert "## THERE" in _run(here, "../there/docs/README.md")
 
 
+@pytest.mark.parametrize("missing", ["docs/READM.md", "docs/new/dir/file.md", "notyet.md"])
+def test_missing_path_in_another_repo_resolves_its_nearest_parent(repos, missing):
+    here, there = repos
+    out = _run(here, str(there / missing))
+    assert "## THERE" in out
+
+
+def test_cdpath_does_not_corrupt_the_fallback_root(tmp_path):
+    loose = tmp_path / "loose"
+    (loose / "docs").mkdir(parents=True)
+    env = {**os.environ, "CDPATH": f".:{tmp_path}"}
+    out = _run(loose, "docs", env=env)
+    assert out == f"(no .claude/skill-context.md in {loose / 'docs'})\n"
+
+
 @pytest.mark.parametrize("arg", ["42", "high", "fix/some-branch", "nonexistent/file.md"])
 def test_non_path_argument_falls_back_to_cwd(repos, arg):
     here, _ = repos
@@ -95,13 +110,15 @@ def test_exported_git_dir_does_not_redirect_resolution(repos):
 
 # The load-time line is inlined in each skill because a `bash <script>` injection fails
 # the permission check outside bypass mode, while a read-only cat passes. It must stay
-# identical everywhere and keep resolving the git root.
+# identical everywhere and keep resolving the git root. It cannot carry the resolver's
+# `env -u GIT_DIR` guard or a variable assignment: both fail that check too.
 LOAD_LINE = (
     'echo "<!-- skill-context: $(git rev-parse --show-toplevel 2>/dev/null || pwd) -->"; '
     'cat "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/skill-context.md" '
     '2>/dev/null || echo "(no .claude/skill-context.md in this repo)"'
 )
 SKILLS = ROOT / "plugins" / "techne" / "skills"
+LOADING_SKILLS = {"audit", "ci-audit", "deslop", "docs-site", "elenchus", "reslop", "theoros"}
 
 
 def _injection_lines() -> dict[str, list[str]]:
@@ -117,7 +134,7 @@ def _injection_lines() -> dict[str, list[str]]:
 
 def test_every_skill_uses_the_canonical_load_line():
     found = _injection_lines()
-    assert len(found) >= 7, found.keys()
+    assert set(found) == LOADING_SKILLS
     for name, lines in found.items():
         assert lines == [LOAD_LINE], name
 
@@ -141,3 +158,8 @@ def test_load_line_outside_a_repo(tmp_path):
         f"<!-- skill-context: {tmp_path} -->",
         "(no .claude/skill-context.md in this repo)",
     ]
+
+
+def test_suite_runs_without_inherited_git_environment():
+    """conftest strips GIT_*; a hook-exported GIT_DIR would make `git init` hit the real repo."""
+    assert not [k for k in os.environ if k.startswith("GIT_")]

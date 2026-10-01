@@ -17,7 +17,7 @@ Catch design decisions that were made without checking current best practice —
 git -C "$(dirname "<target-doc>")" rev-parse --show-toplevel   # no path arg → CWD repo root
 ```
 
-The target's `.claude/skill-context.md` isn't required, but its `## repo` section helps you tell a genuine technology choice from incidental prose.
+The target's `.claude/skill-context.md` (`bash "${CLAUDE_PLUGIN_ROOT}/_shared/skill_context.sh" <target>` prints it) isn't required, but its `## repo` section helps you tell a genuine technology choice from incidental prose.
 
 ## What needs provenance
 

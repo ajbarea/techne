@@ -1,17 +1,19 @@
 #!/usr/bin/env bash
 # Print .claude/skill-context.md from the repo that owns TARGET, headed by the repo root.
 # Usage: skill_context.sh [target]
-# TARGET is a file or directory. Anything that is not an existing path (a PR
-# number, a branch, an effort level) resolves to the current directory's repo.
+# TARGET is a file or directory, and need not exist yet: it resolves from its
+# nearest existing parent. A bare word (PR number, branch, effort level) has
+# none, so it resolves to the current directory's repo.
 set -u
 
 target="${1:-.}"
-[ -e "$target" ] || target=.
+while [ ! -e "$target" ]; do target=$(dirname -- "$target"); done
 [ -d "$target" ] || target=$(dirname -- "$target")
 
 # A git hook exports GIT_DIR and GIT_WORK_TREE, which would override -C.
 root=$(env -u GIT_DIR -u GIT_WORK_TREE git -C "$target" rev-parse --show-toplevel 2>/dev/null) \
-  || root=$(cd -- "$target" && pwd)
+  || root=$(CDPATH='' cd -P -- "$target" >/dev/null && pwd) \
+  || root=$target
 ctx="$root/.claude/skill-context.md"
 
 if [ -f "$ctx" ]; then
