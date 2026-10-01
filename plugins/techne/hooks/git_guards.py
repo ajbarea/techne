@@ -45,12 +45,17 @@ GIT_BASE = ("git", "-c", "core.fsmonitor=false", "-c", "core.quotePath=false")
 SEPARATOR_RE = re.compile(r"^[;&|()\n]+$")
 REDIRECT_RE = re.compile(r"^[<>&]*[<>][<>&]*$")
 ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
-HEREDOC_RE = re.compile(r"<<(-?)\s*(['\"]?)([A-Za-z_][\w.-]*)\2")
+HEREDOC_RE = re.compile(r"<<(-?)\s*\\?(['\"]?)([A-Za-z_][\w.-]*)\2")
+VAR_RE = re.compile(r"\$(?:\{(\w+)\}|(\w+))")
+# Marker groups split_subcommands emits around a `( ... )` subshell or `$(...)`.
+PUSH, POP = "\0(", "\0)"
 
 # Global git options that take the next token as their value.
 GIT_GLOBAL_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env"}
 # git commit options that take a value; the message-bearing ones are read below.
 COMMIT_SHORT_VALUE = set("mFcCt")
+# Short options whose value is optional and attached only: `-uall`, `-S<keyid>`.
+COMMIT_SHORT_ATTACHED = set("uS")
 COMMIT_LONG_VALUE = {
     "--message",
     "--file",
@@ -69,14 +74,18 @@ COMMIT_LONG_VALUE = {
 COMMIT_LONG_KNOWN = COMMIT_LONG_VALUE | {"--all", "--include", "--only"}
 ADD_SUBCOMMANDS = {"add", "stage"}
 # Words that run the next command; their flags (and a flag's value) are skipped.
-WRAPPERS = {"env", "command", "builtin", "exec", "time", "nice", "nohup", "sudo", "timeout"}
-WRAPPER_VALUE_FLAGS = {"-n", "-u", "-g", "-k", "-s"}
+WRAPPERS = {
+    "env", "command", "builtin", "exec", "time", "nice", "nohup", "sudo", "timeout", "xargs",
+}  # fmt: skip
+WRAPPER_VALUE_FLAGS = {"-n", "-u", "-g", "-k", "-s", "-a", "-p", "-h", "-I", "-d", "-L", "-P"}
+# Wrapper flags that change directory: `env -C dir`, `sudo -D dir`, `--chdir=dir`.
+WRAPPER_CHDIR_FLAGS = {"-C", "-D", "--chdir"}
 # Commands whose arguments become file content, for a message file the command writes.
 WRITERS = {"echo", "printf"}
 GH_VALUE_FLAGS = {"-R", "--repo"}
 ADD_INTERACTIVE = {"-p", "--patch", "-i", "--interactive", "-e", "--edit"}
 # gh pr subcommands that write a PR title/body, or (merge) the squash commit message.
-GH_PR_WRITERS = {"create", "edit", "merge"}
+GH_PR_WRITERS = {"create", "new", "edit", "merge"}
 GH_TEXT = {"-t": "text", "--title": "text", "--subject": "text", "-b": "text", "--body": "text"}
 GH_FILE = {"-F": "file", "--body-file": "file", "-T": "file", "--template": "file"}
 
@@ -90,7 +99,8 @@ def repo_key(key: str) -> str:
     return "techne." + head + "".join(part.capitalize() for part in rest)
 
 
-def run_git(cwd: Path, repo_args: list[str], *args: str) -> str | None:
+def run_git(cwd: Path, repo_args: list[str], *args: str, check: bool = True) -> str | None:
+    """Stdout of a git call, or None on failure; `check=False` keeps stdout on any exit."""
     env = {**os.environ, "GIT_OPTIONAL_LOCKS": "0"}
     try:
         proc = subprocess.run(
@@ -102,7 +112,7 @@ def run_git(cwd: Path, repo_args: list[str], *args: str) -> str | None:
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
-    return proc.stdout if proc.returncode == 0 else None
+    return proc.stdout if proc.returncode == 0 or not check else None
 
 
 def strip_heredocs(text: str) -> tuple[str, list[str]]:
@@ -217,9 +227,13 @@ def rough_tokenize(text: str) -> list[str]:
 
 
 def split_subcommands(tokens: list[str]) -> list[list[str]]:
+    """Split at control operators; each `(` and `)` becomes a PUSH or POP marker group."""
     commands: list[list[str]] = [[]]
     for tok in tokens:
         if SEPARATOR_RE.match(tok):
+            for ch in tok:
+                if ch in "()":
+                    commands.append([PUSH if ch == "(" else POP])
             commands.append([])
         else:
             commands[-1].append(tok)
@@ -239,21 +253,43 @@ def drop_redirections(argv: list[str]) -> list[str]:
             skip = True
             continue
         out.append(tok)
+    return out
+
+
+def unwrap(argv: list[str]) -> tuple[list[str], list[str]]:
+    """Strip leading assignments and wrappers; return the command and any chdir targets."""
+    out = list(argv)
+    chdirs: list[str] = []
     while out and (ASSIGNMENT_RE.match(out[0]) or out[0] in WRAPPERS):
         word = out.pop(0)
         if word not in WRAPPERS:
             continue
         while out and out[0].startswith("-"):
-            if out.pop(0) in WRAPPER_VALUE_FLAGS and out:
+            flag, eq, value = out.pop(0).partition("=")
+            if flag in WRAPPER_CHDIR_FLAGS and (eq or out):
+                chdirs.append(value if eq else out.pop(0))
+            elif flag in WRAPPER_VALUE_FLAGS and not eq and out:
                 out.pop(0)
         if word == "timeout" and out:
             out.pop(0)
-    return out
+    return out, chdirs
 
 
-def resolve_dir(cwd: Path, target: str) -> Path:
-    """Join a `cd` or `-C` target; one still holding `$` or a backtick stays in cwd."""
-    expanded = os.path.expandvars(os.path.expanduser(target))
+def expand(text: str, env: dict[str, str], unknown: str | None = "") -> str:
+    """Expand `$VAR` and `${VAR}` from `env`; `unknown=None` leaves unset ones as written."""
+    return VAR_RE.sub(
+        lambda m: env.get(m.group(1) or m.group(2), m.group(0) if unknown is None else unknown),
+        text,
+    )
+
+
+def resolve_dir(cwd: Path, target: str, env: dict[str, str]) -> Path:
+    """Join a `cd` or `-C` target, expanding variables from `env`.
+
+    A target that still holds `$` or a backtick (an unknown variable, `$(...)`)
+    stays in cwd: the same repo is the likeliest guess.
+    """
+    expanded = os.path.expanduser(expand(target, env, unknown=None))
     if "$" in expanded or "`" in expanded:
         return cwd
     return cwd / expanded
@@ -270,6 +306,10 @@ def read_message_file(path: str, cwd: Path) -> str | None:
         return None
 
 
+def is_scratch_name(path: str) -> bool:
+    return Path(path).name.lower() == SCRATCH_NAME
+
+
 def is_scratch_path(spec: str) -> bool:
     """True for a pathspec naming COMMITS.md; exclusion pathspecs never count."""
     if spec.startswith(":"):
@@ -278,35 +318,34 @@ def is_scratch_path(spec: str) -> bool:
         if "!" in prefix or "^" in prefix or "exclude" in prefix:
             return False
         spec = spec[len(prefix) :]
-    return Path(spec).name.lower() == SCRATCH_NAME
+    return is_scratch_name(spec)
 
 
 def names_scratch(lines: str | None) -> list[str]:
     if not lines:
         return []
-    return [p for p in lines.split("\0") if Path(p).name.lower() == SCRATCH_NAME]
+    return [p for p in lines.split("\0") if is_scratch_name(p)]
 
 
 class Command:
     """One git or gh invocation with the directory it runs in."""
 
-    def __init__(self, argv: list[str], cwd: Path):
-        self.argv = argv
+    def __init__(self, cwd: Path):
         self.cwd = cwd
         self.repo_args: list[str] = []
         self.sub = ""
         self.args: list[str] = []
 
 
-def parse_git(argv: list[str], cwd: Path) -> Command | None:
-    cmd = Command(argv, cwd)
+def parse_git(argv: list[str], cwd: Path, env: dict[str, str]) -> Command | None:
+    cmd = Command(cwd)
     i = 1
     while i < len(argv):
         tok = argv[i]
         if tok in GIT_GLOBAL_VALUE and i + 1 < len(argv):
             value = argv[i + 1]
             if tok == "-C":
-                cmd.cwd = resolve_dir(cmd.cwd, value)
+                cmd.cwd = resolve_dir(cmd.cwd, value, env)
             elif tok in {"--git-dir", "--work-tree"}:
                 cmd.repo_args += [tok, str(cmd.cwd / os.path.expanduser(value))]
             i += 2
@@ -362,6 +401,8 @@ def parse_commit(args: list[str]) -> Commit:
                 c.include = True
         elif tok.startswith("-") and len(tok) > 1:
             for j, flag in enumerate(tok[1:], start=1):
+                if flag in COMMIT_SHORT_ATTACHED:
+                    break
                 if flag in COMMIT_SHORT_VALUE:
                     value = tok[j + 1 :]
                     if not value:
@@ -427,8 +468,7 @@ class Verdict:
 
 
 class Guards:
-    def __init__(self, raw: str, bodies: list[str]):
-        self.raw = raw
+    def __init__(self, bodies: list[str]):
         self.bodies = bodies
         self.side_words: set[str] = set()
         self.writer_text = ""
@@ -477,7 +517,7 @@ class Guards:
                     )
                     return
 
-    def deny_scratch(self, how: str, cmd: Command) -> None:
+    def deny_scratch(self, how: str) -> None:
         self.verdict.denies.append(
             f"techne: {how}. COMMITS.md is a local scratchpad and never goes in a commit. "
             "Unstage it with `git restore --staged COMMITS.md` if needed, and retry without it. "
@@ -489,22 +529,23 @@ class Guards:
             return
         named = [a for a in cmd.args if not a.startswith("-") and is_scratch_path(a)]
         if named:
-            self.deny_scratch(f"`git add` names {named[0]}", cmd)
+            self.deny_scratch(f"`git add` names {named[0]}")
             return
         if any(a in ADD_INTERACTIVE for a in cmd.args):
             return
-        dry = run_git(cmd.cwd, cmd.repo_args, "add", "--dry-run", *cmd.args)
+        # git add exits 1 when one named path is ignored, yet still adds the rest.
+        dry = run_git(cmd.cwd, cmd.repo_args, "add", "--dry-run", *cmd.args, check=False)
         hits = [m.group(1) for m in re.finditer(r"^add '(.*)'$", dry or "", re.MULTILINE)]
-        hits = [h for h in hits if Path(h).name.lower() == SCRATCH_NAME]
+        hits = [h for h in hits if is_scratch_name(h)]
         if hits:
-            self.deny_scratch(f"`git add` would stage {hits[0]}", cmd)
+            self.deny_scratch(f"`git add` would stage {hits[0]}")
 
     def check_commit_scratch(self, cmd: Command, commit: Commit) -> None:
         if not self.enabled(COMMITS_MD, cmd):
             return
         named = [p for p in commit.pathspecs if is_scratch_path(p)]
         if named:
-            self.deny_scratch(f"`git commit` names {named[0]}", cmd)
+            self.deny_scratch(f"`git commit` names {named[0]}")
             return
         hits: list[str] = []
         if commit.pathspecs or commit.pathspec_file:
@@ -525,7 +566,7 @@ class Guards:
         if commit.all:
             hits += names_scratch(run_git(cmd.cwd, cmd.repo_args, "diff", "-z", "--name-only"))
         if hits:
-            self.deny_scratch(f"this commit would include {hits[0]}", cmd)
+            self.deny_scratch(f"this commit would include {hits[0]}")
 
     def check_main_checkout(self, cmd: Command) -> None:
         if not self.enabled(MAIN_CHECKOUT, cmd):
@@ -554,30 +595,52 @@ class Guards:
 
     def run(self, groups: list[list[str]], cwd: Path) -> None:
         """Check each subcommand; `groups` keep their redirections for the side text."""
-        commands = [drop_redirections(g) for g in groups]
-        for k, argv in enumerate(commands):
+        unwrapped = [unwrap(drop_redirections(g)) for g in groups]
+        for k, (argv, _) in enumerate(unwrapped):
             name = Path(argv[0]).name if argv else ""
             if name not in {"git", "gh"}:
                 self.side_words.update(groups[k])
-            if name in WRITERS:
-                self.writer_text += "\n" + "\n".join(argv[1:])
-        for argv in commands:
+            for j, tok in enumerate(groups[k]):
+                if Path(tok).name in WRITERS:  # also inside `<(printf ...)`
+                    self.writer_text += "\n" + "\n".join(groups[k][j + 1 :])
+                    break
+        env = {**os.environ, "PWD": str(cwd)}
+        stack: list[tuple[Path, dict[str, str]]] = []
+        for k, (argv, chdirs) in enumerate(unwrapped):
+            group = groups[k]
+            if group == [PUSH]:
+                stack.append((cwd, dict(env)))
+                continue
+            if group == [POP]:
+                if stack:
+                    cwd, env = stack.pop()
+                continue
+            if group and all(ASSIGNMENT_RE.match(t) for t in group[group[0] == "export" :]):
+                for tok in group[group[0] == "export" :]:
+                    name, _, value = tok.partition("=")
+                    env[name] = expand(value, env)
+                continue
             if not argv:
                 continue
             name = Path(argv[0]).name
+            run_cwd = cwd
+            for target in chdirs:
+                run_cwd = resolve_dir(run_cwd, target, env)
             if name == "cd":
-                cwd = resolve_dir(cwd, argv[1] if len(argv) > 1 else "~")
+                env["OLDPWD"] = str(cwd)
+                cwd = resolve_dir(cwd, argv[1] if len(argv) > 1 else "~", env)
+                env["PWD"] = str(cwd)
                 continue
             try:
                 if name == "git":
-                    self.check_git(argv, cwd)
+                    self.check_git(argv, run_cwd, env)
                 elif name == "gh":
-                    self.check_gh(argv, cwd)
+                    self.check_gh(argv, run_cwd)
             except Exception as exc:  # one broken check must not skip the next subcommand
                 self.errors.append(f"{' '.join(argv)[:80]}: {exc}")
 
-    def check_git(self, argv: list[str], cwd: Path) -> None:
-        cmd = parse_git(argv, cwd)
+    def check_git(self, argv: list[str], cwd: Path, env: dict[str, str]) -> None:
+        cmd = parse_git(argv, cwd, env)
         if cmd is None:
             return
         if cmd.sub in ADD_SUBCOMMANDS:
@@ -604,7 +667,7 @@ class Guards:
             len(words) == 2
             and words[0] == "pr"
             and words[1] in GH_PR_WRITERS
-            and self.enabled(ATTRIBUTION, Command(argv, cwd))
+            and self.enabled(ATTRIBUTION, Command(cwd))
         ):
             texts, files = parse_gh_pr(argv[1:])
             self.check_attribution(f"`gh pr {words[1]}`", texts, files, cwd)
@@ -621,13 +684,13 @@ def main() -> int:
     cwd = Path(data.get("cwd") or os.getcwd())
     stripped, bodies = strip_heredocs(raw)
     tokens = tokenize(stripped)
-    guards = Guards(raw, bodies)
+    guards = Guards(bodies)
     failed = False
     try:
         if tokens is None:
             # shlex rejected it: scan the whole command for attribution lines, and run
             # the other checks on a rough split.
-            if guards.enabled(ATTRIBUTION, Command([], cwd)):
+            if guards.enabled(ATTRIBUTION, Command(cwd)):
                 guards.check_attribution("this command", [raw], [], cwd)
             tokens = rough_tokenize(stripped)
         guards.run(split_subcommands(tokens), cwd)

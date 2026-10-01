@@ -578,3 +578,67 @@ def test_crash_in_one_subcommand_still_checks_the_next(scratch, monkeypatch, cap
     assert mod.main() == 0
     out = capsys.readouterr()
     assert "COMMITS.md" in (denied(json.loads(out.out)) or "") and "boom" in out.err
+
+
+# --- round-three edges ---------------------------------------------------------
+
+
+def test_backslash_quoted_heredoc_delimiter(repo):
+    command = f"git commit -F - <<\\EOF\nfix\n\n{TRAILER}\nEOF"
+    assert denied(run_hook(command, repo, on=[ATTRIBUTION]))
+
+
+def test_add_with_an_ignored_path_still_checks_the_rest(scratch):
+    (scratch / ".gitignore").write_text("build/\n")
+    (scratch / "build").mkdir()
+    (scratch / "build" / "x").write_text("x\n")
+    assert denied(run_hook("git add . build", scratch, on=[COMMITS_MD]))
+
+
+def test_gh_pr_new_alias(repo):
+    assert denied(run_hook(f"gh pr new --title x --body '{TRAILER}'", repo, on=[ATTRIBUTION]))
+
+
+def test_variable_set_earlier_in_the_command(scratch, tmp_path):
+    clean = tmp_path / "clean"
+    clean.mkdir()
+    _git(clean, "init", "-q")
+    assert run_hook(f'W={clean}; git -C "$W" add -A', scratch, on=[COMMITS_MD]) is None
+    assert denied(run_hook(f'W={scratch}; git -C "$W" add -A', clean, on=[COMMITS_MD]))
+    assert denied(run_hook(f'export W={scratch} && cd "$W" && git add .', clean, on=[COMMITS_MD]))
+
+
+def test_subshell_cd_does_not_leak(scratch):
+    assert denied(run_hook("(cd /tmp && true); git add .", scratch, on=[COMMITS_MD]))
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        "env -C {repo} git add .",
+        "env --chdir={repo} git add .",
+        "sudo -D {repo} git add .",
+        "exec -a foo git -C {repo} add .",
+    ],
+)
+def test_wrappers_that_change_directory(scratch, tmp_path, template):
+    command = template.format(repo=scratch)
+    assert denied(run_hook(command, tmp_path, on=[COMMITS_MD]))
+
+
+def test_xargs_add_is_caught_at_commit(scratch):
+    _git(scratch, "add", "COMMITS.md")  # what `echo COMMITS.md | xargs git add` would do
+    assert denied(run_hook("git commit -m x", scratch, on=[COMMITS_MD]))
+
+
+def test_process_substitution_message(repo):
+    command = f"git commit -F <(printf 'fix\\n\\n{TRAILER}\\n')"
+    assert denied(run_hook(command, repo, on=[ATTRIBUTION]))
+
+
+def test_optional_value_short_flags_are_not_split(scratch):
+    _git(scratch, "add", "COMMITS.md")
+    _git(scratch, "commit", "-qm", "track it")
+    (scratch / "COMMITS.md").write_text("edited\n")
+    assert run_hook("git commit -uall -m x", scratch, on=[COMMITS_MD]) is None
+    assert run_hook("git commit -SF00 -m x", scratch, on=[ATTRIBUTION, COMMITS_MD]) is None
