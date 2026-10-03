@@ -1116,6 +1116,7 @@ def test_handoff_ctrl_c_while_waiting_stops_the_wait_without_a_traceback(env):
         )
         time.sleep(2.5)  # past TERM_WAIT, inside the late wait
         proc.send_signal(signal.SIGINT)
+        proc.send_signal(signal.SIGINT)  # a second press must not hide the resume command
         out, err = proc.communicate(timeout=10)
         assert proc.returncode == 1
         assert "has not exited" in out and f"--resume {SID}" in out

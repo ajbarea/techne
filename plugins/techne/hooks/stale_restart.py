@@ -771,16 +771,21 @@ def wait_gone(pid: int, start: str, timeout: float) -> bool:
 
 def wait_exit(pid: int, start: str) -> bool:
     """Wait for a signalled process to exit. Past TERM_WAIT, keep waiting until it does or,
-    in a terminal, until a key gives up; elsewhere give up after another LATE_WAIT.
-    Ctrl-C or a closed window also stops the wait."""
+    in a terminal, until a key or Ctrl-C gives up; elsewhere, or once the window has closed,
+    give up after another LATE_WAIT. Ctrl-C and hangup were blocked around the signal and
+    are let through here, inside the handlers' reach."""
     try:
+        signal.pthread_sigmask(signal.SIG_UNBLOCK, INTERRUPTS)
         if wait_gone(pid, start, TERM_WAIT):
             return True
         if sys.stdin.isatty():
-            wait_for_key(pid, start)
+            try:
+                wait_for_key(pid, start)
+            except OSError:  # the window closed; the pane may still be respawned
+                wait_gone(pid, start, LATE_WAIT)
         else:
             wait_gone(pid, start, LATE_WAIT)
-    except (Closed, OSError):
+    except Closed:
         pass
     return not alive(pid, start)
 
@@ -822,9 +827,14 @@ class Closed(Exception):
 
 
 def on_close(signum: int, frame: object) -> None:
+    # Act on the first Ctrl-C or hangup only, so a second one cannot cut short the
+    # cleanup the first one started.
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    signal.signal(signal.SIGHUP, signal.SIG_IGN)
     raise Closed
 
 
+INTERRUPTS = {signal.SIGINT, signal.SIGHUP}
 # Python ignores SIGPIPE and SIGXFSZ for itself; an exec'd shell would inherit that.
 EXEC_DEFAULTS = (signal.SIGINT, signal.SIGHUP, signal.SIGPIPE, signal.SIGXFSZ)
 
@@ -891,9 +901,15 @@ def _handoff(plan: dict, plan_path: Path) -> int:
         tmux("set-option", "-p", "-t", pane, "remain-on-exit", "on")
     shell = plan.get("closeShell")
     marker = STATE / f"close-{shell['pid']}" if shell else None
+    # From the close marker to the signal nothing may interrupt; after it, a closed window
+    # no longer stops the handoff, which can still respawn a tmux pane.
+    signal.pthread_sigmask(signal.SIG_BLOCK, INTERRUPTS)
     if marker:
         marker.touch()
     sent = send(pid, start, signal.SIGTERM)
+    signal.signal(signal.SIGHUP, signal.SIG_IGN)
+    if not sent:
+        signal.pthread_sigmask(signal.SIG_UNBLOCK, INTERRUPTS)
     # A process that exits just as the wait gives up still counts as stopped.
     if not sent or (not wait_exit(pid, start) and alive(pid, start)):
         if marker:
