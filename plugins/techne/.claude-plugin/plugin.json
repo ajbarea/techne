@@ -36,6 +36,12 @@
       "title": "Warn on commits in the main checkout",
       "description": "Warn when git commit runs in a repo's main checkout while linked worktrees exist.",
       "default": false
+    },
+    "restart_on_update": {
+      "type": "boolean",
+      "title": "Restart idle sessions onto an updated Claude Code",
+      "description": "When Claude Code has updated on disk and this session is idle, open a new tmux window or Windows Terminal tab (WSL) that stops this session and resumes it on the new version. A 15 second countdown there cancels it.",
+      "default": false
     }
   }
 }

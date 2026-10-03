@@ -1,5 +1,5 @@
 {
-  "description": "Opt-in guards on git commit, git add and gh pr. Each is off until switched on in /config; with all off, the shell stops before python3 starts.",
+  "description": "Opt-in guards on git commit, git add and gh pr, and an opt-in restart of idle sessions onto an updated Claude Code. Each is off until switched on in /config; with all off, the shell stops before python3 starts.",
   "hooks": {
     "PreToolUse": [
       {
@@ -9,6 +9,40 @@
             "type": "command",
             "command": "case \"$CLAUDE_PLUGIN_OPTION_BLOCK_ATTRIBUTION_TRAILERS$CLAUDE_PLUGIN_OPTION_BLOCK_COMMITS_MD$CLAUDE_PLUGIN_OPTION_WARN_MAIN_CHECKOUT_COMMIT\" in *true*) exec python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/git_guards.py\" ;; esac",
             "timeout": 60
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "idle_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "case \"$CLAUDE_PLUGIN_OPTION_RESTART_ON_UPDATE\" in true) exec python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/stale_restart.py\" ;; esac",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "case \"$CLAUDE_PLUGIN_OPTION_RESTART_ON_UPDATE\" in true) exec python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/stale_restart.py\" ;; esac",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "case \"$CLAUDE_PLUGIN_OPTION_RESTART_ON_UPDATE\" in true) exec python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/stale_restart.py\" ;; esac",
+            "timeout": 10
           }
         ]
       }

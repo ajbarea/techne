@@ -156,6 +156,12 @@ that drift class recurs.
 
 Detail lives in git history (`git log`) and the live skill code. This log is pruned once work is durably shipped.
 
+- 2026-10-03: **Restart idle sessions onto an updated Claude Code.** The opt-in
+  `restart_on_update` hook (#98) waits for `idle_prompt`, checks the session's own
+  `~/.claude/sessions/<pid>.json` (idle, interactive, version behind the `claude` on `PATH`, no
+  subagent running), and opens a tmux window or Windows Terminal tab that counts down, sends
+  SIGTERM, and runs `claude --resume` with the launch flags carried over. Other terminals get one
+  notice per session.
 - 2026-10-01: **Opt-in guard hooks.** techne's first `hooks/`: `PreToolUse` guards that refuse
   attribution lines in commits and PRs and staging `COMMITS.md`, and warn on commits in a main
   checkout while worktrees exist. Each is a `userConfig` boolean, off until switched on in

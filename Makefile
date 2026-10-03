@@ -68,7 +68,7 @@ HOOKS_OLDEST_PYTHON := 3.9
 test-hooks-oldest:      ## Hook tests with the hook run on the oldest supported python3
 	@py="$$(uv python find --no-project $(HOOKS_OLDEST_PYTHON) 2>/dev/null || { uv python install -q $(HOOKS_OLDEST_PYTHON) && uv python find --no-project $(HOOKS_OLDEST_PYTHON); })"; \
 	[ -n "$$py" ] || { echo "FAIL: no Python $(HOOKS_OLDEST_PYTHON) from uv"; exit 1; }; \
-	TECHNE_GUARD_PYTHON="$$py" uv run pytest tests/test_git_guards.py
+	TECHNE_GUARD_PYTHON="$$py" uv run pytest tests/test_git_guards.py tests/test_stale_restart.py
 
 zizmor:                 ## zizmor GHA security scan (.github/workflows/)
 	@uv run zizmor .github/workflows/
