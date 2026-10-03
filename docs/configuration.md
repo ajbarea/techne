@@ -70,7 +70,7 @@ The hook runs on every Bash call, since Claude Code's `Bash(git *)` filter skips
 
 Claude Code updates itself on disk, but an open session keeps running the old binary until you restart it. With `restart_on_update` switched on in `/config`, techne restarts an idle session onto the installed version and keeps the conversation.
 
-It runs on the `idle_prompt` notification, which Claude Code sends about a minute after a turn ends. The hook reads the session's own `~/.claude/sessions/<pid>.json` and goes ahead only when all of these hold:
+It runs on the `idle_prompt` notification, which Claude Code sends about a minute after a turn ends, and only when you appear to be away from that terminal and have not typed since. A session in the tab you are looking at is not restarted, and Claude Code does not send the notification again when you leave later, so that session moves after its next reply. The hook reads the session's own `~/.claude/sessions/<pid>.json` and goes ahead only when all of these hold:
 
 - The session's version differs from the version of the `claude` on `PATH`.
 - Its status is `idle`. A background Bash job or a subagent's tool call reads as `shell`, and a turn in progress reads as `busy`.
@@ -81,7 +81,7 @@ It then opens a new tmux window, when the session runs in tmux, or a new Windows
 
 1. Sends SIGTERM to the old process and waits up to 10 seconds for it to exit. If it does not exit, it is left running. The handoff never sends SIGKILL.
 2. Closes the old shell (tmux respawns the old pane in place).
-3. Runs `claude --resume <session id>` from the directory the session started in. The launch flags `--model`, `--permission-mode`, `--effort`, `--agent`, `--agents`, `--settings`, `--setting-sources`, `--plugin-dir`, `--add-dir`, `--mcp-config`, `--strict-mcp-config`, `--allowedTools`, `--disallowedTools`, `--fallback-model`, the system-prompt flags, `--dangerously-skip-permissions`, `--chrome`, `--ide` and `--verbose` carry over. A positional prompt and the session flags (`--resume`, `--continue`, `--session-id`, `--worktree`, `--name`) do not.
+3. Runs `claude --resume <session id>` from the directory the session started in, on the model, effort and permission mode the session has now. The model is the one its latest reply used, so a `/model` switch carries over; a `[1m]` model chosen at launch is kept as launched. The launch flags `--agent`, `--agents`, `--settings`, `--setting-sources`, `--plugin-dir`, `--add-dir`, `--mcp-config`, `--strict-mcp-config`, `--allowedTools`, `--disallowedTools`, `--fallback-model`, the system-prompt flags, `--dangerously-skip-permissions`, `--chrome`, `--ide` and `--verbose` carry over too. A positional prompt and the session flags (`--resume`, `--continue`, `--session-id`, `--worktree`, `--name`) do not.
 
 When Claude exits in the new tab, you are left in a login shell, as before.
 

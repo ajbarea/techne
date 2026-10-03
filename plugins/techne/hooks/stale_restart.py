@@ -255,6 +255,91 @@ def carry_flags(pid: int) -> list[str]:
     return out
 
 
+MODEL_RE = re.compile(r"claude-[a-z0-9.-]+")
+EFFORTS = {"low", "medium", "high", "xhigh", "max"}
+MODES = {"default", "plan", "acceptEdits", "auto", "dontAsk", "bypassPermissions"}
+TRANSCRIPT_TAIL = 4 << 20
+
+
+def last_model(transcript: object) -> str | None:
+    """The model of the session's latest reply, read from the end of its transcript."""
+    if not isinstance(transcript, str):
+        return None
+    try:
+        with open(transcript, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            f.seek(max(0, f.tell() - TRANSCRIPT_TAIL))
+            lines = f.read().splitlines()
+    except OSError:
+        return None
+    for line in reversed(lines):
+        if b'"assistant"' not in line:
+            continue
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        message = entry.get("message") if isinstance(entry, dict) else None
+        model = message.get("model") if isinstance(message, dict) else None
+        # Claude Code writes "<synthetic>" for replies it makes up itself.
+        if (
+            entry.get("type") == "assistant"
+            and isinstance(model, str)
+            and MODEL_RE.fullmatch(model)
+        ):
+            return model
+    return None
+
+
+def without(flags: list[str], name: str) -> list[str]:
+    """`flags` with every `name <value>` and `name=<value>` removed."""
+    out: list[str] = []
+    skip = False
+    for arg in flags:
+        if skip:
+            skip = False
+        elif arg == name:
+            skip = True
+        elif not arg.startswith(name + "="):
+            out.append(arg)
+    return out
+
+
+def flag_value(flags: list[str], name: str) -> str | None:
+    value = None
+    for i, arg in enumerate(flags):
+        if arg == name and i + 1 < len(flags):
+            value = flags[i + 1]
+        elif arg.startswith(name + "="):
+            value = arg.partition("=")[2]
+    return value
+
+
+def replace_flag(flags: list[str], name: str, value: str) -> list[str]:
+    return [*without(flags, name), name, value]
+
+
+def live_flags(flags: list[str], event: dict) -> list[str]:
+    """Launch flags with the model, effort and permission mode the session has now.
+
+    `/model`, `/effort` and shift+tab change these after launch, and a resume would
+    otherwise start on the launch flags or the settings default.
+    """
+    model = last_model(event.get("transcript_path"))
+    launched = flag_value(flags, "--model") or ""
+    # The transcript's model id drops a [1m] context suffix chosen at launch, so keep that.
+    if model and "[1m]" not in launched:
+        flags = replace_flag(flags, "--model", model)
+    effort = event.get("effort")
+    level = effort.get("level") if isinstance(effort, dict) else None
+    if level in EFFORTS:
+        flags = replace_flag(flags, "--effort", level)
+    mode = event.get("permission_mode")
+    if mode in MODES:
+        flags = replace_flag(flags, "--permission-mode", mode)
+    return flags
+
+
 def closable_shell(pid: int) -> dict | None:
     """The shell that owns this session's terminal tab, when it is the tab's top process.
 
@@ -395,7 +480,7 @@ def hook() -> int:
         "version": session["version"],
         "installed": installed,
         "claude": claude,
-        "flags": carry_flags(session["pid"]),
+        "flags": live_flags(carry_flags(session["pid"]), event),
         "launcher": launcher,
         "tmux": session.get("tmux"),
         "closeShell": closable_shell(session["pid"]) if launcher == "wt" else None,

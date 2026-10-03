@@ -639,3 +639,58 @@ def test_handoff_cancel_is_remembered(env, old_claude):
     assert old_claude.poll() is None
     assert (env["state"] / f"declined-{SID}").read_text() == NEW
     assert calls(env) == []
+
+
+# --- the session's live model, effort and permission mode ----------------------
+
+
+def write_transcript(path: pathlib.Path, models: list[str]) -> pathlib.Path:
+    lines = [json.dumps({"type": "user", "message": {"role": "user", "content": "hi"}})]
+    for m in models:
+        lines.append(json.dumps({"type": "assistant", "message": {"model": m, "content": []}}))
+    lines.append(json.dumps({"type": "system", "content": "assistant"}))
+    path.write_text("\n".join(lines) + "\n")
+    return path
+
+
+def test_last_model_takes_the_latest_real_reply(sr, tmp_path):
+    t = write_transcript(
+        tmp_path / "t.jsonl", ["claude-haiku-4-5", "claude-opus-5-5", "<synthetic>"]
+    )
+    assert sr.last_model(str(t)) == "claude-opus-5-5"
+    assert sr.last_model(str(tmp_path / "missing.jsonl")) is None
+    assert sr.last_model(None) is None
+
+
+def test_live_flags_override_launch_flags(sr, tmp_path):
+    t = write_transcript(tmp_path / "t.jsonl", ["claude-opus-5-5"])
+    event = {
+        "transcript_path": str(t),
+        "effort": {"level": "xhigh"},
+        "permission_mode": "plan",
+    }
+    flags = ["--model", "haiku", "--effort=low", "--verbose", "--permission-mode", "default"]
+    assert sr.live_flags(flags, event) == [
+        "--verbose",
+        "--model",
+        "claude-opus-5-5",
+        "--effort",
+        "xhigh",
+        "--permission-mode",
+        "plan",
+    ]
+
+
+def test_live_flags_keep_a_1m_launch_model_and_ignore_bad_values(sr, tmp_path):
+    t = write_transcript(tmp_path / "t.jsonl", ["claude-opus-5-5"])
+    event = {"transcript_path": str(t), "effort": {"level": "ludicrous"}, "permission_mode": "x"}
+    assert sr.live_flags(["--model", "opus[1m]"], event) == ["--model", "opus[1m]"]
+    assert sr.live_flags([], {}) == []
+
+
+def test_hook_plan_carries_the_live_model(tmux_env):
+    t = write_transcript(tmux_env["tmp"] / "t.jsonl", ["claude-opus-5-5"])
+    event = {**IDLE, "transcript_path": str(t), "effort": {"level": "high"}}
+    assert run_hook(tmux_env, event) is not None
+    plan = json.loads((tmux_env["state"] / f"plan-{SID}.json").read_text())
+    assert plan["flags"] == ["--model", "claude-opus-5-5", "--effort", "high"]
