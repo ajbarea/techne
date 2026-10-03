@@ -90,7 +90,7 @@ In any other terminal, the hook tells you once per session that it cannot restar
 
 ### Closing the old Windows Terminal tab
 
-Windows Terminal's default `closeOnExit` closes a tab only when its shell exits with code 0, and a shell ended by a signal exits with 129. To let the old tab close cleanly, add this to `~/.bashrc`:
+Windows Terminal's default `closeOnExit` closes a tab only when its shell exits with code 0, and a shell ended by a signal exits with 129. To let the old tab close cleanly, add this to `~/.bashrc` (bash 5.1 or newer, which runs every entry of a `PROMPT_COMMAND` array):
 
 ```bash
 # techne restart_on_update: close this tab once its Claude session has moved to a new one
@@ -100,6 +100,8 @@ __techne_restart_close() {
 }
 PROMPT_COMMAND+=(__techne_restart_close)
 ```
+
+In zsh, put the same function in `~/.zshrc` and register it with `precmd_functions+=(__techne_restart_close)` instead of the last line.
 
 Without it, the handoff sends the shell SIGHUP, and the tab stays open showing the exit code until you close it. A shell that has a job by then is left open either way. Tabs the handoff opens close themselves without the snippet.
 

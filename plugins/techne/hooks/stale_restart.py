@@ -121,10 +121,10 @@ def log(msg: str) -> None:
     flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW
     try:
         fd = os.open(STATE / "log", flags, 0o600)
+        with os.fdopen(fd, "a") as f:
+            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {msg}\n")
     except OSError:
-        return
-    with os.fdopen(fd, "a") as f:
-        f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {msg}\n")
+        pass
 
 
 def read_json(path: Path) -> dict | None:
@@ -217,7 +217,7 @@ def send(pid: int, start: str, sig: int) -> bool:
         else:
             signal.pidfd_send_signal(fd, sig)
         return True
-    except ProcessLookupError:
+    except (ProcessLookupError, PermissionError):
         return False
     finally:
         if fd is not None:
@@ -471,12 +471,16 @@ def resume_flags(
     if mode in MODES:
         flags = replace_flag(flags, "--permission-mode", mode)
     skip, allow = "--dangerously-skip-permissions", "--allow-dangerously-skip-permissions"
-    # The launch flag would switch bypass back on. Unless the session is known to be in
+    # A launch flag would switch bypass back on. Unless the session is known to be in
     # bypass now, keep bypass one shift+tab away instead.
-    if mode != "bypassPermissions" and skip in flags:
-        flags = [f for f in flags if f != skip]
-        if allow not in flags:
-            flags.append(allow)
+    if mode != "bypassPermissions":
+        launch_mode = flag_value(flags, "--permission-mode")
+        if skip in flags or launch_mode == "bypassPermissions":
+            flags = [f for f in flags if f != skip]
+            if launch_mode == "bypassPermissions":
+                flags = without(flags, "--permission-mode")
+            if allow not in flags:
+                flags.append(allow)
     return flags
 
 
@@ -742,7 +746,18 @@ def countdown(seconds: int) -> bool:
         print()
         return True
     finally:
+        restore_terminal(fd, saved)
+
+
+def restore_terminal(fd: int, saved: list) -> None:
+    # The terminal may have hung up already (its window was closed). termios.error is not
+    # an OSError, and nothing here may mask the exception that brought us here.
+    try:
+        import termios
+
         termios.tcsetattr(fd, termios.TCSADRAIN, saved)
+    except Exception as exc:
+        log(f"terminal not restored: {exc}")
 
 
 def wait_gone(pid: int, start: str, timeout: float) -> bool:
@@ -756,11 +771,21 @@ def wait_gone(pid: int, start: str, timeout: float) -> bool:
 
 def wait_exit(pid: int, start: str) -> bool:
     """Wait for a signalled process to exit. Past TERM_WAIT, keep waiting until it does or,
-    in a terminal, until a key gives up; elsewhere give up after another LATE_WAIT."""
-    if wait_gone(pid, start, TERM_WAIT):
-        return True
-    if not sys.stdin.isatty():
-        return wait_gone(pid, start, LATE_WAIT)
+    in a terminal, until a key gives up; elsewhere give up after another LATE_WAIT.
+    Ctrl-C or a closed window also stops the wait."""
+    try:
+        if wait_gone(pid, start, TERM_WAIT):
+            return True
+        if sys.stdin.isatty():
+            wait_for_key(pid, start)
+        else:
+            wait_gone(pid, start, LATE_WAIT)
+    except (Closed, OSError):
+        pass
+    return not alive(pid, start)
+
+
+def wait_for_key(pid: int, start: str) -> None:
     import termios
     import tty
 
@@ -773,16 +798,18 @@ def wait_exit(pid: int, start: str) -> bool:
             ready, _, _ = select.select([fd], [], [], 0.5)
             if ready:
                 os.read(fd, 64)
-                return not alive(pid, start)
-        return True
+                return
     finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, saved)
+        restore_terminal(fd, saved)
 
 
 def pause(message: str) -> int:
-    print(message)
-    if sys.stdin.isatty():
-        input("Press Enter to close. ")
+    try:
+        print(message)
+        if sys.stdin.isatty():
+            input("Press Enter to close. ")
+    except (OSError, EOFError, Closed):
+        pass
     return 1
 
 
@@ -794,8 +821,12 @@ class Closed(Exception):
     """The countdown's tab or window was closed."""
 
 
-def on_hangup(signum: int, frame: object) -> None:
+def on_close(signum: int, frame: object) -> None:
     raise Closed
+
+
+# Python ignores SIGPIPE and SIGXFSZ for itself; an exec'd shell would inherit that.
+EXEC_DEFAULTS = (signal.SIGINT, signal.SIGHUP, signal.SIGPIPE, signal.SIGXFSZ)
 
 
 def handoff(plan_path: Path) -> int:
@@ -807,10 +838,16 @@ def handoff(plan_path: Path) -> int:
     plan = read_json(plan_path)
     if plan is None:
         return pause(f"techne: no restart plan at {plan_path}.")
+    # Ctrl-C or closing the window raises Closed: a cancel before SIGTERM, "stop waiting"
+    # while waiting for the exit, and "resume here" once the old process has gone.
+    signal.signal(signal.SIGINT, on_close)
+    signal.signal(signal.SIGHUP, on_close)
     try:
         return _handoff(plan, plan_path)
     except Abort as exc:
         message = str(exc)
+    except Closed:
+        message = "Closed before the restart. Nothing changed."
     finally:
         # Freed before any pause, so a tab left open cannot outlive PLAN_TTL and remove
         # a later handoff's plan.
@@ -823,14 +860,14 @@ def _handoff(plan: dict, plan_path: Path) -> int:
     label = plan.get("name") or sid
     print(f"techne: moving Claude Code session '{label}'")
     print(f"from {plan['version']} to {plan['installed']}.")
-    # Closing the countdown's tab cancels, like a key does.
-    signal.signal(signal.SIGHUP, on_hangup)
     try:
         go = countdown(COUNTDOWN)
-    except Closed:
+    except (Closed, OSError):  # Ctrl-C, or the window closed: a cancel, like a key
         go = False
-    signal.signal(signal.SIGHUP, signal.SIG_DFL)
     if not go:
+        # A second Ctrl-C or the window's hangup must not cut the record short.
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        signal.signal(signal.SIGHUP, signal.SIG_IGN)
         (STATE / f"declined-{sid}").write_text(plan["installed"])
         log(f"{sid} cancelled at the countdown")
         raise Abort("Cancelled. This session stays as it is until the next update.")
@@ -856,12 +893,14 @@ def _handoff(plan: dict, plan_path: Path) -> int:
     marker = STATE / f"close-{shell['pid']}" if shell else None
     if marker:
         marker.touch()
-    if not send(pid, start, signal.SIGTERM) or not wait_exit(pid, start):
+    sent = send(pid, start, signal.SIGTERM)
+    # A process that exits just as the wait gives up still counts as stopped.
+    if not sent or (not wait_exit(pid, start) and alive(pid, start)):
         if marker:
             drop(marker)
         if first:
             tmux("set-option", "-p", "-u", "-t", pane, "remain-on-exit")
-        if alive(pid, start):
+        if sent:
             log(f"{sid} still running after SIGTERM; gave up waiting")
             raise Abort(
                 "The old process has not exited. Once it does, resume it with:\n  "
@@ -869,8 +908,11 @@ def _handoff(plan: dict, plan_path: Path) -> int:
             )
         log(f"{sid} process {pid} was gone or replaced before SIGTERM")
         raise Abort("The old process was gone before it could be stopped. Nothing restarted.")
+    # The session has ended, so from here every path resumes it. Ctrl-C and a closed window
+    # no longer stop anything; resume_here() restores both before the exec.
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    signal.signal(signal.SIGHUP, signal.SIG_IGN)
     log(f"{sid} stopped {plan['version']} process {pid}")
-    # The session has ended, so from here every path resumes it.
     script = resume_script(plan)
     try:
         if close_old(plan, pane, rshell, first, shell, marker, script):
@@ -933,6 +975,8 @@ def resume_here(plan: dict, script: str) -> int:
         os.chdir(Path.home())
         print(f"techne: {plan['cwd']} is gone; resuming from {Path.home()}.")
     sys.stdout.flush()
+    for sig in EXEC_DEFAULTS:
+        signal.signal(sig, signal.SIG_DFL)
     for shell in dict.fromkeys([plan["shell"], "/bin/bash"]):
         try:
             os.execv(shell, [shell, "-lic", script])

@@ -12,6 +12,8 @@ import json
 import os
 import pathlib
 import pty
+import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -452,6 +454,15 @@ def test_resume_flags_do_not_switch_bypass_back_on(sr, env, mode, expect):
     user_settings(env, "opus")
     flags = ["--dangerously-skip-permissions"]
     assert sr.resume_flags(flags, None, {"permission_mode": mode}, str(env["tmp"])) == expect
+
+
+@pytest.mark.parametrize(
+    "flags", [["--permission-mode", "bypassPermissions"], ["--permission-mode=bypassPermissions"]]
+)
+def test_resume_flags_do_not_restore_a_bypass_launch_mode_when_the_mode_is_unknown(sr, env, flags):
+    user_settings(env, "opus")
+    got = sr.resume_flags(flags, None, {}, str(env["tmp"]))
+    assert got == ["--allow-dangerously-skip-permissions"]
 
 
 # --- which shell or pane may go ------------------------------------------------
@@ -1041,7 +1052,8 @@ def test_handoff_refuses_before_signalling_when_the_directory_is_gone(env, old_c
     assert old_claude.poll() is None
 
 
-def test_handoff_closing_the_countdown_cancels(env, old_claude):
+@pytest.mark.parametrize("sig", [signal.SIGHUP, signal.SIGINT])
+def test_handoff_closing_or_interrupting_the_countdown_cancels(env, old_claude, sig):
     put_real_session(env, old_claude)
     plan = write_plan(env, old_claude.pid)
     proc = subprocess.Popen(
@@ -1052,7 +1064,7 @@ def test_handoff_closing_the_countdown_cancels(env, old_claude):
         env={**env["env"], "TECHNE_RESTART_PROC": "/proc", "TECHNE_RESTART_COUNTDOWN": "20"},
     )
     time.sleep(1)
-    proc.send_signal(signal.SIGHUP)
+    proc.send_signal(sig)
     assert proc.wait(timeout=10) == 1
     assert old_claude.poll() is None
     assert (env["state"] / f"declined-{SID}").read_text() == NEW
@@ -1082,3 +1094,66 @@ def test_docs_list_every_carried_flag(sr):
         if flag in ("--allowed-tools", "--disallowed-tools") or "system-prompt" in flag:
             continue  # aliases, and the system-prompt flags named as a group
         assert f"`{flag}`" in section, flag
+
+
+def test_handoff_ctrl_c_while_waiting_stops_the_wait_without_a_traceback(env):
+    child = subprocess.Popen(["bash", "-c", "trap '' TERM; sleep 60 & wait"])
+    try:
+        time.sleep(0.3)
+        put_real_session(env, child)
+        proc = subprocess.Popen(
+            [HOOK_PYTHON, str(SCRIPT), "handoff", str(write_plan(env, child.pid))],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env={
+                **env["env"],
+                "TECHNE_RESTART_PROC": "/proc",
+                "TECHNE_RESTART_TERM_WAIT": "1",
+                "TECHNE_RESTART_LATE_WAIT": "60",
+            },
+        )
+        time.sleep(2.5)  # past TERM_WAIT, inside the late wait
+        proc.send_signal(signal.SIGINT)
+        out, err = proc.communicate(timeout=10)
+        assert proc.returncode == 1
+        assert "has not exited" in out and f"--resume {SID}" in out
+        assert err == ""
+        assert child.poll() is None
+    finally:
+        child.kill()
+        child.wait()
+
+
+def test_handoff_resets_signals_python_ignores_before_exec(env, old_claude):
+    put_real_session(env, old_claude)
+    shell = stub(env["tmp"] / "sigshell", 'grep SigIgn /proc/$$/status >> "$STUB_LOG"')
+    proc = run_handoff(env, write_plan(env, old_claude.pid, shell=str(shell)))
+    assert proc.returncode == 0, proc.stdout
+    (line,) = calls(env)
+    ignored = int(line.split()[1], 16)
+    for sig in (signal.SIGPIPE, signal.SIGXFSZ, signal.SIGINT, signal.SIGHUP):
+        assert not ignored & (1 << (sig - 1)), sig
+
+
+@pytest.mark.skipif(not shutil.which("tmux"), reason="needs tmux")
+def test_handoff_window_killed_during_countdown_records_the_cancel(env, old_claude):
+    put_real_session(env, old_claude)
+    plan = write_plan(env, old_claude.pid)
+    server = f"techne-test-{os.getpid()}"
+    cmd = shlex.join([HOOK_PYTHON, str(SCRIPT), "handoff", str(plan)])
+    tenv = {**env["env"], "TECHNE_RESTART_PROC": "/proc", "TECHNE_RESTART_COUNTDOWN": "30"}
+    run = ["tmux", "-L", server, "-f", "/dev/null"]
+    subprocess.run([*run, "new-session", "-d", "-x", "80", "-y", "10", cmd], env=tenv, check=True)
+    try:
+        time.sleep(1.5)  # inside the countdown, with the terminal in cbreak mode
+        subprocess.run([*run, "kill-server"], check=True)
+        deadline = time.monotonic() + 10
+        declined = env["state"] / f"declined-{SID}"
+        while not declined.exists() and time.monotonic() < deadline:
+            time.sleep(0.1)
+        assert declined.read_text() == NEW
+        assert old_claude.poll() is None
+    finally:
+        subprocess.run([*run, "kill-server"], capture_output=True)
