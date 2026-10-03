@@ -10,8 +10,9 @@ Two entry points share one safety check:
   session crons) and the effort and permission mode, none of which idle_prompt carries;
   UserPromptSubmit clears that record so an interrupted turn, which skips Stop, leaves none.
 - `stale_restart.py handoff <plan>` runs in that window. It counts down (any key cancels),
-  re-checks the session, sends SIGTERM, waits for the process to exit, closes the old
-  shell, and runs `claude --resume <id>` from the session's launch directory.
+  re-checks the session, sends SIGTERM, waits for the process to exit, then respawns the
+  old tmux pane with `claude --resume <id>`, or closes the old tab's shell and resumes in
+  its own window, from the session's launch directory.
 
 It never sends SIGKILL, refuses when the pid's start time no longer matches the plan, and
 closes or respawns a shell only when the old session was its one child. The session file is
@@ -21,6 +22,7 @@ closed. Runs on the system python3, so it stays compatible with 3.9.
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import re
@@ -42,6 +44,8 @@ STATE = Path(os.environ.get("XDG_RUNTIME_DIR") or "/tmp") / f"techne-restart-{os
 COUNTDOWN = int(os.environ.get("TECHNE_RESTART_COUNTDOWN", "15"))
 TERM_WAIT = float(os.environ.get("TECHNE_RESTART_TERM_WAIT", "10"))
 SHELL_WAIT = float(os.environ.get("TECHNE_RESTART_SHELL_WAIT", "3"))
+# After TERM_WAIT, how much longer a handoff with no terminal waits for the exit.
+LATE_WAIT = float(os.environ.get("TECHNE_RESTART_LATE_WAIT", "60"))
 # A plan whose handoff never ran (the launcher failed silently) stops blocking after this.
 PLAN_TTL = 600
 VERSION_RE = re.compile(r"(\d+)\.(\d+)\.(\d+)")
@@ -112,11 +116,15 @@ def state_ok(path: Path) -> bool:
 
 
 def log(msg: str) -> None:
+    if not state_ok(STATE):
+        return
+    flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW
     try:
-        with open(STATE / "log", "a") as f:
-            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {msg}\n")
+        fd = os.open(STATE / "log", flags, 0o600)
     except OSError:
-        pass
+        return
+    with os.fdopen(fd, "a") as f:
+        f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {msg}\n")
 
 
 def read_json(path: Path) -> dict | None:
@@ -175,22 +183,17 @@ def live_session(data: dict | None, session_id: str) -> bool:
     return isinstance(pid, int) and isinstance(start, str) and alive(pid, start)
 
 
-def session_for(session_id: str) -> dict | None:
-    """This hook's own session file.
+def owner() -> int:
+    """The claude process that fired this hook: hooks.json execs python3, so the parent.
+    A conversation can be open in two processes at once (`--resume` twice), so the session
+    id alone does not say which process to act on."""
+    return int(os.environ.get("TECHNE_RESTART_PARENT") or os.getppid())
 
-    hooks.json execs python3, so the parent is the claude process that fired the hook. A
-    conversation can be open in two processes at once (`--resume` twice), so a search by
-    session id alone is used only when it finds exactly one.
-    """
-    own = read_json(SESSIONS / f"{os.getppid()}.json")
-    if live_session(own, session_id):
-        return own
-    try:
-        found = [read_json(p) for p in sorted(SESSIONS.glob("*.json"))]
-    except OSError:
-        return None
-    matches = [d for d in found if live_session(d, session_id)]
-    return matches[0] if len(matches) == 1 else None
+
+def session_for(session_id: str) -> dict | None:
+    """This hook's own session file, when it is live and holds this session."""
+    own = read_json(SESSIONS / f"{owner()}.json")
+    return own if live_session(own, session_id) else None
 
 
 def send(pid: int, start: str, sig: int) -> bool:
@@ -200,10 +203,12 @@ def send(pid: int, start: str, sig: int) -> bool:
     """
     try:
         fd = os.pidfd_open(pid)
-    except AttributeError:
+    except (AttributeError, NotImplementedError):
         fd = None
-    except OSError:
-        return False
+    except OSError as exc:
+        if exc.errno != errno.ENOSYS:  # kernels before 5.3, and WSL1
+            return False
+        fd = None
     try:
         if not alive(pid, start):
             return False
@@ -249,11 +254,18 @@ def turn_path(session_id: str) -> Path:
     return STATE / f"turn-{session_id}.json"
 
 
-def record_turn(event: dict, session_id: str) -> None:
-    """Keep what the Stop hook reports about the session, which idle_prompt does not carry."""
+def record_turn(event: dict, session_id: str, pid: int) -> None:
+    """Keep what the Stop hook reports about the session, which idle_prompt does not carry.
+
+    It is stamped with the claude process that ended the turn, so a second process holding
+    the same conversation cannot vouch for this one.
+    """
+    st = proc_stat(pid)
     tasks = event.get("background_tasks")
     crons = event.get("session_crons")
     turn = {
+        "pid": pid,
+        "start": st[3] if st else None,
         "effort": event.get("effort"),
         "permission_mode": event.get("permission_mode"),
         # Unknown when absent, so the check refuses rather than guess there are none.
@@ -283,6 +295,8 @@ def session_blocker(session: dict | None) -> str | None:
     turn = last_turn(str(session.get("sessionId")))
     if not turn:
         return "no completed turn recorded"
+    if (turn.get("pid"), turn.get("start")) != (pid, start):
+        return "last turn recorded by another process"
     if turn.get("tasks") != 0:
         return f"background tasks or subagents running: {turn.get('tasks')}"
     if turn.get("crons") != 0:
@@ -394,10 +408,20 @@ def families(model: str) -> set[str]:
     return found
 
 
+def process_env(pid: int, name: str) -> str | None:
+    try:
+        raw = (PROC / str(pid) / "environ").read_bytes()
+    except OSError:
+        return None
+    prefix = name.encode() + b"="
+    for item in raw.split(b"\0"):
+        if item.startswith(prefix):
+            return item[len(prefix) :].decode("utf-8", "surrogateescape") or None
+    return None
+
+
 def settings_model(flags: list[str], cwd: str) -> str | None:
-    """The model a resume without --model starts on: env, then settings, by precedence."""
-    if os.environ.get("ANTHROPIC_MODEL"):
-        return os.environ["ANTHROPIC_MODEL"]
+    """The model a resume without --model or ANTHROPIC_MODEL starts on, from settings."""
     sources: list[dict | None] = []
     inline = flag_value(flags, "--settings")
     if inline:
@@ -417,7 +441,9 @@ def settings_model(flags: list[str], cwd: str) -> str | None:
     return None
 
 
-def resume_flags(flags: list[str], transcript: object, turn: dict, cwd: str) -> list[str]:
+def resume_flags(
+    flags: list[str], transcript: object, turn: dict, cwd: str, env_model: str | None = None
+) -> list[str]:
     """Launch flags adjusted so the resumed session runs as the old one does now.
 
     `/model` saves its choice as the default, so a plain resume usually lands on the right
@@ -425,6 +451,10 @@ def resume_flags(flags: list[str], transcript: object, turn: dict, cwd: str) -> 
     different family from the latest reply's (another session changed the default, say)
     is the reply's exact id pinned. Effort and permission mode come from the last turn.
     """
+    # The new tab starts from a login shell, not the old process's environment, so an
+    # ANTHROPIC_MODEL set for that process alone is passed on as the flag it stands for.
+    if env_model and not flag_value(flags, "--model"):
+        flags = [*flags, "--model", env_model]
     live = last_model(transcript)
     expected = flag_value(flags, "--model") or settings_model(flags, cwd) or ""
     fallback = flag_value(flags, "--fallback-model") or ""
@@ -440,12 +470,13 @@ def resume_flags(flags: list[str], transcript: object, turn: dict, cwd: str) -> 
     mode = turn.get("permission_mode")
     if mode in MODES:
         flags = replace_flag(flags, "--permission-mode", mode)
-        skip, allow = "--dangerously-skip-permissions", "--allow-dangerously-skip-permissions"
-        # The launch flag would switch bypass back on; keep it one shift+tab away instead.
-        if mode != "bypassPermissions" and skip in flags:
-            flags = [f for f in flags if f != skip]
-            if allow not in flags:
-                flags.append(allow)
+    skip, allow = "--dangerously-skip-permissions", "--allow-dangerously-skip-permissions"
+    # The launch flag would switch bypass back on. Unless the session is known to be in
+    # bypass now, keep bypass one shift+tab away instead.
+    if mode != "bypassPermissions" and skip in flags:
+        flags = [f for f in flags if f != skip]
+        if allow not in flags:
+            flags.append(allow)
     return flags
 
 
@@ -519,6 +550,10 @@ def pick_launcher(session: dict) -> str | None:
     return None
 
 
+def resume_args(plan: dict) -> list[str]:
+    return [plan["claude"], "--resume", plan["sessionId"], *plan["flags"]]
+
+
 def resume_script(plan: dict) -> str:
     """Shell command for the new tab or pane: resume, then stay in a login shell.
 
@@ -526,7 +561,7 @@ def resume_script(plan: dict) -> str:
     a Windows Terminal tab closes itself (closeOnExit closes only on exit code 0). The
     marker path is expanded by this shell, so it matches the state dir its session uses.
     """
-    cmd = shlex.join([plan["claude"], "--resume", plan["sessionId"], *plan["flags"]])
+    cmd = shlex.join(resume_args(plan))
     marker = '"${XDG_RUNTIME_DIR:-/tmp}/techne-restart-$(id -u)/close-$$"'
     return f'{cmd}; if [ -e {marker} ]; then rm -f {marker}; exit 0; fi; exec "$0" -l'
 
@@ -536,7 +571,7 @@ def launch_argv(launcher: str, plan: dict, plan_path: Path) -> list[str] | None:
     if launcher == "tmux":
         session_name = plan["tmux"].partition(":")[0]
         return [
-            "tmux", "new-window", "-t", f"{session_name}:", "-n", "claude-restart",
+            "tmux", "new-window", "-t", f"={session_name}:", "-n", "claude-restart",
             "-c", plan["cwd"], handoff,
         ]  # fmt: skip
     title = "claude restart: " + re.sub(r"[;\"]", "", plan.get("name") or plan["sessionId"][:8])
@@ -591,7 +626,7 @@ def hook() -> int:
         return 0
     name = event.get("hook_event_name")
     if name == "Stop":
-        record_turn(event, session_id)
+        record_turn(event, session_id, owner())
         return 0
     if name == "UserPromptSubmit":
         # An interrupted turn skips Stop, so no record survives a turn that is under way.
@@ -645,7 +680,13 @@ def hook() -> int:
         "version": session["version"],
         "installed": installed,
         "claude": claude,
-        "flags": resume_flags(flags, event.get("transcript_path"), last_turn(session_id), cwd),
+        "flags": resume_flags(
+            flags,
+            event.get("transcript_path"),
+            last_turn(session_id),
+            cwd,
+            process_env(session["pid"], "ANTHROPIC_MODEL"),
+        ),
         "launcher": launcher,
         "tmux": session.get("tmux"),
         "respawn": respawnable_pane(session) if launcher == "tmux" else None,
@@ -713,11 +754,48 @@ def wait_gone(pid: int, start: str, timeout: float) -> bool:
     return True
 
 
+def wait_exit(pid: int, start: str) -> bool:
+    """Wait for a signalled process to exit. Past TERM_WAIT, keep waiting until it does or,
+    in a terminal, until a key gives up; elsewhere give up after another LATE_WAIT."""
+    if wait_gone(pid, start, TERM_WAIT):
+        return True
+    if not sys.stdin.isatty():
+        return wait_gone(pid, start, LATE_WAIT)
+    import termios
+    import tty
+
+    print("The old process is still exiting. Press any key to stop waiting.")
+    fd = sys.stdin.fileno()
+    saved = termios.tcgetattr(fd)
+    try:
+        tty.setcbreak(fd)
+        while alive(pid, start):
+            ready, _, _ = select.select([fd], [], [], 0.5)
+            if ready:
+                os.read(fd, 64)
+                return not alive(pid, start)
+        return True
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, saved)
+
+
 def pause(message: str) -> int:
     print(message)
     if sys.stdin.isatty():
         input("Press Enter to close. ")
     return 1
+
+
+class Abort(Exception):
+    """Stop the handoff and show the message once the plan slot is freed."""
+
+
+class Closed(Exception):
+    """The countdown's tab or window was closed."""
+
+
+def on_hangup(signum: int, frame: object) -> None:
+    raise Closed
 
 
 def handoff(plan_path: Path) -> int:
@@ -740,68 +818,96 @@ def handoff(plan_path: Path) -> int:
     return pause(message)
 
 
-class Abort(Exception):
-    """Stop the handoff and show the message once the plan slot is freed."""
-
-
 def _handoff(plan: dict, plan_path: Path) -> int:
     sid, pid, start = plan["sessionId"], plan["pid"], plan["procStart"]
     label = plan.get("name") or sid
     print(f"techne: moving Claude Code session '{label}'")
     print(f"from {plan['version']} to {plan['installed']}.")
-    if not countdown(COUNTDOWN):
+    # Closing the countdown's tab cancels, like a key does.
+    signal.signal(signal.SIGHUP, on_hangup)
+    try:
+        go = countdown(COUNTDOWN)
+    except Closed:
+        go = False
+    signal.signal(signal.SIGHUP, signal.SIG_DFL)
+    if not go:
         (STATE / f"declined-{sid}").write_text(plan["installed"])
         log(f"{sid} cancelled at the countdown")
         raise Abort("Cancelled. This session stays as it is until the next update.")
     session = read_json(SESSIONS / f"{pid}.json")
-    if session is not None and session.get("sessionId") != sid:
-        session = None
-    if session is not None and session.get("procStart") != start:
-        session = None
-    why = session_blocker(session) or version_blocker(
-        plan["version"], installed_version(plan["claude"])
+    planned = (
+        live_session(session, sid) and session is not None and session.get("procStart") == start
+    )
+    why = (
+        session_blocker(session if planned else None)
+        or version_blocker(plan["version"], installed_version(plan["claude"]))
+        or (None if os.path.isdir(plan["cwd"]) else f"{plan['cwd']} no longer exists")
     )
     if why:
         log(f"{sid} handoff refused: {why}")
         raise Abort(f"Not restarting: {why}.")
     respawn = plan.get("respawn") or {}
     pane, rshell = respawn.get("pane"), respawn.get("shell")
-    # Set when the session is the pane's first process.
+    # The session is the pane's first process; keep the pane when it exits.
     first = bool(pane) and rshell is None
     if first:
-        # The session is the pane's first process; keep the pane when it exits.
         tmux("set-option", "-p", "-t", pane, "remain-on-exit", "on")
     shell = plan.get("closeShell")
     marker = STATE / f"close-{shell['pid']}" if shell else None
     if marker:
         marker.touch()
-    sent = send(pid, start, signal.SIGTERM)
-    if not sent or not wait_gone(pid, start, TERM_WAIT):
+    if not send(pid, start, signal.SIGTERM) or not wait_exit(pid, start):
         if marker:
             drop(marker)
         if first:
             tmux("set-option", "-p", "-u", "-t", pane, "remain-on-exit")
-        if not sent:
-            log(f"{sid} process {pid} was gone or replaced before SIGTERM")
-            raise Abort("The old process was gone before it could be stopped. Nothing restarted.")
-        log(f"{sid} did not exit within {TERM_WAIT}s of SIGTERM")
-        raise Abort(f"The old process did not exit within {TERM_WAIT:.0f}s. It was left running.")
+        if alive(pid, start):
+            log(f"{sid} still running after SIGTERM; gave up waiting")
+            raise Abort(
+                "The old process has not exited. Once it does, resume it with:\n  "
+                + resume_command(plan)
+            )
+        log(f"{sid} process {pid} was gone or replaced before SIGTERM")
+        raise Abort("The old process was gone before it could be stopped. Nothing restarted.")
     log(f"{sid} stopped {plan['version']} process {pid}")
+    # The session has ended, so from here every path resumes it.
     script = resume_script(plan)
+    try:
+        if close_old(plan, pane, rshell, first, shell, marker, script):
+            return 0
+    except Exception as exc:
+        log(f"{sid} closing the old shell failed: {type(exc).__name__}: {exc}")
+        print(f"techne: could not tidy the old terminal ({exc}); resuming here.")
+    drop(plan_path)  # exec skips handoff()'s finally
+    return resume_here(plan, script)
+
+
+def close_old(
+    plan: dict,
+    pane: str | None,
+    rshell: dict | None,
+    first: bool,
+    shell: dict | None,
+    marker: Path | None,
+    script: str,
+) -> bool:
+    """Respawn the old tmux pane with the resume (True), or close the old tab's shell
+    (False, the resume then runs here). Either only while nothing else runs there."""
+    sid = plan["sessionId"]
     if pane:
         # Re-check: the shell must have gained no child since the plan was made.
-        if rshell is None or (
+        empty = rshell is None or (
             alive(rshell["pid"], rshell["start"]) and not children(rshell["pid"])
-        ):
-            ok = tmux(
-                "respawn-pane", "-k", "-t", pane, "-c", plan["cwd"], plan["shell"], "-lic", script
-            )
-            if first:
-                tmux("set-option", "-p", "-u", "-t", pane, "remain-on-exit")
-            if ok:
-                return 0
-        print("The old pane was left as it is; resuming here instead.")
-    elif shell and marker:
+        )
+        ok = empty and tmux(
+            "respawn-pane", "-k", "-t", pane, "-c", plan["cwd"], plan["shell"], "-lic", script
+        )
+        if first:
+            tmux("set-option", "-p", "-u", "-t", pane, "remain-on-exit")
+        if not ok:
+            print("The old pane was left as it is; resuming here instead.")
+        return ok
+    if shell and marker:
         if wait_gone(shell["pid"], shell["start"], SHELL_WAIT):
             log(f"{sid} old shell {shell['pid']} exited on its marker")
         elif children(shell["pid"]):
@@ -811,12 +917,30 @@ def _handoff(plan: dict, plan_path: Path) -> int:
             send(shell["pid"], shell["start"], signal.SIGHUP)
             log(f"{sid} sent SIGHUP to old shell {shell['pid']}")
         drop(marker)
-    # exec skips handoff()'s finally, so free the slot here.
-    drop(plan_path)
-    os.chdir(plan["cwd"])
+    return False
+
+
+def resume_command(plan: dict) -> str:
+    return f"cd {shlex.quote(plan['cwd'])} && {shlex.join(resume_args(plan))}"
+
+
+def resume_here(plan: dict, script: str) -> int:
+    """Replace this process with the resumed session, in the launch directory if it is
+    still there. Falls back to /bin/bash, then to printing the command."""
+    try:
+        os.chdir(plan["cwd"])
+    except OSError:
+        os.chdir(Path.home())
+        print(f"techne: {plan['cwd']} is gone; resuming from {Path.home()}.")
     sys.stdout.flush()
-    os.execv(plan["shell"], [plan["shell"], "-lic", script])
-    return 0  # unreachable
+    for shell in dict.fromkeys([plan["shell"], "/bin/bash"]):
+        try:
+            os.execv(shell, [shell, "-lic", script])
+        except OSError:
+            continue
+    return pause(
+        "techne: could not start a shell. Resume the session with:\n  " + resume_command(plan)
+    )
 
 
 def main(argv: list[str]) -> int:

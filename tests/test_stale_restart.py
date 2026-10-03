@@ -40,7 +40,7 @@ QUIET_TURN = {
     "session_crons": [],
 }
 IDLE = {"hook_event_name": "Notification", "notification_type": "idle_prompt", "session_id": SID}
-WSL = {"WSL_DISTRO_NAME": "Ubuntu", "WT_SESSION": "x"}
+WSL = {"WSL_DISTRO_NAME": "Ubuntu", "WT_SESSION": "x", "TECHNE_RESTART_PARENT": "4242"}
 TMUX_STUB = (
     'case "$1" in display-message) echo "$STUB_PANE_PID" ;; '
     '*) echo "tmux $*" >> "$STUB_LOG" ;; esac'
@@ -122,6 +122,7 @@ def env(tmp_path, sr, monkeypatch):
         TECHNE_RESTART_COUNTDOWN="0",
         TECHNE_RESTART_TERM_WAIT="3",
         TECHNE_RESTART_SHELL_WAIT="1",
+        TECHNE_RESTART_LATE_WAIT="1",
         STUB_LOG=str(tmp_path / "stub.log"),
         SHELL="/bin/bash",
     )
@@ -171,7 +172,7 @@ def write_transcript(path: pathlib.Path, models: list[str]) -> str:
 def live(env, sr):
     """A fake live claude process 4242 with start time 777, after a quiet turn."""
     write_stat(env["proc"], 4242, "claude", 4000, "777")
-    sr.record_turn(QUIET_TURN, SID)
+    sr.record_turn(QUIET_TURN, SID, 4242)
     return session(4242, "777")
 
 
@@ -215,15 +216,22 @@ def test_session_blocker_refuses_a_missing_session_or_a_zombie(sr, env, live):
     ],
 )
 def test_session_blocker_refuses_after_a_busy_turn(sr, live, turn, reason):
-    sr.record_turn({**QUIET_TURN, **turn}, SID)
+    sr.record_turn({**QUIET_TURN, **turn}, SID, 4242)
     assert reason in sr.session_blocker(live)
 
 
 def test_session_blocker_clears_once_tasks_end(sr, live):
-    sr.record_turn({**QUIET_TURN, "background_tasks": [{"status": "running"}]}, SID)
+    sr.record_turn({**QUIET_TURN, "background_tasks": [{"status": "running"}]}, SID, 4242)
     assert sr.session_blocker(live) is not None
-    sr.record_turn({**QUIET_TURN, "background_tasks": [{"status": "killed"}]}, SID)
+    sr.record_turn({**QUIET_TURN, "background_tasks": [{"status": "killed"}]}, SID, 4242)
     assert sr.session_blocker(live) is None
+
+
+def test_session_blocker_ignores_a_turn_another_process_recorded(sr, env, live):
+    # The same conversation open in a second process ended a quiet turn of its own.
+    write_stat(env["proc"], 4250, "claude", 1, "99")
+    sr.record_turn(QUIET_TURN, SID, 4250)
+    assert sr.session_blocker(live) == "last turn recorded by another process"
 
 
 @pytest.mark.parametrize(
@@ -243,26 +251,17 @@ def test_version_blocker_only_moves_forward(sr, running, installed, reason):
     assert got is None if reason is None else reason in got
 
 
-def test_session_for_skips_dead_reused_and_ambiguous_matches(sr, env, live):
-    put_session(env, session(4241, "1"))  # no /proc entry
-    write_stat(env["proc"], 4240, "claude", 1, "9")
-    put_session(env, session(4240, "8"))  # start time differs
-    assert sr.session_for(SID) is None
-    put_session(env, live)
-    assert sr.session_for(SID)["pid"] == 4242
-    assert sr.session_for("other") is None
-    # The same conversation open twice: a search by id alone cannot tell them apart.
-    write_stat(env["proc"], 4250, "claude", 1, "99")
-    put_session(env, session(4250, "99"))
-    assert sr.session_for(SID) is None
-
-
-def test_session_for_prefers_the_hooks_parent(sr, env, monkeypatch):
+def test_session_for_takes_only_the_hooks_parent(sr, env, monkeypatch):
     for pid in (4242, 4250):
         write_stat(env["proc"], pid, "claude", 1, str(pid))
         put_session(env, session(pid, str(pid)))
-    monkeypatch.setattr(sr.os, "getppid", lambda: 4250)
+    monkeypatch.setenv("TECHNE_RESTART_PARENT", "4250")
     assert sr.session_for(SID)["pid"] == 4250
+    assert sr.session_for("other") is None
+    monkeypatch.setenv("TECHNE_RESTART_PARENT", "4241")  # no session file
+    assert sr.session_for(SID) is None
+    put_session(env, session(4241, "1"))  # a file, but no such process
+    assert sr.session_for(SID) is None
 
 
 def test_installed_version_reads_the_native_symlink(sr, env):
@@ -395,14 +394,31 @@ def test_resume_flags_pin_the_model_only_when_a_resume_would_change_family(
     assert sr.flag_value(got, "--model") == (pinned or sr.flag_value(flags, "--model"))
 
 
-def test_resume_flags_read_project_settings_and_env_first(sr, env, monkeypatch):
+def test_resume_flags_read_project_settings_first(sr, env):
     user_settings(env, "opus")
     (env["tmp"] / ".claude").mkdir()
     (env["tmp"] / ".claude" / "settings.local.json").write_text('{"model": "sonnet"}')
     t = write_transcript(env["tmp"] / "t.jsonl", ["claude-sonnet-5-5"])
     assert sr.resume_flags([], t, {}, str(env["tmp"])) == []
-    monkeypatch.setenv("ANTHROPIC_MODEL", "haiku")
-    assert sr.resume_flags([], t, {}, str(env["tmp"])) == ["--model", "claude-sonnet-5-5"]
+
+
+def test_resume_flags_pass_on_the_old_process_model_env(sr, env):
+    # ANTHROPIC_MODEL was set for the old process only; the new tab will not have it.
+    user_settings(env, "opus")
+    t = write_transcript(env["tmp"] / "t.jsonl", ["claude-sonnet-5-5"])
+    cwd = str(env["tmp"])
+    assert sr.resume_flags([], t, {}, cwd, env_model="sonnet") == ["--model", "sonnet"]
+    flags = ["--model", "haiku[1m]"]
+    assert sr.resume_flags(flags, None, {}, cwd, env_model="sonnet") == flags
+
+
+def test_process_env_reads_one_variable(sr, env):
+    write_stat(env["proc"], 4242, "claude", 1, "1")
+    (env["proc"] / "4242" / "environ").write_bytes(b"A=1\0ANTHROPIC_MODEL=opus[1m]\0B=\0")
+    assert sr.process_env(4242, "ANTHROPIC_MODEL") == "opus[1m]"
+    assert sr.process_env(4242, "B") is None
+    assert sr.process_env(4242, "MISSING") is None
+    assert sr.process_env(9999, "ANTHROPIC_MODEL") is None
 
 
 def test_resume_flags_take_effort_and_mode_from_the_turn(sr, env):
@@ -428,6 +444,8 @@ def test_resume_flags_take_effort_and_mode_from_the_turn(sr, env):
             "bypassPermissions",
             ["--dangerously-skip-permissions", "--permission-mode", "bypassPermissions"],
         ),
+        (None, ["--allow-dangerously-skip-permissions"]),  # mode unknown: bypass stays off
+        ("delegate", ["--allow-dangerously-skip-permissions"]),
     ],
 )
 def test_resume_flags_do_not_switch_bypass_back_on(sr, env, mode, expect):
@@ -540,7 +558,7 @@ def test_tmux_launch_argv_opens_a_window_in_the_same_session(sr, tmp_path):
     plan = {"tmux": "work:@2.%7", "cwd": "/w"}
     argv = sr.launch_argv("tmux", plan, tmp_path / "p.json")
     assert argv is not None
-    assert argv[:8] == ["tmux", "new-window", "-t", "work:", "-n", "claude-restart", "-c", "/w"]
+    assert argv[:8] == ["tmux", "new-window", "-t", "=work:", "-n", "claude-restart", "-c", "/w"]
     assert argv[-1].endswith(f"handoff {tmp_path}/p.json")
 
 
@@ -566,6 +584,7 @@ def tmux_env(env, live):
     """A stale idle session that is tmux pane %3's first process, with a logging tmux stub."""
     stub(env["bin"] / "tmux", TMUX_STUB)
     env["env"]["STUB_PANE_PID"] = "4242"
+    env["env"]["TECHNE_RESTART_PARENT"] = "4242"
     live["tmux"] = "work:@0.%3"
     put_session(env, live)
     write_cmdline(env["proc"], 4242, ["claude", "--model", "opus", "hello"])
@@ -582,7 +601,7 @@ def test_hook_launches_one_handoff_and_says_so(tmux_env):
     assert out is not None
     assert "a new tmux window" in out["systemMessage"]
     (call,) = calls(tmux_env)
-    assert call.startswith("tmux new-window -t work: -n claude-restart -c /work ")
+    assert call.startswith("tmux new-window -t =work: -n claude-restart -c /work ")
     plan = plan_of(tmux_env)
     assert plan["flags"] == ["--model", "opus"]
     assert plan["respawn"] == {"pane": "%3", "shell": None}
@@ -668,12 +687,15 @@ def test_hook_does_nothing_in_a_state_dir_it_does_not_own(tmux_env):
         tmux_env["state"].chmod(0o700)
 
 
+PARENT = {"TECHNE_RESTART_PARENT": "4242"}
+
+
 def test_hook_notices_an_unsupported_terminal_once(env, live):
     put_session(env, live)
-    first = run_hook(env, IDLE)
+    first = run_hook(env, IDLE, PARENT)
     assert first is not None
     assert "supports tmux and Windows Terminal" in first["systemMessage"]
-    assert run_hook(env, IDLE) is None
+    assert run_hook(env, IDLE, PARENT) is None
 
 
 def test_hook_picks_windows_terminal_under_wsl(env, live):
@@ -815,7 +837,12 @@ def run_handoff(env, plan: pathlib.Path, **extra) -> subprocess.CompletedProcess
 
 def put_real_session(env, child, **over) -> None:
     put_session(env, session(child.pid, real_start(child.pid), **over))
-    (env["state"] / f"turn-{SID}.json").write_text(json.dumps({"tasks": 0, "crons": 0}))
+    write_turn(env, child.pid, tasks=0)
+
+
+def write_turn(env, pid: int, tasks: int) -> None:
+    turn = {"pid": pid, "start": real_start(pid), "tasks": tasks, "crons": 0}
+    (env["state"] / f"turn-{SID}.json").write_text(json.dumps(turn))
 
 
 def shell_of(proc: subprocess.Popen) -> dict:
@@ -864,7 +891,7 @@ def test_handoff_rechecks_before_signalling(env, old_claude, session_over, plan_
 
 def test_handoff_rechecks_the_turn(env, old_claude):
     put_real_session(env, old_claude)
-    (env["state"] / f"turn-{SID}.json").write_text(json.dumps({"tasks": 1, "crons": 0}))
+    write_turn(env, old_claude.pid, tasks=1)
     proc = run_handoff(env, write_plan(env, old_claude.pid))
     assert proc.returncode == 1
     assert old_claude.poll() is None
@@ -890,7 +917,8 @@ def test_handoff_never_escalates_past_sigterm(env):
         put_real_session(env, child)
         proc = run_handoff(env, write_plan(env, child.pid))
         assert proc.returncode == 1
-        assert "left running" in proc.stdout
+        assert "has not exited" in proc.stdout
+        assert f"--resume {SID}" in proc.stdout  # the command to run once it exits
         assert child.poll() is None
         assert calls(env) == []
     finally:
@@ -987,3 +1015,70 @@ def test_handoff_cancel_is_remembered(env, old_claude):
     assert old_claude.poll() is None
     assert (env["state"] / f"declined-{SID}").read_text() == NEW
     assert calls(env) == []
+
+
+def test_handoff_keeps_waiting_for_a_late_exit_and_resumes(env):
+    # Slow SessionEnd hooks: the process exits well after TERM_WAIT.
+    child = subprocess.Popen(["bash", "-c", "trap 'sleep 2; exit 0' TERM; sleep 60 & wait"])
+    try:
+        time.sleep(0.3)
+        put_real_session(env, child)
+        plan = write_plan(env, child.pid)
+        proc = run_handoff(env, plan, TECHNE_RESTART_TERM_WAIT="1", TECHNE_RESTART_LATE_WAIT="10")
+        assert proc.returncode == 0, proc.stdout
+        assert child.wait(timeout=5) == 0
+        assert any(c.startswith("shell -lic ") for c in calls(env))
+    finally:
+        if child.poll() is None:
+            child.kill()
+
+
+def test_handoff_refuses_before_signalling_when_the_directory_is_gone(env, old_claude):
+    put_real_session(env, old_claude)
+    proc = run_handoff(env, write_plan(env, old_claude.pid, cwd=str(env["tmp"] / "gone")))
+    assert proc.returncode == 1
+    assert "no longer exists" in proc.stdout
+    assert old_claude.poll() is None
+
+
+def test_handoff_closing_the_countdown_cancels(env, old_claude):
+    put_real_session(env, old_claude)
+    plan = write_plan(env, old_claude.pid)
+    proc = subprocess.Popen(
+        [HOOK_PYTHON, str(SCRIPT), "handoff", str(plan)],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        text=True,
+        env={**env["env"], "TECHNE_RESTART_PROC": "/proc", "TECHNE_RESTART_COUNTDOWN": "20"},
+    )
+    time.sleep(1)
+    proc.send_signal(signal.SIGHUP)
+    assert proc.wait(timeout=10) == 1
+    assert old_claude.poll() is None
+    assert (env["state"] / f"declined-{SID}").read_text() == NEW
+    assert not plan.exists()
+
+
+def test_handoff_respawns_a_pane_whose_shell_held_only_the_session(env, old_claude):
+    stub(env["bin"] / "tmux", 'echo "tmux $*" >> "$STUB_LOG"')
+    shell = subprocess.Popen(["sleep", "60"])  # a shell with no other child
+    try:
+        put_real_session(env, old_claude, tmux="w:@0.%9")
+        respawn = {"pane": "%9", "shell": shell_of(shell)}
+        plan = write_plan(env, old_claude.pid, launcher="tmux", tmux="w:@0.%9", respawn=respawn)
+        proc = run_handoff(env, plan)
+        assert proc.returncode == 0, proc.stdout
+        (respawned,) = calls(env)  # no remain-on-exit: the shell keeps the pane
+        assert respawned.startswith("tmux respawn-pane -k -t %9 ")
+    finally:
+        shell.kill()
+        shell.wait()
+
+
+def test_docs_list_every_carried_flag(sr):
+    docs = (ROOT / "docs" / "configuration.md").read_text()
+    section = docs[docs.index("## Restart on update") : docs.index("## Per-skill configuration")]
+    for flag in sr.CARRY_VALUE | sr.CARRY_VARIADIC | sr.CARRY_BOOL:
+        if flag in ("--allowed-tools", "--disallowed-tools") or "system-prompt" in flag:
+            continue  # aliases, and the system-prompt flags named as a group
+        assert f"`{flag}`" in section, flag
