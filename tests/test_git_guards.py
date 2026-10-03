@@ -387,7 +387,8 @@ def test_hooks_json_handler_skips_python_when_all_off(repo, tmp_path):
 
 def test_manifest_options_match_the_guard_and_default_off():
     options = json.loads(MANIFEST.read_text())["userConfig"]
-    assert set(options) == set(ALL)
+    # restart_on_update belongs to stale_restart.py, tested in test_stale_restart.py.
+    assert set(options) - {"restart_on_update"} == set(ALL)
     for spec in options.values():
         assert spec["type"] == "boolean"
         assert spec["default"] is False

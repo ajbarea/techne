@@ -77,7 +77,7 @@ status = "active"
 
 Set `status = "backburner"` to skip a repo without removing it.
 
-The plugin also ships three opt-in guards on `git commit`, `git add` and `gh pr`: block attribution lines, block staging `COMMITS.md`, and warn on commits in the main checkout. Each is off until you switch it on in `/config`. See [Configuration](docs/configuration.md#guards).
+The plugin also ships three opt-in guards on `git commit`, `git add` and `gh pr`: block attribution lines, block staging `COMMITS.md`, and warn on commits in the main checkout. A fourth option, `restart_on_update`, moves an idle session onto an updated Claude Code in a new tmux window or Windows Terminal tab and keeps the conversation. Each is off until you switch it on in `/config`. See [Configuration](docs/configuration.md#guards) and [Restart on update](docs/configuration.md#restart-on-update).
 
 ## How it fits together
 
