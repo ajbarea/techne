@@ -70,19 +70,19 @@ The hook runs on every Bash call, since Claude Code's `Bash(git *)` filter skips
 
 Claude Code updates itself on disk, but an open session keeps running the old binary until you restart it. With `restart_on_update` switched on in `/config`, techne restarts an idle session onto the installed version and keeps the conversation.
 
-It runs on the `idle_prompt` notification, which Claude Code sends about a minute after a turn ends, and only when you appear to be away from that terminal and have not typed since. A session in the tab you are looking at is not restarted, and Claude Code does not send the notification again when you leave later, so that session moves after its next reply. The hook reads the session's own `~/.claude/sessions/<pid>.json` and goes ahead only when all of these hold:
+It runs on the `idle_prompt` notification, which Claude Code sends about a minute after a turn ends, and only when you appear to be away from that terminal and have not typed since. A session in the tab you are looking at is not restarted, and Claude Code does not send the notification again when you leave later, so that session moves after its next reply. The hook goes ahead only when all of these hold:
 
-- The session's version differs from the version of the `claude` on `PATH`.
-- Its status is `idle`. A background Bash job or a subagent's tool call reads as `shell`, and a turn in progress reads as `busy`.
-- No subagent has started without stopping. The hook counts them from `SubagentStart` and `SubagentStop`.
-- The session's last turn ended with no background task running and no session cron (`/loop`, CronCreate) scheduled, as the `Stop` hook reports them. A session cron ends with the process, so a session that has one is never restarted. Until a turn has ended with the option on, the session is not restarted.
-- It is an interactive session, and its pid still belongs to the process that wrote the file.
+- The `claude` on `PATH` is a newer version than the session runs. A session on a newer build is never moved to an older one.
+- The session's own `~/.claude/sessions/<pid>.json` reads `idle`, the session is interactive, and its pid still belongs to the process that wrote the file.
+- The session's last turn ended with no background task or subagent running and no session cron (`/loop`, CronCreate) scheduled, as the `Stop` hook reports them. A session cron ends with the process, so a session that has one is not restarted. Submitting a prompt clears that record until the turn ends, so a turn you interrupt with Esc, which skips `Stop`, leaves nothing to go on, and the session waits for its next completed turn.
 
 It then opens a new tmux window, when the session runs in tmux, or a new Windows Terminal tab, when it runs in WSL. That window counts down 15 seconds, and any key cancels. A cancel holds until the next update. When the countdown ends, the handoff checks every condition again, then:
 
 1. Sends SIGTERM to the old process and waits up to 10 seconds for it to exit. If it does not exit, it is left running. The handoff never sends SIGKILL.
-2. Closes the old shell (tmux respawns the old pane in place).
-3. Runs `claude --resume <session id>` from the directory the session started in, on the model, effort and permission mode the session has now. The model is the one its latest reply used, and the effort and permission mode are the ones its last turn ended with, so `/model`, `/effort` and shift+tab changes carry over; a `[1m]` model chosen at launch is kept as launched. The launch flags `--agent`, `--agents`, `--settings`, `--setting-sources`, `--plugin-dir`, `--add-dir`, `--mcp-config`, `--strict-mcp-config`, `--allowedTools`, `--disallowedTools`, `--fallback-model`, the system-prompt flags, `--dangerously-skip-permissions`, `--chrome`, `--ide` and `--verbose` carry over too. A positional prompt and the session flags (`--resume`, `--continue`, `--session-id`, `--worktree`, `--name`) do not.
+2. Closes the old shell, or in tmux respawns the old pane in place. Either happens only when the old session was the pane's first process, or the only child of the tab's or pane's top shell. A shell with a job, an editor's terminal or a nested shell is left open, and in tmux the session resumes in the new window instead.
+3. Runs `claude --resume <session id>` from the directory the session started in, with its launch flags `--model`, `--effort`, `--permission-mode`, `--agent`, `--agents`, `--settings`, `--setting-sources`, `--plugin-dir`, `--add-dir`, `--mcp-config`, `--strict-mcp-config`, `--allowedTools`, `--disallowedTools`, `--fallback-model`, the system-prompt flags, `--dangerously-skip-permissions`, `--allow-dangerously-skip-permissions`, `--chrome`, `--ide` and `--verbose`. A positional prompt and the session flags (`--resume`, `--continue`, `--session-id`, `--worktree`, `--name`) are dropped.
+
+The resumed session keeps the effort and permission mode its last turn ended with. When you left bypass mode, `--dangerously-skip-permissions` becomes `--allow-dangerously-skip-permissions`, so bypass stays one shift+tab away instead of switching back on. For the model, `/model` saves its choice as your default, so the resume normally starts on the same model and keeps aliases such as `opusplan` and a `[1m]` context window. Only when the model a resume would start on (the `--model` flag, else `ANTHROPIC_MODEL`, else your settings) is a different family from the session's latest reply, as happens after another session changes the default, is that reply's exact model id passed.
 
 When Claude exits in the new tab, you are left in a login shell, as before.
 
@@ -96,18 +96,19 @@ Windows Terminal's default `closeOnExit` closes a tab only when its shell exits 
 # techne restart_on_update: close this tab once its Claude session has moved to a new one
 __techne_restart_close() {
   local m="${XDG_RUNTIME_DIR:-/tmp}/techne-restart-$UID/close-$$"
-  if [ -e "$m" ]; then rm -f "$m"; exit 0; fi
+  if [ -e "$m" ] && [ -z "$(jobs -p)" ]; then rm -f "$m"; exit 0; fi
 }
 PROMPT_COMMAND="__techne_restart_close${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
 ```
 
-Without it, the handoff sends the shell SIGHUP, and the tab stays open showing the exit code until you close it. Tabs the handoff opens close themselves either way. Only the top shell of a tab is closed. A session started from a nested shell or an editor's terminal leaves its shell alone.
+Without it, the handoff sends the shell SIGHUP, and the tab stays open showing the exit code until you close it. A shell that has a job by then is left open either way. Tabs the handoff opens close themselves without the snippet.
 
 ### Limits
 
 - The session file is undocumented Claude Code state. When a field is missing or changes meaning, the check fails and nothing restarts.
 - Text typed into the prompt but not sent is lost on restart. The countdown takes focus, so a key pressed in the new tab cancels the restart.
-- `restart_on_update` needs `python3` 3.9 or newer, and `tmux`, or `wt.exe` under WSL. It writes its state and a log to `$XDG_RUNTIME_DIR/techne-restart-<uid>/`.
+- A session whose directory path contains `;` is not restarted under Windows Terminal, which reads `;` as a separator between its own commands.
+- `restart_on_update` needs `python3` 3.9 or newer, and `tmux`, or `wt.exe` under WSL. It keeps its state and a log in `$XDG_RUNTIME_DIR/techne-restart-<uid>/`, or under `/tmp` when that is unset, and does nothing unless that directory is yours and private.
 
 ## Per-skill configuration
 
