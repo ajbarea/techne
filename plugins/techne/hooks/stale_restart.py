@@ -12,6 +12,10 @@ Two entry points share one safety check:
   re-checks the session, sends SIGTERM, waits for the process to exit, closes the old
   shell, and runs `claude --resume <id>` from the session's launch directory.
 
+The same hook also runs on Stop, to record the turn's background tasks, session crons,
+effort and permission mode (idle_prompt carries none of them), and on SubagentStart and
+SubagentStop, to count running subagents.
+
 It never sends SIGKILL, and it refuses when the pid's start time no longer matches the plan.
 The session file is undocumented Claude Code state; when a field is missing or unexpected,
 the check fails closed. Runs on the system python3, so it stays compatible with 3.9.
@@ -47,6 +51,13 @@ VERSION_RE = re.compile(r"(\d+\.\d+\.\d+)")
 # Session ids name state files, so anything but a plain id is ignored.
 SESSION_ID_RE = re.compile(r"[A-Za-z0-9-]+")
 SHELLS = {"bash", "zsh"}
+
+MODEL_RE = re.compile(r"claude-[a-z0-9.-]+")
+EFFORTS = {"low", "medium", "high", "xhigh", "max"}
+MODES = {"default", "plan", "acceptEdits", "auto", "dontAsk", "bypassPermissions"}
+TRANSCRIPT_TAIL = 4 << 20
+# Background task statuses that mean the task has not finished.
+ACTIVE = {"running", "pending"}
 
 # Launch flags carried onto the resumed session. Session-selecting flags (--resume,
 # --continue, --session-id, --fork-session, --worktree, --name) and the positional prompt
@@ -203,6 +214,30 @@ def track_agent(event: dict) -> None:
         drop(marker)
 
 
+def record_turn(event: dict) -> None:
+    """Keep what the Stop hook reports about the session, which idle_prompt does not carry."""
+    session_id = event.get("session_id")
+    if not isinstance(session_id, str) or not SESSION_ID_RE.fullmatch(session_id):
+        return
+    tasks = event.get("background_tasks")
+    crons = event.get("session_crons")
+    state = {
+        "effort": event.get("effort"),
+        "permission_mode": event.get("permission_mode"),
+        # Unknown when absent, so the check refuses rather than guess there are none.
+        "tasks": None
+        if not isinstance(tasks, list)
+        else sum(1 for t in tasks if not isinstance(t, dict) or t.get("status") in ACTIVE),
+        "crons": len(crons) if isinstance(crons, list) else None,
+    }
+    STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
+    (STATE / f"turn-{session_id}.json").write_text(json.dumps(state))
+
+
+def last_turn(session_id: str) -> dict:
+    return read_json(STATE / f"turn-{session_id}.json") or {}
+
+
 def blocker(session: dict | None, installed: str | None) -> str | None:
     """Why this session must not be restarted now, or None when it is safe."""
     if session is None:
@@ -214,6 +249,14 @@ def blocker(session: dict | None, installed: str | None) -> str | None:
     agents = running_agents(str(session.get("sessionId")))
     if agents:
         return f"{agents} subagent(s) still running"
+    turn = last_turn(str(session.get("sessionId")))
+    if not turn:
+        return "no turn recorded since the hook was enabled"
+    if turn.get("tasks") != 0:
+        return f"background tasks: {turn.get('tasks')}"
+    if turn.get("crons") != 0:
+        # Session crons (/loop, CronCreate) live in the process and end with it.
+        return f"session crons: {turn.get('crons')}"
     running = session.get("version")
     if not running or not installed:
         return "version unknown"
@@ -253,12 +296,6 @@ def carry_flags(pid: int) -> list[str]:
             if vals:
                 out += [arg, *vals]
     return out
-
-
-MODEL_RE = re.compile(r"claude-[a-z0-9.-]+")
-EFFORTS = {"low", "medium", "high", "xhigh", "max"}
-MODES = {"default", "plan", "acceptEdits", "auto", "dontAsk", "bypassPermissions"}
-TRANSCRIPT_TAIL = 4 << 20
 
 
 def last_model(transcript: object) -> str | None:
@@ -319,22 +356,22 @@ def replace_flag(flags: list[str], name: str, value: str) -> list[str]:
     return [*without(flags, name), name, value]
 
 
-def live_flags(flags: list[str], event: dict) -> list[str]:
+def live_flags(flags: list[str], transcript: object, turn: dict) -> list[str]:
     """Launch flags with the model, effort and permission mode the session has now.
 
     `/model`, `/effort` and shift+tab change these after launch, and a resume would
     otherwise start on the launch flags or the settings default.
     """
-    model = last_model(event.get("transcript_path"))
+    model = last_model(transcript)
     launched = flag_value(flags, "--model") or ""
     # The transcript's model id drops a [1m] context suffix chosen at launch, so keep that.
     if model and "[1m]" not in launched:
         flags = replace_flag(flags, "--model", model)
-    effort = event.get("effort")
+    effort = turn.get("effort")
     level = effort.get("level") if isinstance(effort, dict) else None
     if level in EFFORTS:
         flags = replace_flag(flags, "--effort", level)
-    mode = event.get("permission_mode")
+    mode = turn.get("permission_mode")
     if mode in MODES:
         flags = replace_flag(flags, "--permission-mode", mode)
     return flags
@@ -440,6 +477,9 @@ def hook() -> int:
     if event.get("hook_event_name") in ("SubagentStart", "SubagentStop"):
         track_agent(event)
         return 0
+    if event.get("hook_event_name") == "Stop":
+        record_turn(event)
+        return 0
     if event.get("notification_type") != "idle_prompt":
         return 0
     session_id = event.get("session_id")
@@ -480,7 +520,9 @@ def hook() -> int:
         "version": session["version"],
         "installed": installed,
         "claude": claude,
-        "flags": live_flags(carry_flags(session["pid"]), event),
+        "flags": live_flags(
+            carry_flags(session["pid"]), event.get("transcript_path"), last_turn(session_id)
+        ),
         "launcher": launcher,
         "tmux": session.get("tmux"),
         "closeShell": closable_shell(session["pid"]) if launcher == "wt" else None,

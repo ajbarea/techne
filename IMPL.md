@@ -22,6 +22,9 @@ binary with `claude --resume`, so the conversation carries over.
   `~/.claude/sessions/<pid>.json`: `version` differs from the `claude` on `PATH`, `status` is
   `idle`, `kind` is `interactive`, `procStart` matches `/proc/<pid>/stat`. `idle_prompt` alone
   fires during background jobs; the file reads `shell` then.
+- A `Stop` hook records the turn's `background_tasks`, `session_crons`, effort and permission
+  mode; the check refuses on a running task or any session cron, which would die with the process.
+- The resumed model is the transcript's latest reply model, so `/model` switches carry over.
 - One Python file, `hooks/stale_restart.py`, run as the hook and as the handoff, so both apply
   the same check. Python 3.9, stdlib only, like `git_guards.py`.
 - Launchers: tmux when the session file names a pane, else Windows Terminal (`wt.exe -w 0 nt`)

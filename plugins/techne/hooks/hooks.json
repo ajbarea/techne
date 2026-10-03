@@ -46,6 +46,17 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "case \"$CLAUDE_PLUGIN_OPTION_RESTART_ON_UPDATE\" in true) exec python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/stale_restart.py\" ;; esac",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }

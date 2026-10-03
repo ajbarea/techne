@@ -128,10 +128,19 @@ def put_session(env, data: dict) -> None:
 # --- the safety check ----------------------------------------------------------
 
 
+QUIET_TURN = {
+    "hook_event_name": "Stop",
+    "session_id": SID,
+    "background_tasks": [],
+    "session_crons": [],
+}
+
+
 @pytest.fixture
-def live(env):
-    """A fake live claude process 4242 with start time 777."""
+def live(env, sr):
+    """A fake live claude process 4242 with start time 777, after a quiet turn."""
     write_stat(env["proc"], 4242, "claude", 4000, "777")
+    sr.record_turn(QUIET_TURN)
     return session(4242, "777")
 
 
@@ -361,7 +370,7 @@ def test_hook_ignores_other_notifications_and_busy_sessions(tmux_env, live):
 
 
 def test_hook_respects_a_cancel_for_the_same_version_only(tmux_env):
-    tmux_env["state"].mkdir(parents=True)
+    tmux_env["state"].mkdir(parents=True, exist_ok=True)
     (tmux_env["state"] / f"declined-{SID}").write_text(NEW)
     assert run_hook(tmux_env, IDLE) is None
     (tmux_env["state"] / f"declined-{SID}").write_text("2.1.250")
@@ -376,7 +385,7 @@ def test_hook_frees_the_slot_when_the_launcher_fails(tmux_env):
 
 
 def test_hook_reclaims_an_expired_slot(tmux_env, sr):
-    tmux_env["state"].mkdir(parents=True)
+    tmux_env["state"].mkdir(parents=True, exist_ok=True)
     plan = tmux_env["state"] / f"plan-{SID}.json"
     plan.write_text("{}")
     old = time.time() - sr.PLAN_TTL - 1
@@ -443,10 +452,10 @@ def _handlers(event: str) -> list[dict]:
     return [h for group in config["hooks"][event] for h in group["hooks"]]
 
 
-def test_hooks_json_wires_the_option_to_the_three_events():
+def test_hooks_json_wires_the_option_to_its_events():
     config = json.loads(HOOKS_JSON.read_text())
     assert config["hooks"]["Notification"][0]["matcher"] == "idle_prompt"
-    for event in ("Notification", "SubagentStart", "SubagentStop"):
+    for event in ("Notification", "Stop", "SubagentStart", "SubagentStop"):
         (handler,) = _handlers(event)
         assert f"$CLAUDE_PLUGIN_OPTION_{OPTION.upper()}" in handler["command"]
         assert '"${CLAUDE_PLUGIN_ROOT}/hooks/stale_restart.py"' in handler["command"]
@@ -523,6 +532,8 @@ def run_handoff(env, plan: pathlib.Path, **kw) -> subprocess.CompletedProcess:
 
 def put_real_session(env, child, **over) -> None:
     put_session(env, session(child.pid, real_start(child.pid), **over))
+    env["state"].mkdir(parents=True, exist_ok=True)
+    (env["state"] / f"turn-{SID}.json").write_text(json.dumps({"tasks": 0, "crons": 0}))
 
 
 def test_handoff_stops_the_old_process_and_resumes(env, old_claude):
@@ -664,13 +675,9 @@ def test_last_model_takes_the_latest_real_reply(sr, tmp_path):
 
 def test_live_flags_override_launch_flags(sr, tmp_path):
     t = write_transcript(tmp_path / "t.jsonl", ["claude-opus-5-5"])
-    event = {
-        "transcript_path": str(t),
-        "effort": {"level": "xhigh"},
-        "permission_mode": "plan",
-    }
+    turn = {"effort": {"level": "xhigh"}, "permission_mode": "plan"}
     flags = ["--model", "haiku", "--effort=low", "--verbose", "--permission-mode", "default"]
-    assert sr.live_flags(flags, event) == [
+    assert sr.live_flags(flags, str(t), turn) == [
         "--verbose",
         "--model",
         "claude-opus-5-5",
@@ -683,14 +690,49 @@ def test_live_flags_override_launch_flags(sr, tmp_path):
 
 def test_live_flags_keep_a_1m_launch_model_and_ignore_bad_values(sr, tmp_path):
     t = write_transcript(tmp_path / "t.jsonl", ["claude-opus-5-5"])
-    event = {"transcript_path": str(t), "effort": {"level": "ludicrous"}, "permission_mode": "x"}
-    assert sr.live_flags(["--model", "opus[1m]"], event) == ["--model", "opus[1m]"]
-    assert sr.live_flags([], {}) == []
+    turn = {"effort": {"level": "ludicrous"}, "permission_mode": "x"}
+    assert sr.live_flags(["--model", "opus[1m]"], str(t), turn) == ["--model", "opus[1m]"]
+    assert sr.live_flags([], None, {}) == []
 
 
-def test_hook_plan_carries_the_live_model(tmux_env):
+def test_hook_plan_carries_the_live_model_effort_and_mode(tmux_env):
     t = write_transcript(tmux_env["tmp"] / "t.jsonl", ["claude-opus-5-5"])
-    event = {**IDLE, "transcript_path": str(t), "effort": {"level": "high"}}
-    assert run_hook(tmux_env, event) is not None
+    turn = {**QUIET_TURN, "effort": {"level": "high"}, "permission_mode": "bypassPermissions"}
+    assert run_hook(tmux_env, turn) is None
+    assert run_hook(tmux_env, {**IDLE, "transcript_path": str(t)}) is not None
     plan = json.loads((tmux_env["state"] / f"plan-{SID}.json").read_text())
-    assert plan["flags"] == ["--model", "claude-opus-5-5", "--effort", "high"]
+    assert plan["flags"] == [
+        "--model",
+        "claude-opus-5-5",
+        "--effort",
+        "high",
+        "--permission-mode",
+        "bypassPermissions",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("turn", "reason"),
+    [
+        ({"background_tasks": [{"status": "running"}]}, "background tasks: 1"),
+        ({"background_tasks": [{"status": "completed"}, "?"]}, "background tasks: 1"),
+        ({"session_crons": [{"id": "c1"}]}, "session crons: 1"),
+        ({"background_tasks": None}, "background tasks: None"),
+        ({"session_crons": "x"}, "session crons: None"),
+    ],
+)
+def test_blocker_refuses_after_a_busy_turn(sr, live, turn, reason):
+    sr.record_turn({**QUIET_TURN, **turn})
+    assert sr.blocker(live, NEW) == reason
+
+
+def test_blocker_needs_a_recorded_turn(sr, live):
+    (sr.STATE / f"turn-{SID}.json").unlink()
+    assert sr.blocker(live, NEW) == "no turn recorded since the hook was enabled"
+
+
+def test_blocker_clears_once_tasks_finish(sr, live):
+    sr.record_turn({**QUIET_TURN, "background_tasks": [{"status": "running"}]})
+    assert sr.blocker(live, NEW) is not None
+    sr.record_turn({**QUIET_TURN, "background_tasks": [{"status": "completed"}]})
+    assert sr.blocker(live, NEW) is None

@@ -75,13 +75,14 @@ It runs on the `idle_prompt` notification, which Claude Code sends about a minut
 - The session's version differs from the version of the `claude` on `PATH`.
 - Its status is `idle`. A background Bash job or a subagent's tool call reads as `shell`, and a turn in progress reads as `busy`.
 - No subagent has started without stopping. The hook counts them from `SubagentStart` and `SubagentStop`.
+- The session's last turn ended with no background task running and no session cron (`/loop`, CronCreate) scheduled, as the `Stop` hook reports them. A session cron ends with the process, so a session that has one is never restarted. Until a turn has ended with the option on, the session is not restarted.
 - It is an interactive session, and its pid still belongs to the process that wrote the file.
 
 It then opens a new tmux window, when the session runs in tmux, or a new Windows Terminal tab, when it runs in WSL. That window counts down 15 seconds, and any key cancels. A cancel holds until the next update. When the countdown ends, the handoff checks every condition again, then:
 
 1. Sends SIGTERM to the old process and waits up to 10 seconds for it to exit. If it does not exit, it is left running. The handoff never sends SIGKILL.
 2. Closes the old shell (tmux respawns the old pane in place).
-3. Runs `claude --resume <session id>` from the directory the session started in, on the model, effort and permission mode the session has now. The model is the one its latest reply used, so a `/model` switch carries over; a `[1m]` model chosen at launch is kept as launched. The launch flags `--agent`, `--agents`, `--settings`, `--setting-sources`, `--plugin-dir`, `--add-dir`, `--mcp-config`, `--strict-mcp-config`, `--allowedTools`, `--disallowedTools`, `--fallback-model`, the system-prompt flags, `--dangerously-skip-permissions`, `--chrome`, `--ide` and `--verbose` carry over too. A positional prompt and the session flags (`--resume`, `--continue`, `--session-id`, `--worktree`, `--name`) do not.
+3. Runs `claude --resume <session id>` from the directory the session started in, on the model, effort and permission mode the session has now. The model is the one its latest reply used, and the effort and permission mode are the ones its last turn ended with, so `/model`, `/effort` and shift+tab changes carry over; a `[1m]` model chosen at launch is kept as launched. The launch flags `--agent`, `--agents`, `--settings`, `--setting-sources`, `--plugin-dir`, `--add-dir`, `--mcp-config`, `--strict-mcp-config`, `--allowedTools`, `--disallowedTools`, `--fallback-model`, the system-prompt flags, `--dangerously-skip-permissions`, `--chrome`, `--ide` and `--verbose` carry over too. A positional prompt and the session flags (`--resume`, `--continue`, `--session-id`, `--worktree`, `--name`) do not.
 
 When Claude exits in the new tab, you are left in a login shell, as before.
 
