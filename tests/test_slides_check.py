@@ -533,3 +533,101 @@ def test_libreoffice_that_writes_nothing_is_an_error(sl, tmp_path, monkeypatch):
     deck.touch()
     with pytest.raises(SystemExit):
         sl.render_libreoffice(deck, tmp_path / "d.pdf")
+
+
+# ---------------------------------------------------------- jargon, PDF --
+
+
+def test_jargon_is_reviewed_on_talk_slides_only(sl, deck):
+    path = deck(
+        [title("Opening"), textbox("Gerrit hosts")],
+        [title("The main test"), textbox("Two Gerrit communities decide it")],
+        [title("Backup slides")],
+        [title("Detail"), textbox("Gerrit, LoRA and IUT in full")],
+    )
+    hits = [f for f in sl.check(path, jargon=("Gerrit", "LoRA")) if f.gate == "jargon"]
+    assert [f.slide for f in hits] == [1, 2]
+    assert "Gerrit" in hits[1].message
+
+
+def test_jargon_matches_whole_words(sl):
+    assert sl.jargon_hits("LoRA adapters and IUT", ("lora", "iut", "UT")) == ["lora", "iut"]
+    assert sl.jargon_hits("Explorations", ("lora",)) == []
+
+
+def test_backup_from_starts_backup_without_a_divider(sl, deck):
+    path = deck(
+        [title("Opening")],
+        [title("Talk"), textbox("75% leaked")],
+        [title("Frequently asked questions")],
+        [title("Answer"), textbox("6 of 8 leaked")],
+    )
+    figures = [f.slide for f in sl.check(path, backup_from=3) if f.gate == "figures"]
+    assert figures == [2]
+
+
+def _pdf(sl, monkeypatch, tmp_path, pages):
+    monkeypatch.setattr(sl, "pdf_pages", lambda _path: pages)
+    path = tmp_path / "deck.pdf"
+    path.write_bytes(b"%PDF-1.7")
+    return path
+
+
+def test_pdf_reads_first_line_as_title_and_skips_page_counters(sl, monkeypatch, tmp_path):
+    pages = [
+        "Federated Agents\nAJ Barea\n",
+        "One idea per slide\n2 / 3\nShort body\n",
+        "One idea per slide\nAnother short body\n3 / 3\n",
+    ]
+    found = sl.check(_pdf(sl, monkeypatch, tmp_path, pages))
+    dup = [f for f in found if f.gate == "duplicate-title"]
+    assert dup and "one idea per slide" in dup[0].message
+    assert not [f for f in found if f.gate == "figures"]
+    assert sl.verdict(found)[0] == 0
+
+
+def test_pdf_gates_density_jargon_and_em_dashes(sl, monkeypatch, tmp_path):
+    long_title = " ".join(["word"] * 16)
+    pages = [
+        "Title slide\n",
+        f"{long_title}\n" + " ".join(["body"] * 70),
+        "Plain claim\nA Gerrit host — here\n",
+        "Frequently asked questions\n",
+        "An answer\nGerrit, 6 of 8, " + " ".join(["detail"] * 90),
+    ]
+    found = sl.check(_pdf(sl, monkeypatch, tmp_path, pages), jargon=("Gerrit",), backup_from=4)
+    by = {(f.gate, f.slide) for f in found}
+    assert ("long-title", 2) in by and ("dense", 2) in by
+    assert ("em-dash", 3) in by and ("jargon", 3) in by
+    assert not {g for g, s in by if s == 5} & {"dense", "jargon", "figures"}
+    assert sl.verdict(found)[0] == 2
+
+
+def test_pdf_without_pdftotext_is_unreadable(sl, monkeypatch, tmp_path):
+    monkeypatch.setattr(sl.shutil, "which", lambda _name: None)
+    path = tmp_path / "deck.pdf"
+    path.write_bytes(b"%PDF-1.7")
+    found = sl.check(path)
+    assert [f.gate for f in found] == ["unreadable"]
+
+
+def test_render_takes_a_pdf_without_an_office_app(sl, monkeypatch, tmp_path):
+    src = tmp_path / "talk.pdf"
+    src.write_bytes(b"%PDF-1.7")
+    calls = []
+    monkeypatch.setattr(sl.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(sl, "pick_renderer", lambda *_a: pytest.fail("no Office app needed"))
+    monkeypatch.setattr(sl.subprocess, "run", lambda args, **_k: calls.append(args))
+    out = tmp_path / "render"
+    assert sl.render(src, out) == 0
+    assert (out / "talk.pdf").read_bytes() == b"%PDF-1.7"
+    assert calls and calls[0][0] == "pdftoppm"
+
+
+def test_grouped_numbers_are_one_figure_and_years_are_labels(sl, deck):
+    path = deck(
+        [title("Opening")],
+        [title("Datasets"), textbox("5,053 lessons, due 2027")],
+    )
+    figures = [f for f in sl.check(path) if f.gate == "figures"]
+    assert len(figures) == 1 and "5,053" in figures[0].message and "2027" not in figures[0].message
