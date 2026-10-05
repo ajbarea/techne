@@ -9,12 +9,12 @@ audits the skill collection itself.
 ## repo
 
 - name: techne
-- package_root: `plugins/techne/skills/` (one directory per skill, each a `SKILL.md` plus supporting markdown, templates and scripts), `plugins/techne/_shared/` (canonical glossaries shared across skills), `scripts/` (validation helpers), `tests/` (pytest over skill-shipped Python)
-- language: Markdown (skill bodies) + Python (skill-shipped scripts under `plugins/techne/skills/*/scripts/`, the frontmatter validator, pytest) + Bash (guard and runner scripts)
+- package_root: `plugins/<plugin>/` for each plugin this marketplace ships (`techne` code-repo skills, `graphe` document skills, `phylax` hooks); `plugins/<plugin>/skills/` (one directory per skill, each a `SKILL.md` plus supporting markdown, templates and scripts), `plugins/<plugin>/_shared/` (files shared across that plugin's skills; `plugins/techne/_shared/` is the source for a file several plugins carry), `scripts/` (validation helpers), `tests/` (pytest over skill-shipped Python)
+- language: Markdown (skill bodies) + Python (skill-shipped scripts under `plugins/*/skills/*/scripts/`, the frontmatter validator, pytest) + Bash (guard and runner scripts)
 - cli_entrypoint: none — skills are invoked from the consumer's Claude Code via `/plugin install techne@techne` then `/techne:<skill>`. The repo itself is `package = false` in `pyproject.toml`.
 - runner_module: no Python runner; `.github/workflows/validate.yml` calls the Makefile targets.
 - default_branch: `main`
-- has: a skill per directory under `plugins/techne/skills/` (list them rather than trusting any written-down set), plugin manifest at `plugins/techne/.claude-plugin/plugin.json`, marketplace manifest at `.claude-plugin/marketplace.json`, Zensical-powered docs site, no docker, no frontend
+- has: a skill per directory under `plugins/*/skills/` (list them rather than trusting any written-down set), a plugin manifest per plugin at `plugins/*/.claude-plugin/plugin.json`, marketplace manifest at `.claude-plugin/marketplace.json` (also lists keryx from `ajbarea/keryx`), Zensical-powered docs site, no docker, no frontend
 
 ## audit
 
@@ -27,17 +27,17 @@ Audit drives the wrapper `make` targets, which mirror `.github/workflows/validat
 
 ### Phase 2 — Manifest validation
 
-3. `make manifests` — `python -m json.tool` on `.claude-plugin/marketplace.json` + `plugins/techne/.claude-plugin/plugin.json`.
+3. `make manifests` — `python -m json.tool` on `.claude-plugin/marketplace.json` + every `plugins/*/.claude-plugin/plugin.json`.
 
 ### Phase 3 — Skill structural validation
 
-4. `make frontmatter` — `validate_skill_frontmatter.py` (every `plugins/techne/skills/*/SKILL.md` has well-formed `name:` + `description:`) + `check_theoros_skill.sh` (theoros-specific section + README cross-reference checks).
+4. `make frontmatter` — `validate_skill_frontmatter.py` (every `plugins/*/skills/*/SKILL.md` has well-formed `name:` + `description:`) + `check_theoros_skill.sh` (theoros-specific section + README cross-reference checks).
 
 ### Phase 4 — Lint
 
 5. `make lint` — `ruff check` + `ruff format --check` over `scripts/`, `plugins/` and `tests/`.
 6. `make shellcheck` — `shellcheck --severity=warning scripts/*.sh`. The binary comes from the `shellcheck-py` dev dependency, so no system install is needed.
-7. `make guards` — grep guards (no `.claude/skills/_shared` references, no legacy `aj-*` skill names) plus `check_action_pins.sh`: every action SHA-pinned, and starter workflows under `.github-template/` matching the live pins.
+7. `make guards` — grep guards (no `.claude/skills/_shared` references, no legacy `aj-*` skill names, every `_shared/` copy identical to its `plugins/techne/_shared/` source) plus `check_action_pins.sh`: every action SHA-pinned, and starter workflows under `.github-template/` matching the live pins.
 8. `make test-unit` — pytest over skill-shipped Python. Without TeX Live or the typst compile, set `TECHNE_NO_TEX=1` / `TECHNE_NO_TYPST=1`, or the guard tests fail rather than skip silently.
 9. `make zizmor` — GitHub Actions security scan of `.github/workflows/`.
 
@@ -64,8 +64,8 @@ Referenced configs a CI failure can trace to:
 
 - `pyproject.toml` (`requires-python`, `[tool.ruff]`, dev-deps)
 - `Makefile` (wrapper-target canonical pipeline; mirrors validate.yml + docs.yml)
-- `.claude-plugin/marketplace.json`, `plugins/techne/.claude-plugin/plugin.json`
-- `plugins/techne/skills/*/SKILL.md` frontmatter (every skill)
+- `.claude-plugin/marketplace.json`, `plugins/*/.claude-plugin/plugin.json`
+- `plugins/*/skills/*/SKILL.md` frontmatter (every skill)
 - `scripts/validate_skill_frontmatter.py` (the frontmatter validator)
 - `scripts/check_theoros_skill.sh` (theoros structural check)
 - `.github/workflows/validate.yml` (structural CI)
@@ -88,9 +88,9 @@ Expected external PR checks: `validate` (in-repo) + `GitGuardian Security Checks
 
 Source of truth for skill-level claims:
 
-- **Skill descriptions:** `plugins/techne/skills/<name>/SKILL.md` frontmatter `description:` field is the canonical one-line summary surfaced in the plugin registry; README and `docs/skills/*.md` cross-references must match.
-- **Marketplace metadata:** `.claude-plugin/marketplace.json` lists the plugins this marketplace ships (techne, plus keryx from `ajbarea/keryx`); the techne entry's description must align with `plugins/techne/.claude-plugin/plugin.json`.
-- **Skill inventory:** the directory listing of `plugins/techne/skills/` is the only source of truth. Don't write a skill count into prose anywhere — a number in three files is three things to forget when a skill lands, and it drifted twice before it was removed. README's per-skill table is the one place a written inventory earns its keep, because each row carries a description rather than restating an integer.
+- **Skill descriptions:** `plugins/<plugin>/skills/<name>/SKILL.md` frontmatter `description:` field is the canonical one-line summary surfaced in the plugin registry; README and `docs/skills/*.md` cross-references must match.
+- **Marketplace metadata:** `.claude-plugin/marketplace.json` lists the plugins this marketplace ships (techne, graphe, phylax, plus keryx from `ajbarea/keryx`); each local entry's description must match its `plugins/<plugin>/.claude-plugin/plugin.json`.
+- **Skill inventory:** the directory listing of `plugins/*/skills/` is the only source of truth. Don't write a skill count into prose anywhere — a number in three files is three things to forget when a skill lands, and it drifted twice before it was removed. README's per-skill table is the one place a written inventory earns its keep, because each row carries a description rather than restating an integer.
 
 Any quantitative or list-shape claim not traceable to one of those is slop.
 
@@ -104,11 +104,11 @@ Skip paths:
 
 Subagent scan-area split:
 
-- Skills: `plugins/techne/skills/**/SKILL.md` + sibling markdown files (templates, references)
-- Shared resources: `plugins/techne/_shared/**/*.md` (slop glossary, etc.)
-- Scripts: `scripts/*.sh`, `scripts/*.py`, `plugins/techne/skills/*/scripts/*.py`
+- Skills: `plugins/*/skills/**/SKILL.md` + sibling markdown files (templates, references)
+- Shared resources: `plugins/*/_shared/**/*.md` (slop glossary, prose rubric, etc.)
+- Scripts: `scripts/*.sh`, `scripts/*.py`, `plugins/*/skills/*/scripts/*.py`, `plugins/phylax/hooks/*.py`
 - Tests: `tests/*.py`
-- Config / build: `pyproject.toml`, `.claude-plugin/marketplace.json`, `plugins/techne/.claude-plugin/plugin.json`, `.github/workflows/**`, `zensical.toml`
+- Config / build: `pyproject.toml`, `.claude-plugin/marketplace.json`, `plugins/*/.claude-plugin/plugin.json`, `.github/workflows/**`, `zensical.toml`
 - Docs: `docs/**/*.md`, `README.md`
 
 ## docs_site
@@ -128,8 +128,8 @@ Subagent scan-area split:
 test_command: make validate   # lint + shellcheck + zizmor + structural test (frontmatter/guards/manifests)
 run_command: <none — exercise a skill by invoking it on a target repo; verify it emits a structured, severity-ranked review with CONFIRMED/PLAUSIBLE verdicts>
 load_bearing_surfaces:
-  - "plugins/techne/skills/*/SKILL.md frontmatter (name/description drive discovery; validated by make frontmatter)"
-  - ".claude-plugin/marketplace.json + plugins/techne/.claude-plugin/plugin.json (the published manifest pair)"
+  - "plugins/*/skills/*/SKILL.md frontmatter (name/description drive discovery; validated by make frontmatter)"
+  - ".claude-plugin/marketplace.json + plugins/*/.claude-plugin/plugin.json (the published manifests)"
 feature_works_means:
   - "the skill fires on its trigger phrases, reads .claude/skill-context.md, and produces a review that names the load-bearing claim and either breaks it or clears it — not a diff restatement"
 ```
@@ -140,4 +140,4 @@ A repo of review/hygiene skills has few destructive ops of its own; the irrevers
 
 This repo is the **source** of the techne skills that ship to the other sisters. When `/techne:sisters` runs, it reads the consumer-side `.claude/skill-context.md` from each linked repo — including this one. The recursion is intentional: techne is a self-hosted sister so structural drift in its own skill collection (renamed SKILL.md frontmatter, deleted skill directories, stale marketplace.json) gets caught the same way it catches drift elsewhere.
 
-When editing skills inside `plugins/techne/skills/`, remember the consumer-side cache lives at `~/.claude/plugins/cache/techne/techne/<sha>/skills/` — `/plugin update techne@techne` from inside Claude Code re-installs after a publish.
+When editing skills inside `plugins/<plugin>/skills/`, remember the consumer-side cache lives at `~/.claude/plugins/cache/techne/<plugin>/<sha>/skills/` — `/plugin update <plugin>@techne` from inside Claude Code re-installs after a publish.

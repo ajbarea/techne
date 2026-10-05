@@ -4,7 +4,7 @@
 
 # techne
 
-*Opinionated Claude Code skills for repo hygiene: audit builds, tame CI noise, hunt doc/code drift, keep linked repos in lockstep.*
+*A Claude Code plugin marketplace: skills for code repos and for documents, opt-in git guards, and a spoken Claude Code.*
 
 [![Validate](https://github.com/ajbarea/techne/actions/workflows/validate.yml/badge.svg)](https://github.com/ajbarea/techne/actions/workflows/validate.yml)
 [![Docs](https://github.com/ajbarea/techne/actions/workflows/docs.yml/badge.svg)](https://github.com/ajbarea/techne/actions/workflows/docs.yml)
@@ -17,9 +17,18 @@
 
 ---
 
-Installable as a single `/plugin`; see [Install](#install).
+## Plugins
 
-## What's in the box
+| Plugin | For | Loads in |
+| --- | --- | --- |
+| `techne` | Work in a code repo: audits, CI review, pre-merge review, commit plans, GitHub catch-up, cross-repo drift, slop and doc drift | Claude Code |
+| `graphe` | Documents: LaTeX papers, markdown-to-PDF, talk decks, paper scaffolds and novelty review | Claude Code, Cowork, claude.ai chat |
+| `phylax` | Opt-in hooks: git and PR guards, restart onto an updated Claude Code | Claude Code |
+| [`keryx`](https://github.com/ajbarea/keryx) | Speaks a short gist of each reply in a local voice (WSL2) | Claude Code |
+
+Install only the ones you use: every enabled plugin's skill list sits in Claude's context on every turn.
+
+### techne
 
 | Skill | What it does |
 | --- | --- |
@@ -31,28 +40,39 @@ Installable as a single `/plugin`; see [Install](#install).
 | `techne:docs-site` | Maintains the Zensical-powered docs site: config, deploy pipeline, theming, link integrity. |
 | `techne:docsync` | Verifies documentation claims (CLI commands, paths, config keys, signatures) against the actual code. |
 | `techne:elenchus` | Adversarial pre-merge review: drives `/code-review`, then reproduces the load-bearing claim, traces every consumer across the whole repo, and walks a bug-class rubric for reachable destructive ops, unmirrored parallel-path guards, migration crashes, and dead-but-green features. |
-| `techne:latex` | Builds a LaTeX document and gates it on its log, its PDF, and the assignment it answers; a clean `latexmk` exit is not the signal. |
-| `techne:paper` | Scaffolds a new paper dir (LaTeX + results-harvest + shared bib + portfolio row) in a papers-style monorepo so it builds on day one. |
-| `techne:paper-review` | Pre-submission novelty + reviewer pass for a draft paper: grounds every novelty/claim verdict in retrieved prior work, flags related-work gaps, and surfaces lab-overlap for disclosure. |
 | `techne:research-grounded` | Flags design decisions in IMPL/ROADMAP that lack `# research(YYYY-MM):` provenance, then web-searches to ground them. |
-| `techne:pdf` | Renders markdown to print-quality PDFs through a Typst template, then verifies fonts and content against the source. |
 | `techne:reslop` | Rewrites docstrings grounded in the implementation rather than deleting them outright. |
-| `techne:slides` | Gates a talk deck before it is presented: real slide titles, contrast, alt text, stray figures; renders it through the app that will show it. |
 | `techne:sisters` | Cross-repo drift audit across the sister repos listed in `~/.claude/techne.toml`. |
 | `techne:theoros` | Starts an observed live dev session: Claude drives the REPL in a named `tmux` session; you spectate read-only via `tmux attach -r`. |
 
+### graphe
+
+| Skill | What it does |
+| --- | --- |
+| `graphe:latex` | Builds a LaTeX document and gates it on its log, its PDF, and the assignment it answers; a clean `latexmk` exit is not the signal. |
+| `graphe:paper` | Scaffolds a new paper dir (LaTeX + results-harvest + shared bib + portfolio row) in a papers-style monorepo so it builds on day one. |
+| `graphe:paper-review` | Pre-submission novelty + reviewer pass for a draft paper: grounds every novelty/claim verdict in retrieved prior work, flags related-work gaps, and surfaces lab-overlap for disclosure. |
+| `graphe:pdf` | Renders markdown to print-quality PDFs through a Typst template, then verifies fonts and content against the source. |
+| `graphe:slides` | Gates a talk deck before it is presented: real slide titles, contrast, alt text, stray figures; renders it through the app that will show it. |
+
+### phylax
+
+Three opt-in guards on `git commit`, `git add` and `gh pr`: block attribution lines, block staging `COMMITS.md`, and warn on commits in the main checkout. A fourth option, `restart_on_update`, moves an idle session onto an updated Claude Code in a new tmux window or Windows Terminal tab and keeps the conversation. Each is off until you switch it on in `/config`. See [Configuration](docs/configuration.md#guards) and [Restart on update](docs/configuration.md#restart-on-update).
+
 ## Install
 
-This repo is also the `techne` marketplace, which lists techne and [keryx](https://github.com/ajbarea/keryx). Add it and install from inside Claude Code:
+From inside Claude Code:
 
 ```bash
 /plugin marketplace add ajbarea/techne
 /plugin install techne@techne
+/plugin install graphe@techne
+/plugin install phylax@techne
 ```
 
-Invoke a skill as `/techne:<name>`, or describe the task and Claude picks the matching skill. Run `/skills` to confirm they loaded.
+Invoke a skill as `/techne:<name>` or `/graphe:<name>`, or describe the task and Claude picks the matching skill. Run `/skills` to confirm they loaded. On claude.ai, add `ajbarea/techne` under **Customize > Plugins > Add > Add marketplace**, then add `graphe`.
 
-> **First-time setup:** techne is opinionated about a few conventions (Makefile pattern, dev-runner archive, `.claude/skill-context.md`). See [Conventions](docs/conventions.md) for the minimum each skill needs.
+> **First-time setup:** the techne skills are opinionated about a few conventions (Makefile pattern, dev-runner archive, `.claude/skill-context.md`). See [Conventions](docs/conventions.md) for the minimum each skill needs.
 
 ## Configuration
 
@@ -77,7 +97,6 @@ status = "active"
 
 Set `status = "backburner"` to skip a repo without removing it.
 
-The plugin also ships three opt-in guards on `git commit`, `git add` and `gh pr`: block attribution lines, block staging `COMMITS.md`, and warn on commits in the main checkout. A fourth option, `restart_on_update`, moves an idle session onto an updated Claude Code in a new tmux window or Windows Terminal tab and keeps the conversation. Each is off until you switch it on in `/config`. See [Configuration](docs/configuration.md#guards) and [Restart on update](docs/configuration.md#restart-on-update).
 
 ## How it fits together
 
@@ -85,31 +104,35 @@ The plugin also ships three opt-in guards on `git commit`, `git add` and `gh pr`
 ~/.claude/techne.toml      ← user-controlled sister-repo registry
         │
         ▼
-techne (plugin)
-├── audit             ── verifies build targets vs. logs/
-├── auto-commit       ── groups diffs into COMMITS.md
-├── catchup           ── who is blocked on whom since you last looked
-├── ci-audit          ── reads gh runs, fixes warnings in-repo
-├── deslop            ── flags AI-slop prose
-├── docs-site         ── manages Zensical site + deploy
-├── docsync           ── doc claims ↔ implementation
-├── elenchus          ── adversarial pre-merge review (reproduce + trace + rubric)
-├── latex             ── builds LaTeX and gates the PDF on its log
-├── paper             ── scaffolds a new paper dir (LaTeX + harvest)
-├── paper-review      ── grounded novelty + reviewer pass for a draft
-├── pdf               ── markdown to print PDF via Typst, verified
-├── research-grounded ── flags un-grounded design decisions
-├── reslop            ── rewrites docstrings from code
-├── sisters           ── cross-repo drift across sisters
-├── slides            ── talk deck gated and rendered, presenter briefed
-└── theoros           ── observed tmux REPL session
+techne (marketplace: ajbarea/techne)
+├── techne (plugin, plugins/techne)
+│   ├── audit             ── verifies build targets vs. logs/
+│   ├── auto-commit       ── groups diffs into COMMITS.md
+│   ├── catchup           ── who is blocked on whom since you last looked
+│   ├── ci-audit          ── reads gh runs, fixes warnings in-repo
+│   ├── deslop            ── flags AI-slop prose
+│   ├── docs-site         ── manages Zensical site + deploy
+│   ├── docsync           ── doc claims ↔ implementation
+│   ├── elenchus          ── adversarial pre-merge review (reproduce + trace + rubric)
+│   ├── research-grounded ── flags un-grounded design decisions
+│   ├── reslop            ── rewrites docstrings from code
+│   ├── sisters           ── cross-repo drift across sisters
+│   └── theoros           ── observed tmux REPL session
+├── graphe (plugin, plugins/graphe)
+│   ├── latex             ── builds LaTeX and gates the PDF on its log
+│   ├── paper             ── scaffolds a new paper dir (LaTeX + harvest)
+│   ├── paper-review      ── grounded novelty + reviewer pass for a draft
+│   ├── pdf               ── markdown to print PDF via Typst, verified
+│   └── slides            ── talk deck gated and rendered, presenter briefed
+├── phylax (plugin, plugins/phylax) ── opt-in git guards + restart on update
+└── keryx (plugin, ajbarea/keryx)    ── spoken gist of each reply
 ```
 
 Each skill is self-contained. Invoke one without pulling in the others. They share a convention of writing intermediate artifacts (plans, audit reports) to disk for human review before mutating the repo.
 
 ## Why "techne"
 
-Greek τέχνη: craft, the practical knowledge of how to make a thing well. That's what these skills are for: the craft of keeping a repo honest through audits, drift checks, clean commits and clean prose.
+Greek τέχνη: craft, the practical knowledge of how to make a thing well. The plugins keep the Greek: γραφή (graphe) is writing, φύλαξ (phylax) a guard, κῆρυξ (keryx) a herald.
 
 ## License
 

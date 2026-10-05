@@ -1,0 +1,44 @@
+{
+  "name": "phylax",
+  "description": "Opt-in Claude Code hooks: refuse attribution lines in commits and PRs, refuse staging COMMITS.md, warn on commits in a main checkout, and restart idle sessions onto an updated Claude Code.",
+  "author": {
+    "name": "AJ",
+    "email": "ajbareaa@gmail.com"
+  },
+  "repository": "https://github.com/ajbarea/techne",
+  "homepage": "https://ajbarea.github.io/techne/",
+  "license": "MIT",
+  "keywords": [
+    "hooks",
+    "git",
+    "guards",
+    "commits",
+    "pull-requests"
+  ],
+  "userConfig": {
+    "block_attribution_trailers": {
+      "type": "boolean",
+      "title": "Block attribution lines in commits and PRs",
+      "description": "Refuse git commit and gh pr create/edit/merge when the message or body carries a Claude-Session link, a Co-Authored-By: Claude trailer, or a Generated with Claude Code line.",
+      "default": false
+    },
+    "block_commits_md": {
+      "type": "boolean",
+      "title": "Block staging COMMITS.md",
+      "description": "Refuse git add or git commit when it would stage or commit a COMMITS.md scratchpad.",
+      "default": false
+    },
+    "warn_main_checkout_commit": {
+      "type": "boolean",
+      "title": "Warn on commits in the main checkout",
+      "description": "Warn when git commit runs in a repo's main checkout while linked worktrees exist.",
+      "default": false
+    },
+    "restart_on_update": {
+      "type": "boolean",
+      "title": "Restart idle sessions onto an updated Claude Code",
+      "description": "When Claude Code has updated on disk and this session is idle, open a new tmux window or Windows Terminal tab (WSL) that stops this session and resumes it on the new version. Any key during the 15 second countdown there cancels it.",
+      "default": false
+    }
+  }
+}

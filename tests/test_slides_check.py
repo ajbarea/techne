@@ -1,4 +1,4 @@
-"""Unit tests for techne:slides' check gates and renderer choice.
+"""Unit tests for graphe:slides' check gates and renderer choice.
 
 Decks are built in-test as minimal OOXML packages: only the parts the checker
 reads (presentation, slide, layout, master, notes and their rels). No Office

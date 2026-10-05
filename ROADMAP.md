@@ -130,7 +130,7 @@ that drift class recurs.
   on any re-introduction. Same rule blocks references to the
   deprecated `.claude/skills/_shared` path.
 - **Skill SKILL.md frontmatter is canon.** `name:` and `description:`
-  in every `plugins/techne/skills/*/SKILL.md` is the source of truth
+  in every `plugins/*/skills/*/SKILL.md` is the source of truth
   surfaced in the marketplace registry. `validate_skill_frontmatter.py`
   enforces well-formedness; README + `docs/skills/*.md` cross-references
   must match.
@@ -156,9 +156,12 @@ that drift class recurs.
 
 Detail lives in git history (`git log`) and the live skill code. This log is pruned once work is durably shipped.
 
-- 2026-10-05: **The techne marketplace lists keryx.** `ajbarea/techne` is the one marketplace for
-  AJ's plugins: `techne@techne` and `keryx@techne`. The short-lived `ajbarea/ajsoftworks` catalog
-  is retired.
+- 2026-10-05: **One marketplace, four plugins (#104).** `ajbarea/techne` is the one marketplace for
+  AJ's plugins, split by audience and by the surfaces each part loads on: `techne` (code-repo
+  skills), `graphe` (document skills, which also load on claude.ai chat and Cowork), `phylax`
+  (opt-in hooks; git config keys and state dir renamed from `techne`), and `keryx` from its own
+  repo. Files several plugins need are copied from `plugins/techne/_shared/`, and `make guards`
+  fails on a copy that differs. The short-lived `ajbarea/ajsoftworks` catalog is retired.
 - 2026-10-03: **Restart idle sessions onto an updated Claude Code.** The opt-in
   `restart_on_update` hook (#98) waits for `idle_prompt`, checks the session's own
   `~/.claude/sessions/<pid>.json` and what its last `Stop` reported (no background task,
@@ -180,7 +183,7 @@ Detail lives in git history (`git log`) and the live skill code. This log is pru
   rewrites. Its `prose-patterns` block drives a stdlib check the latex and pdf gates report as
   `REVIEW prose`. paper-review checks claims against code, data and full-text sources, flags a
   manuscript missing Related Work or References, and accepts a bare `.tex` path.
-- 2026-09-24 — **`techne:slides` learns from the deck it was built from.** The writing guidance
+- 2026-09-24 — **`graphe:slides` learns from the deck it was built from.** The writing guidance
   now carries what made the makesense talk land for newcomers: plain words on the slide with the
   source's term in a footnote, one-line definitions where a term first appears, a concrete case
   before the general rule, a story arc through failures and limits to a closing contrast, and
@@ -195,8 +198,8 @@ Detail lives in git history (`git log`) and the live skill code. This log is pru
   `sisters` check 1 missed every `- uses:` pin, and its team exemption never read `kind`;
   theoros called a repo's `make theoros`, which can start a second, permission-bypassing Claude,
   so it now ships its own lifecycle script; auto-commit's staleness hash ignored untracked files;
-  `paper` builds through `techne:latex` instead of tectonic.
-- 2026-09-22 — **`techne:slides`.** A stdlib OOXML checker gates a talk deck on real title
+  `paper` builds through `graphe:latex` instead of tectonic.
+- 2026-09-22 — **`graphe:slides`.** A stdlib OOXML checker gates a talk deck on real title
   placeholders, contrast resolved through the surface actually behind the text, alt text,
   portable fonts, and figures or walls of text on talk slides; a renderer exports through
   PowerPoint (native or from WSL) or LibreOffice into a folder of its own. The skill carries
@@ -216,7 +219,7 @@ Detail lives in git history (`git log`) and the live skill code. This log is pru
   `${CLAUDE_SKILL_DIR}`. `CITATION.cff` added; the plugin stays unversioned so installs keep
   following the commit SHA, and releases are git tags.
 
-- 2026-09-16 — **`/techne:latex` skill.** Builds a LaTeX document and gates the result on its
+- 2026-09-16 — **`/graphe:latex` skill.** Builds a LaTeX document and gates the result on its
   log, its `.blg`, its PDF and the assignment prompt it answers, in one command. Build and
   verify are fused because `latexmk` exits 0 on a document whose every citation resolved to
   `[?]`, so a separate verify step is one that gets skipped on the run where it mattered;
@@ -242,7 +245,7 @@ Detail lives in git history (`git log`) and the live skill code. This log is pru
   `TECHNE_NO_TEX=1` is unset, and `validate.yml` sets it with the reason. Verified in both
   directions, absent-and-undeclared fails and absent-and-declared skips visibly, so green by
   absence cannot happen here. `tests/` is repo-level so `pdf/scripts/render.py` inherits it.
-- 2026-09-16 — **`techne:pdf` render.py covered (74 tests total).** Unit tests over the
+- 2026-09-16 — **`graphe:pdf` render.py covered (74 tests total).** Unit tests over the
   markdown front end: `_typst_str`'s escape order (escaping quotes before backslashes closes
   the Typst string and spills the rest of a title into code), what `split_front_matter` lifts
   versus leaves in the body across nine document shapes, and an assertion that no template

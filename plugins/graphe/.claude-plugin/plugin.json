@@ -1,0 +1,19 @@
+{
+  "name": "graphe",
+  "description": "Document skills: build and gate LaTeX papers, markdown-to-PDF renders and talk decks, scaffold a research paper, and run a pre-submission novelty review.",
+  "author": {
+    "name": "AJ",
+    "email": "ajbareaa@gmail.com"
+  },
+  "repository": "https://github.com/ajbarea/techne",
+  "homepage": "https://ajbarea.github.io/techne/",
+  "license": "MIT",
+  "keywords": [
+    "latex",
+    "pdf",
+    "typst",
+    "slides",
+    "research-paper",
+    "writing"
+  ]
+}

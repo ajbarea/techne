@@ -22,12 +22,13 @@ import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SKILLS = ROOT / "plugins" / "techne" / "skills"
-LATEX_SCRIPT = SKILLS / "latex" / "scripts" / "latex.py"
-RENDER_SCRIPT = SKILLS / "pdf" / "scripts" / "render.py"
+DOC_SKILLS = ROOT / "plugins" / "graphe" / "skills"
+LATEX_SCRIPT = DOC_SKILLS / "latex" / "scripts" / "latex.py"
+RENDER_SCRIPT = DOC_SKILLS / "pdf" / "scripts" / "render.py"
 SWEEP_SCRIPT = SKILLS / "catchup" / "scripts" / "sweep.py"
-SLIDES_SCRIPT = SKILLS / "slides" / "scripts" / "slides.py"
+SLIDES_SCRIPT = DOC_SKILLS / "slides" / "scripts" / "slides.py"
 HYGIENE_SCRIPT = SKILLS / "sisters" / "scripts" / "hygiene.py"
-PROSE_SCRIPT = ROOT / "plugins" / "techne" / "_shared" / "prose_check.py"
+PROSE_SCRIPT = ROOT / "plugins" / "graphe" / "_shared" / "prose_check.py"
 
 
 # The variables a git hook exports that point git at a repository.

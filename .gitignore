@@ -21,8 +21,8 @@ site/
 logs/
 
 # Routing evals: the assembled eval-only plugin and per-run results
-plugins/techne/eval-fixtures/with-rivals/
-plugins/techne/evals/results/
+plugins/*/eval-fixtures/with-rivals/
+plugins/*/evals/results/
 
 # Claude Code session worktrees
 .claude/worktrees/

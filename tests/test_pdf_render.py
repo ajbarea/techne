@@ -1,4 +1,4 @@
-"""Unit tests for techne:pdf's markdown-to-Typst front end.
+"""Unit tests for graphe:pdf's markdown-to-Typst front end.
 
 The compile step needs the typst wheel and is covered in test_pdf_render_e2e.
 Everything here is string handling: what gets lifted out of the markdown, and

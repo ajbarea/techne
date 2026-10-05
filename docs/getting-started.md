@@ -17,6 +17,8 @@ From inside Claude Code:
 ```bash
 /plugin marketplace add ajbarea/techne
 /plugin install techne@techne
+/plugin install graphe@techne
+/plugin install phylax@techne
 ```
 
 Verify the install:
@@ -25,7 +27,9 @@ Verify the install:
 /skills
 ```
 
-The `techne:*` skills should be listed. If they are not, run `/reload-plugins` and check again.
+The `techne:*` and `graphe:*` skills should be listed. If they are not, run `/reload-plugins` and check again.
+
+Install only the plugins you use: `techne` holds the code-repo skills, `graphe` the document skills (LaTeX, PDF, slides, papers), and `phylax` the opt-in git guards.
 
 ## First Workflow
 
@@ -46,12 +50,12 @@ Choose based on what you're trying to do:
 | Verify documentation claims match the code | [`techne:docsync`](skills/docsync.md) |
 | Maintain your Zensical docs site | [`techne:docs-site`](skills/docs-site.md) |
 | Review a change adversarially before merge | [`techne:elenchus`](skills/elenchus.md) |
-| Build a LaTeX document and check the PDF is right | [`techne:latex`](skills/latex.md) |
-| Turn markdown into print-quality PDFs | [`techne:pdf`](skills/pdf.md) |
-| Scaffold or review a research paper | [`techne:paper`](skills/paper.md), [`techne:paper-review`](skills/paper-review.md) |
+| Build a LaTeX document and check the PDF is right | [`graphe:latex`](skills/latex.md) |
+| Turn markdown into print-quality PDFs | [`graphe:pdf`](skills/pdf.md) |
+| Scaffold or review a research paper | [`graphe:paper`](skills/paper.md), [`graphe:paper-review`](skills/paper-review.md) |
 | Ground plan decisions in current best practice | [`techne:research-grounded`](skills/research-grounded.md) |
 | Audit sister repos for consistency | [`techne:sisters`](skills/sisters.md) |
-| Get a talk deck ready to present | [`techne:slides`](skills/slides.md) |
+| Get a talk deck ready to present | [`graphe:slides`](skills/slides.md) |
 | Drive a REPL while someone watches | [`techne:theoros`](skills/theoros.md) |
 
 ### 2. Run Your First Skill
@@ -160,7 +164,7 @@ A: The skills are prompt-driven, not CLI tools with flags; steer them in natural
 ## Troubleshooting
 
 **`/techne:audit` is not recognized**  
-- Ensure you ran `/plugin install techne@techne` inside Claude Code.
+- Ensure you ran `/plugin install techne@techne` inside Claude Code (`graphe@techne` for the document skills).
 - Run `/reload-plugins`, then `/skills` to confirm the `techne:*` skills are listed.
 - To pick up a newer techne, run `/plugin install techne@techne` again, or enable auto-update for the marketplace in `/plugin`.
 

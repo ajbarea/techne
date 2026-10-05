@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# claude plugin validate on the plugin and the marketplace, failing on any warning
-# except the missing version: techne is unversioned so installs follow main.
+# claude plugin validate on each plugin and the marketplace, failing on any warning
+# except the missing version: the plugins are unversioned so installs follow main.
 # Always the pinned npm build, so local runs and CI judge the same output.
 set -euo pipefail
 
@@ -8,7 +8,8 @@ CLAUDE_CODE_VERSION=2.1.287
 claude_cmd=(npx --yes "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}")
 
 status=0
-for target in plugins/techne .; do
+for target in plugins/*/ .; do
+	target="${target%/}"
 	if ! out=$("${claude_cmd[@]}" plugin validate "$target" 2>&1); then
 		echo "$out"
 		status=1
@@ -29,5 +30,5 @@ for target in plugins/techne .; do
 		status=1
 	fi
 done
-[ "$status" -eq 0 ] && echo "claude plugin validate: plugin + marketplace clean"
+[ "$status" -eq 0 ] && echo "claude plugin validate: plugins + marketplace clean"
 exit "$status"

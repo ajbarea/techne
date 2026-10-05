@@ -19,16 +19,17 @@ still checked. Blocked on Git 2.54 being available to test against.
 
 ## Skill collection state
 
-Shipped skills by catalog dimension (the directory listing of `plugins/techne/skills/` is the source of truth):
+Shipped plugins and skills by catalog dimension (the directory listing of `plugins/*/skills/` is the source of truth):
 
-| Dimension | Skills |
-| --- | --- |
-| **Audit** | `audit`, `ci-audit` |
-| **Drift** | `docsync`, `docs-site`, `research-grounded`, `sisters` |
-| **Hygiene** | `auto-commit`, `deslop`, `reslop` |
-| **Review** | `catchup`, `elenchus` |
-| **Observation** | `theoros` |
-| **Document build** | `latex`, `pdf`, `paper`, `paper-review`, `slides` |
+| Plugin | Dimension | Skills |
+| --- | --- | --- |
+| `techne` | **Audit** | `audit`, `ci-audit` |
+| `techne` | **Drift** | `docsync`, `docs-site`, `research-grounded`, `sisters` |
+| `techne` | **Hygiene** | `auto-commit`, `deslop`, `reslop` |
+| `techne` | **Review** | `catchup`, `elenchus` |
+| `techne` | **Observation** | `theoros` |
+| `graphe` | **Document build** | `latex`, `pdf`, `paper`, `paper-review`, `slides` |
+| `phylax` | **Hooks** | git guards, `restart_on_update` |
 
 When picking up the next session, replace the "In flight" block above
 with a full session plan (Why / Decisions / Scope / Out of scope /

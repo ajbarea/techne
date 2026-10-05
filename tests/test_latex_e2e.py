@@ -1,4 +1,4 @@
-"""End-to-end tests for techne:latex against a real TeX Live.
+"""End-to-end tests for graphe:latex against a real TeX Live.
 
 These build actual documents, so they need latexmk and poppler. CI does not
 install TeX; it sets TECHNE_NO_TEX=1 to say so out loud. Without that variable

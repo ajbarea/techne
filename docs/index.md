@@ -10,7 +10,7 @@ hide:
 
 # τέχνη · techne
 
-**Opinionated Claude Code skills for repo hygiene. One `/plugin` install.**
+**Opinionated Claude Code plugins for code repos and documents. Install the ones you use.**
 { .hero-subtitle }
 
 <div class="hero-buttons" markdown>
@@ -25,7 +25,7 @@ hide:
 <section class="landing-section landing-section--intro">
   <div class="section-inner">
     <h2 class="section-title">What is techne?</h2>
-    <p class="section-lead">A Claude Code plugin for repo hygiene: audit builds, tame CI noise, hunt doc/code drift, and keep linked repos in lockstep. Opinionated kit; adopt the conventions and the skills work for any developer.</p>
+    <p class="section-lead">A Claude Code plugin marketplace. <code>techne</code> covers work in a code repo: audit builds, tame CI noise, hunt doc/code drift, and keep linked repos in lockstep. <code>graphe</code> builds and gates documents: LaTeX, PDFs, slides and papers. <code>phylax</code> adds opt-in git guards, and <code>keryx</code> speaks each reply. Adopt the conventions and the skills work for any developer.</p>
   </div>
 </section>
 
@@ -66,19 +66,19 @@ hide:
         <p>Adversarial pre-merge review: reproduces the load-bearing claim, traces every consumer, and walks a bug-class rubric.</p>
       </a>
       <a href="skills/latex/" class="skill-card">
-        <div class="skill-name"><code>/techne:latex</code></div>
+        <div class="skill-name"><code>/graphe:latex</code></div>
         <p>Builds a LaTeX document and gates it on its log, its PDF, and the assignment it answers.</p>
       </a>
       <a href="skills/paper/" class="skill-card">
-        <div class="skill-name"><code>/techne:paper</code></div>
+        <div class="skill-name"><code>/graphe:paper</code></div>
         <p>Scaffolds a new paper directory in a papers-style monorepo so it builds on day one.</p>
       </a>
       <a href="skills/paper-review/" class="skill-card">
-        <div class="skill-name"><code>/techne:paper-review</code></div>
+        <div class="skill-name"><code>/graphe:paper-review</code></div>
         <p>Pre-submission novelty and reviewer pass, with every verdict grounded in retrieved prior work.</p>
       </a>
       <a href="skills/pdf/" class="skill-card">
-        <div class="skill-name"><code>/techne:pdf</code></div>
+        <div class="skill-name"><code>/graphe:pdf</code></div>
         <p>Renders markdown to print-quality PDFs through a Typst template, then verifies fonts and content against the source.</p>
       </a>
       <a href="skills/research-grounded/" class="skill-card">
@@ -94,7 +94,7 @@ hide:
         <p>Cross-repo drift audit across the sister repos listed in <code>~/.claude/techne.toml</code>.</p>
       </a>
       <a href="skills/slides/" class="skill-card">
-        <div class="skill-name"><code>/techne:slides</code></div>
+        <div class="skill-name"><code>/graphe:slides</code></div>
         <p>Gates a talk deck before it is presented: real slide titles, contrast, alt text, stray figures; renders it through the app that will show it.</p>
       </a>
       <a href="skills/theoros/" class="skill-card">
@@ -110,9 +110,11 @@ hide:
     <h2 class="section-title">Install</h2>
     <div class="highlight">
       <pre><code>/plugin marketplace add ajbarea/techne
-/plugin install techne@techne</code></pre>
+/plugin install techne@techne
+/plugin install graphe@techne
+/plugin install phylax@techne</code></pre>
     </div>
-    <p class="section-lead">Install once, then invoke a skill as <code>/techne:&lt;name&gt;</code> or describe the task and let Claude pick it.</p>
+    <p class="section-lead">Install the plugins you use, then invoke a skill as <code>/techne:&lt;name&gt;</code> or <code>/graphe:&lt;name&gt;</code>, or describe the task and let Claude pick it.</p>
     <div class="hero-buttons hero-buttons--cta">
       <a href="getting-started/" class="md-button md-button--primary">Get Started</a>
       <a href="configuration/" class="md-button">Configuration</a>

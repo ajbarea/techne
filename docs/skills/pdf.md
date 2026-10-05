@@ -1,4 +1,4 @@
-# `techne:pdf`
+# `graphe:pdf`
 
 Render markdown to print-quality PDFs through a Typst template, then verify the output against the source.
 
@@ -14,14 +14,14 @@ Render markdown to print-quality PDFs through a Typst template, then verify the 
 Invoke by name in Claude Code:
 
 ```
-/techne:pdf
+/graphe:pdf
 ```
 
 Or run the generator directly from a techne checkout. `<src>` takes a single `.md` or a directory of them:
 
 ```
 uv run --quiet --with typst python \
-  plugins/techne/skills/pdf/scripts/render.py <src> <out-dir>
+  plugins/graphe/skills/pdf/scripts/render.py <src> <out-dir>
 ```
 
 Nothing needs installing. The `typst` wheel bundles the compiler, and `cmarker` is pulled from Typst Universe on first compile and cached afterwards.
@@ -42,5 +42,5 @@ Those need the typst wheel, and the first compile fetches cmarker from Typst Uni
 
 ## See also
 
-- [`techne:paper`](paper.md): LaTeX manuscripts in a papers monorepo, a different pipeline.
+- [`graphe:paper`](paper.md): LaTeX manuscripts in a papers monorepo, a different pipeline.
 - [Conventions](../conventions.md): where generated artifacts belong relative to their sources.

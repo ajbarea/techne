@@ -1,4 +1,4 @@
-"""Tests for the opt-in restart_on_update hook in plugins/techne/hooks/stale_restart.py.
+"""Tests for the opt-in restart_on_update hook in plugins/phylax/hooks/stale_restart.py.
 
 The safety check is tested in process against fixture session files and a fake /proc.
 The hook and the handoff run as subprocesses, the way Claude Code and the launcher run
@@ -23,7 +23,7 @@ import pytest
 from conftest import _load
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-PLUGIN = ROOT / "plugins" / "techne"
+PLUGIN = ROOT / "plugins" / "phylax"
 SCRIPT = PLUGIN / "hooks" / "stale_restart.py"
 HOOKS_JSON = PLUGIN / "hooks" / "hooks.json"
 MANIFEST = PLUGIN / ".claude-plugin" / "plugin.json"
@@ -51,7 +51,7 @@ TMUX_STUB = (
 
 @pytest.fixture(scope="module")
 def sr():
-    return _load("techne_stale_restart", SCRIPT)
+    return _load("phylax_stale_restart", SCRIPT)
 
 
 def stub(path: pathlib.Path, body: str) -> pathlib.Path:
@@ -99,7 +99,7 @@ def env(tmp_path, sr, monkeypatch):
     )
     for d in (sessions, proc, runtime, bin_, home):
         d.mkdir()
-    state = runtime / f"techne-restart-{os.getuid()}"
+    state = runtime / f"phylax-restart-{os.getuid()}"
     state.mkdir(mode=0o700)
     versions = tmp_path / "share" / "claude" / "versions"
     versions.mkdir(parents=True)
@@ -531,7 +531,7 @@ def test_resume_script_quotes_and_closes_on_marker(sr):
     plan = {"claude": "/bin/claude", "sessionId": SID, "flags": ["--plugin-dir", "/a b"]}
     script = sr.resume_script(plan)
     assert script.startswith(f"/bin/claude --resume {SID} --plugin-dir '/a b'; ")
-    assert '"${XDG_RUNTIME_DIR:-/tmp}/techne-restart-$(id -u)/close-$$"' in script
+    assert '"${XDG_RUNTIME_DIR:-/tmp}/phylax-restart-$(id -u)/close-$$"' in script
     assert script.endswith('exec "$0" -l')
 
 
@@ -539,13 +539,13 @@ def test_resume_script_marker_matches_the_hook_state_dir(tmp_path):
     runtime = tmp_path / "rt"
     runtime.mkdir()
     out = subprocess.run(
-        ["bash", "-c", 'echo "${XDG_RUNTIME_DIR:-/tmp}/techne-restart-$(id -u)/close-$$"'],
+        ["bash", "-c", 'echo "${XDG_RUNTIME_DIR:-/tmp}/phylax-restart-$(id -u)/close-$$"'],
         env={**os.environ, "XDG_RUNTIME_DIR": str(runtime)},
         capture_output=True,
         text=True,
         check=True,
     ).stdout
-    assert out.startswith(f"{runtime}/techne-restart-{os.getuid()}/close-")
+    assert out.startswith(f"{runtime}/phylax-restart-{os.getuid()}/close-")
 
 
 def test_wt_launch_argv(sr, monkeypatch, tmp_path):
@@ -1142,7 +1142,7 @@ def test_handoff_resets_signals_python_ignores_before_exec(env, old_claude):
 def test_handoff_window_killed_during_countdown_records_the_cancel(env, old_claude):
     put_real_session(env, old_claude)
     plan = write_plan(env, old_claude.pid)
-    server = f"techne-test-{os.getpid()}"
+    server = f"phylax-test-{os.getpid()}"
     cmd = shlex.join([HOOK_PYTHON, str(SCRIPT), "handoff", str(plan)])
     tenv = {**env["env"], "TECHNE_RESTART_PROC": "/proc", "TECHNE_RESTART_COUNTDOWN": "30"}
     run = ["tmux", "-L", server, "-f", "/dev/null"]

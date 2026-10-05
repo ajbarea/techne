@@ -1,7 +1,7 @@
 {
   "name": "techne",
   "version": "1.0.0",
-  "description": "AJ's Claude Code plugins: techne for repo work, keryx for a spoken Claude Code.",
+  "description": "AJ's Claude Code plugins: code-repo skills, document builds, git guards, and a spoken Claude Code.",
   "owner": {
     "name": "AJ",
     "email": "ajbareaa@gmail.com"
@@ -9,8 +9,20 @@
   "plugins": [
     {
       "name": "techne",
-      "description": "Repo-hygiene skills for audit, slop cleanup, doc-sync, CI review, commit planning, cross-repo drift detection, and document builds.",
+      "description": "Code-repo skills: toolchain audits, CI log review, adversarial pre-merge review, commit planning, GitHub catch-up, cross-repo drift, slop cleanup, and doc/code drift.",
       "source": "./plugins/techne",
+      "category": "development"
+    },
+    {
+      "name": "graphe",
+      "description": "Document skills: build and gate LaTeX papers, markdown-to-PDF renders and talk decks, scaffold a research paper, and run a pre-submission novelty review.",
+      "source": "./plugins/graphe",
+      "category": "productivity"
+    },
+    {
+      "name": "phylax",
+      "description": "Opt-in Claude Code hooks: refuse attribution lines in commits and PRs, refuse staging COMMITS.md, warn on commits in a main checkout, and restart idle sessions onto an updated Claude Code.",
+      "source": "./plugins/phylax",
       "category": "development"
     },
     {

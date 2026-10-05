@@ -1,4 +1,4 @@
-"""End-to-end tests for techne:pdf against a real Typst compile.
+"""End-to-end tests for graphe:pdf against a real Typst compile.
 
 These need the typst wheel, and the first compile fetches cmarker from Typst
 Universe. CI declines that network dependency and says so with
