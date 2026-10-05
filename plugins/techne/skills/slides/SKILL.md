@@ -10,7 +10,7 @@ allowed-tools: Bash Glob Grep Read Edit Write
 A deck is done when someone who has never seen it can present it from the
 slides alone, and its owner can answer questions on it, not when the file
 opens. Start from the starter deck, write for the room, put a figure on every
-talk slide, gate the file, render it through the app that will show it, look
+content slide, gate the file, render it through the app that will show it, look
 at every slide, then brief the presenter.
 
 ## Run it
@@ -30,7 +30,7 @@ PDF as built, so no Office app is involved. `--jargon` lists terms a newcomer
 would not know; `--backup-from` marks the first backup slide when no divider is
 titled `Backup` or `Appendix` (an FAQ section, say).
 
-`check` has no dependencies. `render` needs poppler, plus PowerPoint (native
+`check` has no Python dependencies (a PDF also needs poppler's `pdftotext`). `render` needs poppler, plus PowerPoint (native
 Windows, or Windows reached from WSL) or LibreOffice; with Pillow it also writes
 2x2 contact sheets, which is the fastest way to look at a whole deck. `script`
 prints the speaker notes as one Markdown script, slide by slide, with the talk
@@ -88,9 +88,10 @@ guidance below is what a deck adds to it. To check a script, run
   introduce ("3 · How it works · Before the data").
 - **A story arc.** The problem, the catch that makes it hard, the idea, how it
   works, what was found (including where it failed and what is still
-  untested), what comes next, and a closing slide that states the one message
-  to remember as a contrast ("The bar is not *does it sound right?* It is *can
-  you prove how you got it?*"). A general audience keeps three to five main
+  untested), what comes next, and a plain closing slide: "Thank you", the
+  presenter's name and contact. No tagline or contrast-statement slide; the
+  presenter introduces themselves and states the take-home aloud, in the script.
+  A general audience keeps three to five main
   points ([Science Communication Toolkit](https://ecampusontario.pressbooks.pub/scicommtoolkit/chapter/talks/)).
   An honest limits slide makes the claims before it believable.
 - **Plain words on the slide, the source's term underneath.** Name each idea
@@ -113,7 +114,8 @@ guidance below is what a deck adds to it. To check a script, run
   carries it in marks, labelled inside the figure. This is the assertion-evidence
   design: a claim headline over visual evidence, which audiences understand and
   recall better than topic titles over bullets ([Garner and Alley](https://www.researchgate.net/publication/286042632_How_the_Design_of_Presentation_Slides_Affects_Audience_Comprehension_A_Case_for_the_Assertion-Evidence_Approach)).
-- **A figure on every talk slide, and the diagram is the last thing cut.** A
+- **A figure on every content slide, and the diagram is the last thing cut.**
+  Agenda, discussion, closing and divider slides are exempt. A
   slide of text cards is a draft: turn it into a picture of the idea. Shapes
   that recur: a concrete before-and-after (what the tool gets wrong, what the
   expert wants), a flow of numbered stages, a two-group comparison, a timeline,
@@ -207,7 +209,8 @@ and keep the kicker, colours and sizes consistent.
   diagrams, or generated figures. The compiler ships in the `typst` wheel the
   fleet already pins for `techne:pdf`, so there are no new dependencies. Touying
   is actively maintained
-  ([0.7.x on Typst Universe](https://typst.app/universe/package/touying/)). Its
+  ([0.8.0 on Typst Universe](https://typst.app/universe/package/touying/)
+  needs Typst 0.15; pin the release your `typst` wheel supports). Its
   `simple` theme takes a different signature and fails with "missing argument:
   body"; `metropolis`, `university` and `dewdrop` work.
 - **pptxgenjs** when the deck must be a `.pptx`: it will be presented from
@@ -268,7 +271,7 @@ and keep the kicker, colours and sizes consistent.
 
 1. `check` exits 0, and each `REVIEW` item is resolved or deliberately kept.
 2. `render` ran through the presenting app, and every slide was looked at.
-3. Every talk slide passes the text-alone and figure-alone reading, and has a
+3. Every content slide passes the text-alone and figure-alone reading, and has a
    figure. A deck with a script hands it over with the deck; its length is near
    the slot, and the slides stand without it.
 4. The presenter has been briefed. A polished deck can outrun its owner. Offer a
