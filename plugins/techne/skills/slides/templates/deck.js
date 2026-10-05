@@ -191,13 +191,9 @@ discussion(1, "[A short personal question anyone can answer without the paper?]"
 
 // ---------- CLOSING ----------
 {
-  const s = base("STATEMENT", "[The one message to remember, as a contrast:\nnot this, but this]");
-  hline(s, M, 3.4, 1.3, C.faint);
-  text(s, "WHAT CARRIES OVER", M, 3.7, 6, 0.3, { size: 14, bold: true, color: C.muted });
-  const P = ["[Lesson that applies beyond this project]", "[Lesson]", "[Lesson]"];
-  s.addText(P.map((t, i) => ({ text: t, options: { bullet: true, breakLine: i < P.length - 1 } })),
-    { x: M, y: 4.1, w: 12, h: 2.0, fontFace: F, fontSize: 20, color: C.ink, paraSpaceAfter: 6, margin: 0, isTextBox: true, valign: "top" });
-  s.addNotes("[Script: say the closing contrast, then thank the room and invite questions.]");
+  const s = base("STATEMENT", "Thank you");
+  text(s, "[Name]  ·  [Contact]", M, 3.6, 12, 0.5, { size: 22, color: C.muted });
+  s.addNotes("[Script: thank the room and invite questions.]");
 }
 
 // ---------- BACKUP ----------

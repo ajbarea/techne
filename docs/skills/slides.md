@@ -1,6 +1,6 @@
 # `techne:slides`
 
-Get a talk deck ready to present: start from the starter deck, write it for someone who has never heard the terms, write the script to read aloud on each slide, gate the `.pptx`, render it through the app that will show it, and brief the presenter.
+Get a talk deck ready to present: start from the starter deck, write it for someone who has never heard the terms, write the script to read aloud on each slide, gate the `.pptx` (or a Typst or Beamer PDF), render it through the app that will show it, and brief the presenter.
 
 ## When to use
 
@@ -21,8 +21,8 @@ Invoke by name in Claude Code:
 Or run the checks directly from a techne checkout:
 
 ```
-uv run --quiet python plugins/techne/skills/slides/scripts/slides.py check <deck.pptx>
-uv run --quiet --with pillow python plugins/techne/skills/slides/scripts/slides.py render <deck.pptx> <out-dir>
+uv run --quiet python plugins/techne/skills/slides/scripts/slides.py check <deck.pptx|deck.pdf> [--jargon "term,term"] [--backup-from N]
+uv run --quiet --with pillow python plugins/techne/skills/slides/scripts/slides.py render <deck.pptx|deck.pdf> <out-dir>
 uv run --quiet python plugins/techne/skills/slides/scripts/slides.py script <deck.pptx> > script.md
 ```
 
@@ -39,11 +39,13 @@ uv run --quiet python plugins/techne/skills/slides/scripts/slides.py script <dec
 | WARN | `small-text`, `font`, `no-notes`, `duplicate-title` | Text under 14pt, a font that will be substituted in PowerPoint or Google Slides, talk slides with no script in their speaker notes, titles a screen reader cannot tell apart. |
 | REVIEW | `figures`, `dense`, `long-title` | Numbers and walls of text on talk slides (slide 1 and everything after a `Backup slides` divider are exempt), and headlines that stopped being headlines on any slide. |
 
+A PDF deck gets the gates its text can answer (`em-dash`, `long-title`, `duplicate-title`, `figures`, `dense`, `jargon`), read with `pdftotext`; contrast, alt text, fonts and notes are reported as not checked. `--jargon` flags listed terms on talk slides, and `--backup-from N` marks where backup starts when no divider says so.
+
 Overflow and overlap are invisible to `check`. That is what `render` is for.
 
 ## The starter deck
 
-`plugins/techne/skills/slides/templates/deck.js` is a pptxgenjs generator with one slide of each layout the skill recommends: title, agenda, claim with cards and footnotes, vocabulary, a concrete case, a discussion stop, limits, a closing statement, and backup slides. Copy it beside the talk as `build.js`, then `npm i pptxgenjs && node build.js talk.pptx`. It passes `check` with no blockers and nothing to review.
+`plugins/techne/skills/slides/templates/deck.js` is a pptxgenjs generator with one slide of each layout the skill recommends: title, agenda, claim with cards and footnotes, vocabulary, a concrete case, a discussion stop, limits, a plain thank-you slide, and backup slides. Copy it beside the talk as `build.js`, then `npm i pptxgenjs && node build.js talk.pptx`. It passes `check` with no blockers and nothing to review.
 
 ## Testing it
 

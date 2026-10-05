@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""Gate a .pptx before it is presented, and render it through the app that will show it.
+"""Gate a deck before it is presented, and render it through the app that will show it.
 
-    python slides.py check  <deck.pptx> [--level AAA|AA] [--min-pt 14]
-    python slides.py render <deck.pptx> <out-dir> [--renderer auto|powerpoint|libreoffice]
+    python slides.py check  <deck.pptx|deck.pdf> [--level AAA|AA] [--min-pt 14] [--jargon a,b]
+    python slides.py render <deck.pptx|deck.pdf> <out-dir> [--renderer auto|powerpoint|libreoffice]
     python slides.py script <deck.pptx> [--wpm 140]
+
+A PDF (a Typst or Beamer deck, say) gets the gates its text can answer: titles, density,
+figures, em-dashes and jargon, read page by page with poppler's ``pdftotext``. Contrast, alt
+text and speaker notes live in the source, so they are reported as not checked.
 
 No Python dependencies. ``render`` needs poppler's ``pdftoppm`` plus either
 PowerPoint (native Windows, or Windows from WSL) or LibreOffice; with Pillow
@@ -57,10 +61,23 @@ PORTABLE_FONTS = {
 }
 
 # A figure, as opposed to a label: percentages, ratios, decimals, "x of y", long numbers.
-_FIGURE = re.compile(r"\d+(?:\.\d+)?\s?%|\b\d+\s?/\s?\d+\b|\b\d+\.\d+\b|\b\d+ of \d+\b|\b\d{3,}\b")
+# A thousands-separated number is one figure, not two; a four-digit year is a label.
+_FIGURE = re.compile(
+    r"\d+(?:\.\d+)?\s?%|\b\d+\s?/\s?\d+\b|\b\d+\.\d+\b|\b\d+ of \d+\b"
+    r"|\b\d{1,3}(?:,\d{3})+\b|(?<![\w,])(?!(?:19|20)\d\d\b)\d{3,}\b"
+)
 # Only a divider titled exactly like one; a talk about backups is not a divider.
 _BACKUP_TITLE = re.compile(r"^\s*(?:backup|appendix)(?:\s+slides?)?\s*$", re.I)
 _WORD = re.compile(r"[\w\u2019'-]+")
+# A page counter in a PDF footer ("3 / 19"), never part of a slide's text.
+_PAGE_COUNTER = re.compile(r"^\s*\d+\s*/\s*\d+\s*$")
+
+
+def jargon_hits(text: str, terms: tuple[str, ...]) -> list[str]:
+    """The listed terms that appear in the text as whole words, case-insensitively."""
+    return [
+        term for term in terms if re.search(rf"(?<![\w-]){re.escape(term)}(?![\w-])", text, re.I)
+    ]
 
 
 class Finding:
@@ -397,7 +414,11 @@ def check(
     min_pt: float = 14,
     dense_words: int = 60,
     title_words: int = 14,
+    jargon: tuple[str, ...] = (),
+    backup_from: int | None = None,
 ) -> list[Finding]:
+    if path.suffix.lower() == ".pdf":
+        return check_pdf(path, dense_words, title_words, jargon, backup_from)
     try:
         pkg = Package(path)
         parts = pkg.slides()
@@ -431,7 +452,11 @@ def check(
             )
         else:
             titles.setdefault(s.title.casefold(), []).append(number)
-        in_backup = in_backup or is_backup_divider(s.title)
+        in_backup = (
+            in_backup
+            or is_backup_divider(s.title)
+            or (backup_from is not None and number >= backup_from)
+        )
 
         pairs: dict[tuple[str, str, bool], str] = {}
         for run, behind in s.text_runs:
@@ -491,6 +516,8 @@ def check(
                     number,
                 )
             )
+        if not in_backup:
+            found += _jargon(visible, jargon, number)
         # The title slide carries dates, venues and author lists by design, and
         # backup slides hold the tables the talk left out.
         if in_backup or number == 1:
@@ -545,6 +572,123 @@ def check(
                 "gradient, theme or grouped surface; not checked",
             )
         )
+    found.append(
+        Finding(
+            INFO,
+            "render",
+            "overflow and overlap are invisible to this check; render and look at every slide",
+        )
+    )
+    return sorted(found, key=lambda f: (RANK[f.severity], f.slide or 0))
+
+
+def _jargon(text: str, terms: tuple[str, ...], number: int) -> list[Finding]:
+    hits = jargon_hits(text, terms)
+    if not hits:
+        return []
+    return [
+        Finding(
+            REVIEW,
+            "jargon",
+            f"{', '.join(hits)} on a talk slide; use the plain word, the term in a muted footnote",
+            number,
+        )
+    ]
+
+
+def pdf_pages(path: pathlib.Path) -> list[str]:
+    """Each page's text, in reading order, through poppler's pdftotext."""
+    if not shutil.which("pdftotext"):
+        raise OSError("pdftotext not found (poppler-utils)")
+    out = subprocess.run(
+        ["pdftotext", str(path), "-"], capture_output=True, text=True, check=True
+    ).stdout
+    pages = out.split("\f")
+    if pages and not pages[-1].strip():
+        pages.pop()
+    return pages
+
+
+def check_pdf(
+    path: pathlib.Path,
+    dense_words: int = 60,
+    title_words: int = 14,
+    jargon: tuple[str, ...] = (),
+    backup_from: int | None = None,
+) -> list[Finding]:
+    """The gates a PDF's text can answer: a page's first line stands for its title."""
+    try:
+        pages = pdf_pages(path)
+    except (OSError, subprocess.CalledProcessError) as exc:
+        return [Finding(ERROR, "unreadable", f"{path}: {exc}")]
+    if not pages:
+        return [Finding(ERROR, "unreadable", f"{path}: no pages")]
+    found: list[Finding] = []
+    titles: dict[str, list[int]] = {}
+    in_backup = False
+    for number, page in enumerate(pages, 1):
+        lines = [ln.strip() for ln in page.splitlines() if ln.strip()]
+        lines = [ln for ln in lines if not _PAGE_COUNTER.match(ln)]
+        title = lines[0] if lines else ""
+        body = lines[1:]
+        if title:
+            titles.setdefault(title.casefold(), []).append(number)
+        in_backup = (
+            in_backup
+            or is_backup_divider(title)
+            or (backup_from is not None and number >= backup_from)
+        )
+        visible = " ".join(lines)
+        if "\u2014" in visible:
+            found.append(Finding(BLOCK, "em-dash", "em-dash in slide text", number))
+        if len(title.split()) > title_words:
+            found.append(
+                Finding(
+                    REVIEW,
+                    "long-title",
+                    f"{len(title.split())}-word title (> {title_words})",
+                    number,
+                )
+            )
+        if not in_backup:
+            found += _jargon(visible, jargon, number)
+        if in_backup or number == 1:
+            continue
+        figures = sorted({m.group(0) for m in _FIGURE.finditer(" ".join(body))})
+        if figures:
+            found.append(
+                Finding(
+                    REVIEW,
+                    "figures",
+                    f"figures on a talk slide: {', '.join(figures[:6])}; "
+                    "keep only the ones this audience needs",
+                    number,
+                )
+            )
+        words = sum(len(_WORD.findall(t)) for t in body)
+        if words > dense_words:
+            found.append(
+                Finding(
+                    REVIEW,
+                    "dense",
+                    f"{words} words on the page (> {dense_words}), figure labels included; "
+                    "if they are prose, move it to the script or a figure",
+                    number,
+                )
+            )
+    for title, numbers in titles.items():
+        if len(numbers) > 1:
+            found.append(
+                Finding(WARN, "duplicate-title", f"slides {numbers} share the title {title!r}")
+            )
+    found.append(
+        Finding(
+            INFO,
+            "pdf",
+            "contrast, alt text, fonts and speaker notes live in the source; not checked from a "
+            "PDF. A page's first line is read as its title",
+        )
+    )
     found.append(
         Finding(
             INFO,
@@ -782,9 +926,15 @@ def render(deck: pathlib.Path, out: pathlib.Path, preference: str = "auto", dpi:
     if not shutil.which("pdftoppm"):
         sys.exit("pdftoppm not found (poppler-utils)")
     prepare_out(out)
-    renderer = pick_renderer(preference)
     pdf = out / (deck.stem + ".pdf")
-    (render_powerpoint if renderer == "powerpoint" else render_libreoffice)(deck, pdf)
+    if deck.suffix.lower() == ".pdf":
+        # Already exported by the tool that will show it (a Typst or Beamer deck).
+        renderer = "pdf"
+        if deck.resolve() != pdf.resolve():
+            shutil.copyfile(deck, pdf)
+    else:
+        renderer = pick_renderer(preference)
+        (render_powerpoint if renderer == "powerpoint" else render_libreoffice)(deck, pdf)
     subprocess.run(["pdftoppm", "-png", "-r", str(dpi), str(pdf), str(out / "slide")], check=True)
     pngs = sorted(out.glob("slide-*.png"))
     sheets = contact_sheets(pngs, out)
@@ -812,7 +962,20 @@ def main() -> int:
     c.add_argument("--min-pt", type=float, default=14)
     c.add_argument("--dense-words", type=int, default=60)
     c.add_argument("--title-words", type=int, default=14)
-    r = sub.add_parser("render", help="export through PowerPoint or LibreOffice, then rasterize")
+    c.add_argument(
+        "--jargon",
+        default="",
+        help="comma-separated terms a newcomer would not know; flagged on talk slides",
+    )
+    c.add_argument(
+        "--backup-from",
+        type=int,
+        default=None,
+        help="first backup slide, when no divider is titled Backup or Appendix",
+    )
+    r = sub.add_parser(
+        "render", help="export through PowerPoint or LibreOffice (or take a PDF), then rasterize"
+    )
     r.add_argument("deck", type=pathlib.Path)
     r.add_argument("out", type=pathlib.Path)
     r.add_argument("--renderer", choices=("auto", "powerpoint", "libreoffice"), default="auto")
@@ -828,7 +991,16 @@ def main() -> int:
         code, out = script(args.deck, args.wpm)
         print(out, file=sys.stderr if code else sys.stdout)
         return code
-    found = check(args.deck, args.level, args.min_pt, args.dense_words, args.title_words)
+    terms = tuple(t.strip() for t in args.jargon.split(",") if t.strip())
+    found = check(
+        args.deck,
+        args.level,
+        args.min_pt,
+        args.dense_words,
+        args.title_words,
+        terms,
+        args.backup_from,
+    )
     print(args.deck)
     for finding in found:
         print(f"  {finding}")
