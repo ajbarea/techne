@@ -156,6 +156,9 @@ that drift class recurs.
 
 Detail lives in git history (`git log`) and the live skill code. This log is pruned once work is durably shipped.
 
+- 2026-10-05: **The techne marketplace lists keryx.** `ajbarea/techne` is the one marketplace for
+  AJ's plugins: `techne@techne` and `keryx@techne`. The short-lived `ajbarea/ajsoftworks` catalog
+  is retired.
 - 2026-10-03: **Restart idle sessions onto an updated Claude Code.** The opt-in
   `restart_on_update` hook (#98) waits for `idle_prompt`, checks the session's own
   `~/.claude/sessions/<pid>.json` and what its last `Stop` reported (no background task,

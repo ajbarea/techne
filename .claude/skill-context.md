@@ -89,7 +89,7 @@ Expected external PR checks: `validate` (in-repo) + `GitGuardian Security Checks
 Source of truth for skill-level claims:
 
 - **Skill descriptions:** `plugins/techne/skills/<name>/SKILL.md` frontmatter `description:` field is the canonical one-line summary surfaced in the plugin registry; README and `docs/skills/*.md` cross-references must match.
-- **Marketplace metadata:** `.claude-plugin/marketplace.json` lists each skill; the descriptions there must align with the SKILL.md frontmatter.
+- **Marketplace metadata:** `.claude-plugin/marketplace.json` lists the plugins this marketplace ships (techne, plus keryx from `ajbarea/keryx`); the techne entry's description must align with `plugins/techne/.claude-plugin/plugin.json`.
 - **Skill inventory:** the directory listing of `plugins/techne/skills/` is the only source of truth. Don't write a skill count into prose anywhere — a number in three files is three things to forget when a skill lands, and it drifted twice before it was removed. README's per-skill table is the one place a written inventory earns its keep, because each row carries a description rather than restating an integer.
 
 Any quantitative or list-shape claim not traceable to one of those is slop.

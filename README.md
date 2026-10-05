@@ -43,7 +43,7 @@ Installable as a single `/plugin`; see [Install](#install).
 
 ## Install
 
-Add the marketplace and install the plugin from inside Claude Code:
+This repo is also the `techne` marketplace, which lists techne and [keryx](https://github.com/ajbarea/keryx). Add it and install from inside Claude Code:
 
 ```bash
 /plugin marketplace add ajbarea/techne
