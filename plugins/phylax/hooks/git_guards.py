@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""PreToolUse guards on the Bash tool for git commit, git add and gh pr.
+"""Guards on the Bash tool for git commit, git add and gh pr.
 
-Each guard is off until its userConfig option is switched on in /config, which
-Claude Code exports to this process as CLAUDE_PLUGIN_OPTION_<KEY>. A repo turns
-an enabled guard off for itself with `git config phylax.<optionInCamelCase> false`.
+register.ts runs this from its tool.call hook on each Bash command that names git
+or gh, passing the PreToolUse JSON on stdin and each userConfig option as
+CLAUDE_PLUGIN_OPTION_<KEY>, and reads the decision from stdout. A repo turns an
+enabled guard off for itself with `git config phylax.<optionInCamelCase> false`.
 
-hooks.json runs it on every Bash call with no `if` filter, because Claude Code's
-`Bash(git *)` filter does not match `time git ...` or `sudo git ...`. A crash in
-one subcommand's check still checks the rest and emits the denies already found.
+A crash in one subcommand's check still checks the rest and emits the denies
+already found; with none found, the exit status is 1 and register.ts refuses the
+command while a blocking guard is on.
 
 Parsing is best effort: subcommands inside `$(...)` or `bash -c` are not seen.
 Runs on the system python3, so it stays compatible with 3.9 (macOS's).

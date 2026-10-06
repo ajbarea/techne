@@ -40,15 +40,15 @@ status = "active"
 
 ## Guards
 
-phylax ships three `PreToolUse` hooks on the Bash tool. Each is off until you switch it on in `/config`, under the phylax plugin's options.
+phylax's guards are a [mod](https://code.claude.com/docs/en/plugins/mods/overview): a hooks module, `hooks/register.ts`, that Claude Code loads into the session. It needs Claude Code 2.1.287 or later. Each guard is off until you switch it on in `/config`, under the phylax plugin's options.
 
 | Option | What it does |
 |---|---|
-| `block_attribution_trailers` | Refuses `git commit` and `gh pr create`, `gh pr edit` or `gh pr merge` when the message, title or body has a line matching `Claude-Session`, `claude.ai/code/session`, `Co-Authored-By: Claude` or `Generated with Claude Code`. |
+| `block_attribution_trailers` | Blanks the commit trailer and pull request footer Claude Code asks Claude to write, so neither is composed. Also refuses `git commit` and `gh pr create`, `gh pr edit` or `gh pr merge` when the message, title or body has a line matching `Claude-Session`, `claude.ai/code/session`, `Co-Authored-By: Claude` or `Generated with Claude Code`. |
 | `block_commits_md` | Refuses `git add` when it would stage a file named `COMMITS.md` (exact case, any directory), and `git commit` when the commit would include one. A commit that removes it passes. |
 | `warn_main_checkout_commit` | Warns, without blocking, when `git commit` runs in a repo's main checkout while linked worktrees exist. |
 
-A refusal tells Claude the reason, so it can fix the command and retry. The hooks still apply in `bypassPermissions` mode.
+A refusal tells Claude the reason, so it can fix the command and retry. A warning reaches Claude after the command's output and shows as a dim line in the transcript. The guards run before the permission check, so they apply in `bypassPermissions` mode and to subagents' commands. When a blocking guard is on and the check itself fails (it errors, times out, or `python3` cannot start), the command is refused rather than run unchecked.
 
 What each guard reads:
 
@@ -66,7 +66,7 @@ git config phylax.warnMainCheckoutCommit false
 
 These keys were `techne.*` before the guards moved to the phylax plugin; rename any you set.
 
-The hook runs on every Bash call, since Claude Code's `Bash(git *)` filter skips commands such as `time git add`. With every option off, it stops in the shell and `python3` never starts. Once one is on, it needs `python3` 3.9 or newer on `PATH`, adds about 40 ms to each Bash call, and runs read-only git commands in the target repo. Parsing is best effort: a git command inside `$(...)` or `bash -c` is not checked, and neither are paths that `xargs` reads from stdin or that `$(...)` produces. A `COMMITS.md` staged that way in one Bash call is still refused by the next call's `git commit`, but not by a commit later in the same call. A command that creates `COMMITS.md` and then runs a broad `git add` (`.`, `-A`) is refused.
+The mod checks every Bash command that names `git` or `gh` anywhere, so `time git add` and `sudo git commit` are covered. With every option off it registers no Bash hook. Once one is on, it needs `python3` 3.9 or newer on `PATH`, runs read-only git commands in the target repo, and adds a median of 39 ms to `git status` and 50 ms to `git commit` (30 runs each on WSL2 with all three options on). A command without `git` or `gh` starts no process. Parsing is best effort: a git command inside `$(...)` or `bash -c` is not checked, and neither are paths that `xargs` reads from stdin or that `$(...)` produces. A `COMMITS.md` staged that way in one Bash call is still refused by the next call's `git commit`, but not by a commit later in the same call. A command that creates `COMMITS.md` and then runs a broad `git add` (`.`, `-A`) is refused.
 
 ## Restart on update
 

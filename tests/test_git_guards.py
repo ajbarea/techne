@@ -1,6 +1,6 @@
-"""Tests for the opt-in PreToolUse guards in plugins/phylax/hooks/.
+"""Tests for git_guards.py, the opt-in git guards the phylax mod runs on each git or gh command.
 
-Each case feeds the hook the JSON Claude Code sends on stdin and reads the decision
+Each case feeds the guard the PreToolUse JSON the mod sends on stdin and reads the decision
 from stdout, against a real throwaway repo. Every guard has a trip case, a clean
 case, a case with its option off, and a case with the per-repo override set.
 """
@@ -331,58 +331,16 @@ def test_unparseable_command_falls_back_to_raw_scan(repo):
     assert run_hook(command, repo, on=[ATTRIBUTION]) is None
 
 
-def _handlers() -> list[dict]:
+def test_hooks_json_runs_the_guard_from_the_module_alone():
+    # register.ts runs git_guards.py from tool.call; a PreToolUse command hook as well would
+    # run the guard twice on every git command. plugins/phylax/tests/ covers the module.
     config = json.loads(HOOKS_JSON.read_text())
-    return [h for group in config["hooks"]["PreToolUse"] for h in group["hooks"]]
-
-
-def run_handler(handler: dict, command: str, cwd: pathlib.Path, *, on) -> dict | None:
-    """Run a hooks.json command through sh, as Claude Code does for a shell-form hook."""
-    shell = handler["command"].replace("${CLAUDE_PLUGIN_ROOT}", str(PLUGIN))
-    env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE_PLUGIN_OPTION_")}
-    env.update({f"CLAUDE_PLUGIN_OPTION_{key.upper()}": "true" for key in on})
-    payload = json.dumps({"cwd": str(cwd), "tool_input": {"command": command}})
-    proc = subprocess.run(
-        ["sh", "-c", shell], input=payload, capture_output=True, text=True, env=env, check=False
-    )
-    assert proc.returncode == 0, proc.stderr
-    return json.loads(proc.stdout) if proc.stdout.strip() else None
-
-
-def test_hooks_json_runs_one_unfiltered_handler():
-    # No `if`: Claude Code's `Bash(git *)` filter skips `time git ...` and `sudo git ...`.
-    (handler,) = _handlers()
-    assert "if" not in handler
-    assert '"${CLAUDE_PLUGIN_ROOT}/hooks/git_guards.py"' in handler["command"]
+    assert config["modules"] == ["./register.ts"]
+    assert "PreToolUse" not in config["hooks"]
+    module = (PLUGIN / "hooks" / "register.ts").read_text()
+    assert "hooks/git_guards.py" in module
     for key in ALL:
-        assert f"$CLAUDE_PLUGIN_OPTION_{key.upper()}" in handler["command"]
-
-
-@pytest.mark.parametrize("key", ALL)
-def test_hooks_json_handler_runs_the_guard_when_one_option_is_on(repo, key):
-    (repo / "COMMITS.md").write_text("plan\n")
-    (handler,) = _handlers()
-    out = run_handler(handler, f"time git add . && git commit -m x -m '{TRAILER}'", repo, on=[key])
-    if key == MAIN_CHECKOUT:
-        assert out is None  # no linked worktree, so nothing to warn about
-    else:
-        assert denied(out)
-
-
-def test_hooks_json_handler_skips_python_when_all_off(repo, tmp_path):
-    (handler,) = _handlers()
-    shell = handler["command"].replace("${CLAUDE_PLUGIN_ROOT}", str(PLUGIN))
-    empty = tmp_path / "bin"
-    empty.mkdir()
-    proc = subprocess.run(
-        ["/bin/sh", "-c", shell],
-        input="{}",
-        capture_output=True,
-        text=True,
-        env={"PATH": str(empty)},
-        check=False,
-    )
-    assert (proc.returncode, proc.stdout, proc.stderr) == (0, "", "")
+        assert f"'{key}'" in module
 
 
 def test_manifest_options_match_the_guard_and_default_off():

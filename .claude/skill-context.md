@@ -10,7 +10,7 @@ audits the skill collection itself.
 
 - name: techne
 - package_root: `plugins/<plugin>/` for each plugin this marketplace ships (`techne` code-repo skills, `graphe` document skills, `phylax` hooks); `plugins/<plugin>/skills/` (one directory per skill, each a `SKILL.md` plus supporting markdown, templates and scripts), `plugins/<plugin>/_shared/` (files shared across that plugin's skills; `plugins/techne/_shared/` is the source for a file several plugins carry), `scripts/` (validation helpers), `tests/` (pytest over skill-shipped Python)
-- language: Markdown (skill bodies) + Python (skill-shipped scripts under `plugins/*/skills/*/scripts/`, the frontmatter validator, pytest) + Bash (guard and runner scripts)
+- language: Markdown (skill bodies) + Python (skill-shipped scripts under `plugins/*/skills/*/scripts/`, the frontmatter validator, pytest) + Bash (guard and runner scripts) + TypeScript (phylax's hooks module `plugins/phylax/hooks/register.ts`, a mod, with `plugins/phylax/tests/*.test.ts`)
 - cli_entrypoint: none — consumers add the `ajbarea/techne` marketplace, install `techne@techne`, `graphe@techne` and/or `phylax@techne`, then invoke `/techne:<skill>` or `/graphe:<skill>`. The repo itself is `package = false` in `pyproject.toml`.
 - runner_module: no Python runner; `.github/workflows/validate.yml` calls the Makefile targets.
 - default_branch: `main`
@@ -28,6 +28,10 @@ Audit drives the wrapper `make` targets, which mirror `.github/workflows/validat
 ### Phase 2 — Manifest validation
 
 3. `make manifests` — `python -m json.tool` on `.claude-plugin/marketplace.json` + every `plugins/*/.claude-plugin/plugin.json`.
+
+### Phase 2b — Hooks modules
+
+- `make plugin-test` — `claude plugin test` plus a strict `tsc` (TypeScript pinned in the Makefile) on each plugin with a `tests/` folder, on the pinned Claude Code build; `scripts/check_hooks_modules.sh` loads the plugin once, unauthenticated, so the engine writes the types `tsc` reads.
 
 ### Phase 3 — Skill structural validation
 
@@ -47,7 +51,7 @@ Audit drives the wrapper `make` targets, which mirror `.github/workflows/validat
 
 ### End-to-end rollups
 
-11. `make validate` — `lint + shellcheck + zizmor + test + build` (where `test` = manifests + frontmatter + guards + test-unit). Pre-push gate; mirrors `validate.yml`.
+11. `make validate` — `lint + shellcheck + zizmor + plugin-validate + plugin-test + test + build` (where `test` = manifests + frontmatter + guards + test-unit). Pre-push gate; mirrors `validate.yml`.
 12. `make ci` — `setup + validate`.
 
 Fast audit = `make setup → make validate`. Stop-early phase: `check-env` / `setup` — any missing tool or sync failure blocks the rest.
@@ -106,7 +110,7 @@ Subagent scan-area split:
 
 - Skills: `plugins/*/skills/**/SKILL.md` + sibling markdown files (templates, references)
 - Shared resources: `plugins/*/_shared/**/*.md` (slop glossary, prose rubric, etc.)
-- Scripts: `scripts/*.sh`, `scripts/*.py`, `plugins/*/skills/*/scripts/*.py`, `plugins/phylax/hooks/*.py`
+- Scripts: `scripts/*.sh`, `scripts/*.py`, `plugins/*/skills/*/scripts/*.py`, `plugins/phylax/hooks/*.py`, `plugins/phylax/hooks/register.ts`
 - Tests: `tests/*.py`
 - Config / build: `pyproject.toml`, `.claude-plugin/marketplace.json`, `plugins/*/.claude-plugin/plugin.json`, `.github/workflows/**`, `zensical.toml`
 - Docs: `docs/**/*.md`, `README.md`

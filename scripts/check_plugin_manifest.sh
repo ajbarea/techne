@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # claude plugin validate on each plugin and the marketplace, failing on any warning
 # except the missing version: the plugins are unversioned so installs follow main.
-# Always the pinned npm build, so local runs and CI judge the same output.
+# Always the pinned npm build the Makefile names, so local runs and CI judge the same output.
 set -euo pipefail
 
-CLAUDE_CODE_VERSION=2.1.287
+: "${CLAUDE_CODE_VERSION:?run through make plugin-validate, which pins the Claude Code build}"
 claude_cmd=(npx --yes "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}")
 
 status=0
