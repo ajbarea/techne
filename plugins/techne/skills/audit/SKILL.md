@@ -1,6 +1,6 @@
 ---
 name: audit
-description: Run the repo's make targets in dependency order (setup → lint → test → end-to-end) and verify each command's terminal output against its `logs/dev-<ts>-<cmd>.log` archive. Supports a full audit and a fast variant. Use whenever the user wants to validate the toolchain is clean, run lint+test locally before pushing, or reconcile terminal output against the dev-runner log archives — phrasings like "run the audit", "is the build clean", "check my toolchain", "am I ready to push", "make sure CI will pass", "verify make targets". Requires the `logs/dev-<ts>-<cmd>.log` archive convention; see `docs/conventions.md`.
+description: Run the repo's make targets in dependency order (setup → lint → test → end-to-end) and verify each command's terminal output against its `logs/dev-*.log` archive. Supports a full audit and a fast variant. Use whenever the user wants to validate the toolchain is clean, run lint+test locally before pushing, or reconcile terminal output against the dev-runner log archives — phrasings like "run the audit", "is the build clean", "check my toolchain", "am I ready to push", "make sure CI will pass", "verify make targets". Requires the `logs/dev-*.log` archive convention; see `docs/conventions.md`.
 disable-model-invocation: false
 allowed-tools: Bash Glob Read Grep
 ---

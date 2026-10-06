@@ -22,6 +22,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SKILLS_GLOB = "plugins/*/skills/*/SKILL.md"
 REQUIRED_KEYS = ("name:", "description:")
 _FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.DOTALL)
+# The description value: the rest of its line plus indented continuation lines, past any
+# YAML block-scalar indicator (`>`, `|-`, ...), which is syntax rather than text.
+_DESCRIPTION_RE = re.compile(
+    r"^description:[ \t]*(?:[>|][+-]?[ \t]*\n)?(.*(?:\n[ \t]+.*)*)", re.MULTILINE
+)
 
 
 def check_skill(path: Path) -> str | None:
@@ -34,6 +39,10 @@ def check_skill(path: Path) -> str | None:
     for required in REQUIRED_KEYS:
         if required not in fm:
             return f"{path}: missing {required}"
+    # claude.ai strips angle brackets from a description when it syncs the plugin.
+    desc = _DESCRIPTION_RE.search(fm)
+    if desc and re.search(r"[<>]", desc.group(1)):
+        return f"{path}: description contains < or >, which claude.ai strips"
     return None
 
 
