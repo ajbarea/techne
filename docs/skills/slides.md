@@ -1,4 +1,4 @@
-# `techne:slides`
+# `graphe:slides`
 
 Get a talk deck ready to present: start from the starter deck, write it for someone who has never heard the terms, write the script to read aloud on each slide, gate the `.pptx` (or a Typst or Beamer PDF), render it through the app that will show it, and brief the presenter.
 
@@ -15,15 +15,15 @@ Get a talk deck ready to present: start from the starter deck, write it for some
 Invoke by name in Claude Code:
 
 ```
-/techne:slides
+/graphe:slides
 ```
 
 Or run the checks directly from a techne checkout:
 
 ```
-uv run --quiet python plugins/techne/skills/slides/scripts/slides.py check <deck.pptx|deck.pdf> [--jargon "term,term"] [--backup-from N]
-uv run --quiet --with pillow python plugins/techne/skills/slides/scripts/slides.py render <deck.pptx|deck.pdf> <out-dir>
-uv run --quiet python plugins/techne/skills/slides/scripts/slides.py script <deck.pptx> > script.md
+uv run --quiet python plugins/graphe/skills/slides/scripts/slides.py check <deck.pptx|deck.pdf> [--jargon "term,term"] [--backup-from N]
+uv run --quiet --with pillow python plugins/graphe/skills/slides/scripts/slides.py render <deck.pptx|deck.pdf> <out-dir>
+uv run --quiet python plugins/graphe/skills/slides/scripts/slides.py script <deck.pptx> > script.md
 ```
 
 `check` exits 0 when every gate passed, 1 when the file is not a readable deck, and 2 on a blocker. `render` exports a PDF through PowerPoint when it is installed (natively, or from WSL) and through LibreOffice otherwise, then writes one PNG per slide and 2x2 contact sheets. Give it a folder of its own: it refuses a non-empty folder it did not create, because it replaces the PNGs and the PDF it finds there. `script` prints the speaker notes as one Markdown script with the talk length at 140 words a minute; backup slides come after the talk and are left out of the length.
@@ -45,7 +45,7 @@ Overflow and overlap are invisible to `check`. That is what `render` is for.
 
 ## The starter deck
 
-`plugins/techne/skills/slides/templates/deck.js` is a pptxgenjs generator with one slide of each layout the skill recommends: title, agenda, claim with cards and footnotes, vocabulary, a concrete case, a discussion stop, limits, a plain thank-you slide, and backup slides. Copy it beside the talk as `build.js`, then `npm i pptxgenjs && node build.js talk.pptx`. It passes `check` with no blockers and nothing to review.
+`plugins/graphe/skills/slides/templates/deck.js` is a pptxgenjs generator with one slide of each layout the skill recommends: title, agenda, claim with cards and footnotes, vocabulary, a concrete case, a discussion stop, limits, a plain thank-you slide, and backup slides. Copy it beside the talk as `build.js`, then `npm i pptxgenjs && node build.js talk.pptx`. It passes `check` with no blockers and nothing to review.
 
 ## Testing it
 

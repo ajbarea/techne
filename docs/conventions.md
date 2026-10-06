@@ -168,7 +168,7 @@ feature_works_means:
 Each `##` section maps to one skill family. Adopt only the sections for the skills you intend to use; absent sections trigger a "skill needs scaffolding" message instead of a silent failure.
 
 **Required for:** `techne:audit`, `techne:theoros`.
-**Recommended for:** `techne:sisters` (used for cross-repo skill-context parity checks), `techne:deslop`, `techne:reslop`, `techne:docsync`, `techne:docs-site`, `techne:ci-audit`, `techne:latex` (defaults work with no config; the `## latex` block sets per-repo draft markers and thresholds), `techne:elenchus` (tier-0 works with no config; the `## elenchus` block sharpens each phase).
+**Recommended for:** `techne:sisters` (used for cross-repo skill-context parity checks), `techne:deslop`, `techne:reslop`, `techne:docsync`, `techne:docs-site`, `techne:ci-audit`, `graphe:latex` (defaults work with no config; the `## latex` block sets per-repo draft markers and thresholds), `techne:elenchus` (tier-0 works with no config; the `## elenchus` block sharpens each phase).
 
 ## `~/.claude/techne.toml` (user-level sister config)
 

@@ -14,10 +14,11 @@ setup: check-env        ## Install dev dependencies (uv sync)
 	@uv sync
 
 manifests:              ## Verify plugin + marketplace manifest JSON (stdlib json.tool)
-	@uv run python -m json.tool .claude-plugin/marketplace.json >/dev/null
-	@uv run python -m json.tool plugins/techne/.claude-plugin/plugin.json >/dev/null
+	@for f in .claude-plugin/marketplace.json plugins/*/.claude-plugin/plugin.json; do \
+		uv run python -m json.tool "$$f" >/dev/null || { echo "FAIL: $$f"; exit 1; }; \
+	done
 
-plugin-validate:        ## claude plugin validate on plugin + marketplace (hooks, userConfig)
+plugin-validate:        ## claude plugin validate on each plugin + the marketplace (hooks, userConfig)
 	@bash scripts/check_plugin_manifest.sh
 
 frontmatter:            ## Verify SKILL.md frontmatter + theoros structural checks
@@ -37,15 +38,23 @@ lint:                   ## ruff check + format check + ty on scripts/ and skill-
 	@uv run ty check scripts/ plugins/ tests/
 
 shellcheck:             ## shellcheck on repo and skill-shipped shell scripts (shellcheck-py binary)
-	@uv run shellcheck --severity=warning scripts/*.sh plugins/techne/_shared/*.sh plugins/techne/skills/*/scripts/*.sh
+	@uv run shellcheck --severity=warning scripts/*.sh $(wildcard plugins/*/_shared/*.sh plugins/*/skills/*/scripts/*.sh)
 
 # Skill names are derived from the directory listing, so a new skill is guarded
 # the day it lands rather than when someone remembers to extend the pattern.
-SKILL_NAMES := $(shell find plugins/techne/skills -mindepth 1 -maxdepth 1 -type d -printf '%f|' 2>/dev/null | sed 's/|$$//')
+SKILL_NAMES := $(shell find plugins/*/skills -mindepth 1 -maxdepth 1 -type d -printf '%f|' 2>/dev/null | sed 's/|$$//')
 # Excluded because they name the forbidden patterns in order to document them.
 GUARD_SKIP := ':!Makefile' ':!ROADMAP.md' ':!.claude/skill-context.md'
 
-guards:                 ## Stale-path + legacy-name + action-pin guards
+# plugins/techne/_shared/ is the source for a file several plugins need; another plugin
+# carries a copy, since a plugin installs alone and can't read a sibling's files.
+guards:                 ## Stale-path + legacy-name + shared-copy + plugin-path + action-pin guards
+	@for f in plugins/*/_shared/*; do \
+		src="plugins/techne/_shared/$${f##*/}"; \
+		[ -f "$$src" ] && [ "$$f" != "$$src" ] || continue; \
+		cmp -s "$$f" "$$src" || { echo "FAIL: $$f differs from $$src"; exit 1; }; \
+	done
+	@bash scripts/check_plugin_refs.sh
 	@if git grep -n --untracked -E '\.claude/skills/_shared' -- $(GUARD_SKIP); then \
 		echo "FAIL: still references the old absolute _shared path"; exit 1; \
 	fi
@@ -87,13 +96,18 @@ ci: setup validate      ## Mirror CI end-to-end (validate.yml, which includes th
 
 # Routing evals run real Claude sessions on your own login: they draw on your plan's usage,
 # or bill your API key if you use one, so they stay out of validate. Every routing case
-# loads stand-ins for the general document and catch-up skills techne shares a session
+# loads stand-ins for the general document and catch-up skills its plugin shares a session
 # with, so a collision shows up as a failed case.
 # Behavior cases build a fixture repo with a scaffold script and grade what the skill produced.
+EVAL_PLUGINS := $(patsubst %/evals,%,$(wildcard plugins/*/evals))
+
 evals:                  ## Routing + behavior evals (claude plugin eval; runs on your credential)
 	@bash scripts/eval-plugin.sh
-	@cd plugins/techne && claude plugin eval . --tag routing --ablation none --trust-plugin \
-		--no-publish -j 2 --threshold 0.9
+	@failed=""; for p in $(EVAL_PLUGINS); do \
+		(cd "$$p" && claude plugin eval . --tag routing --ablation none --trust-plugin \
+			--no-publish -j 2 --threshold 0.9) || failed="$$failed $$p"; \
+	done; \
+	[ -z "$$failed" ] || { echo "FAIL: routing evals below threshold in:$$failed"; exit 1; }
 	@cd plugins/techne && claude plugin eval . --tag behavior --ablation none --trust-plugin \
 		--no-publish -j 2 --threshold 0.9 --scaffold
 

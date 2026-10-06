@@ -142,13 +142,13 @@ LOAD_LINE = (
     'cat "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/skill-context.md" '
     '2>/dev/null || echo "(no .claude/skill-context.md in this repo)"'
 )
-SKILLS = ROOT / "plugins" / "techne" / "skills"
+PLUGINS = ROOT / "plugins"
 LOADING_SKILLS = {"audit", "ci-audit", "deslop", "docs-site", "elenchus", "reslop", "theoros"}
 
 
 def _injection_lines() -> dict[str, list[str]]:
     found: dict[str, list[str]] = {}
-    for skill in sorted(SKILLS.glob("*/SKILL.md")):
+    for skill in sorted(PLUGINS.glob("*/skills/*/SKILL.md")):
         blocks = skill.read_text(encoding="utf-8").split("```!\n")[1:]
         lines = [b.split("\n```", 1)[0] for b in blocks]
         hits = [ln for ln in lines if "skill-context.md" in ln]
@@ -198,5 +198,5 @@ def test_suite_runs_without_an_inherited_git_repo():
 
 
 def test_no_skill_reads_context_relative_to_the_working_directory():
-    for skill in SKILLS.glob("*/SKILL.md"):
+    for skill in PLUGINS.glob("*/skills/*/SKILL.md"):
         assert "cat .claude/skill-context.md" not in skill.read_text(encoding="utf-8"), skill

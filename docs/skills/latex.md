@@ -1,4 +1,4 @@
-# `techne:latex`
+# `graphe:latex`
 
 Build a LaTeX document and gate the result on its log, its PDF, and the assignment it answers.
 
@@ -14,13 +14,13 @@ Build a LaTeX document and gate the result on its log, its PDF, and the assignme
 Invoke by name in Claude Code:
 
 ```
-/techne:latex
+/graphe:latex
 ```
 
 Or run the builder directly from a techne checkout. The path is a `.tex`, or a directory holding exactly one file with `\documentclass`:
 
 ```
-uv run --quiet python plugins/techne/skills/latex/scripts/latex.py <path>
+uv run --quiet python plugins/graphe/skills/latex/scripts/latex.py <path>
 ```
 
 There are no Python dependencies; the script needs TeX Live and poppler. It runs through `uv run` rather than `python`, which is not on PATH on a machine that ships only `python3`.
@@ -51,5 +51,5 @@ Those need TeX Live, and CI does not install it. Rather than let them skip unnot
 
 ## See also
 
-- [`techne:pdf`](pdf.md): markdown in, PDF out, a different pipeline.
-- [`techne:paper`](paper.md): scaffolding a new paper directory rather than building an existing one.
+- [`graphe:pdf`](pdf.md): markdown in, PDF out, a different pipeline.
+- [`graphe:paper`](paper.md): scaffolding a new paper directory rather than building an existing one.

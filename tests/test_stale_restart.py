@@ -1,4 +1,4 @@
-"""Tests for the opt-in restart_on_update hook in plugins/techne/hooks/stale_restart.py.
+"""Tests for the opt-in restart_on_update hook in plugins/phylax/hooks/stale_restart.py.
 
 The safety check is tested in process against fixture session files and a fake /proc.
 The hook and the handoff run as subprocesses, the way Claude Code and the launcher run
@@ -23,7 +23,7 @@ import pytest
 from conftest import _load
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-PLUGIN = ROOT / "plugins" / "techne"
+PLUGIN = ROOT / "plugins" / "phylax"
 SCRIPT = PLUGIN / "hooks" / "stale_restart.py"
 HOOKS_JSON = PLUGIN / "hooks" / "hooks.json"
 MANIFEST = PLUGIN / ".claude-plugin" / "plugin.json"
@@ -42,7 +42,7 @@ QUIET_TURN = {
     "session_crons": [],
 }
 IDLE = {"hook_event_name": "Notification", "notification_type": "idle_prompt", "session_id": SID}
-WSL = {"WSL_DISTRO_NAME": "Ubuntu", "WT_SESSION": "x", "TECHNE_RESTART_PARENT": "4242"}
+WSL = {"WSL_DISTRO_NAME": "Ubuntu", "WT_SESSION": "x", "PHYLAX_RESTART_PARENT": "4242"}
 TMUX_STUB = (
     'case "$1" in display-message) echo "$STUB_PANE_PID" ;; '
     '*) echo "tmux $*" >> "$STUB_LOG" ;; esac'
@@ -51,7 +51,7 @@ TMUX_STUB = (
 
 @pytest.fixture(scope="module")
 def sr():
-    return _load("techne_stale_restart", SCRIPT)
+    return _load("phylax_stale_restart", SCRIPT)
 
 
 def stub(path: pathlib.Path, body: str) -> pathlib.Path:
@@ -99,7 +99,7 @@ def env(tmp_path, sr, monkeypatch):
     )
     for d in (sessions, proc, runtime, bin_, home):
         d.mkdir()
-    state = runtime / f"techne-restart-{os.getuid()}"
+    state = runtime / f"phylax-restart-{os.getuid()}"
     state.mkdir(mode=0o700)
     versions = tmp_path / "share" / "claude" / "versions"
     versions.mkdir(parents=True)
@@ -118,13 +118,13 @@ def env(tmp_path, sr, monkeypatch):
     sub.update(
         PATH=f"{bin_}:/usr/bin:/bin",
         HOME=str(home),
-        TECHNE_RESTART_SESSIONS=str(sessions),
-        TECHNE_RESTART_PROC=str(proc),
+        PHYLAX_RESTART_SESSIONS=str(sessions),
+        PHYLAX_RESTART_PROC=str(proc),
         XDG_RUNTIME_DIR=str(runtime),
-        TECHNE_RESTART_COUNTDOWN="0",
-        TECHNE_RESTART_TERM_WAIT="3",
-        TECHNE_RESTART_SHELL_WAIT="1",
-        TECHNE_RESTART_LATE_WAIT="1",
+        PHYLAX_RESTART_COUNTDOWN="0",
+        PHYLAX_RESTART_TERM_WAIT="3",
+        PHYLAX_RESTART_SHELL_WAIT="1",
+        PHYLAX_RESTART_LATE_WAIT="1",
         STUB_LOG=str(tmp_path / "stub.log"),
         SHELL="/bin/bash",
     )
@@ -257,10 +257,10 @@ def test_session_for_takes_only_the_hooks_parent(sr, env, monkeypatch):
     for pid in (4242, 4250):
         write_stat(env["proc"], pid, "claude", 1, str(pid))
         put_session(env, session(pid, str(pid)))
-    monkeypatch.setenv("TECHNE_RESTART_PARENT", "4250")
+    monkeypatch.setenv("PHYLAX_RESTART_PARENT", "4250")
     assert sr.session_for(SID)["pid"] == 4250
     assert sr.session_for("other") is None
-    monkeypatch.setenv("TECHNE_RESTART_PARENT", "4241")  # no session file
+    monkeypatch.setenv("PHYLAX_RESTART_PARENT", "4241")  # no session file
     assert sr.session_for(SID) is None
     put_session(env, session(4241, "1"))  # a file, but no such process
     assert sr.session_for(SID) is None
@@ -531,7 +531,7 @@ def test_resume_script_quotes_and_closes_on_marker(sr):
     plan = {"claude": "/bin/claude", "sessionId": SID, "flags": ["--plugin-dir", "/a b"]}
     script = sr.resume_script(plan)
     assert script.startswith(f"/bin/claude --resume {SID} --plugin-dir '/a b'; ")
-    assert '"${XDG_RUNTIME_DIR:-/tmp}/techne-restart-$(id -u)/close-$$"' in script
+    assert '"${XDG_RUNTIME_DIR:-/tmp}/phylax-restart-$(id -u)/close-$$"' in script
     assert script.endswith('exec "$0" -l')
 
 
@@ -539,13 +539,13 @@ def test_resume_script_marker_matches_the_hook_state_dir(tmp_path):
     runtime = tmp_path / "rt"
     runtime.mkdir()
     out = subprocess.run(
-        ["bash", "-c", 'echo "${XDG_RUNTIME_DIR:-/tmp}/techne-restart-$(id -u)/close-$$"'],
+        ["bash", "-c", 'echo "${XDG_RUNTIME_DIR:-/tmp}/phylax-restart-$(id -u)/close-$$"'],
         env={**os.environ, "XDG_RUNTIME_DIR": str(runtime)},
         capture_output=True,
         text=True,
         check=True,
     ).stdout
-    assert out.startswith(f"{runtime}/techne-restart-{os.getuid()}/close-")
+    assert out.startswith(f"{runtime}/phylax-restart-{os.getuid()}/close-")
 
 
 def test_wt_launch_argv(sr, monkeypatch, tmp_path):
@@ -595,7 +595,7 @@ def tmux_env(env, live):
     """A stale idle session that is tmux pane %3's first process, with a logging tmux stub."""
     stub(env["bin"] / "tmux", TMUX_STUB)
     env["env"]["STUB_PANE_PID"] = "4242"
-    env["env"]["TECHNE_RESTART_PARENT"] = "4242"
+    env["env"]["PHYLAX_RESTART_PARENT"] = "4242"
     live["tmux"] = "work:@0.%3"
     put_session(env, live)
     write_cmdline(env["proc"], 4242, ["claude", "--model", "opus", "hello"])
@@ -698,7 +698,7 @@ def test_hook_does_nothing_in_a_state_dir_it_does_not_own(tmux_env):
         tmux_env["state"].chmod(0o700)
 
 
-PARENT = {"TECHNE_RESTART_PARENT": "4242"}
+PARENT = {"PHYLAX_RESTART_PARENT": "4242"}
 
 
 def test_hook_notices_an_unsupported_terminal_once(env, live):
@@ -840,7 +840,7 @@ def run_handoff(env, plan: pathlib.Path, **extra) -> subprocess.CompletedProcess
         [HOOK_PYTHON, str(SCRIPT), "handoff", str(plan)],
         capture_output=True,
         text=True,
-        env={**env["env"], "TECHNE_RESTART_PROC": "/proc", **extra},
+        env={**env["env"], "PHYLAX_RESTART_PROC": "/proc", **extra},
         stdin=subprocess.DEVNULL,
         timeout=30,
     )
@@ -1011,7 +1011,7 @@ def test_handoff_cancel_is_remembered(env, old_claude):
             stdin=slave,
             stdout=slave,
             stderr=slave,
-            env={**env["env"], "TECHNE_RESTART_PROC": "/proc", "TECHNE_RESTART_COUNTDOWN": "20"},
+            env={**env["env"], "PHYLAX_RESTART_PROC": "/proc", "PHYLAX_RESTART_COUNTDOWN": "20"},
         )
         time.sleep(1)
         os.write(master, b"x")
@@ -1035,7 +1035,7 @@ def test_handoff_keeps_waiting_for_a_late_exit_and_resumes(env):
         time.sleep(0.3)
         put_real_session(env, child)
         plan = write_plan(env, child.pid)
-        proc = run_handoff(env, plan, TECHNE_RESTART_TERM_WAIT="1", TECHNE_RESTART_LATE_WAIT="10")
+        proc = run_handoff(env, plan, PHYLAX_RESTART_TERM_WAIT="1", PHYLAX_RESTART_LATE_WAIT="10")
         assert proc.returncode == 0, proc.stdout
         assert child.wait(timeout=5) == 0
         assert any(c.startswith("shell -lic ") for c in calls(env))
@@ -1061,7 +1061,7 @@ def test_handoff_closing_or_interrupting_the_countdown_cancels(env, old_claude, 
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         text=True,
-        env={**env["env"], "TECHNE_RESTART_PROC": "/proc", "TECHNE_RESTART_COUNTDOWN": "20"},
+        env={**env["env"], "PHYLAX_RESTART_PROC": "/proc", "PHYLAX_RESTART_COUNTDOWN": "20"},
     )
     time.sleep(1)
     proc.send_signal(sig)
@@ -1109,9 +1109,9 @@ def test_handoff_ctrl_c_while_waiting_stops_the_wait_without_a_traceback(env):
             text=True,
             env={
                 **env["env"],
-                "TECHNE_RESTART_PROC": "/proc",
-                "TECHNE_RESTART_TERM_WAIT": "1",
-                "TECHNE_RESTART_LATE_WAIT": "60",
+                "PHYLAX_RESTART_PROC": "/proc",
+                "PHYLAX_RESTART_TERM_WAIT": "1",
+                "PHYLAX_RESTART_LATE_WAIT": "60",
             },
         )
         time.sleep(2.5)  # past TERM_WAIT, inside the late wait
@@ -1142,9 +1142,9 @@ def test_handoff_resets_signals_python_ignores_before_exec(env, old_claude):
 def test_handoff_window_killed_during_countdown_records_the_cancel(env, old_claude):
     put_real_session(env, old_claude)
     plan = write_plan(env, old_claude.pid)
-    server = f"techne-test-{os.getpid()}"
+    server = f"phylax-test-{os.getpid()}"
     cmd = shlex.join([HOOK_PYTHON, str(SCRIPT), "handoff", str(plan)])
-    tenv = {**env["env"], "TECHNE_RESTART_PROC": "/proc", "TECHNE_RESTART_COUNTDOWN": "30"}
+    tenv = {**env["env"], "PHYLAX_RESTART_PROC": "/proc", "PHYLAX_RESTART_COUNTDOWN": "30"}
     run = ["tmux", "-L", server, "-f", "/dev/null"]
     subprocess.run([*run, "new-session", "-d", "-x", "80", "-y", "10", cmd], env=tenv, check=True)
     try:

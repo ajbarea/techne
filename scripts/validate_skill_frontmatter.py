@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate that every SKILL.md under plugins/techne/skills/ has well-formed
+"""Validate that every SKILL.md under plugins/*/skills/ has well-formed
 frontmatter with the required ``name:`` and ``description:`` keys.
 
 Extracted from the inline heredoc in ``.github/workflows/validate.yml`` so the
@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SKILLS_GLOB = "plugins/techne/skills/*/SKILL.md"
+SKILLS_GLOB = "plugins/*/skills/*/SKILL.md"
 REQUIRED_KEYS = ("name:", "description:")
 _FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.DOTALL)
 

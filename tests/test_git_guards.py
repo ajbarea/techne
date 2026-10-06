@@ -1,4 +1,4 @@
-"""Tests for the opt-in PreToolUse guards in plugins/techne/hooks/.
+"""Tests for the opt-in PreToolUse guards in plugins/phylax/hooks/.
 
 Each case feeds the hook the JSON Claude Code sends on stdin and reads the decision
 from stdout, against a real throwaway repo. Every guard has a trip case, a clean
@@ -16,7 +16,7 @@ import sys
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-PLUGIN = ROOT / "plugins" / "techne"
+PLUGIN = ROOT / "plugins" / "phylax"
 GUARDS = PLUGIN / "hooks" / "git_guards.py"
 HOOKS_JSON = PLUGIN / "hooks" / "hooks.json"
 MANIFEST = PLUGIN / ".claude-plugin" / "plugin.json"
@@ -167,7 +167,7 @@ def test_attribution_off_by_default(repo):
 
 
 def test_attribution_repo_override(repo):
-    _git(repo, "config", "techne.blockAttributionTrailers", "false")
+    _git(repo, "config", "phylax.blockAttributionTrailers", "false")
     assert run_hook(f"git commit -m x -m '{TRAILER}'", repo, on=[ATTRIBUTION]) is None
     assert run_hook(f"gh pr create -b '{TRAILER}'", repo, on=[ATTRIBUTION]) is None
 
@@ -271,7 +271,7 @@ def test_commits_md_off_by_default(scratch):
 
 
 def test_commits_md_repo_override(scratch):
-    _git(scratch, "config", "techne.blockCommitsMd", "false")
+    _git(scratch, "config", "phylax.blockCommitsMd", "false")
     assert run_hook("git add .", scratch, on=[COMMITS_MD]) is None
 
 
@@ -308,7 +308,7 @@ def test_main_checkout_off_by_default(repo, linked):
 
 
 def test_main_checkout_repo_override(repo, linked):
-    _git(repo, "config", "techne.warnMainCheckoutCommit", "false")
+    _git(repo, "config", "phylax.warnMainCheckoutCommit", "false")
     assert run_hook("git commit -m x", repo, on=[MAIN_CHECKOUT]) is None
 
 
@@ -327,7 +327,7 @@ def test_outside_a_repo_is_silent(tmp_path):
 def test_unparseable_command_falls_back_to_raw_scan(repo):
     command = f"git commit -m 'unclosed {TRAILER}"
     assert denied(run_hook(command, repo, on=[ATTRIBUTION]))
-    _git(repo, "config", "techne.blockAttributionTrailers", "false")
+    _git(repo, "config", "phylax.blockAttributionTrailers", "false")
     assert run_hook(command, repo, on=[ATTRIBUTION]) is None
 
 
@@ -465,7 +465,7 @@ def test_rough_split_still_runs_the_commits_md_check(scratch):
 def test_crash_in_one_check_keeps_earlier_denies(repo, monkeypatch, capsys):
     import importlib.util
 
-    spec = importlib.util.spec_from_file_location("techne_git_guards", GUARDS)
+    spec = importlib.util.spec_from_file_location("phylax_git_guards", GUARDS)
     assert spec and spec.loader
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -561,7 +561,7 @@ def test_gh_repo_flag_after_pr(repo):
 def test_crash_in_one_subcommand_still_checks_the_next(scratch, monkeypatch, capsys):
     import importlib.util
 
-    spec = importlib.util.spec_from_file_location("techne_git_guards_2", GUARDS)
+    spec = importlib.util.spec_from_file_location("phylax_git_guards_2", GUARDS)
     assert spec and spec.loader
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)

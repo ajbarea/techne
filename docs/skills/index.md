@@ -1,6 +1,6 @@
 # Skills
 
-The included skills, grouped by what they do.
+The skills ship in two plugins: `techne` for work in a code repo, `graphe` for documents. Grouped by what they do.
 
 ## Build hygiene
 
@@ -39,12 +39,12 @@ The included skills, grouped by what they do.
 |---|---|
 | [`techne:theoros`](theoros.md) | Starts an observed live dev session: Claude drives the REPL in a named tmux session; you spectate read-only via `tmux attach -r`. |
 
-## Research
+## Documents (graphe)
 
 | Skill | Purpose |
 |---|---|
-| [`techne:paper`](paper.md) | Scaffolds a new paper dir (LaTeX + results-harvest + shared bib + portfolio row) in a papers-style monorepo so it builds on day one. |
-| [`techne:paper-review`](paper-review.md) | Pre-submission novelty + reviewer pass: grounds every novelty/claim verdict in retrieved prior work, flags related-work gaps, and surfaces lab-overlap for disclosure. |
-| [`techne:latex`](latex.md) | Builds a LaTeX document and gates it on its log, its PDF, and the assignment it answers; a clean `latexmk` exit is not the signal. |
-| [`techne:pdf`](pdf.md) | Renders markdown to print-quality PDFs through a Typst template, then verifies fonts and content against the source. |
-| [`techne:slides`](slides.md) | Gates a talk deck before it is presented: real slide titles, contrast, alt text, stray figures; renders it through the app that will show it. |
+| [`graphe:paper`](paper.md) | Scaffolds a new paper dir (LaTeX + results-harvest + shared bib + portfolio row) in a papers-style monorepo so it builds on day one. |
+| [`graphe:paper-review`](paper-review.md) | Pre-submission novelty + reviewer pass: grounds every novelty/claim verdict in retrieved prior work, flags related-work gaps, and surfaces lab-overlap for disclosure. |
+| [`graphe:latex`](latex.md) | Builds a LaTeX document and gates it on its log, its PDF, and the assignment it answers; a clean `latexmk` exit is not the signal. |
+| [`graphe:pdf`](pdf.md) | Renders markdown to print-quality PDFs through a Typst template, then verifies fonts and content against the source. |
+| [`graphe:slides`](slides.md) | Gates a talk deck before it is presented: real slide titles, contrast, alt text, stray figures; renders it through the app that will show it. |

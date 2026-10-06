@@ -1,4 +1,4 @@
-# `techne:paper-review`
+# `graphe:paper-review`
 
 A pre-submission novelty and reviewer pass for a draft paper — checks whether each contribution
 is actually new, what related work the draft misses, whether its claims hold up, and whether it
@@ -10,12 +10,12 @@ retrieved paper, never asserted from memory.
 - A first-author draft is approaching submission: "review `<name>` for novelty", "what related
   work am I missing", "is this contribution new".
 - NOT for copy-editing prose or for a paper with no stated contributions yet — scaffold first
-  with [`techne:paper`](paper.md).
+  with [`graphe:paper`](paper.md).
 
 ## Usage
 
 ```
-/techne:paper-review <name | path/to/doc.tex> [--from <repo>]
+/graphe:paper-review <name | path/to/doc.tex> [--from <repo>]
 ```
 
 Reads the `## paper-review` section of `.claude/skill-context.md` (overlap source of truth,
@@ -39,5 +39,5 @@ Claim-support also runs the *Claims* checks in `_shared/plain-prose.md`: numbers
 
 ## See also
 
-- [`techne:paper`](paper.md): scaffolds the draft this skill reviews.
+- [`graphe:paper`](paper.md): scaffolds the draft this skill reviews.
 - [Conventions](../conventions.md).

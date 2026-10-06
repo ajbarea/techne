@@ -35,12 +35,12 @@ jobs:
       - name: Structural checks + pytest
         run: make test
         env:
-          # No TeX Live on the runner, so techne:latex's end-to-end cases cannot
+          # No TeX Live on the runner, so graphe:latex's end-to-end cases cannot
           # build. Declaring the opt-out is what keeps them from skipping unseen:
           # without this the suite fails rather than reporting a green run that
           # tested nothing. The gate parsers themselves run here unconditionally.
           TECHNE_NO_TEX: "1"
-          # techne:pdf's renders compile through Typst, whose first run fetches
+          # graphe:pdf's renders compile through Typst, whose first run fetches
           # cmarker from Typst Universe. Declining that keeps the pipeline
           # hermetic; the markdown front end is covered here unconditionally.
           TECHNE_NO_TYPST: "1"

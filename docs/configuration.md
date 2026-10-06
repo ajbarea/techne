@@ -40,7 +40,7 @@ status = "active"
 
 ## Guards
 
-techne ships three `PreToolUse` hooks on the Bash tool. Each is off until you switch it on in `/config`, under the techne plugin's options.
+phylax ships three `PreToolUse` hooks on the Bash tool. Each is off until you switch it on in `/config`, under the phylax plugin's options.
 
 | Option | What it does |
 |---|---|
@@ -59,16 +59,18 @@ What each guard reads:
 To turn an enabled guard off in one repo, set the option's camelCase name in that repo's git config:
 
 ```bash
-git config techne.blockAttributionTrailers false
-git config techne.blockCommitsMd false
-git config techne.warnMainCheckoutCommit false
+git config phylax.blockAttributionTrailers false
+git config phylax.blockCommitsMd false
+git config phylax.warnMainCheckoutCommit false
 ```
+
+These keys were `techne.*` before the guards moved to the phylax plugin; rename any you set.
 
 The hook runs on every Bash call, since Claude Code's `Bash(git *)` filter skips commands such as `time git add`. With every option off, it stops in the shell and `python3` never starts. Once one is on, it needs `python3` 3.9 or newer on `PATH`, adds about 40 ms to each Bash call, and runs read-only git commands in the target repo. Parsing is best effort: a git command inside `$(...)` or `bash -c` is not checked, and neither are paths that `xargs` reads from stdin or that `$(...)` produces. A `COMMITS.md` staged that way in one Bash call is still refused by the next call's `git commit`, but not by a commit later in the same call. A command that creates `COMMITS.md` and then runs a broad `git add` (`.`, `-A`) is refused.
 
 ## Restart on update
 
-Claude Code updates itself on disk, but an open session keeps running the old binary until you restart it. With `restart_on_update` switched on in `/config`, techne restarts an idle session onto the installed version and keeps the conversation.
+Claude Code updates itself on disk, but an open session keeps running the old binary until you restart it. With `restart_on_update` switched on in `/config`, phylax restarts an idle session onto the installed version and keeps the conversation.
 
 It runs on the `idle_prompt` notification, which Claude Code sends about a minute after a turn ends, and only when you appear to be away from that terminal and have not typed since. A session in the tab you are looking at is not restarted, and Claude Code does not send the notification again when you leave later, so that session moves after its next reply. The hook goes ahead only when all of these hold:
 
@@ -93,15 +95,17 @@ In any other terminal, the hook tells you once per session that it cannot restar
 Windows Terminal's default `closeOnExit` closes a tab only when its shell exits with code 0, and a shell ended by a signal exits with 129. To let the old tab close cleanly, add this to `~/.bashrc` (bash 5.1 or newer, which runs every entry of a `PROMPT_COMMAND` array):
 
 ```bash
-# techne restart_on_update: close this tab once its Claude session has moved to a new one
-__techne_restart_close() {
-  local m="${XDG_RUNTIME_DIR:-/tmp}/techne-restart-$UID/close-$$"
+# phylax restart_on_update: close this tab once its Claude session has moved to a new one
+__phylax_restart_close() {
+  local m="${XDG_RUNTIME_DIR:-/tmp}/phylax-restart-$UID/close-$$"
   if [ -e "$m" ] && [ -z "$(jobs -p)" ]; then rm -f "$m"; exit 0; fi
 }
-PROMPT_COMMAND+=(__techne_restart_close)
+PROMPT_COMMAND+=(__phylax_restart_close)
 ```
 
-In zsh, put the same function in `~/.zshrc` and register it with `precmd_functions+=(__techne_restart_close)` instead of the last line.
+A snippet from before the move to phylax checks `techne-restart-$UID`; replace it with this one.
+
+In zsh, put the same function in `~/.zshrc` and register it with `precmd_functions+=(__phylax_restart_close)` instead of the last line.
 
 Without it, the handoff sends the shell SIGHUP, and the tab stays open showing the exit code until you close it. A shell that has a job by then is left open either way. Tabs the handoff opens close themselves without the snippet.
 
@@ -110,7 +114,7 @@ Without it, the handoff sends the shell SIGHUP, and the tab stays open showing t
 - The session file is undocumented Claude Code state. When a field is missing or changes meaning, the check fails and nothing restarts.
 - Text typed into the prompt but not sent is lost on restart. The countdown takes focus, so a key pressed in the new tab cancels the restart.
 - A session whose directory path contains `;` is not restarted under Windows Terminal, which reads `;` as a separator between its own commands.
-- `restart_on_update` works on Linux and WSL only, since it reads `/proc`. It needs `python3` 3.9 or newer, and `tmux`, or `wt.exe` under WSL. It keeps its state and a log in `$XDG_RUNTIME_DIR/techne-restart-<uid>/`, or under `/tmp` when that is unset, and does nothing unless that directory is yours and private.
+- `restart_on_update` works on Linux and WSL only, since it reads `/proc`. It needs `python3` 3.9 or newer, and `tmux`, or `wt.exe` under WSL. It keeps its state and a log in `$XDG_RUNTIME_DIR/phylax-restart-<uid>/`, or under `/tmp` when that is unset, and does nothing unless that directory is yours and private.
 
 ## Per-skill configuration
 
@@ -120,7 +124,7 @@ Most skills read additional repo-local config when needed (e.g. `techne:audit` l
 
 ```
 ~/.claude/techne.toml      ← user-controlled sister-repo registry
-~/.claude/plugins/...      ← installed techne skills and hooks
+~/.claude/plugins/...      ← installed techne, graphe and phylax plugins
 ~/.claude/settings.json    ← pluginConfigs: hook options set in /config
 <repo>/.claude/...         ← per-repo overrides (skill-context, etc.)
 <repo>/Makefile, logs/, zensical.toml, ... ← what individual skills read

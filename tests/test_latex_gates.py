@@ -1,4 +1,4 @@
-"""Unit tests for techne:latex's log, bibliography, and coverage gates.
+"""Unit tests for graphe:latex's log, bibliography, and coverage gates.
 
 Every defect found in this script so far has been a misclassification in a pure
 function: a regex that matched nothing, or a finding reported when it should

@@ -1,0 +1,285 @@
+---
+name: slides
+description: Build a talk deck and gate it before it is presented. Use when making or revising slides, a PowerPoint deck or a Typst or Beamer PDF deck, turning a paper or a draft deck into a talk or a recorded video, writing the script to read aloud on each slide, adapting a deck for a new audience, or asking whether a deck is ready to present. Covers the toolchain choice, a starter deck, how to write slides a newcomer can follow, the gates that catch a deck that opens fine but fails its audience (untitled slides, low contrast, missing alt text, stray figures), rendering through the app that will show it, and briefing the presenter. Works alongside a general pptx skill, which owns the .pptx file API; this one owns what goes on the slides and whether the deck is ready.
+disable-model-invocation: false
+allowed-tools: Bash Glob Grep Read Edit Write
+---
+
+# Slides
+
+A deck is done when someone who has never seen it can present it from the
+slides alone, and its owner can answer questions on it, not when the file
+opens. Start from the starter deck, write for the room, put a figure on every
+content slide, gate the file, render it through the app that will show it, look
+at every slide, then brief the presenter.
+
+## Run it
+
+```
+uv run --quiet python ${CLAUDE_SKILL_DIR}/scripts/slides.py check  <deck.pptx|deck.pdf> [--jargon "term,term"] [--backup-from N]
+uv run --quiet --with pillow python ${CLAUDE_SKILL_DIR}/scripts/slides.py render <deck.pptx|deck.pdf> <out-dir>
+uv run --quiet python ${CLAUDE_SKILL_DIR}/scripts/slides.py script <deck.pptx> > <deck>-script.md
+```
+
+A Typst or Beamer deck is checked and rendered from its PDF. `check` reads each
+page's text with poppler's `pdftotext`, a page's first line standing for its
+title, and runs the gates text can answer (`em-dash`, `long-title`,
+`duplicate-title`, `figures`, `dense`, `jargon`); contrast, alt text, fonts and
+notes live in the source and are reported as not checked. `render` takes the
+PDF as built, so no Office app is involved. `--jargon` lists terms a newcomer
+would not know; `--backup-from` marks the first backup slide when no divider is
+titled `Backup` or `Appendix` (an FAQ section, say).
+
+`check` has no Python dependencies (a PDF also needs poppler's `pdftotext`). `render` needs poppler, plus PowerPoint (native
+Windows, or Windows reached from WSL) or LibreOffice; with Pillow it also writes
+2x2 contact sheets, which is the fastest way to look at a whole deck. `script`
+prints the speaker notes as one Markdown script, slide by slide, with the talk
+length at 140 words a minute (`--wpm` to change it); backup slides are listed
+after the talk and left out of the length.
+
+**`render` needs a folder of its own.** It deletes old `slide-*.png` and
+`sheet-*.png` and overwrites `<deck>.pdf` there, so it refuses any non-empty
+folder it did not create (it marks its own with `.techne-slides`). Never point
+it at the deck's folder: that is where the PDF someone is about to send lives.
+
+| Code | Meaning |
+|---|---|
+| 0 | Every gate passed. `REVIEW` lines still need a decision. |
+| 1 | The file, or a part it points at, could not be read. |
+| 2 | `BLOCK` findings. Fix them in the generator, not the packed XML. |
+
+## The gates
+
+| Severity | Gate | Catches |
+|---|---|---|
+| BLOCK | `no-title` | A slide with no title placeholder. A bold text box looks like a title; screen readers and the outline see an untitled slide. |
+| BLOCK | `contrast` | Text below 7:1 (4.5:1 for 18pt+, or 14pt+ bold). `--level AA` drops to 4.5:1 / 3:1. The colour behind the text is resolved: its own fill, else the topmost filled shape under its centre, else the first of slide, layout and master that defines a background. Text over a picture, gradient, theme-styled or translucent fill, or inside a group, is counted as unchecked rather than guessed. A title with no size of its own takes the master's title size. |
+| BLOCK | `alt-text` | A picture with no description and no decorative flag. |
+| BLOCK | `em-dash` | An em-dash in slide text. |
+| WARN | `small-text` | An explicit size under `--min-pt` (14). The slide-number field is exempt. |
+| WARN | `font` | A family outside the set that renders in both PowerPoint and Google Slides. Theme references (`+mn-lt`, `+mj-lt`) resolve through the master's theme. |
+| WARN | `no-notes` / `duplicate-title` | A talk slide with no script in its speaker notes (backup slides are exempt), or two slides a screen reader cannot tell apart. |
+| REVIEW | `figures` / `dense` | Percentages, ratios, decimals, `x of y` and long numbers (a thousands-separated number is one figure; years and digits inside identifiers are labels), or body text over 60 words, on talk slides. Slide 1 is exempt, and so is everything after a divider titled exactly `Backup`, `Backup slides` or `Appendix`, or from `--backup-from`. On a PDF, words inside figures count too: a `dense` on a figure-heavy slide is not a reason to cut the figure. |
+| REVIEW | `jargon` | A `--jargon` term on a talk slide, title slide included. Use the plain word on the slide and the term in a muted footnote. |
+| REVIEW | `long-title` | Titles over 14 words, on every slide. |
+
+What `check` cannot see: text overflowing its box, shapes overlapping, a
+diagram that reads wrong. That is what `render` is for. Look at every slide,
+including the ones you did not change.
+
+## Writing it for the room
+
+`# research(2026-09)`
+
+The test for every slide: someone who has never heard the terms follows it.
+The slide text and the script follow `${CLAUDE_PLUGIN_ROOT}/_shared/plain-prose.md`; the
+guidance below is what a deck adds to it. To check a script, run
+`uv run --quiet python ${CLAUDE_PLUGIN_ROOT}/_shared/prose_check.py <deck>-script.md`.
+
+- **The headline is the slide's claim**, a short full sentence ("Every query
+  passes a code-only checkpoint first"), not a topic ("Architecture").
+  Engineering students taught from claim headlines over visual evidence showed
+  better comprehension and fewer misconceptions than with topic headlines over
+  bullets ([2025 study](https://www.sciencedirect.com/science/article/pii/S2307187725001701)).
+- **An agenda slide right after the title.** The talk's parts, in order, in
+  plain words, plus where the discussion stops fall. It orients the room, and
+  it is the presenter's map when a question pulls the talk off course. Keep
+  the section names identical to the kicker labels on the slides they
+  introduce ("3 · How it works · Before the data").
+- **A story arc.** The problem, the catch that makes it hard, the idea, how it
+  works, what was found (including where it failed and what is still
+  untested), what comes next, and a plain closing slide: "Thank you", the
+  presenter's name and contact. No tagline or contrast-statement slide; the
+  presenter introduces themselves and states the take-home aloud, in the script.
+  A general audience keeps three to five main
+  points ([Science Communication Toolkit](https://ecampusontario.pressbooks.pub/scicommtoolkit/chapter/talks/)).
+  An honest limits slide makes the claims before it believable.
+- **Plain words on the slide, the source's term underneath.** Name each idea
+  in words a newcomer already knows ("Read-only, twice"), and put the paper's
+  name for it in a muted footnote ("Paper term: law documents"). The room
+  follows the plain version; anyone who reads the paper later can map it back.
+  Spell out every acronym.
+- **Define a term on the slide where it first appears**, in one muted line
+  ("Air-gapped: cut off from the internet."). A vocabulary slide early in the
+  talk collects the few terms that keep coming back, one everyday sentence
+  each.
+- **A concrete case before the general rule.** Show one worked instance (one
+  player, three datasets, three IDs), then name the pattern it stands for ("the
+  analyst's ID problem"). Newcomers learn from the concrete case first; the
+  named rule is what transfers
+  ([concreteness fading](https://www.learningscientists.org/blog/2018/2/1-1)).
+- **Text alone or figure alone, the point lands.** Read each talk slide twice:
+  once with the figure covered, once with the text covered. Both readings must
+  give its main point. The sentence headline carries it in words; the figure
+  carries it in marks, labelled inside the figure. This is the assertion-evidence
+  design: a claim headline over visual evidence, which audiences understand and
+  recall better than topic titles over bullets ([Garner and Alley](https://www.researchgate.net/publication/286042632_How_the_Design_of_Presentation_Slides_Affects_Audience_Comprehension_A_Case_for_the_Assertion-Evidence_Approach)).
+- **A figure on every content slide, and the diagram is the last thing cut.**
+  Agenda, discussion, closing and divider slides are exempt. A
+  slide of text cards is a draft: turn it into a picture of the idea. Shapes
+  that recur: a concrete before-and-after (what the tool gets wrong, what the
+  expert wants), a flow of numbered stages, a two-group comparison, a timeline,
+  or three small labelled panels. When a talk runs long, cut words from the
+  script and footnotes, never a diagram that carries a slide.
+- **Self-explaining figures.** Labels sit inside the figure ("average", "one
+  split"), the caption says what each mark means ("filled: found"), and an
+  invented example or a bar with no data behind its height says so
+  ("Illustrative example", "Bars are not to scale").
+- **One idea per slide, and little text.** The 7x7 rule is the right instinct:
+  a slide holds phrases, and the explanation goes in the figure or the script.
+  When a `dense` review fires on prose, cut and move the words rather than
+  shrinking the font.
+- **Numbers when this audience needs them.** It is a call per room, not a rule.
+  For a general audience, state the claim ("most got through; after the fixes,
+  none did") and put the figures on backup slides; for a technical one, the
+  figure may be the claim. A count drawn as marks (nineteen of twenty dots
+  filled) is a figure too: it traces to the same source a typed number would.
+- **Discussion stops** go right after the slide whose idea they generalize: a
+  dark slide, one short personal question anyone can answer without the paper
+  ("What's one thing you would never let an AI do for you?"), and a muted line
+  of example answers that gets the room started ("Send a message as you? Spend
+  your money? Grade your work?").
+- **Talk lean, backup unlimited.** A `Backup slides` divider (or an FAQ
+  section, with `--backup-from`) separates the talk from Q&A material. Behind
+  it, a slide can be as long and detailed as an answer needs: it is read when
+  someone asks, not presented cold.
+- **Source-bound.** When only one artifact is cleared for release (a prepub
+  paper, say), every claim on a slide comes from it. Flag what you left out.
+
+## The script
+
+The speaker notes hold the script: the words the presenter says out loud on
+each slide, written to be read from like a teleprompter. It supports the
+slides and never replaces them: a presenter giving the talk at a moment's
+notice may not read it, so every point the talk needs is on the slide. A
+presenter who knows the material may never open it; one recording a video
+reads it line by line.
+PowerPoint's Presenter View shows it beside the slide, and its recording
+teleprompter scrolls it while the camera runs
+([Microsoft](https://support.microsoft.com/en-us/powerpoint/record-your-presentation)).
+
+- **First person, spoken sentences, start to finish.** "Here's the problem.
+  An analyst's evidence lives in four different systems..." Not reminders, not
+  briefing notes ("The paper calls this...").
+- **The same plain words as the slides.** Say what each term means the first
+  time it is used, and say the paper's name for it only when someone will need
+  it later.
+- **Exact wording where it matters.** Where a word would overclaim, the script
+  already uses the safe one ("tamper-evident", never "tamper-proof").
+- **End each slide with the line that leads into the next.**
+- **Discussion slides:** the script reads the question, offers one example
+  answer, and ends with the sentence that closes the discussion and ties it
+  back to the talk.
+- **Length.** Presenters speak at about 130 to 150 words a minute
+  ([VirtualSpeech](https://virtualspeech.com/blog/average-speaking-rate-words-per-minute)).
+  `script` prints the total, a guide to the time slot rather than a gate: when
+  the talk runs long, cut slides' words and the script's asides, not figures.
+- **Figures and answers to likely questions stay out of the script.** They go
+  on backup slides and into the briefing.
+
+Hand the presenter the exported `script` file along with the deck; they
+should not have to find the notes pane to see it.
+
+## The starter deck
+
+`templates/deck.js` is a pptxgenjs generator for the look this skill was
+built from: warm off-white background, near-black text, blue labels, an
+orange accent for costs and limits, content in cards with a bold label and
+one plain line, a kicker above every title, and dark discussion slides. It has
+one of each layout: title, agenda, claim with cards and footnotes, vocabulary,
+concrete case, discussion, limits, closing statement, backup divider, backup
+table. Every colour clears 7:1, and the starter passes `check` with nothing to
+review.
+
+```
+cp ${CLAUDE_SKILL_DIR}/templates/deck.js <talk-dir>/build.js
+cd <talk-dir> && npm i pptxgenjs && node build.js talk.pptx
+```
+
+Replace every bracketed placeholder, drop the layouts the talk does not need,
+and copy a layout to add slides. Keep its helpers (`base`, `kicker`, `card`,
+`footnote`, `discussion`, `backup`): they put titles in the title placeholder
+and keep the kicker, colours and sizes consistent.
+
+## The toolchain, and why
+
+`# research(2026-09)`
+
+- **Typst + Touying** for a deck you own and present as a PDF, with math,
+  diagrams, or generated figures. The compiler ships in the `typst` wheel the
+  fleet already pins for `graphe:pdf`, so there are no new dependencies. Touying
+  is actively maintained
+  ([0.8.0 on Typst Universe](https://typst.app/universe/package/touying/)
+  needs Typst 0.15; pin the release your `typst` wheel supports). Its
+  `simple` theme takes a different signature and fails with "missing argument:
+  body"; `metropolis`, `university` and `dewdrop` work.
+- **pptxgenjs** when the deck must be a `.pptx`: it will be presented from
+  PowerPoint or Google Slides, co-edited, recorded, or delivered on a template.
+  Generate it from a script (start from the starter deck) so a rebuild is one
+  command. The Anthropic `pptx` skill covers
+  the API; the traps it does not cover are below.
+- **Fonts: Calibri for text, Consolas for code.** Both render in PowerPoint and
+  in Google Slides, so the deck looks the same wherever it opens. A font that
+  exists only on the build machine is substituted silently on the presenter's.
+- **Render through the presenting app.** PowerPoint via COM is the ground truth
+  when it is installed; `render` finds it from WSL. LibreOffice substitutes
+  fonts it lacks, so its preview can show overflow the real deck does not have,
+  or hide overflow it does.
+
+## Traps
+
+- **pptxgenjs table margins are inches** since v3.8.0. Older docs and search
+  results say points. `margin: [0, 6, 0, 6]` is six-inch padding and collapses
+  every column to one character wide.
+- **Put titles in a title placeholder.** In pptxgenjs, define a master with
+  `placeholder: { options: { type: "title", align: "left" } }` and add each
+  title with `{ placeholder: "title" }`. The placeholder centres text unless
+  told otherwise.
+- **Parse the XML, do not grep it.** pptxgenjs writes `<p:ph` and `type="title"`
+  on different lines, so a one-line grep reports a deck full of titles as
+  untitled.
+- **Text boxes on cards.** A text box drawn over a filled shape has no fill of
+  its own. Contrast is only meaningful against the card, which is why the gate
+  resolves the shape underneath.
+- **PowerPoint is single-instance.** `Quit()` on an instance the user already
+  had open closes their presentations. `render` quits only an instance it
+  started.
+- **PowerShell 5 reads a `.ps1` without a BOM as the ANSI code page**, so a
+  non-ASCII user name in a temp path arrives mangled. Write generated scripts
+  as UTF-8 with a BOM.
+- **A deck open in PowerPoint is locked** (a `~$<name>.pptx` file sits beside
+  it). Copying over it fails, but a PDF beside it copies fine, which leaves a
+  mismatched pair. Publish the `.pptx` first and stop on failure; when it is
+  locked, write the new version under a new name and say so.
+- **Typst passes a bracket as content, not a string.** `member[OpenStack][in]`
+  hands the function the content `[in]`, so `state == "in"` is false and the
+  slide renders the wrong style with no error. Pass `member("OpenStack",
+  "in")` wherever a value is compared.
+- **Placed labels collide silently.** Labels positioned with `place()` on a
+  timeline or axis overlap when their points are close, and nothing warns.
+  Render and look; stagger labels above and below, or merge two close points
+  under one label.
+- **Splicing generated slide text duplicates blocks.** Cutting a section out of
+  a slide file by start and end markers can carry a neighbour's grid along, and
+  the slide quietly spills onto a second page. Count pages after every
+  rebuild, and look at the page that changed.
+- **Headless LibreOffice on the user's own profile** hands the job to an
+  already-open LibreOffice window, which may drop it, and `soffice` still exits
+  0. Give it a private `-env:UserInstallation` profile and check the PDF exists.
+
+## Done means
+
+1. `check` exits 0, and each `REVIEW` item is resolved or deliberately kept.
+2. `render` ran through the presenting app, and every slide was looked at.
+3. Every content slide passes the text-alone and figure-alone reading, and has a
+   figure. A deck with a script hands it over with the deck; its length is near
+   the slot, and the slides stand without it.
+4. The presenter has been briefed. A polished deck can outrun its owner. Offer a
+   mock Q&A, with questions out of order and no notes, before the talk rather
+   than after. Two basic questions about material already in the deck mean stop
+   polishing and start drilling.
+
+## Not this skill
+
+- Markdown to a print PDF: `graphe:pdf`.
+- A LaTeX document: `graphe:latex`.
