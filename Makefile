@@ -48,12 +48,13 @@ GUARD_SKIP := ':!Makefile' ':!ROADMAP.md' ':!.claude/skill-context.md'
 
 # plugins/techne/_shared/ is the source for a file several plugins need; another plugin
 # carries a copy, since a plugin installs alone and can't read a sibling's files.
-guards:                 ## Stale-path + legacy-name + shared-copy + action-pin guards
+guards:                 ## Stale-path + legacy-name + shared-copy + plugin-path + action-pin guards
 	@for f in plugins/*/_shared/*; do \
 		src="plugins/techne/_shared/$${f##*/}"; \
 		[ -f "$$src" ] && [ "$$f" != "$$src" ] || continue; \
 		cmp -s "$$f" "$$src" || { echo "FAIL: $$f differs from $$src"; exit 1; }; \
 	done
+	@bash scripts/check_plugin_refs.sh
 	@if git grep -n --untracked -E '\.claude/skills/_shared' -- $(GUARD_SKIP); then \
 		echo "FAIL: still references the old absolute _shared path"; exit 1; \
 	fi
@@ -102,10 +103,11 @@ EVAL_PLUGINS := $(patsubst %/evals,%,$(wildcard plugins/*/evals))
 
 evals:                  ## Routing + behavior evals (claude plugin eval; runs on your credential)
 	@bash scripts/eval-plugin.sh
-	@for p in $(EVAL_PLUGINS); do \
+	@failed=""; for p in $(EVAL_PLUGINS); do \
 		(cd "$$p" && claude plugin eval . --tag routing --ablation none --trust-plugin \
-			--no-publish -j 2 --threshold 0.9) || exit 1; \
-	done
+			--no-publish -j 2 --threshold 0.9) || failed="$$failed $$p"; \
+	done; \
+	[ -z "$$failed" ] || { echo "FAIL: routing evals below threshold in:$$failed"; exit 1; }
 	@cd plugins/techne && claude plugin eval . --tag behavior --ablation none --trust-plugin \
 		--no-publish -j 2 --threshold 0.9 --scaffold
 

@@ -158,7 +158,7 @@ Detail lives in git history (`git log`) and the live skill code. This log is pru
 
 - 2026-10-05: **One marketplace, four plugins (#104).** `ajbarea/techne` is the one marketplace for
   AJ's plugins, split by audience and by the surfaces each part loads on: `techne` (code-repo
-  skills), `graphe` (document skills, which also load on claude.ai chat and Cowork), `phylax`
+  skills), `graphe` (document skills; skills only, so claude.ai and Cowork can install it), `phylax`
   (opt-in hooks; git config keys and state dir renamed from `techne`), and `keryx` from its own
   repo. Files several plugins need are copied from `plugins/techne/_shared/`, and `make guards`
   fails on a copy that differs. The short-lived `ajbarea/ajsoftworks` catalog is retired.

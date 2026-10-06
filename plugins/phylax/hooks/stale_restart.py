@@ -37,15 +37,15 @@ import time
 from pathlib import Path
 
 # Overridable so tests can point the check at fixture files.
-SESSIONS = Path(os.environ.get("TECHNE_RESTART_SESSIONS") or Path.home() / ".claude" / "sessions")
-PROC = Path(os.environ.get("TECHNE_RESTART_PROC") or "/proc")
+SESSIONS = Path(os.environ.get("PHYLAX_RESTART_SESSIONS") or Path.home() / ".claude" / "sessions")
+PROC = Path(os.environ.get("PHYLAX_RESTART_PROC") or "/proc")
 # The bash snippet in docs/configuration.md and resume_script() build the same path.
 STATE = Path(os.environ.get("XDG_RUNTIME_DIR") or "/tmp") / f"phylax-restart-{os.getuid()}"
-COUNTDOWN = int(os.environ.get("TECHNE_RESTART_COUNTDOWN", "15"))
-TERM_WAIT = float(os.environ.get("TECHNE_RESTART_TERM_WAIT", "10"))
-SHELL_WAIT = float(os.environ.get("TECHNE_RESTART_SHELL_WAIT", "3"))
+COUNTDOWN = int(os.environ.get("PHYLAX_RESTART_COUNTDOWN", "15"))
+TERM_WAIT = float(os.environ.get("PHYLAX_RESTART_TERM_WAIT", "10"))
+SHELL_WAIT = float(os.environ.get("PHYLAX_RESTART_SHELL_WAIT", "3"))
 # After TERM_WAIT, how much longer a handoff with no terminal waits for the exit.
-LATE_WAIT = float(os.environ.get("TECHNE_RESTART_LATE_WAIT", "60"))
+LATE_WAIT = float(os.environ.get("PHYLAX_RESTART_LATE_WAIT", "60"))
 # A plan whose handoff never ran (the launcher failed silently) stops blocking after this.
 PLAN_TTL = 600
 VERSION_RE = re.compile(r"(\d+)\.(\d+)\.(\d+)")
@@ -187,7 +187,7 @@ def owner() -> int:
     """The claude process that fired this hook: hooks.json execs python3, so the parent.
     A conversation can be open in two processes at once (`--resume` twice), so the session
     id alone does not say which process to act on."""
-    return int(os.environ.get("TECHNE_RESTART_PARENT") or os.getppid())
+    return int(os.environ.get("PHYLAX_RESTART_PARENT") or os.getppid())
 
 
 def session_for(session_id: str) -> dict | None:

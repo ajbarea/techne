@@ -48,7 +48,7 @@ Two layers, for two kinds of failure.
 
 **Scripts** (`make test-unit`). Every script a skill ships has pytest coverage: the LaTeX log gates, the markdown-to-Typst renderer, the catch-up sweep, the slide-deck checker, auto-commit's staleness fingerprint, and the theoros session lifecycle, which drives real tmux sessions. These run in CI.
 
-**Routing** (`make evals`). A skill that never fires does nothing, and a skill that fires on someone else's request does harm. `claude plugin eval` sends natural-language prompts to fresh sessions and records which skill Claude chose. Each skill has a case that must fire it, and collision cases must not: merging a PDF is not `graphe:pdf`, an email catch-up is not `techne:catchup`, editing a slide's title is not `graphe:slides`. Every case also loads stand-ins for the general PDF, PPTX, and inbox catch-up skills that share a session with techne, so an overlapping description fails a case instead of shipping. Evals run on your own credential and are not part of CI.
+**Routing** (`make evals`). A skill that never fires does nothing, and a skill that fires on someone else's request does harm. `claude plugin eval` sends natural-language prompts to fresh sessions and records which skill Claude chose. Each skill has a case that must fire it, and collision cases must not: merging a PDF is not `graphe:pdf`, an email catch-up is not `techne:catchup`, editing a slide's title is not `graphe:slides`. Every case also loads the other plugin's skills and stand-ins for the general PDF, PPTX, and inbox catch-up skills, so a description that overlaps any of them fails a case instead of shipping. Evals run on your own credential and are not part of CI.
 
 ## See also
 

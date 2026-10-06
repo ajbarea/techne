@@ -64,6 +64,8 @@ git config phylax.blockCommitsMd false
 git config phylax.warnMainCheckoutCommit false
 ```
 
+These keys were `techne.*` before the guards moved to the phylax plugin; rename any you set.
+
 The hook runs on every Bash call, since Claude Code's `Bash(git *)` filter skips commands such as `time git add`. With every option off, it stops in the shell and `python3` never starts. Once one is on, it needs `python3` 3.9 or newer on `PATH`, adds about 40 ms to each Bash call, and runs read-only git commands in the target repo. Parsing is best effort: a git command inside `$(...)` or `bash -c` is not checked, and neither are paths that `xargs` reads from stdin or that `$(...)` produces. A `COMMITS.md` staged that way in one Bash call is still refused by the next call's `git commit`, but not by a commit later in the same call. A command that creates `COMMITS.md` and then runs a broad `git add` (`.`, `-A`) is refused.
 
 ## Restart on update
@@ -100,6 +102,8 @@ __phylax_restart_close() {
 }
 PROMPT_COMMAND+=(__phylax_restart_close)
 ```
+
+A snippet from before the move to phylax checks `techne-restart-$UID`; replace it with this one.
 
 In zsh, put the same function in `~/.zshrc` and register it with `precmd_functions+=(__phylax_restart_close)` instead of the last line.
 

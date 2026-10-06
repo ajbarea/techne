@@ -19,14 +19,14 @@
 
 ## Plugins
 
-| Plugin | For | Loads in |
+| Plugin | For | Runs in |
 | --- | --- | --- |
 | `techne` | Work in a code repo: audits, CI review, pre-merge review, commit plans, GitHub catch-up, cross-repo drift, slop and doc drift | Claude Code |
-| `graphe` | Documents: LaTeX papers, markdown-to-PDF, talk decks, paper scaffolds and novelty review | Claude Code, Cowork, claude.ai chat |
+| `graphe` | Documents: LaTeX papers, markdown-to-PDF, talk decks, paper scaffolds and novelty review | Claude Code |
 | `phylax` | Opt-in hooks: git and PR guards, restart onto an updated Claude Code | Claude Code |
 | [`keryx`](https://github.com/ajbarea/keryx) | Speaks a short gist of each reply in a local voice (WSL2) | Claude Code |
 
-Install only the ones you use: every enabled plugin's skill list sits in Claude's context on every turn.
+Install only the ones you use: every enabled plugin's skill list sits in Claude's context on every turn. graphe holds skills only, so claude.ai and Cowork can install it too, but its build and check steps run shell commands (`uv`, TeX Live, Typst) that need Claude Code.
 
 ### techne
 
