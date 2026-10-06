@@ -4,7 +4,7 @@
 ## that techne itself documents at docs/conventions.md.
 ##
 
-.PHONY: help check-env setup manifests plugin-validate test-hooks-oldest frontmatter fix lint shellcheck guards test-unit zizmor test validate build ci clean docs evals evals-bash
+.PHONY: help check-env setup manifests plugin-validate plugin-test test-hooks-oldest frontmatter fix lint shellcheck guards test-unit zizmor test validate build ci clean docs evals evals-bash
 .DEFAULT_GOAL := help
 
 check-env:              ## Verify required tools are on PATH
@@ -18,8 +18,17 @@ manifests:              ## Verify plugin + marketplace manifest JSON (stdlib jso
 		uv run python -m json.tool "$$f" >/dev/null || { echo "FAIL: $$f"; exit 1; }; \
 	done
 
+# The Claude Code build plugin-validate and plugin-test run through npx, so local runs and CI
+# judge the same output. Mods need 2.1.287 or later.
+export CLAUDE_CODE_VERSION := 2.1.291
+
 plugin-validate:        ## claude plugin validate on each plugin + the marketplace (hooks, userConfig)
 	@bash scripts/check_plugin_manifest.sh
+
+export TYPESCRIPT_VERSION := 7.0.2
+
+plugin-test:            ## claude plugin test + strict tsc on each plugin that ships a hooks module
+	@bash scripts/check_hooks_modules.sh
 
 frontmatter:            ## Verify SKILL.md frontmatter + theoros structural checks
 	@uv run python scripts/validate_skill_frontmatter.py
@@ -87,7 +96,7 @@ test: manifests frontmatter guards test-unit  ## Structural checks + pytest
 # `build` belongs here: a dependency bump can leave lint and tests green and
 # still abort the site build, and docs.yml only runs on push to main, so
 # nothing else would catch it before it landed.
-validate: lint shellcheck zizmor plugin-validate test test-hooks-oldest build  ## Fast pre-push gate
+validate: lint shellcheck zizmor plugin-validate plugin-test test test-hooks-oldest build  ## Fast pre-push gate
 
 build:                  ## Build docs site (strict; mirrors docs.yml deploy)
 	@uv run zensical build --clean --strict

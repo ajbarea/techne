@@ -1,5 +1,8 @@
 {
-  "description": "Opt-in guards on git commit, git add and gh pr, and an opt-in restart of idle sessions onto an updated Claude Code. Each is off until switched on in /config; with all off, the shell stops before python3 starts.",
+  "description": "Opt-in guards on git commit, git add and gh pr, and an opt-in restart of idle sessions onto an updated Claude Code. The hooks module checks the main thread's git commands; the PreToolUse hook checks subagents' and every call when the module did not load. Each is off until switched on in /config; with all off, neither starts python3.",
+  "modules": [
+    "./register.ts"
+  ],
   "hooks": {
     "PreToolUse": [
       {

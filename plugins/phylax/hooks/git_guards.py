@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
-"""PreToolUse guards on the Bash tool for git commit, git add and gh pr.
+"""Guards on the Bash tool for git commit, git add and gh pr.
 
-Each guard is off until its userConfig option is switched on in /config, which
-Claude Code exports to this process as CLAUDE_PLUGIN_OPTION_<KEY>. A repo turns
-an enabled guard off for itself with `git config phylax.<optionInCamelCase> false`.
+register.ts runs this from its tool.call hook on each main-thread Bash command
+that names git or gh, passing the PreToolUse JSON on stdin and each userConfig
+option as CLAUDE_PLUGIN_OPTION_<KEY>, and reads the decision from stdout. The
+hooks.json PreToolUse hook runs it too, for subagents' commands and for every
+command when the module did not load; mod_checks() stands it down for a command
+the module already checked. A repo turns an enabled guard off for itself with
+`git config phylax.<optionInCamelCase> false`.
 
-hooks.json runs it on every Bash call with no `if` filter, because Claude Code's
-`Bash(git *)` filter does not match `time git ...` or `sudo git ...`. A crash in
-one subcommand's check still checks the rest and emits the denies already found.
+A crash in one subcommand's check, or a git call that cannot run or times out,
+still checks the rest and emits the denies already found; with none found, the
+check fails closed while a blocking guard is on (exit 2, which both callers
+treat as a refusal).
 
 Parsing is best effort: subcommands inside `$(...)` or `bash -c` are not seen.
 Runs on the system python3, so it stays compatible with 3.9 (macOS's).
@@ -27,6 +32,8 @@ ATTRIBUTION = "block_attribution_trailers"
 COMMITS_MD = "block_commits_md"
 MAIN_CHECKOUT = "warn_main_checkout_commit"
 OPTIONS = (ATTRIBUTION, COMMITS_MD, MAIN_CHECKOUT)
+# The guards that refuse a command; MAIN_CHECKOUT only warns.
+BLOCKING = (ATTRIBUTION, COMMITS_MD)
 
 ATTRIBUTION_RE = re.compile(
     r"Claude-Session|claude\.ai/code/session|Co-Authored-By\s*[:=]\s*Claude"
@@ -36,7 +43,7 @@ ATTRIBUTION_RE = re.compile(
 # Exact case: a tracked docs/commits.md page is not the scratchpad.
 SCRATCH_NAME = "COMMITS.md"
 MAX_MESSAGE_FILE = 1 << 20
-# Per git call. A commit runs at most six, inside the 60s hooks.json timeout.
+# Per git call. A commit runs at most six, inside register.ts's 40 s and hooks.json's 60 s.
 GIT_TIMEOUT = 5
 FALSE_VALUES = {"false", "no", "off", "0"}
 # Never run a repo's fsmonitor, and print paths raw so a basename check sees them.
@@ -114,8 +121,21 @@ def repo_key(key: str) -> str:
     return "phylax." + head + "".join(part.capitalize() for part in rest)
 
 
+class GitUnavailable(Exception):
+    """git did not run or did not finish, so a check cannot tell what it would stage."""
+
+
+# Set by the first git call that fails to run; later calls fail at once, so one hung git costs
+# one GIT_TIMEOUT rather than one per call, well inside the hook's own timeout.
+_git_down: str | None = None
+
+
 def run_git(cwd: Path, repo_args: list[str], *args: str, check: bool = True) -> str | None:
-    """Stdout of a git call, or None on failure; `check=False` keeps stdout on any exit."""
+    """Stdout of a git call, or None when git exits non-zero; `check=False` keeps stdout on any
+    exit. Raises GitUnavailable when git cannot start or times out, so the check fails closed."""
+    global _git_down
+    if _git_down is not None:
+        raise GitUnavailable(_git_down)
     env = {**os.environ, "GIT_OPTIONAL_LOCKS": "0"}
     try:
         proc = subprocess.run(
@@ -125,8 +145,12 @@ def run_git(cwd: Path, repo_args: list[str], *args: str, check: bool = True) -> 
             timeout=GIT_TIMEOUT,
             env=env,
         )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
+    except subprocess.TimeoutExpired as exc:
+        _git_down = f"git {args[0] if args else ''} timed out after {GIT_TIMEOUT}s"
+        raise GitUnavailable(_git_down) from exc
+    except OSError as exc:
+        _git_down = f"git could not run: {exc}"
+        raise GitUnavailable(_git_down) from exc
     return proc.stdout if proc.returncode == 0 or not check else None
 
 
@@ -772,11 +796,24 @@ class Guards:
             self.check_attribution(f"`gh pr {words[1]}`", texts, files, cwd, "pr", argv, env)
 
 
+def mod_checks(data: dict) -> bool:
+    """Whether register.ts already checked this call: the hooks.json fallback then stands down.
+
+    The mod names the one call its check passed in PHYLAX_GUARD_CHECKED while that call runs,
+    and clears it after. Any other call (a subagent's, which the mod leaves here because only
+    this hook gets its cwd, or any call when the module did not load) is checked here.
+    """
+    checked = os.environ.get("PHYLAX_GUARD_CHECKED")
+    return bool(checked) and checked == data.get("tool_use_id")
+
+
 def main() -> int:
     payload = sys.stdin.read()
     if not any(option_on(k) for k in OPTIONS):
         return 0
     data = json.loads(payload or "{}")
+    if mod_checks(data):
+        return 0
     raw = (data.get("tool_input") or {}).get("command") or ""
     if not re.search(r"\b(git|gh)\b", raw):
         return 0
@@ -799,8 +836,17 @@ def main() -> int:
         print(f"phylax git guard error: {error}", file=sys.stderr)
         failed = True
     guards.verdict.emit()
-    # Claude Code reads the JSON only on exit 0, so any decision or warning wins.
-    return 1 if failed and not (guards.verdict.denies or guards.verdict.warnings) else 0
+    if not failed or guards.verdict.denies:
+        return 0
+    # A check that failed fails closed while a blocking guard is on: exit 2 is a command hook's
+    # blocking error (stderr reaches Claude), and register.ts refuses on any non-zero exit.
+    if any(option_on(k) for k in BLOCKING):
+        print(
+            "phylax: the git guard could not finish its check, so this command was not run.",
+            file=sys.stderr,
+        )
+        return 2
+    return 1
 
 
 if __name__ == "__main__":
@@ -808,4 +854,4 @@ if __name__ == "__main__":
         sys.exit(main())
     except Exception as exc:
         print(f"phylax git guard error: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(2 if any(option_on(k) for k in BLOCKING) else 1)

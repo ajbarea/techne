@@ -156,6 +156,14 @@ that drift class recurs.
 
 Detail lives in git history (`git log`) and the live skill code. This log is pruned once work is durably shipped.
 
+- 2026-10-06: **phylax's guards are a mod.** `hooks/register.ts` blanks the commit and PR
+  attribution text Claude Code composes (`attribution.text`), and its `tool.call` hook runs
+  `git_guards.py` on each main-thread Bash command naming git or gh. The PreToolUse hook stays
+  as the fallback for subagents and for sessions where the module does not load, standing down
+  for the one call the module passed (`PHYLAX_GUARD_CHECKED`, the call's `tool_use_id`). A check that fails (an error, a git call
+  that times out, a `python3` that cannot start) now refuses the command on both paths instead
+  of letting it through. Other commands start no process; `git status` costs a median 39 ms and `git commit` 50 ms (30 runs each, WSL2, all
+  options on). `make plugin-test` runs the module's tests on the pinned Claude Code build.
 - 2026-10-05: **One marketplace, four plugins (#104).** `ajbarea/techne` is the one marketplace for
   AJ's plugins, split by audience and by the surfaces each part loads on: `techne` (code-repo
   skills), `graphe` (document skills; skills only, so claude.ai and Cowork can install it), `phylax`

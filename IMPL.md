@@ -29,7 +29,7 @@ Shipped plugins and skills by catalog dimension (the directory listing of `plugi
 | `techne` | **Review** | `catchup`, `elenchus` |
 | `techne` | **Observation** | `theoros` |
 | `graphe` | **Document build** | `latex`, `pdf`, `paper`, `paper-review`, `slides` |
-| `phylax` | **Hooks** | git guards, `restart_on_update` |
+| `phylax` | **Hooks** | git guards (a mod, `hooks/register.ts`), `restart_on_update` (command hooks) |
 
 When picking up the next session, replace the "In flight" block above
 with a full session plan (Why / Decisions / Scope / Out of scope /

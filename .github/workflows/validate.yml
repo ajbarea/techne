@@ -32,6 +32,9 @@ jobs:
       - name: Plugin manifest + hooks (claude plugin validate)
         run: make plugin-validate
 
+      - name: Hooks module tests (claude plugin test)
+        run: make plugin-test
+
       - name: Structural checks + pytest
         run: make test
         env:

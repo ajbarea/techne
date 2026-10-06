@@ -23,7 +23,7 @@
 | --- | --- | --- |
 | `techne` | Work in a code repo: audits, CI review, pre-merge review, commit plans, GitHub catch-up, cross-repo drift, slop and doc drift | Claude Code |
 | `graphe` | Documents: LaTeX papers, markdown-to-PDF, talk decks, paper scaffolds and novelty review | Claude Code |
-| `phylax` | Opt-in hooks: git and PR guards, restart onto an updated Claude Code | Claude Code |
+| `phylax` | Opt-in git and PR guards (a mod), restart onto an updated Claude Code | Claude Code |
 | [`keryx`](https://github.com/ajbarea/keryx) | Speaks a short gist of each reply in a local voice (WSL2) | Claude Code |
 
 Install only the ones you use: every enabled plugin's skill list sits in Claude's context on every turn. graphe holds skills only, so claude.ai and Cowork can install it too, but its build and check steps run shell commands (`uv`, TeX Live, Typst) that need Claude Code.
@@ -57,7 +57,7 @@ Install only the ones you use: every enabled plugin's skill list sits in Claude'
 
 ### phylax
 
-Three opt-in guards on `git commit`, `git add` and `gh pr`: block attribution lines, block staging `COMMITS.md`, and warn on commits in the main checkout. A fourth option, `restart_on_update`, moves an idle session onto an updated Claude Code in a new tmux window or Windows Terminal tab and keeps the conversation. Each is off until you switch it on in `/config`. See [Configuration](docs/configuration.md#guards) and [Restart on update](docs/configuration.md#restart-on-update).
+Three opt-in guards on `git commit`, `git add` and `gh pr`, run by a [mod](https://code.claude.com/docs/en/plugins/mods/overview) (Claude Code 2.1.287 or later): block attribution lines, from the text Claude Code composes through to the command Claude runs; block staging `COMMITS.md`; and warn on commits in the main checkout. A check that fails refuses the command instead of letting it through. A fourth option, `restart_on_update`, moves an idle session onto an updated Claude Code in a new tmux window or Windows Terminal tab and keeps the conversation. Each is off until you switch it on in `/config`. See [Configuration](docs/configuration.md#guards) and [Restart on update](docs/configuration.md#restart-on-update).
 
 ## Install
 
