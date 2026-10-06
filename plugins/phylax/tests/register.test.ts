@@ -24,11 +24,16 @@ type Guard = Partial<ProcessRunResult> | Error
 function engine(on: On, guard: Guard) {
   const runs: { argv: readonly string[]; init?: ProcessRunInit }[] = []
   const bash: string[] = []
+  // Every write of the stamp, and what it held when Bash ran (where the fallback reads it).
   const stamps: (string | undefined)[] = []
+  let stamp: string | undefined
+  const stampAtRun: (string | undefined)[] = []
   on('session.cwd', () => ({ value: CWD }))
-  on('session.id', () => ({ value: 'sess-1' }))
   on('env.set', ($, e) => {
-    if (e.name === 'PHYLAX_GUARD_SESSION') stamps.push(e.value)
+    if (e.name === 'PHYLAX_GUARD_CHECKED') {
+      stamps.push(e.value)
+      stamp = e.value
+    }
     return { value: undefined }
   })
   on('process.run', ($, e) => {
@@ -39,9 +44,10 @@ function engine(on: On, guard: Guard) {
   })
   on('tool.call', { tool: 'Bash' }, ($, e) => {
     bash.push(e.command)
+    stampAtRun.push(stamp)
     return { result: { stdout: 'ran', stderr: '', interrupted: false }, text: 'ran' }
   })
-  return { runs, bash, stamps }
+  return { runs, bash, stamps, stampAtRun }
 }
 
 describe('attribution text', () => {
@@ -138,11 +144,18 @@ describe('git guard', () => {
     expect(bash).toEqual(["git commit -m 'x'"])
   })
 
-  test('a checked call stamps the session for the hooks.json fallback', { options: ATTRIBUTION }, async ($, on) => {
-    const { stamps, bash } = engine(on, {})
-    await $.tool.call({ tool: 'Bash', command: 'git status' })
-    expect(stamps).toEqual(['sess-1'])
+  test('a passed call is named for the fallback while it runs, then cleared', { options: ATTRIBUTION }, async ($, on) => {
+    const { stamps, stampAtRun, bash } = engine(on, {})
+    await $.tool.call({ tool: 'Bash', command: 'git status', tool_use_id: 'toolu_1' })
     expect(bash).toEqual(['git status'])
+    expect(stampAtRun).toEqual(['toolu_1'])
+    expect(stamps).toEqual(['toolu_1', undefined])
+  })
+
+  test('a refused call names nothing', { options: ATTRIBUTION }, async ($, on) => {
+    const { stamps } = engine(on, { stdout: DENY })
+    await $.tool.call({ tool: 'Bash', command: "git commit -m 'x'", tool_use_id: 'toolu_2' })
+    expect(stamps).toEqual([])
   })
 
   test("a subagent's call is left to the hooks.json fallback", { options: ATTRIBUTION }, async ($, on) => {

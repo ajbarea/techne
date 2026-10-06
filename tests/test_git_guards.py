@@ -12,6 +12,7 @@ import os
 import pathlib
 import subprocess
 import sys
+import time
 
 import pytest
 
@@ -365,7 +366,7 @@ def test_hooks_json_names_the_module_and_keeps_the_fallback():
     for key in ALL:
         assert f"$CLAUDE_PLUGIN_OPTION_{key.upper()}" in handler["command"]
     module = (PLUGIN / "hooks" / "register.ts").read_text()
-    assert "hooks/git_guards.py" in module and "PHYLAX_GUARD_SESSION" in module
+    assert "hooks/git_guards.py" in module and "PHYLAX_GUARD_CHECKED" in module
 
 
 @pytest.mark.parametrize("key", ALL)
@@ -395,25 +396,23 @@ def test_fallback_skips_python_when_all_off(tmp_path):
     assert (proc.returncode, proc.stdout, proc.stderr) == (0, "", "")
 
 
-SESSION = {"PHYLAX_GUARD_SESSION": "sess-1"}
+CHECKED = {"PHYLAX_GUARD_CHECKED": "toolu_1"}
 
 
-def test_fallback_stands_down_for_a_main_thread_call_the_mod_checked(repo):
+def test_fallback_stands_down_for_the_call_the_mod_checked(repo):
     (handler,) = _handlers()
     command = f"git commit -m x -m '{TRAILER}'"
-    assert (
-        run_handler(
-            handler, command, repo, on=[ATTRIBUTION], env_extra=SESSION, session_id="sess-1"
-        )
-        is None
+    out = run_handler(
+        handler, command, repo, on=[ATTRIBUTION], env_extra=CHECKED, tool_use_id="toolu_1"
     )
+    assert out is None
 
 
 @pytest.mark.parametrize(
     "fields",
     [
-        {"session_id": "sess-1", "agent_id": "agent-7"},  # a subagent's call: the mod skips it
-        {"session_id": "sess-2"},  # another session, such as a claude started from this one
+        {"tool_use_id": "toolu_2"},  # another call, made while the checked one runs
+        {"tool_use_id": "toolu_9", "agent_id": "agent-7"},  # a subagent's: the mod leaves it here
         {},
     ],
 )
@@ -421,7 +420,7 @@ def test_fallback_checks_every_call_the_mod_did_not(repo, fields):
     (handler,) = _handlers()
     command = f"git commit -m x -m '{TRAILER}'"
     assert denied(
-        run_handler(handler, command, repo, on=[ATTRIBUTION], env_extra=SESSION, **fields)
+        run_handler(handler, command, repo, on=[ATTRIBUTION], env_extra=CHECKED, **fields)
     )
 
 
@@ -469,6 +468,15 @@ def test_a_git_that_hangs_fails_closed_while_a_blocking_guard_is_on(scratch, han
     assert proc.returncode == 2
     assert "timed out" in proc.stderr
     assert not proc.stdout.strip()
+
+
+def test_one_hung_git_costs_one_timeout(scratch, hanging_status):
+    _git(scratch, "add", "COMMITS.md")
+    command = "git commit -m a; git commit -m b; git commit -m c; git commit -m d"
+    started = time.monotonic()
+    proc = run_raw(command, scratch, on=[COMMITS_MD], path_prefix=hanging_status)
+    assert proc.returncode == 2
+    assert time.monotonic() - started < 15  # four commits would wait 20 s without the latch
 
 
 def test_a_failed_check_beside_a_warning_still_fails(repo, linked):

@@ -21,7 +21,6 @@ manifests:              ## Verify plugin + marketplace manifest JSON (stdlib jso
 # The Claude Code build plugin-validate and plugin-test run through npx, so local runs and CI
 # judge the same output. Mods need 2.1.287 or later.
 export CLAUDE_CODE_VERSION := 2.1.291
-CLAUDE_PINNED := npx --yes @anthropic-ai/claude-code@$(CLAUDE_CODE_VERSION)
 
 plugin-validate:        ## claude plugin validate on each plugin + the marketplace (hooks, userConfig)
 	@bash scripts/check_plugin_manifest.sh

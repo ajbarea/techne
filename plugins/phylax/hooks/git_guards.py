@@ -125,9 +125,17 @@ class GitUnavailable(Exception):
     """git did not run or did not finish, so a check cannot tell what it would stage."""
 
 
+# Set by the first git call that fails to run; later calls fail at once, so one hung git costs
+# one GIT_TIMEOUT rather than one per call, well inside the hook's own timeout.
+_git_down: str | None = None
+
+
 def run_git(cwd: Path, repo_args: list[str], *args: str, check: bool = True) -> str | None:
     """Stdout of a git call, or None when git exits non-zero; `check=False` keeps stdout on any
     exit. Raises GitUnavailable when git cannot start or times out, so the check fails closed."""
+    global _git_down
+    if _git_down is not None:
+        raise GitUnavailable(_git_down)
     env = {**os.environ, "GIT_OPTIONAL_LOCKS": "0"}
     try:
         proc = subprocess.run(
@@ -138,11 +146,11 @@ def run_git(cwd: Path, repo_args: list[str], *args: str, check: bool = True) -> 
             env=env,
         )
     except subprocess.TimeoutExpired as exc:
-        raise GitUnavailable(
-            f"git {args[0] if args else ''} timed out after {GIT_TIMEOUT}s"
-        ) from exc
+        _git_down = f"git {args[0] if args else ''} timed out after {GIT_TIMEOUT}s"
+        raise GitUnavailable(_git_down) from exc
     except OSError as exc:
-        raise GitUnavailable(f"git could not run: {exc}") from exc
+        _git_down = f"git could not run: {exc}"
+        raise GitUnavailable(_git_down) from exc
     return proc.stdout if proc.returncode == 0 or not check else None
 
 
@@ -791,11 +799,12 @@ class Guards:
 def mod_checks(data: dict) -> bool:
     """Whether register.ts already checked this call: the hooks.json fallback then stands down.
 
-    The mod stamps the session's id into PHYLAX_GUARD_SESSION before a main-thread call runs.
-    A subagent's call (agent_id set) comes here instead, since only this hook gets its cwd.
+    The mod names the one call its check passed in PHYLAX_GUARD_CHECKED while that call runs,
+    and clears it after. Any other call (a subagent's, which the mod leaves here because only
+    this hook gets its cwd, or any call when the module did not load) is checked here.
     """
-    stamped = os.environ.get("PHYLAX_GUARD_SESSION")
-    return bool(stamped) and stamped == data.get("session_id") and not data.get("agent_id")
+    checked = os.environ.get("PHYLAX_GUARD_CHECKED")
+    return bool(checked) and checked == data.get("tool_use_id")
 
 
 def main() -> int:

@@ -44,8 +44,6 @@ export const register: Register = (on, options) => {
     // A subagent's call goes to the hooks.json PreToolUse fallback, which gets its own cwd;
     // $.session.cwd() is the main thread's.
     if (e.agentId !== undefined || !GIT_OR_GH.test(e.command)) return next(e)
-    // The fallback runs inside next(e): this tells it the call was checked here.
-    await $.env.set('PHYLAX_GUARD_SESSION', await $.session.id())
     const cwd = await $.session.cwd()
     const run = await $.process.run(['python3', `${$.plugin.root}/hooks/git_guards.py`], {
       cwd,
@@ -60,7 +58,15 @@ export const register: Register = (on, options) => {
       if (blocking) return failed(`failed (${reason})`)
       $.ui.log(`phylax: the git guard failed (${reason}); the command ran unchecked.`)
     }
-    const result = await next(e)
+    // The hooks.json fallback runs inside next(e). Naming this call there makes it stand down
+    // for this call alone: any call this hook did not pass, it still checks.
+    if (e.tool_use_id !== undefined) await $.env.set('PHYLAX_GUARD_CHECKED', e.tool_use_id)
+    let result
+    try {
+      result = await next(e)
+    } finally {
+      await $.env.set('PHYLAX_GUARD_CHECKED', undefined)
+    }
     if (verdict.warning === undefined || result.deny !== undefined) return result
     $.ui.log(verdict.warning)
     return { ...result, context: [...(result.context ?? []), verdict.warning] }
