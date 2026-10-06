@@ -1,9 +1,21 @@
 {
-  "description": "Opt-in guards on git commit, git add and gh pr, run by the hooks module, and an opt-in restart of idle sessions onto an updated Claude Code, run as command hooks. Each is off until switched on in /config; with all off, neither starts python3.",
+  "description": "Opt-in guards on git commit, git add and gh pr, and an opt-in restart of idle sessions onto an updated Claude Code. The hooks module checks the main thread's git commands; the PreToolUse hook checks subagents' and every call when the module did not load. Each is off until switched on in /config; with all off, neither starts python3.",
   "modules": [
     "./register.ts"
   ],
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "case \"$CLAUDE_PLUGIN_OPTION_BLOCK_ATTRIBUTION_TRAILERS$CLAUDE_PLUGIN_OPTION_BLOCK_COMMITS_MD$CLAUDE_PLUGIN_OPTION_WARN_MAIN_CHECKOUT_COMMIT\" in *true*) exec python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/git_guards.py\" ;; esac",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
     "Notification": [
       {
         "matcher": "idle_prompt",

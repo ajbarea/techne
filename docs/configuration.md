@@ -40,7 +40,7 @@ status = "active"
 
 ## Guards
 
-phylax's guards are a [mod](https://code.claude.com/docs/en/plugins/mods/overview): a hooks module, `hooks/register.ts`, that Claude Code loads into the session. It needs Claude Code 2.1.287 or later. Each guard is off until you switch it on in `/config`, under the phylax plugin's options.
+phylax's guards run from a [mod](https://code.claude.com/docs/en/plugins/mods/overview): a hooks module, `hooks/register.ts`, that Claude Code 2.1.287 or later loads into the session and that checks the main conversation's commands. A `PreToolUse` command hook checks subagents' commands, and every command when the module does not load (an older Claude Code, or an organization that allows only its own mods); it stands down for a command the module already checked. Each guard is off until you switch it on in `/config`, under the phylax plugin's options.
 
 | Option | What it does |
 |---|---|
@@ -48,7 +48,7 @@ phylax's guards are a [mod](https://code.claude.com/docs/en/plugins/mods/overvie
 | `block_commits_md` | Refuses `git add` when it would stage a file named `COMMITS.md` (exact case, any directory), and `git commit` when the commit would include one. A commit that removes it passes. |
 | `warn_main_checkout_commit` | Warns, without blocking, when `git commit` runs in a repo's main checkout while linked worktrees exist. |
 
-A refusal tells Claude the reason, so it can fix the command and retry. A warning reaches Claude after the command's output and shows as a dim line in the transcript. The guards run before the permission check, so they apply in `bypassPermissions` mode and to subagents' commands. When a blocking guard is on and the check itself fails (it errors, times out, or `python3` cannot start), the command is refused rather than run unchecked.
+A refusal tells Claude the reason, so it can fix the command and retry. A warning reaches Claude after the command's output and shows as a dim line in the transcript. The guards run before the permission check, so they apply in `bypassPermissions` mode. When a blocking guard is on and the check itself fails (it errors, git times out, or `python3` cannot start), the command is refused rather than run unchecked.
 
 What each guard reads:
 

@@ -331,16 +331,155 @@ def test_unparseable_command_falls_back_to_raw_scan(repo):
     assert run_hook(command, repo, on=[ATTRIBUTION]) is None
 
 
-def test_hooks_json_runs_the_guard_from_the_module_alone():
-    # register.ts runs git_guards.py from tool.call; a PreToolUse command hook as well would
-    # run the guard twice on every git command. plugins/phylax/tests/ covers the module.
+def _handlers() -> list[dict]:
+    config = json.loads(HOOKS_JSON.read_text())
+    return [h for group in config["hooks"]["PreToolUse"] for h in group["hooks"]]
+
+
+def run_handler(handler: dict, command: str, cwd: pathlib.Path, *, on, env_extra=None, **fields):
+    """Run the hooks.json fallback through sh, as Claude Code does for a shell-form hook."""
+    shell = handler["command"].replace("${CLAUDE_PLUGIN_ROOT}", str(PLUGIN))
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if not k.startswith(("CLAUDE_PLUGIN_OPTION_", "PHYLAX_"))
+    }
+    env.update({f"CLAUDE_PLUGIN_OPTION_{key.upper()}": "true" for key in on})
+    env.update(env_extra or {})
+    payload = json.dumps({"cwd": str(cwd), "tool_input": {"command": command}, **fields})
+    proc = subprocess.run(
+        ["sh", "-c", shell], input=payload, capture_output=True, text=True, env=env, check=False
+    )
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stdout) if proc.stdout.strip() else None
+
+
+def test_hooks_json_names_the_module_and_keeps_the_fallback():
+    # register.ts checks the main thread; the PreToolUse hook covers subagents, and every call
+    # when the module did not load (an older Claude Code, an organization's mod policy).
     config = json.loads(HOOKS_JSON.read_text())
     assert config["modules"] == ["./register.ts"]
-    assert "PreToolUse" not in config["hooks"]
-    module = (PLUGIN / "hooks" / "register.ts").read_text()
-    assert "hooks/git_guards.py" in module
+    (handler,) = _handlers()
+    assert "if" not in handler  # `Bash(git *)` would skip `time git ...`
+    assert '"${CLAUDE_PLUGIN_ROOT}/hooks/git_guards.py"' in handler["command"]
     for key in ALL:
-        assert f"'{key}'" in module
+        assert f"$CLAUDE_PLUGIN_OPTION_{key.upper()}" in handler["command"]
+    module = (PLUGIN / "hooks" / "register.ts").read_text()
+    assert "hooks/git_guards.py" in module and "PHYLAX_GUARD_SESSION" in module
+
+
+@pytest.mark.parametrize("key", ALL)
+def test_fallback_runs_the_guard_when_one_option_is_on(repo, key):
+    (repo / "COMMITS.md").write_text("plan\n")
+    (handler,) = _handlers()
+    out = run_handler(handler, f"time git add . && git commit -m x -m '{TRAILER}'", repo, on=[key])
+    if key == MAIN_CHECKOUT:
+        assert out is None  # no linked worktree, so nothing to warn about
+    else:
+        assert denied(out)
+
+
+def test_fallback_skips_python_when_all_off(tmp_path):
+    (handler,) = _handlers()
+    shell = handler["command"].replace("${CLAUDE_PLUGIN_ROOT}", str(PLUGIN))
+    empty = tmp_path / "bin"
+    empty.mkdir()
+    proc = subprocess.run(
+        ["/bin/sh", "-c", shell],
+        input="{}",
+        capture_output=True,
+        text=True,
+        env={"PATH": str(empty)},
+        check=False,
+    )
+    assert (proc.returncode, proc.stdout, proc.stderr) == (0, "", "")
+
+
+SESSION = {"PHYLAX_GUARD_SESSION": "sess-1"}
+
+
+def test_fallback_stands_down_for_a_main_thread_call_the_mod_checked(repo):
+    (handler,) = _handlers()
+    command = f"git commit -m x -m '{TRAILER}'"
+    assert (
+        run_handler(
+            handler, command, repo, on=[ATTRIBUTION], env_extra=SESSION, session_id="sess-1"
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"session_id": "sess-1", "agent_id": "agent-7"},  # a subagent's call: the mod skips it
+        {"session_id": "sess-2"},  # another session, such as a claude started from this one
+        {},
+    ],
+)
+def test_fallback_checks_every_call_the_mod_did_not(repo, fields):
+    (handler,) = _handlers()
+    command = f"git commit -m x -m '{TRAILER}'"
+    assert denied(
+        run_handler(handler, command, repo, on=[ATTRIBUTION], env_extra=SESSION, **fields)
+    )
+
+
+def run_raw(command: str, cwd: pathlib.Path, *, on, path_prefix: pathlib.Path | None = None):
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if not k.startswith(("CLAUDE_PLUGIN_OPTION_", "PHYLAX_"))
+    }
+    env.update({f"CLAUDE_PLUGIN_OPTION_{key.upper()}": "true" for key in on})
+    if path_prefix:
+        env["PATH"] = f"{path_prefix}:{env['PATH']}"
+    payload = json.dumps({"cwd": str(cwd), "tool_input": {"command": command}})
+    return subprocess.run(
+        [GUARD_PYTHON, str(GUARDS)],
+        input=payload,
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+
+
+@pytest.fixture
+def hanging_status(tmp_path):
+    """A `git` on PATH that hangs on `status` past the guard's per-call timeout."""
+    real = subprocess.run(
+        ["sh", "-c", "command -v git"], capture_output=True, text=True, check=True
+    )
+    shim = tmp_path / "shim"
+    shim.mkdir()
+    script = shim / "git"
+    script.write_text(
+        "#!/bin/sh\n"
+        'for a in "$@"; do [ "$a" = status ] && exec sleep 30; done\n'
+        f'exec {real.stdout.strip()} "$@"\n'
+    )
+    script.chmod(0o755)
+    return shim
+
+
+def test_a_git_that_hangs_fails_closed_while_a_blocking_guard_is_on(scratch, hanging_status):
+    _git(scratch, "add", "COMMITS.md")
+    proc = run_raw("git commit -m x", scratch, on=[COMMITS_MD], path_prefix=hanging_status)
+    assert proc.returncode == 2
+    assert "timed out" in proc.stderr
+    assert not proc.stdout.strip()
+
+
+def test_a_failed_check_beside_a_warning_still_fails(repo, linked):
+    # One subcommand's check breaks (a NUL in its path); the next one warns. The warning must
+    # not pass for success, or the broken check's command would run unchecked.
+    command = f"git -C '\x00' commit -m x; git -C {repo} commit -m y"
+    proc = run_raw(command, repo, on=[COMMITS_MD, MAIN_CHECKOUT])
+    assert proc.returncode == 2
+    assert warned(json.loads(proc.stdout))
+    only_warn = run_raw(command, repo, on=[MAIN_CHECKOUT])
+    assert only_warn.returncode == 1
 
 
 def test_manifest_options_match_the_guard_and_default_off():

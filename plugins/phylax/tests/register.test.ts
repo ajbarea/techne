@@ -24,7 +24,13 @@ type Guard = Partial<ProcessRunResult> | Error
 function engine(on: On, guard: Guard) {
   const runs: { argv: readonly string[]; init?: ProcessRunInit }[] = []
   const bash: string[] = []
+  const stamps: (string | undefined)[] = []
   on('session.cwd', () => ({ value: CWD }))
+  on('session.id', () => ({ value: 'sess-1' }))
+  on('env.set', ($, e) => {
+    if (e.name === 'PHYLAX_GUARD_SESSION') stamps.push(e.value)
+    return { value: undefined }
+  })
   on('process.run', ($, e) => {
     runs.push(e)
     // A deny rejects the caller's $.process.run, as a python3 that cannot start does.
@@ -35,7 +41,7 @@ function engine(on: On, guard: Guard) {
     bash.push(e.command)
     return { result: { stdout: 'ran', stderr: '', interrupted: false }, text: 'ran' }
   })
-  return { runs, bash }
+  return { runs, bash, stamps }
 }
 
 describe('attribution text', () => {
@@ -130,5 +136,37 @@ describe('git guard', () => {
     expect(out.deny).toBeUndefined()
     expect(runs).toEqual([])
     expect(bash).toEqual(["git commit -m 'x'"])
+  })
+
+  test('a checked call stamps the session for the hooks.json fallback', { options: ATTRIBUTION }, async ($, on) => {
+    const { stamps, bash } = engine(on, {})
+    await $.tool.call({ tool: 'Bash', command: 'git status' })
+    expect(stamps).toEqual(['sess-1'])
+    expect(bash).toEqual(['git status'])
+  })
+
+  test("a subagent's call is left to the hooks.json fallback", { options: ATTRIBUTION }, async ($, on) => {
+    const { runs, stamps, bash } = engine(on, { stdout: DENY })
+    // The engine stamps agentId on a subagent's call; the test stands in for it.
+    const subagentCall = { tool: 'Bash', command: "git commit -m 'x'", agentId: 'agent-7' }
+    const out = await $.tool.call(subagentCall as Parameters<typeof $.tool.call>[0])
+    expect(out.deny).toBeUndefined()
+    expect(runs).toEqual([])
+    expect(stamps).toEqual([])
+    expect(bash).toEqual(["git commit -m 'x'"])
+  })
+
+  test('a failed check beside a warning still refuses', { options: { ...COMMITS_MD, ...WARN_ONLY } }, async ($, on) => {
+    const { bash } = engine(on, { exitCode: 2, stdout: WARNING, stderr: 'phylax git guard error: x\nphylax: could not finish' })
+    const out = await $.tool.call({ tool: 'Bash', command: 'git commit -m x' })
+    expect(out.deny).toContain('phylax git guard error: x')
+    expect(bash).toEqual([])
+  })
+
+  test('output the mod cannot read refuses while a blocking guard is on', { options: COMMITS_MD }, async ($, on) => {
+    const { bash } = engine(on, { stdout: '{"hookSpecificOutput": ' })
+    const out = await $.tool.call({ tool: 'Bash', command: 'git add .' })
+    expect(out.deny).toContain('phylax: the git guard failed')
+    expect(bash).toEqual([])
   })
 })

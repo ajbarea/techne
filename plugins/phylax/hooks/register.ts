@@ -6,7 +6,8 @@ const GUARDS = ['block_attribution_trailers', 'block_commits_md', 'warn_main_che
 const BLOCKING = ['block_attribution_trailers', 'block_commits_md'] as const
 // git_guards.py looks no further at a command without one of these words.
 const GIT_OR_GH = /\b(git|gh)\b/
-const GUARD_TIMEOUT_MS = 20_000
+// A commit makes at most six git calls of 5 s each inside git_guards.py.
+const GUARD_TIMEOUT_MS = 40_000
 
 type Verdict = { deny?: string; warning?: string }
 
@@ -40,7 +41,11 @@ export const register: Register = (on, options) => {
   })
 
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
-    if (!GIT_OR_GH.test(e.command)) return next(e)
+    // A subagent's call goes to the hooks.json PreToolUse fallback, which gets its own cwd;
+    // $.session.cwd() is the main thread's.
+    if (e.agentId !== undefined || !GIT_OR_GH.test(e.command)) return next(e)
+    // The fallback runs inside next(e): this tells it the call was checked here.
+    await $.env.set('PHYLAX_GUARD_SESSION', await $.session.id())
     const cwd = await $.session.cwd()
     const run = await $.process.run(['python3', `${$.plugin.root}/hooks/git_guards.py`], {
       cwd,
@@ -50,11 +55,10 @@ export const register: Register = (on, options) => {
     })
     const verdict = readVerdict(run.stdout)
     if (verdict.deny !== undefined) return { deny: verdict.deny }
-    if (run.exitCode !== 0 && verdict.warning === undefined) {
-      const reason = run.stderr.trim().split('\n').pop() || `exit ${run.exitCode}`
+    if (run.exitCode !== 0) {
+      const reason = run.stderr.trim().split('\n')[0] || `exit ${run.exitCode}`
       if (blocking) return failed(`failed (${reason})`)
       $.ui.log(`phylax: the git guard failed (${reason}); the command ran unchecked.`)
-      return next(e)
     }
     const result = await next(e)
     if (verdict.warning === undefined || result.deny !== undefined) return result
@@ -62,6 +66,6 @@ export const register: Register = (on, options) => {
     return { ...result, context: [...(result.context ?? []), verdict.warning] }
   }).catch(($, e, next) => {
     if (next.called || !blocking) return next(e)
-    return failed(next.error.kind === 'timeout' ? 'timed out' : `failed (${next.error.message})`)
+    return failed(`failed (${next.error.message})`)
   })
 }
