@@ -1,7 +1,7 @@
 # AI-slop hate-word glossary
 
 Canonical cross-skill list. Referenced by `/techne:deslop`, `/techne:reslop`, `/techne:docsync`.
-The *Modern LLM tells* section is also read by `prose_check.py` for the latex and pdf gates.
+The *Modern LLM tells* section is also read by the graphe plugin's `prose_check.py` for the latex, pdf and slides gates.
 Update this file, not the individual skills.
 
 Each section is a **candidate generator**, not a verdict — a hit only starts
