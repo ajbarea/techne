@@ -25,7 +25,7 @@ hide:
 <section class="landing-section landing-section--intro">
   <div class="section-inner">
     <h2 class="section-title">What is techne?</h2>
-    <p class="section-lead">A Claude Code plugin marketplace. <code>techne</code> covers work in a code repo: audit builds, tame CI noise, hunt doc/code drift, and keep linked repos in lockstep. <code>graphe</code> builds and gates documents: LaTeX, PDFs, slides and papers. <code>phylax</code> adds opt-in git guards, and <code>keryx</code> speaks each reply. Adopt the conventions and the skills work for any developer.</p>
+    <p class="section-lead">A Claude Code plugin marketplace. <code>techne</code> covers work in a code repo: audit builds, tame CI noise, hunt doc/code drift, and keep linked repos in lockstep. <code>graphe</code> builds and gates documents: LaTeX, PDFs, slides and papers. <code>dokimasia</code> verifies a bibliography against its sources. <code>phylax</code> adds opt-in git guards, and <code>keryx</code> speaks each reply. Adopt the conventions and the skills work for any developer.</p>
   </div>
 </section>
 
@@ -60,6 +60,10 @@ hide:
       <a href="skills/docsync/" class="skill-card">
         <div class="skill-name"><code>/techne:docsync</code></div>
         <p>Verifies documentation claims (CLI commands, paths, config keys, signatures) against the actual code.</p>
+      </a>
+      <a href="skills/check/" class="skill-card">
+        <div class="skill-name"><code>/dokimasia:check</code></div>
+        <p>Lints a <code>.bib</code>, verifies it against arXiv and Crossref, and checks every cited key rendered.</p>
       </a>
       <a href="skills/elenchus/" class="skill-card">
         <div class="skill-name"><code>/techne:elenchus</code></div>
@@ -112,6 +116,7 @@ hide:
       <pre><code>/plugin marketplace add ajbarea/techne
 /plugin install techne@techne
 /plugin install graphe@techne
+/plugin install dokimasia@techne
 /plugin install phylax@techne</code></pre>
     </div>
     <p class="section-lead">Install the plugins you use, then invoke a skill as <code>/techne:&lt;name&gt;</code> or <code>/graphe:&lt;name&gt;</code>, or describe the task and let Claude pick it.</p>

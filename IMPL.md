@@ -11,7 +11,7 @@ has crept in — extract it back to ROADMAP.
 
 ## In flight
 
-Nothing in flight. `restart_on_update` shipped in #99 (see ROADMAP).
+The `dokimasia` plugin: `dokimasia:check`, a stdlib bibliography lint, verify and rendered check, configured per project.
 
 **Next pickup:** #96, backing the commit guards with Git 2.54 config-based `commit-msg` and
 `pre-commit` hooks set through `CLAUDE_ENV_FILE`, so commits the Bash parser cannot see are
@@ -29,6 +29,7 @@ Shipped plugins and skills by catalog dimension (the directory listing of `plugi
 | `techne` | **Review** | `catchup`, `elenchus` |
 | `techne` | **Observation** | `theoros` |
 | `graphe` | **Document build** | `latex`, `pdf`, `paper`, `paper-review`, `slides` |
+| `dokimasia` | **Bibliography** | `check` |
 | `phylax` | **Hooks** | git guards (a mod, `hooks/register.ts`), `restart_on_update` (command hooks) |
 
 When picking up the next session, replace the "In flight" block above

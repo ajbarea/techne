@@ -1,0 +1,107 @@
+---
+name: check
+description: Verify a LaTeX project's bibliography. Use when asked to verify a bibliography, check that references exist and match their source, check citations before submitting a paper, or when a reference list may contain fabricated or drifted entries, such as "check my citations" or "verify references.bib". Lints any .bib offline, resolves arXiv ids and DOIs against arXiv and Crossref, and checks that every cited key rendered in the built document. Not for formatting or styling a .bib, and it cannot tell whether a sentence describes its source correctly.
+disable-model-invocation: false
+allowed-tools: Bash Glob Grep Read
+---
+
+# Check a bibliography
+
+Three passes over any LaTeX project's `.bib`. Run the one that answers the question; do not
+judge a reference by memory.
+
+## Run it
+
+```
+uv run --quiet python ${CLAUDE_SKILL_DIR}/scripts/dokimasia.py [--root DIR] [--require-built] {lint,verify,rendered} [DOC.tex ...]
+```
+
+The script is one file with no dependencies and needs Python 3.11 or later. Invoke it through
+`uv run` rather than `python`, which is absent on a machine that ships only `python3`.
+
+| Mode | Network | Checks |
+|---|---|---|
+| `lint` | no | Every entry has an identifier, identifiers are well formed, no duplicate keys, no dangling citation, no orphan entry, no citation of a key the reading log still stages as unread. |
+| `verify` | yes | Resolves each `eprint` and `doi` and compares title, first-author surname and year with what the source returns. |
+| `rendered` | no | Every key a document cites is in its `.bbl`. With no arguments it checks every document under the root; with arguments, only those `.tex` files. |
+
+Run `lint` freely. Run `verify` on request or on a schedule, not on every push: it calls
+arXiv and Crossref and is slow on purpose (3 seconds between arXiv lookups).
+
+## Exit codes
+
+| Code | Meaning |
+|---|---|
+| 0 | Clean. |
+| 1 | Findings: lint findings, verify drift, a key that did not render, or with `--require-built` a document with no `.bbl`. |
+| 2 | Usage or configuration error, including an unknown config key. |
+
+Findings print on stderr and the summary on stdout, every line prefixed `dokimasia:`.
+
+## Verify outcomes
+
+| Outcome | Meaning | Action |
+|---|---|---|
+| verified | Resolved and matched. | None. |
+| drift | Resolved, and the title, first author or year differs from the source. | Check the source, then decide which side is wrong. |
+| unresolved | The entry has an identifier and the lookup did not answer. The reason is printed (`HTTP 406`, `TimeoutError`, `unparseable response`, `no matching record`). | Rerun later. Say nothing about the entry. |
+| unverifiable | No `eprint` and no `doi`, so there is nothing to resolve. Named every run. | Add an identifier, or accept that a human checks it. |
+| exempt | Listed in the config with a reason. The reason is printed. | None. |
+
+A failed lookup is never cached and never a finding. A throttled host (406, 429, 503) is
+waited out with a 5, 20 and 60 second backoff.
+
+## Rules for Claude
+
+- **An unresolved entry is never edited on that basis.** It says the lookup failed, not that the entry is wrong.
+- **A drift finding is checked against the source before the entry is changed.** Open the arXiv or DOI record. The source is sometimes the wrong side; that case is an `exempt` entry with a reason, not an edit.
+- **Never use an LLM's own judgement as evidence that a reference exists.** Existence comes from `verify` or from a record you opened.
+- **Report counts from the summary line** (`verified N, exempt N, unresolved N, unverifiable N, drift N`), and name the unresolved reasons. Do not round them into "mostly fine".
+- **A document that is not built is not checked.** Say which documents `rendered` skipped; offer to build them with `/graphe:latex`.
+
+## Configuration
+
+Optional. `dokimasia.toml` at the project root, or a `[tool.dokimasia]` table in
+`pyproject.toml`; `dokimasia.toml` wins when both exist. The root is `--root`, else the
+nearest ancestor holding either, else the git top-level, else the working directory. An
+unknown key is an error, so a typo cannot quietly turn a check off.
+
+```toml
+bib = ["references.bib"]        # default: every *.bib under the root
+exclude = ["vendor"]            # directory names skipped everywhere
+cache = ".dokimasia-cache.json" # verify cache, relative to the root
+orphans = true                  # report entries nothing cites
+[intake]                        # optional reading log
+file = "related-work/intake.md"
+staged_headings = ["not yet positioned", "do not cite"]
+[exempt.title]                  # key = reason: skip the title comparison
+smith2024x = "arXiv's own title misspells a word"
+[exempt.record]                 # key = reason: skip first author and year
+```
+
+Hidden directories and `node_modules` are always skipped. Every exemption needs a reason, and
+an exemption for an entry that is not in the bibliography is a lint finding.
+
+Documents are derived: any `.tex` with a `\documentclass` outside a comment. Its citations
+include every file reached through `\input`, `\include` and `\subfile`. Its bibliography is
+the `.bbl` with the same stem beside it.
+
+Set `DOKIMASIA_MAILTO` to your address to use Crossref's polite pool. It is added to Crossref
+requests and the User-Agent, and never stored.
+
+## Without Claude
+
+It is one standard-library file. From any checkout of techne:
+
+```
+python3 plugins/dokimasia/skills/check/scripts/dokimasia.py lint
+```
+
+Or fetch just that file and run it where the project is. Add `lint` and `rendered
+--require-built` to CI, and `verify` to a weekly schedule.
+
+## Not this skill
+
+- Formatting, sorting or restyling a `.bib`.
+- Whether a sentence in the paper describes its source correctly: the script compares metadata, not claims.
+- Building the document: `graphe:latex`.

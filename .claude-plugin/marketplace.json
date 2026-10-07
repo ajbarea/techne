@@ -20,6 +20,12 @@
       "category": "productivity"
     },
     {
+      "name": "dokimasia",
+      "description": "Bibliography verification for LaTeX projects: an offline lint of any .bib, an online verify against arXiv and Crossref that tells a failed lookup from a wrong entry, and a check that every cited key rendered.",
+      "source": "./plugins/dokimasia",
+      "category": "productivity"
+    },
+    {
       "name": "phylax",
       "description": "Opt-in Claude Code hooks: refuse attribution lines in commits and PRs, refuse staging COMMITS.md, warn on commits in a main checkout, and restart idle sessions onto an updated Claude Code.",
       "source": "./plugins/phylax",
