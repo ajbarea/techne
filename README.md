@@ -76,6 +76,7 @@ From inside Claude Code:
 /plugin install graphe@techne
 /plugin install dokimasia@techne
 /plugin install phylax@techne
+/plugin install keryx@techne    # WSL2 on Windows only
 ```
 
 Invoke a skill as `/techne:<name>`, `/graphe:<name>` or `/dokimasia:check`, or describe the task and Claude picks the matching skill. Run `/skills` to confirm they loaded. On claude.ai, add `ajbarea/techne` under **Customize > Plugins > Add > Add marketplace**, then add `graphe`.

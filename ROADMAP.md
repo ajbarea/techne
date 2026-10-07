@@ -54,9 +54,9 @@ gating. Open coverage gaps:
 
 Skills are added when a pattern proves itself across multiple sisters
 (n≥2). Skills are deleted or merged when their domain collapses into a
-larger sibling. The current set spans seven catalog dimensions (audit,
-drift, hygiene, review, observation, document build, bibliography); IMPL.md maps each
-skill to one. `research-grounded`
+larger sibling. The current set spans eight catalog dimensions (audit,
+drift, hygiene, review, observation, document build, bibliography, hooks); IMPL.md maps
+each skill or hook to one. `research-grounded`
 (from the 2026-05-21 audit-of-audit) shipped 2026-05-29 on direct
 request; `narrative-coherence` and `positioning` remain queued for when
 that drift class recurs.
