@@ -64,6 +64,7 @@ import subprocess
 import sys
 import time
 import tomllib
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -114,6 +115,8 @@ class Config:
     bib: tuple[Path, ...] | None = None
     exclude: frozenset[str] = frozenset()
     cache: Path = Path(".dokimasia-cache.json")
+    #: Where a build writes its `.bbl`, relative to each document's directory.
+    outdir: str | None = None
     orphans: bool = True
     intake: Path | None = None
     staged_headings: tuple[str, ...] = ("not yet positioned", "do not cite")
@@ -124,7 +127,7 @@ class Config:
     record_exempt: dict[str, str] = dc_field(default_factory=dict)
 
 
-_TOP_KEYS = {"bib", "exclude", "cache", "orphans", "intake", "exempt"}
+_TOP_KEYS = {"bib", "exclude", "cache", "outdir", "orphans", "intake", "exempt"}
 _INTAKE_KEYS = {"file", "staged_headings"}
 _EXEMPT_KEYS = {"title", "record"}
 
@@ -161,6 +164,14 @@ def parse_config(root: Path, table: dict) -> Config:
         if not isinstance(table["cache"], str) or not table["cache"]:
             raise ConfigError("cache must be a non-empty string")
         kwargs["cache"] = Path(table["cache"])
+        # The cache is written on every verify, so it may not name a file outside the project.
+        target = (root / table["cache"]).resolve()
+        if not target.is_relative_to(root):
+            raise ConfigError(f"cache {table['cache']!r} must be inside the project root {root}")
+    if "outdir" in table:
+        if not isinstance(table["outdir"], str) or not table["outdir"]:
+            raise ConfigError("outdir must be a non-empty string")
+        kwargs["outdir"] = table["outdir"]
     if "orphans" in table:
         if not isinstance(table["orphans"], bool):
             raise ConfigError("orphans must be true or false")
@@ -201,7 +212,16 @@ def _config_table(directory: Path) -> dict | None:
         return _read_toml(own)
     pyproject = directory / "pyproject.toml"
     if pyproject.is_file():
-        tool = _read_toml(pyproject).get("tool", {})
+        text = ""
+        try:
+            text = pyproject.read_text(encoding="utf-8")
+            parsed = tomllib.loads(text)
+        except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as error:
+            # Someone else's broken pyproject is not ours to fail on, unless it holds our table.
+            if "[tool.dokimasia" in text:
+                raise ConfigError(f"cannot read {pyproject}: {error}") from error
+            return None
+        tool = parsed.get("tool", {})
         if isinstance(tool, dict) and "dokimasia" in tool:
             table = tool["dokimasia"]
             if not isinstance(table, dict):
@@ -225,11 +245,19 @@ def _git_toplevel(cwd: Path) -> Path | None:
 
 
 def find_root(cwd: Path) -> Path:
-    """First ancestor holding a configuration, else the git top-level, else `cwd`."""
+    """First ancestor holding a configuration, else the git top-level, else `cwd`.
+
+    The walk stops at the git top-level: a configuration in a directory above the repository
+    belongs to some other project.
+    """
+    top = _git_toplevel(cwd)
+    top = top.resolve() if top else None
     for directory in (cwd, *cwd.parents):
         if _config_table(directory) is not None:
             return directory
-    return _git_toplevel(cwd) or cwd
+        if directory == top:
+            break
+    return top or cwd
 
 
 def load_config(root: Path | None = None, cwd: Path | None = None) -> Config:
@@ -237,21 +265,34 @@ def load_config(root: Path | None = None, cwd: Path | None = None) -> Config:
     root = (root or find_root((cwd or Path.cwd()).resolve())).resolve()
     if not root.is_dir():
         raise ConfigError(f"root {root} is not a directory")
-    return parse_config(root, _config_table(root) or {})
+    cfg = parse_config(root, _config_table(root) or {})
+    if cfg.intake is not None and not cfg.intake.is_file():
+        raise ConfigError(f"intake file not found: {cfg.intake}")
+    return cfg
 
 
 # --- files -----------------------------------------------------------------------------
 
 
 def _walk(cfg: Config, suffix: str) -> list[Path]:
-    """Files under root with `suffix`, skipping excluded, hidden and node_modules directories."""
+    """Files under root with `suffix`, skipping excluded, hidden and node_modules directories.
+
+    An `exclude` entry with a `/` is a path prefix from the root; a bare name matches a
+    directory of that name at any depth.
+    """
+    names = {e for e in cfg.exclude if "/" not in e}
+    prefixes = [e.strip("/") for e in cfg.exclude if "/" in e]
     found: list[Path] = []
     for here, dirs, files in os.walk(cfg.root):
-        dirs[:] = sorted(
-            d
-            for d in dirs
-            if d not in cfg.exclude and not d.startswith(".") and d != "node_modules"
-        )
+        base = Path(here).relative_to(cfg.root)
+
+        def kept(d: str, base: Path = base) -> bool:
+            rel = (base / d).as_posix()
+            if d in names or d.startswith(".") or d == "node_modules":
+                return False
+            return not any(rel == p or rel.startswith(p + "/") for p in prefixes)
+
+        dirs[:] = sorted(d for d in dirs if kept(d))
         found += [Path(here) / f for f in sorted(files) if f.endswith(suffix)]
     return found
 
@@ -291,6 +332,26 @@ def _close_brace(text: str, start: int) -> int:
     return i
 
 
+def _close_paren(text: str, start: int) -> int:
+    """Index just past the `)` that ends a parenthesised entry opened before `start`.
+
+    Braces and quoted strings are skipped, since a field value may hold a `)`.
+    """
+    i, depth, quoted = start, 0, False
+    while i < len(text):
+        ch = text[i]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+        elif ch == '"' and depth <= 0:
+            quoted = not quoted
+        elif ch == ")" and depth <= 0 and not quoted:
+            return i + 1
+        i += 1
+    return i
+
+
 def entries(text: str):
     """Yield `(type, key, body)` per entry, brace-matched so nested `{}` survive.
 
@@ -299,11 +360,12 @@ def entries(text: str):
     and `@comment` are skipped whole: their first token is not a key, and a `@comment`
     may quote entries that are not part of the bibliography.
     """
-    head = re.compile(r"@(\w+)\s*\{")
+    head = re.compile(r"@(\w+)\s*([{(])")
     pos = 0
     while match := head.search(text, pos):
         kind = match.group(1).lower()
-        end = _close_brace(text, match.end())
+        close = _close_brace if match.group(2) == "{" else _close_paren
+        end = close(text, match.end())
         if kind in NON_ENTRIES:
             pos = end
             continue
@@ -367,6 +429,57 @@ def field(body: str, name: str) -> str | None:
     return parse_fields(body).get(name.lower())
 
 
+_TEX_ACCENT = re.compile(r"\\[`'^\"~=.]\s*(?:\{\s*\\?([A-Za-z])\s*\}|\\?([A-Za-z]))")
+_TEX_ACCENT_ALPHA = re.compile(r"\\[cvuHkrbdt]\s*\{\s*([A-Za-z])\s*\}")
+_TEX_LETTERS = {
+    "ss": "ss",
+    "ae": "ae",
+    "AE": "AE",
+    "oe": "oe",
+    "OE": "OE",
+    "aa": "a",
+    "AA": "A",
+    "o": "o",
+    "O": "O",
+    "l": "l",
+    "L": "L",
+    "i": "i",
+    "j": "j",
+}
+_TEX_LETTER = re.compile(r"\\(ss|ae|AE|oe|OE|aa|AA|o|O|l|L|i|j)(?![A-Za-z])\s*")
+#: Letters NFKD does not decompose.
+_UNICODE_LETTERS = str.maketrans(
+    {
+        "ø": "o",
+        "Ø": "O",
+        "ł": "l",
+        "Ł": "L",
+        "ß": "ss",
+        "æ": "ae",
+        "Æ": "AE",
+        "œ": "oe",
+        "Œ": "OE",
+        "đ": "d",
+        "Đ": "D",
+        "\u0131": "i",
+    }
+)
+
+
+def fold_accents(value: str) -> str:
+    """TeX accent macros and Unicode diacritics reduced to their base letters.
+
+    `Gonz{\\'a}lez`, `Gonz\\'alez` and `González` all fold to `Gonzalez`, so an author the
+    file writes in TeX matches the source record's Unicode spelling.
+    """
+    value = _TEX_ACCENT.sub(lambda m: m.group(1) or m.group(2), value)
+    value = _TEX_ACCENT_ALPHA.sub(lambda m: m.group(1), value)
+    value = _TEX_LETTER.sub(lambda m: _TEX_LETTERS[m.group(1)], value)
+    value = unicodedata.normalize("NFKD", value)
+    value = "".join(ch for ch in value if not unicodedata.combining(ch))
+    return value.translate(_UNICODE_LETTERS)
+
+
 def normalise(value: str | None) -> str:
     """Collapse a title to comparable form: no LaTeX, no punctuation, no case.
 
@@ -376,7 +489,7 @@ def normalise(value: str | None) -> str:
     # The arXiv Atom feed returns `&amp;` where the entry has `\&`. Left alone, the
     # entity survives as the word "amp" and every title containing an ampersand
     # reports as drift.
-    value = html.unescape(value or "")
+    value = fold_accents(html.unescape(value or ""))
     value = re.sub(r"\\[a-zA-Z]+", "", value)
     # Braces are removed rather than treated as separators. Turning them into spaces
     # splits `{LLM}s` into "llm s", which never equals the source record's "LLMs" --
@@ -387,10 +500,28 @@ def normalise(value: str | None) -> str:
 
 # --- citations -------------------------------------------------------------------------
 
-_COMMENT = re.compile(r"(?<!\\)((?:\\\\)*)%.*")
-_CITE_HEAD = re.compile(r"\\([A-Za-z]*cite[A-Za-z]*)\*?")
+#: Text LaTeX does not read as markup: comments, `\verb`, and verbatim-like environments.
+#: One alternation, leftmost first, so a `%` inside a listing does not comment out its
+#: `\end` and a commented `\begin{verbatim}` does not open one. `\\` and `\%` are matched
+#: whole so an escaped percent is not a comment.
+_INERT = re.compile(
+    r"(?P<keep>\\[\\%])"
+    r"|%[^\n]*"
+    r"|\\verb\*?(?P<d>[^\sA-Za-z*])(?:(?!(?P=d))[^\n])*(?P=d)"
+    r"|\\begin\{(?P<env>verbatim\*?|Verbatim\*?|lstlisting|minted)\}.*?\\end\{(?P=env)\}",
+    re.S,
+)
+#: The body of a macro definition is a template, not a use: `\newcommand{\mycite}[1]{\cite{#1}}`.
+_DEFINITION = re.compile(
+    r"\\(?:(?:re)?newcommand|providecommand|DeclareRobustCommand)\*?\s*"
+    r"(?:\{\\[A-Za-z@]+\}|\\[A-Za-z@]+)\s*(?:\[[^\]]*\]\s*)*\{"
+    r"|\\(?:gdef|edef|xdef|def)(?![A-Za-z])\s*\\[A-Za-z@]+[^{\n]*\{"
+)
+_CITE_HEAD = re.compile(r"\\([A-Za-z]*(?i:cite)[A-Za-z]*)\*?")
 _CITE_ARGS = re.compile(r"(?:\s*\[[^\]]*\]){0,2}\s*\{([^}]*)\}")
-_MORE_ARGS = re.compile(r"(?:\s*\[[^\]]*\])*\s*\{([^}]*)\}")
+#: Only a group touching the previous one is a key group: in `\cites{a}{b} {\em x}` the last
+#: braces are text.
+_MORE_ARGS = re.compile(r"(?:\[[^\]]*\])*\{([^}]*)\}")
 #: Commands whose name contains "cite" but whose argument is not a key list.
 _NOT_CITES = {
     "citestyle",
@@ -398,39 +529,85 @@ _NOT_CITES = {
     "citetext",
     "citeindextrue",
     "citeindexfalse",
-    "DeclareCiteCommand",
+    "declarecitecommand",
 }
+_BAD_KEY = re.compile(r"[\\#{}\s]")
+_NOCITE = re.compile(r"\\nocite\s*\{([^}]*)\}")
 _INCLUDE = re.compile(r"\\(?:input|include|subfile)\s*\{([^}]*)\}")
+_INCLUDE_BARE = re.compile(r"\\input\s+([^\s{}\\%]+)")
+_IMPORT = re.compile(
+    r"\\(import|subimport|inputfrom|subinputfrom|includefrom|subincludefrom)"
+    r"\s*\{([^}]*)\}\s*\{([^}]*)\}"
+)
+_BIBLIOGRAPHY = re.compile(r"\\bibliography\s*\{([^}]*)\}")
+_BIBRESOURCE = re.compile(r"\\addbibresource\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}")
+_BIBLIOGRAPHY_USE = re.compile(
+    r"\\(?:bibliography\s*\{|addbibresource(?![A-Za-z])|printbibliography)"
+)
+_DOCUMENTCLASS = re.compile(r"\\documentclass")
+_SUBFILES = re.compile(r"\\documentclass\s*(?:\[[^\]]*\])?\s*\{subfiles\}")
 
 
 def strip_comments(text: str) -> str:
-    """Drop unescaped `%` to end of line; `50\\%` is a percent sign, not a comment."""
-    return _COMMENT.sub(r"\1", text)
+    """Drop comments, `\\verb` and verbatim environments; `50\\%` is a percent sign."""
+
+    def drop(match: re.Match[str]) -> str:
+        if match.group("keep"):
+            return match.group("keep")
+        return " " if match.group("env") else ""
+
+    return _INERT.sub(drop, text)
+
+
+def _without_definitions(text: str) -> str:
+    out, pos = [], 0
+    while match := _DEFINITION.search(text, pos):
+        out.append(text[pos : match.start()])
+        pos = _close_brace(text, match.end())
+    out.append(text[pos:])
+    return "".join(out)
 
 
 def cite_keys(text: str) -> set[str]:
     """Keys cited by any `...cite...` command, with up to two optional arguments.
 
     Covers natbib (`\\citep[see][p.~3]{a,b}`), biblatex (`\\parencite`, `\\autocite*`) and
-    `\\nocite`. `\\nocite{*}` names no key, and `#1` in a macro definition is not one.
+    `\\nocite`, in any capitalisation of `cite`. `\\nocite{*}` names no key; macro
+    definition bodies, verbatim text and anything that is not a plain key are skipped.
     """
-    text = strip_comments(text)
+    text = _without_definitions(strip_comments(text))
     keys: set[str] = set()
     for head in _CITE_HEAD.finditer(text):
-        if head.group(1) in _NOT_CITES:
+        name = head.group(1).lower()
+        if name in _NOT_CITES:
             continue
         args = _CITE_ARGS.match(text, head.end())
         while args:
             keys |= {k.strip() for k in args.group(1).split(",") if k.strip()}
             # biblatex `\cites{a}{b}` and `\textcites[..]{a}[..]{b}` chain argument groups.
-            args = _MORE_ARGS.match(text, args.end()) if head.group(1).endswith("cites") else None
-    return {k for k in keys if k != "*" and not k.startswith("#")}
+            args = _MORE_ARGS.match(text, args.end()) if name.endswith("cites") else None
+    return {k for k in keys if k != "*" and not _BAD_KEY.search(k)}
 
 
-def _included(text: str, base: Path) -> list[Path]:
+def has_nocite_star(text: str) -> bool:
+    """Whether `\\nocite{*}` appears outside a comment: every entry then renders."""
+    return any(
+        "*" in {k.strip() for k in group.split(",")}
+        for group in _NOCITE.findall(strip_comments(text))
+    )
+
+
+def _included(text: str, doc_dir: Path, here: Path) -> list[Path]:
+    """Files `text` pulls in. `\\import`-style commands resolve from the document's
+    directory; the `sub` forms from the including file's."""
+    clean = strip_comments(text)
+    refs = [doc_dir / name.strip() for name in _INCLUDE.findall(clean)]
+    refs += [doc_dir / name for name in _INCLUDE_BARE.findall(clean)]
+    for command, directory, name in _IMPORT.findall(clean):
+        base = here if command.startswith("sub") else doc_dir
+        refs.append(base / directory.strip() / name.strip())
     found = []
-    for name in _INCLUDE.findall(strip_comments(text)):
-        raw = base / name.strip()
+    for raw in refs:
         for candidate in (raw, raw.with_name(raw.name + ".tex")):
             if candidate.is_file():
                 found.append(candidate)
@@ -439,7 +616,8 @@ def _included(text: str, base: Path) -> list[Path]:
 
 
 def document_files(doc: Path) -> list[Path]:
-    """The document and every file reached through `\\input`, `\\include`, `\\subfile`.
+    """The document and every file reached through `\\input`, `\\include`, `\\subfile` and
+    the `\\import` family, resolved.
 
     Paths resolve against the document's directory, as LaTeX does. Cycle-safe; a missing
     file is ignored, since the compiler reports it and this is not the compiler.
@@ -452,30 +630,67 @@ def document_files(doc: Path) -> list[Path]:
         if real in seen:
             continue
         seen[real] = None
-        pending += _included(_read(path), doc.parent)
+        pending += _included(_read(path), doc.parent, path.parent)
     return list(seen)
 
 
+@dataclass(frozen=True)
+class Document:
+    path: Path
+    files: tuple[Path, ...]
+    cites: frozenset[str]
+    #: `\nocite{*}` outside a comment: every entry of its bibliographies renders.
+    nocite_star: bool
+    #: Bibliographies the document names, resolved; empty when it names none.
+    named: tuple[Path, ...]
+    #: Whether it has a bibliography at all, from a command or from its citations.
+    needs_bibliography: bool
+
+
+def _bib_path(base: Path, name: str) -> Path:
+    path = base / name
+    if path.suffix != ".bib":
+        path = path.with_name(path.name + ".bib")
+    return Path(os.path.normpath(path))
+
+
+def read_document(doc: Path) -> Document:
+    files = document_files(doc)
+    cites: set[str] = set()
+    names: list[str] = []
+    star = uses = False
+    for path in files:
+        text = _read(path)
+        clean = strip_comments(text)
+        cites |= cite_keys(text)
+        star = star or has_nocite_star(text)
+        for group in _BIBLIOGRAPHY.findall(clean):
+            names += [n.strip() for n in group.split(",") if n.strip()]
+        names += [n.strip() for n in _BIBRESOURCE.findall(clean)]
+        uses = uses or bool(_BIBLIOGRAPHY_USE.search(clean))
+    named = tuple(
+        _bib_path(doc.parent, n)
+        for n in dict.fromkeys(names)
+        if not n.startswith(("http:", "https:"))
+    )
+    return Document(doc, tuple(files), frozenset(cites), star, named, bool(cites) or uses)
+
+
 def document_cites(doc: Path) -> set[str]:
-    keys: set[str] = set()
-    for path in document_files(doc):
-        keys |= cite_keys(_read(path))
-    return keys
+    return set(read_document(doc).cites)
 
 
 def documents(cfg: Config) -> list[Path]:
-    """Every `.tex` under root with a `\\documentclass` outside a comment."""
-    return [
-        p for p in _walk(cfg, ".tex") if re.search(r"\\documentclass", strip_comments(_read(p)))
-    ]
+    """Every `.tex` under root with a `\\documentclass` outside a comment.
 
-
-def all_cited_keys(cfg: Config) -> set[str]:
-    """Every key any `.tex` under root cites, including fragments no document includes."""
-    keys: set[str] = set()
+    A `subfiles` child compiles on its own but is part of its parent's bibliography.
+    """
+    found = []
     for path in _walk(cfg, ".tex"):
-        keys |= cite_keys(_read(path))
-    return keys
+        text = strip_comments(_read(path))
+        if _DOCUMENTCLASS.search(text) and not _SUBFILES.search(text):
+            found.append(path)
+    return found
 
 
 # --- optional reading log --------------------------------------------------------------
@@ -514,76 +729,152 @@ def staged_keys(cfg: Config) -> set[str]:
 
 # --- lint ------------------------------------------------------------------------------
 
+Parsed = dict[Path, list[tuple[str, str, str]]]
+
+
+def _parse_bibs(cfg: Config) -> Parsed:
+    return {p.resolve(): list(entries(_read(p))) for p in bib_files(cfg)}
+
 
 def _all_entries(cfg: Config) -> list[tuple[Path, str, str, str]]:
     return [
         (path, kind, key, body)
-        for path in bib_files(cfg)
-        for kind, key, body in entries(_read(path))
+        for path, found in _parse_bibs(cfg).items()
+        for kind, key, body in found
     ]
 
 
+def _identifier_findings(key: str, body: str) -> list[str]:
+    fields = parse_fields(body)
+    prose_id = _PROSE_ARXIV.search(fields.get("journal", ""))
+    if not set(fields) & set(ID_FIELDS):
+        return [
+            f"arXiv id present but only in prose: {key}"
+            if prose_id
+            else f"no resolvable identifier: {key}"
+        ]
+    found = []
+    eprint = fields.get("eprint")
+    if eprint is not None and not ARXIV_ID.match(eprint.strip()):
+        found.append(f"malformed eprint: {key} = {eprint!r}")
+    doi = fields.get("doi")
+    if doi is not None and not doi.strip().startswith("10."):
+        found.append(f"malformed doi: {key} = {doi!r}")
+    url = fields.get("url")
+    if url is not None and not url.strip().startswith("http"):
+        found.append(f"malformed url: {key} = {url!r}")
+    if prose_id and eprint is None:
+        found.append(f"arXiv id present but only in prose: {key}")
+    return found
+
+
 def lint(cfg: Config) -> int:
-    """Offline checks. Returns the number of findings; prints one line each."""
-    parsed = _all_entries(cfg)
+    """Offline checks. Returns the number of findings; prints one line each.
+
+    A document is checked against the bibliographies it names (`\\bibliography`,
+    `\\addbibresource`), or against all of them when it names none. A key repeated across
+    two files is a duplicate only where one document uses both.
+    """
+    parsed = _parse_bibs(cfg)
+    universe = list(parsed)
+    docs = [read_document(p) for p in documents(cfg)]
+    reached = {f for d in docs for f in d.files}
+    loose = [p for p in _walk(cfg, ".tex") if p.resolve() not in reached]
+    loose_cites: set[str] = set()
+    loose_star = []
+    for path in loose:
+        text = _read(path)
+        loose_cites |= cite_keys(text)
+        if has_nocite_star(text):
+            loose_star.append(path)
+
     findings: list[str] = []
 
-    homes: dict[str, list[str]] = {}
-    for path, _, key, _ in parsed:
-        homes.setdefault(key, []).append(_name(cfg, path))
-    for key, where in sorted(homes.items()):
-        if len(where) > 1:
-            findings.append(f"duplicate key: {key} appears {len(where)} times ({', '.join(where)})")
+    def add(message: str) -> None:
+        if message not in findings:
+            findings.append(message)
 
-    for _, _, key, body in parsed:
-        fields = parse_fields(body)
-        journal = fields.get("journal", "")
-        prose_id = _PROSE_ARXIV.search(journal)
-        if not set(fields) & set(ID_FIELDS):
-            findings.append(
-                f"arXiv id present but only in prose: {key}"
-                if prose_id
-                else f"no resolvable identifier: {key}"
-            )
-            continue
-        eprint = fields.get("eprint")
-        if eprint is not None and not ARXIV_ID.match(eprint.strip()):
-            findings.append(f"malformed eprint: {key} = {eprint!r}")
-        doi = fields.get("doi")
-        if doi is not None and not doi.strip().startswith("10."):
-            findings.append(f"malformed doi: {key} = {doi!r}")
-        url = fields.get("url")
-        if url is not None and not url.strip().startswith("http"):
-            findings.append(f"malformed url: {key} = {url!r}")
-        if prose_id and eprint is None:
-            findings.append(f"arXiv id present but only in prose: {key}")
+    def uses(doc: Document) -> list[Path]:
+        return [p.resolve() for p in doc.named] if doc.named else universe
 
-    keys = set(homes)
+    def entries_of(files: list[Path]) -> list[tuple[Path, str]]:
+        found = []
+        for file in files:
+            if file not in parsed and file.is_file():
+                parsed[file] = list(entries(_read(file)))
+            found += [(file, key) for _, key, _ in parsed.get(file, [])]
+        return found
+
+    for doc in docs:
+        for path in doc.named:
+            if not path.is_file():
+                add(f"missing bibliography: {_name(cfg, doc.path)} -> {_name(cfg, path)}")
+
+    scopes = [uses(doc) for doc in docs] or [universe]
+    covered = {f for scope in scopes for f in scope}
+    scopes += [[f] for f in universe if f not in covered]
+    for scope in scopes:
+        homes: dict[str, list[str]] = {}
+        for file, key in entries_of(scope):
+            homes.setdefault(key, []).append(_name(cfg, file))
+        for key, where in sorted(homes.items()):
+            if len(where) > 1:
+                files = ", ".join(sorted(set(where)))
+                add(f"duplicate key: {key} appears {len(where)} times ({files})")
+
+    for file in universe:
+        for _, key, body in parsed[file]:
+            for message in _identifier_findings(key, body):
+                add(message)
+
+    keys = {key for _, key in entries_of(universe)}
     for table, exempt in (("title", cfg.title_exempt), ("record", cfg.record_exempt)):
         for key in sorted(set(exempt) - keys):
-            findings.append(f"exemption for missing entry: {key} (exempt.{table})")
+            add(f"exemption for missing entry: {key} (exempt.{table})")
 
-    cited = all_cited_keys(cfg)  # one walk of the .tex tree, not two
-    for key in sorted(cited - keys):
-        findings.append(f"dangling citation: \\cite{{{key}}} has no entry")
-    if cfg.orphans:
-        for key in sorted(keys - cited - accounted_keys(cfg)):
-            findings.append(
-                f"orphan entry: {key} is cited nowhere and the intake log does not name it"
+    for doc in docs:
+        defined = {key for _, key in entries_of(uses(doc))}
+        for key in sorted(doc.cites - defined):
+            add(
+                f"dangling citation: \\cite{{{key}}} has no entry (cited by {_name(cfg, doc.path)})"
             )
+    for key in sorted(loose_cites - keys):
+        add(f"dangling citation: \\cite{{{key}}} has no entry")
+
+    cited = loose_cites.union(*(d.cites for d in docs))
+    star_docs: dict[str, set[str]] = {}
+    if cfg.orphans:
+        accounted = accounted_keys(cfg)
+        for file in universe:
+            users = [d for d in docs if file in uses(d)]
+            stars = [_name(cfg, d.path) for d in users if d.nocite_star]
+            stars += [_name(cfg, p) for p in loose_star]
+            if stars:
+                star_docs[_name(cfg, file)] = set(stars)
+                continue
+            seen_here = loose_cites.union(*(d.cites for d in users))
+            for _, key, _ in parsed[file]:
+                if key not in seen_here and key not in accounted:
+                    add(f"orphan entry: {key} is cited nowhere and the intake log does not name it")
 
     staged = staged_keys(cfg)
     for key in sorted(staged & cited):
-        findings.append(
+        add(
             f"cited but unread: {key} is cited in a document while the intake log still "
             f"stages it as unpositioned -- read it and position it, or drop the citation"
         )
 
     for line in findings:
         print(f"dokimasia: {line}", file=sys.stderr)
+    if star_docs:
+        who = sorted(set().union(*star_docs.values()))
+        print(
+            f"dokimasia: \\nocite{{*}} in {', '.join(who)} cites every entry of "
+            f"{', '.join(sorted(star_docs))}, so the orphan check covers nothing there"
+        )
     print(
-        f"dokimasia: {len(parsed)} entries, {len(staged & keys)} staged unread, "
-        f"{len(findings)} finding(s)"
+        f"dokimasia: {sum(len(parsed[f]) for f in universe)} entries, "
+        f"{len(staged & keys)} staged unread, {len(findings)} finding(s)"
     )
     return len(findings)
 
@@ -599,6 +890,39 @@ def bbl_keys(text: str) -> set[str]:
     return {k.strip() for k in _BIBITEM.findall(text) + _ENTRY.findall(text)}
 
 
+def _bbl_for(cfg: Config, doc: Path) -> Path:
+    """The `.bbl` beside the `.tex`, else in the configured build directory."""
+    beside = doc.with_suffix(".bbl")
+    if cfg.outdir and not beside.exists():
+        built = doc.parent / cfg.outdir / beside.name
+        if built.exists():
+            return built
+    return beside
+
+
+def _unreached(cfg: Config, docs: list[Path]) -> list[str]:
+    """One line per document directory holding `.tex` files no document's includes reach."""
+    reached = {f for d in documents(cfg) for f in document_files(d)}
+    tex = [p.resolve() for p in _walk(cfg, ".tex")]
+    lines, seen = [], set()
+    for doc in docs:
+        here = doc.parent.resolve()
+        if here in seen:
+            continue
+        seen.add(here)
+        stray = sorted(p for p in tex if p.is_relative_to(here) and p not in reached)
+        if stray:
+            names = [_name(cfg, p) for p in stray]
+            more = f", and {len(names) - 10} more" if len(names) > 10 else ""
+            noun = "file" if len(names) == 1 else "files"
+            lines.append(
+                f"dokimasia: info: {_name(cfg, here)}/: {len(names)} .tex {noun} reached by "
+                f"no document ({', '.join(names[:10])}{more}); an include form this tool "
+                f"does not follow would hide citations there"
+            )
+    return lines
+
+
 def rendered(cfg: Config, docs: list[Path] | None = None, require_built: bool = False) -> int:
     """Assert every key each document cites appears in its own `.bbl`.
 
@@ -606,28 +930,40 @@ def rendered(cfg: Config, docs: list[Path] | None = None, require_built: bool = 
     bibliography: a count of all entries scores a skeleton using `\\nocite{*}` full marks
     and fails a document that cites a normal subset. Keys are parsed out of the `.bbl`
     rather than substring-matched, so `li2020` does not pass because `li2020b` rendered.
-    A document with no `.bbl` is not built: named, never silently passed.
+    A document with no `.bbl` is not built: named, never silently passed. One that cites
+    nothing and names no bibliography has nothing to render and is listed apart.
     """
     docs = documents(cfg) if not docs else docs
     problems = 0
     checked = 0
     unbuilt: list[str] = []
+    bare: list[str] = []
     for doc in docs:
         name = _name(cfg, doc)
-        bbl = doc.with_suffix(".bbl")
+        info = read_document(doc)
+        bbl = _bbl_for(cfg, doc)
         if not bbl.exists():
-            unbuilt.append(name)
-            print(f"dokimasia: {name}: not built, no {bbl.name}")
+            if info.needs_bibliography:
+                unbuilt.append(name)
+                print(f"dokimasia: {name}: not built, no {bbl.name}")
+            else:
+                bare.append(name)
+                print(f"dokimasia: {name}: no bibliography, nothing to render")
             continue
         checked += 1
-        cites = document_cites(doc)
+        cites = info.cites
         missing = sorted(cites - bbl_keys(_read(bbl)))
         print(f"dokimasia: {name}: {len(cites) - len(missing)}/{len(cites)} cited keys rendered")
         for key in missing:
             print(f"dokimasia: {name}: \\cite{{{key}}} did not render", file=sys.stderr)
         problems += len(missing)
+    for line in _unreached(cfg, docs):
+        print(line)
     names = f" ({', '.join(unbuilt)})" if unbuilt else ""
-    print(f"dokimasia: rendered: {checked} documents checked, {len(unbuilt)} not built{names}")
+    extra = f", {len(bare)} without a bibliography" if bare else ""
+    print(
+        f"dokimasia: rendered: {checked} documents checked, {len(unbuilt)} not built{names}{extra}"
+    )
     return problems + (len(unbuilt) if require_built else 0)
 
 
@@ -794,6 +1130,20 @@ def _cache_hit(hit: object, now: float) -> bool:
     return now - hit.get("at", 0) < CACHE_TTL
 
 
+def _load_cache(path: Path) -> dict:
+    """The stored records. A file that is not a JSON object is refused, never overwritten:
+    it may be something else that happens to sit at the configured path."""
+    if not path.exists():
+        return {}
+    try:
+        store = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise ConfigError(f"cache file {path} is unreadable ({error}); fix or remove it") from error
+    if not isinstance(store, dict):
+        raise ConfigError(f"cache file {path} is not a JSON object; fix or remove it")
+    return store
+
+
 def verify(cfg: Config, delay: float = 3.0) -> int:
     """Resolve identifiers and compare titles. Returns the number of mismatches.
 
@@ -808,12 +1158,7 @@ def verify(cfg: Config, delay: float = 3.0) -> int:
     why: dict[str, int] = {}
     now = time.time()
     cache_path = cfg.root / cfg.cache
-    try:
-        store = json.loads(cache_path.read_text())
-    except Exception:
-        store = {}
-    if not isinstance(store, dict):
-        store = {}
+    store = _load_cache(cache_path)
     for _, _, key, body in _all_entries(cfg):
         fields = parse_fields(body)
         claimed = fields.get("title")

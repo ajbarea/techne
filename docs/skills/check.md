@@ -21,10 +21,10 @@ Invoke by name in Claude Code:
 /dokimasia:check
 ```
 
-Or run the script directly from a techne checkout. It is one standard-library file and needs Python 3.11 or later:
+Or run the script directly from a techne checkout. It is one standard-library file and needs Python 3.11 or later. `--no-project` keeps `uv` from creating a `.venv` in your project; `python3` works too:
 
 ```
-python3 plugins/dokimasia/skills/check/scripts/dokimasia.py [--root DIR] [--require-built] {lint,verify,rendered} [DOC.tex ...]
+uv run --no-project --quiet python plugins/dokimasia/skills/check/scripts/dokimasia.py [--root DIR] [--require-built] {lint,verify,rendered} [DOC.tex ...]
 ```
 
 | Mode | Network | Checks |
@@ -54,9 +54,9 @@ Year is compared only where it is sound: against the arXiv posting year for an a
 
 ## Rendered
 
-Documents are derived: any `.tex` with a `\documentclass` outside a comment. Citations are read from the document and every file it reaches through `\input`, `\include` and `\subfile`, for natbib and biblatex commands alike. Keys are parsed out of the `.bbl` (`\bibitem` for BibTeX, `\entry` for biber), so `li2020` does not pass because `li2020b` rendered.
+Documents are derived: any `.tex` with a `\documentclass` outside a comment. A `subfiles` child is not a document. Citations are read from the document and every file it reaches through `\input`, `\include`, `\subfile` and the `\import` family, for natbib and biblatex commands in any capitalisation. Comments, `\verb`, verbatim text and macro definitions are skipped. A document is checked against the bibliographies it names with `\bibliography` or `\addbibresource`, or all of them when it names none. `\nocite{*}` counts every entry of those bibliographies as cited, and lint names the documents where that happens. Keys are parsed out of the `.bbl` (`\bibitem` for BibTeX, `\entry` for biber), so `li2020` does not pass because `li2020b` rendered.
 
-A document with no `.bbl` is reported as not built, with a count in the summary line. `--require-built` makes that a failure.
+The `.bbl` is the same stem beside the `.tex`, else in `outdir`. A document with no `.bbl` is reported as not built, with a count in the summary line. `--require-built` makes that a failure for a document that cites something or names a bibliography. `rendered` also names the `.tex` files under a document's directory that no document reaches, so an include form the tool does not follow is visible.
 
 ## Configuration
 
@@ -64,8 +64,10 @@ Optional. Put `dokimasia.toml` at the project root, or a `[tool.dokimasia]` tabl
 
 ```toml
 bib = ["references.bib"]        # default: every *.bib under the root
-exclude = ["vendor"]            # directory names skipped everywhere
-cache = ".dokimasia-cache.json" # verify cache, relative to the root
+exclude = ["vendor", "old/drafts"] # a name skips that directory anywhere; a path with / is
+                                # a prefix from the root
+cache = ".dokimasia-cache.json" # verify cache; must stay inside the root
+outdir = "build"                # where builds write the .bbl, relative to each document
 orphans = true                  # report entries nothing cites
 [intake]                        # optional reading log
 file = "related-work/intake.md"
@@ -75,7 +77,7 @@ smith2024x = "arXiv's own title misspells a word"
 [exempt.record]                 # key = reason: skips first author and year
 ```
 
-Every exemption needs a reason, and one naming a key that is not in the bibliography is a lint finding. Set `DOKIMASIA_MAILTO` to use Crossref's polite pool.
+A configured intake file that does not exist is an error, as is a cache file that is not a JSON object. The root search stops at the git top-level. Every exemption needs a reason, and one naming a key that is not in the bibliography is a lint finding. Set `DOKIMASIA_MAILTO` to use Crossref's polite pool.
 
 ## Testing it
 

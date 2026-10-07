@@ -20,7 +20,7 @@ Invoke by name in Claude Code:
 Or run the builder directly from a techne checkout. The path is a `.tex`, or a directory holding exactly one file with `\documentclass`:
 
 ```
-uv run --quiet python plugins/graphe/skills/latex/scripts/latex.py <path>
+uv run --no-project --quiet python plugins/graphe/skills/latex/scripts/latex.py <path>
 ```
 
 There are no Python dependencies; the script needs TeX Live and poppler. It runs through `uv run` rather than `python`, which is not on PATH on a machine that ships only `python3`.

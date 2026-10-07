@@ -21,9 +21,9 @@ Invoke by name in Claude Code:
 Or run the checks directly from a techne checkout:
 
 ```
-uv run --quiet python plugins/graphe/skills/slides/scripts/slides.py check <deck.pptx|deck.pdf> [--jargon "term,term"] [--backup-from N]
-uv run --quiet --with pillow python plugins/graphe/skills/slides/scripts/slides.py render <deck.pptx|deck.pdf> <out-dir>
-uv run --quiet python plugins/graphe/skills/slides/scripts/slides.py script <deck.pptx> > script.md
+uv run --no-project --quiet python plugins/graphe/skills/slides/scripts/slides.py check <deck.pptx|deck.pdf> [--jargon "term,term"] [--backup-from N]
+uv run --no-project --quiet --with pillow python plugins/graphe/skills/slides/scripts/slides.py render <deck.pptx|deck.pdf> <out-dir>
+uv run --no-project --quiet python plugins/graphe/skills/slides/scripts/slides.py script <deck.pptx> > script.md
 ```
 
 `check` exits 0 when every gate passed, 1 when the file is not a readable deck, and 2 on a blocker. `render` exports a PDF through PowerPoint when it is installed (natively, or from WSL) and through LibreOffice otherwise, then writes one PNG per slide and 2x2 contact sheets. Give it a folder of its own: it refuses a non-empty folder it did not create, because it replaces the PNGs and the PDF it finds there. `script` prints the speaker notes as one Markdown script with the talk length at 140 words a minute; backup slides come after the talk and are left out of the length.

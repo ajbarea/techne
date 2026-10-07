@@ -20,7 +20,7 @@ draft that needs a separate concision pass was written in the wrong register.
 ## Run it
 
 ```
-uv run --quiet python ${CLAUDE_SKILL_DIR}/scripts/latex.py <path>
+uv run --no-project --quiet python ${CLAUDE_SKILL_DIR}/scripts/latex.py <path>
 ```
 
 `<path>` is a `.tex`, or a directory holding exactly one file with
@@ -78,7 +78,7 @@ live elsewhere should say where in its agent instructions (`AGENTS.md` or
 `CLAUDE.md`):
 
 ```
-uv run --quiet python .../latex.py 03-assignments/hw1 \
+uv run --no-project --quiet python .../latex.py 03-assignments/hw1 \
   --prompt ../course-hw-repo/"Homework 1"/main.tex
 ```
 

@@ -13,7 +13,7 @@ judge a reference by memory.
 ## Run it
 
 ```
-uv run --quiet python ${CLAUDE_SKILL_DIR}/scripts/dokimasia.py [--root DIR] [--require-built] {lint,verify,rendered} [DOC.tex ...]
+uv run --no-project --quiet python ${CLAUDE_SKILL_DIR}/scripts/dokimasia.py [--root DIR] [--require-built] {lint,verify,rendered} [DOC.tex ...]
 ```
 
 The script is one file with no dependencies and needs Python 3.11 or later. Invoke it through
@@ -36,7 +36,7 @@ arXiv and Crossref and is slow on purpose (3 seconds between arXiv lookups).
 | 1 | Findings: lint findings, verify drift, a key that did not render, or with `--require-built` a document with no `.bbl`. |
 | 2 | Usage or configuration error, including an unknown config key. |
 
-Findings print on stderr and the summary on stdout, every line prefixed `dokimasia:`.
+Findings print on stderr and the summary on stdout, every summary and finding line prefixed `dokimasia:`.
 
 ## Verify outcomes
 
@@ -49,7 +49,7 @@ Findings print on stderr and the summary on stdout, every line prefixed `dokimas
 | exempt | Listed in the config with a reason. The reason is printed. | None. |
 
 A failed lookup is never cached and never a finding. A throttled host (406, 429, 503) is
-waited out with a 5, 20 and 60 second backoff.
+waited out: a lookup tries three times, 5 then 20 seconds apart.
 
 ## Rules for Claude
 
@@ -68,8 +68,10 @@ unknown key is an error, so a typo cannot quietly turn a check off.
 
 ```toml
 bib = ["references.bib"]        # default: every *.bib under the root
-exclude = ["vendor"]            # directory names skipped everywhere
-cache = ".dokimasia-cache.json" # verify cache, relative to the root
+exclude = ["vendor", "old/drafts"] # a name skips that directory anywhere; a path with / is
+                                # a prefix from the root
+cache = ".dokimasia-cache.json" # verify cache; must stay inside the root
+outdir = "build"                # where builds write the .bbl, relative to each document
 orphans = true                  # report entries nothing cites
 [intake]                        # optional reading log
 file = "related-work/intake.md"
@@ -82,9 +84,21 @@ smith2024x = "arXiv's own title misspells a word"
 Hidden directories and `node_modules` are always skipped. Every exemption needs a reason, and
 an exemption for an entry that is not in the bibliography is a lint finding.
 
-Documents are derived: any `.tex` with a `\documentclass` outside a comment. Its citations
-include every file reached through `\input`, `\include` and `\subfile`. Its bibliography is
-the `.bbl` with the same stem beside it.
+Documents are derived: any `.tex` with a `\documentclass` outside a comment, except a
+`subfiles` child. Its citations include every file reached through `\input`, `\include`,
+`\subfile` and the `\import` family, in any capitalisation of `cite`; comments, `\verb`,
+verbatim text and macro definitions are skipped. A document is checked against the
+bibliographies it names with `\bibliography` or `\addbibresource`, or all of them when it
+names none, so one key in two unrelated papers' bibliographies is fine. `\nocite{*}` counts
+every entry of its bibliographies as cited, and lint says which documents did that.
+
+Its `.bbl` is the same stem beside the `.tex`, else in `outdir`. `rendered` also names the
+`.tex` files under a document's directory that no document reaches, so an include form this
+tool does not follow shows up instead of passing silently. `--require-built` fails only for a
+document that cites something or names a bibliography.
+
+A configured `[intake] file` that does not exist is an error, as is a `cache` outside the root
+or a cache file that is not a JSON object. The root search stops at the git top-level.
 
 Set `DOKIMASIA_MAILTO` to your address to use Crossref's polite pool. It is added to Crossref
 requests and the User-Agent, and never stored.

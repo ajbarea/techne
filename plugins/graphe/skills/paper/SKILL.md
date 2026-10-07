@@ -50,7 +50,7 @@ biblatex, which skews against a system biber the moment a paper moves off classi
 4. Append a row to the portfolio file's first-author table:
    `| <name> | <repo> | (contribution -- fill in) | scaffolded |`.
 5. Build-verify with the `graphe:latex` runner:
-   `uv run --quiet python ${CLAUDE_PLUGIN_ROOT}/skills/latex/scripts/latex.py papers/<name>/main.tex`.
+   `uv run --no-project --quiet python ${CLAUDE_PLUGIN_ROOT}/skills/latex/scripts/latex.py papers/<name>/main.tex`.
    A fresh scaffold exits 2 with exactly one blocker, `draft-marker` for the template's
    `TODO` placeholders; that is the expected result. Any other finding is a real failure.
    Report the PDF path and size. Without TeX Live, say so and point at Overleaf instead.
