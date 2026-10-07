@@ -117,9 +117,10 @@ hide:
 /plugin install techne@techne
 /plugin install graphe@techne
 /plugin install dokimasia@techne
-/plugin install phylax@techne</code></pre>
+/plugin install phylax@techne
+/plugin install keryx@techne</code></pre>
     </div>
-    <p class="section-lead">Install the plugins you use, then invoke a skill as <code>/techne:&lt;name&gt;</code> or <code>/graphe:&lt;name&gt;</code>, or describe the task and let Claude pick it.</p>
+    <p class="section-lead">Install the plugins you use (keryx on WSL2 only), then invoke a skill as <code>/techne:&lt;name&gt;</code>, <code>/graphe:&lt;name&gt;</code> or <code>/dokimasia:check</code>, or describe the task and let Claude pick it.</p>
     <div class="hero-buttons hero-buttons--cta">
       <a href="getting-started/" class="md-button md-button--primary">Get Started</a>
       <a href="configuration/" class="md-button">Configuration</a>

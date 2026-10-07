@@ -24,7 +24,7 @@ Invoke by name in Claude Code:
 Or run the script directly from a techne checkout. It is one standard-library file and needs Python 3.11 or later. `--no-project` keeps `uv` from creating a `.venv` in your project; `python3` works too:
 
 ```
-uv run --no-project --quiet python plugins/dokimasia/skills/check/scripts/dokimasia.py [--root DIR] [--require-built] {lint,verify,rendered} [DOC.tex ...]
+uv run --no-project --quiet python plugins/dokimasia/skills/check/scripts/dokimasia.py [--root DIR] [--require-built] [{lint,verify,rendered}] [DOC.tex ...]
 ```
 
 | Mode | Network | Checks |
@@ -33,13 +33,13 @@ uv run --no-project --quiet python plugins/dokimasia/skills/check/scripts/dokima
 | `verify` | yes | Title, first-author surname and year against the arXiv or Crossref record. |
 | `rendered` | no | Every key a document cites is in its `.bbl`. |
 
-Exit codes: `0` clean, `1` findings, `2` usage or configuration error.
+The mode defaults to `lint`. Exit codes: `0` clean, `1` findings, `2` usage or configuration error.
 
 ## Why three passes
 
 They fail differently. `lint` is deterministic and fit for every push. `verify` depends on third-party APIs, so a push gate would fail for reasons that have nothing to do with the bibliography; run it on a schedule, where it reports rather than blocks. `rendered` needs a built document.
 
-## Verify keeps four outcomes apart
+## Verify keeps five outcomes apart
 
 Conflating them is how a blind spot goes quiet.
 
@@ -47,6 +47,7 @@ Conflating them is how a blind spot goes quiet.
 - **Drift**: resolved, and the file differs from the source.
 - **Unresolved**: the entry has an identifier and the lookup did not answer. The reason is printed. This says nothing about the entry, and a throttled host is waited out rather than counted.
 - **Unverifiable**: no `eprint` and no `doi`, so nothing can be resolved. Named on every run.
+- **Exempt**: listed in the config with a reason. The reason is printed.
 
 A failed lookup is never cached. A 200 response that does not parse counts as a failed lookup, and only a valid empty arXiv feed means "no such record".
 

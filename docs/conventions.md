@@ -116,8 +116,12 @@ log_archive_glob: "logs/dev-*-{phase}.log"
 do_not_run: []
 
 ## ci_audit
-workflows_path: ".github/workflows"
-ignore_warnings: []
+referenced_configs:
+  - "pyproject.toml"
+  - "Makefile"
+tool_error_markers:
+  - "ruff"
+  - "FAILED"
 
 ## slop_ground_truth
 authoritative_sources:
@@ -127,22 +131,44 @@ test_locations:
   - "tests/"
 
 ## scan_scope
-include:
-  - "src/"
-  - "docs/"
-exclude:
+skip:
   - "site/"
   - ".venv/"
+areas:
+  - "src/"
+  - "tests/"
+  - "docs/"
 
 ## docs_site
 config: "zensical.toml"
-deploy_workflow: ".github/workflows/docs.yml"
-build_command: "uv run --group dev zensical build --clean"
+workflow: ".github/workflows/docs.yml"
+css_files: "docs/stylesheets/"
+js_files: "docs/javascripts/"
+build_command: "uv run zensical build --clean"
+site_url: "https://<owner>.github.io/<repo>/"
+action_pins: "the full-SHA pins in .github/workflows/docs.yml"
 
 ## theoros
 ```yaml
 repl_command: <your repo's REPL command>
 session_name: <your-repo-slug>-theoros
+```
+
+## paper
+```yaml
+author: <name>
+affiliation: <institution>
+email: <address>
+bib: ../references          # shared bibliography, relative to the paper directory
+portfolio: LINEAGE.md       # file that lists each paper
+```
+
+## paper-review
+```yaml
+lab_line: LINEAGE.md        # source of truth for lab and co-author overlap
+retrieval: <sources>        # default OpenAlex + web
+mailto: <address>           # OpenAlex polite pool, default git config user.email
+report: papers/<name>/novelty-review.md
 ```
 
 ## latex
@@ -168,7 +194,7 @@ feature_works_means:
 Each `##` section maps to one skill family. Adopt only the sections for the skills you intend to use; absent sections trigger a "skill needs scaffolding" message instead of a silent failure.
 
 **Required for:** `techne:audit`, `techne:theoros`.
-**Recommended for:** `techne:sisters` (used for cross-repo skill-context parity checks), `techne:deslop`, `techne:reslop`, `techne:docsync`, `techne:docs-site`, `techne:ci-audit`, `graphe:latex` (defaults work with no config; the `## latex` block sets per-repo draft markers and thresholds), `techne:elenchus` (tier-0 works with no config; the `## elenchus` block sharpens each phase).
+**Recommended for:** `techne:sisters` (used for cross-repo skill-context parity checks), `techne:deslop`, `techne:reslop`, `techne:docsync`, `techne:docs-site`, `techne:ci-audit`, `graphe:paper` and `graphe:paper-review` (defaults work; the `## paper` and `## paper-review` blocks set author, bibliography and lab-overlap details), `graphe:latex` (defaults work with no config; the `## latex` block sets per-repo draft markers and thresholds), `techne:elenchus` (tier-0 works with no config; the `## elenchus` block sharpens each phase).
 
 ## `~/.claude/techne.toml` (user-level sister config)
 

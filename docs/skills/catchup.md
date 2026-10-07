@@ -19,13 +19,12 @@ A bare repo name resolves against the local clone's remote under `workspace_root
 
 Given a path, it also reports any clone checked out beneath it. A repo parked inside another repo's working tree answers to the outer clone, so sweeping the outer one alone would report "nothing to catch up on" while the real threads sit a directory down.
 
-The skill anchors on your most recent comment, review, commit, or merge in that repo and reports everything after it, bucketed three ways. A commit cannot bury a comment aimed at you: pushing is not reading, so anything addressed to you before a later commit's anchor is retained and flagged.
+The skill anchors on your most recent comment, review, opened issue or PR, merge, or commit in that repo and reports everything after it, bucketed three ways. A commit cannot bury a comment aimed at you: pushing is not reading, so anything addressed to you before a later commit's anchor is retained and flagged.
 
 | Bucket | Meaning |
 |---|---|
-| ⏳ Waiting on you | A review to answer, a question addressed to you, your own approved PR still sitting unmerged, or your PR that someone else's merge silently broke. |
+| ⏳ Waiting on you | A review to answer (including a review someone explicitly requested from you, even the first you are ever asked for on that repo), a question addressed to you, your own approved PR still sitting unmerged, or your PR that someone else's merge silently broke. |
 | 🔵 Waiting on them | Your PR awaiting review, your unanswered question, or blocking items you raised that are still unaddressed. |
-| | A review someone explicitly requested from you is always "waiting on you", including the first one you are ever asked for on that repo. |
 | ✅ No action | Merged, closed, informational, or your own activity. |
 
 ## What it reads

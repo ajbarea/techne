@@ -48,11 +48,11 @@ skipped on the run where it mattered.
 | ERROR | `tex-error` | Anything that stopped the run, with `file:line`. |
 | ERROR | `no-pdf` | The run claimed success and wrote nothing. |
 | BLOCK | `undefined-cite` | `[?]` in the text. Both spellings: classic `Citation undefined`, and biblatex's own "entry could not be found". |
-| BLOCK | `bibliography` | Every biber `WARN`/`ERROR` in the `.blg`. |
+| BLOCK | `bibliography` | Every biber `WARN` in the `.blg` (a biber `ERROR` is reported as `ERROR`). |
 | BLOCK | `undefined-ref` | `??` in the text. |
 | BLOCK | `duplicate-label` | Two `\label`s with one name; refs silently point at the last. |
 | BLOCK | `missing-glyph` | Characters dropped from the PDF because the font lacks them. Nothing on screen marks the hole. |
-| BLOCK | `draft-marker` | `FILL`, `TODO`, `XXX` surviving into the PDF. |
+| BLOCK | `draft-marker` | `FILL`, `TODO`, `XXX`, `CITATION NEEDED` surviving into the PDF. |
 | BLOCK | `unsettled` | The log still asks for a rerun, so cross-references are stale. |
 | WARN | `overfull`, `font-substitution`, `package` | Largest five overfull boxes, then a count. |
 | REVIEW | `coverage` | Problem headers in the prompt with no match in the PDF. |

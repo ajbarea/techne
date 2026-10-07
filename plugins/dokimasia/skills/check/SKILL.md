@@ -36,7 +36,7 @@ arXiv and Crossref and is slow on purpose (3 seconds between arXiv lookups).
 | 1 | Findings: lint findings, verify drift, a key that did not render, or with `--require-built` a document with no `.bbl`. |
 | 2 | Usage or configuration error, including an unknown config key. |
 
-Findings print on stderr and the summary on stdout, every summary and finding line prefixed `dokimasia:`.
+Findings print on stderr and the summary on stdout, every summary and finding line prefixed `dokimasia:`; key lists and file details under a line are indented.
 
 ## Verify outcomes
 

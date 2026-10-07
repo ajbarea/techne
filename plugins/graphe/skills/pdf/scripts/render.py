@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render markdown files to print-quality PDFs through Typst + cmarker.
 
-Run with ``uv run --with typst python render.py ...``, the ``typst`` wheel
+Run with ``uv run --with 'typst>=0.15,<0.16' python render.py ...``, the ``typst`` wheel
 bundles the compiler, so nothing needs to be installed on the machine.
 
 The first ``# Heading`` of each file becomes the PDF title and the rendered
@@ -30,7 +30,7 @@ try:
 except ImportError:  # an install without _shared/
     prose_check = None
 
-# Ordered fallbacks. Libertinus Serif, New Computer Modern and DejaVu Sans Mono
+# Ordered fallbacks. Libertinus Serif and DejaVu Sans Mono
 # ship inside the typst wheel, so the last entry of each list always resolves.
 SERIF = ["Charter", "XCharter", "Libertinus Serif"]
 SANS = ["Helvetica Neue", "Helvetica", "TeX Gyre Heros", "Arial", "Libertinus Serif"]

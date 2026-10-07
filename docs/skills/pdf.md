@@ -20,7 +20,7 @@ Invoke by name in Claude Code:
 Or run the generator directly from a techne checkout. `<src>` takes a single `.md` or a directory of them:
 
 ```
-uv run --no-project --quiet --with typst python \
+uv run --no-project --quiet --with 'typst>=0.15,<0.16' python \
   plugins/graphe/skills/pdf/scripts/render.py <src> <out-dir>
 ```
 

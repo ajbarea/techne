@@ -8,7 +8,7 @@ You'll need:
 
 - **Claude Code**: the CLI, desktop app, or IDE extension. See [code.claude.com/docs](https://code.claude.com/docs).
 - **GitHub CLI** (`gh`): Several skills use this to interact with GitHub. Install: [github.com/cli/cli](https://github.com/cli/cli)
-- **A git repository**: All skills work within git repos. Initialize one if needed: `git init`
+- **A git repository**: Most skills work within git repos. Initialize one if needed: `git init`
 
 ## Installation
 
@@ -20,6 +20,7 @@ From inside Claude Code:
 /plugin install graphe@techne
 /plugin install dokimasia@techne
 /plugin install phylax@techne
+/plugin install keryx@techne   # WSL2 only
 ```
 
 Verify the install:
@@ -28,9 +29,9 @@ Verify the install:
 /skills
 ```
 
-The `techne:*` and `graphe:*` skills should be listed. If they are not, run `/reload-plugins` and check again.
+The `techne:*`, `graphe:*` and `dokimasia:*` skills should be listed (for the plugins you installed). If they are not, run `/reload-plugins` and check again.
 
-Install only the plugins you use: `techne` holds the code-repo skills, `graphe` the document skills (LaTeX, PDF, slides, papers), `dokimasia` the bibliography checker, and `phylax` the opt-in git guards.
+Install only the plugins you use: `techne` holds the code-repo skills, `graphe` the document skills (LaTeX, PDF, slides, papers), `dokimasia` the bibliography checker, `phylax` the opt-in git guards, and `keryx` speaks a gist of each reply (WSL2 only).
 
 ## First Workflow
 

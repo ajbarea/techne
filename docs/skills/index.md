@@ -1,6 +1,6 @@
 # Skills
 
-The skills ship in three plugins: `techne` for work in a code repo, `graphe` for documents, `dokimasia` for bibliographies. Grouped by what they do.
+The skills ship in three plugins: `techne` for work in a code repo, `graphe` for documents, `dokimasia` for bibliographies (keryx, from `ajbarea/keryx`, adds `keryx:pronounce`). Grouped by what they do.
 
 ## Build hygiene
 

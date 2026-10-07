@@ -75,10 +75,9 @@ guards:                 ## Stale-path + legacy-name + shared-copy + plugin-path 
 # End-to-end cases need TeX Live (latex) and the typst wheel (pdf). Where either
 # is absent, TECHNE_NO_TEX / TECHNE_NO_TYPST declares the opt-out; without the
 # declaration the suite fails rather than skipping them unnoticed. The wheel is
-# pulled per-run rather than pinned as a dev dependency, matching how the skill
-# itself runs.
+# pulled per-run at the same pin the skill uses, rather than held as a dev dependency.
 test-unit:              ## pytest over skill-shipped Python
-	@uv run --with typst pytest
+	@uv run --with 'typst>=0.15,<0.16' pytest
 
 # The hooks run on the user's system python3, not the project venv. 3.9 is macOS's.
 HOOKS_OLDEST_PYTHON := 3.9
