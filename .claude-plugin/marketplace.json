@@ -1,6 +1,6 @@
 {
   "name": "techne",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "AJ's Claude Code plugins: code-repo skills, document builds, git guards, and a spoken Claude Code.",
   "owner": {
     "name": "AJ",

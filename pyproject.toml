@@ -1,6 +1,6 @@
 [project]
 name = "techne"
-version = "1.0.0"
+version = "1.1.0"
 description = "An opinionated Claude Code skill collection for repo hygiene, audits, doc/code drift, and document builds."
 requires-python = ">=3.12"
 dependencies = []
