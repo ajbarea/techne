@@ -46,6 +46,7 @@ Findings print on stderr and the summary on stdout, every summary and finding li
 | drift | Resolved, and the title, first author or year differs from the source. | Check the source, then decide which side is wrong. |
 | unresolved | The entry has an identifier and the lookup did not answer. The reason is printed (`HTTP 406`, `TimeoutError`, `unparseable response`, `no matching record`). | Rerun later. Say nothing about the entry. |
 | unverifiable | No `eprint` and no `doi` (for a hand-written entry, none printed), so there is nothing to resolve. Named every run. | Add an identifier, or accept that a human checks it. |
+| uncompared | A hand-written entry whose identifier resolved but which does not quote its title, so nothing printed can be matched to the record. Named every run; counted only where hand-written entries exist. | Check it by hand against the record. |
 | exempt | Listed in the config with a reason. The reason is printed. | None. |
 
 A failed lookup is never cached and never a finding. A throttled host (406, 429, 503) is
@@ -56,27 +57,24 @@ waited out: a lookup tries three times, 5 then 20 seconds apart.
 A document that writes `\begin{thebibliography}` and `\bibitem` itself has no `.bib` and never
 builds a `.bbl`. Its items are its entries, and it draws on no `.bib` in the project, unless it
 also names one with `\bibliography`. Items may sit in an `\input` file inside the block. A list
-inside `\iffalse`, a `comment` environment or a `\newenvironment` definition is not read. A
-project whose only reference lists are hand-written is not a configuration error.
+inside `\iffalse`, a `comment` environment or an environment definition is not read. A project
+whose only reference lists are hand-written is not a configuration error.
 
 - `rendered` checks that every cited key has a `\bibitem`; such a document is never "not built".
   A document that also names a `.bib` is checked against both, and still needs its `.bbl`.
-- A `.bbl` pasted in with `\input`, as arXiv submissions do, is build output: it counts as
-  rendered, and its entries are checked through the `.bib` it came from.
+- A `.bbl` pasted in with `\input`, as arXiv submissions do, is build output. It counts as
+  rendered, and nothing else: its entries are checked in the `.bib` it came from, which must be
+  in the project.
 - `lint` does not require an identifier: printed styles routinely drop the DOI. It counts the
   items that print none, and `verify` names each of them as unverifiable.
-- `verify` resolves only an arXiv id or DOI printed in the item, then compares the record with
-  the printed text. A quoted title is compared as a `.bib` title is. An unquoted one must start
-  a printed field, and a field after `In` is the containing volume, never the title, so a real
-  title inside a longer invented one, or a chapter borrowing its book's DOI, is drift. The
-  first name printed before the title must belong to the source's first author. A year is
-  compared against a Crossref record, and against arXiv only where a year follows the arXiv id.
-  It never looks an entry up by its title: a search hit is weaker evidence than a resolved
+- `verify` resolves only an arXiv id or DOI printed in the item. It then compares the item with
+  the record only where the item quotes its title, as IEEE, Chicago and MLA do: the whole
+  quoted title by the `.bib` rule, the first surname before it against the source's first
+  author, and the year. Anywhere else the printed text does not say which part is the title,
+  and guessing passed fabricated titles in review. Such an item is **uncompared**: the work
+  exists, and whether the entry describes it is left to a human.
+- It never looks an entry up by its title: a search hit is weaker evidence than a resolved
   identifier.
-- A style that prints no titles (APS, AIP) reports title drift on every resolved entry, since
-  the title cannot be confirmed. Exempt those keys with `[exempt.title]` and a reason.
-- One gap is left: an unquoted entry whose venue, not after `In`, starts with the source's
-  title passes the title check.
 - Output names a hand-written entry with its file, `key (paper.tex)`, since two papers may
   each print their own `smith2020`. Exemptions use the bare key.
 
@@ -85,7 +83,7 @@ project whose only reference lists are hand-written is not a configuration error
 - **An unresolved entry is never edited on that basis.** It says the lookup failed, not that the entry is wrong.
 - **A drift finding is checked against the source before the entry is changed.** Open the arXiv or DOI record. The source is sometimes the wrong side; that case is an `exempt` entry with a reason, not an edit.
 - **Never use an LLM's own judgement as evidence that a reference exists.** Existence comes from `verify` or from a record you opened.
-- **Report counts from the summary line** (`verified N, exempt N, unresolved N, unverifiable N, drift N`), and name the unresolved reasons. Do not round them into "mostly fine".
+- **Report counts from the summary line** (`verified N, exempt N, unresolved N, unverifiable N, drift N`, with `uncompared N` before `drift` where hand-written entries exist), and name the unresolved reasons and the uncompared entries. An uncompared entry is not verified. Do not round them into "mostly fine".
 - **A document that is not built is not checked.** Say which documents `rendered` skipped; offer to build them with `/graphe:latex`.
 
 ## Configuration

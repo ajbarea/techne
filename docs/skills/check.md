@@ -39,7 +39,7 @@ The mode defaults to `lint`. Exit codes: `0` clean, `1` findings, `2` usage or c
 
 They fail differently. `lint` is deterministic and fit for every push. `verify` depends on third-party APIs, so a push gate would fail for reasons that have nothing to do with the bibliography; run it on a schedule, where it reports rather than blocks. `rendered` needs a built document.
 
-## Verify keeps five outcomes apart
+## Verify keeps its outcomes apart
 
 Conflating them is how a blind spot goes quiet.
 
@@ -47,6 +47,7 @@ Conflating them is how a blind spot goes quiet.
 - **Drift**: resolved, and the file differs from the source.
 - **Unresolved**: the entry has an identifier and the lookup did not answer. The reason is printed. This says nothing about the entry, and a throttled host is waited out rather than counted.
 - **Unverifiable**: no `eprint` and no `doi` (for a hand-written entry, none printed), so nothing can be resolved. Named on every run.
+- **Uncompared**: a hand-written entry whose identifier resolved but which does not quote its title, so nothing printed can be matched to the record. Named on every run, and never counted as verified.
 - **Exempt**: listed in the config with a reason. The reason is printed.
 
 A failed lookup is never cached. A 200 response that does not parse counts as a failed lookup, and only a valid empty arXiv feed means "no such record".
@@ -55,7 +56,7 @@ Year is compared only where it is sound: against the arXiv posting year for an a
 
 ## Hand-written reference lists
 
-A document that writes its list by hand in `thebibliography` has no `.bib` and no `.bbl`, and its `\bibitem`s are its entries. `rendered` checks that every cited key has one. `lint` catches a duplicate `\bibitem`, a citation without one, and an item nothing cites, but does not require an identifier, since printed styles routinely drop the DOI. Items may sit in an `\input` file inside the block; a list inside `\iffalse` or a `\newenvironment` definition is not read. A document that also names a `.bib` is checked against both. A `.bbl` pasted in with `\input` is build output: it counts as rendered, and its entries are checked through their `.bib`. `verify` resolves only an arXiv id or DOI printed in the item. A quoted title is compared as a `.bib` title is. An unquoted one must start a printed field, and a field after `In` is the containing volume, so a real title inside a longer invented one, or a chapter borrowing its book's DOI, is drift. The first name printed before the title must belong to the source's first author, and a year is compared against Crossref, or against arXiv only where a year follows the arXiv id. A style that prints no titles (APS, AIP) reports title drift until those keys are exempted with a reason. It never searches by title: a search hit is weaker evidence than a resolved identifier.
+A document that writes its list by hand in `thebibliography` has no `.bib` and no `.bbl`, and its `\bibitem`s are its entries. `rendered` checks that every cited key has one. `lint` catches a duplicate `\bibitem`, a citation without one, and an item nothing cites, but does not require an identifier, since printed styles routinely drop the DOI. Items may sit in an `\input` file inside the block; a list inside `\iffalse`, a `comment` environment or an environment definition is not read. A document that also names a `.bib` is checked against both. A `.bbl` pasted in with `\input` is build output: it counts as rendered, and its entries are checked in the `.bib` it came from. `verify` resolves only an arXiv id or DOI printed in the item, and compares the item with the record only where it quotes its title (IEEE, Chicago, MLA): the quoted title by the `.bib` rule, the first surname before it, and the year. Anywhere else the printed text does not say which part is the title, so the item is reported as **uncompared**: the work exists, and whether the entry describes it is left to a human. It never searches by title: a search hit is weaker evidence than a resolved identifier.
 
 ## Rendered
 

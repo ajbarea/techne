@@ -1856,7 +1856,7 @@ def test_a_project_with_only_a_hand_written_list_is_not_a_config_error(dk, tmp_p
 def test_no_bib_and_no_hand_written_list_is_still_a_config_error(dk, tmp_path, capsys):
     (tmp_path / "paper.tex").write_text(DOC + "\\cite{x}\n")
     assert dk.main(["--root", str(tmp_path), "lint"]) == 2
-    assert "no document has a thebibliography" in capsys.readouterr().err
+    assert "no document has a hand-written thebibliography" in capsys.readouterr().err
 
 
 def test_bibitems_reads_keys_and_the_text_up_to_the_next_item(dk, tmp_path):
@@ -1991,7 +1991,7 @@ def test_verify_resolves_printed_identifiers_and_names_the_rest(dk, tmp_path, mo
     _answer(dk, monkeypatch)
     assert dk.verify(dk.load_config(tmp_path), delay=0) == 0
     out = capsys.readouterr().out
-    assert "verified 2, exempt 0, unresolved 0, unverifiable 1, drift 0" in out
+    assert "verified 2, exempt 0, unresolved 0, unverifiable 1, uncompared 0, drift 0" in out
     assert "poe2015 (paper.tex)" in out
 
 
@@ -2078,8 +2078,9 @@ def test_a_bib_and_a_hand_written_list_are_verified_together(dk, tmp_path, monke
     _answer(dk, monkeypatch)
     dk.verify(dk.load_config(tmp_path), delay=0)
     # good2024entry and doe2024 share one arXiv id; the second is a cache hit.
-    assert "verified 3, exempt 0, unresolved 0, unverifiable 1, drift 0 (1 from cache)" in (
-        capsys.readouterr().out
+    assert (
+        "verified 3, exempt 0, unresolved 0, unverifiable 1, uncompared 0, drift 0 (1 from cache)"
+        in (capsys.readouterr().out)
     )
 
 
@@ -2199,38 +2200,38 @@ def test_a_bib_only_project_keeps_its_unverifiable_wording(dk, tmp_path, monkeyp
     )
 
 
-@pytest.mark.parametrize(
-    "printed",
-    [
-        # A real DOI under an invented, longer title: the typical fabricated reference.
-        "Y. LeCun, ``Applications of deep learning in medicine,'' \\emph{Nature}, 2015.",
-        "Y. LeCun. Applications of deep learning in medicine. \\emph{Nature}, 2015.",
-    ],
-)
-def test_a_longer_title_around_the_source_title_is_drift(dk, printed):
+def test_a_longer_quoted_title_around_the_source_title_is_drift(dk):
+    """A real DOI under an invented, longer title: the typical fabricated reference."""
     record = {"title": "Deep learning", "authors": ["Yann LeCun"], "source": "crossref"}
-    cfg = dk.Config(root=Path("."))
-    assert "title" in [f[0] for f in dk._printed_findings(cfg, "k", printed, record)]
+    printed = "Y. LeCun, ``Applications of deep learning in medicine,'' \\emph{Nature}, 2015."
+    found = dk._printed_findings(dk.Config(root=Path(".")), "k", printed, record)
+    assert [f[0] for f in found] == ["title"]
 
 
 @pytest.mark.parametrize(
     "printed",
     [
-        "Y. LeCun, ``Deep learning,'' \\emph{Nature}, 2015.",
+        "Y. LeCun. Applications of deep learning in medicine. \\emph{Nature}, 2015.",
         "Y. LeCun. Deep learning: a review. \\emph{Nature}, 2015.",
         "Y. LeCun. 2015. \\emph{Deep Learning}. Nature.",
     ],
 )
-def test_the_source_title_as_its_own_field_is_not_drift(dk, printed):
+def test_an_unquoted_title_is_never_compared(dk, printed):
+    """Neither verified nor drift: the printed text does not say which part is the title."""
     record = {"title": "Deep learning", "authors": ["Yann LeCun"], "source": "crossref"}
-    cfg = dk.Config(root=Path("."))
-    assert dk._printed_findings(cfg, "k", printed, record) == []
+    assert dk._printed_findings(dk.Config(root=Path(".")), "k", printed, record) is None
 
 
-def test_a_tex_umlaut_is_not_a_quoted_title(dk):
+def test_the_quoted_source_title_is_not_drift(dk):
+    record = {"title": "Deep learning", "authors": ["Yann LeCun"], "source": "crossref"}
+    printed = "Y. LeCun, ``Deep learning,'' \\emph{Nature}, 2015."
+    assert dk._printed_findings(dk.Config(root=Path(".")), "k", printed, record) == []
+
+
+def test_a_tex_umlaut_does_not_open_a_quoted_title(dk):
     record = {"title": "Deep learning", "authors": ["Kurt M\u00fcller"], "source": "crossref"}
     printed = 'K. M\\"uller and A. B\\"ohm. Deep learning. Nature, 2015.'
-    assert dk._printed_findings(dk.Config(root=Path(".")), "k", printed, record) == []
+    assert dk._printed_findings(dk.Config(root=Path(".")), "k", printed, record) is None
 
 
 def test_another_source_author_printed_first_is_drift(dk):
@@ -2252,13 +2253,13 @@ def test_a_generational_suffix_on_the_source_is_not_drift(dk):
 
 def test_preprint_wording_alone_does_not_compare_a_venue_paper_with_arxiv(dk):
     record = {"title": "Title here", "authors": ["John Smith"], "year": 2020, "source": "arxiv"}
-    printed = "J. Smith. Title here. In NeurIPS, 2021. arXiv preprint arXiv:2001.01234."
+    printed = "J. Smith, ``Title here,'' in NeurIPS, 2021. arXiv preprint arXiv:2001.01234."
     assert dk._printed_findings(dk.Config(root=Path(".")), "k", printed, record) == []
 
 
 def test_a_year_after_a_classified_arxiv_id_is_compared(dk):
     record = {"title": "Title here", "authors": ["John Smith"], "year": 2024, "source": "arxiv"}
-    printed = "J. Smith. Title here. arXiv:2401.00001 [cs.LG], 2023."
+    printed = "J. Smith, ``Title here,'' arXiv:2401.00001 [cs.LG], 2023."
     found = dk._printed_findings(dk.Config(root=Path(".")), "k", printed, record)
     assert [f[0] for f in found] == ["year"]
 
@@ -2308,7 +2309,7 @@ def test_a_broken_symlink_does_not_crash_verify(dk, tmp_path, monkeypatch):
     assert dk.verify(dk.load_config(tmp_path), delay=0) == 0
 
 
-# --- #113 second review round ------------------------------------------------------------
+# --- #113 later review rounds ------------------------------------------------------------
 
 VASWANI = {
     "title": "Attention is all you need",
@@ -2318,60 +2319,82 @@ VASWANI = {
 }
 
 
-def _drift(dk, printed, record=None):
+def _compare(dk, printed, record=None):
     found = dk._printed_findings(dk.Config(root=Path(".")), "k", printed, record or VASWANI)
-    return [f[0] for f in found]
+    return None if found is None else [f[0] for f in found]
 
 
 @pytest.mark.parametrize(
     "printed",
     [
         "A.~Vaswani and N.~Shazeer, ``Attention is all you need,'' arXiv:1706.03762, 2017.",
-        "Vaswani, A., Shazeer, N.: Attention is all you need. arXiv:1706.03762 (2017)",
-        "Ashish Vaswani and Noam Shazeer. 2017. Attention is all you need. arXiv:1706.03762.",
-        "Vaswani, A. and Shazeer, N. (2017) Attention is all you need. arXiv:1706.03762.",
-        "Vaswani A and Shazeer N 2017 Attention is all you need arXiv:1706.03762",
-        "Vaswani, A., et al. (2017). Attention is all you need. \\emph{arXiv}.",
         "A.~Vaswani \\emph{et~al.}, ``Attention is all you need,'' 2017.",
+        'Vaswani, Ashish, and Noam Shazeer. 2017. "Attention Is All You Need." arXiv.',
+        'Vaswani, Ashish, et al. "Attention Is All You Need." \\emph{arXiv}, 2017.',
+        "A. Vaswani, ``Attention is all you need: a subtitle Crossref drops,'' 2017.",
     ],
 )
-def test_correct_entries_in_common_printed_styles_are_clean(dk, printed):
-    assert _drift(dk, printed) == []
-
-
-def test_a_fabricated_first_author_before_the_real_one_is_drift(dk):
-    printed = "J.~Doe, A.~Vaswani, and N.~Shazeer, ``Attention is all you need,'' 2017."
-    assert _drift(dk, printed) == ["first author"]
+def test_correct_quoted_entries_are_clean(dk, printed):
+    assert _compare(dk, printed) == []
 
 
 @pytest.mark.parametrize(
     "printed",
     [
+        "Vaswani, A., Shazeer, N.: Attention is all you need. arXiv:1706.03762 (2017)",
+        "Ashish Vaswani and Noam Shazeer. 2017. Attention is all you need. arXiv:1706.03762.",
+        "Vaswani, A. and Shazeer, N. (2017) Attention is all you need. arXiv:1706.03762.",
+        "Vaswani A and Shazeer N 2017 Attention is all you need arXiv:1706.03762",
+        "A.~Vaswani, N.~Shazeer, Phys. Rev. \\textbf{47}, 777 (2017).",
+        # Fabrications in unquoted styles are reported uncompared, never verified.
         "Doe, J.: Fabricated chapter. In: Attention is all you need, pp. 1--9 (2017)",
         "J. Doe. Fabricated method. \\newblock In {\\em Attention is all you need}, 2017.",
     ],
 )
-def test_a_chapter_borrowing_its_volumes_doi_is_drift(dk, printed):
-    volume = {"title": "Attention is all you need", "authors": [], "source": "crossref"}
-    assert "title" in _drift(dk, printed, volume)
+def test_unquoted_styles_are_uncompared(dk, printed):
+    assert _compare(dk, printed) is None
 
 
-def test_a_real_title_after_an_invented_subtitle_lead_is_drift(dk):
-    printed = "A.~Vaswani. Rethinking transformers: Attention is all you need. 2017."
-    assert "title" in _drift(dk, printed)
+@pytest.mark.parametrize(
+    "printed",
+    [
+        # A comma inside an invented title used to expose the real one.
+        "A.~Vaswani, ``Rethinking, attention is all you need, and more,'' 2017.",
+        "A.~Vaswani, ``Rethinking transformers: Attention is all you need,'' 2017.",
+        # A chapter borrowing its volume's DOI: the quoted title is the chapter's.
+        "J.~Doe, ``Fabricated chapter,'' in \\emph{Attention is all you need}, 2017.",
+        "J.~Doe, ``Fabricated chapter,'' in J. Smith (Ed.), ``Attention is all you need,'' 2017.",
+    ],
+)
+def test_a_fabricated_quoted_title_is_drift(dk, printed):
+    assert "title" in _compare(dk, printed)
+
+
+@pytest.mark.parametrize(
+    "printed",
+    [
+        "J.~Doe, A.~Vaswani, and N.~Shazeer, ``Attention is all you need,'' 2017.",
+        "Yann Smith and Ashish Vaswani, ``Attention is all you need,'' 2017.",
+        "J. de Doe, ``Attention is all you need,'' 2017.",
+    ],
+)
+def test_a_wrong_first_author_is_drift(dk, printed):
+    assert _compare(dk, printed) == ["first author"]
 
 
 @pytest.mark.parametrize(
     ("printed", "first"),
     [
-        ("Li Wang and Wei Li. 2020. Deep learning. Nature.", "Li Wang"),
-        ("J. Garc{\\'\\i}a. Deep learning. Nature, 2020.", "Juan Garc\u00eda M\u00e1rquez"),
-        ("X. Wang. Deep learning. Nature, 2020.", "Wang Xiaoming"),
+        ("Li Wang and Wei Li, ``Deep learning,'' Nature, 2020.", "Li Wang"),
+        ("J. Garc{\\'\\i}a, ``Deep learning,'' Nature, 2020.", "Juan Garc\u00eda M\u00e1rquez"),
+        ("X. Wang, ``Deep learning,'' Nature, 2020.", "Wang Xiaoming"),
+        ("Yann LeCun, ``Deep learning,'' Nature, 2020.", "Y. LeCun"),
+        ("{World Health Organization}, ``Deep learning,'' 2020.", "World Health Organization"),
     ],
 )
 def test_first_authors_the_bib_rule_accepts_are_accepted(dk, printed, first):
     record = {"title": "Deep learning", "authors": [first, "Wei Li"], "source": "crossref"}
-    assert _drift(dk, printed, record) == []
+    assert _compare(dk, printed, record) == []
 
 
 @pytest.mark.parametrize(
@@ -2379,32 +2402,44 @@ def test_first_authors_the_bib_rule_accepts_are_accepted(dk, printed, first):
     [
         "Doe, J. (2020). The ``attention'' trap in reading. \\emph{Mind}, 1.",
         'Doe, J. (2020). The "attention" trap in reading. Mind, 1.',
-        "J.~Doe, ``The ``attention'' trap in reading,'' \\emph{Mind}, 2020.",
     ],
 )
-def test_a_quoted_word_inside_a_title_is_not_the_title(dk, printed):
+def test_a_quoted_word_inside_an_unquoted_title_is_not_the_title(dk, printed):
     record = {
         "title": "The attention trap in reading",
         "authors": ["Jane Doe"],
         "source": "crossref",
     }
-    assert _drift(dk, printed, record) == []
+    assert _compare(dk, printed, record) is None
 
 
-def test_a_style_that_prints_no_title_is_drift_until_exempted(dk, tmp_path, monkeypatch, capsys):
-    """APS and AIP print no titles. The title cannot be confirmed, so it is reported; an
-    exemption with a reason is the route out, as for any source the file cannot match."""
+def test_nested_quotes_inside_a_title_are_one_title(dk):
+    record = {"title": "On robust estimation", "authors": ["Jane Doe"], "source": "crossref"}
+    assert _compare(dk, "J.~Doe, ``On ``robust'' estimation,'' 2020.", record) == []
+
+
+def test_a_page_range_is_not_a_claimed_year(dk):
+    record = {
+        "title": "Deep learning",
+        "authors": ["Yann LeCun"],
+        "year": 2015,
+        "source": "crossref",
+    }
+    assert _compare(dk, "Y. LeCun, ``Deep learning,'' Nature, pp. 2016--2020, 2015.", record) == []
+
+
+def test_verify_names_uncompared_entries_and_exits_clean(dk, tmp_path, monkeypatch, capsys):
     tex = HAND.replace(
         "R.~Roe and S.~Sun, ``Checking the {LLM}s that check,'' \\emph{Empirical Softw. Eng.},",
         "R.~Roe and S.~Sun, \\emph{Empirical Softw. Eng.},",
     )
     _hand(tmp_path, tex)
     _answer(dk, monkeypatch)
-    assert dk.verify(dk.load_config(tmp_path), delay=0) == 1
-    (tmp_path / "dokimasia.toml").write_text(
-        '[exempt.title]\nroe2019 = "APS style prints no title"\n'
-    )
     assert dk.verify(dk.load_config(tmp_path), delay=0) == 0
+    out = capsys.readouterr().out
+    assert "verified 1, exempt 0, unresolved 0, unverifiable 1, uncompared 1, drift 0" in out
+    assert "uncompared -- the identifier resolved" in out
+    assert "roe2019 (paper.tex)" in out
 
 
 def test_a_stale_bbl_beside_a_hand_written_document_is_ignored(dk, tmp_path, capsys):
@@ -2428,7 +2463,29 @@ def test_let_iffalse_does_not_hide_the_list(dk, tmp_path):
     assert dk.lint(dk.load_config(tmp_path)) == 0
 
 
-def test_a_project_with_only_a_pasted_bbl_lints(dk, tmp_path):
+def test_a_conditional_nested_in_iffalse_does_not_end_it(dk, tmp_path, capsys):
+    parked = (
+        "\\iffalse\n\\ifdraft x\\fi\n\\begin{thebibliography}{1}\\bibitem{old} Old."
+        "\\end{thebibliography}\n\\fi\n"
+    )
+    (tmp_path / "references.bib").write_text(CLEAN)
+    (tmp_path / "paper.tex").write_text(DOC + "\\cite{good2024entry}\n" + parked)
+    assert dk.lint(dk.load_config(tmp_path)) == 0
+    assert "1 entries, 0 staged" in capsys.readouterr().out
+
+
+def test_a_list_inside_an_xparse_environment_definition_is_not_a_list(dk, tmp_path):
+    (tmp_path / "references.bib").write_text(CLEAN)
+    (tmp_path / "paper.tex").write_text(
+        "\\NewDocumentEnvironment{refs}{}{\\begin{thebibliography}{9}}{\\end{thebibliography}}\n"
+        + DOC
+        + "\\cite{good2024entry}\n"
+    )
+    assert dk.lint(dk.load_config(tmp_path)) == 0
+
+
+def test_a_project_with_only_a_pasted_bbl_is_still_a_config_error(dk, tmp_path):
+    """The .bbl is build output; with no .bib in the project there is nothing to check."""
     _tree(
         tmp_path,
         {
@@ -2437,4 +2494,18 @@ def test_a_project_with_only_a_pasted_bbl_lints(dk, tmp_path):
             "\\end{thebibliography}\n",
         },
     )
-    assert dk.main(["--root", str(tmp_path), "lint"]) == 0
+    assert dk.main(["--root", str(tmp_path), "lint"]) == 2
+
+
+def test_a_key_only_in_a_pasted_bbl_is_still_dangling(dk, tmp_path, capsys):
+    _tree(
+        tmp_path,
+        {
+            "refs.bib": CLEAN,
+            "main.tex": DOC + "\\cite{good2024entry,x}\n\\input{main.bbl}\n",
+            "main.bbl": "\\begin{thebibliography}{2}\\bibitem{good2024entry} J. Doe."
+            "\\bibitem{x} Fabricated.\\end{thebibliography}\n",
+        },
+    )
+    assert dk.lint(dk.load_config(tmp_path)) == 1
+    assert "dangling citation: \\cite{x}" in _err(capsys)
