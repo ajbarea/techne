@@ -11,7 +11,7 @@ has crept in — extract it back to ROADMAP.
 
 ## In flight
 
-The `dokimasia` plugin: `dokimasia:check`, a stdlib bibliography lint, verify and rendered check, configured per project.
+Nothing in flight. `dokimasia` shipped in #108 and v1.1.0 (see ROADMAP).
 
 **Next pickup:** #96, backing the commit guards with Git 2.54 config-based `commit-msg` and
 `pre-commit` hooks set through `CLAUDE_ENV_FILE`, so commits the Bash parser cannot see are

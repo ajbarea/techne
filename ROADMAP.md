@@ -156,6 +156,12 @@ that drift class recurs.
 
 Detail lives in git history (`git log`) and the live skill code. This log is pruned once work is durably shipped.
 
+- 2026-10-07: **dokimasia, and v1.1.0.** A fifth plugin, `dokimasia:check`, verifies any LaTeX
+  project's bibliography (lint, verify against arXiv and Crossref, rendered) with one stdlib
+  script configured by `dokimasia.toml` or `[tool.dokimasia]`; it generalises the verifier in
+  `ajbarea/papers` after two adversarial reviews. A docsync pass resynced the docs with the
+  code after the plugin split, Typst is pinned to 0.15, and `CITATION.cff` describes the
+  marketplace (#108, release v1.1.0).
 - 2026-10-06: **phylax's guards are a mod.** `hooks/register.ts` blanks the commit and PR
   attribution text Claude Code composes (`attribution.text`), and its `tool.call` hook runs
   `git_guards.py` on each main-thread Bash command naming git or gh. The PreToolUse hook stays
