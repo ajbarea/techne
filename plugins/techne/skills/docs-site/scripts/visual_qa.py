@@ -35,6 +35,9 @@ AXE = "https://cdn.jsdelivr.net/npm/axe-core@4.13.0/axe.min.js"
 VIEWPORTS = {"wide": (1920, 1080), "desktop": (1280, 800), "phone": (390, 844)}
 SCHEMES = {"light": "default", "dark": "slate"}
 SHEET_HEIGHT = 3200
+# A full-page capture of a very long page at 1920 wide passes Pillow's decompression-bomb
+# limit; the sheet uses only the top of each capture, and the checks read the DOM.
+MAX_CAPTURE_HEIGHT = 16384
 
 MEASURE = r"""
 () => {
@@ -210,8 +213,16 @@ def main() -> int:
                         found = capture(page, base + path, scheme, errors)
                         # Frozen animations: a particle canvas redraws every frame, and a
                         # full-page capture of a moving page never settles.
+                        height = min(
+                            page.evaluate("document.documentElement.scrollHeight"),
+                            MAX_CAPTURE_HEIGHT,
+                        )
                         page.screenshot(
-                            path=str(shot), full_page=True, animations="disabled", timeout=90000
+                            path=str(shot),
+                            full_page=True,
+                            clip={"x": 0, "y": 0, "width": w, "height": height},
+                            animations="disabled",
+                            timeout=90000,
                         )
                         shots.append(shot)
                     except Exception as exc:  # one bad page must not end the run
