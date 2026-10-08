@@ -39,6 +39,7 @@ Easy to grep for, high signal.
 - `dive deep`, `deep dive` (as section framing)
 - `not just \w+, but \w+`, `it'?s not just about \w+, it'?s about \w+` (antithesis pattern)
 - `ever[- ]evolving`, `ever[- ]changing`, `rapidly evolving`
+- `nor\b` (any use; recast as two plain clauses)
 
 ## Unsupported quantitative / comparative claims
 
