@@ -123,6 +123,11 @@ def test_the_glossary_llm_tells_are_checked(pc):
     assert "llm-tell" in names(pc.check("We delve into the cache."))
 
 
+def test_nor_is_a_tell_but_normal_is_not(pc):
+    assert "llm-tell" in names(pc.check("Nor do they show it."))
+    assert "llm-tell" not in names(pc.check("The normal run passed."))
+
+
 def test_markdown_triple_dash_between_words_counts_as_an_em_dash(pc):
     """Typst's smart punctuation sets `---` as U+2014 in the PDF."""
     assert "em-dash" in names(pc.check(pc.markdown_prose("The run failed --- twice.\n")))
