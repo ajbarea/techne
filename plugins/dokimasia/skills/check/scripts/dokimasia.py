@@ -661,10 +661,12 @@ _BIBITEM = re.compile(r"\\bibitem\s*(?:\[.*?\])?\s*\{([^}]*)\}", re.S)
 #: Text LaTeX never typesets: `\iffalse ... \fi` and the `comment` environment. Stripped only
 #: when reading reference lists, where an old list parked out of the way is common.
 _UNTYPESET = re.compile(r"\\iffalse\b.*?\\fi\b|\\begin\{comment\}.*?\\end\{comment\}", re.S)
+#: `\let\ifdraft\iffalse` defines a conditional; it does not open one.
+_LET_IF = re.compile(r"\\let\s*\\[A-Za-z@]+\s*=?\s*\\if(?:false|true)\b")
 #: A `\newenvironment` body is a template; a `thebibliography` inside one is not a list.
 _ENV_DEFINITION = re.compile(r"\\(?:re)?newenvironment\*?\s*\{[^}]*\}\s*(?:\[[^\]]*\]\s*)*\{")
 _INLINE_ARXIV = re.compile(
-    r"(?:arxiv(?:\.org/(?:abs|pdf)/|[:.\s]*)|corr,?\s*abs/|\\showeprint\s*\[arxiv\]\s*\{)\s*"
+    r"(?:arxiv(?:\.org/(?:abs|pdf)/|[:.\s]*)|corr\}?,?\s*(?:vol\.\s*)?abs/|\\showeprint\s*\[arxiv\]\s*\{)\s*"
     rf"({_NEW_ARXIV}|{_OLD_ARXIV})(?:v\d+)?",
     re.I,
 )
@@ -684,8 +686,14 @@ _PREPRINT_YEAR = re.compile(
 _QUOTED = re.compile(r"``(.+?)''|(?<!\\)\"(.+?)(?<!\\)\"", re.S)
 #: Where a printed field may start: the beginning, after `.`/`,`/`;`/`:` and a space, or
 #: inside an emphasis command. An unquoted title must start at one of these.
-_FIELD_START = re.compile(r"^|[.,;:]\s+|\\emph\{|\\textit\{|\{\\(?:em|it)\s")
-_NAME_SUFFIXES = {"jr", "sr", "ii", "iii", "iv"}
+_FIELD_START = re.compile(
+    r"^|[.,;]\s+|(?<=[A-Z]\.):\s+|(?<=al\.):\s+|\)\.?\s+|(?<!\d)(?:19|20)\d{2}[a-z]?\s+"
+    r"|\\emph\{|\\textit\{|\{\\(?:em|it)\s"
+)
+#: A field that follows `In` or `In:` names the containing book or proceedings.
+_AFTER_IN = re.compile(r"\bin:?\s*(?:\\emph\{|\\textit\{|\{\\(?:em|it)\s)?$", re.I)
+#: Words in a printed author list that are not names.
+_NOT_NAMES = {"and", "et", "al", "jr", "sr", "ii", "iii", "iv", "eds", "ed"}
 
 
 @dataclass(frozen=True)
@@ -712,7 +720,7 @@ def _without_environment_definitions(text: str) -> str:
 def typeset(text: str) -> str:
     """`text` as it reaches the page: no comments, definitions, `\\iffalse` or `comment`."""
     clean = _without_definitions(strip_comments(text))
-    return _UNTYPESET.sub(" ", _without_environment_definitions(clean))
+    return _UNTYPESET.sub(" ", _LET_IF.sub(" ", _without_environment_definitions(clean)))
 
 
 def opens_bibliography(text: str) -> bool:
@@ -970,7 +978,7 @@ def lint(cfg: Config) -> int:
     """
     note_unmatched_excludes(cfg)
     docs = [read_document(p) for p in documents(cfg)]
-    parsed = _parse_bibs(cfg, any(d.hand_written for d in docs))
+    parsed = _parse_bibs(cfg, any(d.hand_written or d.pasted for d in docs))
     universe = list(parsed)
     items = _unique_bibitems(docs)
     reached = {f for d in docs for f in d.files}
@@ -1178,7 +1186,9 @@ def rendered(cfg: Config, docs: list[Path] | None = None, require_built: bool = 
             checked += 1
             cites = info.cites
             shown = {item.key for item in info.bibitems} | info.pasted
-            if built:
+            # LaTeX reads the .bbl only for a document that names a .bib; beside a
+            # hand-written list it is stale output from some earlier build.
+            if built and info.named:
                 shown |= bbl_keys(_read(bbl))
             missing = sorted(cites - shown)
             kind = "hand-written thebibliography" if info.hand_written else "pasted .bbl"
@@ -1428,7 +1438,7 @@ class _Reference:
 def _references(cfg: Config) -> list[_Reference]:
     docs = [read_document(p) for p in documents(cfg)]
     refs = []
-    for _, _, key, body in _all_entries(cfg, any(d.hand_written for d in docs)):
+    for _, _, key, body in _all_entries(cfg, any(d.hand_written or d.pasted for d in docs)):
         fields = parse_fields(body)
         refs.append(_Reference(key, key, fields.get("eprint"), fields.get("doi"), fields=fields))
     for item in _unique_bibitems(docs):
@@ -1471,38 +1481,45 @@ def _bib_findings(
 def _printed_title(text: str, title: str) -> int:
     """Where the printed title starts in `text`, or -1 when it does not match the source's.
 
-    A quoted title is compared whole, by the same rule as a `.bib` title. An unquoted one
-    must start a printed field: finding the source title merely somewhere in the text would
-    pass an invented title wrapped around a real one, `Applications of deep learning`.
+    Every quoted span is tried by the same rule as a `.bib` title. Otherwise the title must
+    start a printed field: finding it merely somewhere in the text would pass an invented title
+    wrapped around a real one, `Applications of deep learning`. A field after `In` is the
+    containing book or proceedings, whose DOI a fabricated chapter can borrow, so it never
+    counts as the title.
     """
-    quoted = _QUOTED.search(text)
-    if quoted:
-        return quoted.start() if titles_match(quoted.group(1) or quoted.group(2), title) else -1
-    want = normalise(title)
+    for quoted in _QUOTED.finditer(text):
+        if titles_match(quoted.group(1) or quoted.group(2), title):
+            return quoted.start()
+    want, loose = normalise(title), _loose(title)
     for start in _FIELD_START.finditer(text):
-        rest = normalise(text[start.end() :])
-        if want and (rest == want or rest.startswith(want + " ")):
+        if _AFTER_IN.search(text[: start.end()]):
+            continue
+        rest = text[start.end() :]
+        if want and (normalise(rest) + " ").startswith(want + " "):
             return start.start()
-        if not want and _loose(title) and _loose(text[start.end() :]).startswith(_loose(title)):
+        if not want and loose and _loose(rest).startswith(loose):
             return start.start()
     return -1
 
 
-def _surname_token(name: str) -> str:
-    """The last word of a name that is not a generational suffix: `Jane Doe Jr.` gives `doe`."""
-    words = [w for w in normalise(name).split() if w not in _NAME_SUFFIXES]
-    return words[-1] if words else ""
+def _first_name_word(words: list[str]) -> str:
+    """The first word of a printed author list that is part of a name: not an initial, a
+    connective, a year, or a generational suffix."""
+    for word in words:
+        if len(word) > 1 and not word.isdigit() and word not in _NOT_NAMES:
+            return word
+    return ""
 
 
 def _printed_findings(cfg: Config, key: str, text: str, record: dict) -> list[tuple[str, str, str]]:
     """Drift for a hand-written entry, found by looking for the source's values in its text.
 
-    A printed entry has no fields. The title is found as above. Of the source's authors, the
-    first whose surname is printed before the title must be its first author; a title with
-    nothing printed before it has no author to compare, as a `.bib` entry without one has
-    none. A year is compared where the record is Crossref's, and against the arXiv year only
-    where a year follows the arXiv id at once, which is how a preprint is dated. Any printed
-    year matching is enough for Crossref, since the text may also carry an access date.
+    A printed entry has no fields. The title is found as above. The first name word printed
+    before it must belong to the source's first author, the rule a `.bib` entry's first author
+    is held to; a title with nothing printed before it has no author to compare. A year is
+    compared where the record is Crossref's, and against the arXiv year only where a year
+    follows the arXiv id at once, which is how a preprint is dated. Any printed year matching
+    is enough for Crossref, since the text may also carry an access date.
     """
     findings: list[tuple[str, str, str]] = []
     shown = text if len(text) <= 200 else text[:197] + "..."
@@ -1512,13 +1529,9 @@ def _printed_findings(cfg: Config, key: str, text: str, record: dict) -> list[tu
     if key in cfg.record_exempt:
         return findings
     source_authors = record.get("authors") or []
-    before = normalise(text[: at if at >= 0 else len(text)]).split()
-    surnames = [_surname_token(a) for a in source_authors]
-    printed = [i for i, s in enumerate(surnames) if s and s in before]
-    if surnames and surnames[0] and before:
-        lead = min(printed, key=lambda i: before.index(surnames[i])) if printed else None
-        if lead is None or surnames[lead] != surnames[0]:
-            findings.append(("first author", shown, source_authors[0]))
+    first = _first_name_word(normalise(text[: at if at >= 0 else len(text)]).split())
+    if source_authors and first and first not in normalise(source_authors[0]).split():
+        findings.append(("first author", shown, source_authors[0]))
     accepted = _accepted_years(record)
     if record.get("source") == "crossref":
         bare = _INLINE_DOI.sub(" ", _INLINE_ARXIV.sub(" ", _URL.sub(" ", text)))
@@ -1583,7 +1596,7 @@ def verify(cfg: Config, delay: float = 3.0) -> int:
 
         reasons = [r for r in (cfg.title_exempt.get(key), cfg.record_exempt.get(key)) if r]
         for reason in reasons:
-            print(f"dokimasia: exempt: {key} -- {reason}")
+            print(f"dokimasia: exempt: {ref.label} -- {reason}")
         exempted += bool(reasons)
 
         if ref.item is not None:

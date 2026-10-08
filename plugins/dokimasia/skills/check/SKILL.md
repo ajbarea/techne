@@ -66,13 +66,17 @@ project whose only reference lists are hand-written is not a configuration error
 - `lint` does not require an identifier: printed styles routinely drop the DOI. It counts the
   items that print none, and `verify` names each of them as unverifiable.
 - `verify` resolves only an arXiv id or DOI printed in the item, then compares the record with
-  the printed text. A quoted title is compared as a `.bib` title is; an unquoted one must start
-  a printed field, so a real title inside a longer invented one is drift. Of the source's
-  authors, the first printed before the title must be its first author. A year is compared
-  against a Crossref record, and against arXiv only where a year follows the arXiv id. It never
-  looks an entry up by its title: a search hit is weaker evidence than a resolved identifier.
-- One gap is left: an unquoted entry whose venue is named exactly like the source's title
-  passes the title check.
+  the printed text. A quoted title is compared as a `.bib` title is. An unquoted one must start
+  a printed field, and a field after `In` is the containing volume, never the title, so a real
+  title inside a longer invented one, or a chapter borrowing its book's DOI, is drift. The
+  first name printed before the title must belong to the source's first author. A year is
+  compared against a Crossref record, and against arXiv only where a year follows the arXiv id.
+  It never looks an entry up by its title: a search hit is weaker evidence than a resolved
+  identifier.
+- A style that prints no titles (APS, AIP) reports title drift on every resolved entry, since
+  the title cannot be confirmed. Exempt those keys with `[exempt.title]` and a reason.
+- One gap is left: an unquoted entry whose venue, not after `In`, starts with the source's
+  title passes the title check.
 - Output names a hand-written entry with its file, `key (paper.tex)`, since two papers may
   each print their own `smith2020`. Exemptions use the bare key.
 

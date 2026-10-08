@@ -2054,7 +2054,7 @@ def test_a_record_exemption_skips_author_and_year_for_a_printed_entry(
     (tmp_path / "dokimasia.toml").write_text('[exempt.record]\ndoe2024 = "renamed author"\n')
     _answer(dk, monkeypatch)
     assert dk.verify(dk.load_config(tmp_path), delay=0) == 0
-    assert "exempt: doe2024 -- renamed author" in capsys.readouterr().out
+    assert "exempt: doe2024 (paper.tex) -- renamed author" in capsys.readouterr().out
 
 
 def test_a_list_two_documents_share_is_verified_once(dk, tmp_path, monkeypatch, capsys):
@@ -2306,3 +2306,135 @@ def test_a_broken_symlink_does_not_crash_verify(dk, tmp_path, monkeypatch):
     (tmp_path / "gone.tex").symlink_to(tmp_path / "missing.tex")
     _answer(dk, monkeypatch)
     assert dk.verify(dk.load_config(tmp_path), delay=0) == 0
+
+
+# --- #113 second review round ------------------------------------------------------------
+
+VASWANI = {
+    "title": "Attention is all you need",
+    "authors": ["Ashish Vaswani", "Noam Shazeer"],
+    "year": 2017,
+    "source": "arxiv",
+}
+
+
+def _drift(dk, printed, record=None):
+    found = dk._printed_findings(dk.Config(root=Path(".")), "k", printed, record or VASWANI)
+    return [f[0] for f in found]
+
+
+@pytest.mark.parametrize(
+    "printed",
+    [
+        "A.~Vaswani and N.~Shazeer, ``Attention is all you need,'' arXiv:1706.03762, 2017.",
+        "Vaswani, A., Shazeer, N.: Attention is all you need. arXiv:1706.03762 (2017)",
+        "Ashish Vaswani and Noam Shazeer. 2017. Attention is all you need. arXiv:1706.03762.",
+        "Vaswani, A. and Shazeer, N. (2017) Attention is all you need. arXiv:1706.03762.",
+        "Vaswani A and Shazeer N 2017 Attention is all you need arXiv:1706.03762",
+        "Vaswani, A., et al. (2017). Attention is all you need. \\emph{arXiv}.",
+        "A.~Vaswani \\emph{et~al.}, ``Attention is all you need,'' 2017.",
+    ],
+)
+def test_correct_entries_in_common_printed_styles_are_clean(dk, printed):
+    assert _drift(dk, printed) == []
+
+
+def test_a_fabricated_first_author_before_the_real_one_is_drift(dk):
+    printed = "J.~Doe, A.~Vaswani, and N.~Shazeer, ``Attention is all you need,'' 2017."
+    assert _drift(dk, printed) == ["first author"]
+
+
+@pytest.mark.parametrize(
+    "printed",
+    [
+        "Doe, J.: Fabricated chapter. In: Attention is all you need, pp. 1--9 (2017)",
+        "J. Doe. Fabricated method. \\newblock In {\\em Attention is all you need}, 2017.",
+    ],
+)
+def test_a_chapter_borrowing_its_volumes_doi_is_drift(dk, printed):
+    volume = {"title": "Attention is all you need", "authors": [], "source": "crossref"}
+    assert "title" in _drift(dk, printed, volume)
+
+
+def test_a_real_title_after_an_invented_subtitle_lead_is_drift(dk):
+    printed = "A.~Vaswani. Rethinking transformers: Attention is all you need. 2017."
+    assert "title" in _drift(dk, printed)
+
+
+@pytest.mark.parametrize(
+    ("printed", "first"),
+    [
+        ("Li Wang and Wei Li. 2020. Deep learning. Nature.", "Li Wang"),
+        ("J. Garc{\\'\\i}a. Deep learning. Nature, 2020.", "Juan Garc\u00eda M\u00e1rquez"),
+        ("X. Wang. Deep learning. Nature, 2020.", "Wang Xiaoming"),
+    ],
+)
+def test_first_authors_the_bib_rule_accepts_are_accepted(dk, printed, first):
+    record = {"title": "Deep learning", "authors": [first, "Wei Li"], "source": "crossref"}
+    assert _drift(dk, printed, record) == []
+
+
+@pytest.mark.parametrize(
+    "printed",
+    [
+        "Doe, J. (2020). The ``attention'' trap in reading. \\emph{Mind}, 1.",
+        'Doe, J. (2020). The "attention" trap in reading. Mind, 1.',
+        "J.~Doe, ``The ``attention'' trap in reading,'' \\emph{Mind}, 2020.",
+    ],
+)
+def test_a_quoted_word_inside_a_title_is_not_the_title(dk, printed):
+    record = {
+        "title": "The attention trap in reading",
+        "authors": ["Jane Doe"],
+        "source": "crossref",
+    }
+    assert _drift(dk, printed, record) == []
+
+
+def test_a_style_that_prints_no_title_is_drift_until_exempted(dk, tmp_path, monkeypatch, capsys):
+    """APS and AIP print no titles. The title cannot be confirmed, so it is reported; an
+    exemption with a reason is the route out, as for any source the file cannot match."""
+    tex = HAND.replace(
+        "R.~Roe and S.~Sun, ``Checking the {LLM}s that check,'' \\emph{Empirical Softw. Eng.},",
+        "R.~Roe and S.~Sun, \\emph{Empirical Softw. Eng.},",
+    )
+    _hand(tmp_path, tex)
+    _answer(dk, monkeypatch)
+    assert dk.verify(dk.load_config(tmp_path), delay=0) == 1
+    (tmp_path / "dokimasia.toml").write_text(
+        '[exempt.title]\nroe2019 = "APS style prints no title"\n'
+    )
+    assert dk.verify(dk.load_config(tmp_path), delay=0) == 0
+
+
+def test_a_stale_bbl_beside_a_hand_written_document_is_ignored(dk, tmp_path, capsys):
+    _hand(tmp_path, HAND.replace("\\cite{poe2015}", "\\cite{poe2015,gone2020}"))
+    (tmp_path / "paper.bbl").write_text("\\bibitem{gone2020} Old build.\n")
+    assert dk.rendered(dk.load_config(tmp_path)) == 1
+    assert "\\cite{gone2020} did not render" in _err(capsys)
+
+
+@pytest.mark.parametrize(
+    "text", ["{\\em CoRR}, abs/1810.04805, 2018.", "\\emph{CoRR}, vol. abs/1810.04805, 2018."]
+)
+def test_dblp_corr_ids_in_braces_are_read(dk, text):
+    assert dk.inline_ids(text) == ("1810.04805", None)
+
+
+def test_let_iffalse_does_not_hide_the_list(dk, tmp_path):
+    """A conditional defined in the preamble and closed after the list must not swallow it."""
+    tex = HAND.replace("\\end{document}", "\\ifdraft draft\\fi\n\\end{document}")
+    _hand(tmp_path, "\\let\\ifdraft\\iffalse\n" + tex)
+    assert dk.lint(dk.load_config(tmp_path)) == 0
+
+
+def test_a_project_with_only_a_pasted_bbl_lints(dk, tmp_path):
+    _tree(
+        tmp_path,
+        {
+            "main.tex": DOC + "\\cite{good2024entry}\n\\input{main.bbl}\n",
+            "main.bbl": "\\begin{thebibliography}{1}\\bibitem{good2024entry} J. Doe."
+            "\\end{thebibliography}\n",
+        },
+    )
+    assert dk.main(["--root", str(tmp_path), "lint"]) == 0
