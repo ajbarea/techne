@@ -1791,3 +1791,290 @@ def test_a_starred_import_is_followed(dk, tmp_path):
         },
     )
     assert dk.document_cites(tmp_path / "m.tex") == {"right"}
+
+
+# --- hand-written thebibliography (#113) -------------------------------------------------
+
+#: An IEEE-style hand-written list: one arXiv preprint, one journal article with a DOI, and
+#: one with neither, which is how most printed styles look.
+HAND = r"""\documentclass{article}
+\begin{document}
+Text \cite{doe2024,roe2019} and \cite{poe2015}.
+\begin{thebibliography}{3}
+\bibitem{doe2024}
+J.~Doe, ``A perfectly ordinary title,'' arXiv:2401.00001, 2024.
+
+\bibitem{roe2019}
+R.~Roe and S.~Sun, ``Checking the {LLM}s that check,'' \emph{Empirical Softw. Eng.},
+vol.~24, pp.~1--9, 2019, doi: 10.1007/s10664-018-9653-2.
+
+\bibitem{poe2015}
+E.~Poe, ``A raven,'' \emph{PeerJ}, vol.~3, 2015.
+\end{thebibliography}
+\end{document}
+"""
+
+ARXIV_FEED = (
+    "<feed><entry><title>A Perfectly Ordinary Title</title><published>2024-01-02</published>"
+    "<author><name>Jane Doe</name></author></entry></feed>"
+)
+CROSSREF = json.dumps(
+    {
+        "message": {
+            "title": ["Checking the LLMs that check"],
+            "author": [{"given": "Rita", "family": "Roe"}],
+            "issued": {"date-parts": [[2018, 11]]},
+            "published-print": {"date-parts": [[2019, 2]]},
+        }
+    }
+)
+
+
+def _hand(tmp_path, tex=HAND, name="paper.tex"):
+    (tmp_path / name).write_text(tex)
+    return tmp_path / name
+
+
+def _answer(dk, monkeypatch, feed=ARXIV_FEED, crossref=CROSSREF):
+    """Serve arXiv and Crossref from fixtures; the lookup never touches the network."""
+
+    def get(url, *a, **k):
+        return (feed, "") if "arxiv" in url else (crossref, "")
+
+    monkeypatch.setattr(dk, "_get", get)
+    monkeypatch.setattr(dk.time, "sleep", lambda *_: None)
+
+
+def test_a_project_with_only_a_hand_written_list_is_not_a_config_error(dk, tmp_path, capsys):
+    _hand(tmp_path)
+    assert dk.main(["--root", str(tmp_path), "lint"]) == 0
+    out = capsys.readouterr().out
+    assert "3 entries (3 hand-written)" in out
+
+
+def test_no_bib_and_no_hand_written_list_is_still_a_config_error(dk, tmp_path, capsys):
+    (tmp_path / "paper.tex").write_text(DOC + "\\cite{x}\n")
+    assert dk.main(["--root", str(tmp_path), "lint"]) == 2
+    assert "no document has a thebibliography" in capsys.readouterr().err
+
+
+def test_bibitems_reads_keys_and_the_text_up_to_the_next_item(dk, tmp_path):
+    items = dk.bibitems(dk.strip_comments(HAND), tmp_path / "paper.tex")
+    assert [i.key for i in items] == ["doe2024", "roe2019", "poe2015"]
+    assert items[1].text.startswith("R.~Roe and S.~Sun,")
+    assert items[1].text.endswith("10.1007/s10664-018-9653-2.")
+    assert "\\bibitem" not in items[0].text
+
+
+def test_a_natbib_label_with_braces_and_brackets_is_skipped(dk, tmp_path):
+    tex = (
+        "\\begin{thebibliography}{1}"
+        "\\bibitem[{Doe et~al.(2024)}]{doe2024} J. Doe."
+        "\\end{thebibliography}"
+    )
+    assert [i.key for i in dk.bibitems(tex, tmp_path)] == ["doe2024"]
+
+
+def test_a_commented_bibitem_is_not_an_entry(dk, tmp_path, capsys):
+    _hand(tmp_path, HAND.replace("\\bibitem{poe2015}", "% \\bibitem{poe2015}"))
+    dk.lint(dk.load_config(tmp_path))
+    assert "dangling citation: \\cite{poe2015}" in _err(capsys)
+
+
+def test_a_duplicate_bibitem_is_caught(dk, tmp_path, capsys):
+    _hand(tmp_path, HAND.replace("\\bibitem{poe2015}", "\\bibitem{doe2024}"))
+    dk.lint(dk.load_config(tmp_path))
+    assert "duplicate \\bibitem: doe2024 appears 2 times (in paper.tex)" in _err(capsys)
+
+
+def test_a_citation_with_no_bibitem_is_dangling(dk, tmp_path, capsys):
+    _hand(tmp_path, HAND.replace("\\cite{poe2015}", "\\cite{poe2015,ghost2020}"))
+    assert dk.lint(dk.load_config(tmp_path)) == 1
+    assert "dangling citation: \\cite{ghost2020} has no entry (cited by paper.tex)" in _err(capsys)
+
+
+def test_a_printed_item_nothing_cites_is_an_orphan(dk, tmp_path, capsys):
+    """A hand-written list prints every item, cited or not."""
+    _hand(tmp_path, HAND.replace(" and \\cite{poe2015}", ""))
+    assert dk.lint(dk.load_config(tmp_path)) == 1
+    assert "orphan \\bibitem: poe2015 is printed in paper.tex" in _err(capsys)
+
+
+def test_nocite_star_does_not_cover_a_hand_written_orphan(dk, tmp_path, capsys):
+    _hand(tmp_path, HAND.replace(" and \\cite{poe2015}", "\\nocite{*}"))
+    assert dk.lint(dk.load_config(tmp_path)) == 1
+
+
+def test_hand_written_orphans_follow_the_orphans_switch(dk, tmp_path):
+    _hand(tmp_path, HAND.replace(" and \\cite{poe2015}", ""))
+    (tmp_path / "dokimasia.toml").write_text("orphans = false\n")
+    assert dk.lint(dk.load_config(tmp_path)) == 0
+
+
+def test_a_hand_written_document_does_not_draw_on_a_bib(dk, tmp_path, capsys):
+    """Its citations must be in its own list. A .bib elsewhere in the project, used by
+    another paper, neither satisfies them nor gains orphans from them."""
+    _tree(tmp_path, {"q/refs.bib": _entry("ghost2020")})
+    _paper(tmp_path, "q", "refs", "\\cite{ghost2020}")
+    _hand(tmp_path, HAND.replace("\\cite{poe2015}", "\\cite{poe2015,ghost2020}"))
+    assert dk.lint(dk.load_config(tmp_path)) == 1
+    assert "\\cite{ghost2020} has no entry (cited by paper.tex)" in _err(capsys)
+
+
+def test_an_entry_with_no_printed_identifier_is_counted_not_a_finding(dk, tmp_path, capsys):
+    _hand(tmp_path)
+    assert dk.lint(dk.load_config(tmp_path)) == 0
+    assert "info: 1 of 3 hand-written entries print no arXiv id or DOI" in capsys.readouterr().out
+
+
+def test_an_exemption_may_name_a_hand_written_entry(dk, tmp_path):
+    _hand(tmp_path)
+    (tmp_path / "dokimasia.toml").write_text('[exempt.title]\npoe2015 = "the source is wrong"\n')
+    assert dk.lint(dk.load_config(tmp_path)) == 0
+
+
+@pytest.mark.parametrize(
+    ("text", "eprint", "doi"),
+    [
+        ("arXiv:2607.22693, 2026.", "2607.22693", None),
+        ("arXiv preprint arXiv:2607.22693v2", "2607.22693", None),
+        ("\\url{https://arxiv.org/abs/2607.22693}", "2607.22693", None),
+        ("arXiv:hep-th/9901001", "hep-th/9901001", None),
+        ("doi: 10.7717/peerj.1364.", None, "10.7717/peerj.1364"),
+        ("\\url{https://doi.org/10.1109/C-M.1978.218136}", None, "10.1109/C-M.1978.218136"),
+        ("doi: 10.1000/a\\_b.", None, "10.1000/a_b"),
+        ("(https://doi.org/10.1000/xyz)", None, "10.1000/xyz"),
+        # arXiv's DataCite DOI resolves through the arXiv id, not through Crossref.
+        ("doi: 10.48550/arXiv.2607.22693", "2607.22693", None),
+        ("vol. 13, 2023.", None, None),
+    ],
+)
+def test_inline_ids_finds_printed_identifiers(dk, text, eprint, doi):
+    assert dk.inline_ids(text) == (eprint, doi)
+
+
+def test_rendered_checks_a_hand_written_document_instead_of_calling_it_unbuilt(
+    dk, tmp_path, capsys
+):
+    _hand(tmp_path)
+    assert dk.main(["--root", str(tmp_path), "--require-built", "rendered"]) == 0
+    out = capsys.readouterr().out
+    assert "3/3 cited keys rendered (hand-written thebibliography)" in out
+    assert "not built" not in out.replace("0 not built", "")
+
+
+def test_rendered_catches_a_citation_with_no_bibitem(dk, tmp_path, capsys):
+    _hand(tmp_path, HAND.replace("\\cite{poe2015}", "\\cite{poe2015,ghost2020}"))
+    assert dk.rendered(dk.load_config(tmp_path)) == 1
+    assert "\\cite{ghost2020} has no \\bibitem" in _err(capsys)
+
+
+def test_rendered_reads_a_bbl_pasted_in_through_input(dk, tmp_path, capsys):
+    """arXiv submissions often paste the .bbl into the source; it is then the list."""
+    body = HAND.split("\\begin{thebibliography}")[1].split("\\end{thebibliography}")[0]
+    _tree(
+        tmp_path,
+        {
+            "main.tex": DOC + "\\cite{doe2024}\n\\input{main.bbl}\n",
+            "main.bbl": "\\begin{thebibliography}" + body + "\\end{thebibliography}\n",
+        },
+    )
+    assert dk.rendered(dk.load_config(tmp_path)) == 0
+    assert "1/1 cited keys rendered (hand-written" in capsys.readouterr().out
+
+
+def test_verify_resolves_printed_identifiers_and_names_the_rest(dk, tmp_path, monkeypatch, capsys):
+    _hand(tmp_path)
+    _answer(dk, monkeypatch)
+    assert dk.verify(dk.load_config(tmp_path), delay=0) == 0
+    out = capsys.readouterr().out
+    assert "verified 2, exempt 0, unresolved 0, unverifiable 1, drift 0" in out
+    assert "poe2015 (paper.tex)" in out
+
+
+def test_a_printed_title_that_differs_from_the_source_is_drift(dk, tmp_path, monkeypatch, capsys):
+    _hand(tmp_path, HAND.replace("A perfectly ordinary title", "A perfectly ordinary tale"))
+    _answer(dk, monkeypatch)
+    assert dk.verify(dk.load_config(tmp_path), delay=0) == 1
+    assert "title drift: doe2024 (paper.tex)" in _err(capsys)
+
+
+def test_a_title_is_matched_as_whole_words_not_as_a_substring(dk, tmp_path):
+    record = {"title": "Ordinary title", "authors": ["Jane Doe"], "source": "arxiv"}
+    text = "J. Doe, ``Extraordinary titles,'' arXiv:2401.00001."
+    cfg = dk.Config(root=tmp_path)
+    assert [f[0] for f in dk._printed_findings(cfg, "k", text, record)] == ["title"]
+
+
+def test_the_first_author_must_be_printed_before_the_title(dk, tmp_path, monkeypatch, capsys):
+    _hand(tmp_path, HAND.replace("J.~Doe,", "J.~Smith,"))
+    _answer(dk, monkeypatch)
+    assert dk.verify(dk.load_config(tmp_path), delay=0) == 1
+    assert "first author drift: doe2024 (paper.tex)" in _err(capsys)
+
+
+def test_a_preprint_year_that_differs_is_drift(dk, tmp_path, monkeypatch, capsys):
+    _hand(tmp_path, HAND.replace("arXiv:2401.00001, 2024", "arXiv:2401.00001, 2023"))
+    _answer(dk, monkeypatch)
+    assert dk.verify(dk.load_config(tmp_path), delay=0) == 1
+    assert "year drift: doe2024 (paper.tex)" in _err(capsys)
+
+
+def test_a_venue_paper_is_not_compared_with_its_arxiv_year(dk, tmp_path, monkeypatch):
+    """A NeurIPS 2023 paper posted to arXiv in 2024 is correctly dated 2023."""
+    venue = HAND.replace(
+        "arXiv:2401.00001, 2024.", "in \\emph{Proc. NeurIPS}, 2023. arXiv:2401.00001."
+    )
+    _hand(tmp_path, venue)
+    _answer(dk, monkeypatch)
+    assert dk.verify(dk.load_config(tmp_path), delay=0) == 0
+
+
+def test_a_print_year_or_an_issued_year_both_satisfy_crossref(dk, tmp_path, monkeypatch):
+    for year in ("2018", "2019"):
+        _hand(tmp_path, HAND.replace("pp.~1--9, 2019", f"pp.~1--9, {year}"))
+        _answer(dk, monkeypatch)
+        assert dk.verify(dk.load_config(tmp_path), delay=0) == 0
+
+
+def test_a_crossref_year_printed_nowhere_is_drift(dk, tmp_path, monkeypatch, capsys):
+    _hand(tmp_path, HAND.replace("pp.~1--9, 2019", "pp.~1--9, 2021"))
+    _answer(dk, monkeypatch)
+    assert dk.verify(dk.load_config(tmp_path), delay=0) == 1
+    assert "year drift: roe2019 (paper.tex)" in _err(capsys)
+
+
+def test_a_record_exemption_skips_author_and_year_for_a_printed_entry(
+    dk, tmp_path, monkeypatch, capsys
+):
+    _hand(tmp_path, HAND.replace("J.~Doe,", "J.~Smith,"))
+    (tmp_path / "dokimasia.toml").write_text('[exempt.record]\ndoe2024 = "renamed author"\n')
+    _answer(dk, monkeypatch)
+    assert dk.verify(dk.load_config(tmp_path), delay=0) == 0
+    assert "exempt: doe2024 -- renamed author" in capsys.readouterr().out
+
+
+def test_a_list_two_documents_share_is_verified_once(dk, tmp_path, monkeypatch, capsys):
+    body = HAND.split("\\begin{document}")[1].split("\\end{document}")[0]
+    _tree(
+        tmp_path,
+        {
+            "refs.tex": body,
+            "a.tex": DOC + "\\input{refs}\n",
+            "b.tex": DOC + "\\input{refs}\n",
+        },
+    )
+    _answer(dk, monkeypatch)
+    dk.verify(dk.load_config(tmp_path), delay=0)
+    assert "verified 2, exempt 0, unresolved 0, unverifiable 1" in capsys.readouterr().out
+
+
+def test_a_bib_and_a_hand_written_list_are_verified_together(dk, tmp_path, monkeypatch, capsys):
+    (tmp_path / "references.bib").write_text(CLEAN)
+    _hand(tmp_path)
+    _answer(dk, monkeypatch)
+    dk.verify(dk.load_config(tmp_path), delay=0)
+    # good2024entry and doe2024 share one arXiv id; the second is a cache hit.
+    assert "verified 3, exempt 0, unresolved 0, unverifiable 1, drift 0 (1 from cache)" in (
+        capsys.readouterr().out
+    )

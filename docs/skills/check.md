@@ -1,6 +1,6 @@
 # `dokimasia:check`
 
-Verify a LaTeX project's bibliography: lint any `.bib` offline, resolve its identifiers against arXiv and Crossref, and confirm every cited key rendered.
+Verify a LaTeX project's bibliography: lint any `.bib` or hand-written `thebibliography` offline, resolve its identifiers against arXiv and Crossref, and confirm every cited key rendered.
 
 Named for the Athenian *dokimasia*, the scrutiny of a candidate's credentials before office.
 
@@ -31,7 +31,7 @@ uv run --no-project --quiet python plugins/dokimasia/skills/check/scripts/dokima
 |---|---|---|
 | `lint` | no | Identifiers present and well formed, no duplicate keys across files, no dangling citation, no orphan entry, no citation of a key the reading log stages as unread. |
 | `verify` | yes | Title, first-author surname and year against the arXiv or Crossref record. |
-| `rendered` | no | Every key a document cites is in its `.bbl`. |
+| `rendered` | no | Every key a document cites is in its `.bbl`, or has a `\bibitem` in its hand-written list. |
 
 The mode defaults to `lint`. Exit codes: `0` clean, `1` findings, `2` usage or configuration error.
 
@@ -46,12 +46,16 @@ Conflating them is how a blind spot goes quiet.
 - **Verified**: resolved and matched.
 - **Drift**: resolved, and the file differs from the source.
 - **Unresolved**: the entry has an identifier and the lookup did not answer. The reason is printed. This says nothing about the entry, and a throttled host is waited out rather than counted.
-- **Unverifiable**: no `eprint` and no `doi`, so nothing can be resolved. Named on every run.
+- **Unverifiable**: no `eprint` and no `doi` (for a hand-written entry, none printed), so nothing can be resolved. Named on every run.
 - **Exempt**: listed in the config with a reason. The reason is printed.
 
 A failed lookup is never cached. A 200 response that does not parse counts as a failed lookup, and only a valid empty arXiv feed means "no such record".
 
 Year is compared only where it is sound: against the arXiv posting year for an arXiv preprint, and against either the issued or the print year for a DOI entry. A venue-dated entry is never checked against its preprint's arXiv year.
+
+## Hand-written reference lists
+
+A document that writes its list by hand in `thebibliography` has no `.bib` and no `.bbl`, and its `\bibitem`s are its entries. `rendered` checks that every cited key has one. `lint` catches a duplicate `\bibitem`, a citation without one, and an item nothing cites, but does not require an identifier, since printed styles routinely drop the DOI. `verify` resolves only an arXiv id or DOI printed in the item, then finds the source's title, first author and year in the printed text. It never searches by title: a search hit is weaker evidence than a resolved identifier.
 
 ## Rendered
 

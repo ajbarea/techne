@@ -1,14 +1,14 @@
 ---
 name: check
-description: Verify a LaTeX project's bibliography. Use when asked to verify a bibliography, check that references exist and match their source, check citations before submitting a paper, or when a reference list may contain fabricated or drifted entries, such as "check my citations" or "verify references.bib". Lints any .bib offline, resolves arXiv ids and DOIs against arXiv and Crossref, and checks that every cited key rendered in the built document. Not for formatting or styling a .bib, and it cannot tell whether a sentence describes its source correctly.
+description: Verify a LaTeX project's bibliography. Use when asked to verify a bibliography, check that references exist and match their source, check citations before submitting a paper, or when a reference list may contain fabricated or drifted entries, such as "check my citations" or "verify references.bib". Lints any .bib or hand-written thebibliography offline, resolves arXiv ids and DOIs against arXiv and Crossref, and checks that every cited key rendered in the built document. Not for formatting or styling a .bib, and it cannot tell whether a sentence describes its source correctly.
 disable-model-invocation: false
 allowed-tools: Bash Glob Grep Read
 ---
 
 # Check a bibliography
 
-Three passes over any LaTeX project's `.bib`. Run the one that answers the question; do not
-judge a reference by memory.
+Three passes over any LaTeX project's `.bib`, or over a reference list written by hand in
+`thebibliography`. Run the one that answers the question; do not judge a reference by memory.
 
 ## Run it
 
@@ -21,9 +21,9 @@ The script is one file with no dependencies and needs Python 3.11 or later. Invo
 
 | Mode | Network | Checks |
 |---|---|---|
-| `lint` | no | Every entry has an identifier, identifiers are well formed, no duplicate keys, no dangling citation, no orphan entry, no citation of a key the reading log still stages as unread. |
-| `verify` | yes | Resolves each `eprint` and `doi` and compares title, first-author surname and year with what the source returns. |
-| `rendered` | no | Every key a document cites is in its `.bbl`. With no arguments it checks every document under the root; with arguments, only those `.tex` files. |
+| `lint` | no | Every entry has an identifier, identifiers are well formed, no duplicate keys, no dangling citation, no orphan entry, no citation of a key the reading log still stages as unread. For a hand-written list: no duplicate `\bibitem`, no citation without one, no item nothing cites. |
+| `verify` | yes | Resolves each `eprint` and `doi` and compares title, first-author surname and year with what the source returns. A hand-written entry is resolved through an arXiv id or DOI printed in it. |
+| `rendered` | no | Every key a document cites is in its `.bbl`, or has a `\bibitem` in its hand-written list. With no arguments it checks every document under the root; with arguments, only those `.tex` files. |
 
 Run `lint` freely. Run `verify` on request or on a schedule, not on every push: it calls
 arXiv and Crossref and is slow on purpose (3 seconds between arXiv lookups).
@@ -45,11 +45,27 @@ Findings print on stderr and the summary on stdout, every summary and finding li
 | verified | Resolved and matched. | None. |
 | drift | Resolved, and the title, first author or year differs from the source. | Check the source, then decide which side is wrong. |
 | unresolved | The entry has an identifier and the lookup did not answer. The reason is printed (`HTTP 406`, `TimeoutError`, `unparseable response`, `no matching record`). | Rerun later. Say nothing about the entry. |
-| unverifiable | No `eprint` and no `doi`, so there is nothing to resolve. Named every run. | Add an identifier, or accept that a human checks it. |
+| unverifiable | No `eprint` and no `doi` (for a hand-written entry, none printed), so there is nothing to resolve. Named every run. | Add an identifier, or accept that a human checks it. |
 | exempt | Listed in the config with a reason. The reason is printed. | None. |
 
 A failed lookup is never cached and never a finding. A throttled host (406, 429, 503) is
 waited out: a lookup tries three times, 5 then 20 seconds apart.
+
+## Hand-written reference lists
+
+A document that writes `\begin{thebibliography}` and `\bibitem` itself has no `.bib` and never
+builds a `.bbl`. Its items are its entries, and it draws on no `.bib` in the project. A project
+whose only reference lists are hand-written is not a configuration error.
+
+- `rendered` checks that every cited key has a `\bibitem`; such a document is never "not built".
+- `lint` does not require an identifier: printed styles routinely drop the DOI. It counts the
+  items that print none, and `verify` names each of them as unverifiable.
+- `verify` resolves only an arXiv id or DOI printed in the item. It then looks for the source's
+  title as whole words in the printed text, the first author's surname before it, and a
+  matching year where the item is an arXiv preprint or the record is Crossref's. It never
+  looks an entry up by its title: a search hit is weaker evidence than a resolved identifier.
+- Output names a hand-written entry with its file, `key (paper.tex)`, since two papers may
+  each print their own `smith2020`. Exemptions use the bare key.
 
 ## Rules for Claude
 

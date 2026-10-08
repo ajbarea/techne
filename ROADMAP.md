@@ -156,6 +156,10 @@ that drift class recurs.
 
 Detail lives in git history (`git log`) and the live skill code. This log is pruned once work is durably shipped.
 
+- 2026-10-08: **dokimasia reads hand-written reference lists.** A document whose list is a
+  `thebibliography` block has no `.bib` and no `.bbl`; `rendered` used to call it not built and
+  `lint` refused the project. Its `\bibitem`s are now its entries: rendered and lint check them,
+  and verify resolves an arXiv id or DOI printed in the text, never a title search (#113).
 - 2026-10-07: **dokimasia, and v1.1.0.** A fifth plugin, `dokimasia:check`, verifies any LaTeX
   project's bibliography (lint, verify against arXiv and Crossref, rendered) with one stdlib
   script configured by `dokimasia.toml` or `[tool.dokimasia]`; it generalises the verifier in
