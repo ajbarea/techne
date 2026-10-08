@@ -92,7 +92,7 @@ bibliographies it names with `\bibliography` or `\addbibresource`, or all of the
 names none, so one key in two unrelated papers' bibliographies is fine. `\nocite{*}` counts
 every entry of its bibliographies as cited, and lint says which documents did that.
 
-Its `.bbl` is the same stem beside the `.tex`, else in `outdir`. `rendered` also names the
+Its `.bbl` is the same stem in `outdir` when set and present there, else beside the `.tex`. `rendered` also names the
 `.tex` files under a document's directory that no document reaches, so an include form this
 tool does not follow shows up instead of passing silently. `--require-built` fails only for a
 document that cites something or names a bibliography.

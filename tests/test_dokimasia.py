@@ -1410,9 +1410,9 @@ def test_an_accented_author_matches_the_source_spelling(dk):
 # --- R12. adjacent argument groups, verbatim text ----------------------------------------
 
 
-def test_only_adjacent_groups_after_cites_are_keys(dk):
+def test_groups_after_cites_may_be_separated_by_whitespace(dk):
     assert dk.cite_keys(r"\cites{a}{b} {\em x}") == {"a", "b"}
-    assert dk.cite_keys(r"\cites{a} {b}") == {"a"}
+    assert dk.cite_keys(r"\cites{a} {b}") == {"a", "b"}
 
 
 @pytest.mark.parametrize(
@@ -1506,3 +1506,280 @@ def test_an_unparseable_pyproject_with_our_table_is_an_error(dk, tmp_path, capsy
     (tmp_path / "pyproject.toml").write_text("[tool.dokimasia]\nexclude = [\n")
     assert dk.main(["--root", str(tmp_path), "lint"]) == 2
     assert "pyproject.toml" in _err(capsys)
+
+
+# =========================================================================================
+# Second review round.
+# =========================================================================================
+
+# --- S1. escaped braces are not structural ------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "definition",
+    [
+        r"\newcommand{\lb}{\{}",
+        r"\newcommand{\lb}{\left\{ x \right.}",
+        r"\newcommand{\rb}{\}}",
+        r"\newcommand{\bs}{\\}",
+    ],
+)
+def test_an_escaped_brace_in_a_macro_body_does_not_swallow_later_citations(dk, definition):
+    assert dk.cite_keys(definition + r"\cite{a,b} \cite{zz}") == {"a", "b", "zz"}
+
+
+def test_an_escaped_brace_does_not_hide_a_dangling_citation(dk, tmp_path, capsys):
+    _tree(
+        tmp_path,
+        {
+            "a.bib": CLEAN,
+            "p/main.tex": DOC + "\\newcommand{\\lb}{\\{}\n\\cite{good2024entry} \\cite{zz}\n"
+            "\\bibliography{../a}\n",
+        },
+    )
+    assert dk.lint(dk.load_config(tmp_path)) == 1
+    assert "zz" in _err(capsys)
+
+
+def test_an_escaped_brace_in_a_field_value_does_not_unbalance_the_entry(dk):
+    body = "k,\n  title = {An open \\{ brace},\n  year = {2020}\n"
+    assert dk.field(body, "title") == "An open \\{ brace"
+    assert dk.field(body, "year") == "2020"
+
+
+# --- S2. a document that needs no bibliography has an empty bibliography scope -----------
+
+
+def test_a_cover_letter_does_not_join_two_papers_bibliographies(dk, tmp_path):
+    _tree(
+        tmp_path,
+        {
+            "a/refs.bib": CLEAN,
+            "b/refs.bib": CLEAN,
+            "a/main.tex": DOC + "\\cite{good2024entry}\\bibliography{refs}\n",
+            "b/main.tex": DOC + "\\cite{good2024entry}\\bibliography{refs}\n",
+            "letter/letter.tex": DOC + "Dear editor, thank you.\n",
+        },
+    )
+    assert dk.lint(dk.load_config(tmp_path)) == 0
+
+
+@pytest.mark.parametrize("body", ["\\cite{good2024entry}", "\\nocite{*}", "\\printbibliography"])
+def test_a_document_that_needs_a_bibliography_and_names_none_uses_all(dk, tmp_path, capsys, body):
+    _tree(
+        tmp_path,
+        {
+            "a/refs.bib": CLEAN,
+            "b/refs.bib": CLEAN,
+            "c/main.tex": DOC + body + "\n",
+        },
+    )
+    dk.lint(dk.load_config(tmp_path))
+    assert "duplicate key: good2024entry" in _err(capsys)
+
+
+# --- S3. whitespace between key groups ---------------------------------------------------
+
+
+def test_a_newline_between_cites_groups_is_allowed(dk):
+    assert dk.cite_keys("\\textcites{a}\n  {b}") == {"a", "b"}
+    assert dk.cite_keys("\\parencites[x]{a} [y]{b}") == {"a", "b"}
+
+
+def test_a_text_group_after_cites_is_dropped_by_the_key_filter(dk):
+    assert dk.cite_keys(r"\cites{a} {\em x}") == {"a"}
+
+
+# --- S4. \nocite{*} detection follows the same rules as citations ------------------------
+
+
+def test_nocite_star_inside_a_macro_definition_covers_nothing(dk, tmp_path):
+    _tree(
+        tmp_path,
+        {
+            "references.bib": CLEAN,
+            "p/main.tex": DOC + "\\newcommand{\\all}{\\nocite{*}}\n\\bibliography{../references}\n",
+        },
+    )
+    assert dk.lint(dk.load_config(tmp_path)) == 1
+
+
+def test_a_loose_file_with_nocite_star_does_not_disable_orphans(dk, tmp_path):
+    _tree(
+        tmp_path,
+        {
+            "a.bib": CLEAN,
+            "b.bib": _entry("other2024entry"),
+            "p/main.tex": DOC + "\\cite{good2024entry}\\bibliography{../a}\n",
+            "q/main.tex": DOC + "\\cite{other2024entry}\\bibliography{../b}\n",
+            "loose/notes.tex": "\\nocite{*}\n",
+        },
+    )
+    (tmp_path / "references.bib").write_text(_entry("orphan2024entry"))
+    (tmp_path / "dokimasia.toml").write_text('bib = ["a.bib", "b.bib", "references.bib"]\n')
+    assert dk.lint(dk.load_config(tmp_path)) == 1
+
+
+def test_nocite_star_in_an_included_file_covers_its_documents_bibliography(dk, tmp_path):
+    _tree(
+        tmp_path,
+        {
+            "references.bib": CLEAN,
+            "p/main.tex": DOC + "\\input{sec}\\bibliography{../references}\n",
+            "p/sec.tex": "\\nocite{*}\n",
+        },
+    )
+    assert dk.lint(dk.load_config(tmp_path)) == 0
+
+
+# --- S5. the cache directory is created, and a failed write is reported ------------------
+
+
+def test_the_cache_parent_directory_is_created(dk, tmp_path, monkeypatch):
+    (tmp_path / "references.bib").write_text(CLEAN)
+    (tmp_path / "dokimasia.toml").write_text('cache = "build/cache/dok.json"\n')
+    monkeypatch.setattr(dk, "_get", lambda *a, **k: (None, "HTTP 500"))
+    monkeypatch.setattr(dk.time, "sleep", lambda *_: None)
+    dk.verify(dk.load_config(tmp_path), delay=0)
+    assert (tmp_path / "build" / "cache" / "dok.json").exists()
+
+
+def test_a_cache_that_cannot_be_written_is_reported(dk, tmp_path, monkeypatch, capsys):
+    (tmp_path / "references.bib").write_text(CLEAN)
+    (tmp_path / "blocker").write_text("a file where a directory is needed")
+    (tmp_path / "dokimasia.toml").write_text('cache = "blocker/dok.json"\n')
+    monkeypatch.setattr(dk, "_get", lambda *a, **k: (None, "HTTP 500"))
+    monkeypatch.setattr(dk.time, "sleep", lambda *_: None)
+    dk.verify(dk.load_config(tmp_path), delay=0)
+    err = _err(capsys)
+    assert "dokimasia: cache not written:" in err
+    assert "blocker" in err
+
+
+# --- S6. outdir wins over a stale .bbl beside the .tex -----------------------------------
+
+
+def test_outdir_is_preferred_over_a_stale_bbl_beside_the_tex(dk, tmp_path):
+    _tree(
+        tmp_path,
+        {
+            "p/m.tex": DOC + "\\cite{a}\n",
+            "p/m.bbl": "\\bibitem{stale}x",
+            "p/build/m.bbl": "\\bibitem{a}x",
+        },
+    )
+    (tmp_path / "dokimasia.toml").write_text('outdir = "build"\n')
+    assert dk.rendered(dk.load_config(tmp_path)) == 0
+
+
+# --- S7. exclude normalisation and unmatched entries -------------------------------------
+
+
+def test_exclude_entries_are_normalised(dk, tmp_path):
+    _tree(tmp_path, {"a/b/x.tex": "x", "a/c/y.tex": "y"})
+    (tmp_path / "dokimasia.toml").write_text('exclude = ["./a/b/"]\n')
+    cfg = dk.load_config(tmp_path)
+    found = [p.relative_to(tmp_path).as_posix() for p in dk._walk(cfg, ".tex")]
+    assert found == ["a/c/y.tex"]
+
+
+def test_an_exclude_that_matches_nothing_is_named(dk, tmp_path, capsys):
+    (tmp_path / "references.bib").write_text(CLEAN)
+    (tmp_path / "p.tex").write_text(DOC + "\\cite{good2024entry}\n")
+    (tmp_path / "dokimasia.toml").write_text('exclude = ["nope", "also/nope"]\n')
+    assert dk.lint(dk.load_config(tmp_path)) == 0
+    out = capsys.readouterr().out
+    assert out.count("dokimasia: exclude matched nothing: nope") == 1
+    assert "dokimasia: exclude matched nothing: also/nope" in out
+
+
+def test_an_exclude_that_matches_is_not_reported(dk, tmp_path, capsys):
+    (tmp_path / "references.bib").write_text(CLEAN)
+    (tmp_path / "p.tex").write_text(DOC + "\\cite{good2024entry}\n")
+    (tmp_path / "vendor" / "deep").mkdir(parents=True)
+    (tmp_path / "dokimasia.toml").write_text('exclude = ["deep", "vendor/deep"]\n')
+    dk.lint(dk.load_config(tmp_path))
+    assert "matched nothing" not in capsys.readouterr().out
+
+
+# --- S8. canonical decomposition, ligatures ----------------------------------------------
+
+
+def test_a_tex_ell_matches_the_unicode_script_l(dk):
+    assert dk.normalise(r"$\ell_2$ regularisation") == dk.normalise("\u21132 regularisation")
+
+
+def test_compatibility_forms_are_not_folded_into_letters(dk):
+    assert dk.normalise("\u2113") == ""
+    assert dk.normalise("x²") == "x"
+
+
+@pytest.mark.parametrize(
+    ("text", "plain"),
+    [
+        ("ﬁne ﬂow", "fine flow"),
+        ("o\ufb00er", "offer"),
+        ("o\ufb03ce", "office"),
+        ("ba\ufb04e", "baffle"),
+    ],
+)
+def test_latin_ligatures_are_expanded(dk, text, plain):
+    assert dk.normalise(text) == plain
+
+
+# --- S9. titles with no Latin letters ----------------------------------------------------
+
+
+def test_a_matching_cjk_title_is_not_drift(dk):
+    assert dk.titles_match("联邦学习综述", "联邦学习综述")
+    assert dk.titles_match("联邦学习 综述", "联邦学习  综述")
+
+
+def test_a_different_cjk_title_is_drift(dk):
+    assert not dk.titles_match("联邦学习综述", "联邦学习研究")
+
+
+def test_a_greek_title_is_compared_by_its_text(dk):
+    assert dk.titles_match("Δοκιμασία", "δοκιμασία")
+    assert not dk.titles_match("Δοκιμασία", "Φύλαξ")
+
+
+def test_an_empty_source_title_never_matches_by_prefix(dk):
+    assert not dk.titles_match("Any claimed title", "")
+
+
+def test_a_cjk_title_that_differs_reports_drift_in_verify(dk, tmp_path, monkeypatch, capsys):
+    bib = CLEAN.replace("A Perfectly Ordinary Title", "联邦学习综述")
+    (tmp_path / "references.bib").write_text(bib)
+    feed = (
+        "<feed><entry><title>联邦学习研究</title><published>2024-01-01</published>"
+        "<author><name>Jane Doe</name></author></entry></feed>"
+    )
+    monkeypatch.setattr(dk, "_get", lambda *a, **k: (feed, ""))
+    monkeypatch.setattr(dk.time, "sleep", lambda *_: None)
+    assert dk.main(["--root", str(tmp_path), "verify"]) == 1
+    assert "title drift" in capsys.readouterr().err
+
+
+# --- low: orphan names its file, \subimport* ---------------------------------------------
+
+
+def test_an_orphan_names_the_bibliography_file_it_lives_in(dk, tmp_path, capsys):
+    _tree(tmp_path, {"refs/a.bib": CLEAN})
+    _paper(tmp_path, "p", "../refs/a", "\\relax")
+    dk.lint(dk.load_config(tmp_path))
+    err = _err(capsys)
+    assert "orphan entry: good2024entry" in err
+    assert "refs/a.bib" in err
+
+
+def test_a_starred_import_is_followed(dk, tmp_path):
+    _tree(
+        tmp_path,
+        {
+            "m.tex": DOC + "\\input{a/inc}\n",
+            "a/inc.tex": "\\subimport*{d}{x}\n",
+            "a/d/x.tex": "\\cite{right}\n",
+        },
+    )
+    assert dk.document_cites(tmp_path / "m.tex") == {"right"}

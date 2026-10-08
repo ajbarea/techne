@@ -57,7 +57,7 @@ Year is compared only where it is sound: against the arXiv posting year for an a
 
 Documents are derived: any `.tex` with a `\documentclass` outside a comment. A `subfiles` child is not a document. Citations are read from the document and every file it reaches through `\input`, `\include`, `\subfile` and the `\import` family, for natbib and biblatex commands in any capitalisation. Comments, `\verb`, verbatim text and macro definitions are skipped. A document is checked against the bibliographies it names with `\bibliography` or `\addbibresource`, or all of them when it names none. `\nocite{*}` counts every entry of those bibliographies as cited, and lint names the documents where that happens. Keys are parsed out of the `.bbl` (`\bibitem` for BibTeX, `\entry` for biber), so `li2020` does not pass because `li2020b` rendered.
 
-The `.bbl` is the same stem beside the `.tex`, else in `outdir`. A document with no `.bbl` is reported as not built, with a count in the summary line. `--require-built` makes that a failure for a document that cites something or names a bibliography. `rendered` also names the `.tex` files under a document's directory that no document reaches, so an include form the tool does not follow is visible.
+The `.bbl` is the same stem in `outdir` when set and present there, else beside the `.tex`. An `exclude` entry that matches no directory is named in the output. A document with no `.bbl` is reported as not built, with a count in the summary line. `--require-built` makes that a failure for a document that cites something or names a bibliography. `rendered` also names the `.tex` files under a document's directory that no document reaches, so an include form the tool does not follow is visible.
 
 ## Configuration
 

@@ -152,6 +152,17 @@ def _unknown(table: dict, allowed: set[str], where: str) -> None:
         raise ConfigError(f"unknown key {name!r} in {where}")
 
 
+def _clean_exclude(entry: str) -> str:
+    """`./a/b/` means `a/b`."""
+    entry = entry.strip()
+    while entry.startswith("./"):
+        entry = entry[2:]
+    entry = entry.rstrip("/")
+    if not entry or entry == ".":
+        raise ConfigError(f"exclude entry {entry!r} names nothing")
+    return entry
+
+
 def parse_config(root: Path, table: dict) -> Config:
     """Build a Config from a parsed TOML table, rejecting anything it does not know."""
     _unknown(table, _TOP_KEYS, "the configuration")
@@ -159,7 +170,9 @@ def parse_config(root: Path, table: dict) -> Config:
     if "bib" in table:
         kwargs["bib"] = tuple(root / p for p in _strings(table["bib"], "bib"))
     if "exclude" in table:
-        kwargs["exclude"] = frozenset(_strings(table["exclude"], "exclude"))
+        kwargs["exclude"] = frozenset(
+            _clean_exclude(e) for e in _strings(table["exclude"], "exclude")
+        )
     if "cache" in table:
         if not isinstance(table["cache"], str) or not table["cache"]:
             raise ConfigError("cache must be a non-empty string")
@@ -297,6 +310,20 @@ def _walk(cfg: Config, suffix: str) -> list[Path]:
     return found
 
 
+def note_unmatched_excludes(cfg: Config) -> None:
+    """Say which `exclude` entries match no directory, so a typo does not read as a clean run."""
+    seen: set[str] = set()
+    for here, dirs, _ in os.walk(cfg.root):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d != "node_modules"]
+        base = Path(here).relative_to(cfg.root)
+        for d in dirs:
+            seen.add(d)
+            seen.add((base / d).as_posix())
+    for entry in sorted(cfg.exclude):
+        if entry not in seen:
+            print(f"dokimasia: exclude matched nothing: {entry}")
+
+
 def bib_files(cfg: Config) -> list[Path]:
     if cfg.bib is not None:
         missing = [p for p in cfg.bib if not p.is_file()]
@@ -324,12 +351,18 @@ def _name(cfg: Config, path: Path) -> str:
 
 
 def _close_brace(text: str, start: int) -> int:
-    """Index just past the brace that closes the one opened before `start`."""
+    """Index just past the brace that closes the one opened before `start`.
+
+    A backslash escapes the next character, so `\\{`, `\\}` and `\\\\` are not structural.
+    """
     i, depth = start, 1
     while i < len(text) and depth:
+        if text[i] == "\\":
+            i += 2
+            continue
         depth += (text[i] == "{") - (text[i] == "}")
         i += 1
-    return i
+    return min(i, len(text))
 
 
 def _close_paren(text: str, start: int) -> int:
@@ -447,9 +480,17 @@ _TEX_LETTERS = {
     "j": "j",
 }
 _TEX_LETTER = re.compile(r"\\(ss|ae|AE|oe|OE|aa|AA|o|O|l|L|i|j)(?![A-Za-z])\s*")
-#: Letters NFKD does not decompose.
+#: Letters canonical decomposition leaves whole, and the Latin ligatures. NFKD would
+#: also expand these but folds script l and superscripts into letters, which TeX never does.
 _UNICODE_LETTERS = str.maketrans(
     {
+        "\ufb00": "ff",
+        "\ufb01": "fi",
+        "\ufb02": "fl",
+        "\ufb03": "ffi",
+        "\ufb04": "ffl",
+        "\ufb05": "st",
+        "\ufb06": "st",
         "ø": "o",
         "Ø": "O",
         "ł": "l",
@@ -475,7 +516,7 @@ def fold_accents(value: str) -> str:
     value = _TEX_ACCENT.sub(lambda m: m.group(1) or m.group(2), value)
     value = _TEX_ACCENT_ALPHA.sub(lambda m: m.group(1), value)
     value = _TEX_LETTER.sub(lambda m: _TEX_LETTERS[m.group(1)], value)
-    value = unicodedata.normalize("NFKD", value)
+    value = unicodedata.normalize("NFD", value)
     value = "".join(ch for ch in value if not unicodedata.combining(ch))
     return value.translate(_UNICODE_LETTERS)
 
@@ -519,9 +560,9 @@ _DEFINITION = re.compile(
 )
 _CITE_HEAD = re.compile(r"\\([A-Za-z]*(?i:cite)[A-Za-z]*)\*?")
 _CITE_ARGS = re.compile(r"(?:\s*\[[^\]]*\]){0,2}\s*\{([^}]*)\}")
-#: Only a group touching the previous one is a key group: in `\cites{a}{b} {\em x}` the last
-#: braces are text.
-_MORE_ARGS = re.compile(r"(?:\[[^\]]*\])*\{([^}]*)\}")
+#: A group after the previous one, with at most one newline between. Text groups that follow
+#: (`{\em x}`) are dropped by the key filter.
+_MORE_ARGS = re.compile(r"(?:[ \t]*\n?[ \t]*\[[^\]]*\])*[ \t]*\n?[ \t]*\{([^}]*)\}")
 #: Commands whose name contains "cite" but whose argument is not a key list.
 _NOT_CITES = {
     "citestyle",
@@ -537,7 +578,7 @@ _INCLUDE = re.compile(r"\\(?:input|include|subfile)\s*\{([^}]*)\}")
 _INCLUDE_BARE = re.compile(r"\\input\s+([^\s{}\\%]+)")
 _IMPORT = re.compile(
     r"\\(import|subimport|inputfrom|subinputfrom|includefrom|subincludefrom)"
-    r"\s*\{([^}]*)\}\s*\{([^}]*)\}"
+    r"\*?\s*\{([^}]*)\}\s*\{([^}]*)\}"
 )
 _BIBLIOGRAPHY = re.compile(r"\\bibliography\s*\{([^}]*)\}")
 _BIBRESOURCE = re.compile(r"\\addbibresource\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}")
@@ -593,7 +634,7 @@ def has_nocite_star(text: str) -> bool:
     """Whether `\\nocite{*}` appears outside a comment: every entry then renders."""
     return any(
         "*" in {k.strip() for k in group.split(",")}
-        for group in _NOCITE.findall(strip_comments(text))
+        for group in _NOCITE.findall(_without_definitions(strip_comments(text)))
     )
 
 
@@ -661,7 +702,7 @@ def read_document(doc: Path) -> Document:
     star = uses = False
     for path in files:
         text = _read(path)
-        clean = strip_comments(text)
+        clean = _without_definitions(strip_comments(text))
         cites |= cite_keys(text)
         star = star or has_nocite_star(text)
         for group in _BIBLIOGRAPHY.findall(clean):
@@ -673,7 +714,7 @@ def read_document(doc: Path) -> Document:
         for n in dict.fromkeys(names)
         if not n.startswith(("http:", "https:"))
     )
-    return Document(doc, tuple(files), frozenset(cites), star, named, bool(cites) or uses)
+    return Document(doc, tuple(files), frozenset(cites), star, named, bool(cites) or uses or star)
 
 
 def document_cites(doc: Path) -> set[str]:
@@ -775,18 +816,15 @@ def lint(cfg: Config) -> int:
     `\\addbibresource`), or against all of them when it names none. A key repeated across
     two files is a duplicate only where one document uses both.
     """
+    note_unmatched_excludes(cfg)
     parsed = _parse_bibs(cfg)
     universe = list(parsed)
     docs = [read_document(p) for p in documents(cfg)]
     reached = {f for d in docs for f in d.files}
     loose = [p for p in _walk(cfg, ".tex") if p.resolve() not in reached]
     loose_cites: set[str] = set()
-    loose_star = []
     for path in loose:
-        text = _read(path)
-        loose_cites |= cite_keys(text)
-        if has_nocite_star(text):
-            loose_star.append(path)
+        loose_cites |= cite_keys(_read(path))
 
     findings: list[str] = []
 
@@ -795,7 +833,9 @@ def lint(cfg: Config) -> int:
             findings.append(message)
 
     def uses(doc: Document) -> list[Path]:
-        return [p.resolve() for p in doc.named] if doc.named else universe
+        if doc.named:
+            return [p.resolve() for p in doc.named]
+        return universe if doc.needs_bibliography else []
 
     def entries_of(files: list[Path]) -> list[tuple[Path, str]]:
         found = []
@@ -848,14 +888,16 @@ def lint(cfg: Config) -> int:
         for file in universe:
             users = [d for d in docs if file in uses(d)]
             stars = [_name(cfg, d.path) for d in users if d.nocite_star]
-            stars += [_name(cfg, p) for p in loose_star]
             if stars:
                 star_docs[_name(cfg, file)] = set(stars)
                 continue
             seen_here = loose_cites.union(*(d.cites for d in users))
             for _, key, _ in parsed[file]:
                 if key not in seen_here and key not in accounted:
-                    add(f"orphan entry: {key} is cited nowhere and the intake log does not name it")
+                    add(
+                        f"orphan entry: {key} is cited nowhere and the intake log does not "
+                        f"name it (in {_name(cfg, file)})"
+                    )
 
     staged = staged_keys(cfg)
     for key in sorted(staged & cited):
@@ -891,9 +933,12 @@ def bbl_keys(text: str) -> set[str]:
 
 
 def _bbl_for(cfg: Config, doc: Path) -> Path:
-    """The `.bbl` beside the `.tex`, else in the configured build directory."""
+    """The `.bbl` in the configured build directory, else beside the `.tex`.
+
+    The build directory wins: `latexmk -outdir` leaves any `.bbl` beside the source stale.
+    """
     beside = doc.with_suffix(".bbl")
-    if cfg.outdir and not beside.exists():
+    if cfg.outdir:
         built = doc.parent / cfg.outdir / beside.name
         if built.exists():
             return built
@@ -933,6 +978,7 @@ def rendered(cfg: Config, docs: list[Path] | None = None, require_built: bool = 
     A document with no `.bbl` is not built: named, never silently passed. One that cites
     nothing and names no bibliography has nothing to render and is listed apart.
     """
+    note_unmatched_excludes(cfg)
     docs = documents(cfg) if not docs else docs
     problems = 0
     checked = 0
@@ -1008,6 +1054,25 @@ def _get(url: str, tries: int = 3) -> tuple[str | None, str]:
             return None, reason
         time.sleep(BACKOFF[min(attempt, len(BACKOFF) - 1)] if throttled else 2 * (attempt + 1))
     return None, reason
+
+
+def _loose(title: str | None) -> str:
+    """Case-folded text with markup braces dropped and whitespace collapsed; keeps every script."""
+    text = unicodedata.normalize("NFC", html.unescape(title or ""))
+    return " ".join(text.replace("{", "").replace("}", "").casefold().split())
+
+
+def titles_match(claimed: str | None, source: str | None) -> bool:
+    """Whether the file's title agrees with the source record's.
+
+    Crossref records routinely drop a subtitle, so a claimed title that merely extends what
+    came back is not drift; a diverging one is. A title with no Latin letters normalises to
+    nothing, so it is compared as text instead: `startswith("")` would call anything a match.
+    """
+    got, want = normalise(source), normalise(claimed)
+    if not got:
+        got, want = _loose(source), _loose(claimed)
+    return got == want or (bool(got) and want.startswith(got))
 
 
 def surname(author_field: str | None) -> str:
@@ -1151,6 +1216,7 @@ def verify(cfg: Config, delay: float = 3.0) -> int:
     API that is down, rate limiting, or simply missing a record says nothing about
     whether the entry is right.
     """
+    note_unmatched_excludes(cfg)
     drift = checked = exempted = cached = 0
     unresolved: list[str] = []
     unverifiable: list[str] = []
@@ -1200,8 +1266,7 @@ def verify(cfg: Config, delay: float = 3.0) -> int:
         if key not in cfg.title_exempt:
             # Crossref records routinely drop a subtitle, so a claimed title that merely
             # extends what came back is not drift; a diverging one is.
-            got, want = normalise(record["title"]), normalise(claimed)
-            if got != want and not want.startswith(got):
+            if not titles_match(claimed, record["title"]):
                 findings.append(("title", str(claimed), record["title"]))
         if key not in cfg.record_exempt:
             authors = fields.get("author")
@@ -1228,9 +1293,10 @@ def verify(cfg: Config, delay: float = 3.0) -> int:
             print(f"    file  : {mine}", file=sys.stderr)
             print(f"    source: {theirs}", file=sys.stderr)
     try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
         cache_path.write_text(json.dumps(store, indent=0, sort_keys=True))
-    except OSError:
-        pass
+    except OSError as error:
+        print(f"dokimasia: cache not written: {cache_path}: {error}", file=sys.stderr)
     print(
         f"dokimasia: verified {checked}, exempt {exempted}, unresolved {len(unresolved)}, "
         f"unverifiable {len(unverifiable)}, drift {drift} ({cached} from cache)"
