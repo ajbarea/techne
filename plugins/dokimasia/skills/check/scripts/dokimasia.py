@@ -77,8 +77,9 @@ from typing import NoReturn
 #: `howpublished` counts because @misc entries carry their URL there by convention.
 ID_FIELDS = ("eprint", "doi", "url", "howpublished")
 
-#: Not entries: they hold macros and text, and their first token is not a key.
-NON_ENTRIES = ("string", "preamble", "comment")
+#: Not entries: they hold macros and text, and their first token is not a key. IEEEtran's
+#: `@IEEEtranBSTCTL` holds style switches that `\bstctlcite` reads; it is not a reference.
+NON_ENTRIES = ("string", "preamble", "comment", "ieeetranbstctl")
 
 _NEW_ARXIV = r"\d{4}\.\d{4,5}"
 _OLD_ARXIV = r"[a-z][a-z-]*(?:\.[A-Za-z]{2})?/\d{7}"
@@ -571,6 +572,7 @@ _NOT_CITES = {
     "citeindextrue",
     "citeindexfalse",
     "declarecitecommand",
+    "bstctlcite",
 }
 _BAD_KEY = re.compile(r"[\\#{}\s]")
 _NOCITE = re.compile(r"\\nocite\s*\{([^}]*)\}")
