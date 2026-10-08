@@ -497,6 +497,13 @@ def test_string_preamble_and_comment_are_not_entries(dk, project):
     assert project(text, tex=r"\cite{good2024entry}") == 0
 
 
+def test_an_ieeetran_style_control_is_not_an_entry(dk, project):
+    """`@IEEEtranBSTCTL` and `\\bstctlcite` switch IEEEtran's style; neither is a reference."""
+    text = '@IEEEtranBSTCTL{BSTcontrol,\n  CTLuse_forced_etal = "yes"\n}\n' + CLEAN
+    assert [key for _, key, _ in dk.entries(text)] == ["good2024entry"]
+    assert project(text, tex=r"\bstctlcite{BSTcontrol}\cite{good2024entry}") == 0
+
+
 # --- 3. old-style arXiv ids --------------------------------------------------------------
 
 
@@ -546,6 +553,7 @@ def test_nocite_star_names_no_key(dk):
 
 def test_commands_that_are_not_key_lists_are_ignored(dk):
     assert dk.cite_keys(r"\setcitestyle{round}\renewcommand{\mycite}[1]{\cite{#1}}") == set()
+    assert dk.cite_keys(r"\bstctlcite{BSTcontrol}") == set()
 
 
 def test_a_commented_citation_is_not_a_citation(dk):
