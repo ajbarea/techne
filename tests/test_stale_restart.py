@@ -734,6 +734,28 @@ def test_hook_logs_why_a_stale_session_waits_once_per_reason(env, sr, live):
     assert calls(env) == []
 
 
+def test_a_hold_that_lifts_and_returns_is_logged_again(tmux_env, sr):
+    """Declining at the countdown lifts nothing, but a quiet turn does: the next hold is news."""
+    busy = {**QUIET_TURN, "background_tasks": [{"status": "running"}]}
+    sr.record_turn(busy, SID, 4242)
+    assert run_hook(tmux_env, IDLE) is None
+    sr.record_turn(QUIET_TURN, SID, 4242)
+    (tmux_env["state"] / f"declined-{SID}").write_text(NEW)  # quiet, but declined: no launch
+    assert run_hook(tmux_env, IDLE) is None
+    sr.record_turn(busy, SID, 4242)
+    assert run_hook(tmux_env, IDLE) is None
+    assert hook_log(tmux_env).count("held: background tasks or subagents running: 1") == 2
+
+
+def test_an_unreadable_hold_record_is_replaced(env, sr, live):
+    put_session(env, live)
+    (env["state"] / f"held-{SID}").write_bytes(b"\xff\xfe")
+    sr.record_turn({**QUIET_TURN, "background_tasks": [{"status": "running"}]}, SID, 4242)
+    assert run_hook(env, IDLE, PARENT) is None
+    assert "held: background tasks" in hook_log(env)
+    assert "hook error" not in hook_log(env)
+
+
 def test_hook_logs_nothing_for_a_held_session_with_no_update_waiting(env, sr, live):
     put_session(env, {**live, "version": NEW})
     sr.record_turn({**QUIET_TURN, "background_tasks": [{"status": "running"}]}, SID, 4242)

@@ -78,8 +78,6 @@ It runs on the `idle_prompt` notification, which Claude Code sends about a minut
 - The session's own `~/.claude/sessions/<pid>.json` reads `idle`, the session is interactive, and its pid still belongs to the process that wrote the file.
 - The session's last turn, ended in this same process, finished with no background task or subagent running and no session cron (`/loop`, CronCreate) scheduled, as the `Stop` hook reports them. A session cron ends with the process, so a session that has one is not restarted. Submitting a prompt clears that record until the turn ends, so a turn you interrupt with Esc, which skips `Stop`, leaves nothing to go on, and the session waits for its next completed turn.
 
-When a newer version is installed but the last turn holds the session (a background task, a subagent or a session cron still running, or no completed turn recorded), the hook writes the reason to its log once, and again only when the reason changes. `$XDG_RUNTIME_DIR/phylax-restart-<uid>/log` therefore answers why a session has not moved.
-
 It then opens a new tmux window, when the session runs in tmux, or a new Windows Terminal tab, when it runs in WSL. That window counts down 15 seconds, and any key cancels. A cancel holds until the next update. When the countdown ends, the handoff checks every condition again, then:
 
 1. Checks that the session's directory still exists, then sends SIGTERM to the old process and waits for it to exit. After 10 seconds it keeps waiting and says so, and any key stops the wait. A process that never exits is left running, and the window prints the command to resume it once it does. The handoff never sends SIGKILL.
@@ -89,6 +87,8 @@ It then opens a new tmux window, when the session runs in tmux, or a new Windows
 The resumed session keeps the effort and permission mode its last turn ended with. Unless that turn ended in bypass mode, `--dangerously-skip-permissions` becomes `--allow-dangerously-skip-permissions`, so bypass stays one shift+tab away instead of switching back on. For the model, `/model` saves its choice as your default, so the resume normally starts on the same model and keeps aliases such as `opusplan` and a `[1m]` context window. An `ANTHROPIC_MODEL` set for the old process becomes `--model`, since the new window does not inherit it. Only when the model a resume would start on (the `--model` flag, else your settings) is a different family from the session's latest reply, as happens after another session changes the default, is that reply's exact model id passed.
 
 When Claude exits in the new tab, you are left in a login shell, as before.
+
+When a newer version is installed but the last turn holds the session (a background task, a subagent or a session cron still running, no completed turn recorded, or the turn recorded by another process), the hook writes the reason to its log, `$XDG_RUNTIME_DIR/phylax-restart-<uid>/log`. Each hold is logged once, and again when its reason changes or after it has lifted, so the log answers why a session has not moved.
 
 In any other terminal, the hook tells you once per session that it cannot restart there and does nothing else. Sessions started with `--bg` are never restarted.
 

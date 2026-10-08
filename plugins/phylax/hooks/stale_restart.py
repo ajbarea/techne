@@ -630,18 +630,24 @@ def log_held(session_id: str, session: dict, why: str) -> None:
     """Log what holds a stale session, once per reason, so a restart that never comes can be read.
 
     Only a session an update is waiting for is logged: an up-to-date session's idle_prompts
-    are held too, and logging those would bury the ones that matter.
+    are held too, and logging those would bury the ones that matter. The reason already
+    logged is compared first, so a hold that repeats costs no `claude --version`.
     """
-    if version_blocker(session.get("version"), installed_version(claude_path())):
-        return
-    held = STATE / f"held-{session_id}"
+    held = held_path(session_id)
     try:
         if held.read_text() == why:
             return
-    except OSError:
+    except (OSError, ValueError):
         pass
+    if version_blocker(session.get("version"), installed_version(claude_path())):
+        return
     held.write_text(why)
     log(f"{session_id} held: {why}")
+
+
+def held_path(session_id: str) -> Path:
+    """The hold last logged for a session, cleared when it lifts so the next one is logged."""
+    return STATE / f"held-{session_id}"
 
 
 def emit(message: str) -> None:
@@ -672,12 +678,13 @@ def hook() -> int:
         drop(turn_path(session_id))
         drop(STATE / f"notice-{session_id}")
         drop(STATE / f"declined-{session_id}")
-        drop(STATE / f"held-{session_id}")
+        drop(held_path(session_id))
         return 0
     if event.get("notification_type") != "idle_prompt":
         return 0
     session = session_for(session_id)
-    # The file checks rule out most idle_prompts, so they run before `claude --version`.
+    # The file checks rule out most idle_prompts, so they run before `claude --version`, which
+    # a turn hold reaches only once per reason (log_held).
     if process_blocker(session):
         return 0
     assert session is not None
@@ -685,7 +692,7 @@ def hook() -> int:
     if held:
         log_held(session_id, session, held)
         return 0
-    assert session is not None
+    drop(held_path(session_id))
     claude = claude_path()
     installed = installed_version(claude)
     why = version_blocker(session.get("version"), installed)
