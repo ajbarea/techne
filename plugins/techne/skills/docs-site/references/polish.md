@@ -2,7 +2,7 @@
 
 The bar every sister site is held to, learned by reviewing all of them side by side. A site
 passes when `scripts/visual_qa.py` reports no findings and a person looking at each page's
-contact sheet (light and dark, desktop and phone) finds nothing off.
+contact sheet (light and dark; wide, desktop and phone) finds nothing off.
 
 ## Every page
 
@@ -21,6 +21,9 @@ contact sheet (light and dark, desktop and phone) finds nothing off.
 
 - Lead with what makes the project special, in the words of a one-line pitch. Copy reads like
   a slide: short headings, one idea per block, no paragraph over three lines on desktop.
+- Hero art and copy never overlap at any width, and on a 1920 screen the art sits beside
+  the copy rather than at the screen's edge. Place the art in the layout (a grid column),
+  not as a background positioned against the viewport.
 - Hero art is the project's signature: on a phone it sits above the text, whole and visible,
   never faded to nothing, cropped by the edge, or running under the words.
 - The hero title has no `¶`: hide `.hero .headerlink`.

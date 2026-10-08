@@ -30,7 +30,7 @@ uv run --quiet --no-project --with playwright --with pillow \
     python plugins/techne/skills/docs-site/scripts/visual_qa.py http://127.0.0.1:8000/<repo>/ --out qa/
 ```
 
-Serve the build under its repo path, as GitHub Pages does. The script captures every sitemap page in light and dark at 1280 and 390 pixels wide in system Chrome and writes one contact sheet per page. It reports wrong-scheme surfaces, sideways scroll, AA contrast failures, broken images, page errors, unrendered markup and hidden sections. It cannot see a cramped hero or a page that does not say what the project is, so open the sheets and look.
+Serve the build under its repo path, as GitHub Pages does. The script captures every sitemap page in light and dark at 1920, 1280 and 390 pixels wide in system Chrome and writes one contact sheet per page. It reports wrong-scheme surfaces, sideways scroll, AA contrast failures, broken images, page errors, unrendered markup and hidden sections. It cannot see a cramped hero or a page that does not say what the project is, so open the sheets and look.
 
 ## Shared files
 
