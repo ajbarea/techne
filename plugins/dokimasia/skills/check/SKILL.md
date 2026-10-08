@@ -54,16 +54,25 @@ waited out: a lookup tries three times, 5 then 20 seconds apart.
 ## Hand-written reference lists
 
 A document that writes `\begin{thebibliography}` and `\bibitem` itself has no `.bib` and never
-builds a `.bbl`. Its items are its entries, and it draws on no `.bib` in the project. A project
-whose only reference lists are hand-written is not a configuration error.
+builds a `.bbl`. Its items are its entries, and it draws on no `.bib` in the project, unless it
+also names one with `\bibliography`. Items may sit in an `\input` file inside the block. A list
+inside `\iffalse`, a `comment` environment or a `\newenvironment` definition is not read. A
+project whose only reference lists are hand-written is not a configuration error.
 
 - `rendered` checks that every cited key has a `\bibitem`; such a document is never "not built".
+  A document that also names a `.bib` is checked against both, and still needs its `.bbl`.
+- A `.bbl` pasted in with `\input`, as arXiv submissions do, is build output: it counts as
+  rendered, and its entries are checked through the `.bib` it came from.
 - `lint` does not require an identifier: printed styles routinely drop the DOI. It counts the
   items that print none, and `verify` names each of them as unverifiable.
-- `verify` resolves only an arXiv id or DOI printed in the item. It then looks for the source's
-  title as whole words in the printed text, the first author's surname before it, and a
-  matching year where the item is an arXiv preprint or the record is Crossref's. It never
+- `verify` resolves only an arXiv id or DOI printed in the item, then compares the record with
+  the printed text. A quoted title is compared as a `.bib` title is; an unquoted one must start
+  a printed field, so a real title inside a longer invented one is drift. Of the source's
+  authors, the first printed before the title must be its first author. A year is compared
+  against a Crossref record, and against arXiv only where a year follows the arXiv id. It never
   looks an entry up by its title: a search hit is weaker evidence than a resolved identifier.
+- One gap is left: an unquoted entry whose venue is named exactly like the source's title
+  passes the title check.
 - Output names a hand-written entry with its file, `key (paper.tex)`, since two papers may
   each print their own `smith2020`. Exemptions use the bare key.
 

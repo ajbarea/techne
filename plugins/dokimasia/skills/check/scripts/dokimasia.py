@@ -313,7 +313,12 @@ def _walk(cfg: Config, suffix: str) -> list[Path]:
             return not any(rel == p or rel.startswith(p + "/") for p in prefixes)
 
         dirs[:] = sorted(d for d in dirs if kept(d))
-        found += [Path(here) / f for f in sorted(files) if f.endswith(suffix)]
+        # A broken symlink lists like a file and cannot be read.
+        found += [
+            Path(here) / f
+            for f in sorted(files)
+            if f.endswith(suffix) and (Path(here) / f).is_file()
+        ]
     return found
 
 
@@ -650,16 +655,37 @@ def has_nocite_star(text: str) -> bool:
 
 # --- hand-written bibliographies -------------------------------------------------------
 
-_THEBIBLIOGRAPHY = re.compile(r"\\begin\{thebibliography\}(.*?)\\end\{thebibliography\}", re.S)
+_BEGIN_BIB = re.compile(r"\\begin\{thebibliography\}")
+_END_BIB = re.compile(r"\\end\{thebibliography\}")
 _BIBITEM = re.compile(r"\\bibitem\s*(?:\[.*?\])?\s*\{([^}]*)\}", re.S)
+#: Text LaTeX never typesets: `\iffalse ... \fi` and the `comment` environment. Stripped only
+#: when reading reference lists, where an old list parked out of the way is common.
+_UNTYPESET = re.compile(r"\\iffalse\b.*?\\fi\b|\\begin\{comment\}.*?\\end\{comment\}", re.S)
+#: A `\newenvironment` body is a template; a `thebibliography` inside one is not a list.
+_ENV_DEFINITION = re.compile(r"\\(?:re)?newenvironment\*?\s*\{[^}]*\}\s*(?:\[[^\]]*\]\s*)*\{")
 _INLINE_ARXIV = re.compile(
-    rf"arxiv(?:\.org/(?:abs|pdf)/|[:.\s]*)\s*({_NEW_ARXIV}|{_OLD_ARXIV})(?:v\d+)?", re.I
+    r"(?:arxiv(?:\.org/(?:abs|pdf)/|[:.\s]*)|corr,?\s*abs/|\\showeprint\s*\[arxiv\]\s*\{)\s*"
+    rf"({_NEW_ARXIV}|{_OLD_ARXIV})(?:v\d+)?",
+    re.I,
 )
-_INLINE_DOI = re.compile(r"\b(10\.\d{4,9}/[^\s,;{}]+)")
+#: A DOI runs to whitespace, a brace, a quote, a comma or a backslash; `;` stays, since SICI
+#: DOIs contain it, and trailing punctuation is trimmed after the match.
+_INLINE_DOI = re.compile(r"\b(10\.\d{4,9}/[^\s,{}\\\"'`]+)")
 #: arXiv's own DataCite prefix: the arXiv id in it is what resolves, not the DOI.
 _ARXIV_DOI = "10.48550/"
 _URL = re.compile(r"\\url\s*\{[^}]*\}|https?://\S+")
 _YEAR = re.compile(r"(?<![\d.])((?:19|20)\d{2})(?!\d)")
+#: An arXiv id followed at once by a year, `arXiv:2401.00001 [cs.LG], 2024`: the entry is
+#: dated by its preprint, so the arXiv posting year is the one to compare.
+_PREPRINT_YEAR = re.compile(
+    _INLINE_ARXIV.pattern + r"(?:\s*\[[^\]]*\])?[^A-Za-z0-9]{0,6}((?:19|20)\d{2})(?!\d)", re.I
+)
+#: Where a printed title is quoted, as IEEE and the `plain` family print it.
+_QUOTED = re.compile(r"``(.+?)''|(?<!\\)\"(.+?)(?<!\\)\"", re.S)
+#: Where a printed field may start: the beginning, after `.`/`,`/`;`/`:` and a space, or
+#: inside an emphasis command. An unquoted title must start at one of these.
+_FIELD_START = re.compile(r"^|[.,;:]\s+|\\emph\{|\\textit\{|\{\\(?:em|it)\s")
+_NAME_SUFFIXES = {"jr", "sr", "ii", "iii", "iv"}
 
 
 @dataclass(frozen=True)
@@ -671,20 +697,47 @@ class Bibitem:
     text: str
 
 
-def bibitems(text: str, file: Path) -> list[Bibitem]:
-    """Every `\\bibitem` in the `thebibliography` blocks of already-cleaned `text`.
+def _without_environment_definitions(text: str) -> str:
+    out, pos = [], 0
+    while match := _ENV_DEFINITION.search(text, pos):
+        out.append(text[pos : match.start()])
+        pos = _close_brace(text, match.end())
+        rest = re.match(r"\s*\{", text[pos:])
+        if rest:
+            pos = _close_brace(text, pos + rest.end())
+    out.append(text[pos:])
+    return "".join(out)
 
-    An item's text runs to the next `\\bibitem` or the end of its block.
+
+def typeset(text: str) -> str:
+    """`text` as it reaches the page: no comments, definitions, `\\iffalse` or `comment`."""
+    clean = _without_definitions(strip_comments(text))
+    return _UNTYPESET.sub(" ", _without_environment_definitions(clean))
+
+
+def opens_bibliography(text: str) -> bool:
+    """Whether already-typeset `text` opens a `thebibliography` block."""
+    return bool(_BEGIN_BIB.search(text))
+
+
+def bibitems(text: str, file: Path) -> list[Bibitem]:
+    """Every `\\bibitem` in already-typeset `text`.
+
+    Read from each `thebibliography` block, or from the whole file when it opens none, since a
+    list is often split: the block in the document, its items in an `\\input` file. An item
+    runs to the next `\\bibitem`, the end of its block, or the end of the file.
     """
+    starts = [m.end() for m in _BEGIN_BIB.finditer(text)] or [0]
     found = []
-    for block in _THEBIBLIOGRAPHY.finditer(text):
-        body = block.group(1)
-        heads = list(_BIBITEM.finditer(body))
-        for head, after in zip(heads, [*heads[1:], None], strict=True):
-            end = after.start() if after else len(body)
-            found.append(
-                Bibitem(file, head.group(1).strip(), " ".join(body[head.end() : end].split()))
-            )
+    for start in starts:
+        region = text[start:]
+        end = _END_BIB.search(region)
+        region = region[: end.start()] if end else region
+        heads = list(_BIBITEM.finditer(region))
+        for i, head in enumerate(heads):
+            stop = heads[i + 1].start() if i + 1 < len(heads) else len(region)
+            words = " ".join(region[head.end() : stop].split())
+            found.append(Bibitem(file, head.group(1).strip(), words))
     return found
 
 
@@ -692,7 +745,7 @@ def inline_ids(text: str) -> tuple[str | None, str | None]:
     """The arXiv id and DOI printed in a hand-written entry, either of which may be absent."""
     arxiv = _INLINE_ARXIV.search(text)
     doi = _INLINE_DOI.search(text.replace("\\_", "_"))
-    found = doi.group(1).rstrip(".)]") if doi else None
+    found = doi.group(1).rstrip(".;)]") if doi else None
     if found and found.lower().startswith(_ARXIV_DOI):
         found = None
     return (arxiv.group(1) if arxiv else None), found
@@ -750,6 +803,9 @@ class Document:
     #: document has no `.bib` to draw on and no `.bbl` to build; its items are its entries.
     hand_written: bool = False
     bibitems: tuple[Bibitem, ...] = ()
+    #: Keys of a `.bbl` pasted in with `\input`, as arXiv submissions do. That list is build
+    #: output, not hand-written: it renders, but its entries live in a `.bib`.
+    pasted: frozenset[str] = frozenset()
 
 
 def _bib_path(base: Path, name: str) -> Path:
@@ -764,6 +820,7 @@ def read_document(doc: Path) -> Document:
     cites: set[str] = set()
     names: list[str] = []
     items: list[Bibitem] = []
+    pasted: set[str] = set()
     star = uses = hand = False
     for path in files:
         text = _read(path)
@@ -774,8 +831,12 @@ def read_document(doc: Path) -> Document:
             names += [n.strip() for n in group.split(",") if n.strip()]
         names += [n.strip() for n in _BIBRESOURCE.findall(clean)]
         uses = uses or bool(_BIBLIOGRAPHY_USE.search(clean))
-        hand = hand or bool(_THEBIBLIOGRAPHY.search(clean))
-        items += bibitems(clean, path.resolve())
+        page = typeset(text)
+        if path.suffix == ".bbl":
+            pasted |= bbl_keys(page)
+            continue
+        hand = hand or opens_bibliography(page)
+        items += bibitems(page, path.resolve())
     named = tuple(
         _bib_path(doc.parent, n)
         for n in dict.fromkeys(names)
@@ -789,7 +850,9 @@ def read_document(doc: Path) -> Document:
         named,
         bool(cites) or uses or star or hand,
         hand,
-        tuple(items),
+        # A file of loose `\bibitem`s counts only as part of a hand-written list.
+        tuple(items) if hand else (),
+        frozenset(pasted),
     )
 
 
@@ -861,12 +924,16 @@ def _all_entries(cfg: Config, hand_written: bool = False) -> list[tuple[Path, st
     ]
 
 
-def _unique_bibitems(cfg: Config, docs: list[Document]) -> list[Bibitem]:
-    """Every hand-written entry once, though a shared file may be reached by two documents."""
-    seen: dict[tuple[Path, str], Bibitem] = {}
+def _unique_bibitems(docs: list[Document]) -> list[Bibitem]:
+    """Every hand-written entry once, though a shared file may be reached by two documents.
+
+    Keyed on the text as well as the key: a key printed twice is a lint finding, and each
+    copy still has to be resolved, since the second may carry a different identifier.
+    """
+    seen: dict[tuple[Path, str, str], Bibitem] = {}
     for doc in docs:
         for item in doc.bibitems:
-            seen.setdefault((item.file, item.key), item)
+            seen.setdefault((item.file, item.key, item.text), item)
     return list(seen.values())
 
 
@@ -905,7 +972,7 @@ def lint(cfg: Config) -> int:
     docs = [read_document(p) for p in documents(cfg)]
     parsed = _parse_bibs(cfg, any(d.hand_written for d in docs))
     universe = list(parsed)
-    items = _unique_bibitems(cfg, docs)
+    items = _unique_bibitems(docs)
     reached = {f for d in docs for f in d.files}
     loose = [p for p in _walk(cfg, ".tex") if p.resolve() not in reached]
     loose_cites: set[str] = set()
@@ -970,6 +1037,7 @@ def lint(cfg: Config) -> int:
 
     for doc in docs:
         defined = {key for _, key in entries_of(uses(doc))} | {i.key for i in doc.bibitems}
+        defined |= doc.pasted
         for key in sorted(doc.cites - defined):
             add(
                 f"dangling citation: \\cite{{{key}}} has no entry (cited by {_name(cfg, doc.path)})"
@@ -1103,16 +1171,23 @@ def rendered(cfg: Config, docs: list[Path] | None = None, require_built: bool = 
         name = _name(cfg, doc)
         info = read_document(doc)
         bbl = _bbl_for(cfg, doc)
-        if info.hand_written:
+        # A hand-written list renders without a build, and so does a pasted `.bbl` under
+        # another stem. A document that also names a `.bib` still needs its `.bbl`.
+        built = bbl.exists()
+        if (info.hand_written or (info.pasted and not built)) and (built or not info.named):
             checked += 1
             cites = info.cites
-            missing = sorted(cites - {item.key for item in info.bibitems})
+            shown = {item.key for item in info.bibitems} | info.pasted
+            if built:
+                shown |= bbl_keys(_read(bbl))
+            missing = sorted(cites - shown)
+            kind = "hand-written thebibliography" if info.hand_written else "pasted .bbl"
             print(
                 f"dokimasia: {name}: {len(cites) - len(missing)}/{len(cites)} cited keys "
-                f"rendered (hand-written thebibliography)"
+                f"rendered ({kind})"
             )
             for key in missing:
-                print(f"dokimasia: {name}: \\cite{{{key}}} has no \\bibitem", file=sys.stderr)
+                print(f"dokimasia: {name}: \\cite{{{key}}} did not render", file=sys.stderr)
             problems += len(missing)
             continue
         if not bbl.exists():
@@ -1356,11 +1431,16 @@ def _references(cfg: Config) -> list[_Reference]:
     for _, _, key, body in _all_entries(cfg, any(d.hand_written for d in docs)):
         fields = parse_fields(body)
         refs.append(_Reference(key, key, fields.get("eprint"), fields.get("doi"), fields=fields))
-    for item in _unique_bibitems(cfg, docs):
+    for item in _unique_bibitems(docs):
         eprint, doi = inline_ids(item.text)
         label = f"{item.key} ({_name(cfg, item.file)})"
         refs.append(_Reference(item.key, label, eprint, doi, item=item))
     return refs
+
+
+def _accepted_years(record: dict) -> set[int]:
+    """Every year the source dates the work by: a journal that posts online first has two."""
+    return {y for y in (record.get("year"), record.get("print_year")) if y is not None}
 
 
 def _bib_findings(
@@ -1379,51 +1459,74 @@ def _bib_findings(
         if not _matches_author(authors, source_authors):
             findings.append(("first author", str(authors), source_authors[0]))
         claimed_year = fields.get("year", "").strip()
-        actual_year = record.get("year")
         journal = fields.get("journal", "").lower()
         # Only where the two dates mean the same thing. See the module docstring.
         comparable = record.get("source") == "crossref" or "arxiv preprint" in journal
-        accepted = {y for y in (actual_year, record.get("print_year")) if y is not None}
+        accepted = _accepted_years(record)
         if comparable and claimed_year.isdigit() and accepted and int(claimed_year) not in accepted:
             findings.append(("year", claimed_year, "/".join(str(y) for y in sorted(accepted))))
     return findings
 
 
+def _printed_title(text: str, title: str) -> int:
+    """Where the printed title starts in `text`, or -1 when it does not match the source's.
+
+    A quoted title is compared whole, by the same rule as a `.bib` title. An unquoted one
+    must start a printed field: finding the source title merely somewhere in the text would
+    pass an invented title wrapped around a real one, `Applications of deep learning`.
+    """
+    quoted = _QUOTED.search(text)
+    if quoted:
+        return quoted.start() if titles_match(quoted.group(1) or quoted.group(2), title) else -1
+    want = normalise(title)
+    for start in _FIELD_START.finditer(text):
+        rest = normalise(text[start.end() :])
+        if want and (rest == want or rest.startswith(want + " ")):
+            return start.start()
+        if not want and _loose(title) and _loose(text[start.end() :]).startswith(_loose(title)):
+            return start.start()
+    return -1
+
+
+def _surname_token(name: str) -> str:
+    """The last word of a name that is not a generational suffix: `Jane Doe Jr.` gives `doe`."""
+    words = [w for w in normalise(name).split() if w not in _NAME_SUFFIXES]
+    return words[-1] if words else ""
+
+
 def _printed_findings(cfg: Config, key: str, text: str, record: dict) -> list[tuple[str, str, str]]:
     """Drift for a hand-written entry, found by looking for the source's values in its text.
 
-    A printed entry has no fields, so the title is matched as a run of whole words in the
-    normalised text, the first author's surname must appear before it, and a year is
-    compared only where the entry is plainly an arXiv preprint or the record is Crossref's.
-    Any printed year that matches is enough: the text may also carry a volume or an access
-    date, and a strict reading would report those as drift.
+    A printed entry has no fields. The title is found as above. Of the source's authors, the
+    first whose surname is printed before the title must be its first author; a title with
+    nothing printed before it has no author to compare, as a `.bib` entry without one has
+    none. A year is compared where the record is Crossref's, and against the arXiv year only
+    where a year follows the arXiv id at once, which is how a preprint is dated. Any printed
+    year matching is enough for Crossref, since the text may also carry an access date.
     """
     findings: list[tuple[str, str, str]] = []
     shown = text if len(text) <= 200 else text[:197] + "..."
-    padded = f" {normalise(text)} "
-    title = normalise(record["title"])
-    at = padded.find(f" {title} ") if title else -1
-    if not title and _loose(record["title"]):
-        at = 0 if _loose(record["title"]) in _loose(text) else -1
+    at = _printed_title(text, record["title"])
     if key not in cfg.title_exempt and at < 0:
         findings.append(("title", shown, record["title"]))
     if key in cfg.record_exempt:
         return findings
     source_authors = record.get("authors") or []
-    surname = normalise(source_authors[0]).split() if source_authors else []
-    before = padded[: at if at > 0 else len(padded)].split()
-    if surname and surname[-1] not in before:
-        findings.append(("first author", shown, source_authors[0]))
-    bare = _INLINE_DOI.sub(" ", _INLINE_ARXIV.sub(" ", _URL.sub(" ", text)))
-    printed = {int(y) for y in _YEAR.findall(bare)}
-    preprint = bool(
-        re.search(r"preprint", text, re.I)
-        or re.search(_INLINE_ARXIV.pattern + r"[^A-Za-z0-9]{0,6}(?:19|20)\d{2}", text, re.I)
-    )
-    comparable = record.get("source") == "crossref" or preprint
-    accepted = {y for y in (record.get("year"), record.get("print_year")) if y is not None}
-    if comparable and printed and accepted and not printed & accepted:
-        mine = "/".join(str(y) for y in sorted(printed))
+    before = normalise(text[: at if at >= 0 else len(text)]).split()
+    surnames = [_surname_token(a) for a in source_authors]
+    printed = [i for i, s in enumerate(surnames) if s and s in before]
+    if surnames and surnames[0] and before:
+        lead = min(printed, key=lambda i: before.index(surnames[i])) if printed else None
+        if lead is None or surnames[lead] != surnames[0]:
+            findings.append(("first author", shown, source_authors[0]))
+    accepted = _accepted_years(record)
+    if record.get("source") == "crossref":
+        bare = _INLINE_DOI.sub(" ", _INLINE_ARXIV.sub(" ", _URL.sub(" ", text)))
+        claimed = {int(y) for y in _YEAR.findall(bare)}
+    else:
+        claimed = {int(m.group(2)) for m in _PREPRINT_YEAR.finditer(text)}
+    if claimed and accepted and not claimed & accepted:
+        mine = "/".join(str(y) for y in sorted(claimed))
         findings.append(("year", mine, "/".join(str(y) for y in sorted(accepted))))
     return findings
 
@@ -1446,7 +1549,9 @@ def verify(cfg: Config, delay: float = 3.0) -> int:
     now = time.time()
     cache_path = cfg.root / cfg.cache
     store = _load_cache(cache_path)
-    for ref in _references(cfg):
+    refs = _references(cfg)
+    any_printed = any(ref.item is not None for ref in refs)
+    for ref in refs:
         key, eprint, doi = ref.key, ref.eprint, ref.doi
         ident = (eprint or doi or "").strip()
         if not ident:
@@ -1500,9 +1605,10 @@ def verify(cfg: Config, delay: float = 3.0) -> int:
         f"unverifiable {len(unverifiable)}, drift {drift} ({cached} from cache)"
     )
     if unverifiable:
+        printed = " (for a hand-written entry, none printed)" if any_printed else ""
         print(
-            "dokimasia: unverifiable -- no eprint or doi (for a hand-written entry, none "
-            "printed), so verify can never check these:"
+            f"dokimasia: unverifiable -- no eprint or doi{printed}, "
+            "so verify can never check these:"
         )
         for label in sorted(unverifiable):
             print(f"    {label}")

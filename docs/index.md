@@ -63,7 +63,7 @@ hide:
       </a>
       <a href="skills/check/" class="skill-card">
         <div class="skill-name"><code>/dokimasia:check</code></div>
-        <p>Lints a <code>.bib</code>, verifies it against arXiv and Crossref, and checks every cited key rendered.</p>
+        <p>Lints a <code>.bib</code> or hand-written reference list, verifies it against arXiv and Crossref, and checks every cited key rendered.</p>
       </a>
       <a href="skills/elenchus/" class="skill-card">
         <div class="skill-name"><code>/techne:elenchus</code></div>

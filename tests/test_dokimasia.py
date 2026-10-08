@@ -14,6 +14,7 @@ from __future__ import annotations
 import email.message
 import json
 import urllib.error
+from pathlib import Path
 
 import pytest
 
@@ -1966,7 +1967,7 @@ def test_rendered_checks_a_hand_written_document_instead_of_calling_it_unbuilt(
 def test_rendered_catches_a_citation_with_no_bibitem(dk, tmp_path, capsys):
     _hand(tmp_path, HAND.replace("\\cite{poe2015}", "\\cite{poe2015,ghost2020}"))
     assert dk.rendered(dk.load_config(tmp_path)) == 1
-    assert "\\cite{ghost2020} has no \\bibitem" in _err(capsys)
+    assert "\\cite{ghost2020} did not render" in _err(capsys)
 
 
 def test_rendered_reads_a_bbl_pasted_in_through_input(dk, tmp_path, capsys):
@@ -1980,7 +1981,9 @@ def test_rendered_reads_a_bbl_pasted_in_through_input(dk, tmp_path, capsys):
         },
     )
     assert dk.rendered(dk.load_config(tmp_path)) == 0
-    assert "1/1 cited keys rendered (hand-written" in capsys.readouterr().out
+    # It is build output beside the .tex, so the ordinary .bbl check runs, as before.
+    out = capsys.readouterr().out
+    assert "1/1 cited keys rendered\n" in out
 
 
 def test_verify_resolves_printed_identifiers_and_names_the_rest(dk, tmp_path, monkeypatch, capsys):
@@ -2078,3 +2081,228 @@ def test_a_bib_and_a_hand_written_list_are_verified_together(dk, tmp_path, monke
     assert "verified 3, exempt 0, unresolved 0, unverifiable 1, drift 0 (1 from cache)" in (
         capsys.readouterr().out
     )
+
+
+# --- #113 review round: every test below failed against the first cut of #114 -----------
+
+
+def test_an_empty_block_in_a_bib_project_changes_nothing(dk, tmp_path):
+    (tmp_path / "references.bib").write_text(CLEAN)
+    (tmp_path / "paper.tex").write_text(
+        DOC + "\\cite{good2024entry}\\bibliography{references}\n"
+        "\\begin{thebibliography}{9}\\end{thebibliography}\n"
+    )
+    assert dk.lint(dk.load_config(tmp_path)) == 0
+
+
+def test_a_list_inside_a_newenvironment_template_is_not_a_list(dk, tmp_path, capsys):
+    (tmp_path / "references.bib").write_text(CLEAN)
+    (tmp_path / "paper.tex").write_text(
+        "\\newenvironment{refs}{\\begin{thebibliography}{99}}{\\end{thebibliography}}\n"
+        + DOC
+        + "\\cite{good2024entry}\n"
+    )
+    assert dk.lint(dk.load_config(tmp_path)) == 0
+    assert "1 entries, 0 staged unread, 0 finding(s)" in capsys.readouterr().out
+
+
+def test_items_kept_in_an_input_file_belong_to_the_block_that_inputs_them(dk, tmp_path):
+    items = HAND.split("\\begin{thebibliography}{3}")[1].split("\\end{thebibliography}")[0]
+    _tree(
+        tmp_path,
+        {
+            "paper.tex": DOC + "\\cite{doe2024,roe2019,poe2015}\n"
+            "\\begin{thebibliography}{3}\\input{items}\\end{thebibliography}\n",
+            "items.tex": items,
+        },
+    )
+    cfg = dk.load_config(tmp_path)
+    assert dk.lint(cfg) == 0
+    assert dk.rendered(cfg) == 0
+
+
+def test_loose_bibitems_outside_a_hand_written_document_are_not_entries(dk, tmp_path):
+    (tmp_path / "references.bib").write_text(CLEAN)
+    (tmp_path / "paper.tex").write_text(
+        DOC + "\\cite{good2024entry}\\bibliography{references}\n\\bibitem{stray} Stray.\n"
+    )
+    assert dk.lint(dk.load_config(tmp_path)) == 0
+
+
+def test_a_pasted_bbl_does_not_orphan_the_bib_it_came_from(dk, tmp_path):
+    """arXiv-prep layout: refs.bib plus `\\input{main.bbl}`; main lints this clean."""
+    _tree(
+        tmp_path,
+        {
+            "refs.bib": CLEAN,
+            "main.tex": DOC + "\\cite{good2024entry}\n\\input{main.bbl}\n",
+            "main.bbl": "\\begin{thebibliography}{1}\\bibitem{good2024entry} J. Doe."
+            "\\end{thebibliography}\n",
+        },
+    )
+    assert dk.lint(dk.load_config(tmp_path)) == 0
+
+
+def test_a_pasted_bbl_under_another_stem_renders(dk, tmp_path, capsys):
+    _tree(
+        tmp_path,
+        {
+            "refs.bib": CLEAN,
+            "main.tex": DOC + "\\cite{good2024entry}\n\\input{final.bbl}\n",
+            "final.bbl": "\\begin{thebibliography}{1}\\bibitem{good2024entry} J. Doe."
+            "\\end{thebibliography}\n",
+        },
+    )
+    assert dk.rendered(dk.load_config(tmp_path)) == 0
+    assert "1/1 cited keys rendered (pasted .bbl)" in capsys.readouterr().out
+
+
+def test_a_list_parked_in_iffalse_is_not_a_list(dk, tmp_path, capsys):
+    _tree(
+        tmp_path,
+        {
+            "refs.bib": CLEAN,
+            "main.tex": DOC + "\\cite{good2024entry}\\bibliography{refs}\n\\iffalse\n"
+            "\\begin{thebibliography}{1}\\bibitem{old} Old.\\end{thebibliography}\n\\fi\n",
+            "main.bbl": "\\bibitem{good2024entry} J. Doe.\n",
+        },
+    )
+    cfg = dk.load_config(tmp_path)
+    assert dk.lint(cfg) == 0
+    assert dk.rendered(cfg) == 0
+    assert "1/1 cited keys rendered\n" in capsys.readouterr().out
+
+
+def test_a_document_with_a_bib_and_a_hand_written_list_renders_both(dk, tmp_path, capsys):
+    _tree(
+        tmp_path,
+        {
+            "refs.bib": CLEAN,
+            "main.tex": DOC + "\\cite{good2024entry,data2020}\\bibliography{refs}\n"
+            "\\begin{thebibliography}{1}\\bibitem{data2020} A dataset.\\end{thebibliography}\n",
+            "main.bbl": "\\bibitem{good2024entry} J. Doe.\n",
+        },
+    )
+    cfg = dk.load_config(tmp_path)
+    assert dk.rendered(cfg) == 0
+    assert "2/2 cited keys rendered (hand-written" in capsys.readouterr().out
+    (tmp_path / "main.bbl").unlink()
+    assert dk.rendered(cfg, require_built=True) == 1
+
+
+def test_a_bib_only_project_keeps_its_unverifiable_wording(dk, tmp_path, monkeypatch, capsys):
+    (tmp_path / "references.bib").write_text(CLEAN.replace("eprint", "url"))
+    _answer(dk, monkeypatch)
+    dk.verify(dk.load_config(tmp_path), delay=0)
+    assert "unverifiable -- no eprint or doi, so verify can never check these:" in (
+        capsys.readouterr().out
+    )
+
+
+@pytest.mark.parametrize(
+    "printed",
+    [
+        # A real DOI under an invented, longer title: the typical fabricated reference.
+        "Y. LeCun, ``Applications of deep learning in medicine,'' \\emph{Nature}, 2015.",
+        "Y. LeCun. Applications of deep learning in medicine. \\emph{Nature}, 2015.",
+    ],
+)
+def test_a_longer_title_around_the_source_title_is_drift(dk, printed):
+    record = {"title": "Deep learning", "authors": ["Yann LeCun"], "source": "crossref"}
+    cfg = dk.Config(root=Path("."))
+    assert "title" in [f[0] for f in dk._printed_findings(cfg, "k", printed, record)]
+
+
+@pytest.mark.parametrize(
+    "printed",
+    [
+        "Y. LeCun, ``Deep learning,'' \\emph{Nature}, 2015.",
+        "Y. LeCun. Deep learning: a review. \\emph{Nature}, 2015.",
+        "Y. LeCun. 2015. \\emph{Deep Learning}. Nature.",
+    ],
+)
+def test_the_source_title_as_its_own_field_is_not_drift(dk, printed):
+    record = {"title": "Deep learning", "authors": ["Yann LeCun"], "source": "crossref"}
+    cfg = dk.Config(root=Path("."))
+    assert dk._printed_findings(cfg, "k", printed, record) == []
+
+
+def test_a_tex_umlaut_is_not_a_quoted_title(dk):
+    record = {"title": "Deep learning", "authors": ["Kurt M\u00fcller"], "source": "crossref"}
+    printed = 'K. M\\"uller and A. B\\"ohm. Deep learning. Nature, 2015.'
+    assert dk._printed_findings(dk.Config(root=Path(".")), "k", printed, record) == []
+
+
+def test_another_source_author_printed_first_is_drift(dk):
+    record = {
+        "title": "Deep learning",
+        "authors": ["Yann LeCun", "Yoshua Bengio", "Geoffrey Hinton"],
+        "source": "crossref",
+    }
+    printed = "G. Hinton, Y. Bengio, and Y. LeCun, ``Deep learning,'' Nature, 2015."
+    found = dk._printed_findings(dk.Config(root=Path(".")), "k", printed, record)
+    assert [f[0] for f in found] == ["first author"]
+
+
+def test_a_generational_suffix_on_the_source_is_not_drift(dk):
+    record = {"title": "Deep learning", "authors": ["Jane Doe Jr."], "source": "crossref"}
+    printed = "J. Doe, ``Deep learning,'' Nature, 2015."
+    assert dk._printed_findings(dk.Config(root=Path(".")), "k", printed, record) == []
+
+
+def test_preprint_wording_alone_does_not_compare_a_venue_paper_with_arxiv(dk):
+    record = {"title": "Title here", "authors": ["John Smith"], "year": 2020, "source": "arxiv"}
+    printed = "J. Smith. Title here. In NeurIPS, 2021. arXiv preprint arXiv:2001.01234."
+    assert dk._printed_findings(dk.Config(root=Path(".")), "k", printed, record) == []
+
+
+def test_a_year_after_a_classified_arxiv_id_is_compared(dk):
+    record = {"title": "Title here", "authors": ["John Smith"], "year": 2024, "source": "arxiv"}
+    printed = "J. Smith. Title here. arXiv:2401.00001 [cs.LG], 2023."
+    found = dk._printed_findings(dk.Config(root=Path(".")), "k", printed, record)
+    assert [f[0] for f in found] == ["year"]
+
+
+@pytest.mark.parametrize(
+    ("text", "eprint", "doi"),
+    [
+        ("doi:10.1145/3442188.3445922\\url{x}", None, "10.1145/3442188.3445922"),
+        ("Y. Smith. Foo. CoRR, abs/2001.01234, 2020.", "2001.01234", None),
+        ("\\showeprint[arxiv]{2001.01234}", "2001.01234", None),
+        (
+            "doi: 10.1002/(SICI)1097-4571(199806)49:8<693::AID-ASI4>3.0.CO;2-0.",
+            None,
+            "10.1002/(SICI)1097-4571(199806)49:8<693::AID-ASI4>3.0.CO;2-0",
+        ),
+        ("``Title,'' doi:10.1000/xyz''", None, "10.1000/xyz"),
+    ],
+)
+def test_inline_ids_stop_at_tex_and_keep_sici_dois(dk, text, eprint, doi):
+    assert dk.inline_ids(text) == (eprint, doi)
+
+
+def test_each_copy_of_a_duplicated_key_is_resolved(dk, tmp_path, monkeypatch, capsys):
+    """lint reports the duplicate; verify must still look up the second copy's DOI."""
+    _hand(
+        tmp_path,
+        HAND.replace("E.~Poe,", "E.~Poe, doi: 10.9999/fake,").replace(
+            "\\bibitem{poe2015}", "\\bibitem{roe2019}"
+        ),
+    )
+    seen = []
+
+    def get(url, *a, **k):
+        seen.append(url)
+        return (ARXIV_FEED, "") if "arxiv" in url else (CROSSREF, "")
+
+    monkeypatch.setattr(dk, "_get", get)
+    monkeypatch.setattr(dk.time, "sleep", lambda *_: None)
+    dk.verify(dk.load_config(tmp_path), delay=0)
+    assert any("10.9999" in u for u in seen)
+
+
+def test_a_broken_symlink_does_not_crash_verify(dk, tmp_path, monkeypatch):
+    (tmp_path / "references.bib").write_text(CLEAN)
+    (tmp_path / "gone.tex").symlink_to(tmp_path / "missing.tex")
+    _answer(dk, monkeypatch)
+    assert dk.verify(dk.load_config(tmp_path), delay=0) == 0
