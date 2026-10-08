@@ -31,8 +31,14 @@ body.hero-page .md-content__inner {
   align-items: flex-start;
   justify-content: center;
   text-align: left;
-  margin: -1.2rem -0.8rem 0;
-  padding: 4rem 6vw 4rem;
+  /* The hero spans the viewport, so its stage has no edge against the page; on a wide
+     screen the copy and the art hold to a 72rem band (rem: the theme raises the root
+     font size there). */
+  --hero-pad: max(6vw, calc(50vw - 36rem));
+  width: 100vw;
+  box-sizing: border-box;
+  margin: -1.2rem 0 0 calc(-50vw + 50%);
+  padding: 4rem var(--hero-pad) 4rem;
   overflow: hidden;
   /* An opaque backdrop inside the isolated group, so the light-mode blend
      below multiplies onto the page colour rather than onto nothing. */
@@ -48,8 +54,8 @@ body.hero-page .md-content__inner {
   z-index: -1;
   top: 0;
   bottom: 0;
-  right: -2vw;
-  width: min(58%, 52rem);
+  right: calc(var(--hero-pad) - 8vw);
+  width: min(calc(0.58 * (100vw - 2 * var(--hero-pad))), 52rem);
   background: var(--hero-bg-image) 55% 62% / auto 96% no-repeat;
   -webkit-mask-image: radial-gradient(ellipse 56% 50% at 58% 50%, #000 45%, transparent 100%);
   mask-image: radial-gradient(ellipse 56% 50% at 58% 50%, #000 45%, transparent 100%);
@@ -65,6 +71,11 @@ body.hero-page .md-content__inner {
 
 .hero > * {
   max-width: min(34rem, 44vw);
+}
+
+/* Two pills side by side need more than the copy's measure on a small laptop. */
+.hero > .hero-buttons {
+  max-width: none;
 }
 
 .md-typeset .hero h1,
