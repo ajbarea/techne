@@ -88,6 +88,8 @@ The resumed session keeps the effort and permission mode its last turn ended wit
 
 When Claude exits in the new tab, you are left in a login shell, as before.
 
+When a newer version is installed but the last turn holds the session (a background task, a subagent or a session cron still running, no completed turn recorded, or the turn recorded by another process), the hook writes the reason to its log, `$XDG_RUNTIME_DIR/phylax-restart-<uid>/log`. Each hold is logged once, and again when its reason changes or after it has lifted, so the log answers why a session has not moved.
+
 In any other terminal, the hook tells you once per session that it cannot restart there and does nothing else. Sessions started with `--bg` are never restarted.
 
 ### Closing the old Windows Terminal tab
