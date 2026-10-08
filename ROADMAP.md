@@ -1,6 +1,6 @@
 # techne — Roadmap
 
-Long-horizon plan for the techne plugin. Session-by-session execution
+Long-horizon plan for the techne marketplace and its plugins. Session-by-session execution
 lives in [IMPL.md](./IMPL.md). When a milestone ships, it collapses to a
 dated one-liner under [Shipped](#shipped). Git history is the
 permanent record of how each skill was designed.
@@ -54,9 +54,9 @@ gating. Open coverage gaps:
 
 Skills are added when a pattern proves itself across multiple sisters
 (n≥2). Skills are deleted or merged when their domain collapses into a
-larger sibling. The current set spans six catalog dimensions (audit,
-drift, hygiene, review, observation, document build); IMPL.md maps each
-skill to one. `research-grounded`
+larger sibling. The current set spans eight catalog dimensions (audit,
+drift, hygiene, review, observation, document build, bibliography, hooks); IMPL.md maps
+each skill or hook to one. `research-grounded`
 (from the 2026-05-21 audit-of-audit) shipped 2026-05-29 on direct
 request; `narrative-coherence` and `positioning` remain queued for when
 that drift class recurs.
@@ -162,8 +162,7 @@ Detail lives in git history (`git log`) and the live skill code. This log is pru
   as the fallback for subagents and for sessions where the module does not load, standing down
   for the one call the module passed (`PHYLAX_GUARD_CHECKED`, the call's `tool_use_id`). A check that fails (an error, a git call
   that times out, a `python3` that cannot start) now refuses the command on both paths instead
-  of letting it through. Other commands start no process; `git status` costs a median 39 ms and `git commit` 50 ms (30 runs each, WSL2, all
-  options on). `make plugin-test` runs the module's tests on the pinned Claude Code build.
+  of letting it through. Other commands start no process; each checked git or gh command starts one `python3` process. `make plugin-test` runs the module's tests on the pinned Claude Code build.
 - 2026-10-05: **One marketplace, four plugins (#104).** `ajbarea/techne` is the one marketplace for
   AJ's plugins, split by audience and by the surfaces each part loads on: `techne` (code-repo
   skills), `graphe` (document skills; skills only, so claude.ai and Cowork can install it), `phylax`
@@ -259,8 +258,8 @@ Detail lives in git history (`git log`) and the live skill code. This log is pru
   versus leaves in the body across nine document shapes, and an assertion that no template
   placeholder goes unfilled, which is the drift a new `{{TOKEN}}` would otherwise cause
   silently. Four end-to-end cases compile through Typst and check the words survive
-  `pdftotext`, the verification the skill documents. The typst wheel is pulled per-run rather
-  than pinned as a dev dependency, matching how the skill itself runs. CI declines the compile
+  `pdftotext`, the verification the skill documents. The typst wheel is pulled per-run at the skill's
+  `>=0.15,<0.16` pin rather than held as a dev dependency. CI declines the compile
   because the first one fetches cmarker from Typst Universe, and declares it with
   `TECHNE_NO_TYPST=1`. Both opt-out flags now also skip on a machine that *has* the toolchain,
   so the declaration means the same thing everywhere.

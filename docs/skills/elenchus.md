@@ -30,9 +30,21 @@ Independence is restored mechanically, not by willpower. `/code-review` at `high
 2. **Trace every consumer** of every changed symbol across the whole repo.
 3. **Review against `main`**, not against the `+/-` of the diff.
 
-## The bug classes it hunts
+## The rubric
 
-Reachable destructive operations, unmirrored guards across parallel code paths, migration crashes, and dead features that still pass CI — the classes that are invisible in a diff and obvious the moment the code is run or its callers traced.
+The review is held to a nine-cell rubric, so the classes that are invisible in a diff and obvious the moment the code is run or its callers traced do not get skipped:
+
+1. Destructive-op reachability: the exact input that reaches each `rm -rf`, overwrite, `DROP`, truncate or force-push.
+2. Parallel-path mirroring: whether a new path copied the guards and the regression tests, not only the structure.
+3. Migration tolerance: whether state saved by the old code loads under the new code.
+4. Reachability to the real surface: whether the change landed on the registered wrapper or shipped path, not an inner copy.
+5. Boundary and empty inputs: null, empty string, zero rows, unset environment variable, missing file.
+6. Looks-done is not is-done: whether the value path was checked end to end, beyond green tests and lint.
+7. Flake versus real red: whether a failing check belongs to the change.
+8. Claim and code drift: whether the PR description, comments and `Closes #N` match what the code does.
+9. DRY and right altitude: whether the fix is the deep one or a special-case band-aid.
+
+Every finding is marked CONFIRMED when it was reproduced or PLAUSIBLE when it was reasoned but not run. The review also states what it could not verify.
 
 ## What it posts
 

@@ -1,6 +1,6 @@
 # Skills
 
-The skills ship in two plugins: `techne` for work in a code repo, `graphe` for documents. Grouped by what they do.
+The skills ship in three plugins: `techne` for work in a code repo, `graphe` for documents, `dokimasia` for bibliographies (keryx, from `ajbarea/keryx`, adds `keryx:pronounce`). Grouped by what they do.
 
 ## Build hygiene
 
@@ -48,3 +48,9 @@ The skills ship in two plugins: `techne` for work in a code repo, `graphe` for d
 | [`graphe:latex`](latex.md) | Builds a LaTeX document and gates it on its log, its PDF, and the assignment it answers; a clean `latexmk` exit is not the signal. |
 | [`graphe:pdf`](pdf.md) | Renders markdown to print-quality PDFs through a Typst template, then verifies fonts and content against the source. |
 | [`graphe:slides`](slides.md) | Gates a talk deck before it is presented: real slide titles, contrast, alt text, stray figures; renders it through the app that will show it. |
+
+## Bibliographies (dokimasia)
+
+| Skill | Purpose |
+|---|---|
+| [`dokimasia:check`](check.md) | Lints any `.bib` offline, verifies it against arXiv and Crossref telling a failed lookup from a wrong entry, and checks every cited key rendered. |

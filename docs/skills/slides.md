@@ -21,12 +21,14 @@ Invoke by name in Claude Code:
 Or run the checks directly from a techne checkout:
 
 ```
-uv run --quiet python plugins/graphe/skills/slides/scripts/slides.py check <deck.pptx|deck.pdf> [--jargon "term,term"] [--backup-from N]
-uv run --quiet --with pillow python plugins/graphe/skills/slides/scripts/slides.py render <deck.pptx|deck.pdf> <out-dir>
-uv run --quiet python plugins/graphe/skills/slides/scripts/slides.py script <deck.pptx> > script.md
+uv run --no-project --quiet python plugins/graphe/skills/slides/scripts/slides.py check <deck.pptx|deck.pdf> [--jargon "term,term"] [--backup-from N] [--level {AAA,AA}] [--min-pt N] [--dense-words N] [--title-words N]
+uv run --no-project --quiet --with pillow python plugins/graphe/skills/slides/scripts/slides.py render <deck.pptx|deck.pdf> <out-dir> [--renderer {auto,powerpoint,libreoffice}] [--dpi N]
+uv run --no-project --quiet python plugins/graphe/skills/slides/scripts/slides.py script <deck.pptx> [--wpm N] > script.md
 ```
 
-`check` exits 0 when every gate passed, 1 when the file is not a readable deck, and 2 on a blocker. `render` exports a PDF through PowerPoint when it is installed (natively, or from WSL) and through LibreOffice otherwise, then writes one PNG per slide and 2x2 contact sheets. Give it a folder of its own: it refuses a non-empty folder it did not create, because it replaces the PNGs and the PDF it finds there. `script` prints the speaker notes as one Markdown script with the talk length at 140 words a minute; backup slides come after the talk and are left out of the length.
+`check` takes `--level` (default `AAA`), `--min-pt` (14), `--dense-words` (60) and `--title-words` (14). `render` takes `--renderer` (default `auto`) and `--dpi` (80). `script` takes `--wpm` (140).
+
+`check` exits 0 when every gate passed, 1 when the file is not a readable deck, and 2 on a blocker. `render` exports a PDF through PowerPoint when it is installed (natively, or from WSL) and through LibreOffice otherwise, then writes one PNG per slide and 2x2 contact sheets. Give it a folder of its own: it refuses a non-empty folder it did not create, because it replaces the PNGs and the PDF it finds there. `script` prints the speaker notes as one Markdown script with the talk length at the `--wpm` rate; backup slides come after the talk and are left out of the length.
 
 ## What it checks
 
@@ -37,7 +39,8 @@ uv run --quiet python plugins/graphe/skills/slides/scripts/slides.py script <dec
 | BLOCK | `alt-text` | A picture with no description. |
 | BLOCK | `em-dash` | An em-dash in slide text. |
 | WARN | `small-text`, `font`, `no-notes`, `duplicate-title` | Text under 14pt, a font that will be substituted in PowerPoint or Google Slides, talk slides with no script in their speaker notes, titles a screen reader cannot tell apart. |
-| REVIEW | `figures`, `dense`, `long-title` | Numbers and walls of text on talk slides (slide 1 and everything after a `Backup slides` divider are exempt), and headlines that stopped being headlines on any slide. |
+| REVIEW | `jargon` | A term from `--jargon` on a talk slide. The plain word belongs on the slide and the term in a muted footnote. |
+| REVIEW | `figures`, `dense`, `long-title` | Numbers and walls of text on talk slides (slide 1 and everything after a divider titled `Backup`, `Backup slides` or `Appendix` are exempt), and headlines that stopped being headlines on any slide. |
 
 A PDF deck gets the gates its text can answer (`em-dash`, `long-title`, `duplicate-title`, `figures`, `dense`, `jargon`), read with `pdftotext`; contrast, alt text, fonts and notes are reported as not checked. `--jargon` flags listed terms on talk slides, and `--backup-from N` marks where backup starts when no divider says so.
 

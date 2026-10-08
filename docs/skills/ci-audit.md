@@ -17,7 +17,7 @@ Invoke by name in Claude Code:
 /techne:ci-audit
 ```
 
-The skill pulls the most recent run per workflow on the current branch via `gh run list` and `gh run view`, classifies every finding, applies in-repo fixes (workflow YAML, config, source), and outputs a verdict: `N fixed, M proposed, K deferred.`
+The skill pulls the most recent run per workflow on the current head SHA via the PR's `statusCheckRollup` (falling back to `gh run list` when there is no PR), reads each run with `gh run view`, lists external PR checks such as Codecov and GitGuardian, classifies every finding, applies in-repo fixes (workflow YAML, config, source), and outputs a verdict: `N fixed, M proposed, K deferred.`
 
 The skill does not commit, push, or merge. Run `/techne:auto-commit` to group and commit the fixes.
 

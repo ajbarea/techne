@@ -23,7 +23,7 @@ Default scope is the whole repo minus vendored/generated paths. Narrow scope by 
 /techne:deslop scripts/
 ```
 
-The skill fans out parallel subagents per area, consolidates findings, then asks `apply all / apply selected / skip?` before editing.
+The skill fans out parallel subagents per area, consolidates findings, then asks `apply all / apply selected / skip?` before editing. Pass `--apply` to edit without asking.
 
 ## See also
 

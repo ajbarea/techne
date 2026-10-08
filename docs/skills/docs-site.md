@@ -21,6 +21,17 @@ Invoke by name in Claude Code:
 
 The skill covers site mechanics, not prose accuracy. For prose drift (stale CLI commands, wrong paths, outdated config keys in docs), use [`techne:docsync`](docsync.md).
 
+## Visual QA
+
+A build that passes can still look wrong. `visual_qa.py` screenshots a served build and reports what a build cannot see:
+
+```
+uv run --quiet --no-project --with playwright --with pillow \
+    python plugins/techne/skills/docs-site/scripts/visual_qa.py http://127.0.0.1:8000/<repo>/ --out qa/
+```
+
+Serve the build under its repo path, as GitHub Pages does. The script captures every sitemap page in light and dark at 1280 and 390 pixels wide in system Chrome and writes one contact sheet per page. It reports wrong-scheme surfaces, sideways scroll, AA contrast failures, broken images, page errors, unrendered markup and hidden sections. It cannot see a cramped hero or a page that does not say what the project is, so open the sheets and look.
+
 ## Shared files
 
 The files every sister site carries identically live once, in the skill's `templates/shared/`. Edit them there, then copy them into a site:
@@ -30,7 +41,7 @@ python3 plugins/techne/skills/docs-site/scripts/sync_shared.py <repo>
 python3 plugins/techne/skills/docs-site/scripts/sync_shared.py --check <repo>
 ```
 
-`--check` writes nothing and exits 1 on drift; [`techne:sisters`](sisters.md) runs it across the fleet. A site sets `extra.og_image` and `extra.brand_mark` in `zensical.toml` for its card artwork and footer mark.
+`--check` writes nothing and exits 1 on drift; [`techne:sisters`](sisters.md) runs it across the fleet. A site's own hand-written copy of a shared file is refused unless you pass `--force`. A site sets `extra.og_image` and `extra.brand_mark` in `zensical.toml` for its card artwork and footer mark.
 
 ## Prerequisites
 

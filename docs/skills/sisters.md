@@ -17,7 +17,7 @@ Invoke by name in Claude Code:
 /techne:sisters
 ```
 
-The skill reads the active sister list from `~/.claude/techne.toml`, runs all checks in parallel, and outputs a single audit block grouped by category: merge settings, skill-context parity, action-pin drift, toolchain-pin drift, branch protection, Codecov config, log-retention policy, Dependabot coverage, README header convention, worktree ignore, docs-site shared files, open PRs, branch and worktree hygiene, and local main sync.
+The skill reads the active sister list from `~/.claude/techne.toml`, runs all fourteen checks in order, and outputs a single audit block grouped by category: merge settings, skill-context parity, action-pin drift, toolchain-pin drift, branch protection, Codecov config, log-retention policy, Dependabot coverage, README header convention, worktree ignore, docs-site shared files, open PRs, branch and worktree hygiene, and local main sync.
 
 The audit is read-only. It surfaces findings; it does not edit files, push branches, or change GitHub settings.
 
@@ -29,6 +29,13 @@ Squash merges leave every merged branch "ahead of main", so ahead counts can't t
 - a worktree that is dirty, locked, recently active, in use by a running process (another session's), or holding ignored files that are not build output, such as `COMMITS.md`, `.env` or a nested worktree
 - a remote branch with no PR, or someone else's
 - a stash
+
+Clean mode runs `hygiene.py` in two steps. The first writes the plan, and `--repo NAME` narrows it to one sister:
+
+```
+python3 plugins/techne/skills/sisters/scripts/hygiene.py --plan-out PLAN
+python3 plugins/techne/skills/sisters/scripts/hygiene.py --apply PLAN
+```
 
 Before removing anything it surveys again, and it keeps anything that changed since you approved.
 

@@ -41,6 +41,9 @@ nav = [
         { "pdf" = "skills/pdf.md" },
         { "slides" = "skills/slides.md" },
       ]},
+      { "dokimasia" = [
+        { "check" = "skills/check.md" },
+      ]},
   ]},
   { "Architecture" = "architecture.md" },
   { "Examples" = "examples.md" },

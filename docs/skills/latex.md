@@ -20,8 +20,19 @@ Invoke by name in Claude Code:
 Or run the builder directly from a techne checkout. The path is a `.tex`, or a directory holding exactly one file with `\documentclass`:
 
 ```
-uv run --quiet python plugins/graphe/skills/latex/scripts/latex.py <path>
+uv run --no-project --quiet python plugins/graphe/skills/latex/scripts/latex.py <path>
 ```
+
+Options:
+
+| Option | Effect |
+|---|---|
+| `--prompt FILE` | Assignment text to check coverage against. Default: the lone `*.extracted.md` beside the source. |
+| `--no-prompt` | Skip the coverage check. |
+| `--no-prose` | Skip the plain-prose pattern check. |
+| `--markers A,B` | Draft markers that must not survive into the PDF. |
+| `--overfull-pt N` | Report overfull boxes at or above N points (default 5). |
+| `--engine {pdf,xelatex,lualatex}` | The latexmk engine flag (default `pdf`). |
 
 There are no Python dependencies; the script needs TeX Live and poppler. It runs through `uv run` rather than `python`, which is not on PATH on a machine that ships only `python3`.
 
@@ -29,11 +40,11 @@ There are no Python dependencies; the script needs TeX Live and poppler. It runs
 
 `latexmk` exits 0 on a document whose every citation resolved to `[?]`, so the exit code is not the signal and the parsed log is. Building and gating are fused for that reason: a separate verify step is a step that gets skipped on exactly the run where it mattered.
 
-The exit code carries the verdict. `0` built clean, `1` did not build, `2` built and the PDF is wrong.
+The exit code carries the verdict. `0` built clean, `1` did not build, or bad path, `2` built and the PDF is wrong.
 
 ## What it gates on
 
-Errors come with `file:line`. Blockers are the things that compile without complaint and are still wrong in the PDF: `[?]` from an unresolvable citation, `??` from a missing reference, a label defined twice so refs point at the last one, characters dropped because the font lacks the glyph, and draft markers surviving into the output. Warnings cover the largest overfull boxes, font substitution and package chatter.
+Errors come with `file:line`. Blockers are the things that compile without complaint and are still wrong in the PDF: `[?]` from an unresolvable citation, `??` from a missing reference, a label defined twice so refs point at the last one, characters dropped because the font lacks the glyph, and draft markers surviving into the output. Three gates round that out: `bibliography` (BLOCK) reports every biber warning in the `.blg`, `unsettled` (BLOCK) fires when the log still asks for a rerun, and `no-pdf` (ERROR) fires when the run claimed success and wrote nothing. Warnings cover the largest overfull boxes, font substitution and package chatter.
 
 One class is advisory. Coverage regexes problem headers out of the assignment prompt and out of `pdftotext` output and reports what it could not locate. A document that renumbers its headers trips it while being complete, so it prints as `REVIEW` and never decides the exit code.
 
@@ -45,7 +56,7 @@ latexmk driving local TeX Live pdflatex. Not tectonic: it ships its own biblatex
 
 ## Testing it
 
-`make test-unit` runs the suite. The gate parsers are covered by unit tests over fixture log text, which is where every defect found so far has lived: a regex that matched nothing, or a finding reported when it should have been suppressed. Four end-to-end cases build real documents and assert the exit code.
+`make test-unit` runs the suite. The gate parsers are covered by unit tests over fixture log text, which is where every defect found so far has lived: a regex that matched nothing, or a finding reported when it should have been suppressed. Six end-to-end cases build real documents and assert the exit code.
 
 Those need TeX Live, and CI does not install it. Rather than let them skip unnoticed, a guard test fails when the toolchain is missing and `TECHNE_NO_TEX=1` is not set; `validate.yml` sets it and says why. The suite therefore either built the documents or declared in writing that it did not.
 

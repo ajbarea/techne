@@ -23,6 +23,7 @@
 | --- | --- | --- |
 | `techne` | Work in a code repo: audits, CI review, pre-merge review, commit plans, GitHub catch-up, cross-repo drift, slop and doc drift | Claude Code |
 | `graphe` | Documents: LaTeX papers, markdown-to-PDF, talk decks, paper scaffolds and novelty review | Claude Code |
+| `dokimasia` | Bibliography verification for LaTeX projects: lint a `.bib`, verify it against arXiv and Crossref, check every cited key rendered | Claude Code, or one standalone Python file |
 | `phylax` | Opt-in git and PR guards (a mod), restart onto an updated Claude Code | Claude Code |
 | [`keryx`](https://github.com/ajbarea/keryx) | Speaks a short gist of each reply in a local voice (WSL2) | Claude Code |
 
@@ -55,9 +56,15 @@ Install only the ones you use: every enabled plugin's skill list sits in Claude'
 | `graphe:pdf` | Renders markdown to print-quality PDFs through a Typst template, then verifies fonts and content against the source. |
 | `graphe:slides` | Gates a talk deck before it is presented: real slide titles, contrast, alt text, stray figures; renders it through the app that will show it. |
 
+### dokimasia
+
+| Skill | What it does |
+| --- | --- |
+| `dokimasia:check` | Lints any `.bib` offline, resolves its arXiv ids and DOIs against arXiv and Crossref and tells a failed lookup from a wrong entry, and checks that every cited key rendered in the built document. Configured per project, standard library only. |
+
 ### phylax
 
-Three opt-in guards on `git commit`, `git add` and `gh pr`, run by a [mod](https://code.claude.com/docs/en/plugins/mods/overview) (Claude Code 2.1.287 or later): block attribution lines, from the text Claude Code composes through to the command Claude runs; block staging `COMMITS.md`; and warn on commits in the main checkout. A check that fails refuses the command instead of letting it through. A fourth option, `restart_on_update`, moves an idle session onto an updated Claude Code in a new tmux window or Windows Terminal tab and keeps the conversation. Each is off until you switch it on in `/config`. See [Configuration](docs/configuration.md#guards) and [Restart on update](docs/configuration.md#restart-on-update).
+Three opt-in guards on `git commit`, `git add` and `gh pr`, run by a [mod](https://code.claude.com/docs/en/plugins/mods/overview) (Claude Code 2.1.287 or later): block attribution lines, from the text Claude Code composes through to the command Claude runs; block staging `COMMITS.md`; and warn on commits in the main checkout. While a blocking guard is on, a check that fails refuses the command instead of letting it through. A fourth option, `restart_on_update`, moves an idle session onto an updated Claude Code in a new tmux window or Windows Terminal tab and keeps the conversation. Each is off until you switch it on in `/config`. See [Configuration](docs/configuration.md#guards) and [Restart on update](docs/configuration.md#restart-on-update).
 
 ## Install
 
@@ -67,10 +74,12 @@ From inside Claude Code:
 /plugin marketplace add ajbarea/techne
 /plugin install techne@techne
 /plugin install graphe@techne
+/plugin install dokimasia@techne
 /plugin install phylax@techne
+/plugin install keryx@techne    # WSL2 on Windows only
 ```
 
-Invoke a skill as `/techne:<name>` or `/graphe:<name>`, or describe the task and Claude picks the matching skill. Run `/skills` to confirm they loaded. On claude.ai, add `ajbarea/techne` under **Customize > Plugins > Add > Add marketplace**, then add `graphe`.
+Invoke a skill as `/techne:<name>`, `/graphe:<name>` or `/dokimasia:check`, or describe the task and Claude picks the matching skill. Run `/skills` to confirm they loaded. On claude.ai, add `ajbarea/techne` under **Customize > Plugins > Add > Add marketplace**, then add `graphe`.
 
 > **First-time setup:** the techne skills are opinionated about a few conventions (Makefile pattern, dev-runner archive, `.claude/skill-context.md`). See [Conventions](docs/conventions.md) for the minimum each skill needs.
 
@@ -124,6 +133,8 @@ techne (marketplace: ajbarea/techne)
 │   ├── paper-review      ── grounded novelty + reviewer pass for a draft
 │   ├── pdf               ── markdown to print PDF via Typst, verified
 │   └── slides            ── talk deck gated and rendered, presenter briefed
+├── dokimasia (plugin, plugins/dokimasia)
+│   └── check             ── lints, verifies and render-checks a .bib
 ├── phylax (plugin, plugins/phylax) ── opt-in git guards + restart on update
 └── keryx (plugin, ajbarea/keryx)    ── spoken gist of each reply
 ```
@@ -132,7 +143,7 @@ Each skill is self-contained. Invoke one without pulling in the others. They sha
 
 ## Why "techne"
 
-Greek τέχνη: craft, the practical knowledge of how to make a thing well. The plugins keep the Greek: γραφή (graphe) is writing, φύλαξ (phylax) a guard, κῆρυξ (keryx) a herald.
+Greek τέχνη: craft, the practical knowledge of how to make a thing well. The plugins keep the Greek: γραφή (graphe) is writing, φύλαξ (phylax) a guard, κῆρυξ (keryx) a herald, δοκιμασία (dokimasia) the scrutiny of a candidate's credentials before office.
 
 ## License
 

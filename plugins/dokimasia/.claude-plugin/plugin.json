@@ -1,0 +1,18 @@
+{
+  "name": "dokimasia",
+  "description": "Bibliography verification for LaTeX projects: an offline lint of any .bib, an online verify against arXiv and Crossref that tells a failed lookup from a wrong entry, and a check that every cited key rendered.",
+  "author": {
+    "name": "AJ",
+    "email": "ajbareaa@gmail.com"
+  },
+  "repository": "https://github.com/ajbarea/techne",
+  "homepage": "https://ajbarea.github.io/techne/",
+  "license": "MIT",
+  "keywords": [
+    "bibtex",
+    "citations",
+    "latex",
+    "references",
+    "verification"
+  ]
+}

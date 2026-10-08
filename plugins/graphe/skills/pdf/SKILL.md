@@ -31,7 +31,7 @@ first, report what changed, and promote only when the user says so. Overwriting
 a document someone is about to send is not yours to decide.
 
 ```
-uv run --quiet --with typst python ${CLAUDE_SKILL_DIR}/scripts/render.py <src> <out-dir>
+uv run --no-project --quiet --with 'typst>=0.15,<0.16' python ${CLAUDE_SKILL_DIR}/scripts/render.py <src> <out-dir>
 ```
 
 Nothing needs installing: the `typst` wheel bundles the compiler, and `cmarker`
@@ -63,7 +63,7 @@ fonts are not exactly those. Use it in any repeat build.
 ## Fonts
 
 The template asks for Charter, then a sans, and falls back to what the wheel
-carries: Libertinus Serif, New Computer Modern, DejaVu Sans Mono. Those three
+carries: Libertinus Serif (serif and sans) and DejaVu Sans Mono. Those
 always resolve, so a build never fails for a missing font. It can silently
 change typeface instead, which is worse, so every run prints the families it
 actually embedded.

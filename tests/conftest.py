@@ -29,6 +29,7 @@ SWEEP_SCRIPT = SKILLS / "catchup" / "scripts" / "sweep.py"
 SLIDES_SCRIPT = DOC_SKILLS / "slides" / "scripts" / "slides.py"
 HYGIENE_SCRIPT = SKILLS / "sisters" / "scripts" / "hygiene.py"
 PROSE_SCRIPT = ROOT / "plugins" / "graphe" / "_shared" / "prose_check.py"
+DOKIMASIA_SCRIPT = ROOT / "plugins" / "dokimasia" / "skills" / "check" / "scripts" / "dokimasia.py"
 
 
 # The variables a git hook exports that point git at a repository.
@@ -94,6 +95,11 @@ def hy() -> types.ModuleType:
 @pytest.fixture(scope="session")
 def pc() -> types.ModuleType:
     return _load("techne_prose_check", PROSE_SCRIPT)
+
+
+@pytest.fixture(scope="session")
+def dk() -> types.ModuleType:
+    return _load("techne_dokimasia", DOKIMASIA_SCRIPT)
 
 
 @pytest.fixture

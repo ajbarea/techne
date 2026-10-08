@@ -9,9 +9,9 @@ audits the skill collection itself.
 ## repo
 
 - name: techne
-- package_root: `plugins/<plugin>/` for each plugin this marketplace ships (`techne` code-repo skills, `graphe` document skills, `phylax` hooks); `plugins/<plugin>/skills/` (one directory per skill, each a `SKILL.md` plus supporting markdown, templates and scripts), `plugins/<plugin>/_shared/` (files shared across that plugin's skills; `plugins/techne/_shared/` is the source for a file several plugins carry), `scripts/` (validation helpers), `tests/` (pytest over skill-shipped Python)
+- package_root: `plugins/<plugin>/` for each plugin this marketplace ships (`techne` code-repo skills, `graphe` document skills, `dokimasia` bibliography checks, `phylax` hooks); `plugins/<plugin>/skills/` (one directory per skill, each a `SKILL.md` plus supporting markdown, templates and scripts), `plugins/<plugin>/_shared/` (files shared across that plugin's skills; `plugins/techne/_shared/` is the source for a file several plugins carry), `scripts/` (validation helpers), `tests/` (pytest over skill-shipped Python)
 - language: Markdown (skill bodies) + Python (skill-shipped scripts under `plugins/*/skills/*/scripts/`, the frontmatter validator, pytest) + Bash (guard and runner scripts) + TypeScript (phylax's hooks module `plugins/phylax/hooks/register.ts`, a mod, with `plugins/phylax/tests/*.test.ts`)
-- cli_entrypoint: none — consumers add the `ajbarea/techne` marketplace, install `techne@techne`, `graphe@techne` and/or `phylax@techne`, then invoke `/techne:<skill>` or `/graphe:<skill>`. The repo itself is `package = false` in `pyproject.toml`.
+- cli_entrypoint: none — consumers add the `ajbarea/techne` marketplace, install `techne@techne`, `graphe@techne`, `dokimasia@techne` and/or `phylax@techne`, then invoke `/techne:<skill>`, `/graphe:<skill>` or `/dokimasia:check`. The repo itself is `package = false` in `pyproject.toml`.
 - runner_module: no Python runner; `.github/workflows/validate.yml` calls the Makefile targets.
 - default_branch: `main`
 - has: a skill per directory under `plugins/*/skills/` (list them rather than trusting any written-down set), a plugin manifest per plugin at `plugins/*/.claude-plugin/plugin.json`, marketplace manifest at `.claude-plugin/marketplace.json` (also lists keryx from `ajbarea/keryx`), Zensical-powered docs site, no docker, no frontend
@@ -23,15 +23,17 @@ Audit drives the wrapper `make` targets, which mirror `.github/workflows/validat
 ### Phase 1 — Setup
 
 1. `make check-env` — confirm `uv` is on PATH (the only hard prereq; shellcheck and zizmor arrive as dev dependencies).
-2. `make setup` — `uv sync` pulls the `[dependency-groups.dev]` set (pytest, pytest-subprocess, ruff, zensical, shellcheck-py, zizmor).
+2. `make setup` — `uv sync` pulls the `[dependency-groups.dev]` set (pytest, pytest-subprocess, ruff, ty, zensical, shellcheck-py, zizmor).
 
 ### Phase 2 — Manifest validation
 
 3. `make manifests` — `python -m json.tool` on `.claude-plugin/marketplace.json` + every `plugins/*/.claude-plugin/plugin.json`.
 
+- `make plugin-validate` — `claude plugin validate` on each plugin and the marketplace (hooks, userConfig), on the pinned Claude Code build.
+
 ### Phase 2b — Hooks modules
 
-- `make plugin-test` — `claude plugin test` plus a strict `tsc` (TypeScript pinned in the Makefile) on each plugin with a `tests/` folder, on the pinned Claude Code build; `scripts/check_hooks_modules.sh` loads the plugin once, unauthenticated, so the engine writes the types `tsc` reads.
+- `make plugin-test` — `claude plugin test` plus a strict `tsc` (TypeScript pinned in the Makefile) on each plugin whose `hooks/hooks.json` names `modules` (a mod), on the pinned Claude Code build; `scripts/check_hooks_modules.sh` loads the plugin once, unauthenticated, so the engine writes the types `tsc` reads.
 
 ### Phase 3 — Skill structural validation
 
@@ -39,20 +41,21 @@ Audit drives the wrapper `make` targets, which mirror `.github/workflows/validat
 
 ### Phase 4 — Lint
 
-5. `make lint` — `ruff check` + `ruff format --check` over `scripts/`, `plugins/` and `tests/`.
-6. `make shellcheck` — `shellcheck --severity=warning scripts/*.sh`. The binary comes from the `shellcheck-py` dev dependency, so no system install is needed.
-7. `make guards` — grep guards (no `.claude/skills/_shared` references, no legacy `aj-*` skill names, every `_shared/` copy identical to its `plugins/techne/_shared/` source) plus `check_action_pins.sh`: every action SHA-pinned, and starter workflows under `.github-template/` matching the live pins.
-8. `make test-unit` — pytest over skill-shipped Python. Without TeX Live or the typst compile, set `TECHNE_NO_TEX=1` / `TECHNE_NO_TYPST=1`, or the guard tests fail rather than skip silently.
-9. `make zizmor` — GitHub Actions security scan of `.github/workflows/`.
+5. `make lint` — `ruff check` + `ruff format --check` + `ty check` over `scripts/`, `plugins/` and `tests/`.
+6. `make shellcheck` — `shellcheck --severity=warning` over `scripts/*.sh` plus the skill-shipped `.sh` files (`plugins/*/_shared/`, `plugins/*/skills/*/scripts/`). The binary comes from the `shellcheck-py` dev dependency, so no system install is needed.
+7. `make guards` — grep guards (no `.claude/skills/_shared` references, no legacy `aj-*` skill names, every `_shared/` copy identical to its `plugins/techne/_shared/` source) plus `check_plugin_refs.sh` (every `${CLAUDE_PLUGIN_ROOT}` path resolves inside its plugin) and `check_action_pins.sh`: every action SHA-pinned, and starter workflows under `.github-template/` matching the live pins.
+8. `make test-unit` — pytest over skill-shipped Python. Without TeX Live or the typst compile, set `TECHNE_NO_TEX=1` / `TECHNE_NO_TYPST=1` / `TECHNE_NO_TMUX=1`, or the guard tests fail rather than skip silently.
+9. `make test-hooks-oldest` — the hook tests (`tests/test_git_guards.py`, `tests/test_stale_restart.py`) with the hook run on python3 3.9.
+10. `make zizmor` — GitHub Actions security scan of `.github/workflows/`.
 
 ### Phase 5 — Docs site smoke
 
-10. `make build` — `zensical build --strict --clean`. Strict-mode catches broken internal links + missing nav targets; mirrors `docs.yml`'s deploy job.
+11. `make build` — `zensical build --clean --strict`. Strict-mode catches broken internal links + missing nav targets; mirrors `docs.yml`'s deploy job.
 
 ### End-to-end rollups
 
-11. `make validate` — `lint + shellcheck + zizmor + plugin-validate + plugin-test + test + build` (where `test` = manifests + frontmatter + guards + test-unit). Pre-push gate; mirrors `validate.yml`.
-12. `make ci` — `setup + validate`.
+12. `make validate` — `lint + shellcheck + zizmor + plugin-validate + plugin-test + test + test-hooks-oldest + build` (where `test` = manifests + frontmatter + guards + test-unit). Pre-push gate; mirrors `validate.yml`.
+13. `make ci` — `setup + validate`.
 
 Fast audit = `make setup → make validate`. Stop-early phase: `check-env` / `setup` — any missing tool or sync failure blocks the rest.
 
@@ -93,7 +96,7 @@ Expected external PR checks: `validate` (in-repo) + `GitGuardian Security Checks
 Source of truth for skill-level claims:
 
 - **Skill descriptions:** `plugins/<plugin>/skills/<name>/SKILL.md` frontmatter `description:` field is the canonical one-line summary surfaced in the plugin registry; README and `docs/skills/*.md` cross-references must match.
-- **Marketplace metadata:** `.claude-plugin/marketplace.json` lists the plugins this marketplace ships (techne, graphe, phylax, plus keryx from `ajbarea/keryx`); each local entry's description must match its `plugins/<plugin>/.claude-plugin/plugin.json`.
+- **Marketplace metadata:** `.claude-plugin/marketplace.json` lists the plugins this marketplace ships (techne, graphe, dokimasia, phylax, plus keryx from `ajbarea/keryx`); each local entry's description must match its `plugins/<plugin>/.claude-plugin/plugin.json`.
 - **Skill inventory:** the directory listing of `plugins/*/skills/` is the only source of truth. Don't write a skill count into prose anywhere — a number in three files is three things to forget when a skill lands, and it drifted twice before it was removed. README's per-skill table is the one place a written inventory earns its keep, because each row carries a description rather than restating an integer.
 
 Any quantitative or list-shape claim not traceable to one of those is slop.
@@ -121,7 +124,7 @@ Subagent scan-area split:
 - workflow: `.github/workflows/docs.yml`
 - css_files: `docs/stylesheets/`
 - js_files: `docs/javascripts/`
-- build_command: `uv run zensical build --clean`
+- build_command: `uv run zensical build --clean --strict`
 - site_url: `https://ajbarea.github.io/techne/`
 - action_pins: the full-SHA pins in `.github/workflows/docs.yml` are the expected set (Dependabot keeps them current); `.github-template/workflows/docs.yml` must match them, which `make guards` enforces
 - nav structure: per-skill docs under `docs/skills/`, plus top-level Getting Started / Configuration / Conventions / Examples / Architecture pages
@@ -138,7 +141,7 @@ feature_works_means:
   - "the skill fires on its trigger phrases, reads .claude/skill-context.md, and produces a review that names the load-bearing claim and either breaks it or clears it — not a diff restatement"
 ```
 
-A repo of review/hygiene skills has few destructive ops of its own; the irreversibles to watch are the mutating make targets (`make fix` rewrites `scripts/`) and any skill that edits in place — trace what reaches them before approving a change to one.
+A repo of review/hygiene skills has few destructive ops of its own; the irreversibles to watch are the mutating make targets (`make fix` rewrites `scripts/`, `plugins/` and `tests/`) and any skill that edits in place — trace what reaches them before approving a change to one.
 
 ## meta_repo_caveat
 

@@ -17,7 +17,7 @@ Invoke by name in Claude Code:
 /techne:reslop
 ```
 
-Default scope is the files the user named, or pending-change files. The skill reads each target's implementation, call sites, and tests, then presents old-to-new diffs and asks `apply all / apply selected / skip?`
+Default scope is the files the user named, or pending-change files. The skill reads each target's implementation, call sites, and tests, then presents old-to-new diffs and asks `apply all / apply selected / skip?` `--apply` skips the prompt.
 
 ## See also
 

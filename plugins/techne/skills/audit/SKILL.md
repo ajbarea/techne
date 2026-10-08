@@ -38,7 +38,7 @@ Follow the phase list from the injected `## audit` section, in order. Each phase
 
 ## Per-command verification
 
-Each invocation writes a timestamped archive under the log path from the injected context (typically `logs/dev-<YYYYMMDDTHHMMSS>-<cmd>.log`) plus a stable pointer at `logs/dev-latest.log`. The archive ends with a `SUMMARY` block:
+Each invocation writes a timestamped archive under the log path from the injected context (typically `logs/dev-<YYYYMMDDTHHMMSSZ>-<cmd>.log`) plus a stable pointer at `logs/dev-latest.log`. The archive ends with a `SUMMARY` block:
 
 ```
 ==============================================================================

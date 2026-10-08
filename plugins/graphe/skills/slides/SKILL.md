@@ -16,9 +16,9 @@ at every slide, then brief the presenter.
 ## Run it
 
 ```
-uv run --quiet python ${CLAUDE_SKILL_DIR}/scripts/slides.py check  <deck.pptx|deck.pdf> [--jargon "term,term"] [--backup-from N]
-uv run --quiet --with pillow python ${CLAUDE_SKILL_DIR}/scripts/slides.py render <deck.pptx|deck.pdf> <out-dir>
-uv run --quiet python ${CLAUDE_SKILL_DIR}/scripts/slides.py script <deck.pptx> > <deck>-script.md
+uv run --no-project --quiet python ${CLAUDE_SKILL_DIR}/scripts/slides.py check  <deck.pptx|deck.pdf> [--jargon "term,term"] [--backup-from N]
+uv run --no-project --quiet --with pillow python ${CLAUDE_SKILL_DIR}/scripts/slides.py render <deck.pptx|deck.pdf> <out-dir>
+uv run --no-project --quiet python ${CLAUDE_SKILL_DIR}/scripts/slides.py script <deck.pptx> > <deck>-script.md
 ```
 
 A Typst or Beamer deck is checked and rendered from its PDF. `check` reads each
@@ -74,7 +74,7 @@ including the ones you did not change.
 The test for every slide: someone who has never heard the terms follows it.
 The slide text and the script follow `${CLAUDE_PLUGIN_ROOT}/_shared/plain-prose.md`; the
 guidance below is what a deck adds to it. To check a script, run
-`uv run --quiet python ${CLAUDE_PLUGIN_ROOT}/_shared/prose_check.py <deck>-script.md`.
+`uv run --no-project --quiet python ${CLAUDE_PLUGIN_ROOT}/_shared/prose_check.py <deck>-script.md`.
 
 - **The headline is the slide's claim**, a short full sentence ("Every query
   passes a code-only checkpoint first"), not a topic ("Architecture").

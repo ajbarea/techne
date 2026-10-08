@@ -14,6 +14,8 @@ Techne is a collection of independent, composable skills that share conventions 
 
 **Review and collaboration.** `techne:catchup` reads every comment, review and state change on a repo since you last participated and reports who is blocked on whom; read-only. `techne:elenchus` is adversarial pre-merge review: it drives `/code-review`, then reproduces the load-bearing claim, traces every consumer across the repo, and walks a bug-class rubric.
 
+**Bibliographies.** `dokimasia:check` lints any `.bib`, resolves its identifiers against arXiv and Crossref, and checks that every cited key rendered in the built document; a failed lookup is reported apart from a wrong entry.
+
 **Documents and research.** `graphe:latex` builds a LaTeX document and gates it on its log, its PDF and the assignment it answers. `graphe:pdf` renders markdown to print-quality PDFs through Typst and verifies the words survived. `graphe:slides` gates a talk deck on titles, contrast, alt text and stray figures, then renders it through the app that will present it. `graphe:paper` scaffolds a paper directory in a papers-style monorepo, and `graphe:paper-review` runs a novelty and reviewer pass grounded in retrieved prior work.
 
 **Cross-repo consistency.** `techne:sisters` audits drift across the repos listed in `~/.claude/techne.toml`: CI action pins, toolchain pins, skill-context structural parity, GitHub merge settings, open PRs, branch hygiene. Read-only; reports findings, leaves fixes to follow-up work.
@@ -46,9 +48,9 @@ This invariant runs philosophically; there is no automated check, it's a stance 
 
 Two layers, for two kinds of failure.
 
-**Scripts** (`make test-unit`). Every script a skill ships has pytest coverage: the LaTeX log gates, the markdown-to-Typst renderer, the catch-up sweep, the slide-deck checker, auto-commit's staleness fingerprint, and the theoros session lifecycle, which drives real tmux sessions. These run in CI.
+**Scripts** (`make test-unit`). Every script a skill ships has pytest coverage: the LaTeX log gates, the markdown-to-Typst renderer, the bibliography checker, the catch-up sweep, the slide-deck checker, auto-commit's staleness fingerprint, and the theoros session lifecycle, which drives real tmux sessions. These run in CI.
 
-**Routing** (`make evals`). A skill that never fires does nothing, and a skill that fires on someone else's request does harm. `claude plugin eval` sends natural-language prompts to fresh sessions and records which skill Claude chose. Each skill has a case that must fire it, and collision cases must not: merging a PDF is not `graphe:pdf`, an email catch-up is not `techne:catchup`, editing a slide's title is not `graphe:slides`. Every case also loads the other plugin's skills and stand-ins for the general PDF, PPTX, and inbox catch-up skills, so a description that overlaps any of them fails a case instead of shipping. Evals run on your own credential and are not part of CI.
+**Routing** (`make evals`). A skill that never fires does nothing, and a skill that fires on someone else's request does harm. `claude plugin eval` sends natural-language prompts to fresh sessions and records which skill Claude chose. Each skill has a case that must fire it, and collision cases must not: merging a PDF is not `graphe:pdf`, an email catch-up is not `techne:catchup`, editing a slide's title is not `graphe:slides`. Every case also loads every sibling plugin's skills and stand-ins for the general PDF, PPTX, BibTeX-formatting and inbox catch-up skills, so a description that overlaps any of them fails a case instead of shipping. Evals run on your own credential and are not part of CI.
 
 ## See also
 

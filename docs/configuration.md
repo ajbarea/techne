@@ -2,7 +2,7 @@
 
 ## `~/.claude/techne.toml`
 
-`techne:sisters` (and any future cross-repo skill) reads `~/.claude/techne.toml` at runtime. User-controlled config that lists the active sister repos to compare against.
+`techne:sisters` and `techne:catchup` read `~/.claude/techne.toml` at runtime. User-controlled config that lists the active sister repos to compare against.
 
 ### Schema
 
@@ -66,7 +66,7 @@ git config phylax.warnMainCheckoutCommit false
 
 These keys were `techne.*` before the guards moved to the phylax plugin; rename any you set.
 
-The mod checks every Bash command that names `git` or `gh` anywhere, so `time git add` and `sudo git commit` are covered. With every option off it registers no Bash hook. Once one is on, it needs `python3` 3.9 or newer on `PATH`, runs read-only git commands in the target repo, and adds a median of 39 ms to `git status` and 50 ms to `git commit` (30 runs each on WSL2 with all three options on). A command without `git` or `gh` starts no process. Parsing is best effort: a git command inside `$(...)` or `bash -c` is not checked, and neither are paths that `xargs` reads from stdin or that `$(...)` produces. A `COMMITS.md` staged that way in one Bash call is still refused by the next call's `git commit`, but not by a commit later in the same call. A command that creates `COMMITS.md` and then runs a broad `git add` (`.`, `-A`) is refused.
+The mod checks every Bash command that names `git` or `gh` anywhere, so `time git add` and `sudo git commit` are covered. With every option off it registers no Bash hook. Once one is on, it needs `python3` 3.9 or newer on `PATH`, runs read-only git commands in the target repo, and starts one `python3` process for each `git` or `gh` command it checks. A command without `git` or `gh` starts no process. Parsing is best effort: a git command inside `$(...)` or `bash -c` is not checked, and neither are paths that `xargs` reads from stdin or that `$(...)` produces. A `COMMITS.md` staged that way in one Bash call is still refused by the next call's `git commit`, but not by a commit later in the same call. A command that creates `COMMITS.md` and then runs a broad `git add` (`.`, `-A`) is refused.
 
 ## Restart on update
 
@@ -124,7 +124,7 @@ Most skills read additional repo-local config when needed (e.g. `techne:audit` l
 
 ```
 ~/.claude/techne.toml      ← user-controlled sister-repo registry
-~/.claude/plugins/...      ← installed techne, graphe and phylax plugins
+~/.claude/plugins/...      ← installed techne, graphe, dokimasia, phylax and keryx plugins
 ~/.claude/settings.json    ← pluginConfigs: hook options set in /config
 <repo>/.claude/...         ← per-repo overrides (skill-context, etc.)
 <repo>/Makefile, logs/, zensical.toml, ... ← what individual skills read
