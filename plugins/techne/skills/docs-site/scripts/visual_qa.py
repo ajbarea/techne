@@ -1,11 +1,11 @@
-"""Screenshot a Zensical site in both schemes at desktop and phone width, and measure it.
+"""Screenshot a Zensical site in both schemes at wide, desktop and phone width, and measure it.
 
     uv run --quiet --no-project --with playwright --with pillow \\
         python visual_qa.py http://127.0.0.1:8000/ --out qa/ [--pages 12] [--path getting-started/]
 
-Every page in the sitemap (or the --path list) is loaded in light and dark at 1280 and 390
-wide, scrolled so reveals and lazy images fire, and captured full-page. One contact sheet per
-page puts the four captures side by side; report.json and the printed summary carry what the
+Every page in the sitemap (or the --path list) is loaded in light and dark at 1920, 1280 and
+390 wide, scrolled so reveals and lazy images fire, and captured full-page. One contact sheet
+per page puts the six captures side by side; report.json and the printed summary carry what the
 eye misses:
 
 - a dark surface in light mode, or a light one in dark mode (area over 5000 px2)
@@ -32,7 +32,7 @@ from PIL import Image  # ty: ignore[unresolved-import]
 from playwright.sync_api import Page, sync_playwright  # ty: ignore[unresolved-import]
 
 AXE = "https://cdn.jsdelivr.net/npm/axe-core@4.13.0/axe.min.js"
-VIEWPORTS = {"desktop": (1280, 800), "phone": (390, 844)}
+VIEWPORTS = {"wide": (1920, 1080), "desktop": (1280, 800), "phone": (390, 844)}
 SCHEMES = {"light": "default", "dark": "slate"}
 SHEET_HEIGHT = 3200
 

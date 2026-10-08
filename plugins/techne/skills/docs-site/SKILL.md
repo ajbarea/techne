@@ -90,7 +90,7 @@ uv run --quiet --no-project --with playwright --with pillow \
 ```
 
 Serve the build under its repo path (`/<repo>/`, as on GitHub Pages; see the checklist). It
-captures every sitemap page in light and dark at 1280 and 390 wide (system Chrome), writes
+captures every sitemap page in light and dark at 1920, 1280 and 390 wide (system Chrome), writes
 one contact sheet per page, and reports wrong-scheme surfaces, sideways scroll, AA contrast
 failures (axe-core), broken images, page errors, unrendered markup and hidden sections. Then
 open the home sheet and at least two inner sheets and look: the script cannot see a cramped
