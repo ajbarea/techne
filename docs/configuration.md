@@ -78,6 +78,8 @@ It runs on the `idle_prompt` notification, which Claude Code sends about a minut
 - The session's own `~/.claude/sessions/<pid>.json` reads `idle`, the session is interactive, and its pid still belongs to the process that wrote the file.
 - The session's last turn, ended in this same process, finished with no background task or subagent running and no session cron (`/loop`, CronCreate) scheduled, as the `Stop` hook reports them. A session cron ends with the process, so a session that has one is not restarted. Submitting a prompt clears that record until the turn ends, so a turn you interrupt with Esc, which skips `Stop`, leaves nothing to go on, and the session waits for its next completed turn.
 
+When a newer version is installed but the last turn holds the session (a background task, a subagent or a session cron still running, or no completed turn recorded), the hook writes the reason to its log once, and again only when the reason changes. `$XDG_RUNTIME_DIR/phylax-restart-<uid>/log` therefore answers why a session has not moved.
+
 It then opens a new tmux window, when the session runs in tmux, or a new Windows Terminal tab, when it runs in WSL. That window counts down 15 seconds, and any key cancels. A cancel holds until the next update. When the countdown ends, the handoff checks every condition again, then:
 
 1. Checks that the session's directory still exists, then sends SIGTERM to the old process and waits for it to exit. After 10 seconds it keeps waiting and says so, and any key stops the wait. A process that never exits is left running, and the window prints the command to resume it once it does. The handoff never sends SIGKILL.

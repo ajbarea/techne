@@ -721,6 +721,26 @@ def test_hook_picks_windows_terminal_under_wsl(env, live):
     assert plan_of(env)["closeShell"] == {"pid": 300, "start": "55"}
 
 
+def test_hook_logs_why_a_stale_session_waits_once_per_reason(env, sr, live):
+    """A restart that never comes is read in the log, not guessed at."""
+    put_session(env, live)
+    sr.record_turn({**QUIET_TURN, "background_tasks": [{"status": "running"}]}, SID, 4242)
+    assert run_hook(env, IDLE, PARENT) is None
+    assert run_hook(env, IDLE, PARENT) is None
+    assert hook_log(env).count("held: background tasks or subagents running: 1") == 1
+    sr.record_turn({**QUIET_TURN, "session_crons": [{}]}, SID, 4242)
+    assert run_hook(env, IDLE, PARENT) is None
+    assert "held: session crons: 1" in hook_log(env)
+    assert calls(env) == []
+
+
+def test_hook_logs_nothing_for_a_held_session_with_no_update_waiting(env, sr, live):
+    put_session(env, {**live, "version": NEW})
+    sr.record_turn({**QUIET_TURN, "background_tasks": [{"status": "running"}]}, SID, 4242)
+    assert run_hook(env, IDLE, PARENT) is None
+    assert hook_log(env) == ""
+
+
 def test_hook_skips_a_cwd_wt_cannot_pass(env, live):
     stub(env["bin"] / "wt.exe", 'echo "wt $*" >> "$STUB_LOG"')
     tab(env)

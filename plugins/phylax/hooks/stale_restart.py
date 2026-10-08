@@ -283,6 +283,14 @@ def last_turn(session_id: str) -> dict:
 
 def session_blocker(session: dict | None) -> str | None:
     """Why this session is not safe to stop now, or None. Reads files only."""
+    why = process_blocker(session)
+    if why or session is None:
+        return why
+    return turn_blocker(session)
+
+
+def process_blocker(session: dict | None) -> str | None:
+    """Why this session's process cannot be stopped now: routine on most idle_prompts."""
     if session is None:
         return "no live session file"
     if session.get("kind") != "interactive":
@@ -292,6 +300,12 @@ def session_blocker(session: dict | None) -> str | None:
     pid, start = session.get("pid"), session.get("procStart")
     if not (isinstance(pid, int) and isinstance(start, str) and alive(pid, start)):
         return "process gone or pid reused"
+    return None
+
+
+def turn_blocker(session: dict) -> str | None:
+    """What the session's last turn left that a restart would end, or None."""
+    pid, start = session.get("pid"), session.get("procStart")
     turn = last_turn(str(session.get("sessionId")))
     if not turn:
         return "no completed turn recorded"
@@ -612,6 +626,24 @@ def declined(session_id: str, installed: str) -> bool:
         return False
 
 
+def log_held(session_id: str, session: dict, why: str) -> None:
+    """Log what holds a stale session, once per reason, so a restart that never comes can be read.
+
+    Only a session an update is waiting for is logged: an up-to-date session's idle_prompts
+    are held too, and logging those would bury the ones that matter.
+    """
+    if version_blocker(session.get("version"), installed_version(claude_path())):
+        return
+    held = STATE / f"held-{session_id}"
+    try:
+        if held.read_text() == why:
+            return
+    except OSError:
+        pass
+    held.write_text(why)
+    log(f"{session_id} held: {why}")
+
+
 def emit(message: str) -> None:
     print(json.dumps({"systemMessage": message}))
 
@@ -640,12 +672,18 @@ def hook() -> int:
         drop(turn_path(session_id))
         drop(STATE / f"notice-{session_id}")
         drop(STATE / f"declined-{session_id}")
+        drop(STATE / f"held-{session_id}")
         return 0
     if event.get("notification_type") != "idle_prompt":
         return 0
     session = session_for(session_id)
     # The file checks rule out most idle_prompts, so they run before `claude --version`.
-    if session_blocker(session):
+    if process_blocker(session):
+        return 0
+    assert session is not None
+    held = turn_blocker(session)
+    if held:
+        log_held(session_id, session, held)
         return 0
     assert session is not None
     claude = claude_path()
