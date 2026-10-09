@@ -85,8 +85,9 @@ only reference lists are hand-written is not a configuration error.
   (`Le Cun`). Vancouver initials (`Kingma DP`), a Spanish double surname, and a record with
   given and family names swapped read as first-author drift: the rule never passes on what may
   be a given name. Author text it cannot read (non-Latin script, initials only, a list joined
-  by a separator it does not know) leaves the item uncompared, unless its title is already
-  wrong.
+  by a separator it does not know, more than three name words, a lower-case word that is not a
+  particle) leaves the item uncompared, unless its title is already wrong. So does a title
+  printed before any author, unless the record lists no authors.
 - It never looks an entry up by its title: a search hit is weaker evidence than a resolved
   identifier.
 - Output names a hand-written entry with its file, `key (paper.tex)`, since two papers may
@@ -122,8 +123,9 @@ smith2024x = "arXiv's own title misspells a word"
 [exempt.record]                 # key = reason: skip first author and year
 ```
 
-Hidden directories and `node_modules` are always skipped, and so is a broken symlink. A `.tex`
-that cannot be read is named on stderr (`cannot read`) and not checked. Every exemption needs a reason, and
+Hidden directories and `node_modules` are always skipped, and so is a broken symlink. A file
+that cannot be read, a document or one it includes, is named on stderr (`cannot read`) and not
+checked. Every exemption needs a reason, and
 an exemption for an entry that is not in the bibliography is a lint finding.
 
 Documents are derived: any `.tex` with a `\documentclass` outside a comment, except a

@@ -2782,3 +2782,100 @@ def test_verify_names_a_document_it_cannot_read(dk, tmp_path, monkeypatch, capsy
     finally:
         secret.chmod(0o644)
     assert "cannot read locked.tex" in _err(capsys)
+
+
+# --- #113 eighth review round -------------------------------------------------------------
+
+REN = {"title": "Faster R-CNN", "authors": ["Shaoqing Ren", "Kaiming He"], "source": "arxiv"}
+
+
+@pytest.mark.parametrize("first", ["Ren\\'{e} Fake", "Ren\\'e Fake", 'Ren\\"{u} Fake'])
+def test_an_accent_macro_does_not_split_a_name(dk, first):
+    printed = f"{first} and K.~He, ``Faster R-CNN,'' arXiv:1506.01497, 2017."
+    assert _compare(dk, printed, REN) == ["first author"]
+
+
+def test_a_correct_name_with_an_accented_i_is_clean(dk):
+    record = {"title": "Four ways", "authors": ["Jos\u00e9 Garc\u00eda"], "source": "arxiv"}
+    printed = "Jos\\'e Garc\\'{\\i}a, ``Four ways,'' arXiv:2608.26183, 2026."
+    assert _compare(dk, printed, record) == []
+
+
+@pytest.mark.parametrize(
+    "authors",
+    [
+        "J.~Fake \u2022 A.~Vaswani",
+        "J.~Fake \u00b7 A.~Vaswani",
+        "J.~Fake -- A.~Vaswani",
+        "J.~Fake \\\\ A.~Vaswani",
+        "J.~Fake og A.~Vaswani",
+        "J.~Fake ve A.~Vaswani",
+        "J.~Fake dan A.~Vaswani",
+        "J.~Fake A.~Vaswani",
+    ],
+)
+def test_an_unsplit_list_with_initials_leaves_the_entry_uncompared(dk, authors):
+    assert _compare(dk, f"{authors}, ``Attention is all you need,'' 2017.") is None
+
+
+@pytest.mark.parametrize(
+    "printed",
+    [
+        "Ashish A.~Vaswani, ``Attention is all you need,'' 2017.",
+        "Ludwig van Vaswani, ``Attention is all you need,'' 2017.",
+        "A.~Vaswani Jr., ``Attention is all you need,'' 2017.",
+    ],
+)
+def test_a_readable_name_with_a_middle_initial_is_still_compared(dk, printed):
+    assert _compare(dk, printed) == []
+
+
+@pytest.mark.parametrize(
+    "printed",
+    [
+        "``Attention is all you need,'' J.~Fake and A.~Vaswani, arXiv:1706.03762, 2017.",
+        "---, ``Attention is all you need,'' arXiv:1706.03762, 2017.",
+    ],
+)
+def test_a_title_printed_first_is_uncompared_when_the_source_has_authors(dk, printed):
+    assert _compare(dk, printed) is None
+
+
+def test_a_title_printed_first_is_compared_when_the_source_has_no_authors(dk):
+    printed = "``Handbook of machine learning systems,'' 2020. doi:10.1234/x."
+    assert _compare(dk, printed, HANDBOOK) == []
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads any file")
+@pytest.mark.parametrize("bib", [True, False])
+@pytest.mark.parametrize("mode", ["lint", "rendered", "verify"])
+def test_an_unreadable_included_file_is_named_not_a_crash(
+    dk, tmp_path, monkeypatch, capsys, bib, mode
+):
+    tex = HAND.replace("\\begin{thebibliography}", "\\input{chap}\n\\begin{thebibliography}")
+    if bib:
+        (tmp_path / "references.bib").write_text(CLEAN)
+    _hand(tmp_path, tex)
+    locked = tmp_path / "chap.tex"
+    locked.write_text("\\cite{doe2024}\n")
+    locked.chmod(0)
+    _answer(dk, monkeypatch)
+    try:
+        code = dk.main(["--root", str(tmp_path), mode])
+    finally:
+        locked.chmod(0o644)
+    err = capsys.readouterr().err
+    assert code in (0, 1)
+    assert err.count("cannot read chap.tex") == 1
+    assert "cannot read paper.tex" not in err
+
+
+def test_a_bibliography_command_in_a_definition_keeps_a_document_bibtex(dk, tmp_path):
+    tex = (
+        DOC + "\\newcommand{\\refs}{\\bibliography{references}}\n\\cite{good2024entry}\\refs\n"
+        "\\iffalse\\begin{thebibliography}{1}\\bibitem{dead} Dead.\\end{thebibliography}\\fi\n"
+    )
+    (tmp_path / "references.bib").write_text(CLEAN)
+    (tmp_path / "main.tex").write_text(tex)
+    info = dk.read_document(tmp_path / "main.tex")
+    assert not info.hand_written and info.bibitems == ()

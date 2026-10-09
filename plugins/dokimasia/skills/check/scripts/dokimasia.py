@@ -357,6 +357,17 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
 
 
+#: Files named as unreadable this run, so a file reached twice is named once.
+_UNREADABLE: set[Path] = set()
+
+
+def _cannot_read(path: Path, shown: str, error: OSError) -> None:
+    """Name a file that cannot be read: it is not checked, and is never silently passed."""
+    if path.resolve() not in _UNREADABLE:
+        _UNREADABLE.add(path.resolve())
+        print(f"dokimasia: cannot read {shown}: {error.strerror}", file=sys.stderr)
+
+
 def _name(cfg: Config, path: Path) -> str:
     try:
         return path.resolve().relative_to(cfg.root).as_posix()
@@ -696,14 +707,18 @@ _STRAIGHT_CLOSE = re.compile(r"(?<!\\)\"")
 _IN_WORD = re.compile(r"(?<![A-Za-z])in(?![A-Za-z])", re.I)
 #: What separates the first author from the rest of a printed author list.
 #: Single-letter conjunctions (Spanish `y`, Portuguese `e`, Catalan `i`, German `u.`) count
-#: only in lower case, so an initial such as the `E.` of `E.~Hill` does not split a name.
+#: only in lower case and between spaces, so neither the `E.` of `E.~Hill` nor the `e` of an
+#: accent macro (`Ren\'{e}`) splits a name. Accents are folded before the split as well.
 _AUTHOR_BREAK = re.compile(
     r",|;|/|\\?&|\\textbullet\b|\\and\b|\b(?i:and|with|et|und|en|och|és)\b"
-    r"|(?<![A-Za-z])(?:y|e|i|u\.?)(?![A-Za-z.])"
+    r"|(?<=\s)(?:y|e|i|u\.?)(?=\s)"
 )
-#: More name words than this in the first segment means the list was not split: a separator
-#: this does not know joined the authors, and the last word may be a later author's.
+#: More name words than this in the first segment, initials included, means the list was
+#: not split: a separator this does not know joined the authors, and the last word may be a
+#: later author's. So does a character no name is written with, or a lower-case word that
+#: is not a particle (`og`, `dan`).
 _MAX_NAME_WORDS = 3
+_NOT_NAME_TEXT = re.compile(r"--|[^\w\s.'\u2019-]|[\d_]")
 #: Particles a printed surname may be split at, `Le Cun` for `LeCun`.
 _PARTICLES = {"le", "la", "de", "da", "di", "du", "van", "von", "der", "den", "del", "della"}
 _PARTICLES |= {"ten", "ter"}
@@ -806,7 +821,8 @@ def document_files(doc: Path) -> list[Path]:
     the `\\import` family, resolved.
 
     Paths resolve against the document's directory, as LaTeX does. Cycle-safe; a missing
-    file is ignored, since the compiler reports it and this is not the compiler.
+    file is ignored, since the compiler reports it and this is not the compiler. A file that
+    exists and cannot be read is named and left out.
     """
     seen: dict[Path, None] = {}
     pending = [doc]
@@ -815,8 +831,13 @@ def document_files(doc: Path) -> list[Path]:
         real = path.resolve()
         if real in seen:
             continue
+        try:
+            text = _read(path)
+        except OSError as error:
+            _cannot_read(path, os.path.relpath(path), error)
+            continue
         seen[real] = None
-        pending += _included(_read(path), doc.parent, path.parent)
+        pending += _included(text, doc.parent, path.parent)
     return list(seen)
 
 
@@ -853,16 +874,19 @@ def read_document(doc: Path) -> Document:
     names: list[str] = []
     items: list[Bibitem] = []
     pasted: set[str] = set()
-    star = uses = hand = False
+    star = uses = mentions = hand = False
     for path in files:
         text = _read(path)
-        clean = _without_definitions(strip_comments(text))
+        bare = strip_comments(text)
+        clean = _without_definitions(bare)
         cites |= cite_keys(text)
         star = star or has_nocite_star(text)
         for group in _BIBLIOGRAPHY.findall(clean):
             names += [n.strip() for n in group.split(",") if n.strip()]
         names += [n.strip() for n in _BIBRESOURCE.findall(clean)]
         uses = uses or bool(_BIBLIOGRAPHY_USE.search(clean))
+        # Even inside a macro definition, a BibTeX command means a BibTeX document.
+        mentions = mentions or bool(_BIBLIOGRAPHY_USE.search(bare))
         page = typeset(text)
         if path.suffix == ".bbl":
             # `\input` typesets a BibTeX `.bbl`; a biber one holds `\entry` data, not a list.
@@ -884,10 +908,10 @@ def read_document(doc: Path) -> Document:
         bool(cites) or uses or star or hand,
         # A document that uses BibTeX or biblatex is a BibTeX document, as it always was here;
         # a `thebibliography` beside that is not read, whatever conditionals surround it.
-        hand and not uses,
+        hand and not mentions,
         # A file of loose `\bibitem`s counts only as part of a hand-written list.
-        tuple(items) if hand and not uses else (),
-        frozenset(pasted) if not uses else frozenset(),
+        tuple(items) if hand and not mentions else (),
+        frozenset(pasted) if not mentions else frozenset(),
     )
 
 
@@ -905,8 +929,7 @@ def documents(cfg: Config) -> list[Path]:
         try:
             text = strip_comments(_read(path))
         except OSError as error:
-            # Named, never silently passed: a file that cannot be read is not checked.
-            print(f"dokimasia: cannot read {_name(cfg, path)}: {error.strerror}", file=sys.stderr)
+            _cannot_read(path, _name(cfg, path), error)
             continue
         if _DOCUMENTCLASS.search(text) and not _SUBFILES.search(text):
             found.append(path)
@@ -1470,13 +1493,7 @@ class _Reference:
 
 
 def _references(cfg: Config) -> list[_Reference]:
-    docs = []
-    for path in documents(cfg):
-        try:
-            docs.append(read_document(path))
-        except OSError as error:
-            # Named, never silently passed: a document verify could not read is unchecked.
-            print(f"dokimasia: cannot read {_name(cfg, path)}: {error.strerror}", file=sys.stderr)
+    docs = [read_document(path) for path in documents(cfg)]
     refs = []
     for _, _, key, body in _all_entries(cfg, any(d.hand_written for d in docs)):
         fields = parse_fields(body)
@@ -1568,9 +1585,15 @@ def _first_surnames(authors: str) -> set[str]:
     Joining any two words would let a given name and surname, `Jian Li`, pass as another
     author's `Jianli`. `J.~Doe, A.~Roe` and `Doe, J.` give `doe`.
     """
-    first = _AUTHOR_BREAK.split(authors, maxsplit=1)[0]
+    first = _AUTHOR_BREAK.split(fold_accents(authors), maxsplit=1)[0]
+    plain = re.sub(r"\\[ ,]|~", " ", re.sub(r"\\[a-zA-Z]+|[{}]", "", first))
+    if _NOT_NAME_TEXT.search(plain):
+        return set()
+    tokens = [t for t in plain.split() if t.lower().strip(".") not in _PARTICLES | _NOT_NAMES]
+    if len(tokens) > _MAX_NAME_WORDS or any(t.isalpha() and t.islower() for t in tokens):
+        return set()
     words = [w for w in normalise(first).split() if len(w) > 1 and w not in _NOT_NAMES]
-    if not words or len([w for w in words if w not in _PARTICLES]) > _MAX_NAME_WORDS:
+    if not words:
         return set()
     if len(words) > 1 and words[-2] in _PARTICLES:
         return {words[-1], words[-2] + words[-1]}
@@ -1597,10 +1620,10 @@ def _printed_findings(
     fabricated title wrapped around a real one or reported correct entries as drift: a
     verifier that guesses is worse than one that says it did not look. The author list is
     what precedes the title, and its first surname must be in the source's first author, as
-    for a `.bib` entry; a title printed first leaves no author to compare. A year is compared
-    where the record is Crossref's, and against arXiv only where a year follows the arXiv id,
-    which is how a preprint is dated. Any printed year matching is enough for Crossref, since
-    the text may also carry an access date.
+    for a `.bib` entry; a title printed first is uncompared where the source has authors. A
+    year is compared where the record is Crossref's, and against arXiv only where a year
+    follows the arXiv id, which is how a preprint is dated. Any printed year matching is
+    enough for Crossref, since the text may also carry an access date.
     """
     found = quoted_title(text)
     if found is None:
@@ -1615,10 +1638,10 @@ def _printed_findings(
     source_authors = record.get("authors") or []
     authors = text[:at]
     surnames = _first_surnames(authors)
-    if not surnames and re.search(r"[^\W\d_]", authors):
-        # Author text this cannot read (non-Latin, initials only, an unsplit list) is not
-        # an absent author: comparing nothing would count a wrong one as verified. A title
-        # already found wrong is still reported.
+    if not surnames and (source_authors or re.search(r"[^\W\d_]", authors)):
+        # Author text this cannot read (non-Latin, initials only, an unsplit list), or none
+        # before a title printed first, is not an absent author: comparing nothing would
+        # count a wrong one as verified. A title already found wrong is still reported.
         return findings or None
     if source_authors and surnames and not surnames & _family_names(source_authors[0]):
         findings.append(("first author", shown, source_authors[0]))
@@ -1785,6 +1808,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("mode", nargs="?", default="lint", choices=("lint", "verify", "rendered"))
     parser.add_argument("docs", nargs="*", metavar="DOC.tex", help="rendered: documents to check")
     args = parser.parse_args(argv)
+    _UNREADABLE.clear()
     try:
         cfg = load_config(args.root)
         if args.mode == "lint":
