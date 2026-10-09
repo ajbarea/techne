@@ -193,25 +193,6 @@ def test_a_page_that_is_not_a_reveal_deck_is_unreadable(sl, tmp_path, gates):
     assert ("ERROR", "unreadable") in gates(_check(sl, page))
 
 
-def test_the_script_reads_notes_without_a_browser(sl):
-    code, out = sl.script(STARTER / "index.html")
-    assert code == 0
-    assert "## 3. [Claim headline: one full sentence the figure proves]" in out
-    assert "Walk the figure left to right" in out
-    talk, backup = out.split("# Backup slides")
-    assert "## 12. Backup slides" in backup
-    assert "Backup" not in talk.split("\n", 2)[2]
-
-
-def test_nested_sections_are_read_as_their_inner_slides(sl, tmp_path):
-    deck = tmp_path / "stack.html"
-    deck.write_text(
-        '<div class="slides"><section><section><h2>One</h2><aside class="notes">first</aside>'
-        "</section><section><h2>Two</h2></section></section></div>"
-    )
-    assert sl.html_slides(deck) == [("One", "first"), ("Two", "")]
-
-
 @needs_browser
 def test_render_writes_slides_phone_views_and_a_print_pdf(sl, web, tmp_path):
     out = tmp_path / "render"
@@ -464,22 +445,6 @@ def test_a_module_deck_is_told_to_set_window_reveal(sl, tmp_path):
     assert found[0].gate == "unreadable" and "window.Reveal" in found[0].message
 
 
-def test_the_script_reads_notes_as_reveal_does(sl, tmp_path):
-    deck = tmp_path / "rules.html"
-    deck.write_text(
-        '<div class="slides">'
-        '<section data-notes="From the attribute."><h2>Line<br>break</h2>'
-        '<aside class="notes">From the aside.</aside></section>'
-        "<section data-markdown><textarea data-template>\n## First\nBody\nNotes: Said one.\n"
-        "---\n## Second\nnote: said two\n</textarea></section></div>"
-    )
-    assert sl.html_slides(deck) == [
-        ("Line break", "From the attribute."),
-        ("First", "Said one."),
-        ("Second", "said two"),
-    ]
-
-
 def test_the_pin_guard_reads_skill_templates_at_any_depth(tmp_path):
     guard = ROOT / "scripts" / "check_action_pins.sh"
     (tmp_path / "scripts").mkdir()
@@ -504,31 +469,6 @@ def test_the_pin_guard_reads_skill_templates_at_any_depth(tmp_path):
     (deep / "x.yaml").write_text(template.replace(sha, "1" * 40))
     done = run()
     assert done.returncode == 1 and "x.yaml" in done.stderr
-
-
-def test_the_script_keeps_note_markup_apart_and_skips_hidden_slides(sl, tmp_path):
-    deck = tmp_path / "notes.html"
-    deck.write_text(
-        '<div class="slides">'
-        '<section><h2>One</h2><aside class="notes"><p>First sentence.</p><p>Second.</p>'
-        "<ul><li>one</li><li>two</li></ul>Line<br>break<aside>inner</aside> after</aside></section>"
-        '<section data-visibility="hidden"><h2>Hidden</h2></section>'
-        "<section data-markdown><textarea data-template>\n## From markdown\nBody\nNote:\nSpoken.\n"
-        "</textarea></section></div>"
-    )
-    slides = sl.html_slides(deck)
-    assert [t for t, _ in slides] == ["One", "From markdown"]
-    assert slides[0][1].split("\n") == [
-        "First sentence.",
-        "Second.",
-        "one",
-        "two",
-        "Line",
-        "break",
-        "inner",
-        "after",
-    ]
-    assert slides[1][1] == "Spoken."
 
 
 @needs_browser
@@ -578,19 +518,6 @@ def test_clipped_screen_reader_text_is_skipped_but_off_slide_text_is_not(sl, web
 
 
 @needs_browser
-def test_a_section_used_as_content_is_not_a_slide(sl, tmp_path, gates):
-    deck = _stock(
-        tmp_path,
-        OPENING + '<section><h2>Columns</h2><div><section class="col">left</section>'
-        '<section class="col">right</section></div><aside class="notes">x</aside></section>',
-    )
-    found = _check(sl, deck)
-    assert ("BLOCK", "no-title") not in gates(found)
-    assert ("WARN", "no-notes") not in gates(found)
-    assert [t for t, _ in sl.html_slides(deck)] == ["Opening", "Columns"]
-
-
-@needs_browser
 def test_a_deck_that_starts_only_on_wide_screens_names_the_phone(sl, tmp_path):
     deck = _stock(tmp_path, OPENING)
     deck.write_text(
@@ -603,26 +530,65 @@ def test_a_deck_that_starts_only_on_wide_screens_names_the_phone(sl, tmp_path):
     assert phone and "started on the desktop but not on a phone" in phone[0].message
 
 
-def test_the_script_splits_markdown_as_reveal_does(sl, tmp_path):
-    deck = tmp_path / "md.html"
-    deck.write_text(
-        '<div class="slides">'
-        '<section data-markdown data-separator="^===$" data-separator-vertical="^--v--$">'
-        "<textarea data-template>\n## A\nNote: na\n===\n## B\nnote: nb\n--v--\n## C\n"
-        "</textarea></section>"
-        "<section data-markdown><textarea data-template>\n```\n# install it\n```\n## Title\n"
-        "Note: one\nNote: two\n</textarea></section>"
-        '<section data-markdown><textarea data-template>\n## Aside\n<aside class="notes">'
-        "From the aside.</aside>\n</textarea></section>"
-        '<section data-notes=""><h2>Empty attribute</h2><aside class="notes">aside</aside>'
-        "</section>"
-        '<section data-visibility="uncounted"><h2>Uncounted</h2></section></div>'
+# ------------------------------------------------ cases the fourth review found --
+
+
+@needs_browser
+def test_the_script_reads_the_starter_from_reveal(sl):
+    code, out = sl.script(STARTER / "index.html")
+    assert code == 0
+    assert "## 3. [Claim headline: one full sentence the figure proves]" in out
+    assert "Walk the figure left to right" in out
+    _, backup = out.split("# Backup slides")
+    assert "## 12. Backup slides" in backup
+
+
+@needs_browser
+def test_the_script_reads_notes_as_the_speaker_view_does(sl, tmp_path):
+    deck = _stock(
+        tmp_path,
+        '<section data-notes="From the attribute."><h2>Line<br>break</h2>'
+        '<aside class="notes">From the aside.</aside></section>'
+        '<section><h2>Markup</h2><aside class="notes"><p>First sentence.</p><p>Second.</p>'
+        "<ul><li>one</li><li>two</li></ul>Line<br>break</aside></section>"
+        '<section data-visibility="hidden"><h2>Hidden</h2></section>'
+        '<section><section><h2>Top</h2><aside class="notes">a</aside></section>'
+        '<section><h2>Below</h2><aside class="notes">b</aside></section></section>',
     )
-    assert sl.html_slides(deck) == [
-        ("A", "na"),
-        ("B", "nb"),
-        ("C", ""),
-        ("Title", ""),
-        ("Aside", "From the aside."),
-        ("Empty attribute", ""),
-    ]
+    slides = sl.html_slides(deck)
+    assert [t for t, _ in slides] == ["Line break", "Markup", "Top", "Below"]
+    assert slides[0][1] == "From the attribute."
+    lines = [ln.strip() for ln in slides[1][1].splitlines() if ln.strip()]
+    assert lines == ["First sentence.", "Second.", "one", "two", "Line", "break"]
+    assert slides[3][1] == "b"
+
+
+@needs_browser
+def test_a_section_inside_slide_content_is_named(sl, tmp_path, gates):
+    """reveal.js turns the slide into a vertical stack; the check says so instead of hiding it."""
+    deck = _stock(
+        tmp_path,
+        OPENING + '<section><h2>Columns</h2><div><section class="col">left</section>'
+        '<section class="col">right</section></div><aside class="notes">x</aside></section>',
+    )
+    found = _check(sl, deck)
+    assert ("WARN", "nested-section") in gates(found)
+
+
+@needs_browser
+def test_a_clipped_shape_that_spills_is_still_overflow(sl, web, gates):
+    card = '<div style="clip-path:inset(0 round 12px);width:1700px">[a card too wide]</div>'
+    assert ("WARN", "overflow") in gates(_check(sl, web(CLAIM, CLAIM + card)))
+
+
+@needs_browser
+def test_a_phone_failure_is_not_blamed_on_files_missing_everywhere(sl, tmp_path):
+    deck = _stock(tmp_path, OPENING.replace("</h2>", '</h2><img src="gone.png" alt="gone">'))
+    deck.write_text(
+        deck.read_text().replace(
+            "<script>Reveal.initialize", "<script>if (innerWidth > 600) Reveal.initialize"
+        )
+    )
+    phone = [f for f in _check(sl, deck) if f.gate == "unreadable"]
+    assert phone and "started on the desktop but not on a phone" in phone[0].message
+    assert "gone.png" not in phone[0].message

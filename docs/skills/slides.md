@@ -25,10 +25,10 @@ Or run the checks directly from a techne checkout:
 B="uv run --no-project --quiet --with playwright==1.63.0 --with axe-playwright-python==0.1.8 --with pillow"
 $B python plugins/graphe/skills/slides/scripts/slides.py check <deck/index.html|deck.pptx|deck.pdf> [--jargon "term,term"] [--backup-from N] [--level {AAA,AA}] [--min-pt N] [--dense-words N] [--title-words N]
 $B python plugins/graphe/skills/slides/scripts/slides.py render <deck/index.html|deck.pptx|deck.pdf> <out-dir> [--renderer {auto,powerpoint,libreoffice}] [--dpi N]
-uv run --no-project --quiet python plugins/graphe/skills/slides/scripts/slides.py script <deck/index.html|deck.pptx> [--wpm N] > script.md
+$B python plugins/graphe/skills/slides/scripts/slides.py script <deck/index.html|deck.pptx> [--wpm N] > script.md
 ```
 
-A web deck is checked and rendered in Chromium through Playwright; install it once with `uv run --no-project --with playwright==1.63.0 playwright install chromium`. A `.pptx` or PDF needs no browser.
+A web deck is checked and rendered in Chromium through Playwright; install it once with `uv run --no-project --with playwright==1.63.0 playwright install chromium`. `script` reads a web deck in the same browser; a `.pptx` or PDF needs none.
 
 `check` takes `--level` (default `AAA`), `--min-pt` (14), `--dense-words` (60) and `--title-words` (14). `render` takes `--renderer` (default `auto`) and `--dpi` (80) for a `.pptx` or PDF. `script` takes `--wpm` (140).
 
@@ -43,7 +43,7 @@ A web deck is checked and rendered in Chromium through Playwright; install it on
 | BLOCK | `alt-text` | An image or figure with no text alternative. |
 | BLOCK | `em-dash` | An em-dash in slide text. |
 | BLOCK | `asset`, `script` | A web deck that cannot load a file it asks for, or logs a console error, including a value with no data behind it. |
-| WARN | `small-text`, `overflow`, `phone`, `motion`, `offline` | Text under 14pt; anything drawn past the slide's edge; text under 12px or content off the slide on a phone; animation that ignores reduced-motion settings; a deck that needs the network to present. |
+| WARN | `small-text`, `overflow`, `nested-section`, `phone`, `motion`, `offline` | Text under 14pt; anything drawn past the slide's edge; a `<section>` inside slide content, which reveal.js shows as separate slides; text under 12px or content off the slide on a phone; animation that ignores reduced-motion settings; a deck that needs the network to present. |
 | WARN | `font`, `no-notes`, `duplicate-title` | A font that will be substituted in PowerPoint or Google Slides (`.pptx`), talk slides with no script, titles a screen reader cannot tell apart. |
 | REVIEW | `jargon` | A term from `--jargon` on a talk slide. |
 | REVIEW | `figures`, `dense`, `long-title` | Numbers and walls of text on talk slides (slide 1 and everything after a `Backup` divider are exempt), and headlines that stopped being headlines. |

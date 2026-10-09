@@ -10,7 +10,7 @@
 A reveal.js web deck (``.html``) is checked and rendered in Chromium through Playwright,
 with axe-core for contrast and alt text; it needs ``playwright`` and
 ``axe-playwright-python`` (pinned in PLAYWRIGHT and AXE below) and, for contact sheets,
-Pillow. ``script`` reads its HTML with no browser.
+Pillow. ``script`` reads a web deck in the same browser.
 
 A PDF (a Typst or Beamer deck, say) gets the gates its text can answer: titles, density,
 figures, em-dashes and jargon, read page by page with poppler's ``pdftotext``. Contrast, alt
@@ -39,7 +39,6 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
-from html.parser import HTMLParser
 
 ERROR, BLOCK, WARN, REVIEW, INFO = "ERROR", "BLOCK", "WARN", "REVIEW", "INFO"
 RANK = {ERROR: 0, BLOCK: 1, WARN: 2, REVIEW: 3, INFO: 4}
@@ -721,7 +720,10 @@ def script(path: pathlib.Path, wpm: int = 140) -> tuple[int, str]:
     pairs: list[tuple[str, str]] = []
     try:
         if path.suffix.lower() in HTML:
-            pairs = html_slides(path)
+            try:
+                pairs = html_slides(path)
+            except DeckError as exc:
+                return 1, f"{path}: {exc}"
         else:
             pkg = Package(path)
             parts = pkg.slides()
@@ -778,14 +780,17 @@ _AAA_NEED = {"3:1": "4.5:1", "4.5:1": "7:1"}
 
 HTML = (".html", ".htm")
 
-# The slides, as reveal.js orders them: sections where reveal.js puts slides (in .slides, in a
-# stack, or in a scroll-view page), not a section used as content inside a slide, and not
-# the wrapper of a vertical stack, which scroll view lists with a NaN horizontal index.
+# The slides, as reveal.js orders and shows them, leaving out the wrapper of a vertical stack,
+# which scroll view lists as a slide with a NaN horizontal index.
 _SLIDES = (
     "window.__deckSlides = () => Reveal.getSlides().filter((s) => "
-    "s.parentElement.matches('.slides, .slides > section, .scroll-page-content') "
-    "&& !s.querySelector(':scope > section') && Number.isInteger(Reveal.getIndices(s).h))"
+    "Number.isInteger(Reveal.getIndices(s).h))"
 )
+# Sections that are not where reveal.js expects slides: inside a slide's content, reveal.js
+# turns the slide holding them into a vertical stack and shows each one as its own slide.
+_NESTED = """() => [...document.querySelectorAll('.reveal .slides section')]
+  .filter((s) => !s.parentElement.matches('.slides, .slides > section'))
+  .map((s) => (s.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 40))"""
 _COUNT = "__deckSlides().length"
 
 _STILL = "*, *::before, *::after { transition: none !important; animation: none !important; }"
@@ -794,6 +799,30 @@ _STILL = "*, *::before, *::after { transition: none !important; animation: none 
 _ALL_FRAGMENTS = (
     _STILL + " .reveal .fragment { opacity: 1 !important; visibility: inherit !important; }"
 )
+# A note's text with its line breaks: innerText needs a laid-out element, so the note's HTML
+# is placed off-screen for the read.
+_NOTE_TEXT = """const noteText = (s) => {
+  const scratch = document.createElement('div');
+  scratch.style.cssText = 'position:absolute;left:-99999px;top:0;width:800px';
+  scratch.innerHTML = Reveal.getSlideNotes(s) || '';
+  document.body.appendChild(scratch);
+  const text = scratch.innerText.trim();
+  scratch.remove();
+  return text;
+};"""
+
+# Every slide's title and notes, for script.
+_NOTES = (
+    "() => { "
+    + _NOTE_TEXT
+    + """
+  return __deckSlides().map((s) => {
+    const h = [...s.querySelectorAll('h1, h2, h3')].find((el) => !el.closest('aside.notes'));
+    return [h ? h.innerText.replace(/\\s+/g, ' ').trim() : '', noteText(s)];
+  });
+}"""
+)
+
 _SCROLL_TO = """(i) => {
   const s = __deckSlides()[i];
   (s.closest('.scroll-page') || s).scrollIntoView({block: 'start', behavior: 'instant'});
@@ -803,7 +832,10 @@ _SCROLL_TO = """(i) => {
 # (config size times scale), not the section, whose box follows its content in a stock
 # deck. A spill is an element drawn past the frame, clipped or not; only content inside a
 # container that scrolls sideways is exempt, and those containers are counted as pans.
-_READ_SLIDE = """(i) => {
+_READ_SLIDE = (
+    "(i) => { "
+    + _NOTE_TEXT
+    + """
   const s = __deckSlides()[i];
   const at = Reveal.getIndices(s);
   Reveal.slide(at.h, at.v);
@@ -812,8 +844,6 @@ _READ_SLIDE = """(i) => {
   for (const f of s.querySelectorAll('.fragment')) f.classList.add('visible');
   const inNotes = (el) => el.closest('aside.notes');
   const heading = [...s.querySelectorAll('h1, h2, h3')].find((h) => !inNotes(h));
-  const scratch = document.createElement('div');
-  scratch.innerHTML = Reveal.getSlideNotes(s) || '';
   const config = Reveal.getConfig(), scale = Reveal.getScale();
   const w = config.width * scale, h = config.height * scale;
   let left, top;
@@ -832,13 +862,14 @@ _READ_SLIDE = """(i) => {
     }
     return false;
   };
-  // Screen-reader-only text: the element or an ancestor is clipped away, or a box of 1px or
-  // less that hides its overflow.
+  // Screen-reader-only text: the element or an ancestor is a box of 1px or less that hides
+  // or clips what it holds. A clip on a full-size box is a shape, and its spill still counts.
   const hidden = (el) => {
     for (let a = el; a && a !== s; a = a.parentElement) {
       const st = getComputedStyle(a), r = a.getBoundingClientRect();
-      if ((st.clip && st.clip !== 'auto') || st.clipPath !== 'none') return true;
-      if (r.width <= 1 && r.height <= 1 && st.overflow !== 'visible') return true;
+      const clips = st.overflow !== 'visible' || (st.clip && st.clip !== 'auto')
+        || st.clipPath !== 'none';
+      if (r.width <= 1 && r.height <= 1 && clips) return true;
     }
     return false;
   };
@@ -860,11 +891,12 @@ _READ_SLIDE = """(i) => {
   return {
     title: heading ? heading.innerText.trim() : '',
     text: s.innerText,
-    notes: scratch.textContent.trim(),
+    notes: noteText(s),
     spill,
     panned,
   };
 }"""
+)
 
 # reveal.js paints slide backgrounds on a layer beside the slides, which axe reads as an
 # element overlapping the text and gives up on. For the run the layer is hidden and its
@@ -1032,14 +1064,14 @@ def _open(
         page.goto(deck.resolve().as_uri() + query)
         page.wait_for_function("window.Reveal && Reveal.isReady && Reveal.isReady()", timeout=15000)
     except Exception as exc:
+        if seen:
+            # Files that failed on the desktop too did not stop it there; only errors explain.
+            said = "; ".join(dict.fromkeys(watch.errors))[:300] or _first_line(exc)
+            raise DeckError(f"the deck started on the desktop but not{during} ({said})") from exc
         said = [*dict.fromkeys(watch.errors), *(f"failed to load {u}" for u in watch.missing)]
         if said:
             raise DeckError(
                 f"reveal.js never became ready{during}: {'; '.join(said)[:300]}"
-            ) from exc
-        if seen:
-            raise DeckError(
-                f"the deck started on the desktop but not{during} ({_first_line(exc)})"
             ) from exc
         raise DeckError(
             f"not a reveal.js deck: window.Reveal never became ready{during} "
@@ -1102,6 +1134,17 @@ def _check_in(
     count = page.evaluate(_COUNT)
     if not count:
         return [Finding(ERROR, "unreadable", f"{path}: no slides")]
+    nested = page.evaluate(_NESTED)
+    if nested:
+        found.append(
+            Finding(
+                WARN,
+                "nested-section",
+                f"{len(nested)} <section> inside slide content, which reveal.js shows as "
+                f"slides of their own in a vertical stack: {', '.join(map(repr, nested[:3]))}; "
+                "use a <div>",
+            )
+        )
     # Text sizes are judged on the slide's own canvas, the way a pptx point size is judged
     # on a 13.33-inch slide: the threshold scales with the deck's configured width.
     scale = page.evaluate("Reveal.getScale()")
@@ -1322,181 +1365,25 @@ def _phone_pass(browser, path: pathlib.Path, found: list[Finding]) -> _Watch:
     return watch
 
 
-# Tags whose text reads as a separate line in a speaker note.
-_BREAKS = {"p", "div", "li", "br", "ul", "ol", "aside", "h1", "h2", "h3", "h4", "h5", "h6", "tr"}
-
-
-# Elements with no end tag, which never open a level of nesting.
-_VOID = {
-    "area",
-    "base",
-    "br",
-    "col",
-    "embed",
-    "hr",
-    "img",
-    "input",
-    "link",
-    "meta",
-    "source",
-    "track",
-    "wbr",
-}
-
-
-class _Sections(HTMLParser):
-    """Each slide's first heading and speaker notes, from the static HTML.
-
-    Read as reveal.js reads them. A slide is a <section> directly inside `.slides`, or
-    directly inside such a section (a vertical stack), with no sections of its own; a section
-    nested deeper is content. A data-notes attribute wins over <aside class="notes">, even
-    when empty. A data-markdown section is split as reveal.js's markdown plugin splits it
-    (see _from_markdown). Slides marked data-visibility hidden or uncounted are left out, as
-    reveal.js leaves them out of its slide list.
-    """
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.slides: list[dict[str, str]] = []
-        self._stack: list[dict[str, str]] = []
-        self._open: list[tuple[str, str]] = []  # (tag, role): role is "slides", "slide" or ""
-        self._into: str | None = None
-        self._closer = ""
-        self._depth = 0
-
-    def _role(self, tag: str, a: dict[str, str | None]) -> str:
-        if tag != "section":
-            return "slides" if "slides" in (a.get("class") or "").split() else ""
-        parent = self._open[-1][1] if self._open else ""
-        grand = self._open[-2][1] if len(self._open) > 1 else ""
-        if parent == "slides" or (parent == "slide" and grand == "slides"):
-            return "slide"
-        return ""
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        a = dict(attrs)
-        role = self._role(tag, a)
-        if tag not in _VOID:
-            self._open.append((tag, role))
-        if role == "slide":
-            if self._stack:
-                self._stack[-1]["leaf"] = ""
-            self._stack.append(
-                {
-                    "title": "",
-                    "notes": "",
-                    "data-notes": a.get("data-notes") or "",
-                    "has-data-notes": "1" if "data-notes" in a else "",
-                    "leaf": "1",
-                    "hidden": "1" if a.get("data-visibility") in ("hidden", "uncounted") else "",
-                    "markdown": "1" if "data-markdown" in a else "",
-                    "separator": a.get("data-separator") or "",
-                    "vertical": a.get("data-separator-vertical") or "",
-                    "notes-separator": a.get("data-separator-notes") or "",
-                    "md": "",
-                }
-            )
-            return
-        if not self._stack:
-            return
-        if self._into:
-            if tag == self._closer:
-                self._depth += 1
-            self._gap(tag)
-        elif tag in ("h1", "h2", "h3") and not self._stack[-1]["title"]:
-            self._into, self._closer, self._depth = "title", tag, 1
-        elif tag == "aside" and "notes" in (a.get("class") or "").split():
-            self._into, self._closer, self._depth = "notes", tag, 1
-            if self._stack[-1]["notes"]:
-                self._stack[-1]["notes"] += "\n"
-
-    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if self._into and self._stack:
-            self._gap(tag)
-
-    def handle_endtag(self, tag: str) -> None:
-        role = ""
-        for k in range(len(self._open) - 1, -1, -1):
-            if self._open[k][0] == tag:
-                role = self._open[k][1]
-                del self._open[k:]
-                break
-        if self._into:
-            self._gap(tag)
-            if tag == self._closer:
-                self._depth -= 1
-                if self._depth == 0:
-                    self._into = None
-        elif role == "slide" and self._stack:
-            s = self._stack.pop()
-            if s["hidden"] or not s["leaf"]:
-                return
-            if s["has-data-notes"]:
-                s["notes"] = s["data-notes"]
-            self.slides.extend(_from_markdown(s) if s["markdown"] else [s])
-
-    def _gap(self, tag: str) -> None:
-        """A line break inside notes, a space inside a title, where the markup breaks text."""
-        if tag in _BREAKS:
-            self._stack[-1][self._into or "notes"] += "\n" if self._into == "notes" else " "
-
-    def handle_data(self, data: str) -> None:
-        if not self._stack:
-            return
-        if self._into:
-            self._stack[-1][self._into] += data
-        elif self._stack[-1]["markdown"]:
-            self._stack[-1]["md"] += data
-
-
-# reveal.js 6.0.2's markdown plugin defaults, as it ships them: the slide separator, and the
-# notes separator it splits on case-insensitively (its `s*` carries no backslash).
-_MD_SLIDE = r"\r?\n---\r?\n"
-_MD_NOTES = r"^s*notes?:"
-_MD_ASIDE = re.compile(r'<aside[^>]*class="[^"]*\bnotes\b[^"]*"[^>]*>(.*?)</aside>', re.S)
-_MD_FENCE = re.compile(r"^(```|~~~).*?^\1", re.S | re.M)
-
-
-def _from_markdown(s: dict[str, str]) -> list[dict[str, str]]:
-    """Split a data-markdown section the way reveal.js's markdown plugin does.
-
-    Slides split at the data-separator (and data-separator-vertical) patterns, matched across
-    the whole text in multiline mode, before any markdown is parsed, so a `---` inside a code
-    fence splits too. Notes are the text after the notes separator, only when it splits the
-    slide into exactly two parts, or an <aside class="notes"> written in the markdown. The
-    title is the first `#` line outside a code fence.
-    """
-    pattern = s["separator"] or _MD_SLIDE
-    if s["vertical"]:
-        pattern = f"{pattern}|{s['vertical']}"
-    notes_at = re.compile(s["notes-separator"] or _MD_NOTES, re.I | re.M)
-    out = []
-    for chunk in re.split(pattern, s["md"], flags=re.M):
-        parts = notes_at.split(chunk)
-        text, notes = (parts[0], parts[1]) if len(parts) == 2 else (chunk, "")
-        aside = _MD_ASIDE.search(text)
-        if aside and not notes:
-            notes = re.sub(r"<[^>]+>", " ", aside.group(1))
-        prose = _MD_FENCE.sub("", _MD_ASIDE.sub("", text))
-        title = next(
-            (ln.lstrip("#").strip() for ln in prose.splitlines() if ln.strip().startswith("#")),
-            "",
-        )
-        if s["has-data-notes"]:
-            notes = s["data-notes"]
-        out.append({**s, "title": title or s["title"], "notes": notes})
-    return out
-
-
 def html_slides(path: pathlib.Path) -> list[tuple[str, str]]:
-    """(title, notes) per slide of a reveal.js deck, in order, without a browser."""
-    parser = _Sections()
-    parser.feed(path.read_text(encoding="utf-8"))
-    out = []
-    for s in parser.slides:
-        notes = "\n".join(" ".join(ln.split()) for ln in s["notes"].splitlines())
-        out.append((" ".join(s["title"].split()), re.sub(r"\n{2,}", "\n", notes).strip()))
-    return out
+    """(title, notes) per slide, read from reveal.js in Chromium, as check reads them.
+
+    The notes are what reveal.js's speaker view shows (Reveal.getSlideNotes), so data-notes,
+    asides and markdown slides read exactly as they present. Raises DeckError.
+    """
+    if not path.is_file():
+        raise DeckError("no such file")
+    with _playwright()() as pw:
+        browser = _launch(pw)
+        try:
+            page, _ = _open(browser, path, CANVAS)
+            return [tuple(pair) for pair in page.evaluate(_NOTES)]
+        except DeckError:
+            raise
+        except Exception as exc:  # a Playwright error, not a verdict on the deck
+            raise DeckError(f"the browser failed: {_first_line(exc)}") from exc
+        finally:
+            browser.close()
 
 
 def render_html(deck: pathlib.Path, out: pathlib.Path) -> int:

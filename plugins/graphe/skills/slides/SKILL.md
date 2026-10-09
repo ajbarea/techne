@@ -21,12 +21,13 @@ the presenter.
 B="uv run --no-project --quiet --with playwright==1.63.0 --with axe-playwright-python==0.1.8 --with pillow"
 $B python ${CLAUDE_SKILL_DIR}/scripts/slides.py check  <deck/index.html> [--jargon "term,term"] [--backup-from N]
 $B python ${CLAUDE_SKILL_DIR}/scripts/slides.py render <deck/index.html> <out-dir>
-uv run --no-project --quiet python ${CLAUDE_SKILL_DIR}/scripts/slides.py script <deck/index.html> > <deck>-script.md
+$B python ${CLAUDE_SKILL_DIR}/scripts/slides.py script <deck/index.html> > <deck>-script.md
 ```
 
 A web deck is checked and rendered in Chromium through Playwright. Install the
 browser once with `uv run --no-project --with playwright==1.63.0 playwright
-install chromium`. `script` reads the HTML and needs no browser.
+install chromium`. `script` reads a web deck in the same browser, so its notes are
+what the speaker view shows.
 
 `check`, `render` and `script` also take a `.pptx`, and `check` and `render`
 take a PDF (a Typst or Beamer deck), for decks that already exist in those
@@ -65,6 +66,7 @@ pass is reported on its own, beside the desktop findings.
 | WARN | `small-text` | Text under `--min-pt` (14pt: 19px on a 1280-wide canvas, scaled to the deck's own width). |
 | WARN | `overflow` | Something drawn past the edge of the slide canvas, clipped or not. Content inside a container that scrolls sideways is exempt. |
 | WARN | `phone` | On a 390px-wide phone: text under 12px, content past the slide's edge, a page that scrolls sideways, or no viewport meta tag. Figures that pan sideways are listed as INFO. |
+| WARN | `nested-section` | A `<section>` inside a slide's content, which reveal.js shows as separate slides. |
 | WARN | `motion` | Animation on a slide still running a quarter second after it opens, with reduced motion requested. |
 | WARN | `offline` | The deck fetches from the network, so it fails on a projector laptop with no Wi-Fi. |
 | WARN | `no-notes` / `duplicate-title` | A talk slide with no script, in `<aside class="notes">` or `data-notes` (backup slides are exempt), or two slides a screen reader cannot tell apart. |
@@ -327,12 +329,13 @@ equal to the pins techne's own workflows use.
 - **The motion gate sees CSS animations and transitions.** A loop driven by
   `requestAnimationFrame` or a timer is invisible to it; check such a loop
   reads `matchMedia('(prefers-reduced-motion: reduce)')` by hand.
-- **Notes, as reveal.js reads them.** A `data-notes` attribute wins over an
-  `<aside class="notes">`, even when it is empty. A `data-markdown` section splits
-  into slides at a `---` line (or its `data-separator` patterns), and its notes
-  follow a `Note:` or `Notes:` line only when there is exactly one; `script` reads
-  it that way, and `check` reads each slide as rendered. A `<section>` nested
-  inside a slide's content is not a slide.
+- **Notes come from reveal.js itself.** `check` and `script` read each slide's
+  notes through reveal.js's speaker-view call, so `data-notes`, an `<aside
+  class="notes">` and a markdown slide's `Note:` read exactly as the speaker view
+  shows them.
+- **A `<section>` inside slide content becomes slides.** reveal.js turns the slide
+  holding it into a vertical stack and shows each nested section as its own
+  slide. `check` warns (`nested-section`); use a `<div>` for columns.
 - **`window.Reveal` must exist.** `check` and `render` drive the deck through the
   global `Reveal`. A deck that imports reveal.js as a module sets
   `window.Reveal = deck` after creating it.
