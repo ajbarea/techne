@@ -64,7 +64,6 @@ from __future__ import annotations
 
 import argparse
 import html
-import itertools
 import json
 import os
 import re
@@ -662,26 +661,10 @@ def has_nocite_star(text: str) -> bool:
 _BEGIN_BIB = re.compile(r"\\begin\{thebibliography\}")
 _END_BIB = re.compile(r"\\end\{thebibliography\}")
 _BIBITEM = re.compile(r"\\bibitem\s*(?:\[.*?\])?\s*\{([^}]*)\}", re.S)
-#: Text LaTeX never typesets: `\iffalse ... \fi` and the `comment` environment. Stripped only
-#: when reading reference lists, where an old list parked out of the way is common.
+#: The `comment` environment, which LaTeX never typesets. Conditionals are not evaluated:
+#: deciding which branch TeX takes needs TeX, and every approximation tried deleted live text
+#: along with dead. Reading too much can only add entries; deleting can hide a fabricated one.
 _COMMENT_ENV = re.compile(r"\\begin\{comment\}.*?\\end\{comment\}", re.S)
-#: Conditional openers and `\fi`. `\iff` is a symbol and `\ifthenelse` a command; neither
-#: opens a conditional that `\fi` closes.
-#: Conditionals `\fi` closes: TeX's primitives always, and any other `\if...` (a `\newif`
-#: switch) unless a brace follows at once, which marks an etoolbox test such as
-#: `\iftoggle{x}{a}{b}` that takes arguments and no `\fi`. `\iff` is a symbol and
-#: `\ifthenelse` a command.
-_IF_TOKEN = re.compile(
-    r"\\if(?:false|true|x|num|dim|odd|vmode|hmode|mmode|inner|void|hbox|vbox|eof|case"
-    r"|defined|csname|fontchar|cat)?(?![A-Za-z@])"
-    r"|\\if(?!f\b|thenelse\b)(?>[A-Za-z@]+)(?!\*?\{)|\\else\b|\\fi\b"
-)
-_CONSTANT_IF = re.compile(r"\\if(false|true)(?![A-Za-z@])")
-#: `\let\ifdraft\iffalse` defines a conditional; it does not open one.
-_LET_IF = re.compile(
-    r"(?:\\global\s*)?(?:\\expandafter\s*)?\\let\s*"
-    r"(?:\\[A-Za-z@]+|\\csname\b[^\\]*\\endcsname)\s*=?\s*\\if(?:false|true)\b"
-)
 #: A `\newenvironment` body is a template; a `thebibliography` inside one is not a list.
 _ENV_DEFINITION = re.compile(
     r"\\(?:re)?newenvironment\*?\s*\{[^}]*\}\s*(?:\[[^\]]*\]\s*)*\{"
@@ -750,43 +733,10 @@ def _without_environment_definitions(text: str) -> str:
     return "".join(out)
 
 
-def _without_constant_branches(text: str) -> str:
-    """Keep only the branch LaTeX typesets of each `\\iffalse` and `\\iftrue`: the `\\else`
-    branch of one, the first branch of the other. Nested conditionals are counted.
-
-    Iterative: each resolved conditional is spliced back and the text rescanned from where it
-    began, so deep nesting costs no recursion.
-    """
-    pos = 0
-    while start := _CONSTANT_IF.search(text, pos):
-        depth = 0
-        orelse: re.Match[str] | None = None
-        closing: re.Match[str] | None = None
-        for token in _IF_TOKEN.finditer(text, start.start()):
-            if token.group() == "\\else":
-                if depth == 1 and orelse is None:
-                    orelse = token
-                continue
-            depth += -1 if token.group() == "\\fi" else 1
-            if depth == 0:
-                closing = token
-                break
-        if closing is None:
-            # Never closed: LaTeX would stop with an error, and nothing after it is read.
-            return text[: start.start()]
-        if start.group(1) == "false":
-            kept = text[orelse.end() : closing.start()] if orelse else ""
-        else:
-            kept = text[start.end() : orelse.start() if orelse else closing.start()]
-        text = text[: start.start()] + " " + kept + " " + text[closing.end() :]
-        pos = start.start()
-    return text
-
-
 def typeset(text: str) -> str:
-    """`text` as it reaches the page: no comments, definitions, `\\iffalse` or `comment`."""
+    """`text` without comments, macro and environment definitions, or `comment` blocks."""
     clean = _without_environment_definitions(_without_definitions(strip_comments(text)))
-    return _COMMENT_ENV.sub(" ", _without_constant_branches(_LET_IF.sub(" ", clean)))
+    return _COMMENT_ENV.sub(" ", clean)
 
 
 def opens_bibliography(text: str) -> bool:
@@ -923,9 +873,11 @@ def read_document(doc: Path) -> Document:
         star,
         named,
         bool(cites) or uses or star or hand,
-        hand,
+        # A document that uses BibTeX or biblatex is a BibTeX document, as it always was here;
+        # a `thebibliography` beside that is not read, whatever conditionals surround it.
+        hand and not uses,
         # A file of loose `\bibitem`s counts only as part of a hand-written list.
-        tuple(items) if hand else (),
+        tuple(items) if hand and not uses else (),
         frozenset(pasted),
     )
 
@@ -1604,10 +1556,14 @@ def _first_surnames(authors: str) -> set[str]:
     return {words[-1]}
 
 
-def _name_words(name: str) -> set[str]:
-    """A source author's words, and each adjacent pair joined."""
-    words = normalise(name).split()
-    return set(words) | {a + b for a, b in itertools.pairwise(words)}
+def _family_names(name: str) -> set[str]:
+    """Spellings of a source author's family name: the last word, joined to the word before
+    it when that is a particle. Any other word may be a given name, and a fabricated author
+    printed surname-first, `LIU Kaiming`, would match the real `Kaiming He` on it."""
+    words = [w for w in normalise(name).split() if w not in _NOT_NAMES]
+    if len(words) > 1 and words[-2] in _PARTICLES:
+        return {words[-1], words[-2] + words[-1]}
+    return set(words[-1:])
 
 
 def _printed_findings(
@@ -1637,7 +1593,7 @@ def _printed_findings(
     shown = text if len(text) <= 200 else text[:197] + "..."
     source_authors = record.get("authors") or []
     surnames = _first_surnames(text[:at])
-    if source_authors and surnames and not surnames & _name_words(source_authors[0]):
+    if source_authors and surnames and not surnames & _family_names(source_authors[0]):
         findings.append(("first author", shown, source_authors[0]))
     accepted = _accepted_years(record)
     if record.get("source") == "crossref":

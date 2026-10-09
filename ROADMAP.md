@@ -160,9 +160,10 @@ Detail lives in git history (`git log`) and the live skill code. This log is pru
   `thebibliography` block has no `.bib` and no `.bbl`; `rendered` used to call it not built and
   `lint` refused the project. Its `\bibitem`s are now its entries: rendered and lint check them,
   and verify resolves an arXiv id or DOI printed in the text and compares an entry only where it
-  quotes its title; anywhere else it reports the entry uncompared rather than guess. Three
-  review rounds showed every free-text title match either passing fabrications or drifting on
-  correct entries (#113).
+  quotes its title; anywhere else it reports the entry uncompared rather than guess. Review
+  showed every free-text title match passing fabrications or drifting on correct entries, and
+  every attempt to evaluate TeX conditionals deleting live text, so neither is attempted; a
+  document that uses BibTeX reads exactly as before (#113).
 - 2026-10-07: **dokimasia, and v1.1.0.** A fifth plugin, `dokimasia:check`, verifies any LaTeX
   project's bibliography (lint, verify against arXiv and Crossref, rendered) with one stdlib
   script configured by `dokimasia.toml` or `[tool.dokimasia]`; it generalises the verifier in

@@ -54,15 +54,18 @@ waited out: a lookup tries three times, 5 then 20 seconds apart.
 
 ## Hand-written reference lists
 
-A document that writes `\begin{thebibliography}` and `\bibitem` itself has no `.bib` and never
-builds a `.bbl`. Its items are its entries, and it draws on no `.bib` in the project, unless it
-also names one with `\bibliography`. Items may sit in an `\input` file inside the block. A list
-inside `\iffalse` (or the `\else` of `\iftrue`), a `comment` environment or an environment
-definition is not read; the `\else` branch of `\iffalse` is. A project
-whose only reference lists are hand-written is not a configuration error.
+A document that writes `\begin{thebibliography}` and `\bibitem` itself, and uses no BibTeX or
+biblatex, has no `.bib` and never builds a `.bbl`. Its items are its entries, and it draws on
+no `.bib` in the project. Items may sit in an `\input` file inside the block. A project whose
+only reference lists are hand-written is not a configuration error.
 
+- A document that uses `\bibliography`, `\addbibresource` or `\printbibliography` is a BibTeX
+  document, checked as before; a `thebibliography` beside that is not read.
+- Conditionals are not evaluated, so a list inside `\iffalse` is read. That can only add
+  entries, which shows up as orphans; deciding which branch TeX takes would need TeX, and
+  every approximation tried deleted live text. A `comment` environment and the body of an
+  environment definition are not read.
 - `rendered` checks that every cited key has a `\bibitem`; such a document is never "not built".
-  A document that also names a `.bib` is checked against both, and still needs its `.bbl`.
 - A `.bbl` pasted in with `\input`, as arXiv submissions do, is build output. It counts as
   rendered, and nothing else: its entries are checked in the `.bib` it came from, which must be
   in the project. One pasted into the `.tex` itself reads as hand-written, and its citations
@@ -72,13 +75,16 @@ whose only reference lists are hand-written is not a configuration error.
 - `verify` resolves only an arXiv id or DOI printed in the item. It then compares the item with
   the record only where the item quotes its title, as IEEE, Chicago and MLA do (TeX, straight,
   typographic or `\enquote` quotes): the whole quoted title by the `.bib` rule, the first
-  surname before it against the source's first author, and the year. Only the first quoted
-  span counts, and not when `In` appears anywhere before it, since a later one is the book a
-  fabricated chapter borrowed its DOI from. A year after a later arXiv version (`v9, 2017`)
-  is not compared with the first posting. Vancouver initials after a surname (`Kingma DP`)
-  cannot be told from a short surname and read as first-author drift. Anywhere else the printed text does not say which part is the
-  title, and guessing passed fabricated titles in review. Such an item is **uncompared**: the
-  work exists, and whether the entry describes it is left to a human.
+  surname before it against the source's family name, and the year. Only the first quoted span
+  counts, and not when `In` appears anywhere before it, since a later one is the book a
+  fabricated chapter borrowed its DOI from. A year after a later arXiv version (`v9, 2017`) is
+  not compared with the first posting. Anywhere else the printed text does not say which part
+  is the title, and guessing passed fabricated titles in review. Such an item is
+  **uncompared**: the work exists, and whether the entry describes it is left to a human.
+- The family name is the last word of the source's name, joined to a particle before it
+  (`Le Cun`). Vancouver initials (`Kingma DP`), a Spanish double surname, and a record with
+  given and family names swapped read as first-author drift: the rule never passes on what may
+  be a given name.
 - It never looks an entry up by its title: a search hit is weaker evidence than a resolved
   identifier.
 - Output names a hand-written entry with its file, `key (paper.tex)`, since two papers may

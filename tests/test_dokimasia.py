@@ -2174,7 +2174,8 @@ def test_a_list_parked_in_iffalse_is_not_a_list(dk, tmp_path, capsys):
     assert "1/1 cited keys rendered\n" in capsys.readouterr().out
 
 
-def test_a_document_with_a_bib_and_a_hand_written_list_renders_both(dk, tmp_path, capsys):
+def test_a_bibtex_document_does_not_read_a_thebibliography_beside_it(dk, tmp_path, capsys):
+    """As on main: a document that names a .bib is checked against its .bbl alone."""
     _tree(
         tmp_path,
         {
@@ -2185,10 +2186,8 @@ def test_a_document_with_a_bib_and_a_hand_written_list_renders_both(dk, tmp_path
         },
     )
     cfg = dk.load_config(tmp_path)
-    assert dk.rendered(cfg) == 0
-    assert "2/2 cited keys rendered (hand-written" in capsys.readouterr().out
-    (tmp_path / "main.bbl").unlink()
-    assert dk.rendered(cfg, require_built=True) == 1
+    assert dk.rendered(cfg) == 1
+    assert "1/2 cited keys rendered\n" in capsys.readouterr().out
 
 
 def test_a_bib_only_project_keeps_its_unverifiable_wording(dk, tmp_path, monkeypatch, capsys):
@@ -2386,8 +2385,6 @@ def test_a_wrong_first_author_is_drift(dk, printed):
     ("printed", "first"),
     [
         ("Li Wang and Wei Li, ``Deep learning,'' Nature, 2020.", "Li Wang"),
-        ("J. Garc{\\'\\i}a, ``Deep learning,'' Nature, 2020.", "Juan Garc\u00eda M\u00e1rquez"),
-        ("X. Wang, ``Deep learning,'' Nature, 2020.", "Wang Xiaoming"),
         ("Yann LeCun, ``Deep learning,'' Nature, 2020.", "Y. LeCun"),
         ("{World Health Organization}, ``Deep learning,'' 2020.", "World Health Organization"),
     ],
@@ -2461,17 +2458,6 @@ def test_let_iffalse_does_not_hide_the_list(dk, tmp_path):
     tex = HAND.replace("\\end{document}", "\\ifdraft draft\\fi\n\\end{document}")
     _hand(tmp_path, "\\let\\ifdraft\\iffalse\n" + tex)
     assert dk.lint(dk.load_config(tmp_path)) == 0
-
-
-def test_a_conditional_nested_in_iffalse_does_not_end_it(dk, tmp_path, capsys):
-    parked = (
-        "\\iffalse\n\\ifdraft x\\fi\n\\begin{thebibliography}{1}\\bibitem{old} Old."
-        "\\end{thebibliography}\n\\fi\n"
-    )
-    (tmp_path / "references.bib").write_text(CLEAN)
-    (tmp_path / "paper.tex").write_text(DOC + "\\cite{good2024entry}\n" + parked)
-    assert dk.lint(dk.load_config(tmp_path)) == 0
-    assert "1 entries, 0 staged" in capsys.readouterr().out
 
 
 def test_a_list_inside_an_xparse_environment_definition_is_not_a_list(dk, tmp_path):
@@ -2661,28 +2647,63 @@ def test_in_anywhere_before_the_quote_leaves_the_entry_uncompared(dk, lead):
     "parked",
     [
         "\\iffalse\n{\\bf Old list}\n\\fi",
-        # A parked list after a braced primitive must stay parked.
-        "\\iffalse \\ifmmode{a}\\else{b}\\fi \\begin{thebibliography}{1}\\bibitem{old} Old."
-        "\\end{thebibliography} \\fi",
+        "\\iffalse \\ifmmode{a}\\else{b}\\fi \\fi",
     ],
 )
-def test_a_brace_after_a_tex_conditional_does_not_hide_its_fi(dk, tmp_path, parked):
+def test_text_after_a_conditional_is_never_dropped(dk, tmp_path, parked):
     tex = HAND.replace("\\begin{thebibliography}", parked + "\n\\begin{thebibliography}")
     _hand(tmp_path, tex)
     assert dk.lint(dk.load_config(tmp_path)) == 0
 
 
-def test_the_else_branch_of_iftrue_is_not_typeset(dk, tmp_path, capsys):
-    tex = HAND.replace(
-        "\\end{thebibliography}",
-        "\\end{thebibliography}\n\\iftrue\\else\\begin{thebibliography}{1}\\bibitem{zz} Z."
-        "\\end{thebibliography}\\fi",
-    )
-    _hand(tmp_path, tex)
-    assert dk.lint(dk.load_config(tmp_path)) == 0
-    assert "zz" not in _err(capsys)
+# --- #113 sixth review round --------------------------------------------------------------
 
 
-def test_deeply_nested_else_branches_do_not_recurse(dk):
-    deep = "\\iffalse A \\else " * 1500 + "kept" + " \\fi" * 1500
-    assert dk.typeset(deep).split() == ["kept"]
+def test_conditionals_are_not_evaluated_so_nothing_is_hidden(dk, tmp_path, capsys):
+    """A list parked in \\iffalse is read: over-reading adds an orphan, never hides an entry.
+    Every attempt to evaluate conditionals deleted live text somewhere."""
+    parked = "\\iffalse\\begin{thebibliography}{1}\\bibitem{old} Old.\\end{thebibliography}\\fi\n"
+    _hand(tmp_path, HAND.replace("\\begin{thebibliography}", parked + "\\begin{thebibliography}"))
+    assert dk.lint(dk.load_config(tmp_path)) == 1
+    assert "orphan \\bibitem: old" in _err(capsys)
+
+
+@pytest.mark.parametrize(
+    "preamble",
+    [
+        "\\iftrue\\iftoggle {long}{}{}\\fi\n",
+        "\\providecommand\\ifshowurl\\iftrue\n",
+        "\\iftrue \\newif\\ifanonymous \\anonymousfalse \\fi\n",
+        "\\loop\\ifnum0>1 \\repeat\n",
+    ],
+)
+def test_an_unclosable_conditional_does_not_drop_the_list(dk, tmp_path, preamble):
+    _hand(tmp_path, preamble + HAND)
+    items = dk.read_document(tmp_path / "paper.tex").bibitems
+    assert [i.key for i in items] == ["doe2024", "roe2019", "poe2015"]
+
+
+@pytest.mark.parametrize(
+    "printed",
+    [
+        "LIU Kaiming, X. Zhang, ``Deep residual learning,'' 2016.",
+        "Kaiming, Z., ``Deep residual learning,'' 2016.",
+    ],
+)
+def test_a_given_name_printed_as_the_surname_is_drift(dk, printed):
+    record = {"title": "Deep residual learning", "authors": ["Kaiming He"], "source": "crossref"}
+    assert _compare(dk, printed, record) == ["first author"]
+
+
+@pytest.mark.parametrize(
+    ("printed", "first"),
+    [
+        ("J. Garc{\\'\\i}a, ``Deep learning,'' Nature, 2020.", "Juan Garc\u00eda M\u00e1rquez"),
+        ("X. Wang, ``Deep learning,'' Nature, 2020.", "Wang Xiaoming"),
+    ],
+)
+def test_a_double_surname_or_swapped_source_name_reads_as_drift(dk, printed, first):
+    """Only the source's last name word is its family name. A Spanish double surname or a
+    record with given and family swapped reads as drift: never a pass on a given name."""
+    record = {"title": "Deep learning", "authors": [first], "source": "crossref"}
+    assert _compare(dk, printed, record) == ["first author"]
