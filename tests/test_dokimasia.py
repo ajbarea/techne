@@ -2957,3 +2957,46 @@ def test_an_unreadable_include_is_not_also_reported_unreached(dk, tmp_path, caps
         locked.chmod(0o644)
     out, err = capsys.readouterr()
     assert "reached by no document" not in out + err
+
+
+# --- #113 tenth review round ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "authors",
+    [
+        "J.~Li. A.~Vaswani",
+        "J. Yu. Ashish Vaswani",
+        "Mary Li. A. Vaswani",
+        "Li. A. Vaswani",
+        "J.~Wu.\\ A.~Vaswani",
+    ],
+)
+def test_a_two_letter_surname_ending_a_name_does_not_join_two_authors(dk, authors):
+    assert _compare(dk, f"{authors}, ``Attention is all you need,'' 2017.") in (
+        None,
+        ["first author"],
+    )
+
+
+def test_a_source_author_with_no_name_is_not_a_crash(dk):
+    record = dict(VASWANI, authors=[None])
+    assert _compare(dk, "A.~Vaswani, ``Attention is all you need,'' 2017.", record) is not None
+
+
+@pytest.mark.parametrize(
+    ("printed_author", "source"),
+    [
+        ("\\bibfnamefont{A.}~\\bibnamefont{Vaswani}", "Ashish Vaswani"),
+        ("\\bibfield{author}{\\bibinfo{person}{A.~Vaswani}}", "Ashish Vaswani"),
+        ("\\mbox{A.~Vaswani}", "Ashish Vaswani"),
+        ("{\\bfseries A.~Vaswani}", "Ashish Vaswani"),
+        ("\\textsl{A.~Vaswani}", "Ashish Vaswani"),
+        ("A.~Vaswani \\etal", "Ashish Vaswani"),
+        ("B.~van Es and A.~Roe", "Bob van Es"),
+        ("Y.~Es", "Yara Es"),
+    ],
+)
+def test_more_name_markup_and_short_surnames_compare_clean(dk, printed_author, source):
+    record = {"title": "Four ways", "authors": [source], "source": "arxiv"}
+    assert _compare(dk, f"{printed_author}, ``Four ways,'' 2026.", record) == []

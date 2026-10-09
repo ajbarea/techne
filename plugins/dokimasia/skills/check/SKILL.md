@@ -85,7 +85,7 @@ only reference lists are hand-written is not a configuration error.
   (`Le Cun`). Vancouver initials (`Kingma DP`), a Spanish double surname, and a record with
   given and family names swapped read as first-author drift: the rule never passes on what may
   be a given name. The first author is read only where the text before the first separator
-  has the shape of one name: up to two given names or initials, particles, a surname (in
+  has the shape of one name: up to two given names and initials, particles, a surname (in
   capitals only as the surname), a suffix. Anything else (non-Latin script, initials only, a
   separator it does not know, a word in capitals before the surname) leaves the item
   uncompared, unless its title is already wrong. So does a title printed before any author,

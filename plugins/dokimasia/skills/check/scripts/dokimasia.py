@@ -706,18 +706,19 @@ _STRAIGHT_CLOSE = re.compile(r"(?<!\\)\"")
 #: the item, wherever `In` sits: `In~`, `In:`, `In Proc.`, `In: Smith (ed.)`.
 _IN_WORD = re.compile(r"(?<![A-Za-z])in(?![A-Za-z])", re.I)
 #: What separates the first author from the rest of a printed author list, read after
-#: accents are folded and ties and TeX spaces made spaces. Single-letter conjunctions
-#: (Spanish `y`, Portuguese `e`, Catalan `i`, German `u.`) count only in lower case and between
-#: spaces, so neither the `E.` of `E.~Hill` nor the `e` of an accent macro splits a name.
+#: accents are folded and ties and TeX spaces made spaces. Short conjunctions (Spanish `y`,
+#: Portuguese `e`, Catalan `i`, German `u.`, Hungarian `és`) count only in lower case and
+#: between spaces, so neither the `E.` of `E.~Hill` nor a surname `Es` splits a name.
 _AUTHOR_BREAK = re.compile(
-    r",|;|/|\\?&|\\textbullet\b|\\and\b|\b(?i:and|with|et|und|en|och|es)\b"
-    r"|(?<=\s)(?:y|e|i|u\.?)(?=\s)"
+    r",|;|/|\\?&|\\textbullet\b|\\and\b|\\etal\b|\b(?i:and|with|et|und|en|och)\b"
+    r"|(?<=\s)(?:y|e|i|u\.?|es)(?=\s)"
 )
-#: Markup a printed name may carry: font switches, `\bibinfo`'s field name, braces.
+#: Markup a printed name may carry: font switches, boxes, the field name of `\bibinfo` and
+#: `\bibfield`, revtex's name fonts, braces.
 _NAME_MARKUP = re.compile(
-    r"\\bibinfo\s*\{[^{}]*\}|[{}]"
-    r"|\\(?:text(?:sc|bf|it|rm|sf|up|normal)|emph|em|sc|bf|it|rm|sf|scshape|upshape|newblock)"
-    r"(?![A-Za-z])"
+    r"\\bib(?:info|field)\s*\{[^{}]*\}|[{}]"
+    r"|\\(?:text(?:sc|bf|it|rm|sf|up|sl|md|normal)|emph|em|sc|bf|it|rm|sf|sl|mbox|underline"
+    r"|(?:sc|up|it|sl)shape|bfseries|mdseries|newblock|bibfnamefont|bibnamefont)(?![A-Za-z])"
 )
 #: The parts of one printed name. An initial (`J.`, `J.-P.`, `Yu.`), a particle, a suffix,
 #: and a word: capitalised, with a lower-case letter. A word in capitals (`VASWANI`) counts
@@ -1628,6 +1629,12 @@ def _first_surnames(authors: str) -> set[str]:
         # The period or colon that ends the author list before the title: `A.~Vaswani.`
         tokens[-1] = tokens[-1][:-1]
     classes = [_name_class(t) for t in tokens]
+    for i, token in enumerate(tokens):
+        # `Yu.` abbreviates a given name only at the start; anywhere else, or before another
+        # initial, it may be a surname ending one author (`J.~Li. A.~Vaswani`).
+        if classes[i] == "I" and token[1:2].islower():
+            if i or classes[i + 1 : i + 2] == ["I"]:
+                classes[i] = "?"
     at = -2 if classes[-1:] == ["S"] else -1
     if len(classes) >= -at and classes[at] == "P":
         # A surname that is also a particle, `Q.~V. Le`, is a surname when it comes last.
@@ -1648,7 +1655,7 @@ def _family_names(name: str) -> set[str]:
     (`Smith-Jones` gives `smithjones` and `jones`), and joined to a particle before it. Any
     other word may be a given name, and a fabricated author printed surname-first,
     `LIU Kaiming`, would match the real `Kaiming He` on it."""
-    words = [w for w in name.split() if normalise(w) not in _NOT_NAMES]
+    words = [w for w in (name or "").split() if normalise(w) not in _NOT_NAMES]
     if not words or not normalise(words[-1]):
         return set()
     last = normalise(words[-1])
