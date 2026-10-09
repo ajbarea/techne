@@ -34,13 +34,20 @@ unverified, which is not the same as wrong.
 
 `rendered` compares the keys each document cites with the keys its `.bbl` actually contains.
 
-Three verify outcomes, deliberately distinct, because conflating them is how a blind spot goes
+A document may write its reference list by hand in `thebibliography`. It then has no `.bib` and
+never builds a `.bbl`, and its `\\bibitem`s are its entries: `rendered` reads them as the
+rendered keys, `lint` checks them for duplicates, dangling citations and orphans, and `verify`
+resolves the ones that print an arXiv id or a DOI. A printed entry has no fields, so verify
+compares it only where it quotes its title, the one field printed styles mark.
+
+Verify outcomes are deliberately distinct, because conflating them is how a blind spot goes
 quiet. **verified** resolved and matched. **unresolved** carried an identifier that the API did
 not answer for -- transient, says nothing about the entry. **unverifiable** carries no `eprint`
 and no `doi` at all, so there is nothing to resolve and no run will ever check it. `lint`
 accepts those entries because `url` and `howpublished` are resolvable-by-a-human; `verify`
 cannot follow them, and prints them by name every run so the set stays visible rather than
-hiding inside a count.
+hiding inside a count. **uncompared** is a hand-written entry whose identifier resolved but
+which does not quote its title: the work exists, and nothing printed can be matched to it.
 
 Year is compared only where the comparison is sound. An entry whose `journal` says it is an
 arXiv preprint is checked against the arXiv posting year, and a DOI entry against the Crossref
@@ -307,7 +314,12 @@ def _walk(cfg: Config, suffix: str) -> list[Path]:
             return not any(rel == p or rel.startswith(p + "/") for p in prefixes)
 
         dirs[:] = sorted(d for d in dirs if kept(d))
-        found += [Path(here) / f for f in sorted(files) if f.endswith(suffix)]
+        # A broken symlink lists like a file and cannot be read.
+        found += [
+            Path(here) / f
+            for f in sorted(files)
+            if f.endswith(suffix) and (Path(here) / f).is_file()
+        ]
     return found
 
 
@@ -325,20 +337,35 @@ def note_unmatched_excludes(cfg: Config) -> None:
             print(f"dokimasia: exclude matched nothing: {entry}")
 
 
-def bib_files(cfg: Config) -> list[Path]:
+def bib_files(cfg: Config, hand_written: bool = False) -> list[Path]:
+    """The bibliographies to check. None at all is a configuration error unless some
+    document writes its reference list by hand, which needs no `.bib`."""
     if cfg.bib is not None:
         missing = [p for p in cfg.bib if not p.is_file()]
         if missing:
             raise ConfigError(f"bib file not found: {missing[0]}")
         return list(cfg.bib)
     found = _walk(cfg, ".bib")
-    if not found:
-        raise ConfigError(f"no .bib files under {cfg.root}")
+    if not found and not hand_written:
+        raise ConfigError(
+            f"no .bib files under {cfg.root}, and no document has a hand-written thebibliography"
+        )
     return found
 
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
+
+
+#: Files named as unreadable this run, so a file reached twice is named once.
+_UNREADABLE: set[Path] = set()
+
+
+def _cannot_read(path: Path, shown: str, error: OSError) -> None:
+    """Name a file that cannot be read: it is not checked, and is never silently passed."""
+    if path.resolve() not in _UNREADABLE:
+        _UNREADABLE.add(path.resolve())
+        print(f"dokimasia: cannot read {shown}: {error.strerror}", file=sys.stderr)
 
 
 def _name(cfg: Config, path: Path) -> str:
@@ -640,6 +667,151 @@ def has_nocite_star(text: str) -> bool:
     )
 
 
+# --- hand-written bibliographies -------------------------------------------------------
+
+_BEGIN_BIB = re.compile(r"\\begin\{thebibliography\}")
+_END_BIB = re.compile(r"\\end\{thebibliography\}")
+_BIBITEM = re.compile(r"\\bibitem\s*(?:\[.*?\])?\s*\{([^}]*)\}", re.S)
+#: The `comment` environment, which LaTeX never typesets. Conditionals are not evaluated:
+#: deciding which branch TeX takes needs TeX, and every approximation tried deleted live text
+#: along with dead. Reading too much can only add entries; deleting can hide a fabricated one.
+_COMMENT_ENV = re.compile(r"\\begin\{comment\}.*?\\end\{comment\}", re.S)
+#: A `\newenvironment` body is a template; a `thebibliography` inside one is not a list.
+_ENV_DEFINITION = re.compile(
+    r"\\(?:re)?newenvironment\*?\s*\{[^}]*\}\s*(?:\[[^\]]*\]\s*)*\{"
+    r"|\\(?:New|Renew|Provide|Declare)DocumentEnvironment\s*\{[^}]*\}\s*\{"
+)
+_INLINE_ARXIV = re.compile(
+    r"(?:arxiv(?:\.org/(?:abs|pdf)/|[:.\s]*)|corr\}?,?\s*(?:vol\.\s*)?abs/|\\showeprint\s*\[arxiv\]\s*\{)\s*"
+    rf"({_NEW_ARXIV}|{_OLD_ARXIV})(?:v\d+)?",
+    re.I,
+)
+#: A DOI runs to whitespace, a brace, a quote, a comma or a backslash; `;` stays, since SICI
+#: DOIs contain it, and trailing punctuation is trimmed after the match.
+_INLINE_DOI = re.compile(r"\b(10\.\d{4,9}/[^\s,{}\\\"'`]+)")
+#: arXiv's own DataCite prefix: the arXiv id in it is what resolves, not the DOI.
+_ARXIV_DOI = "10.48550/"
+_URL = re.compile(r"\\url\s*\{[^}]*\}|https?://\S+")
+_YEAR = re.compile(r"(?<![\d.])((?:19|20)\d{2})(?!\d)")
+#: An arXiv id followed at once by a year, `arXiv:2401.00001 [cs.LG], 2024`: the entry is
+#: dated by its preprint, so the arXiv posting year is the one to compare.
+_PREPRINT_YEAR = re.compile(
+    _INLINE_ARXIV.pattern + r"(?:\s*\[[^\]]*\])?[^A-Za-z0-9]{0,6}((?:19|20)\d{2})(?!\d)", re.I
+)
+#: The opening of a quoted span: TeX's ``, a straight quote that is not an umlaut (`\"o`),
+#: a typographic opening quote, or csquotes' `\enquote{`.
+_QUOTE_OPEN = re.compile(r"``|(?<!\\)\"|\u201c|\\enquote\s*\{")
+_STRAIGHT_CLOSE = re.compile(r"(?<!\\)\"")
+#: `In` before a quoted span means the span names the containing book or proceedings, never
+#: the item, wherever `In` sits: `In~`, `In:`, `In Proc.`, `In: Smith (ed.)`.
+_IN_WORD = re.compile(r"(?<![A-Za-z])in(?![A-Za-z])", re.I)
+#: What separates the first author from the rest of a printed author list, read after
+#: accents are folded and ties and TeX spaces made spaces. Short conjunctions (Spanish `y`,
+#: Portuguese `e`, Catalan `i`, German `u.`, Hungarian `és`) count only in lower case and
+#: between spaces, so neither the `E.` of `E.~Hill` nor a surname `Es` splits a name.
+_AUTHOR_BREAK = re.compile(
+    r",|;|/|\\?&|\\textbullet\b|\\and\b|\\etal\b|\b(?i:and|with|et|und|en|och)\b"
+    r"|(?<=\s)(?:y|e|i|u\.?|es)(?=\s)"
+)
+#: Markup a printed name may carry: font switches, boxes, the field name of `\bibinfo` and
+#: `\bibfield`, revtex's name fonts, braces.
+_NAME_MARKUP = re.compile(
+    r"\\bib(?:info|field)\s*\{[^{}]*\}|[{}]"
+    r"|\\(?:text(?:sc|bf|it|rm|sf|up|sl|md|normal)|emph|em|sc|bf|it|rm|sf|sl|mbox|underline"
+    r"|(?:sc|up|it|sl)shape|bfseries|mdseries|newblock|bibfnamefont|bibnamefont)(?![A-Za-z])"
+)
+#: The parts of one printed name. An initial (`J.`, `J.-P.`, `Yu.`), a particle, a suffix,
+#: and a word: capitalised, with a lower-case letter. A word in capitals (`VASWANI`) counts
+#: only as the surname, so an all-capitals list joined by a word this does not know
+#: (`DOE OG VASWANI`) is never read as one name.
+_INITIAL = re.compile(r"[A-Z][a-z]?\.(?:-?[A-Z][a-z]?\.)*")
+_TWO_LETTER = re.compile(r"[A-Z][a-z]\.")
+_SUFFIX = re.compile(r"(?:Jr|Sr)\.?|II|III|IV")
+_WORD = re.compile(r"[A-Z][A-Za-z]*(?:['\u2019-][A-Za-z]+)*")
+#: One name: up to two given names then initials (`Mary Ann B.`), or initials then at most
+#: one given name (`J. Edgar`); particles, the surname, a suffix. At most three words, so
+#: `Ana Maria Garcia Lopez` and `J.~Fake Dan Vaswani` are not read as one name.
+_NAME_SHAPE = re.compile(r"(?:W{1,2}I*|I+W?)?P*[WC]S?")
+_MAX_NAME_WORDS = 3
+#: Particles a printed surname may be split at, `Le Cun` for `LeCun`.
+_PARTICLES = {"le", "la", "de", "da", "di", "du", "van", "von", "der", "den", "del", "della"}
+_PARTICLES |= {"ten", "ter"}
+#: A page range, `1195--1225`, whose ends are not years.
+_PAGE_RANGE = re.compile(r"\d+\s*-{1,3}\s*\d+")
+#: Words in a printed author segment that are not a surname.
+_NOT_NAMES = {"and", "et", "al", "jr", "sr", "ii", "iii", "iv", "eds", "ed"}
+
+
+@dataclass(frozen=True)
+class Bibitem:
+    """One entry of a hand-written `thebibliography`: its key and its printed text."""
+
+    file: Path
+    key: str
+    text: str
+
+
+def _without_environment_definitions(text: str) -> str:
+    """Drop `\\newenvironment` and xparse environment definitions with their bodies.
+
+    The pattern stops inside the first brace group: the begin body for `\\newenvironment`,
+    the argument spec for xparse. One or two more groups follow it.
+    """
+    out, pos = [], 0
+    while match := _ENV_DEFINITION.search(text, pos):
+        out.append(text[pos : match.start()])
+        pos = _close_brace(text, match.end())
+        for _ in range(2 if "DocumentEnvironment" in match.group() else 1):
+            rest = re.match(r"\s*\{", text[pos:])
+            if not rest:
+                break
+            pos = _close_brace(text, pos + rest.end())
+    out.append(text[pos:])
+    return "".join(out)
+
+
+def typeset(text: str) -> str:
+    """`text` without comments, macro and environment definitions, or `comment` blocks."""
+    clean = _without_environment_definitions(_without_definitions(strip_comments(text)))
+    return _COMMENT_ENV.sub(" ", clean)
+
+
+def opens_bibliography(text: str) -> bool:
+    """Whether already-typeset `text` opens a `thebibliography` block."""
+    return bool(_BEGIN_BIB.search(text))
+
+
+def bibitems(text: str, file: Path) -> list[Bibitem]:
+    """Every `\\bibitem` in already-typeset `text`.
+
+    Read from each `thebibliography` block, or from the whole file when it opens none, since a
+    list is often split: the block in the document, its items in an `\\input` file. An item
+    runs to the next `\\bibitem`, the end of its block, or the end of the file.
+    """
+    starts = [m.end() for m in _BEGIN_BIB.finditer(text)] or [0]
+    found = []
+    for start in starts:
+        region = text[start:]
+        end = _END_BIB.search(region)
+        region = region[: end.start()] if end else region
+        heads = list(_BIBITEM.finditer(region))
+        for i, head in enumerate(heads):
+            stop = heads[i + 1].start() if i + 1 < len(heads) else len(region)
+            words = " ".join(region[head.end() : stop].split())
+            found.append(Bibitem(file, head.group(1).strip(), words))
+    return found
+
+
+def inline_ids(text: str) -> tuple[str | None, str | None]:
+    """The arXiv id and DOI printed in a hand-written entry, either of which may be absent."""
+    arxiv = _INLINE_ARXIV.search(text)
+    doi = _INLINE_DOI.search(text.replace("\\_", "_"))
+    found = doi.group(1).rstrip(".;)]") if doi else None
+    if found and found.lower().startswith(_ARXIV_DOI):
+        found = None
+    return (arxiv.group(1) if arxiv else None), found
+
+
 def _included(text: str, doc_dir: Path, here: Path) -> list[Path]:
     """Files `text` pulls in. `\\import`-style commands resolve from the document's
     directory; the `sub` forms from the including file's."""
@@ -663,7 +835,8 @@ def document_files(doc: Path) -> list[Path]:
     the `\\import` family, resolved.
 
     Paths resolve against the document's directory, as LaTeX does. Cycle-safe; a missing
-    file is ignored, since the compiler reports it and this is not the compiler.
+    file is ignored, since the compiler reports it and this is not the compiler. A file that
+    exists and cannot be read is named and left out.
     """
     seen: dict[Path, None] = {}
     pending = [doc]
@@ -672,8 +845,13 @@ def document_files(doc: Path) -> list[Path]:
         real = path.resolve()
         if real in seen:
             continue
+        try:
+            text = _read(path)
+        except OSError as error:
+            _cannot_read(path, os.path.relpath(path), error)
+            continue
         seen[real] = None
-        pending += _included(_read(path), doc.parent, path.parent)
+        pending += _included(text, doc.parent, path.parent)
     return list(seen)
 
 
@@ -688,6 +866,13 @@ class Document:
     named: tuple[Path, ...]
     #: Whether it has a bibliography at all, from a command or from its citations.
     needs_bibliography: bool
+    #: Whether it writes its reference list by hand in a `thebibliography` block. Such a
+    #: document has no `.bib` to draw on and no `.bbl` to build; its items are its entries.
+    hand_written: bool = False
+    bibitems: tuple[Bibitem, ...] = ()
+    #: Keys of a `.bbl` pasted in with `\input`, as arXiv submissions do. That list is build
+    #: output, not hand-written: it renders, but its entries live in a `.bib`.
+    pasted: frozenset[str] = frozenset()
 
 
 def _bib_path(base: Path, name: str) -> Path:
@@ -701,22 +886,47 @@ def read_document(doc: Path) -> Document:
     files = document_files(doc)
     cites: set[str] = set()
     names: list[str] = []
-    star = uses = False
+    items: list[Bibitem] = []
+    pasted: set[str] = set()
+    star = uses = mentions = hand = False
     for path in files:
         text = _read(path)
-        clean = _without_definitions(strip_comments(text))
+        bare = strip_comments(text)
+        clean = _without_definitions(bare)
         cites |= cite_keys(text)
         star = star or has_nocite_star(text)
         for group in _BIBLIOGRAPHY.findall(clean):
             names += [n.strip() for n in group.split(",") if n.strip()]
         names += [n.strip() for n in _BIBRESOURCE.findall(clean)]
         uses = uses or bool(_BIBLIOGRAPHY_USE.search(clean))
+        # Even inside a macro definition, a BibTeX command means a BibTeX document.
+        mentions = mentions or bool(_BIBLIOGRAPHY_USE.search(bare))
+        page = typeset(text)
+        if path.suffix == ".bbl":
+            # `\input` typesets a BibTeX `.bbl`; a biber one holds `\entry` data, not a list.
+            pasted |= {key.strip() for key in _BIBITEM.findall(page)}
+            continue
+        hand = hand or opens_bibliography(page)
+        items += bibitems(page, path.resolve())
     named = tuple(
         _bib_path(doc.parent, n)
         for n in dict.fromkeys(names)
         if not n.startswith(("http:", "https:"))
     )
-    return Document(doc, tuple(files), frozenset(cites), star, named, bool(cites) or uses or star)
+    return Document(
+        doc,
+        tuple(files),
+        frozenset(cites),
+        star,
+        named,
+        bool(cites) or uses or star or hand,
+        # A document that uses BibTeX or biblatex is a BibTeX document, as it always was here;
+        # a `thebibliography` beside that is not read, whatever conditionals surround it.
+        hand and not mentions,
+        # A file of loose `\bibitem`s counts only as part of a hand-written list.
+        tuple(items) if hand and not mentions else (),
+        frozenset(pasted) if not mentions else frozenset(),
+    )
 
 
 def document_cites(doc: Path) -> set[str]:
@@ -730,7 +940,11 @@ def documents(cfg: Config) -> list[Path]:
     """
     found = []
     for path in _walk(cfg, ".tex"):
-        text = strip_comments(_read(path))
+        try:
+            text = strip_comments(_read(path))
+        except OSError as error:
+            _cannot_read(path, _name(cfg, path), error)
+            continue
         if _DOCUMENTCLASS.search(text) and not _SUBFILES.search(text):
             found.append(path)
     return found
@@ -775,16 +989,29 @@ def staged_keys(cfg: Config) -> set[str]:
 Parsed = dict[Path, list[tuple[str, str, str]]]
 
 
-def _parse_bibs(cfg: Config) -> Parsed:
-    return {p.resolve(): list(entries(_read(p))) for p in bib_files(cfg)}
+def _parse_bibs(cfg: Config, hand_written: bool = False) -> Parsed:
+    return {p.resolve(): list(entries(_read(p))) for p in bib_files(cfg, hand_written)}
 
 
-def _all_entries(cfg: Config) -> list[tuple[Path, str, str, str]]:
+def _all_entries(cfg: Config, hand_written: bool = False) -> list[tuple[Path, str, str, str]]:
     return [
         (path, kind, key, body)
-        for path, found in _parse_bibs(cfg).items()
+        for path, found in _parse_bibs(cfg, hand_written).items()
         for kind, key, body in found
     ]
+
+
+def _unique_bibitems(docs: list[Document]) -> list[Bibitem]:
+    """Every hand-written entry once, though a shared file may be reached by two documents.
+
+    Keyed on the text as well as the key: a key printed twice is a lint finding, and each
+    copy still has to be resolved, since the second may carry a different identifier.
+    """
+    seen: dict[tuple[Path, str, str], Bibitem] = {}
+    for doc in docs:
+        for item in doc.bibitems:
+            seen.setdefault((item.file, item.key, item.text), item)
+    return list(seen.values())
 
 
 def _identifier_findings(key: str, body: str) -> list[str]:
@@ -819,14 +1046,18 @@ def lint(cfg: Config) -> int:
     two files is a duplicate only where one document uses both.
     """
     note_unmatched_excludes(cfg)
-    parsed = _parse_bibs(cfg)
-    universe = list(parsed)
     docs = [read_document(p) for p in documents(cfg)]
+    parsed = _parse_bibs(cfg, any(d.hand_written for d in docs))
+    universe = list(parsed)
+    items = _unique_bibitems(docs)
     reached = {f for d in docs for f in d.files}
     loose = [p for p in _walk(cfg, ".tex") if p.resolve() not in reached]
     loose_cites: set[str] = set()
     for path in loose:
-        loose_cites |= cite_keys(_read(path))
+        try:
+            loose_cites |= cite_keys(_read(path))
+        except OSError:
+            continue  # already named by documents()
 
     findings: list[str] = []
 
@@ -837,6 +1068,8 @@ def lint(cfg: Config) -> int:
     def uses(doc: Document) -> list[Path]:
         if doc.named:
             return [p.resolve() for p in doc.named]
+        if doc.hand_written:
+            return []
         return universe if doc.needs_bibliography else []
 
     def entries_of(files: list[Path]) -> list[tuple[Path, str]]:
@@ -869,13 +1102,21 @@ def lint(cfg: Config) -> int:
             for message in _identifier_findings(key, body):
                 add(message)
 
-    keys = {key for _, key in entries_of(universe)}
+    for doc in docs:
+        counts: dict[str, int] = {}
+        for item in doc.bibitems:
+            counts[item.key] = counts.get(item.key, 0) + 1
+        for key, count in sorted(counts.items()):
+            if count > 1:
+                add(f"duplicate \\bibitem: {key} appears {count} times (in {_name(cfg, doc.path)})")
+
+    keys = {key for _, key in entries_of(universe)} | {item.key for item in items}
     for table, exempt in (("title", cfg.title_exempt), ("record", cfg.record_exempt)):
         for key in sorted(set(exempt) - keys):
             add(f"exemption for missing entry: {key} (exempt.{table})")
 
     for doc in docs:
-        defined = {key for _, key in entries_of(uses(doc))}
+        defined = {key for _, key in entries_of(uses(doc))} | {i.key for i in doc.bibitems}
         for key in sorted(doc.cites - defined):
             add(
                 f"dangling citation: \\cite{{{key}}} has no entry (cited by {_name(cfg, doc.path)})"
@@ -887,18 +1128,29 @@ def lint(cfg: Config) -> int:
     star_docs: dict[str, set[str]] = {}
     if cfg.orphans:
         accounted = accounted_keys(cfg)
+        # A .bbl pasted into a .tex reads as hand-written, yet cites a .bib's entries.
+        hand_cites = set().union(*(d.cites for d in docs if d.hand_written))
         for file in universe:
             users = [d for d in docs if file in uses(d)]
             stars = [_name(cfg, d.path) for d in users if d.nocite_star]
             if stars:
                 star_docs[_name(cfg, file)] = set(stars)
                 continue
-            seen_here = loose_cites.union(*(d.cites for d in users))
+            seen_here = loose_cites.union(*(d.cites for d in users), hand_cites)
             for _, key, _ in parsed[file]:
                 if key not in seen_here and key not in accounted:
                     add(
                         f"orphan entry: {key} is cited nowhere and the intake log does not "
                         f"name it (in {_name(cfg, file)})"
+                    )
+        # A hand-written list prints every item whether or not anything cites it, so
+        # \nocite{*} changes nothing there and covers nothing.
+        for doc in docs:
+            for item in doc.bibitems:
+                if item.key not in doc.cites and item.key not in accounted:
+                    add(
+                        f"orphan \\bibitem: {item.key} is printed in {_name(cfg, doc.path)} "
+                        f"but cited nowhere in it"
                     )
 
     staged = staged_keys(cfg)
@@ -916,8 +1168,17 @@ def lint(cfg: Config) -> int:
             f"dokimasia: \\nocite{{*}} in {', '.join(who)} cites every entry of "
             f"{', '.join(sorted(star_docs))}, so the orphan check covers nothing there"
         )
+    blind = [i for i in items if inline_ids(i.text) == (None, None)]
+    if blind:
+        # Not a finding: printed reference styles routinely drop the DOI, so requiring one
+        # would fail nearly every hand-written list. verify names each of these.
+        print(
+            f"dokimasia: info: {len(blind)} of {len(items)} hand-written entries print no arXiv "
+            f"id or DOI, so verify cannot check them"
+        )
+    hand = f" ({len(items)} hand-written)" if items else ""
     print(
-        f"dokimasia: {sum(len(parsed[f]) for f in universe)} entries, "
+        f"dokimasia: {sum(len(parsed[f]) for f in universe) + len(items)} entries{hand}, "
         f"{len(staged & keys)} staged unread, {len(findings)} finding(s)"
     )
     return len(findings)
@@ -925,7 +1186,6 @@ def lint(cfg: Config) -> int:
 
 # --- rendered --------------------------------------------------------------------------
 
-_BIBITEM = re.compile(r"\\bibitem\s*(?:\[.*?\])?\s*\{([^}]*)\}", re.S)
 _ENTRY = re.compile(r"\\entry\s*\{([^}]*)\}\s*\{")
 
 
@@ -947,9 +1207,10 @@ def _bbl_for(cfg: Config, doc: Path) -> Path:
     return beside
 
 
-def _unreached(cfg: Config, docs: list[Path]) -> list[str]:
+def _unreached(cfg: Config, docs: list[Path], every: list[Path]) -> list[str]:
     """One line per document directory holding `.tex` files no document's includes reach."""
-    reached = {f for d in documents(cfg) for f in document_files(d)}
+    # A file that could not be read was reached, and has been named already.
+    reached = {f for d in every for f in document_files(d)} | _UNREADABLE
     tex = [p.resolve() for p in _walk(cfg, ".tex")]
     lines, seen = [], set()
     for doc in docs:
@@ -978,10 +1239,13 @@ def rendered(cfg: Config, docs: list[Path] | None = None, require_built: bool = 
     and fails a document that cites a normal subset. Keys are parsed out of the `.bbl`
     rather than substring-matched, so `li2020` does not pass because `li2020b` rendered.
     A document with no `.bbl` is not built: named, never silently passed. One that cites
-    nothing and names no bibliography has nothing to render and is listed apart.
+    nothing and names no bibliography has nothing to render and is listed apart. One that
+    writes its list by hand in `thebibliography` never has a `.bbl`: its `\\bibitem` keys are
+    what renders.
     """
     note_unmatched_excludes(cfg)
-    docs = documents(cfg) if not docs else docs
+    every = documents(cfg)
+    docs = docs or every
     problems = 0
     checked = 0
     unbuilt: list[str] = []
@@ -990,6 +1254,24 @@ def rendered(cfg: Config, docs: list[Path] | None = None, require_built: bool = 
         name = _name(cfg, doc)
         info = read_document(doc)
         bbl = _bbl_for(cfg, doc)
+        # A hand-written list renders without a build, and so does a pasted `.bbl` under
+        # another stem. A document that also names a `.bib` still needs its `.bbl`.
+        built = bbl.exists()
+        if info.hand_written or (info.pasted and not built):
+            checked += 1
+            cites = info.cites
+            # A .bbl beside a hand-written list is stale output from some earlier build.
+            shown = {item.key for item in info.bibitems} | info.pasted
+            missing = sorted(cites - shown)
+            kind = "hand-written thebibliography" if info.hand_written else "pasted .bbl"
+            print(
+                f"dokimasia: {name}: {len(cites) - len(missing)}/{len(cites)} cited keys "
+                f"rendered ({kind})"
+            )
+            for key in missing:
+                print(f"dokimasia: {name}: \\cite{{{key}}} did not render", file=sys.stderr)
+            problems += len(missing)
+            continue
         if not bbl.exists():
             if info.needs_bibliography:
                 unbuilt.append(name)
@@ -1005,7 +1287,7 @@ def rendered(cfg: Config, docs: list[Path] | None = None, require_built: bool = 
         for key in missing:
             print(f"dokimasia: {name}: \\cite{{{key}}} did not render", file=sys.stderr)
         problems += len(missing)
-    for line in _unreached(cfg, docs):
+    for line in _unreached(cfg, docs, every):
         print(line)
     names = f" ({', '.join(unbuilt)})" if unbuilt else ""
     extra = f", {len(bare)} without a bibliography" if bare else ""
@@ -1211,31 +1493,263 @@ def _load_cache(path: Path) -> dict:
     return store
 
 
+@dataclass(frozen=True)
+class _Reference:
+    """One thing verify can resolve: a `.bib` entry's fields, or a hand-written entry's text."""
+
+    key: str
+    #: How the entry is named in output. A hand-written key also names its document, since
+    #: two papers may each print their own `smith2020`.
+    label: str
+    eprint: str | None
+    doi: str | None
+    fields: dict[str, str] | None = None
+    item: Bibitem | None = None
+
+
+def _references(cfg: Config) -> list[_Reference]:
+    docs = [read_document(path) for path in documents(cfg)]
+    refs = []
+    for _, _, key, body in _all_entries(cfg, any(d.hand_written for d in docs)):
+        fields = parse_fields(body)
+        refs.append(_Reference(key, key, fields.get("eprint"), fields.get("doi"), fields=fields))
+    for item in _unique_bibitems(docs):
+        eprint, doi = inline_ids(item.text)
+        label = f"{item.key} ({_name(cfg, item.file)})"
+        refs.append(_Reference(item.key, label, eprint, doi, item=item))
+    return refs
+
+
+def _accepted_years(record: dict) -> set[int]:
+    """Every year the source dates the work by: a journal that posts online first has two."""
+    return {y for y in (record.get("year"), record.get("print_year")) if y is not None}
+
+
+def _bib_findings(
+    cfg: Config, key: str, fields: dict[str, str], record: dict
+) -> list[tuple[str, str, str]]:
+    findings: list[tuple[str, str, str]] = []
+    claimed = fields.get("title")
+    if key not in cfg.title_exempt:
+        # Crossref records routinely drop a subtitle, so a claimed title that merely
+        # extends what came back is not drift; a diverging one is.
+        if not titles_match(claimed, record["title"]):
+            findings.append(("title", str(claimed), record["title"]))
+    if key not in cfg.record_exempt:
+        authors = fields.get("author")
+        source_authors = record.get("authors") or []
+        if not _matches_author(authors, source_authors):
+            findings.append(("first author", str(authors), source_authors[0]))
+        claimed_year = fields.get("year", "").strip()
+        journal = fields.get("journal", "").lower()
+        # Only where the two dates mean the same thing. See the module docstring.
+        comparable = record.get("source") == "crossref" or "arxiv preprint" in journal
+        accepted = _accepted_years(record)
+        if comparable and claimed_year.isdigit() and accepted and int(claimed_year) not in accepted:
+            findings.append(("year", claimed_year, "/".join(str(y) for y in sorted(accepted))))
+    return findings
+
+
+def _quoted_span(text: str, opening: re.Match[str]) -> tuple[str, int] | None:
+    """The text inside a quote that opens at `opening`, and the index after its close."""
+    kind = opening.group()
+    if kind == "``":
+        depth, i = 1, opening.end()
+        while i < len(text) and depth:
+            depth += text.startswith("``", i) - text.startswith("''", i)
+            i += 2 if text.startswith(("``", "''"), i) else 1
+        return (text[opening.end() : i - 2], i) if not depth else None
+    if kind == "\u201c":
+        end = text.find("\u201d", opening.end())
+        return (text[opening.end() : end], end + 1) if end >= 0 else None
+    if kind.startswith("\\enquote"):
+        end = _close_brace(text, opening.end())
+        return text[opening.end() : end - 1], end
+    ending = _STRAIGHT_CLOSE.search(text, opening.end())
+    return (text[opening.end() : ending.start()], ending.end()) if ending else None
+
+
+def quoted_title(text: str) -> tuple[int, str] | None:
+    """The printed title, where the entry quotes it, and where it starts; else None.
+
+    IEEE, Chicago, MLA and the like quote the title and close it with punctuation, `Title,''`.
+    Only the first quoted span can be the title. When it is not one (a quoted word inside an
+    unquoted title, a nickname, a chapter quoted without punctuation) or it follows `In`, the
+    entry has no title this can compare: looking further would find the quoted book a
+    fabricated chapter borrowed its DOI from. Nested TeX quotes are counted, so
+    ``On ``robust'' estimation,'' is one title.
+    """
+    opening = _QUOTE_OPEN.search(text)
+    if not opening or _IN_WORD.search(text[: opening.start()]):
+        return None
+    span = _quoted_span(text, opening)
+    if span is None:
+        return None
+    inner, close = span
+    after = text[close:].lstrip()[:1]
+    if inner.rstrip()[-1:] in (",", ".", "?", "!") or after in (",", "."):
+        return opening.start(), inner
+    return None
+
+
+def _word_class(token: str) -> str:
+    if not _WORD.fullmatch(token):
+        return "?"
+    return "W" if any(c.islower() for c in token) else "C" if len(token) > 1 else "?"
+
+
+def _name_class(token: str) -> str:
+    if token.lower() in _PARTICLES:
+        return "P"
+    if _SUFFIX.fullmatch(token):
+        return "S"
+    if _INITIAL.fullmatch(token):
+        return "I"
+    return _word_class(token)
+
+
+def _surname(word: str) -> str:
+    """A surname token as one word: `Smith-Jones` is `smithjones`, never `jones` alone."""
+    return normalise(word).replace(" ", "")
+
+
+def _first_surnames(authors: str) -> set[str]:
+    """Spellings of the first author's surname in a printed author list, or none when the
+    first segment does not have the shape of one name.
+
+    The shape is whitelisted rather than its separators listed: every round of review found
+    another separator (`og`, `\\quad`, `•`, an all-capitals `Y`) that joined two authors into
+    what read as one name, whose last word then passed as the real first author. The
+    surname is joined to a particle before it, since `Le Cun` and `LeCun` are one name.
+    `J.~Doe, A.~Roe` and `Doe, J.` give `doe`.
+    """
+    spaced = re.sub(r"\\[ ,]|~", " ", fold_accents(authors))
+    first = _AUTHOR_BREAK.split(spaced, maxsplit=1)[0]
+    tokens = _NAME_MARKUP.sub("", first).split()
+    if tokens and tokens[-1][-1:] in ".:" and _word_class(tokens[-1][:-1]) != "?":
+        # The period or colon that ends the author list before the title: `A.~Vaswani.`
+        tokens[-1] = tokens[-1][:-1]
+    classes = [_name_class(t) for t in tokens]
+    for i, token in enumerate(tokens):
+        # `Yu.` abbreviates a given name only as the whole first token; anywhere else, or
+        # before another initial, it may be a surname ending one author (`J.~Li. A.~Vaswani`,
+        # `J.Li. A.~Vaswani`).
+        if classes[i] == "I" and re.search(r"[A-Z][a-z]\.", token):
+            alone = i == 0 and _TWO_LETTER.fullmatch(token)
+            if not alone or classes[i + 1 : i + 2] == ["I"]:
+                classes[i] = "?"
+    at = -2 if classes[-1:] == ["S"] else -1
+    if len(classes) >= -at and classes[at] == "P":
+        # A surname that is also a particle, `Q.~V. Le`, is a surname when it comes last.
+        classes[at] = _word_class(tokens[at])
+    shape = "".join(classes)
+    if not _NAME_SHAPE.fullmatch(shape) or len(re.findall("[WC]", shape)) > _MAX_NAME_WORDS:
+        return set()
+    surname = _surname(tokens[-2] if shape.endswith("S") else tokens[-1])
+    before = shape[: -2 if shape.endswith("S") else -1]
+    if before.endswith("P"):
+        particle = tokens[len(before) - 1].lower()
+        return {surname, particle + surname}
+    return {surname}
+
+
+def _family_names(name: str) -> set[str]:
+    """Spellings of a source author's family name: the last word, whole and its last part
+    (`Smith-Jones` gives `smithjones` and `jones`), and joined to a particle before it. Any
+    other word may be a given name, and a fabricated author printed surname-first,
+    `LIU Kaiming`, would match the real `Kaiming He` on it."""
+    words = [w for w in (name or "").split() if normalise(w) not in _NOT_NAMES]
+    if not words or not normalise(words[-1]):
+        return set()
+    last = normalise(words[-1])
+    found = {last.replace(" ", ""), last.split()[-1]}
+    if len(words) > 1 and normalise(words[-2]) in _PARTICLES:
+        found.add(normalise(words[-2]) + last.replace(" ", ""))
+    return found
+
+
+def _printed_findings(
+    cfg: Config, key: str, text: str, record: dict
+) -> list[tuple[str, str, str]] | None:
+    """Drift for a hand-written entry, or None when its title cannot be found to compare.
+
+    Only a quoted title is compared, by the rule a `.bib` title is held to. A printed entry
+    has no fields, and every attempt to find an unquoted title in free text either passed a
+    fabricated title wrapped around a real one or reported correct entries as drift: a
+    verifier that guesses is worse than one that says it did not look. The author list is
+    what precedes the title, and its first surname must be in the source's first author, as
+    for a `.bib` entry; a title printed first is uncompared where the source has authors. A
+    year is compared where the record is Crossref's, and against arXiv only where a year
+    follows the arXiv id, which is how a preprint is dated. Any printed year matching is
+    enough for Crossref, since the text may also carry an access date.
+    """
+    found = quoted_title(text)
+    if found is None:
+        return None
+    at, title = found
+    findings: list[tuple[str, str, str]] = []
+    if key not in cfg.title_exempt and not titles_match(title, record["title"]):
+        findings.append(("title", " ".join(title.split()), record["title"]))
+    if key in cfg.record_exempt:
+        return findings
+    shown = text if len(text) <= 200 else text[:197] + "..."
+    source_authors = record.get("authors") or []
+    authors = text[:at]
+    surnames = _first_surnames(authors)
+    if not surnames and (source_authors or re.search(r"[^\W\d_]", authors)):
+        # Author text this cannot read (non-Latin, initials only, an unsplit list), or none
+        # before a title printed first, is not an absent author: comparing nothing would
+        # count a wrong one as verified. A title already found wrong is still reported.
+        return findings or None
+    if source_authors and surnames and not surnames & _family_names(source_authors[0]):
+        findings.append(("first author", shown, source_authors[0]))
+    accepted = _accepted_years(record)
+    if record.get("source") == "crossref":
+        bare = _INLINE_DOI.sub(" ", _INLINE_ARXIV.sub(" ", _URL.sub(" ", text)))
+        bare = _PAGE_RANGE.sub(" ", bare)
+        claimed = {int(y) for y in _YEAR.findall(bare)}
+    else:
+        # A year after a later version, `arXiv:1412.6980v9, 2017`, dates that version, not
+        # the first posting the record carries.
+        claimed = {
+            int(m.group(2))
+            for m in _PREPRINT_YEAR.finditer(text)
+            if not re.search(r"v(?:[2-9]|\d{2,})\b", m.group(0))
+        }
+    if claimed and accepted and not claimed & accepted:
+        mine = "/".join(str(y) for y in sorted(claimed))
+        findings.append(("year", mine, "/".join(str(y) for y in sorted(accepted))))
+    return findings
+
+
 def verify(cfg: Config, delay: float = 3.0) -> int:
     """Resolve identifiers and compare titles. Returns the number of mismatches.
 
     Unresolvable entries are counted separately and never reported as findings. An
     API that is down, rate limiting, or simply missing a record says nothing about
-    whether the entry is right.
+    whether the entry is right. A hand-written entry is resolved only through an arXiv id
+    or DOI printed in it, never by searching for its title: a search hit is weaker evidence
+    than a resolved identifier, and counting it as verified would blur what verified means.
     """
     note_unmatched_excludes(cfg)
     drift = checked = exempted = cached = 0
     unresolved: list[str] = []
     unverifiable: list[str] = []
+    uncompared: list[str] = []
     #: Why each unresolved entry was unresolved, so a blocked run reads as a blocked run.
     why: dict[str, int] = {}
     now = time.time()
     cache_path = cfg.root / cfg.cache
     store = _load_cache(cache_path)
-    for _, _, key, body in _all_entries(cfg):
-        fields = parse_fields(body)
-        claimed = fields.get("title")
-        eprint, doi = fields.get("eprint"), fields.get("doi")
+    refs = _references(cfg)
+    any_printed = any(ref.item is not None for ref in refs)
+    for ref in refs:
+        key, eprint, doi = ref.key, ref.eprint, ref.doi
         ident = (eprint or doi or "").strip()
         if not ident:
             # `url` and `howpublished` satisfy lint but there is nothing here to
             # resolve, so no run of verify will ever check this entry. Named below.
-            unverifiable.append(key)
+            unverifiable.append(ref.label)
             continue
         hit = store.get(ident)
         record = None
@@ -1253,45 +1767,30 @@ def verify(cfg: Config, delay: float = 3.0) -> int:
             if record is not None and _cacheable(record):
                 store[ident] = _cache_entry(record, now)
         if record is None or record.get("title") is None:
-            unresolved.append(key)
+            unresolved.append(ref.label)
             reason = (record or {}).get("failed") or "no matching record"
             why[reason] = why.get(reason, 0) + 1
             continue
+        if ref.item is not None:
+            compared = _printed_findings(cfg, key, ref.item.text, record)
+            if compared is None:
+                # The identifier resolved, so the work exists; whether this entry describes
+                # it is a question the printed text does not let us answer.
+                uncompared.append(ref.label)
+                continue
+            findings = compared
+        else:
+            findings = _bib_findings(cfg, key, ref.fields or {}, record)
         checked += 1
 
         reasons = [r for r in (cfg.title_exempt.get(key), cfg.record_exempt.get(key)) if r]
         for reason in reasons:
-            print(f"dokimasia: exempt: {key} -- {reason}")
+            print(f"dokimasia: exempt: {ref.label} -- {reason}")
         exempted += bool(reasons)
-
-        findings: list[tuple[str, str, str]] = []
-        if key not in cfg.title_exempt:
-            # Crossref records routinely drop a subtitle, so a claimed title that merely
-            # extends what came back is not drift; a diverging one is.
-            if not titles_match(claimed, record["title"]):
-                findings.append(("title", str(claimed), record["title"]))
-        if key not in cfg.record_exempt:
-            authors = fields.get("author")
-            source_authors = record.get("authors") or []
-            if not _matches_author(authors, source_authors):
-                findings.append(("first author", str(authors), source_authors[0]))
-            claimed_year = fields.get("year", "").strip()
-            actual_year = record.get("year")
-            journal = fields.get("journal", "").lower()
-            # Only where the two dates mean the same thing. See the module docstring.
-            comparable = record.get("source") == "crossref" or "arxiv preprint" in journal
-            accepted = {y for y in (actual_year, record.get("print_year")) if y is not None}
-            if (
-                comparable
-                and claimed_year.isdigit()
-                and accepted
-                and int(claimed_year) not in accepted
-            ):
-                findings.append(("year", claimed_year, "/".join(str(y) for y in sorted(accepted))))
 
         for what, mine, theirs in findings:
             drift += 1
-            print(f"dokimasia: {what} drift: {key}", file=sys.stderr)
+            print(f"dokimasia: {what} drift: {ref.label}", file=sys.stderr)
             print(f"    file  : {mine}", file=sys.stderr)
             print(f"    source: {theirs}", file=sys.stderr)
     try:
@@ -1299,22 +1798,36 @@ def verify(cfg: Config, delay: float = 3.0) -> int:
         cache_path.write_text(json.dumps(store, indent=0, sort_keys=True))
     except OSError as error:
         print(f"dokimasia: cache not written: {cache_path}: {error}", file=sys.stderr)
+    # The count appears only where hand-written entries exist, so a .bib project's summary
+    # line reads as it always has.
+    unmatched = f", uncompared {len(uncompared)}" if any_printed else ""
     print(
         f"dokimasia: verified {checked}, exempt {exempted}, unresolved {len(unresolved)}, "
-        f"unverifiable {len(unverifiable)}, drift {drift} ({cached} from cache)"
+        f"unverifiable {len(unverifiable)}{unmatched}, drift {drift} ({cached} from cache)"
     )
+    if uncompared:
+        print(
+            "dokimasia: uncompared -- the identifier resolved, but the entry does not quote its "
+            "title, so nothing printed can be matched to the source; check these by hand:"
+        )
+        for label in sorted(uncompared):
+            print(f"    {label}")
     if unverifiable:
-        print("dokimasia: unverifiable -- no eprint or doi, so verify can never check these:")
-        for key in sorted(unverifiable):
-            print(f"    {key}")
+        printed = " (for a hand-written entry, none printed)" if any_printed else ""
+        print(
+            f"dokimasia: unverifiable -- no eprint or doi{printed}, "
+            "so verify can never check these:"
+        )
+        for label in sorted(unverifiable):
+            print(f"    {label}")
     if unresolved:
         # Naming the reason is what separates "the bibliography has 67 bad identifiers"
         # from "the host stopped answering a third of the way in", which look identical
         # in a list of keys.
         breakdown = ", ".join(f"{reason} x{count}" for reason, count in sorted(why.items()))
         print(f"dokimasia: unresolved -- identifier present, lookup did not answer ({breakdown}):")
-        for key in sorted(unresolved):
-            print(f"    {key}")
+        for label in sorted(unresolved):
+            print(f"    {label}")
         if any(f"HTTP {code}" in why for code in THROTTLED):
             print(
                 "dokimasia: at least one host was throttling this run, so these say nothing "
@@ -1353,6 +1866,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("mode", nargs="?", default="lint", choices=("lint", "verify", "rendered"))
     parser.add_argument("docs", nargs="*", metavar="DOC.tex", help="rendered: documents to check")
     args = parser.parse_args(argv)
+    _UNREADABLE.clear()
     try:
         cfg = load_config(args.root)
         if args.mode == "lint":

@@ -1,6 +1,6 @@
 {
   "name": "dokimasia",
-  "description": "Bibliography verification for LaTeX projects: an offline lint of any .bib, an online verify against arXiv and Crossref that tells a failed lookup from a wrong entry, and a check that every cited key rendered.",
+  "description": "Bibliography verification for LaTeX projects: an offline lint of any .bib or hand-written thebibliography, an online verify against arXiv and Crossref that tells a failed lookup from a wrong entry, and a check that every cited key rendered.",
   "author": {
     "name": "AJ",
     "email": "ajbareaa@gmail.com"

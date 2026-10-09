@@ -53,4 +53,4 @@ The skills ship in three plugins: `techne` for work in a code repo, `graphe` for
 
 | Skill | Purpose |
 |---|---|
-| [`dokimasia:check`](check.md) | Lints any `.bib` offline, verifies it against arXiv and Crossref telling a failed lookup from a wrong entry, and checks every cited key rendered. |
+| [`dokimasia:check`](check.md) | Lints any `.bib` or hand-written `thebibliography` offline, verifies it against arXiv and Crossref telling a failed lookup from a wrong entry, and checks every cited key rendered. |

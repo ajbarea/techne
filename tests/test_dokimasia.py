@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import email.message
 import json
+import os
 import urllib.error
+from pathlib import Path
 
 import pytest
 
@@ -1791,3 +1793,1213 @@ def test_a_starred_import_is_followed(dk, tmp_path):
         },
     )
     assert dk.document_cites(tmp_path / "m.tex") == {"right"}
+
+
+# --- hand-written thebibliography (#113) -------------------------------------------------
+
+#: An IEEE-style hand-written list: one arXiv preprint, one journal article with a DOI, and
+#: one with neither, which is how most printed styles look.
+HAND = r"""\documentclass{article}
+\begin{document}
+Text \cite{doe2024,roe2019} and \cite{poe2015}.
+\begin{thebibliography}{3}
+\bibitem{doe2024}
+J.~Doe, ``A perfectly ordinary title,'' arXiv:2401.00001, 2024.
+
+\bibitem{roe2019}
+R.~Roe and S.~Sun, ``Checking the {LLM}s that check,'' \emph{Empirical Softw. Eng.},
+vol.~24, pp.~1--9, 2019, doi: 10.1007/s10664-018-9653-2.
+
+\bibitem{poe2015}
+E.~Poe, ``A raven,'' \emph{PeerJ}, vol.~3, 2015.
+\end{thebibliography}
+\end{document}
+"""
+
+ARXIV_FEED = (
+    "<feed><entry><title>A Perfectly Ordinary Title</title><published>2024-01-02</published>"
+    "<author><name>Jane Doe</name></author></entry></feed>"
+)
+CROSSREF = json.dumps(
+    {
+        "message": {
+            "title": ["Checking the LLMs that check"],
+            "author": [{"given": "Rita", "family": "Roe"}],
+            "issued": {"date-parts": [[2018, 11]]},
+            "published-print": {"date-parts": [[2019, 2]]},
+        }
+    }
+)
+
+
+def _hand(tmp_path, tex=HAND, name="paper.tex"):
+    (tmp_path / name).write_text(tex)
+    return tmp_path / name
+
+
+def _answer(dk, monkeypatch, feed=ARXIV_FEED, crossref=CROSSREF):
+    """Serve arXiv and Crossref from fixtures; the lookup never touches the network."""
+
+    def get(url, *a, **k):
+        return (feed, "") if "arxiv" in url else (crossref, "")
+
+    monkeypatch.setattr(dk, "_get", get)
+    monkeypatch.setattr(dk.time, "sleep", lambda *_: None)
+
+
+def test_a_project_with_only_a_hand_written_list_is_not_a_config_error(dk, tmp_path, capsys):
+    _hand(tmp_path)
+    assert dk.main(["--root", str(tmp_path), "lint"]) == 0
+    out = capsys.readouterr().out
+    assert "3 entries (3 hand-written)" in out
+
+
+def test_no_bib_and_no_hand_written_list_is_still_a_config_error(dk, tmp_path, capsys):
+    (tmp_path / "paper.tex").write_text(DOC + "\\cite{x}\n")
+    assert dk.main(["--root", str(tmp_path), "lint"]) == 2
+    assert "no document has a hand-written thebibliography" in capsys.readouterr().err
+
+
+def test_bibitems_reads_keys_and_the_text_up_to_the_next_item(dk, tmp_path):
+    items = dk.bibitems(dk.strip_comments(HAND), tmp_path / "paper.tex")
+    assert [i.key for i in items] == ["doe2024", "roe2019", "poe2015"]
+    assert items[1].text.startswith("R.~Roe and S.~Sun,")
+    assert items[1].text.endswith("10.1007/s10664-018-9653-2.")
+    assert "\\bibitem" not in items[0].text
+
+
+def test_a_natbib_label_with_braces_and_brackets_is_skipped(dk, tmp_path):
+    tex = (
+        "\\begin{thebibliography}{1}"
+        "\\bibitem[{Doe et~al.(2024)}]{doe2024} J. Doe."
+        "\\end{thebibliography}"
+    )
+    assert [i.key for i in dk.bibitems(tex, tmp_path)] == ["doe2024"]
+
+
+def test_a_commented_bibitem_is_not_an_entry(dk, tmp_path, capsys):
+    _hand(tmp_path, HAND.replace("\\bibitem{poe2015}", "% \\bibitem{poe2015}"))
+    dk.lint(dk.load_config(tmp_path))
+    assert "dangling citation: \\cite{poe2015}" in _err(capsys)
+
+
+def test_a_duplicate_bibitem_is_caught(dk, tmp_path, capsys):
+    _hand(tmp_path, HAND.replace("\\bibitem{poe2015}", "\\bibitem{doe2024}"))
+    dk.lint(dk.load_config(tmp_path))
+    assert "duplicate \\bibitem: doe2024 appears 2 times (in paper.tex)" in _err(capsys)
+
+
+def test_a_citation_with_no_bibitem_is_dangling(dk, tmp_path, capsys):
+    _hand(tmp_path, HAND.replace("\\cite{poe2015}", "\\cite{poe2015,ghost2020}"))
+    assert dk.lint(dk.load_config(tmp_path)) == 1
+    assert "dangling citation: \\cite{ghost2020} has no entry (cited by paper.tex)" in _err(capsys)
+
+
+def test_a_printed_item_nothing_cites_is_an_orphan(dk, tmp_path, capsys):
+    """A hand-written list prints every item, cited or not."""
+    _hand(tmp_path, HAND.replace(" and \\cite{poe2015}", ""))
+    assert dk.lint(dk.load_config(tmp_path)) == 1
+    assert "orphan \\bibitem: poe2015 is printed in paper.tex" in _err(capsys)
+
+
+def test_nocite_star_does_not_cover_a_hand_written_orphan(dk, tmp_path, capsys):
+    _hand(tmp_path, HAND.replace(" and \\cite{poe2015}", "\\nocite{*}"))
+    assert dk.lint(dk.load_config(tmp_path)) == 1
+
+
+def test_hand_written_orphans_follow_the_orphans_switch(dk, tmp_path):
+    _hand(tmp_path, HAND.replace(" and \\cite{poe2015}", ""))
+    (tmp_path / "dokimasia.toml").write_text("orphans = false\n")
+    assert dk.lint(dk.load_config(tmp_path)) == 0
+
+
+def test_a_hand_written_document_does_not_draw_on_a_bib(dk, tmp_path, capsys):
+    """Its citations must be in its own list. A .bib elsewhere in the project, used by
+    another paper, neither satisfies them nor gains orphans from them."""
+    _tree(tmp_path, {"q/refs.bib": _entry("ghost2020")})
+    _paper(tmp_path, "q", "refs", "\\cite{ghost2020}")
+    _hand(tmp_path, HAND.replace("\\cite{poe2015}", "\\cite{poe2015,ghost2020}"))
+    assert dk.lint(dk.load_config(tmp_path)) == 1
+    assert "\\cite{ghost2020} has no entry (cited by paper.tex)" in _err(capsys)
+
+
+def test_an_entry_with_no_printed_identifier_is_counted_not_a_finding(dk, tmp_path, capsys):
+    _hand(tmp_path)
+    assert dk.lint(dk.load_config(tmp_path)) == 0
+    assert "info: 1 of 3 hand-written entries print no arXiv id or DOI" in capsys.readouterr().out
+
+
+def test_an_exemption_may_name_a_hand_written_entry(dk, tmp_path):
+    _hand(tmp_path)
+    (tmp_path / "dokimasia.toml").write_text('[exempt.title]\npoe2015 = "the source is wrong"\n')
+    assert dk.lint(dk.load_config(tmp_path)) == 0
+
+
+@pytest.mark.parametrize(
+    ("text", "eprint", "doi"),
+    [
+        ("arXiv:2607.22693, 2026.", "2607.22693", None),
+        ("arXiv preprint arXiv:2607.22693v2", "2607.22693", None),
+        ("\\url{https://arxiv.org/abs/2607.22693}", "2607.22693", None),
+        ("arXiv:hep-th/9901001", "hep-th/9901001", None),
+        ("doi: 10.7717/peerj.1364.", None, "10.7717/peerj.1364"),
+        ("\\url{https://doi.org/10.1109/C-M.1978.218136}", None, "10.1109/C-M.1978.218136"),
+        ("doi: 10.1000/a\\_b.", None, "10.1000/a_b"),
+        ("(https://doi.org/10.1000/xyz)", None, "10.1000/xyz"),
+        # arXiv's DataCite DOI resolves through the arXiv id, not through Crossref.
+        ("doi: 10.48550/arXiv.2607.22693", "2607.22693", None),
+        ("vol. 13, 2023.", None, None),
+    ],
+)
+def test_inline_ids_finds_printed_identifiers(dk, text, eprint, doi):
+    assert dk.inline_ids(text) == (eprint, doi)
+
+
+def test_rendered_checks_a_hand_written_document_instead_of_calling_it_unbuilt(
+    dk, tmp_path, capsys
+):
+    _hand(tmp_path)
+    assert dk.main(["--root", str(tmp_path), "--require-built", "rendered"]) == 0
+    out = capsys.readouterr().out
+    assert "3/3 cited keys rendered (hand-written thebibliography)" in out
+    assert "not built" not in out.replace("0 not built", "")
+
+
+def test_rendered_catches_a_citation_with_no_bibitem(dk, tmp_path, capsys):
+    _hand(tmp_path, HAND.replace("\\cite{poe2015}", "\\cite{poe2015,ghost2020}"))
+    assert dk.rendered(dk.load_config(tmp_path)) == 1
+    assert "\\cite{ghost2020} did not render" in _err(capsys)
+
+
+def test_rendered_reads_a_bbl_pasted_in_through_input(dk, tmp_path, capsys):
+    """arXiv submissions often paste the .bbl into the source; it is then the list."""
+    body = HAND.split("\\begin{thebibliography}")[1].split("\\end{thebibliography}")[0]
+    _tree(
+        tmp_path,
+        {
+            "main.tex": DOC + "\\cite{doe2024}\n\\input{main.bbl}\n",
+            "main.bbl": "\\begin{thebibliography}" + body + "\\end{thebibliography}\n",
+        },
+    )
+    assert dk.rendered(dk.load_config(tmp_path)) == 0
+    # It is build output beside the .tex, so the ordinary .bbl check runs, as before.
+    out = capsys.readouterr().out
+    assert "1/1 cited keys rendered\n" in out
+
+
+def test_verify_resolves_printed_identifiers_and_names_the_rest(dk, tmp_path, monkeypatch, capsys):
+    _hand(tmp_path)
+    _answer(dk, monkeypatch)
+    assert dk.verify(dk.load_config(tmp_path), delay=0) == 0
+    out = capsys.readouterr().out
+    assert "verified 2, exempt 0, unresolved 0, unverifiable 1, uncompared 0, drift 0" in out
+    assert "poe2015 (paper.tex)" in out
+
+
+def test_a_printed_title_that_differs_from_the_source_is_drift(dk, tmp_path, monkeypatch, capsys):
+    _hand(tmp_path, HAND.replace("A perfectly ordinary title", "A perfectly ordinary tale"))
+    _answer(dk, monkeypatch)
+    assert dk.verify(dk.load_config(tmp_path), delay=0) == 1
+    assert "title drift: doe2024 (paper.tex)" in _err(capsys)
+
+
+def test_a_title_is_matched_as_whole_words_not_as_a_substring(dk, tmp_path):
+    record = {"title": "Ordinary title", "authors": ["Jane Doe"], "source": "arxiv"}
+    text = "J. Doe, ``Extraordinary titles,'' arXiv:2401.00001."
+    cfg = dk.Config(root=tmp_path)
+    assert [f[0] for f in dk._printed_findings(cfg, "k", text, record)] == ["title"]
+
+
+def test_the_first_author_must_be_printed_before_the_title(dk, tmp_path, monkeypatch, capsys):
+    _hand(tmp_path, HAND.replace("J.~Doe,", "J.~Smith,"))
+    _answer(dk, monkeypatch)
+    assert dk.verify(dk.load_config(tmp_path), delay=0) == 1
+    assert "first author drift: doe2024 (paper.tex)" in _err(capsys)
+
+
+def test_a_preprint_year_that_differs_is_drift(dk, tmp_path, monkeypatch, capsys):
+    _hand(tmp_path, HAND.replace("arXiv:2401.00001, 2024", "arXiv:2401.00001, 2023"))
+    _answer(dk, monkeypatch)
+    assert dk.verify(dk.load_config(tmp_path), delay=0) == 1
+    assert "year drift: doe2024 (paper.tex)" in _err(capsys)
+
+
+def test_a_venue_paper_is_not_compared_with_its_arxiv_year(dk, tmp_path, monkeypatch):
+    """A NeurIPS 2023 paper posted to arXiv in 2024 is correctly dated 2023."""
+    venue = HAND.replace(
+        "arXiv:2401.00001, 2024.", "in \\emph{Proc. NeurIPS}, 2023. arXiv:2401.00001."
+    )
+    _hand(tmp_path, venue)
+    _answer(dk, monkeypatch)
+    assert dk.verify(dk.load_config(tmp_path), delay=0) == 0
+
+
+def test_a_print_year_or_an_issued_year_both_satisfy_crossref(dk, tmp_path, monkeypatch):
+    for year in ("2018", "2019"):
+        _hand(tmp_path, HAND.replace("pp.~1--9, 2019", f"pp.~1--9, {year}"))
+        _answer(dk, monkeypatch)
+        assert dk.verify(dk.load_config(tmp_path), delay=0) == 0
+
+
+def test_a_crossref_year_printed_nowhere_is_drift(dk, tmp_path, monkeypatch, capsys):
+    _hand(tmp_path, HAND.replace("pp.~1--9, 2019", "pp.~1--9, 2021"))
+    _answer(dk, monkeypatch)
+    assert dk.verify(dk.load_config(tmp_path), delay=0) == 1
+    assert "year drift: roe2019 (paper.tex)" in _err(capsys)
+
+
+def test_a_record_exemption_skips_author_and_year_for_a_printed_entry(
+    dk, tmp_path, monkeypatch, capsys
+):
+    _hand(tmp_path, HAND.replace("J.~Doe,", "J.~Smith,"))
+    (tmp_path / "dokimasia.toml").write_text('[exempt.record]\ndoe2024 = "renamed author"\n')
+    _answer(dk, monkeypatch)
+    assert dk.verify(dk.load_config(tmp_path), delay=0) == 0
+    assert "exempt: doe2024 (paper.tex) -- renamed author" in capsys.readouterr().out
+
+
+def test_a_list_two_documents_share_is_verified_once(dk, tmp_path, monkeypatch, capsys):
+    body = HAND.split("\\begin{document}")[1].split("\\end{document}")[0]
+    _tree(
+        tmp_path,
+        {
+            "refs.tex": body,
+            "a.tex": DOC + "\\input{refs}\n",
+            "b.tex": DOC + "\\input{refs}\n",
+        },
+    )
+    _answer(dk, monkeypatch)
+    dk.verify(dk.load_config(tmp_path), delay=0)
+    assert "verified 2, exempt 0, unresolved 0, unverifiable 1" in capsys.readouterr().out
+
+
+def test_a_bib_and_a_hand_written_list_are_verified_together(dk, tmp_path, monkeypatch, capsys):
+    (tmp_path / "references.bib").write_text(CLEAN)
+    _hand(tmp_path)
+    _answer(dk, monkeypatch)
+    dk.verify(dk.load_config(tmp_path), delay=0)
+    # good2024entry and doe2024 share one arXiv id; the second is a cache hit.
+    assert (
+        "verified 3, exempt 0, unresolved 0, unverifiable 1, uncompared 0, drift 0 (1 from cache)"
+        in (capsys.readouterr().out)
+    )
+
+
+# --- #113 review round: every test below failed against the first cut of #114 -----------
+
+
+def test_an_empty_block_in_a_bib_project_changes_nothing(dk, tmp_path):
+    (tmp_path / "references.bib").write_text(CLEAN)
+    (tmp_path / "paper.tex").write_text(
+        DOC + "\\cite{good2024entry}\\bibliography{references}\n"
+        "\\begin{thebibliography}{9}\\end{thebibliography}\n"
+    )
+    assert dk.lint(dk.load_config(tmp_path)) == 0
+
+
+def test_a_list_inside_a_newenvironment_template_is_not_a_list(dk, tmp_path, capsys):
+    (tmp_path / "references.bib").write_text(CLEAN)
+    (tmp_path / "paper.tex").write_text(
+        "\\newenvironment{refs}{\\begin{thebibliography}{99}}{\\end{thebibliography}}\n"
+        + DOC
+        + "\\cite{good2024entry}\n"
+    )
+    assert dk.lint(dk.load_config(tmp_path)) == 0
+    assert "1 entries, 0 staged unread, 0 finding(s)" in capsys.readouterr().out
+
+
+def test_items_kept_in_an_input_file_belong_to_the_block_that_inputs_them(dk, tmp_path):
+    items = HAND.split("\\begin{thebibliography}{3}")[1].split("\\end{thebibliography}")[0]
+    _tree(
+        tmp_path,
+        {
+            "paper.tex": DOC + "\\cite{doe2024,roe2019,poe2015}\n"
+            "\\begin{thebibliography}{3}\\input{items}\\end{thebibliography}\n",
+            "items.tex": items,
+        },
+    )
+    cfg = dk.load_config(tmp_path)
+    assert dk.lint(cfg) == 0
+    assert dk.rendered(cfg) == 0
+
+
+def test_loose_bibitems_outside_a_hand_written_document_are_not_entries(dk, tmp_path):
+    (tmp_path / "references.bib").write_text(CLEAN)
+    (tmp_path / "paper.tex").write_text(
+        DOC + "\\cite{good2024entry}\\bibliography{references}\n\\bibitem{stray} Stray.\n"
+    )
+    assert dk.lint(dk.load_config(tmp_path)) == 0
+
+
+def test_a_pasted_bbl_does_not_orphan_the_bib_it_came_from(dk, tmp_path):
+    """arXiv-prep layout: refs.bib plus `\\input{main.bbl}`; main lints this clean."""
+    _tree(
+        tmp_path,
+        {
+            "refs.bib": CLEAN,
+            "main.tex": DOC + "\\cite{good2024entry}\n\\input{main.bbl}\n",
+            "main.bbl": "\\begin{thebibliography}{1}\\bibitem{good2024entry} J. Doe."
+            "\\end{thebibliography}\n",
+        },
+    )
+    assert dk.lint(dk.load_config(tmp_path)) == 0
+
+
+def test_a_pasted_bbl_under_another_stem_renders(dk, tmp_path, capsys):
+    _tree(
+        tmp_path,
+        {
+            "refs.bib": CLEAN,
+            "main.tex": DOC + "\\cite{good2024entry}\n\\input{final.bbl}\n",
+            "final.bbl": "\\begin{thebibliography}{1}\\bibitem{good2024entry} J. Doe."
+            "\\end{thebibliography}\n",
+        },
+    )
+    assert dk.rendered(dk.load_config(tmp_path)) == 0
+    assert "1/1 cited keys rendered (pasted .bbl)" in capsys.readouterr().out
+
+
+def test_a_list_parked_in_iffalse_is_not_a_list(dk, tmp_path, capsys):
+    _tree(
+        tmp_path,
+        {
+            "refs.bib": CLEAN,
+            "main.tex": DOC + "\\cite{good2024entry}\\bibliography{refs}\n\\iffalse\n"
+            "\\begin{thebibliography}{1}\\bibitem{old} Old.\\end{thebibliography}\n\\fi\n",
+            "main.bbl": "\\bibitem{good2024entry} J. Doe.\n",
+        },
+    )
+    cfg = dk.load_config(tmp_path)
+    assert dk.lint(cfg) == 0
+    assert dk.rendered(cfg) == 0
+    assert "1/1 cited keys rendered\n" in capsys.readouterr().out
+
+
+def test_a_bibtex_document_does_not_read_a_thebibliography_beside_it(dk, tmp_path, capsys):
+    """As on main: a document that names a .bib is checked against its .bbl alone."""
+    _tree(
+        tmp_path,
+        {
+            "refs.bib": CLEAN,
+            "main.tex": DOC + "\\cite{good2024entry,data2020}\\bibliography{refs}\n"
+            "\\begin{thebibliography}{1}\\bibitem{data2020} A dataset.\\end{thebibliography}\n",
+            "main.bbl": "\\bibitem{good2024entry} J. Doe.\n",
+        },
+    )
+    cfg = dk.load_config(tmp_path)
+    assert dk.rendered(cfg) == 1
+    assert "1/2 cited keys rendered\n" in capsys.readouterr().out
+
+
+def test_a_bib_only_project_keeps_its_unverifiable_wording(dk, tmp_path, monkeypatch, capsys):
+    (tmp_path / "references.bib").write_text(CLEAN.replace("eprint", "url"))
+    _answer(dk, monkeypatch)
+    dk.verify(dk.load_config(tmp_path), delay=0)
+    assert "unverifiable -- no eprint or doi, so verify can never check these:" in (
+        capsys.readouterr().out
+    )
+
+
+def test_a_longer_quoted_title_around_the_source_title_is_drift(dk):
+    """A real DOI under an invented, longer title: the typical fabricated reference."""
+    record = {"title": "Deep learning", "authors": ["Yann LeCun"], "source": "crossref"}
+    printed = "Y. LeCun, ``Applications of deep learning in medicine,'' \\emph{Nature}, 2015."
+    found = dk._printed_findings(dk.Config(root=Path(".")), "k", printed, record)
+    assert [f[0] for f in found] == ["title"]
+
+
+@pytest.mark.parametrize(
+    "printed",
+    [
+        "Y. LeCun. Applications of deep learning in medicine. \\emph{Nature}, 2015.",
+        "Y. LeCun. Deep learning: a review. \\emph{Nature}, 2015.",
+        "Y. LeCun. 2015. \\emph{Deep Learning}. Nature.",
+    ],
+)
+def test_an_unquoted_title_is_never_compared(dk, printed):
+    """Neither verified nor drift: the printed text does not say which part is the title."""
+    record = {"title": "Deep learning", "authors": ["Yann LeCun"], "source": "crossref"}
+    assert dk._printed_findings(dk.Config(root=Path(".")), "k", printed, record) is None
+
+
+def test_the_quoted_source_title_is_not_drift(dk):
+    record = {"title": "Deep learning", "authors": ["Yann LeCun"], "source": "crossref"}
+    printed = "Y. LeCun, ``Deep learning,'' \\emph{Nature}, 2015."
+    assert dk._printed_findings(dk.Config(root=Path(".")), "k", printed, record) == []
+
+
+def test_a_tex_umlaut_does_not_open_a_quoted_title(dk):
+    record = {"title": "Deep learning", "authors": ["Kurt M\u00fcller"], "source": "crossref"}
+    printed = 'K. M\\"uller and A. B\\"ohm. Deep learning. Nature, 2015.'
+    assert dk._printed_findings(dk.Config(root=Path(".")), "k", printed, record) is None
+
+
+def test_another_source_author_printed_first_is_drift(dk):
+    record = {
+        "title": "Deep learning",
+        "authors": ["Yann LeCun", "Yoshua Bengio", "Geoffrey Hinton"],
+        "source": "crossref",
+    }
+    printed = "G. Hinton, Y. Bengio, and Y. LeCun, ``Deep learning,'' Nature, 2015."
+    found = dk._printed_findings(dk.Config(root=Path(".")), "k", printed, record)
+    assert [f[0] for f in found] == ["first author"]
+
+
+def test_a_generational_suffix_on_the_source_is_not_drift(dk):
+    record = {"title": "Deep learning", "authors": ["Jane Doe Jr."], "source": "crossref"}
+    printed = "J. Doe, ``Deep learning,'' Nature, 2015."
+    assert dk._printed_findings(dk.Config(root=Path(".")), "k", printed, record) == []
+
+
+def test_preprint_wording_alone_does_not_compare_a_venue_paper_with_arxiv(dk):
+    record = {"title": "Title here", "authors": ["John Smith"], "year": 2020, "source": "arxiv"}
+    printed = "J. Smith, ``Title here,'' in NeurIPS, 2021. arXiv preprint arXiv:2001.01234."
+    assert dk._printed_findings(dk.Config(root=Path(".")), "k", printed, record) == []
+
+
+def test_a_year_after_a_classified_arxiv_id_is_compared(dk):
+    record = {"title": "Title here", "authors": ["John Smith"], "year": 2024, "source": "arxiv"}
+    printed = "J. Smith, ``Title here,'' arXiv:2401.00001 [cs.LG], 2023."
+    found = dk._printed_findings(dk.Config(root=Path(".")), "k", printed, record)
+    assert [f[0] for f in found] == ["year"]
+
+
+@pytest.mark.parametrize(
+    ("text", "eprint", "doi"),
+    [
+        ("doi:10.1145/3442188.3445922\\url{x}", None, "10.1145/3442188.3445922"),
+        ("Y. Smith. Foo. CoRR, abs/2001.01234, 2020.", "2001.01234", None),
+        ("\\showeprint[arxiv]{2001.01234}", "2001.01234", None),
+        (
+            "doi: 10.1002/(SICI)1097-4571(199806)49:8<693::AID-ASI4>3.0.CO;2-0.",
+            None,
+            "10.1002/(SICI)1097-4571(199806)49:8<693::AID-ASI4>3.0.CO;2-0",
+        ),
+        ("``Title,'' doi:10.1000/xyz''", None, "10.1000/xyz"),
+    ],
+)
+def test_inline_ids_stop_at_tex_and_keep_sici_dois(dk, text, eprint, doi):
+    assert dk.inline_ids(text) == (eprint, doi)
+
+
+def test_each_copy_of_a_duplicated_key_is_resolved(dk, tmp_path, monkeypatch, capsys):
+    """lint reports the duplicate; verify must still look up the second copy's DOI."""
+    _hand(
+        tmp_path,
+        HAND.replace("E.~Poe,", "E.~Poe, doi: 10.9999/fake,").replace(
+            "\\bibitem{poe2015}", "\\bibitem{roe2019}"
+        ),
+    )
+    seen = []
+
+    def get(url, *a, **k):
+        seen.append(url)
+        return (ARXIV_FEED, "") if "arxiv" in url else (CROSSREF, "")
+
+    monkeypatch.setattr(dk, "_get", get)
+    monkeypatch.setattr(dk.time, "sleep", lambda *_: None)
+    dk.verify(dk.load_config(tmp_path), delay=0)
+    assert any("10.9999" in u for u in seen)
+
+
+def test_a_broken_symlink_does_not_crash_verify(dk, tmp_path, monkeypatch):
+    (tmp_path / "references.bib").write_text(CLEAN)
+    (tmp_path / "gone.tex").symlink_to(tmp_path / "missing.tex")
+    _answer(dk, monkeypatch)
+    assert dk.verify(dk.load_config(tmp_path), delay=0) == 0
+
+
+# --- #113 later review rounds ------------------------------------------------------------
+
+VASWANI = {
+    "title": "Attention is all you need",
+    "authors": ["Ashish Vaswani", "Noam Shazeer"],
+    "year": 2017,
+    "source": "arxiv",
+}
+
+
+def _compare(dk, printed, record=None):
+    found = dk._printed_findings(dk.Config(root=Path(".")), "k", printed, record or VASWANI)
+    return None if found is None else [f[0] for f in found]
+
+
+@pytest.mark.parametrize(
+    "printed",
+    [
+        "A.~Vaswani and N.~Shazeer, ``Attention is all you need,'' arXiv:1706.03762, 2017.",
+        "A.~Vaswani \\emph{et~al.}, ``Attention is all you need,'' 2017.",
+        'Vaswani, Ashish, and Noam Shazeer. 2017. "Attention Is All You Need." arXiv.',
+        'Vaswani, Ashish, et al. "Attention Is All You Need." \\emph{arXiv}, 2017.',
+        "A. Vaswani, ``Attention is all you need: a subtitle Crossref drops,'' 2017.",
+    ],
+)
+def test_correct_quoted_entries_are_clean(dk, printed):
+    assert _compare(dk, printed) == []
+
+
+@pytest.mark.parametrize(
+    "printed",
+    [
+        "Vaswani, A., Shazeer, N.: Attention is all you need. arXiv:1706.03762 (2017)",
+        "Ashish Vaswani and Noam Shazeer. 2017. Attention is all you need. arXiv:1706.03762.",
+        "Vaswani, A. and Shazeer, N. (2017) Attention is all you need. arXiv:1706.03762.",
+        "Vaswani A and Shazeer N 2017 Attention is all you need arXiv:1706.03762",
+        "A.~Vaswani, N.~Shazeer, Phys. Rev. \\textbf{47}, 777 (2017).",
+        # Fabrications in unquoted styles are reported uncompared, never verified.
+        "Doe, J.: Fabricated chapter. In: Attention is all you need, pp. 1--9 (2017)",
+        "J. Doe. Fabricated method. \\newblock In {\\em Attention is all you need}, 2017.",
+    ],
+)
+def test_unquoted_styles_are_uncompared(dk, printed):
+    assert _compare(dk, printed) is None
+
+
+@pytest.mark.parametrize(
+    "printed",
+    [
+        # A comma inside an invented title used to expose the real one.
+        "A.~Vaswani, ``Rethinking, attention is all you need, and more,'' 2017.",
+        "A.~Vaswani, ``Rethinking transformers: Attention is all you need,'' 2017.",
+        # A chapter borrowing its volume's DOI: the quoted title is the chapter's.
+        "J.~Doe, ``Fabricated chapter,'' in \\emph{Attention is all you need}, 2017.",
+        "J.~Doe, ``Fabricated chapter,'' in J. Smith (Ed.), ``Attention is all you need,'' 2017.",
+    ],
+)
+def test_a_fabricated_quoted_title_is_drift(dk, printed):
+    assert "title" in _compare(dk, printed)
+
+
+@pytest.mark.parametrize(
+    "printed",
+    [
+        "J.~Doe, A.~Vaswani, and N.~Shazeer, ``Attention is all you need,'' 2017.",
+        "Yann Smith and Ashish Vaswani, ``Attention is all you need,'' 2017.",
+        "J. de Doe, ``Attention is all you need,'' 2017.",
+    ],
+)
+def test_a_wrong_first_author_is_drift(dk, printed):
+    assert _compare(dk, printed) == ["first author"]
+
+
+@pytest.mark.parametrize(
+    ("printed", "first"),
+    [
+        ("Li Wang and Wei Li, ``Deep learning,'' Nature, 2020.", "Li Wang"),
+        ("Yann LeCun, ``Deep learning,'' Nature, 2020.", "Y. LeCun"),
+        ("{World Health Organization}, ``Deep learning,'' 2020.", "World Health Organization"),
+    ],
+)
+def test_first_authors_the_bib_rule_accepts_are_accepted(dk, printed, first):
+    record = {"title": "Deep learning", "authors": [first, "Wei Li"], "source": "crossref"}
+    assert _compare(dk, printed, record) == []
+
+
+@pytest.mark.parametrize(
+    "printed",
+    [
+        "Doe, J. (2020). The ``attention'' trap in reading. \\emph{Mind}, 1.",
+        'Doe, J. (2020). The "attention" trap in reading. Mind, 1.',
+    ],
+)
+def test_a_quoted_word_inside_an_unquoted_title_is_not_the_title(dk, printed):
+    record = {
+        "title": "The attention trap in reading",
+        "authors": ["Jane Doe"],
+        "source": "crossref",
+    }
+    assert _compare(dk, printed, record) is None
+
+
+def test_nested_quotes_inside_a_title_are_one_title(dk):
+    record = {"title": "On robust estimation", "authors": ["Jane Doe"], "source": "crossref"}
+    assert _compare(dk, "J.~Doe, ``On ``robust'' estimation,'' 2020.", record) == []
+
+
+def test_a_page_range_is_not_a_claimed_year(dk):
+    record = {
+        "title": "Deep learning",
+        "authors": ["Yann LeCun"],
+        "year": 2015,
+        "source": "crossref",
+    }
+    assert _compare(dk, "Y. LeCun, ``Deep learning,'' Nature, pp. 2016--2020, 2015.", record) == []
+
+
+def test_verify_names_uncompared_entries_and_exits_clean(dk, tmp_path, monkeypatch, capsys):
+    tex = HAND.replace(
+        "R.~Roe and S.~Sun, ``Checking the {LLM}s that check,'' \\emph{Empirical Softw. Eng.},",
+        "R.~Roe and S.~Sun, \\emph{Empirical Softw. Eng.},",
+    )
+    _hand(tmp_path, tex)
+    _answer(dk, monkeypatch)
+    assert dk.verify(dk.load_config(tmp_path), delay=0) == 0
+    out = capsys.readouterr().out
+    assert "verified 1, exempt 0, unresolved 0, unverifiable 1, uncompared 1, drift 0" in out
+    assert "uncompared -- the identifier resolved" in out
+    assert "roe2019 (paper.tex)" in out
+
+
+def test_a_stale_bbl_beside_a_hand_written_document_is_ignored(dk, tmp_path, capsys):
+    _hand(tmp_path, HAND.replace("\\cite{poe2015}", "\\cite{poe2015,gone2020}"))
+    (tmp_path / "paper.bbl").write_text("\\bibitem{gone2020} Old build.\n")
+    assert dk.rendered(dk.load_config(tmp_path)) == 1
+    assert "\\cite{gone2020} did not render" in _err(capsys)
+
+
+@pytest.mark.parametrize(
+    "text", ["{\\em CoRR}, abs/1810.04805, 2018.", "\\emph{CoRR}, vol. abs/1810.04805, 2018."]
+)
+def test_dblp_corr_ids_in_braces_are_read(dk, text):
+    assert dk.inline_ids(text) == ("1810.04805", None)
+
+
+def test_let_iffalse_does_not_hide_the_list(dk, tmp_path):
+    """A conditional defined in the preamble and closed after the list must not swallow it."""
+    tex = HAND.replace("\\end{document}", "\\ifdraft draft\\fi\n\\end{document}")
+    _hand(tmp_path, "\\let\\ifdraft\\iffalse\n" + tex)
+    assert dk.lint(dk.load_config(tmp_path)) == 0
+
+
+def test_a_list_inside_an_xparse_environment_definition_is_not_a_list(dk, tmp_path):
+    (tmp_path / "references.bib").write_text(CLEAN)
+    (tmp_path / "paper.tex").write_text(
+        "\\NewDocumentEnvironment{refs}{}{\\begin{thebibliography}{9}}{\\end{thebibliography}}\n"
+        + DOC
+        + "\\cite{good2024entry}\n"
+    )
+    assert dk.lint(dk.load_config(tmp_path)) == 0
+
+
+def test_a_project_with_only_a_pasted_bbl_is_still_a_config_error(dk, tmp_path):
+    """The .bbl is build output; with no .bib in the project there is nothing to check."""
+    _tree(
+        tmp_path,
+        {
+            "main.tex": DOC + "\\cite{good2024entry}\n\\input{main.bbl}\n",
+            "main.bbl": "\\begin{thebibliography}{1}\\bibitem{good2024entry} J. Doe."
+            "\\end{thebibliography}\n",
+        },
+    )
+    assert dk.main(["--root", str(tmp_path), "lint"]) == 2
+
+
+def test_a_key_only_in_a_pasted_bbl_is_still_dangling(dk, tmp_path, capsys):
+    _tree(
+        tmp_path,
+        {
+            "refs.bib": CLEAN,
+            "main.tex": DOC + "\\cite{good2024entry,x}\n\\input{main.bbl}\n",
+            "main.bbl": "\\begin{thebibliography}{2}\\bibitem{good2024entry} J. Doe."
+            "\\bibitem{x} Fabricated.\\end{thebibliography}\n",
+        },
+    )
+    assert dk.lint(dk.load_config(tmp_path)) == 1
+    assert "dangling citation: \\cite{x}" in _err(capsys)
+
+
+# --- #113 fourth review round -------------------------------------------------------------
+
+HANDBOOK = {"title": "Handbook of machine learning systems", "authors": [], "source": "crossref"}
+
+
+@pytest.mark.parametrize(
+    "printed",
+    [
+        # Only the first quoted span can be the title; a later one is the borrowed book.
+        "J.~Doe, ``Fabricated chapter on agents'' in ``Handbook of machine learning systems,''",
+        'J. Doe, "Fabricated chapter"; in: "Handbook of machine learning systems."',
+        "J.~Doe, Fabricated method, in ``Handbook of machine learning systems,'' 2020.",
+    ],
+)
+def test_a_quoted_book_after_the_item_is_never_its_title(dk, printed):
+    assert _compare(dk, printed, HANDBOOK) is None
+
+
+def test_an_enquote_chapter_before_a_quoted_book_is_drift(dk):
+    printed = "J.~Doe, \\enquote{Fabricated chapter}, in ``Handbook of machine learning systems,''"
+    assert _compare(dk, printed, HANDBOOK) == ["title"]
+
+
+@pytest.mark.parametrize(
+    "printed",
+    [
+        "J. Doe \\& A. Vaswani, ``Attention is all you need,'' 2017.",
+        "J. Doe & A. Vaswani, ``Attention is all you need,'' 2017.",
+        "J. Doe with A. Vaswani, ``Attention is all you need,'' 2017.",
+        "J. Doe et A. Vaswani, ``Attention is all you need,'' 2017.",
+        "J. DOE AND A. VASWANI, ``Attention is all you need,'' 2017.",
+    ],
+)
+def test_every_author_separator_ends_the_first_author(dk, printed):
+    assert _compare(dk, printed) == ["first author"]
+
+
+@pytest.mark.parametrize(
+    ("printed", "first"),
+    [
+        ("Y. Le Cun, ``Adam: a method for stochastic optimization,'' 2014.", "Yann LeCun"),
+        ("Y. LeCun, ``Adam: a method for stochastic optimization,'' 2014.", "Yann Le Cun"),
+    ],
+)
+def test_split_surnames_are_the_same_author(dk, printed, first):
+    record = {
+        "title": "Adam: a method for stochastic optimization",
+        "authors": [first],
+        "source": "arxiv",
+    }
+    assert _compare(dk, printed, record) == []
+
+
+def test_a_year_after_a_later_arxiv_version_is_not_the_posting_year(dk):
+    record = {"title": "Adam", "authors": ["Diederik Kingma"], "year": 2014, "source": "arxiv"}
+    assert _compare(dk, "D. Kingma, ``Adam,'' arXiv:1412.6980v9, 2017.", record) == []
+
+
+@pytest.mark.parametrize(
+    "printed",
+    [
+        "A. Vaswani, \u201cAttention is all you need,\u201d 2017.",
+        "A. Vaswani, \\enquote{Attention is all you need}, 2017.",
+    ],
+)
+def test_typographic_and_csquotes_titles_are_compared(dk, printed):
+    assert _compare(dk, printed) == []
+
+
+def test_a_bbl_pasted_into_the_tex_does_not_orphan_its_bib(dk, tmp_path):
+    _tree(
+        tmp_path,
+        {
+            "refs.bib": CLEAN,
+            "main.tex": DOC + "\\cite{good2024entry}\n\\begin{thebibliography}{1}"
+            "\\bibitem{good2024entry} J. Doe.\\end{thebibliography}\n",
+        },
+    )
+    assert dk.lint(dk.load_config(tmp_path)) == 0
+
+
+def test_an_etoolbox_test_inside_iffalse_needs_no_fi(dk, tmp_path):
+    tex = HAND.replace(
+        "\\begin{thebibliography}",
+        "\\iffalse old \\iftoggle{draft}{a}{b} \\fi\n\\begin{thebibliography}",
+    )
+    _hand(tmp_path, tex)
+    assert dk.lint(dk.load_config(tmp_path)) == 0
+
+
+def test_the_else_branch_of_iffalse_is_typeset(dk, tmp_path):
+    tex = HAND.replace(
+        "\\begin{thebibliography}", "\\iffalse old list\\else\n\\begin{thebibliography}"
+    )
+    _hand(tmp_path, tex.replace("\\end{thebibliography}", "\\end{thebibliography}\n\\fi"))
+    assert dk.lint(dk.load_config(tmp_path)) == 0
+
+
+def test_a_csname_let_iffalse_does_not_swallow_the_file(dk, tmp_path):
+    tex = HAND.replace("\\end{document}", "\\ifdraft x\\fi\n\\end{document}")
+    _hand(tmp_path, "\\expandafter\\let\\csname ifdraft\\endcsname\\iffalse\n" + tex)
+    assert dk.lint(dk.load_config(tmp_path)) == 0
+
+
+def test_an_xparse_environment_with_a_braced_argument_spec_is_stripped(dk, tmp_path):
+    (tmp_path / "references.bib").write_text(CLEAN)
+    (tmp_path / "paper.tex").write_text(
+        "\\NewDocumentEnvironment{refs}{ O{} m }"
+        "{\\begin{thebibliography}{9}}{\\end{thebibliography}}\n" + DOC + "\\cite{good2024entry}\n"
+    )
+    assert dk.lint(dk.load_config(tmp_path)) == 0
+
+
+# --- #113 fifth review round --------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("printed", "first"),
+    [
+        # A short capitalised surname is not Vancouver initials to strip.
+        ("Kaiming LIU, ``Deep residual learning,'' 2016.", "Kaiming He"),
+        # A given name and surname are not one joined name.
+        ("Jian Li, ``Deep residual learning,'' 2016.", "Jianli Wang"),
+    ],
+)
+def test_a_wrong_first_author_sharing_a_given_name_is_drift(dk, printed, first):
+    record = {"title": "Deep residual learning", "authors": [first], "source": "crossref"}
+    assert _compare(dk, printed, record) == ["first author"]
+
+
+def test_vancouver_initials_after_a_surname_report_drift_not_a_pass(dk):
+    """`Kingma DP` cannot be told from `Kaiming LIU`, so it reads as the wrong author: false
+    drift, never a false pass. Vancouver styles rarely quote titles, so this is uncommon."""
+    record = {"title": "Adam", "authors": ["Diederik P. Kingma"], "source": "arxiv"}
+    assert _compare(dk, "Kingma DP, Ba J. ``Adam.'' 2014.", record) == ["first author"]
+
+
+@pytest.mark.parametrize(
+    "lead",
+    ["In~", "In\\ ", "In {", "In: \\emph{", "In Proc. ", "In: Smith, J. (ed.) "],
+)
+def test_in_anywhere_before_the_quote_leaves_the_entry_uncompared(dk, lead):
+    printed = f"K. He, Fabricated chapter. {lead}``Handbook of machine learning systems,'' 2020."
+    assert _compare(dk, printed, HANDBOOK) is None
+
+
+@pytest.mark.parametrize(
+    "parked",
+    [
+        "\\iffalse\n{\\bf Old list}\n\\fi",
+        "\\iffalse \\ifmmode{a}\\else{b}\\fi \\fi",
+    ],
+)
+def test_text_after_a_conditional_is_never_dropped(dk, tmp_path, parked):
+    tex = HAND.replace("\\begin{thebibliography}", parked + "\n\\begin{thebibliography}")
+    _hand(tmp_path, tex)
+    assert dk.lint(dk.load_config(tmp_path)) == 0
+
+
+# --- #113 sixth review round --------------------------------------------------------------
+
+
+def test_conditionals_are_not_evaluated_so_nothing_is_hidden(dk, tmp_path, capsys):
+    """A list parked in \\iffalse is read: over-reading adds an orphan, never hides an entry.
+    Every attempt to evaluate conditionals deleted live text somewhere."""
+    parked = "\\iffalse\\begin{thebibliography}{1}\\bibitem{old} Old.\\end{thebibliography}\\fi\n"
+    _hand(tmp_path, HAND.replace("\\begin{thebibliography}", parked + "\\begin{thebibliography}"))
+    assert dk.lint(dk.load_config(tmp_path)) == 1
+    assert "orphan \\bibitem: old" in _err(capsys)
+
+
+@pytest.mark.parametrize(
+    "preamble",
+    [
+        "\\iftrue\\iftoggle {long}{}{}\\fi\n",
+        "\\providecommand\\ifshowurl\\iftrue\n",
+        "\\iftrue \\newif\\ifanonymous \\anonymousfalse \\fi\n",
+        "\\loop\\ifnum0>1 \\repeat\n",
+    ],
+)
+def test_an_unclosable_conditional_does_not_drop_the_list(dk, tmp_path, preamble):
+    _hand(tmp_path, preamble + HAND)
+    items = dk.read_document(tmp_path / "paper.tex").bibitems
+    assert [i.key for i in items] == ["doe2024", "roe2019", "poe2015"]
+
+
+@pytest.mark.parametrize(
+    "printed",
+    [
+        "LIU Kaiming, X. Zhang, ``Deep residual learning,'' 2016.",
+        "Kaiming, Z., ``Deep residual learning,'' 2016.",
+    ],
+)
+def test_a_given_name_printed_as_the_surname_never_verifies(dk, printed):
+    record = {"title": "Deep residual learning", "authors": ["Kaiming He"], "source": "crossref"}
+    assert _compare(dk, printed, record) in (None, ["first author"])
+
+
+@pytest.mark.parametrize(
+    ("printed", "first"),
+    [
+        ("J. Garc{\\'\\i}a, ``Deep learning,'' Nature, 2020.", "Juan Garc\u00eda M\u00e1rquez"),
+        ("X. Wang, ``Deep learning,'' Nature, 2020.", "Wang Xiaoming"),
+    ],
+)
+def test_a_double_surname_or_swapped_source_name_reads_as_drift(dk, printed, first):
+    """Only the source's last name word is its family name. A Spanish double surname or a
+    record with given and family swapped reads as drift: never a pass on a given name."""
+    record = {"title": "Deep learning", "authors": [first], "source": "crossref"}
+    assert _compare(dk, printed, record) == ["first author"]
+
+
+# --- #113 seventh review round ------------------------------------------------------------
+
+
+def test_a_pasted_biber_bbl_does_not_pass_an_unbuilt_biblatex_document(dk, tmp_path):
+    _tree(
+        tmp_path,
+        {
+            "refs.bib": CLEAN,
+            "main.tex": DOC + "\\cite{good2024entry}\\printbibliography\n\\input{other.bbl}\n",
+            "other.bbl": "\\entry{good2024entry}{article}{}\n\\endentry\n",
+        },
+    )
+    assert dk.rendered(dk.load_config(tmp_path), require_built=True) == 1
+
+
+def test_a_pasted_bbl_in_a_biblatex_document_changes_nothing(dk, tmp_path, capsys):
+    _tree(
+        tmp_path,
+        {
+            "refs.bib": CLEAN,
+            "main.tex": DOC + "\\addbibresource{refs.bib}\\cite{good2024entry}\\printbibliography\n"
+            "\\input{other.bbl}\n",
+            "main.bbl": "\\entry{good2024entry}{article}{}\n\\endentry\n",
+            "other.bbl": "\\bibitem{unrelated} Old.\n",
+        },
+    )
+    assert dk.rendered(dk.load_config(tmp_path)) == 0
+    assert "1/1 cited keys rendered\n" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("join", [" y ", " e ", " i ", " / ", " \\textbullet{} ", " u. ", " en "])
+def test_a_wrong_first_author_joined_by_any_conjunction_is_drift(dk, join):
+    printed = f"X.~Zhang{join}A.~Vaswani, ``Attention is all you need,'' 2017."
+    assert _compare(dk, printed) == ["first author"]
+
+
+def test_an_initial_e_does_not_split_a_name(dk):
+    record = {"title": "Four ways", "authors": ["E. Hill"], "source": "arxiv"}
+    assert _compare(dk, "E.~Hill, ``Four ways,'' arXiv:2608.26183, 2026.", record) == []
+
+
+@pytest.mark.parametrize(
+    "authors",
+    [
+        "\u5f20\u4e09, \u674e\u56db",  # a CJK author list
+        "\u0418\u0432\u0430\u043d\u043e\u0432, \u0418.",  # Cyrillic
+        "A.~B.",  # initials only
+        ", A.~Fake",  # an empty first segment
+        "et al.",
+        "Xu Zhang Wei Wang Ashish Vaswani",  # an unsplit list
+    ],
+)
+def test_author_text_that_cannot_be_read_leaves_the_entry_uncompared(dk, authors):
+    assert _compare(dk, f"{authors}, ``Attention is all you need,'' 2017.") is None
+
+
+def test_a_wrong_title_is_reported_even_when_the_authors_cannot_be_read(dk):
+    assert _compare(dk, "\u5f20\u4e09, ``A fabricated title,'' 2017.") == ["title"]
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads any file")
+def test_verify_names_a_document_it_cannot_read(dk, tmp_path, monkeypatch, capsys):
+    (tmp_path / "references.bib").write_text(CLEAN)
+    secret = tmp_path / "locked.tex"
+    secret.write_text(DOC + "\\cite{good2024entry}\n")
+    secret.chmod(0)
+    _answer(dk, monkeypatch)
+    try:
+        dk.verify(dk.load_config(tmp_path), delay=0)
+    finally:
+        secret.chmod(0o644)
+    assert "cannot read locked.tex" in _err(capsys)
+
+
+# --- #113 eighth review round -------------------------------------------------------------
+
+REN = {"title": "Faster R-CNN", "authors": ["Shaoqing Ren", "Kaiming He"], "source": "arxiv"}
+
+
+@pytest.mark.parametrize("first", ["Ren\\'{e} Fake", "Ren\\'e Fake", 'Ren\\"{u} Fake'])
+def test_an_accent_macro_does_not_split_a_name(dk, first):
+    printed = f"{first} and K.~He, ``Faster R-CNN,'' arXiv:1506.01497, 2017."
+    assert _compare(dk, printed, REN) == ["first author"]
+
+
+def test_a_correct_name_with_an_accented_i_is_clean(dk):
+    record = {"title": "Four ways", "authors": ["Jos\u00e9 Garc\u00eda"], "source": "arxiv"}
+    printed = "Jos\\'e Garc\\'{\\i}a, ``Four ways,'' arXiv:2608.26183, 2026."
+    assert _compare(dk, printed, record) == []
+
+
+@pytest.mark.parametrize(
+    "authors",
+    [
+        "J.~Fake \u2022 A.~Vaswani",
+        "J.~Fake \u00b7 A.~Vaswani",
+        "J.~Fake -- A.~Vaswani",
+        "J.~Fake \\\\ A.~Vaswani",
+        "J.~Fake og A.~Vaswani",
+        "J.~Fake ve A.~Vaswani",
+        "J.~Fake dan A.~Vaswani",
+        "J.~Fake A.~Vaswani",
+    ],
+)
+def test_an_unsplit_list_with_initials_leaves_the_entry_uncompared(dk, authors):
+    assert _compare(dk, f"{authors}, ``Attention is all you need,'' 2017.") is None
+
+
+@pytest.mark.parametrize(
+    "printed",
+    [
+        "Ashish A.~Vaswani, ``Attention is all you need,'' 2017.",
+        "Ludwig van Vaswani, ``Attention is all you need,'' 2017.",
+        "A.~Vaswani Jr., ``Attention is all you need,'' 2017.",
+    ],
+)
+def test_a_readable_name_with_a_middle_initial_is_still_compared(dk, printed):
+    assert _compare(dk, printed) == []
+
+
+@pytest.mark.parametrize(
+    "printed",
+    [
+        "``Attention is all you need,'' J.~Fake and A.~Vaswani, arXiv:1706.03762, 2017.",
+        "---, ``Attention is all you need,'' arXiv:1706.03762, 2017.",
+    ],
+)
+def test_a_title_printed_first_is_uncompared_when_the_source_has_authors(dk, printed):
+    assert _compare(dk, printed) is None
+
+
+def test_a_title_printed_first_is_compared_when_the_source_has_no_authors(dk):
+    printed = "``Handbook of machine learning systems,'' 2020. doi:10.1234/x."
+    assert _compare(dk, printed, HANDBOOK) == []
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads any file")
+@pytest.mark.parametrize("bib", [True, False])
+@pytest.mark.parametrize("mode", ["lint", "rendered", "verify"])
+def test_an_unreadable_included_file_is_named_not_a_crash(
+    dk, tmp_path, monkeypatch, capsys, bib, mode
+):
+    tex = HAND.replace("\\begin{thebibliography}", "\\input{chap}\n\\begin{thebibliography}")
+    if bib:
+        (tmp_path / "references.bib").write_text(CLEAN)
+    _hand(tmp_path, tex)
+    locked = tmp_path / "chap.tex"
+    locked.write_text("\\cite{doe2024}\n")
+    locked.chmod(0)
+    _answer(dk, monkeypatch)
+    try:
+        code = dk.main(["--root", str(tmp_path), mode])
+    finally:
+        locked.chmod(0o644)
+    err = capsys.readouterr().err
+    assert code in (0, 1)
+    assert err.count("cannot read chap.tex") == 1
+    assert "cannot read paper.tex" not in err
+
+
+def test_a_bibliography_command_in_a_definition_keeps_a_document_bibtex(dk, tmp_path):
+    tex = (
+        DOC + "\\newcommand{\\refs}{\\bibliography{references}}\n\\cite{good2024entry}\\refs\n"
+        "\\iffalse\\begin{thebibliography}{1}\\bibitem{dead} Dead.\\end{thebibliography}\\fi\n"
+    )
+    (tmp_path / "references.bib").write_text(CLEAN)
+    (tmp_path / "main.tex").write_text(tex)
+    info = dk.read_document(tmp_path / "main.tex")
+    assert not info.hand_written and info.bibitems == ()
+
+
+# --- #113 ninth review round: a first author is read only when it has a name's shape ------
+
+
+@pytest.mark.parametrize(
+    "authors",
+    [
+        'M\\"uller u.\\ Vaswani',
+        'M\\"uller~u.~Vaswani',
+        "Doe~u.\\ Vaswani",
+        "KOV\u00c1CS \u00c9S VASWANI",
+        "Kov\u00e1cs \u00e9s Vaswani",
+        "SMITH Y VASWANI",
+        "DOE U. VASWANI",
+        "DOE OG VASWANI",
+        "DOE JA VASWANI",
+        "Smith Y Vaswani",
+        "Doe\\quad Vaswani",
+        "Doe\\slash Vaswani",
+        "Doe\\textemdash Vaswani",
+        "Rossi ed Vaswani",
+        "Smith - Vaswani",
+        "Doe. Vaswani",
+        "J. Smith-Vaswani",
+        "J.~Fake (2017) A.~Vaswani",
+        "J.~Fake Dan Vaswani",
+        "J.~Fake~Og~Vaswani",
+    ],
+)
+def test_an_author_list_that_is_not_one_name_never_verifies(dk, authors):
+    assert _compare(dk, f"{authors}, ``Attention is all you need,'' 2017.") in (
+        None,
+        ["first author"],
+    )
+
+
+@pytest.mark.parametrize(
+    ("printed_author", "source"),
+    [
+        ("J.~R.~R. Tolkien", "J. R. R. Tolkien"),
+        ("E.~M. El~Mhamdi", "El Mahdi El Mhamdi"),
+        ("A.~Vaswani\\,et~al.", "Ashish Vaswani"),
+        ("D.\\,P.~Kingma and J.~Ba", "Diederik P. Kingma"),
+        ("Y. Le~Cun", "Yann LeCun"),
+        ("J. van der Waals", "Johannes Diderik van der Waals"),
+        ("M.~L. King Jr.", "Martin Luther King Jr."),
+        ("C.~O'Neil", "Cathy O'Neil"),
+        ("J.~Smith-Jones", "Jane Smith-Jones"),
+        ("\\textsc{Vaswani}, A.", "Ashish Vaswani"),
+        ("\\bibinfo{person}{A.~Vaswani}", "Ashish Vaswani"),
+        ("Yu.~Nesterov", "Yurii Nesterov"),
+        ("A.~Vaswani.", "Ashish Vaswani"),
+        ("Q.~V. Le", "Quoc V. Le"),
+        ("J. Edgar Hoover", "J. Edgar Hoover"),
+        ("Mary Ann B. Smith", "Mary Ann Smith"),
+        ("M.~Abad\\'{\\i}", "Mart\u00edn Abadi"),
+        ("J.~Kone{\\v{c}}n{\\'y}", "Jakub Kone\u010dn\u00fd"),
+    ],
+)
+def test_a_correct_first_author_in_a_name_shape_is_compared_and_clean(dk, printed_author, source):
+    record = {"title": "Four ways", "authors": [source], "source": "arxiv"}
+    assert _compare(dk, f"{printed_author}, ``Four ways,'' 2026.", record) == []
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads any file")
+def test_an_unreadable_include_is_not_also_reported_unreached(dk, tmp_path, capsys):
+    tex = HAND.replace("\\begin{thebibliography}", "\\input{chap}\n\\begin{thebibliography}")
+    _hand(tmp_path, tex)
+    locked = tmp_path / "chap.tex"
+    locked.write_text("\\cite{doe2024}\n")
+    locked.chmod(0)
+    try:
+        dk.main(["--root", str(tmp_path), "rendered"])
+    finally:
+        locked.chmod(0o644)
+    out, err = capsys.readouterr()
+    assert "reached by no document" not in out + err
+
+
+# --- #113 tenth review round ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "authors",
+    [
+        "J.~Li. A.~Vaswani",
+        "J. Yu. Ashish Vaswani",
+        "Mary Li. A. Vaswani",
+        "Li. A. Vaswani",
+        "J.~Wu.\\ A.~Vaswani",
+        "J.Li. A.~Vaswani",
+        "J.Li.A.~Vaswani",
+        "J.-Li. A.~Vaswani",
+    ],
+)
+def test_a_two_letter_surname_ending_a_name_does_not_join_two_authors(dk, authors):
+    assert _compare(dk, f"{authors}, ``Attention is all you need,'' 2017.") in (
+        None,
+        ["first author"],
+    )
+
+
+def test_a_source_author_with_no_name_is_not_a_crash(dk):
+    record = dict(VASWANI, authors=[None])
+    assert _compare(dk, "A.~Vaswani, ``Attention is all you need,'' 2017.", record) is not None
+
+
+@pytest.mark.parametrize(
+    ("printed_author", "source"),
+    [
+        ("\\bibfnamefont{A.}~\\bibnamefont{Vaswani}", "Ashish Vaswani"),
+        ("\\bibfield{author}{\\bibinfo{person}{A.~Vaswani}}", "Ashish Vaswani"),
+        ("\\mbox{A.~Vaswani}", "Ashish Vaswani"),
+        ("{\\bfseries A.~Vaswani}", "Ashish Vaswani"),
+        ("\\textsl{A.~Vaswani}", "Ashish Vaswani"),
+        ("A.~Vaswani \\etal", "Ashish Vaswani"),
+        ("B.~van Es and A.~Roe", "Bob van Es"),
+        ("Y.~Es", "Yara Es"),
+    ],
+)
+def test_more_name_markup_and_short_surnames_compare_clean(dk, printed_author, source):
+    record = {"title": "Four ways", "authors": [source], "source": "arxiv"}
+    assert _compare(dk, f"{printed_author}, ``Four ways,'' 2026.", record) == []

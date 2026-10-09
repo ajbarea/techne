@@ -14,7 +14,7 @@ Techne is a collection of independent, composable skills that share conventions 
 
 **Review and collaboration.** `techne:catchup` reads every comment, review and state change on a repo since you last participated and reports who is blocked on whom; read-only. `techne:elenchus` is adversarial pre-merge review: it drives `/code-review`, then reproduces the load-bearing claim, traces every consumer across the repo, and walks a bug-class rubric.
 
-**Bibliographies.** `dokimasia:check` lints any `.bib`, resolves its identifiers against arXiv and Crossref, and checks that every cited key rendered in the built document; a failed lookup is reported apart from a wrong entry.
+**Bibliographies.** `dokimasia:check` lints any `.bib` or hand-written `thebibliography`, resolves its identifiers against arXiv and Crossref, and checks that every cited key rendered in the built document; a failed lookup is reported apart from a wrong entry.
 
 **Documents and research.** `graphe:latex` builds a LaTeX document and gates it on its log, its PDF and the assignment it answers. `graphe:pdf` renders markdown to print-quality PDFs through Typst and verifies the words survived. `graphe:slides` gates a talk deck on titles, contrast, alt text and stray figures, then renders it through the app that will present it. `graphe:paper` scaffolds a paper directory in a papers-style monorepo, and `graphe:paper-review` runs a novelty and reviewer pass grounded in retrieved prior work.
 

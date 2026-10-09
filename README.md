@@ -23,7 +23,7 @@
 | --- | --- | --- |
 | `techne` | Work in a code repo: audits, CI review, pre-merge review, commit plans, GitHub catch-up, cross-repo drift, slop and doc drift | Claude Code |
 | `graphe` | Documents: LaTeX papers, markdown-to-PDF, talk decks, paper scaffolds and novelty review | Claude Code |
-| `dokimasia` | Bibliography verification for LaTeX projects: lint a `.bib`, verify it against arXiv and Crossref, check every cited key rendered | Claude Code, or one standalone Python file |
+| `dokimasia` | Bibliography verification for LaTeX projects: lint a `.bib` or hand-written reference list, verify it against arXiv and Crossref, check every cited key rendered | Claude Code, or one standalone Python file |
 | `phylax` | Opt-in git and PR guards (a mod), restart onto an updated Claude Code | Claude Code |
 | [`keryx`](https://github.com/ajbarea/keryx) | Speaks a short gist of each reply in a local voice (WSL2) | Claude Code |
 
@@ -60,7 +60,7 @@ Install only the ones you use: every enabled plugin's skill list sits in Claude'
 
 | Skill | What it does |
 | --- | --- |
-| `dokimasia:check` | Lints any `.bib` offline, resolves its arXiv ids and DOIs against arXiv and Crossref and tells a failed lookup from a wrong entry, and checks that every cited key rendered in the built document. Configured per project, standard library only. |
+| `dokimasia:check` | Lints any `.bib` or hand-written `thebibliography` offline, resolves its arXiv ids and DOIs against arXiv and Crossref and tells a failed lookup from a wrong entry, and checks that every cited key rendered in the built document. Configured per project, standard library only. |
 
 ### phylax
 
