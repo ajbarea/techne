@@ -667,8 +667,16 @@ _BIBITEM = re.compile(r"\\bibitem\s*(?:\[.*?\])?\s*\{([^}]*)\}", re.S)
 _COMMENT_ENV = re.compile(r"\\begin\{comment\}.*?\\end\{comment\}", re.S)
 #: Conditional openers and `\fi`. `\iff` is a symbol and `\ifthenelse` a command; neither
 #: opens a conditional that `\fi` closes.
-#: An etoolbox test such as `\iftoggle{x}{a}{b}` takes braced arguments and no `\fi`.
-_IF_TOKEN = re.compile(r"\\if(?!f\b|thenelse\b)(?>[A-Za-z@]*)(?!\*?\s*\{)|\\else\b|\\fi\b")
+#: Conditionals `\fi` closes: TeX's primitives always, and any other `\if...` (a `\newif`
+#: switch) unless a brace follows at once, which marks an etoolbox test such as
+#: `\iftoggle{x}{a}{b}` that takes arguments and no `\fi`. `\iff` is a symbol and
+#: `\ifthenelse` a command.
+_IF_TOKEN = re.compile(
+    r"\\if(?:false|true|x|num|dim|odd|vmode|hmode|mmode|inner|void|hbox|vbox|eof|case"
+    r"|defined|csname|fontchar|cat)?(?![A-Za-z@])"
+    r"|\\if(?!f\b|thenelse\b)(?>[A-Za-z@]+)(?!\*?\{)|\\else\b|\\fi\b"
+)
+_CONSTANT_IF = re.compile(r"\\if(false|true)(?![A-Za-z@])")
 #: `\let\ifdraft\iffalse` defines a conditional; it does not open one.
 _LET_IF = re.compile(
     r"(?:\\global\s*)?(?:\\expandafter\s*)?\\let\s*"
@@ -696,17 +704,18 @@ _YEAR = re.compile(r"(?<![\d.])((?:19|20)\d{2})(?!\d)")
 _PREPRINT_YEAR = re.compile(
     _INLINE_ARXIV.pattern + r"(?:\s*\[[^\]]*\])?[^A-Za-z0-9]{0,6}((?:19|20)\d{2})(?!\d)", re.I
 )
-#: The opening of a quoted span: TeX's ``, or a straight quote that is not an umlaut (`\"o`).
 #: The opening of a quoted span: TeX's ``, a straight quote that is not an umlaut (`\"o`),
 #: a typographic opening quote, or csquotes' `\enquote{`.
 _QUOTE_OPEN = re.compile(r"``|(?<!\\)\"|\u201c|\\enquote\s*\{")
 _STRAIGHT_CLOSE = re.compile(r"(?<!\\)\"")
-#: A quoted span after `In` names the containing book or proceedings, never the item.
-_AFTER_IN = re.compile(r"\bin:?\s*$", re.I)
+#: `In` before a quoted span means the span names the containing book or proceedings, never
+#: the item, wherever `In` sits: `In~`, `In:`, `In Proc.`, `In: Smith (ed.)`.
+_IN_WORD = re.compile(r"(?<![A-Za-z])in(?![A-Za-z])", re.I)
 #: What separates the first author from the rest of a printed author list.
 _AUTHOR_BREAK = re.compile(r",|;|\\?&|\b(?i:and|with|et|und)\b|\\and\b")
-#: Vancouver initials after a surname, `Kingma DP`.
-_CAPITAL_INITIALS = re.compile(r"\b[A-Z]{1,3}\b\.?")
+#: Particles a printed surname may be split at, `Le Cun` for `LeCun`.
+_PARTICLES = {"le", "la", "de", "da", "di", "du", "van", "von", "der", "den", "del", "della"}
+_PARTICLES |= {"ten", "ter"}
 #: A page range, `1195--1225`, whose ends are not years.
 _PAGE_RANGE = re.compile(r"\d+\s*-{1,3}\s*\d+")
 #: Words in a printed author segment that are not a surname.
@@ -741,33 +750,43 @@ def _without_environment_definitions(text: str) -> str:
     return "".join(out)
 
 
-def _without_iffalse(text: str) -> str:
-    """Drop each `\\iffalse ... \\fi`, counting the conditionals nested inside it, and keep
-    its `\\else` branch, which is what LaTeX typesets."""
-    out, pos = [], 0
-    while (start := text.find("\\iffalse", pos)) >= 0:
-        out.append(text[pos:start])
-        depth, end, orelse = 0, len(text), None
-        for token in _IF_TOKEN.finditer(text, start):
+def _without_constant_branches(text: str) -> str:
+    """Keep only the branch LaTeX typesets of each `\\iffalse` and `\\iftrue`: the `\\else`
+    branch of one, the first branch of the other. Nested conditionals are counted.
+
+    Iterative: each resolved conditional is spliced back and the text rescanned from where it
+    began, so deep nesting costs no recursion.
+    """
+    pos = 0
+    while start := _CONSTANT_IF.search(text, pos):
+        depth = 0
+        orelse: re.Match[str] | None = None
+        closing: re.Match[str] | None = None
+        for token in _IF_TOKEN.finditer(text, start.start()):
             if token.group() == "\\else":
                 if depth == 1 and orelse is None:
-                    orelse = token.end()
+                    orelse = token
                 continue
             depth += -1 if token.group() == "\\fi" else 1
             if depth == 0:
-                end = token.end()
-                if orelse is not None:
-                    out.append(_without_iffalse(text[orelse : token.start()]))
+                closing = token
                 break
-        pos = end
-    out.append(text[pos:])
-    return "".join(out)
+        if closing is None:
+            # Never closed: LaTeX would stop with an error, and nothing after it is read.
+            return text[: start.start()]
+        if start.group(1) == "false":
+            kept = text[orelse.end() : closing.start()] if orelse else ""
+        else:
+            kept = text[start.end() : orelse.start() if orelse else closing.start()]
+        text = text[: start.start()] + " " + kept + " " + text[closing.end() :]
+        pos = start.start()
+    return text
 
 
 def typeset(text: str) -> str:
     """`text` as it reaches the page: no comments, definitions, `\\iffalse` or `comment`."""
     clean = _without_environment_definitions(_without_definitions(strip_comments(text)))
-    return _COMMENT_ENV.sub(" ", _without_iffalse(_LET_IF.sub(" ", clean)))
+    return _COMMENT_ENV.sub(" ", _without_constant_branches(_LET_IF.sub(" ", clean)))
 
 
 def opens_bibliography(text: str) -> bool:
@@ -1103,15 +1122,15 @@ def lint(cfg: Config) -> int:
     star_docs: dict[str, set[str]] = {}
     if cfg.orphans:
         accounted = accounted_keys(cfg)
+        # A .bbl pasted into a .tex reads as hand-written, yet cites a .bib's entries.
+        hand_cites = set().union(*(d.cites for d in docs if d.hand_written))
         for file in universe:
             users = [d for d in docs if file in uses(d)]
             stars = [_name(cfg, d.path) for d in users if d.nocite_star]
             if stars:
                 star_docs[_name(cfg, file)] = set(stars)
                 continue
-            # A .bbl pasted into a .tex reads as hand-written, yet cites this .bib's entries.
-            pasted = [d for d in docs if d.hand_written]
-            seen_here = loose_cites.union(*(d.cites for d in users + pasted))
+            seen_here = loose_cites.union(*(d.cites for d in users), hand_cites)
             for _, key, _ in parsed[file]:
                 if key not in seen_here and key not in accounted:
                     add(
@@ -1556,7 +1575,7 @@ def quoted_title(text: str) -> tuple[int, str] | None:
     ``On ``robust'' estimation,'' is one title.
     """
     opening = _QUOTE_OPEN.search(text)
-    if not opening or _AFTER_IN.search(text[: opening.start()]):
+    if not opening or _IN_WORD.search(text[: opening.start()]):
         return None
     span = _quoted_span(text, opening)
     if span is None:
@@ -1571,15 +1590,18 @@ def quoted_title(text: str) -> tuple[int, str] | None:
 def _first_surnames(authors: str) -> set[str]:
     """Spellings of the first author's surname in a printed author list.
 
-    The last word of the first segment that is not an initial or a suffix, and that word
-    joined to the one before it, since `Le Cun` and `LeCun` are one name. `J.~Doe, A.~Roe`,
-    `Doe, J.` and Vancouver's `Doe JA` all give `doe`.
+    The last word of the first segment that is not an initial or a suffix, joined to the word
+    before it only when that word is a particle, since `Le Cun` and `LeCun` are one name.
+    Joining any two words would let a given name and surname, `Jian Li`, pass as another
+    author's `Jianli`. `J.~Doe, A.~Roe` and `Doe, J.` give `doe`.
     """
     first = _AUTHOR_BREAK.split(authors, maxsplit=1)[0]
-    if re.search(r"[a-z]", first):
-        first = _CAPITAL_INITIALS.sub(" ", first)
     words = [w for w in normalise(first).split() if len(w) > 1 and w not in _NOT_NAMES]
-    return {words[-1], "".join(words[-2:])} if words else set()
+    if not words:
+        return set()
+    if len(words) > 1 and words[-2] in _PARTICLES:
+        return {words[-1], words[-2] + words[-1]}
+    return {words[-1]}
 
 
 def _name_words(name: str) -> set[str]:

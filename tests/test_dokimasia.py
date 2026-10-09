@@ -2551,15 +2551,11 @@ def test_every_author_separator_ends_the_first_author(dk, printed):
 @pytest.mark.parametrize(
     ("printed", "first"),
     [
-        (
-            "Kingma DP, Ba J. ``Adam: a method for stochastic optimization.'' 2014.",
-            "Diederik P. Kingma",
-        ),
         ("Y. Le Cun, ``Adam: a method for stochastic optimization,'' 2014.", "Yann LeCun"),
         ("Y. LeCun, ``Adam: a method for stochastic optimization,'' 2014.", "Yann Le Cun"),
     ],
 )
-def test_vancouver_initials_and_split_surnames_are_the_same_author(dk, printed, first):
+def test_split_surnames_are_the_same_author(dk, printed, first):
     record = {
         "title": "Adam: a method for stochastic optimization",
         "authors": [first],
@@ -2626,3 +2622,67 @@ def test_an_xparse_environment_with_a_braced_argument_spec_is_stripped(dk, tmp_p
         "{\\begin{thebibliography}{9}}{\\end{thebibliography}}\n" + DOC + "\\cite{good2024entry}\n"
     )
     assert dk.lint(dk.load_config(tmp_path)) == 0
+
+
+# --- #113 fifth review round --------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("printed", "first"),
+    [
+        # A short capitalised surname is not Vancouver initials to strip.
+        ("Kaiming LIU, ``Deep residual learning,'' 2016.", "Kaiming He"),
+        # A given name and surname are not one joined name.
+        ("Jian Li, ``Deep residual learning,'' 2016.", "Jianli Wang"),
+    ],
+)
+def test_a_wrong_first_author_sharing_a_given_name_is_drift(dk, printed, first):
+    record = {"title": "Deep residual learning", "authors": [first], "source": "crossref"}
+    assert _compare(dk, printed, record) == ["first author"]
+
+
+def test_vancouver_initials_after_a_surname_report_drift_not_a_pass(dk):
+    """`Kingma DP` cannot be told from `Kaiming LIU`, so it reads as the wrong author: false
+    drift, never a false pass. Vancouver styles rarely quote titles, so this is uncommon."""
+    record = {"title": "Adam", "authors": ["Diederik P. Kingma"], "source": "arxiv"}
+    assert _compare(dk, "Kingma DP, Ba J. ``Adam.'' 2014.", record) == ["first author"]
+
+
+@pytest.mark.parametrize(
+    "lead",
+    ["In~", "In\\ ", "In {", "In: \\emph{", "In Proc. ", "In: Smith, J. (ed.) "],
+)
+def test_in_anywhere_before_the_quote_leaves_the_entry_uncompared(dk, lead):
+    printed = f"K. He, Fabricated chapter. {lead}``Handbook of machine learning systems,'' 2020."
+    assert _compare(dk, printed, HANDBOOK) is None
+
+
+@pytest.mark.parametrize(
+    "parked",
+    [
+        "\\iffalse\n{\\bf Old list}\n\\fi",
+        # A parked list after a braced primitive must stay parked.
+        "\\iffalse \\ifmmode{a}\\else{b}\\fi \\begin{thebibliography}{1}\\bibitem{old} Old."
+        "\\end{thebibliography} \\fi",
+    ],
+)
+def test_a_brace_after_a_tex_conditional_does_not_hide_its_fi(dk, tmp_path, parked):
+    tex = HAND.replace("\\begin{thebibliography}", parked + "\n\\begin{thebibliography}")
+    _hand(tmp_path, tex)
+    assert dk.lint(dk.load_config(tmp_path)) == 0
+
+
+def test_the_else_branch_of_iftrue_is_not_typeset(dk, tmp_path, capsys):
+    tex = HAND.replace(
+        "\\end{thebibliography}",
+        "\\end{thebibliography}\n\\iftrue\\else\\begin{thebibliography}{1}\\bibitem{zz} Z."
+        "\\end{thebibliography}\\fi",
+    )
+    _hand(tmp_path, tex)
+    assert dk.lint(dk.load_config(tmp_path)) == 0
+    assert "zz" not in _err(capsys)
+
+
+def test_deeply_nested_else_branches_do_not_recurse(dk):
+    deep = "\\iffalse A \\else " * 1500 + "kept" + " \\fi" * 1500
+    assert dk.typeset(deep).split() == ["kept"]
