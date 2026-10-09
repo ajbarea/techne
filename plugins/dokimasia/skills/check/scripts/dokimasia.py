@@ -705,20 +705,32 @@ _STRAIGHT_CLOSE = re.compile(r"(?<!\\)\"")
 #: `In` before a quoted span means the span names the containing book or proceedings, never
 #: the item, wherever `In` sits: `In~`, `In:`, `In Proc.`, `In: Smith (ed.)`.
 _IN_WORD = re.compile(r"(?<![A-Za-z])in(?![A-Za-z])", re.I)
-#: What separates the first author from the rest of a printed author list.
-#: Single-letter conjunctions (Spanish `y`, Portuguese `e`, Catalan `i`, German `u.`) count
-#: only in lower case and between spaces, so neither the `E.` of `E.~Hill` nor the `e` of an
-#: accent macro (`Ren\'{e}`) splits a name. Accents are folded before the split as well.
+#: What separates the first author from the rest of a printed author list, read after
+#: accents are folded and ties and TeX spaces made spaces. Single-letter conjunctions
+#: (Spanish `y`, Portuguese `e`, Catalan `i`, German `u.`) count only in lower case and between
+#: spaces, so neither the `E.` of `E.~Hill` nor the `e` of an accent macro splits a name.
 _AUTHOR_BREAK = re.compile(
-    r",|;|/|\\?&|\\textbullet\b|\\and\b|\b(?i:and|with|et|und|en|och|és)\b"
+    r",|;|/|\\?&|\\textbullet\b|\\and\b|\b(?i:and|with|et|und|en|och|es)\b"
     r"|(?<=\s)(?:y|e|i|u\.?)(?=\s)"
 )
-#: More name words than this in the first segment, initials included, means the list was
-#: not split: a separator this does not know joined the authors, and the last word may be a
-#: later author's. So does a character no name is written with, or a lower-case word that
-#: is not a particle (`og`, `dan`).
+#: Markup a printed name may carry: font switches, `\bibinfo`'s field name, braces.
+_NAME_MARKUP = re.compile(
+    r"\\bibinfo\s*\{[^{}]*\}|[{}]"
+    r"|\\(?:text(?:sc|bf|it|rm|sf|up|normal)|emph|em|sc|bf|it|rm|sf|scshape|upshape|newblock)"
+    r"(?![A-Za-z])"
+)
+#: The parts of one printed name. An initial (`J.`, `J.-P.`, `Yu.`), a particle, a suffix,
+#: and a word: capitalised, with a lower-case letter. A word in capitals (`VASWANI`) counts
+#: only as the surname, so an all-capitals list joined by a word this does not know
+#: (`DOE OG VASWANI`) is never read as one name.
+_INITIAL = re.compile(r"[A-Z][a-z]?\.(?:-?[A-Z][a-z]?\.)*")
+_SUFFIX = re.compile(r"(?:Jr|Sr)\.?|II|III|IV")
+_WORD = re.compile(r"[A-Z][A-Za-z]*(?:['\u2019-][A-Za-z]+)*")
+#: One name: up to two given names then initials (`Mary Ann B.`), or initials then at most
+#: one given name (`J. Edgar`); particles, the surname, a suffix. At most three words, so
+#: `Ana Maria Garcia Lopez` and `J.~Fake Dan Vaswani` are not read as one name.
+_NAME_SHAPE = re.compile(r"(?:W{1,2}I*|I+W?)?P*[WC]S?")
 _MAX_NAME_WORDS = 3
-_NOT_NAME_TEXT = re.compile(r"--|[^\w\s.'\u2019-]|[\d_]")
 #: Particles a printed surname may be split at, `Le Cun` for `LeCun`.
 _PARTICLES = {"le", "la", "de", "da", "di", "du", "van", "von", "der", "den", "del", "della"}
 _PARTICLES |= {"ten", "ter"}
@@ -1195,7 +1207,8 @@ def _bbl_for(cfg: Config, doc: Path) -> Path:
 
 def _unreached(cfg: Config, docs: list[Path], every: list[Path]) -> list[str]:
     """One line per document directory holding `.tex` files no document's includes reach."""
-    reached = {f for d in every for f in document_files(d)}
+    # A file that could not be read was reached, and has been named already.
+    reached = {f for d in every for f in document_files(d)} | _UNREADABLE
     tex = [p.resolve() for p in _walk(cfg, ".tex")]
     lines, seen = [], set()
     for doc in docs:
@@ -1577,37 +1590,72 @@ def quoted_title(text: str) -> tuple[int, str] | None:
     return None
 
 
-def _first_surnames(authors: str) -> set[str]:
-    """Spellings of the first author's surname in a printed author list.
+def _word_class(token: str) -> str:
+    if not _WORD.fullmatch(token):
+        return "?"
+    return "W" if any(c.islower() for c in token) else "C" if len(token) > 1 else "?"
 
-    The last word of the first segment that is not an initial or a suffix, joined to the word
-    before it only when that word is a particle, since `Le Cun` and `LeCun` are one name.
-    Joining any two words would let a given name and surname, `Jian Li`, pass as another
-    author's `Jianli`. `J.~Doe, A.~Roe` and `Doe, J.` give `doe`.
+
+def _name_class(token: str) -> str:
+    if token.lower() in _PARTICLES:
+        return "P"
+    if _SUFFIX.fullmatch(token):
+        return "S"
+    if _INITIAL.fullmatch(token):
+        return "I"
+    return _word_class(token)
+
+
+def _surname(word: str) -> str:
+    """A surname token as one word: `Smith-Jones` is `smithjones`, never `jones` alone."""
+    return normalise(word).replace(" ", "")
+
+
+def _first_surnames(authors: str) -> set[str]:
+    """Spellings of the first author's surname in a printed author list, or none when the
+    first segment does not have the shape of one name.
+
+    The shape is whitelisted rather than its separators listed: every round of review found
+    another separator (`og`, `\\quad`, `•`, an all-capitals `Y`) that joined two authors into
+    what read as one name, whose last word then passed as the real first author. The
+    surname is joined to a particle before it, since `Le Cun` and `LeCun` are one name.
+    `J.~Doe, A.~Roe` and `Doe, J.` give `doe`.
     """
-    first = _AUTHOR_BREAK.split(fold_accents(authors), maxsplit=1)[0]
-    plain = re.sub(r"\\[ ,]|~", " ", re.sub(r"\\[a-zA-Z]+|[{}]", "", first))
-    if _NOT_NAME_TEXT.search(plain):
+    spaced = re.sub(r"\\[ ,]|~", " ", fold_accents(authors))
+    first = _AUTHOR_BREAK.split(spaced, maxsplit=1)[0]
+    tokens = _NAME_MARKUP.sub("", first).split()
+    if tokens and tokens[-1][-1:] in ".:" and _word_class(tokens[-1][:-1]) != "?":
+        # The period or colon that ends the author list before the title: `A.~Vaswani.`
+        tokens[-1] = tokens[-1][:-1]
+    classes = [_name_class(t) for t in tokens]
+    at = -2 if classes[-1:] == ["S"] else -1
+    if len(classes) >= -at and classes[at] == "P":
+        # A surname that is also a particle, `Q.~V. Le`, is a surname when it comes last.
+        classes[at] = _word_class(tokens[at])
+    shape = "".join(classes)
+    if not _NAME_SHAPE.fullmatch(shape) or len(re.findall("[WC]", shape)) > _MAX_NAME_WORDS:
         return set()
-    tokens = [t for t in plain.split() if t.lower().strip(".") not in _PARTICLES | _NOT_NAMES]
-    if len(tokens) > _MAX_NAME_WORDS or any(t.isalpha() and t.islower() for t in tokens):
-        return set()
-    words = [w for w in normalise(first).split() if len(w) > 1 and w not in _NOT_NAMES]
-    if not words:
-        return set()
-    if len(words) > 1 and words[-2] in _PARTICLES:
-        return {words[-1], words[-2] + words[-1]}
-    return {words[-1]}
+    surname = _surname(tokens[-2] if shape.endswith("S") else tokens[-1])
+    before = shape[: -2 if shape.endswith("S") else -1]
+    if before.endswith("P"):
+        particle = tokens[len(before) - 1].lower()
+        return {surname, particle + surname}
+    return {surname}
 
 
 def _family_names(name: str) -> set[str]:
-    """Spellings of a source author's family name: the last word, joined to the word before
-    it when that is a particle. Any other word may be a given name, and a fabricated author
-    printed surname-first, `LIU Kaiming`, would match the real `Kaiming He` on it."""
-    words = [w for w in normalise(name).split() if w not in _NOT_NAMES]
-    if len(words) > 1 and words[-2] in _PARTICLES:
-        return {words[-1], words[-2] + words[-1]}
-    return set(words[-1:])
+    """Spellings of a source author's family name: the last word, whole and its last part
+    (`Smith-Jones` gives `smithjones` and `jones`), and joined to a particle before it. Any
+    other word may be a given name, and a fabricated author printed surname-first,
+    `LIU Kaiming`, would match the real `Kaiming He` on it."""
+    words = [w for w in name.split() if normalise(w) not in _NOT_NAMES]
+    if not words or not normalise(words[-1]):
+        return set()
+    last = normalise(words[-1])
+    found = {last.replace(" ", ""), last.split()[-1]}
+    if len(words) > 1 and normalise(words[-2]) in _PARTICLES:
+        found.add(normalise(words[-2]) + last.replace(" ", ""))
+    return found
 
 
 def _printed_findings(

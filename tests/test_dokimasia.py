@@ -2691,9 +2691,9 @@ def test_an_unclosable_conditional_does_not_drop_the_list(dk, tmp_path, preamble
         "Kaiming, Z., ``Deep residual learning,'' 2016.",
     ],
 )
-def test_a_given_name_printed_as_the_surname_is_drift(dk, printed):
+def test_a_given_name_printed_as_the_surname_never_verifies(dk, printed):
     record = {"title": "Deep residual learning", "authors": ["Kaiming He"], "source": "crossref"}
-    assert _compare(dk, printed, record) == ["first author"]
+    assert _compare(dk, printed, record) in (None, ["first author"])
 
 
 @pytest.mark.parametrize(
@@ -2879,3 +2879,81 @@ def test_a_bibliography_command_in_a_definition_keeps_a_document_bibtex(dk, tmp_
     (tmp_path / "main.tex").write_text(tex)
     info = dk.read_document(tmp_path / "main.tex")
     assert not info.hand_written and info.bibitems == ()
+
+
+# --- #113 ninth review round: a first author is read only when it has a name's shape ------
+
+
+@pytest.mark.parametrize(
+    "authors",
+    [
+        'M\\"uller u.\\ Vaswani',
+        'M\\"uller~u.~Vaswani',
+        "Doe~u.\\ Vaswani",
+        "KOV\u00c1CS \u00c9S VASWANI",
+        "Kov\u00e1cs \u00e9s Vaswani",
+        "SMITH Y VASWANI",
+        "DOE U. VASWANI",
+        "DOE OG VASWANI",
+        "DOE JA VASWANI",
+        "Smith Y Vaswani",
+        "Doe\\quad Vaswani",
+        "Doe\\slash Vaswani",
+        "Doe\\textemdash Vaswani",
+        "Rossi ed Vaswani",
+        "Smith - Vaswani",
+        "Doe. Vaswani",
+        "J. Smith-Vaswani",
+        "J.~Fake (2017) A.~Vaswani",
+        "J.~Fake Dan Vaswani",
+        "J.~Fake~Og~Vaswani",
+    ],
+)
+def test_an_author_list_that_is_not_one_name_never_verifies(dk, authors):
+    assert _compare(dk, f"{authors}, ``Attention is all you need,'' 2017.") in (
+        None,
+        ["first author"],
+    )
+
+
+@pytest.mark.parametrize(
+    ("printed_author", "source"),
+    [
+        ("J.~R.~R. Tolkien", "J. R. R. Tolkien"),
+        ("E.~M. El~Mhamdi", "El Mahdi El Mhamdi"),
+        ("A.~Vaswani\\,et~al.", "Ashish Vaswani"),
+        ("D.\\,P.~Kingma and J.~Ba", "Diederik P. Kingma"),
+        ("Y. Le~Cun", "Yann LeCun"),
+        ("J. van der Waals", "Johannes Diderik van der Waals"),
+        ("M.~L. King Jr.", "Martin Luther King Jr."),
+        ("C.~O'Neil", "Cathy O'Neil"),
+        ("J.~Smith-Jones", "Jane Smith-Jones"),
+        ("\\textsc{Vaswani}, A.", "Ashish Vaswani"),
+        ("\\bibinfo{person}{A.~Vaswani}", "Ashish Vaswani"),
+        ("Yu.~Nesterov", "Yurii Nesterov"),
+        ("A.~Vaswani.", "Ashish Vaswani"),
+        ("Q.~V. Le", "Quoc V. Le"),
+        ("J. Edgar Hoover", "J. Edgar Hoover"),
+        ("Mary Ann B. Smith", "Mary Ann Smith"),
+        ("M.~Abad\\'{\\i}", "Mart\u00edn Abadi"),
+        ("J.~Kone{\\v{c}}n{\\'y}", "Jakub Kone\u010dn\u00fd"),
+    ],
+)
+def test_a_correct_first_author_in_a_name_shape_is_compared_and_clean(dk, printed_author, source):
+    record = {"title": "Four ways", "authors": [source], "source": "arxiv"}
+    assert _compare(dk, f"{printed_author}, ``Four ways,'' 2026.", record) == []
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads any file")
+def test_an_unreadable_include_is_not_also_reported_unreached(dk, tmp_path, capsys):
+    tex = HAND.replace("\\begin{thebibliography}", "\\input{chap}\n\\begin{thebibliography}")
+    _hand(tmp_path, tex)
+    locked = tmp_path / "chap.tex"
+    locked.write_text("\\cite{doe2024}\n")
+    locked.chmod(0)
+    try:
+        dk.main(["--root", str(tmp_path), "rendered"])
+    finally:
+        locked.chmod(0o644)
+    out, err = capsys.readouterr()
+    assert "reached by no document" not in out + err

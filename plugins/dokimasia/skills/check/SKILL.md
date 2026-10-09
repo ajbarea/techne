@@ -84,10 +84,13 @@ only reference lists are hand-written is not a configuration error.
 - The family name is the last word of the source's name, joined to a particle before it
   (`Le Cun`). Vancouver initials (`Kingma DP`), a Spanish double surname, and a record with
   given and family names swapped read as first-author drift: the rule never passes on what may
-  be a given name. Author text it cannot read (non-Latin script, initials only, a list joined
-  by a separator it does not know, more than three name words, a lower-case word that is not a
-  particle) leaves the item uncompared, unless its title is already wrong. So does a title
-  printed before any author, unless the record lists no authors.
+  be a given name. The first author is read only where the text before the first separator
+  has the shape of one name: up to two given names or initials, particles, a surname (in
+  capitals only as the surname), a suffix. Anything else (non-Latin script, initials only, a
+  separator it does not know, a word in capitals before the surname) leaves the item
+  uncompared, unless its title is already wrong. So does a title printed before any author,
+  unless the record lists no authors. Two authors with no separator between them, or joined by
+  a capitalised word such as `Dan`, still read as one name.
 - It never looks an entry up by its title: a search hit is weaker evidence than a resolved
   identifier.
 - Output names a hand-written entry with its file, `key (paper.tex)`, since two papers may
