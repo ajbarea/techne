@@ -28,9 +28,9 @@ A web deck is checked and rendered in Chromium through Playwright. Install the
 browser once with `uv run --no-project --with playwright==1.63.0 playwright
 install chromium`. `script` reads the HTML and needs no browser.
 
-`check` and `script` also take a `.pptx`, and `check` and `render` take a PDF
-(a Typst or Beamer deck), for decks that already exist in those formats; see
-[Other formats](#other-formats).
+`check`, `render` and `script` also take a `.pptx`, and `check` and `render`
+take a PDF (a Typst or Beamer deck), for decks that already exist in those
+formats; see [Other formats](#other-formats).
 
 `render` writes one PNG per slide at 1920x1080 with every fragment shown, one
 per slide on a 390px-wide phone, contact sheets of both (`sheet-*` two across,
@@ -50,8 +50,9 @@ it at the deck's folder.
 
 ## The gates
 
-On a web deck, each slide is read with every fragment shown, on its 1280x720
-canvas.
+On a web deck, each slide is read with every fragment shown, on its own canvas
+(1280x720 in the starter). A failure to start in the reduced-motion or phone
+pass is reported on its own, beside the desktop findings.
 
 | Severity | Gate | Catches |
 |---|---|---|
@@ -61,7 +62,7 @@ canvas.
 | BLOCK | `em-dash` | An em-dash in slide text. |
 | BLOCK | `asset` | A file the deck asks for and cannot load: a renamed figure, a missing script. |
 | BLOCK | `script` | A console error, including a `data-value` with no data behind it. |
-| WARN | `small-text` | Text under `--min-pt` (14pt, 19px on the canvas). |
+| WARN | `small-text` | Text under `--min-pt` (14pt: 19px on a 1280-wide canvas, scaled to the deck's own width). |
 | WARN | `overflow` | Something drawn past the edge of the slide canvas, clipped or not. Content inside a container that scrolls sideways is exempt. |
 | WARN | `phone` | On a 390px-wide phone: text under 12px, content past the slide's edge, a page that scrolls sideways, or no viewport meta tag. Figures that pan sideways are listed as INFO. |
 | WARN | `motion` | Animation on a slide still running a quarter second after it opens, with reduced motion requested. |
@@ -326,9 +327,13 @@ equal to the pins techne's own workflows use.
 - **The motion gate sees CSS animations and transitions.** A loop driven by
   `requestAnimationFrame` or a timer is invisible to it; check such a loop
   reads `matchMedia('(prefers-reduced-motion: reduce)')` by hand.
-- **Markdown slides.** For a `data-markdown` section, `script` takes the title
-  from its first `#` line and the notes from the text after `Note:`; `check`
-  reads the slide as rendered.
+- **Notes, as reveal.js reads them.** A `data-notes` attribute wins over an
+  `<aside class="notes">`. A `data-markdown` section splits into slides at `---`
+  lines, and its notes follow a `Note:` or `Notes:` line; `script` reads it that
+  way, and `check` reads each slide as rendered.
+- **`window.Reveal` must exist.** `check` and `render` drive the deck through the
+  global `Reveal`. A deck that imports reveal.js as a module sets
+  `window.Reveal = deck` after creating it.
 - **SVG text is not contrast-checked.** axe skips text inside a figure marked
   `role="img"`. Colour figure text with the `deck.css` tokens, which clear 7:1.
 - **A 16:9 canvas shrunk to a phone is unreadable.** At 390px wide it is

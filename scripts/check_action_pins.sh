@@ -58,7 +58,9 @@ for t in "$TEMPLATES"/*.yml "$TEMPLATES"/*.yaml; do
     fi
 done
 
-live_pins="$(uses_refs "$WORKFLOWS"/*.yml "$WORKFLOWS"/*.yaml)"
+live_files=("$WORKFLOWS"/*.yml "$WORKFLOWS"/*.yaml)
+live_pins=""
+[[ ${#live_files[@]} -eq 0 ]] || live_pins="$(uses_refs "${live_files[@]}")"
 for t in "${SKILL_TEMPLATES[@]}"; do
     while IFS= read -r pin; do
         [[ -n "$pin" ]] || continue

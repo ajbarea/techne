@@ -357,6 +357,151 @@ def test_figures_jargon_and_backup_from_work_on_a_web_deck(sl, web):
     assert not {("figures", 3), ("jargon", 3)} & later
 
 
+def _stock(tmp_path, slides: str, config: str = "transition: 'none'") -> pathlib.Path:
+    """A reveal.js deck with no starter CSS or JS: the vendored files and the given slides."""
+    if not (tmp_path / "vendor").exists():
+        shutil.copytree(STARTER / "vendor", tmp_path / "vendor")
+    deck = tmp_path / "stock.html"
+    deck.write_text(
+        '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1"><title>t</title>'
+        '<link rel="stylesheet" href="vendor/reveal/reveal.css"></head><body>'
+        f'<div class="reveal"><div class="slides">{slides}</div></div>'
+        '<script src="vendor/reveal/reveal.js"></script>'
+        f"<script>Reveal.initialize({{{config}}});</script></body></html>"
+    )
+    return deck
+
+
+OPENING = '<section><h2>Opening</h2><aside class="notes">Hi.</aside></section>'
+
+
+@needs_browser
+def test_a_section_with_its_own_background_is_measured_against_it(sl, web, gates):
+    dark = '<section class="discussion dark" data-background-color="#14181f"'
+    own = '<section class="discussion dark" style="background:#14181f"'
+    assert ("BLOCK", "contrast") not in gates(_check(sl, web(dark, own)))
+    grey = web('<p class="muted">[Example answers', '<p style="color:#3a3a3a">[Example answers')
+    assert ("BLOCK", "contrast") in gates(_check(sl, grey))
+
+
+@needs_browser
+def test_a_gradient_on_the_section_itself_is_unchecked(sl, web, gates):
+    dark = '<section class="discussion dark" data-background-color="#14181f"'
+    painted = '<section class="discussion" style="background:linear-gradient(#000,#14181f)"'
+    assert ("BLOCK", "contrast") not in gates(_check(sl, web(dark, painted)))
+
+
+@needs_browser
+def test_a_vertical_stack_keeps_phone_slides_aligned(sl, tmp_path):
+    lines = "".join(f"<p>[line {n}]</p>" for n in range(30))
+    deck = _stock(
+        tmp_path,
+        OPENING + '<section><section><h2>Top</h2><aside class="notes">a</aside></section>'
+        f'<section><h2>Long</h2>{lines}<aside class="notes">b</aside></section></section>',
+    )
+    phone = [f for f in _check(sl, deck) if f.gate == "phone" and "edge" in f.message]
+    assert phone and phone[0].message.endswith("slides [3]")
+    out = tmp_path / "render"
+    sl.render(deck, out)
+    assert len(list(out.glob("phone-[0-9]*.png"))) == 3
+
+
+@needs_browser
+def test_a_load_reveal_cancels_is_not_a_missing_file(sl, tmp_path, gates):
+    (tmp_path / "frame.html").write_text("<!doctype html><title>f</title><p>frame")
+    deck = _stock(
+        tmp_path,
+        OPENING + '<section data-background-iframe="frame.html"><h2>Framed</h2>'
+        '<aside class="notes">x</aside></section>'
+        '<section><h2>After</h2><aside class="notes">y</aside></section>',
+    )
+    assert ("BLOCK", "asset") not in gates(_check(sl, deck))
+
+
+@needs_browser
+def test_render_on_a_deck_with_no_slides_exits_cleanly(sl, tmp_path):
+    out = tmp_path / "render"
+    with pytest.raises(SystemExit, match="no slides"):
+        sl.render(_stock(tmp_path, ""), out)
+    assert not out.exists()
+
+
+@needs_browser
+def test_small_text_scales_with_the_deck_canvas(sl, tmp_path):
+    big = _stock(
+        tmp_path,
+        OPENING + '<section><h2>Big canvas</h2><p style="font-size:21px">[fine print]</p>'
+        '<aside class="notes">x</aside></section>',
+        "transition: 'none', width: 1920, height: 1080",
+    )
+    small = [f for f in _check(sl, big) if f.gate == "small-text"]
+    assert small and "1920x1080 canvas" in small[0].message
+
+
+@needs_browser
+def test_screen_reader_only_text_is_not_overflow(sl, web, gates):
+    hidden = (
+        '<span style="position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden">'
+        "[for screen readers]</span>"
+    )
+    found = _check(sl, web(CLAIM, CLAIM + hidden))
+    assert ("WARN", "overflow") not in gates(found)
+
+
+@needs_browser
+def test_a_module_deck_is_told_to_set_window_reveal(sl, tmp_path):
+    deck = _stock(tmp_path, OPENING)
+    text = deck.read_text().replace(
+        "<script>Reveal.initialize", "<script>const R = Reveal; Reveal = undefined; R.initialize"
+    )
+    deck.write_text(text)
+    found = _check(sl, deck)
+    assert found[0].gate == "unreadable" and "window.Reveal" in found[0].message
+
+
+def test_the_script_reads_notes_as_reveal_does(sl, tmp_path):
+    deck = tmp_path / "rules.html"
+    deck.write_text(
+        '<div class="slides">'
+        '<section data-notes="From the attribute."><h2>Line<br>break</h2>'
+        '<aside class="notes">From the aside.</aside></section>'
+        "<section data-markdown><textarea data-template>\n## First\nBody\nNotes: Said one.\n"
+        "---\n## Second\nnote: said two\n</textarea></section></div>"
+    )
+    assert sl.html_slides(deck) == [
+        ("Line break", "From the attribute."),
+        ("First", "Said one."),
+        ("Second", "said two"),
+    ]
+
+
+def test_the_pin_guard_reads_skill_templates_at_any_depth(tmp_path):
+    guard = ROOT / "scripts" / "check_action_pins.sh"
+    (tmp_path / "scripts").mkdir()
+    shutil.copy(guard, tmp_path / "scripts")
+    (tmp_path / ".github" / "workflows").mkdir(parents=True)
+    shutil.copy(ROOT / ".github" / "workflows" / "docs.yml", tmp_path / ".github" / "workflows")
+    run = lambda: subprocess.run(  # noqa: E731
+        ["bash", str(tmp_path / "scripts" / "check_action_pins.sh")],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert run().returncode == 0, "no skill templates must pass"
+    deep = tmp_path / "plugins" / "p" / "skills" / "s" / "templates" / "a" / "b"
+    deep.mkdir(parents=True)
+    template = (STARTER.parent / "pages.yml").read_text()
+    (deep / "x.yaml").write_text(template)
+    assert run().returncode == 0
+    pin = re.search(r"deploy-pages@([0-9a-f]{40})", template)
+    assert pin, "pages.yml no longer pins deploy-pages"
+    sha = pin.group(1)
+    (deep / "x.yaml").write_text(template.replace(sha, "1" * 40))
+    done = run()
+    assert done.returncode == 1 and "x.yaml" in done.stderr
+
+
 def test_the_script_keeps_note_markup_apart_and_skips_hidden_slides(sl, tmp_path):
     deck = tmp_path / "notes.html"
     deck.write_text(
