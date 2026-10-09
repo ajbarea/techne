@@ -309,8 +309,12 @@ def test_motion_names_only_the_slide_that_moves(sl, web):
     spin = ".discussion h2 { animation: spin 3s linear infinite; }\n"
     web(reduced, spin + "@keyframes spin { to { opacity: 0.9; } }\n", "deck.css")
     motion = [f for f in _check(sl, web.index) if f.gate == "motion"]
-    # The starter's own dots (5) and timeline (8) animate too once the rule is gone.
-    assert len(motion) == 1 and "on slides [5, 8, 9]" in motion[0].message
+    assert len(motion) == 1
+    named = {int(n) for n in re.findall(r"\d+", motion[0].message.split("[")[1].split("]")[0])}
+    # The spinning slide is named. Slides with nothing that moves are not; with the rule gone,
+    # the starter's dots (5) and timeline (8) animate too, and a fragment's fade may still be
+    # running when it is read.
+    assert 9 in named and not named & {1, 2, 4, 10, 11}
 
 
 @needs_browser
@@ -545,3 +549,80 @@ def test_render_refuses_a_folder_it_did_not_make(sl, web, tmp_path):
     with pytest.raises(SystemExit, match="not empty"):
         sl.render(web.index, out)
     assert (out / "keep.png").exists()
+
+
+# ------------------------------------------------ cases the third review found --
+
+
+@needs_browser
+def test_a_see_through_section_is_blended_over_the_slide_colour(sl, tmp_path, gates):
+    deck = _stock(
+        tmp_path,
+        OPENING + '<section data-background-color="#000000" '
+        'style="background:rgba(255,255,255,0.2);color:#eeeeee"><h2>Over black</h2>'
+        '<aside class="notes">x</aside></section>',
+    )
+    assert ("BLOCK", "contrast") not in gates(_check(sl, deck))
+
+
+@needs_browser
+def test_clipped_screen_reader_text_is_skipped_but_off_slide_text_is_not(sl, web, gates):
+    hidden = (
+        '<span style="position:absolute;width:1px;height:1px;overflow:hidden;'
+        'clip:rect(0 0 0 0);white-space:nowrap"><strong>[a long phrase for screen readers'
+        " only, wider than anything]</strong></span>"
+    )
+    assert ("WARN", "overflow") not in gates(_check(sl, web(CLAIM, CLAIM + hidden)))
+    parked = '<p style="position:absolute;left:-400px;top:200px">[parked off the slide]</p>'
+    assert ("WARN", "overflow") in gates(_check(sl, web(hidden, parked)))
+
+
+@needs_browser
+def test_a_section_used_as_content_is_not_a_slide(sl, tmp_path, gates):
+    deck = _stock(
+        tmp_path,
+        OPENING + '<section><h2>Columns</h2><div><section class="col">left</section>'
+        '<section class="col">right</section></div><aside class="notes">x</aside></section>',
+    )
+    found = _check(sl, deck)
+    assert ("BLOCK", "no-title") not in gates(found)
+    assert ("WARN", "no-notes") not in gates(found)
+    assert [t for t, _ in sl.html_slides(deck)] == ["Opening", "Columns"]
+
+
+@needs_browser
+def test_a_deck_that_starts_only_on_wide_screens_names_the_phone(sl, tmp_path):
+    deck = _stock(tmp_path, OPENING)
+    deck.write_text(
+        deck.read_text().replace(
+            "<script>Reveal.initialize", "<script>if (innerWidth > 600) Reveal.initialize"
+        )
+    )
+    found = _check(sl, deck)
+    phone = [f for f in found if f.gate == "unreadable"]
+    assert phone and "started on the desktop but not on a phone" in phone[0].message
+
+
+def test_the_script_splits_markdown_as_reveal_does(sl, tmp_path):
+    deck = tmp_path / "md.html"
+    deck.write_text(
+        '<div class="slides">'
+        '<section data-markdown data-separator="^===$" data-separator-vertical="^--v--$">'
+        "<textarea data-template>\n## A\nNote: na\n===\n## B\nnote: nb\n--v--\n## C\n"
+        "</textarea></section>"
+        "<section data-markdown><textarea data-template>\n```\n# install it\n```\n## Title\n"
+        "Note: one\nNote: two\n</textarea></section>"
+        '<section data-markdown><textarea data-template>\n## Aside\n<aside class="notes">'
+        "From the aside.</aside>\n</textarea></section>"
+        '<section data-notes=""><h2>Empty attribute</h2><aside class="notes">aside</aside>'
+        "</section>"
+        '<section data-visibility="uncounted"><h2>Uncounted</h2></section></div>'
+    )
+    assert sl.html_slides(deck) == [
+        ("A", "na"),
+        ("B", "nb"),
+        ("C", ""),
+        ("Title", ""),
+        ("Aside", "From the aside."),
+        ("Empty attribute", ""),
+    ]

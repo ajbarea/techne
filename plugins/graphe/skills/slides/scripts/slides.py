@@ -778,12 +778,13 @@ _AAA_NEED = {"3:1": "4.5:1", "4.5:1": "7:1"}
 
 HTML = (".html", ".htm")
 
-# The slides, as reveal.js orders them, leaving out the wrapper section of a vertical stack:
-# scroll view lists that wrapper as a slide (its horizontal index is NaN) and the default view
-# does not.
+# The slides, as reveal.js orders them: sections where reveal.js puts slides (in .slides, in a
+# stack, or in a scroll-view page), not a section used as content inside a slide, and not
+# the wrapper of a vertical stack, which scroll view lists with a NaN horizontal index.
 _SLIDES = (
     "window.__deckSlides = () => Reveal.getSlides().filter((s) => "
-    "!s.querySelector('section') && Number.isInteger(Reveal.getIndices(s).h))"
+    "s.parentElement.matches('.slides, .slides > section, .scroll-page-content') "
+    "&& !s.querySelector(':scope > section') && Number.isInteger(Reveal.getIndices(s).h))"
 )
 _COUNT = "__deckSlides().length"
 
@@ -831,12 +832,21 @@ _READ_SLIDE = """(i) => {
     }
     return false;
   };
+  // Screen-reader-only text: the element or an ancestor is clipped away, or a box of 1px or
+  // less that hides its overflow.
+  const hidden = (el) => {
+    for (let a = el; a && a !== s; a = a.parentElement) {
+      const st = getComputedStyle(a), r = a.getBoundingClientRect();
+      if ((st.clip && st.clip !== 'auto') || st.clipPath !== 'none') return true;
+      if (r.width <= 1 && r.height <= 1 && st.overflow !== 'visible') return true;
+    }
+    return false;
+  };
   const out = [];
   for (const el of s.querySelectorAll('*')) {
-    if (inNotes(el) || pans(el)) continue;
+    if (inNotes(el) || pans(el) || hidden(el)) continue;
     const r = el.getBoundingClientRect();
-    // Screen-reader-only text: a 1px box, or parked far off the page's left edge.
-    if (!r.width || !r.height || (r.width <= 1 && r.height <= 1) || r.right <= 0) continue;
+    if (!r.width || !r.height) continue;
     const st = getComputedStyle(el);
     if (st.visibility !== 'visible' || st.display === 'none' || st.opacity === '0') continue;
     if (r.right > left + w + 2 || r.bottom > top + h + 2 || r.left < left - 2
@@ -857,8 +867,8 @@ _READ_SLIDE = """(i) => {
 }"""
 
 # reveal.js paints slide backgrounds on a layer beside the slides, which axe reads as an
-# element overlapping the text and gives up on. For the run the layer is hidden, and a
-# section with no background of its own borrows the layer's colour. Over an image, a
+# element overlapping the text and gives up on. For the run the layer is hidden and its
+# colour is painted on .slides, under the section. Over an image, a
 # gradient or a video (on the layer or the section) the contrast rules are skipped and the
 # slide's text is counted as unchecked.
 _AXE_SLIDE = """async ([i, rules]) => {
@@ -875,10 +885,12 @@ _AXE_SLIDE = """async ([i, rules]) => {
       getComputedStyle(el).backgroundImage !== 'none' || media.includes(el.tagName)));
   const run = picture ? rules.filter((r) => !r.startsWith('color-contrast')) : rules;
   const clear = (c) => !c || c === 'transparent' || /rgba\\(.*,\\s*0\\)$/.test(c);
-  const before = s.style.backgroundColor;
-  // A section that paints its own background keeps it; only a bare one borrows the layer's.
-  if (paint && !picture && clear(own.backgroundColor) && !clear(paint.backgroundColor)) {
-    s.style.backgroundColor = paint.backgroundColor;
+  // The layer's colour goes on .slides, under the section, so a section with its own
+  // background (opaque or see-through) is blended over the colour that is really behind it.
+  const under = document.querySelector('.reveal .slides');
+  const before = under.style.backgroundColor;
+  if (paint && !picture && !clear(paint.backgroundColor)) {
+    under.style.backgroundColor = paint.backgroundColor;
   }
   if (layer && !picture) layer.style.display = 'none';
   try {
@@ -895,7 +907,7 @@ _AXE_SLIDE = """async ([i, rules]) => {
             unchecked: text + nodes(r.incomplete)
               .filter((n) => n.rule.startsWith('color-contrast')).length};
   } finally {
-    s.style.backgroundColor = before;
+    under.style.backgroundColor = before;
     if (layer) layer.style.display = '';
   }
 }"""
@@ -937,6 +949,11 @@ _VIEWPORT_META = "!!document.querySelector('meta[name=viewport]')"
 _LOAD_FAILED = "Failed to load resource"
 
 
+def _first_line(exc: BaseException) -> str:
+    lines = str(exc).splitlines()
+    return lines[0] if lines else type(exc).__name__
+
+
 class DeckError(Exception):
     """A page that never started reveal.js, with what its console said."""
 
@@ -963,7 +980,7 @@ def _launch(pw):
         return pw.chromium.launch()
     except Exception as exc:  # playwright raises its own Error type, not importable here
         sys.exit(
-            f"Chromium did not start ({str(exc).splitlines()[0]}). Install it once with "
+            f"Chromium did not start ({_first_line(exc)}). Install it once with "
             f"`uv run --no-project --with {PLAYWRIGHT} playwright install chromium`"
         )
 
@@ -996,9 +1013,19 @@ class _Watch:
 
 
 def _open(
-    browser, deck: pathlib.Path, viewport: dict, query: str = "", during: str = "", **context
+    browser,
+    deck: pathlib.Path,
+    viewport: dict,
+    query: str = "",
+    during: str = "",
+    seen: bool = False,
+    **context,
 ):
-    """A page with the deck loaded and reveal.js ready, or DeckError saying why not."""
+    """A page with the deck loaded and reveal.js ready, or DeckError saying why not.
+
+    `seen` marks a later pass on a deck that already started once, so a failure there is
+    reported as that pass failing rather than as a page that is not a deck.
+    """
     page = browser.new_context(viewport=viewport, bypass_csp=True, **context).new_page()
     watch = _Watch(page)
     try:
@@ -1010,10 +1037,14 @@ def _open(
             raise DeckError(
                 f"reveal.js never became ready{during}: {'; '.join(said)[:300]}"
             ) from exc
+        if seen:
+            raise DeckError(
+                f"the deck started on the desktop but not{during} ({_first_line(exc)})"
+            ) from exc
         raise DeckError(
             f"not a reveal.js deck: window.Reveal never became ready{during} "
             f"(a deck that imports reveal.js as a module must set window.Reveal; "
-            f"{str(exc).splitlines()[0]})"
+            f"{_first_line(exc)})"
         ) from exc
     page.evaluate(_SLIDES)
     return page, watch
@@ -1212,7 +1243,12 @@ def _check_in(
 
 def _motion_pass(browser, path: pathlib.Path, found: list[Finding]) -> _Watch:
     moving, watch = _open(
-        browser, path, CANVAS, during=" with reduced motion requested", reduced_motion="reduce"
+        browser,
+        path,
+        CANVAS,
+        during=" with reduced motion requested",
+        seen=True,
+        reduced_motion="reduce",
     )
     count = moving.evaluate(_COUNT)
     restless = [i + 1 for i in range(count) if moving.evaluate(_MOVING, i)]
@@ -1230,7 +1266,9 @@ def _motion_pass(browser, path: pathlib.Path, found: list[Finding]) -> _Watch:
 
 def _phone_pass(browser, path: pathlib.Path, found: list[Finding]) -> _Watch:
     # Scroll view loads slides near the viewport only, so each is read after scrolling to it.
-    phone, watch = _open(browser, path, PHONE, during=" on a phone", is_mobile=True, has_touch=True)
+    phone, watch = _open(
+        browser, path, PHONE, during=" on a phone", seen=True, is_mobile=True, has_touch=True
+    )
     phone.add_style_tag(content=_ALL_FRAGMENTS)
     # Without a viewport meta tag a phone lays the page out 980px wide and shrinks it.
     per = phone.evaluate("innerWidth") / PHONE["width"]
@@ -1288,26 +1326,59 @@ def _phone_pass(browser, path: pathlib.Path, found: list[Finding]) -> _Watch:
 _BREAKS = {"p", "div", "li", "br", "ul", "ol", "aside", "h1", "h2", "h3", "h4", "h5", "h6", "tr"}
 
 
-class _Sections(HTMLParser):
-    """Each innermost <section>'s first heading and speaker notes, from the static HTML.
+# Elements with no end tag, which never open a level of nesting.
+_VOID = {
+    "area",
+    "base",
+    "br",
+    "col",
+    "embed",
+    "hr",
+    "img",
+    "input",
+    "link",
+    "meta",
+    "source",
+    "track",
+    "wbr",
+}
 
-    Read as reveal.js reads them: a data-notes attribute wins over <aside class="notes">; a
-    data-markdown section splits into slides at `---` lines, takes each title from its first
-    `#` line and its notes from the text after a `Note:` or `Notes:` line. Slides with
-    data-visibility="hidden" are left out, as reveal.js leaves them out of the deck.
+
+class _Sections(HTMLParser):
+    """Each slide's first heading and speaker notes, from the static HTML.
+
+    Read as reveal.js reads them. A slide is a <section> directly inside `.slides`, or
+    directly inside such a section (a vertical stack), with no sections of its own; a section
+    nested deeper is content. A data-notes attribute wins over <aside class="notes">, even
+    when empty. A data-markdown section is split as reveal.js's markdown plugin splits it
+    (see _from_markdown). Slides marked data-visibility hidden or uncounted are left out, as
+    reveal.js leaves them out of its slide list.
     """
 
     def __init__(self) -> None:
         super().__init__()
         self.slides: list[dict[str, str]] = []
         self._stack: list[dict[str, str]] = []
+        self._open: list[tuple[str, str]] = []  # (tag, role): role is "slides", "slide" or ""
         self._into: str | None = None
         self._closer = ""
         self._depth = 0
 
+    def _role(self, tag: str, a: dict[str, str | None]) -> str:
+        if tag != "section":
+            return "slides" if "slides" in (a.get("class") or "").split() else ""
+        parent = self._open[-1][1] if self._open else ""
+        grand = self._open[-2][1] if len(self._open) > 1 else ""
+        if parent == "slides" or (parent == "slide" and grand == "slides"):
+            return "slide"
+        return ""
+
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         a = dict(attrs)
-        if tag == "section":
+        role = self._role(tag, a)
+        if tag not in _VOID:
+            self._open.append((tag, role))
+        if role == "slide":
             if self._stack:
                 self._stack[-1]["leaf"] = ""
             self._stack.append(
@@ -1315,9 +1386,13 @@ class _Sections(HTMLParser):
                     "title": "",
                     "notes": "",
                     "data-notes": a.get("data-notes") or "",
+                    "has-data-notes": "1" if "data-notes" in a else "",
                     "leaf": "1",
-                    "hidden": "1" if a.get("data-visibility") == "hidden" else "",
+                    "hidden": "1" if a.get("data-visibility") in ("hidden", "uncounted") else "",
                     "markdown": "1" if "data-markdown" in a else "",
+                    "separator": a.get("data-separator") or "",
+                    "vertical": a.get("data-separator-vertical") or "",
+                    "notes-separator": a.get("data-separator-notes") or "",
                     "md": "",
                 }
             )
@@ -1340,17 +1415,23 @@ class _Sections(HTMLParser):
             self._gap(tag)
 
     def handle_endtag(self, tag: str) -> None:
+        role = ""
+        for k in range(len(self._open) - 1, -1, -1):
+            if self._open[k][0] == tag:
+                role = self._open[k][1]
+                del self._open[k:]
+                break
         if self._into:
             self._gap(tag)
             if tag == self._closer:
                 self._depth -= 1
                 if self._depth == 0:
                     self._into = None
-        elif tag == "section" and self._stack:
+        elif role == "slide" and self._stack:
             s = self._stack.pop()
             if s["hidden"] or not s["leaf"]:
                 return
-            if s["data-notes"]:
+            if s["has-data-notes"]:
                 s["notes"] = s["data-notes"]
             self.slides.extend(_from_markdown(s) if s["markdown"] else [s])
 
@@ -1368,20 +1449,42 @@ class _Sections(HTMLParser):
             self._stack[-1]["md"] += data
 
 
-# reveal.js's markdown plugin defaults: the slide separator and the notes marker.
-_MD_SLIDE = re.compile(r"^---[ \t]*\r?$", re.M)
-_MD_NOTES = re.compile(r"^\s*notes?:", re.I | re.M)
+# reveal.js 6.0.2's markdown plugin defaults, as it ships them: the slide separator, and the
+# notes separator it splits on case-insensitively (its `s*` carries no backslash).
+_MD_SLIDE = r"\r?\n---\r?\n"
+_MD_NOTES = r"^s*notes?:"
+_MD_ASIDE = re.compile(r'<aside[^>]*class="[^"]*\bnotes\b[^"]*"[^>]*>(.*?)</aside>', re.S)
+_MD_FENCE = re.compile(r"^(```|~~~).*?^\1", re.S | re.M)
 
 
 def _from_markdown(s: dict[str, str]) -> list[dict[str, str]]:
+    """Split a data-markdown section the way reveal.js's markdown plugin does.
+
+    Slides split at the data-separator (and data-separator-vertical) patterns, matched across
+    the whole text in multiline mode, before any markdown is parsed, so a `---` inside a code
+    fence splits too. Notes are the text after the notes separator, only when it splits the
+    slide into exactly two parts, or an <aside class="notes"> written in the markdown. The
+    title is the first `#` line outside a code fence.
+    """
+    pattern = s["separator"] or _MD_SLIDE
+    if s["vertical"]:
+        pattern = f"{pattern}|{s['vertical']}"
+    notes_at = re.compile(s["notes-separator"] or _MD_NOTES, re.I | re.M)
     out = []
-    for chunk in _MD_SLIDE.split(s["md"]):
-        text, notes = [*_MD_NOTES.split(chunk, maxsplit=1), ""][:2]
+    for chunk in re.split(pattern, s["md"], flags=re.M):
+        parts = notes_at.split(chunk)
+        text, notes = (parts[0], parts[1]) if len(parts) == 2 else (chunk, "")
+        aside = _MD_ASIDE.search(text)
+        if aside and not notes:
+            notes = re.sub(r"<[^>]+>", " ", aside.group(1))
+        prose = _MD_FENCE.sub("", _MD_ASIDE.sub("", text))
         title = next(
-            (ln.lstrip("#").strip() for ln in text.splitlines() if ln.strip().startswith("#")),
+            (ln.lstrip("#").strip() for ln in prose.splitlines() if ln.strip().startswith("#")),
             "",
         )
-        out.append({**s, "title": title or s["title"], "notes": s["data-notes"] or notes})
+        if s["has-data-notes"]:
+            notes = s["data-notes"]
+        out.append({**s, "title": title or s["title"], "notes": notes})
     return out
 
 
@@ -1407,7 +1510,7 @@ def render_html(deck: pathlib.Path, out: pathlib.Path) -> int:
         except DeckError as exc:
             sys.exit(f"{deck}: {exc}")
         except Exception as exc:  # a Playwright error mid-render
-            sys.exit(f"{deck}: the browser failed: {str(exc).splitlines()[0]}")
+            sys.exit(f"{deck}: the browser failed: {_first_line(exc)}")
         finally:
             browser.close()
     sheets = contact_sheets(pngs, out) + contact_sheets(phones, out, "phone-sheet", 4)
@@ -1421,11 +1524,20 @@ def render_html(deck: pathlib.Path, out: pathlib.Path) -> int:
 
 
 def _render_in(browser, deck: pathlib.Path, out: pathlib.Path):
-    # The deck must load before render claims the folder, so a bad deck leaves no marker.
+    # Every pass must start before render claims the folder, so a deck that fails in any of
+    # them leaves no marker and no half-written render.
     page, _ = _open(browser, deck, SCREEN)
     count = page.evaluate(_COUNT)
     if not count:
         raise DeckError("no slides")
+    phone, _ = _open(
+        browser, deck, PHONE, during=" on a phone", seen=True, is_mobile=True, has_touch=True
+    )
+    printed, _ = _open(browser, deck, CANVAS, query="?print-pdf", during=" for print", seen=True)
+    try:
+        printed.wait_for_function("document.querySelectorAll('.pdf-page').length > 0")
+    except Exception as exc:
+        raise DeckError(f"the print layout never appeared ({_first_line(exc)})") from exc
     prepare_out(out)
     page.add_style_tag(content=_STILL)
     pngs = []
@@ -1434,7 +1546,6 @@ def _render_in(browser, deck: pathlib.Path, out: pathlib.Path):
         target = out / f"slide-{i + 1:02d}.png"
         page.screenshot(path=str(target))
         pngs.append(target)
-    phone, _ = _open(browser, deck, PHONE, during=" on a phone", is_mobile=True, has_touch=True)
     phone.add_style_tag(content=_ALL_FRAGMENTS)
     phones = []
     for i in range(phone.evaluate(_COUNT)):
@@ -1443,8 +1554,6 @@ def _render_in(browser, deck: pathlib.Path, out: pathlib.Path):
         target = out / f"phone-{i + 1:02d}.png"
         phone.screenshot(path=str(target))
         phones.append(target)
-    printed, _ = _open(browser, deck, CANVAS, query="?print-pdf")
-    printed.wait_for_function("document.querySelectorAll('.pdf-page').length > 0")
     pdf = out / (deck.stem + ".pdf")
     printed.pdf(path=str(pdf), print_background=True, prefer_css_page_size=True)
     return pngs, phones, pdf

@@ -328,9 +328,11 @@ equal to the pins techne's own workflows use.
   `requestAnimationFrame` or a timer is invisible to it; check such a loop
   reads `matchMedia('(prefers-reduced-motion: reduce)')` by hand.
 - **Notes, as reveal.js reads them.** A `data-notes` attribute wins over an
-  `<aside class="notes">`. A `data-markdown` section splits into slides at `---`
-  lines, and its notes follow a `Note:` or `Notes:` line; `script` reads it that
-  way, and `check` reads each slide as rendered.
+  `<aside class="notes">`, even when it is empty. A `data-markdown` section splits
+  into slides at a `---` line (or its `data-separator` patterns), and its notes
+  follow a `Note:` or `Notes:` line only when there is exactly one; `script` reads
+  it that way, and `check` reads each slide as rendered. A `<section>` nested
+  inside a slide's content is not a slide.
 - **`window.Reveal` must exist.** `check` and `render` drive the deck through the
   global `Reveal`. A deck that imports reveal.js as a module sets
   `window.Reveal = deck` after creating it.
