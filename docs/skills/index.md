@@ -47,7 +47,7 @@ The skills ship in three plugins: `techne` for work in a code repo, `graphe` for
 | [`graphe:paper-review`](paper-review.md) | Pre-submission novelty + reviewer pass: grounds every novelty/claim verdict in retrieved prior work, flags related-work gaps, and surfaces lab-overlap for disclosure. |
 | [`graphe:latex`](latex.md) | Builds a LaTeX document and gates it on its log, its PDF, and the assignment it answers; a clean `latexmk` exit is not the signal. |
 | [`graphe:pdf`](pdf.md) | Renders markdown to print-quality PDFs through a Typst template, then verifies fonts and content against the source. |
-| [`graphe:slides`](slides.md) | Gates a talk deck before it is presented: real slide titles, contrast, alt text, stray figures; renders it through the app that will show it. |
+| [`graphe:slides`](slides.md) | Builds and gates a talk deck: an animated web deck on GitHub Pages from a starter, checked for titles, contrast, alt text, missing files and phone fit, then rendered and published. |
 
 ## Bibliographies (dokimasia)
 

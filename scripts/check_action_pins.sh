@@ -5,7 +5,9 @@
 # repos). The trailing `# vX.Y.Z` comment is kept for readability and bumped by
 # Dependabot. Local (`./…`) and `docker://…` refs are exempt. Dependabot never
 # reads .github-template/, so each starter must also match the live workflow of
-# the same name exactly, or its pins would rot unseen.
+# the same name exactly, or its pins would rot unseen. A workflow a skill ships under
+# plugins/*/skills/*/templates/ is checked the same way, action by action: each pin must
+# equal the one a live workflow uses for that action.
 # See docs/conventions.md "Pinning GitHub Actions to commit SHAs".
 
 set -euo pipefail
@@ -13,12 +15,16 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKFLOWS="$ROOT/.github/workflows"
 TEMPLATES="$ROOT/.github-template/workflows"
+SKILL_TEMPLATES=()
+while IFS= read -r -d '' f; do SKILL_TEMPLATES+=("$f"); done < <(
+    find "$ROOT/plugins" -path '*/skills/*/templates/*' \( -name '*.yml' -o -name '*.yaml' \) -print0
+)
 
 [[ -d "$WORKFLOWS" ]] || { printf 'OK: no .github/workflows/ to check\n'; exit 0; }
 
 violations=0
 shopt -s nullglob
-for f in "$WORKFLOWS"/*.yml "$WORKFLOWS"/*.yaml "$TEMPLATES"/*.yml "$TEMPLATES"/*.yaml; do
+for f in "$WORKFLOWS"/*.yml "$WORKFLOWS"/*.yaml "$TEMPLATES"/*.yml "$TEMPLATES"/*.yaml "${SKILL_TEMPLATES[@]}"; do
     lineno=0
     while IFS= read -r line; do
         lineno=$((lineno + 1))
@@ -40,7 +46,7 @@ if [[ "$violations" -gt 0 ]]; then
     exit 1
 fi
 
-uses_refs() { grep -oE 'uses:[[:space:]]*[^[:space:]#]+' "$1" | sed -E 's/uses:[[:space:]]*//' | sort -u; }
+uses_refs() { grep -ohE 'uses:[[:space:]]*[^[:space:]#]+' "$@" | sed -E 's/uses:[[:space:]]*//' | sort -u; }
 
 for t in "$TEMPLATES"/*.yml "$TEMPLATES"/*.yaml; do
     live="$WORKFLOWS/$(basename "$t")"
@@ -50,6 +56,19 @@ for t in "$TEMPLATES"/*.yml "$TEMPLATES"/*.yaml; do
             "${t#"$ROOT"/}" "${live#"$ROOT"/}" "$drift" >&2
         violations=$((violations + 1))
     fi
+done
+
+live_files=("$WORKFLOWS"/*.yml "$WORKFLOWS"/*.yaml)
+live_pins=""
+[[ ${#live_files[@]} -eq 0 ]] || live_pins="$(uses_refs "${live_files[@]}")"
+for t in "${SKILL_TEMPLATES[@]}"; do
+    while IFS= read -r pin; do
+        [[ -n "$pin" ]] || continue
+        if ! grep -qxF "$pin" <<<"$live_pins"; then
+            printf 'FAIL: %s pins %s, which no live workflow uses at that SHA\n' "${t#"$ROOT"/}" "$pin" >&2
+            violations=$((violations + 1))
+        fi
+    done < <(uses_refs "$t")
 done
 
 if [[ "$violations" -gt 0 ]]; then

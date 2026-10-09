@@ -256,7 +256,10 @@ SHA-pinned workflow runs exactly the code you reviewed.
   CNCF "Securing GitHub Actions CI dependencies" recipe (2026-05-04).
 - **Keep it pinned** with `make guards` (`scripts/check_action_pins.sh`), which fails
   the build if any remote `uses:` ref is not a full SHA. Local (`./…`) and
-  `docker://…` refs are exempt.
+  `docker://…` refs are exempt. A workflow a skill ships as a template (under
+  `plugins/*/skills/*/templates/`) must also pin each action at a SHA a live workflow
+  uses. Dependabot updates both when the template's folder is listed in
+  `.github/dependabot.yml`; the guard fails when the two drift apart.
 
 **Enforced by:** `make guards` (techne dogfoods this in its own `validate.yml`).
 **Audited by:** `techne:sisters` (action-pin consistency across the fleet).
