@@ -77,9 +77,20 @@
 
   // <div class="relmap" data-source="related">: rivals placed by the two axes in the data,
   // ours added as the slide's last fragment, and the "how ours differs" lines beside it.
+  // A list still being filled in leaves its slide empty instead of stopping the deck.
+  function usable(rel, source) {
+    if (rel && Array.isArray(rel.works) && rel.works.length) return true;
+    console.error(`deck: ${source} has no works to draw`);
+    return false;
+  }
+
   function buildMap(box) {
     const rel = lookup(box.dataset.source);
-    if (!rel) return;
+    if (!usable(rel, box.dataset.source)) return;
+    if (!rel.axes || !rel.axes.x || !rel.axes.y) {
+      console.error(`deck: ${box.dataset.source} has no axes for the map`);
+      return;
+    }
     const { x, y } = rel.axes;
     const W = 720, H = 420, left = 175, top = 20, bottom = 60;
     const cw = (W - left) / x.levels.length;
@@ -140,7 +151,7 @@
   // ours drawn last. Dots pop in by year when the slide opens, unless motion is reduced.
   function buildTimeline(box) {
     const rel = lookup(box.dataset.source);
-    if (!rel) return;
+    if (!usable(rel, box.dataset.source)) return;
     const works = [...rel.works].sort((a, b) => a.year - b.year);
     const groups = [...new Set(works.map((w) => w.group))];
     const y0 = works[0].year, y1 = works[works.length - 1].year;

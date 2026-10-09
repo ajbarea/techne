@@ -301,7 +301,7 @@ def test_script_rejects_nonpositive_wpm(sl, deck):
 
 
 def test_script_empty_deck_is_unreadable(sl, deck):
-    assert sl.script(deck())[0] == 1
+    assert sl.script(deck()) == (1, f"{deck()}: no slides in sldIdLst")
 
 
 def test_script_unreadable_deck(sl, tmp_path):
@@ -337,6 +337,7 @@ def test_dense_body_text_is_reviewed(sl, deck):
     path = deck([title("Opening")], [title("Wall of text"), textbox(words, at=(0.5, 2, 12, 4))])
     dense = [f for f in sl.check(path) if f.gate == "dense"]
     assert [f.slide for f in dense] == [2]
+    assert dense[0].message == "70 words of body text (> 60); move the rest to the script"
 
 
 def test_slide_order_follows_the_id_list_not_file_names(sl, deck):
@@ -598,6 +599,11 @@ def test_pdf_gates_density_jargon_and_em_dashes(sl, monkeypatch, tmp_path):
     found = sl.check(_pdf(sl, monkeypatch, tmp_path, pages), jargon=("Gerrit",), backup_from=4)
     by = {(f.gate, f.slide) for f in found}
     assert ("long-title", 2) in by and ("dense", 2) in by
+    dense = next(f for f in found if f.gate == "dense")
+    assert dense.message == (
+        "70 words on the page (> 60), figure labels included; "
+        "if they are prose, move it to the script or a figure"
+    )
     assert ("em-dash", 3) in by and ("jargon", 3) in by
     assert not {g for g, s in by if s == 5} & {"dense", "jargon", "figures"}
     assert sl.verdict(found)[0] == 2

@@ -15,7 +15,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKFLOWS="$ROOT/.github/workflows"
 TEMPLATES="$ROOT/.github-template/workflows"
-SKILL_TEMPLATES=("$ROOT"/plugins/*/skills/*/templates/*.yml)
+SKILL_TEMPLATES=()
+while IFS= read -r -d '' f; do SKILL_TEMPLATES+=("$f"); done < <(
+    find "$ROOT/plugins" -path '*/skills/*/templates/*' \( -name '*.yml' -o -name '*.yaml' \) -print0
+)
 
 [[ -d "$WORKFLOWS" ]] || { printf 'OK: no .github/workflows/ to check\n'; exit 0; }
 
@@ -43,7 +46,7 @@ if [[ "$violations" -gt 0 ]]; then
     exit 1
 fi
 
-uses_refs() { grep -oE 'uses:[[:space:]]*[^[:space:]#]+' "$1" | sed -E 's/uses:[[:space:]]*//' | sort -u; }
+uses_refs() { grep -ohE 'uses:[[:space:]]*[^[:space:]#]+' "$@" | sed -E 's/uses:[[:space:]]*//' | sort -u; }
 
 for t in "$TEMPLATES"/*.yml "$TEMPLATES"/*.yaml; do
     live="$WORKFLOWS/$(basename "$t")"
@@ -55,9 +58,8 @@ for t in "$TEMPLATES"/*.yml "$TEMPLATES"/*.yaml; do
     fi
 done
 
-live_pins="$(cat "$WORKFLOWS"/*.yml "$WORKFLOWS"/*.yaml 2>/dev/null | grep -oE 'uses:[[:space:]]*[^[:space:]#]+' | sed -E 's/uses:[[:space:]]*//' | sort -u)"
+live_pins="$(uses_refs "$WORKFLOWS"/*.yml "$WORKFLOWS"/*.yaml)"
 for t in "${SKILL_TEMPLATES[@]}"; do
-    [[ -f "$t" ]] || continue
     while IFS= read -r pin; do
         [[ -n "$pin" ]] || continue
         if ! grep -qxF "$pin" <<<"$live_pins"; then

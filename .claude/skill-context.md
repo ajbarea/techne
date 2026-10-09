@@ -43,8 +43,8 @@ Audit drives the wrapper `make` targets, which mirror `.github/workflows/validat
 
 5. `make lint` — `ruff check` + `ruff format --check` + `ty check` over `scripts/`, `plugins/` and `tests/`.
 6. `make shellcheck` — `shellcheck --severity=warning` over `scripts/*.sh` plus the skill-shipped `.sh` files (`plugins/*/_shared/`, `plugins/*/skills/*/scripts/`). The binary comes from the `shellcheck-py` dev dependency, so no system install is needed.
-7. `make guards` — grep guards (no `.claude/skills/_shared` references, no legacy `aj-*` skill names, every `_shared/` copy identical to its `plugins/techne/_shared/` source) plus `check_plugin_refs.sh` (every `${CLAUDE_PLUGIN_ROOT}` path resolves inside its plugin) and `check_action_pins.sh`: every action SHA-pinned, and starter workflows under `.github-template/` matching the live pins.
-8. `make test-unit` — pytest over skill-shipped Python. Without TeX Live or the typst compile, set `TECHNE_NO_TEX=1` / `TECHNE_NO_TYPST=1` / `TECHNE_NO_TMUX=1`, or the guard tests fail rather than skip silently.
+7. `make guards` — grep guards (no `.claude/skills/_shared` references, no legacy `aj-*` skill names, every `_shared/` copy identical to its `plugins/techne/_shared/` source) plus `check_plugin_refs.sh` (every `${CLAUDE_PLUGIN_ROOT}` path resolves inside its plugin) and `check_action_pins.sh`: every action SHA-pinned, starter workflows under `.github-template/` matching the live pins, and every workflow a skill ships under `plugins/*/skills/*/templates/` pinning only SHAs a live workflow uses.
+8. `make test-unit` — pytest over skill-shipped Python. Without TeX Live, the typst compile or tmux, set `TECHNE_NO_TEX=1` / `TECHNE_NO_TYPST=1` / `TECHNE_NO_TMUX=1`, and without Playwright's Chromium (`uv run --no-project --with playwright==1.63.0 playwright install chromium`) set `TECHNE_NO_BROWSER=1`, or the guard tests fail rather than skip silently.
 9. `make test-hooks-oldest` — the hook tests (`tests/test_git_guards.py`, `tests/test_stale_restart.py`) with the hook run on python3 3.9.
 10. `make zizmor` — GitHub Actions security scan of `.github/workflows/`.
 

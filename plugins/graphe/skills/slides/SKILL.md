@@ -33,9 +33,9 @@ install chromium`. `script` reads the HTML and needs no browser.
 [Other formats](#other-formats).
 
 `render` writes one PNG per slide at 1920x1080 with every fragment shown, one
-per slide on a 390px-wide phone, 2x2 contact sheets of both (`sheet-*`,
-`phone-sheet-*`), and the print PDF reveal.js makes, one page per slide. Read
-the sheets: it is the fastest way to look at a whole deck.
+per slide on a 390px-wide phone, contact sheets of both (`sheet-*` two across,
+`phone-sheet-*` four across), and the print PDF reveal.js makes, one page per
+slide. Read the sheets: it is the fastest way to look at a whole deck.
 
 **`render` needs a folder of its own.** It deletes old `slide-*`, `phone-*` and
 `sheet-*` images and overwrites `<deck>.pdf` there, so it refuses any non-empty
@@ -45,7 +45,7 @@ it at the deck's folder.
 | Code | Meaning |
 |---|---|
 | 0 | Every gate passed. `REVIEW` lines still need a decision. |
-| 1 | The file could not be read, or a web page never started reveal.js. |
+| 1 | The file could not be read, has no slides, or a web page never started reveal.js (the console errors that stopped it are printed). |
 | 2 | `BLOCK` findings. |
 
 ## The gates
@@ -56,17 +56,17 @@ canvas.
 | Severity | Gate | Catches |
 |---|---|---|
 | BLOCK | `no-title` | A slide with no `h1`, `h2` or `h3` (on a .pptx, no title placeholder). The outline and screen readers see an untitled slide. |
-| BLOCK | `contrast` | Text below 7:1 (4.5:1 for large text). `--level AA` drops to 4.5:1 / 3:1. Web decks are measured by axe-core against each slide's own background; text inside an SVG figure, or over an image or gradient, is counted as unchecked. |
+| BLOCK | `contrast` | Text below 7:1 (4.5:1 for large text). `--level AA` drops to 4.5:1 / 3:1. Web decks are measured by axe-core against each slide's own background colour; text inside an SVG figure, or on a slide whose background is an image or gradient, is counted as unchecked. |
 | BLOCK | `alt-text` | An image, or an SVG with `role="img"`, with no text alternative. |
 | BLOCK | `em-dash` | An em-dash in slide text. |
 | BLOCK | `asset` | A file the deck asks for and cannot load: a renamed figure, a missing script. |
 | BLOCK | `script` | A console error, including a `data-value` with no data behind it. |
 | WARN | `small-text` | Text under `--min-pt` (14pt, 19px on the canvas). |
-| WARN | `overflow` | Something drawn past the slide's edge. |
-| WARN | `phone` | On a 390px-wide phone: text under 12px, content past the slide's edge, or a page that scrolls sideways. |
-| WARN | `motion` | Animation still running with reduced motion requested. |
+| WARN | `overflow` | Something drawn past the edge of the slide canvas, clipped or not. Content inside a container that scrolls sideways is exempt. |
+| WARN | `phone` | On a 390px-wide phone: text under 12px, content past the slide's edge, a page that scrolls sideways, or no viewport meta tag. Figures that pan sideways are listed as INFO. |
+| WARN | `motion` | Animation on a slide still running a quarter second after it opens, with reduced motion requested. |
 | WARN | `offline` | The deck fetches from the network, so it fails on a projector laptop with no Wi-Fi. |
-| WARN | `no-notes` / `duplicate-title` | A talk slide with no script (backup slides are exempt), or two slides a screen reader cannot tell apart. |
+| WARN | `no-notes` / `duplicate-title` | A talk slide with no script, in `<aside class="notes">` or `data-notes` (backup slides are exempt), or two slides a screen reader cannot tell apart. |
 | REVIEW | `figures` / `dense` | Percentages, ratios, decimals, `x of y` and long numbers (years and digits inside identifiers are labels), or more than 60 words, on talk slides. Slide 1 is exempt, and so is everything after a divider titled exactly `Backup`, `Backup slides` or `Appendix`, or from `--backup-from`. Words inside figures count: a `dense` on a figure-heavy slide is not a reason to cut the figure. |
 | REVIEW | `jargon` | A `--jargon` term on a talk slide. Use the plain word on the slide and the term in a muted footnote. |
 | REVIEW | `long-title` | Titles over 14 words, on every slide. |
@@ -266,6 +266,9 @@ matters. It is never decoration.
 
 A web deck is published with GitHub Pages, and the link is the handout.
 Publish only what is cleared for release; a public repo's Pages site is public.
+A repository has one Pages site. In a repo that already publishes one (a docs
+site, say), this workflow would replace it: put the deck in its own repo, or
+copy it into the existing site's build output instead.
 
 1. Commit the deck folder to the repo.
 2. Copy `${CLAUDE_SKILL_DIR}/templates/pages.yml` to `.github/workflows/deck.yml`
@@ -277,7 +280,7 @@ Publish only what is cleared for release; a public repo's Pages site is public.
 4. Push. The deploy job prints the URL; put it on the closing slide.
 
 The template's actions are pinned to commit SHAs, and techne's guard keeps them
-equal to the pins its own docs workflow uses.
+equal to the pins techne's own workflows use.
 
 ## The toolchain, and why
 
@@ -320,6 +323,12 @@ equal to the pins its own docs workflow uses.
 - **The print PDF lays out after `ready`.** Wait for `.pdf-page` elements
   before printing, and set `pdfSeparateFragments: false` or each fragment
   becomes its own page.
+- **The motion gate sees CSS animations and transitions.** A loop driven by
+  `requestAnimationFrame` or a timer is invisible to it; check such a loop
+  reads `matchMedia('(prefers-reduced-motion: reduce)')` by hand.
+- **Markdown slides.** For a `data-markdown` section, `script` takes the title
+  from its first `#` line and the notes from the text after `Note:`; `check`
+  reads the slide as rendered.
 - **SVG text is not contrast-checked.** axe skips text inside a figure marked
   `role="img"`. Colour figure text with the `deck.css` tokens, which clear 7:1.
 - **A 16:9 canvas shrunk to a phone is unreadable.** At 390px wide it is

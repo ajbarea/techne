@@ -32,7 +32,7 @@ A web deck is checked and rendered in Chromium through Playwright; install it on
 
 `check` takes `--level` (default `AAA`), `--min-pt` (14), `--dense-words` (60) and `--title-words` (14). `render` takes `--renderer` (default `auto`) and `--dpi` (80) for a `.pptx` or PDF. `script` takes `--wpm` (140).
 
-`check` exits 0 when every gate passed, 1 when the file is not a readable deck, and 2 on a blocker. On a web deck, `render` writes one PNG per slide at 1920x1080 with every fragment shown, one per slide on a 390px-wide phone, contact sheets of both, and the print PDF. A `.pptx` is exported through PowerPoint when it is installed and LibreOffice otherwise. Give `render` a folder of its own: it refuses a non-empty folder it did not create. `script` prints the speaker notes as one Markdown script with the talk length; backup slides come after the talk and are left out of the length.
+`check` exits 0 when every gate passed, 1 when the file is not a readable deck, and 2 on a blocker. On a web deck, `render` writes one PNG per slide at 1920x1080 with every fragment shown, one per slide on a 390px-wide phone, contact sheets of both, and the print PDF; `--renderer` and `--dpi` apply to a `.pptx` or PDF only. A `.pptx` is exported through PowerPoint when it is installed and LibreOffice otherwise. Give `render` a folder of its own: it refuses a non-empty folder it did not create. `script` prints the speaker notes as one Markdown script with the talk length; backup slides come after the talk and are left out of the length.
 
 ## What it checks
 
@@ -54,7 +54,7 @@ A PDF deck gets the gates its text can answer, read with `pdftotext`. A figure t
 
 `plugins/graphe/skills/slides/templates/web/` is a reveal.js 6.0.2 deck that passes `check` with nothing to review: title, agenda, a claim whose figure builds step by step, a concrete case, a quick bet answered with dots, method steps, a related-work map and timeline, a discussion stop, limits, Thank you, and backup slides. Copy the folder and open `index.html` in a browser; `S` opens the speaker view. Figures and related work are read from `data/deck-data.js`, so a repo can generate them from its results. A chapter rail and the agenda come from each slide's `data-chapter`. On a phone the deck switches to a portrait scroll view.
 
-`plugins/graphe/skills/slides/templates/pages.yml` publishes the deck folder to GitHub Pages. Its actions are pinned to the same commit SHAs as techne's docs workflow, and `make guards` fails when they drift.
+`plugins/graphe/skills/slides/templates/pages.yml` publishes the deck folder to GitHub Pages. Its actions are pinned to the same commit SHAs as techne's own workflows, and `make guards` fails when they drift. A repository has one Pages site, so a repo that already publishes a docs site needs the deck in its own repo or inside that site's build.
 
 ## Testing it
 
