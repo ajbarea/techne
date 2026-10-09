@@ -695,7 +695,15 @@ _STRAIGHT_CLOSE = re.compile(r"(?<!\\)\"")
 #: the item, wherever `In` sits: `In~`, `In:`, `In Proc.`, `In: Smith (ed.)`.
 _IN_WORD = re.compile(r"(?<![A-Za-z])in(?![A-Za-z])", re.I)
 #: What separates the first author from the rest of a printed author list.
-_AUTHOR_BREAK = re.compile(r",|;|\\?&|\b(?i:and|with|et|und)\b|\\and\b")
+#: Single-letter conjunctions (Spanish `y`, Portuguese `e`, Catalan `i`, German `u.`) count
+#: only in lower case, so an initial such as the `E.` of `E.~Hill` does not split a name.
+_AUTHOR_BREAK = re.compile(
+    r",|;|/|\\?&|\\textbullet\b|\\and\b|\b(?i:and|with|et|und|en|och|és)\b"
+    r"|(?<![A-Za-z])(?:y|e|i|u\.?)(?![A-Za-z.])"
+)
+#: More name words than this in the first segment means the list was not split: a separator
+#: this does not know joined the authors, and the last word may be a later author's.
+_MAX_NAME_WORDS = 3
 #: Particles a printed surname may be split at, `Le Cun` for `LeCun`.
 _PARTICLES = {"le", "la", "de", "da", "di", "du", "van", "von", "der", "den", "del", "della"}
 _PARTICLES |= {"ten", "ter"}
@@ -857,7 +865,8 @@ def read_document(doc: Path) -> Document:
         uses = uses or bool(_BIBLIOGRAPHY_USE.search(clean))
         page = typeset(text)
         if path.suffix == ".bbl":
-            pasted |= bbl_keys(page)
+            # `\input` typesets a BibTeX `.bbl`; a biber one holds `\entry` data, not a list.
+            pasted |= {key.strip() for key in _BIBITEM.findall(page)}
             continue
         hand = hand or opens_bibliography(page)
         items += bibitems(page, path.resolve())
@@ -878,7 +887,7 @@ def read_document(doc: Path) -> Document:
         hand and not uses,
         # A file of loose `\bibitem`s counts only as part of a hand-written list.
         tuple(items) if hand and not uses else (),
-        frozenset(pasted),
+        frozenset(pasted) if not uses else frozenset(),
     )
 
 
@@ -893,7 +902,12 @@ def documents(cfg: Config) -> list[Path]:
     """
     found = []
     for path in _walk(cfg, ".tex"):
-        text = strip_comments(_read(path))
+        try:
+            text = strip_comments(_read(path))
+        except OSError as error:
+            # Named, never silently passed: a file that cannot be read is not checked.
+            print(f"dokimasia: cannot read {_name(cfg, path)}: {error.strerror}", file=sys.stderr)
+            continue
         if _DOCUMENTCLASS.search(text) and not _SUBFILES.search(text):
             found.append(path)
     return found
@@ -1003,7 +1017,10 @@ def lint(cfg: Config) -> int:
     loose = [p for p in _walk(cfg, ".tex") if p.resolve() not in reached]
     loose_cites: set[str] = set()
     for path in loose:
-        loose_cites |= cite_keys(_read(path))
+        try:
+            loose_cites |= cite_keys(_read(path))
+        except OSError:
+            continue  # already named by documents()
 
     findings: list[str] = []
 
@@ -1153,9 +1170,9 @@ def _bbl_for(cfg: Config, doc: Path) -> Path:
     return beside
 
 
-def _unreached(cfg: Config, docs: list[Path]) -> list[str]:
+def _unreached(cfg: Config, docs: list[Path], every: list[Path]) -> list[str]:
     """One line per document directory holding `.tex` files no document's includes reach."""
-    reached = {f for d in documents(cfg) for f in document_files(d)}
+    reached = {f for d in every for f in document_files(d)}
     tex = [p.resolve() for p in _walk(cfg, ".tex")]
     lines, seen = [], set()
     for doc in docs:
@@ -1189,7 +1206,8 @@ def rendered(cfg: Config, docs: list[Path] | None = None, require_built: bool = 
     what renders.
     """
     note_unmatched_excludes(cfg)
-    docs = documents(cfg) if not docs else docs
+    every = documents(cfg)
+    docs = docs or every
     problems = 0
     checked = 0
     unbuilt: list[str] = []
@@ -1201,14 +1219,11 @@ def rendered(cfg: Config, docs: list[Path] | None = None, require_built: bool = 
         # A hand-written list renders without a build, and so does a pasted `.bbl` under
         # another stem. A document that also names a `.bib` still needs its `.bbl`.
         built = bbl.exists()
-        if (info.hand_written or (info.pasted and not built)) and (built or not info.named):
+        if info.hand_written or (info.pasted and not built):
             checked += 1
             cites = info.cites
+            # A .bbl beside a hand-written list is stale output from some earlier build.
             shown = {item.key for item in info.bibitems} | info.pasted
-            # LaTeX reads the .bbl only for a document that names a .bib; beside a
-            # hand-written list it is stale output from some earlier build.
-            if built and info.named:
-                shown |= bbl_keys(_read(bbl))
             missing = sorted(cites - shown)
             kind = "hand-written thebibliography" if info.hand_written else "pasted .bbl"
             print(
@@ -1234,7 +1249,7 @@ def rendered(cfg: Config, docs: list[Path] | None = None, require_built: bool = 
         for key in missing:
             print(f"dokimasia: {name}: \\cite{{{key}}} did not render", file=sys.stderr)
         problems += len(missing)
-    for line in _unreached(cfg, docs):
+    for line in _unreached(cfg, docs, every):
         print(line)
     names = f" ({', '.join(unbuilt)})" if unbuilt else ""
     extra = f", {len(bare)} without a bibliography" if bare else ""
@@ -1455,7 +1470,13 @@ class _Reference:
 
 
 def _references(cfg: Config) -> list[_Reference]:
-    docs = [read_document(p) for p in documents(cfg)]
+    docs = []
+    for path in documents(cfg):
+        try:
+            docs.append(read_document(path))
+        except OSError as error:
+            # Named, never silently passed: a document verify could not read is unchecked.
+            print(f"dokimasia: cannot read {_name(cfg, path)}: {error.strerror}", file=sys.stderr)
     refs = []
     for _, _, key, body in _all_entries(cfg, any(d.hand_written for d in docs)):
         fields = parse_fields(body)
@@ -1549,7 +1570,7 @@ def _first_surnames(authors: str) -> set[str]:
     """
     first = _AUTHOR_BREAK.split(authors, maxsplit=1)[0]
     words = [w for w in normalise(first).split() if len(w) > 1 and w not in _NOT_NAMES]
-    if not words:
+    if not words or len([w for w in words if w not in _PARTICLES]) > _MAX_NAME_WORDS:
         return set()
     if len(words) > 1 and words[-2] in _PARTICLES:
         return {words[-1], words[-2] + words[-1]}
@@ -1592,7 +1613,13 @@ def _printed_findings(
         return findings
     shown = text if len(text) <= 200 else text[:197] + "..."
     source_authors = record.get("authors") or []
-    surnames = _first_surnames(text[:at])
+    authors = text[:at]
+    surnames = _first_surnames(authors)
+    if not surnames and re.search(r"[^\W\d_]", authors):
+        # Author text this cannot read (non-Latin, initials only, an unsplit list) is not
+        # an absent author: comparing nothing would count a wrong one as verified. A title
+        # already found wrong is still reported.
+        return findings or None
     if source_authors and surnames and not surnames & _family_names(source_authors[0]):
         findings.append(("first author", shown, source_authors[0]))
     accepted = _accepted_years(record)

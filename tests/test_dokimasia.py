@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import email.message
 import json
+import os
 import urllib.error
 from pathlib import Path
 
@@ -2707,3 +2708,77 @@ def test_a_double_surname_or_swapped_source_name_reads_as_drift(dk, printed, fir
     record with given and family swapped reads as drift: never a pass on a given name."""
     record = {"title": "Deep learning", "authors": [first], "source": "crossref"}
     assert _compare(dk, printed, record) == ["first author"]
+
+
+# --- #113 seventh review round ------------------------------------------------------------
+
+
+def test_a_pasted_biber_bbl_does_not_pass_an_unbuilt_biblatex_document(dk, tmp_path):
+    _tree(
+        tmp_path,
+        {
+            "refs.bib": CLEAN,
+            "main.tex": DOC + "\\cite{good2024entry}\\printbibliography\n\\input{other.bbl}\n",
+            "other.bbl": "\\entry{good2024entry}{article}{}\n\\endentry\n",
+        },
+    )
+    assert dk.rendered(dk.load_config(tmp_path), require_built=True) == 1
+
+
+def test_a_pasted_bbl_in_a_biblatex_document_changes_nothing(dk, tmp_path, capsys):
+    _tree(
+        tmp_path,
+        {
+            "refs.bib": CLEAN,
+            "main.tex": DOC + "\\addbibresource{refs.bib}\\cite{good2024entry}\\printbibliography\n"
+            "\\input{other.bbl}\n",
+            "main.bbl": "\\entry{good2024entry}{article}{}\n\\endentry\n",
+            "other.bbl": "\\bibitem{unrelated} Old.\n",
+        },
+    )
+    assert dk.rendered(dk.load_config(tmp_path)) == 0
+    assert "1/1 cited keys rendered\n" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("join", [" y ", " e ", " i ", " / ", " \\textbullet{} ", " u. ", " en "])
+def test_a_wrong_first_author_joined_by_any_conjunction_is_drift(dk, join):
+    printed = f"X.~Zhang{join}A.~Vaswani, ``Attention is all you need,'' 2017."
+    assert _compare(dk, printed) == ["first author"]
+
+
+def test_an_initial_e_does_not_split_a_name(dk):
+    record = {"title": "Four ways", "authors": ["E. Hill"], "source": "arxiv"}
+    assert _compare(dk, "E.~Hill, ``Four ways,'' arXiv:2608.26183, 2026.", record) == []
+
+
+@pytest.mark.parametrize(
+    "authors",
+    [
+        "\u5f20\u4e09, \u674e\u56db",  # a CJK author list
+        "\u0418\u0432\u0430\u043d\u043e\u0432, \u0418.",  # Cyrillic
+        "A.~B.",  # initials only
+        ", A.~Fake",  # an empty first segment
+        "et al.",
+        "Xu Zhang Wei Wang Ashish Vaswani",  # an unsplit list
+    ],
+)
+def test_author_text_that_cannot_be_read_leaves_the_entry_uncompared(dk, authors):
+    assert _compare(dk, f"{authors}, ``Attention is all you need,'' 2017.") is None
+
+
+def test_a_wrong_title_is_reported_even_when_the_authors_cannot_be_read(dk):
+    assert _compare(dk, "\u5f20\u4e09, ``A fabricated title,'' 2017.") == ["title"]
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads any file")
+def test_verify_names_a_document_it_cannot_read(dk, tmp_path, monkeypatch, capsys):
+    (tmp_path / "references.bib").write_text(CLEAN)
+    secret = tmp_path / "locked.tex"
+    secret.write_text(DOC + "\\cite{good2024entry}\n")
+    secret.chmod(0)
+    _answer(dk, monkeypatch)
+    try:
+        dk.verify(dk.load_config(tmp_path), delay=0)
+    finally:
+        secret.chmod(0o644)
+    assert "cannot read locked.tex" in _err(capsys)

@@ -66,8 +66,8 @@ only reference lists are hand-written is not a configuration error.
   every approximation tried deleted live text. A `comment` environment and the body of an
   environment definition are not read.
 - `rendered` checks that every cited key has a `\bibitem`; such a document is never "not built".
-- A `.bbl` pasted in with `\input`, as arXiv submissions do, is build output. It counts as
-  rendered, and nothing else: its entries are checked in the `.bib` it came from, which must be
+- A BibTeX `.bbl` pasted in with `\input` by a document that uses no BibTeX or biblatex, as
+  arXiv submissions do, is build output. It counts as rendered, and nothing else: its entries are checked in the `.bib` it came from, which must be
   in the project. One pasted into the `.tex` itself reads as hand-written, and its citations
   still count for that `.bib`.
 - `lint` does not require an identifier: printed styles routinely drop the DOI. It counts the
@@ -84,7 +84,9 @@ only reference lists are hand-written is not a configuration error.
 - The family name is the last word of the source's name, joined to a particle before it
   (`Le Cun`). Vancouver initials (`Kingma DP`), a Spanish double surname, and a record with
   given and family names swapped read as first-author drift: the rule never passes on what may
-  be a given name.
+  be a given name. Author text it cannot read (non-Latin script, initials only, a list joined
+  by a separator it does not know) leaves the item uncompared, unless its title is already
+  wrong.
 - It never looks an entry up by its title: a search hit is weaker evidence than a resolved
   identifier.
 - Output names a hand-written entry with its file, `key (paper.tex)`, since two papers may
@@ -120,7 +122,8 @@ smith2024x = "arXiv's own title misspells a word"
 [exempt.record]                 # key = reason: skip first author and year
 ```
 
-Hidden directories and `node_modules` are always skipped. Every exemption needs a reason, and
+Hidden directories and `node_modules` are always skipped, and so is a broken symlink. A `.tex`
+that cannot be read is named on stderr (`cannot read`) and not checked. Every exemption needs a reason, and
 an exemption for an entry that is not in the bibliography is a lint finding.
 
 Documents are derived: any `.tex` with a `\documentclass` outside a comment, except a
