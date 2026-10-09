@@ -99,7 +99,7 @@ hide:
       </a>
       <a href="skills/slides/" class="skill-card">
         <div class="skill-name"><code>/graphe:slides</code></div>
-        <p>Gates a talk deck before it is presented: real slide titles, contrast, alt text, stray figures; renders it through the app that will show it.</p>
+        <p>Builds and gates a talk deck: an animated web deck on GitHub Pages from a starter, checked for titles, contrast, alt text, missing files and phone fit, then rendered and published.</p>
       </a>
       <a href="skills/theoros/" class="skill-card">
         <div class="skill-name"><code>/techne:theoros</code></div>

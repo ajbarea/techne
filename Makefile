@@ -72,12 +72,13 @@ guards:                 ## Stale-path + legacy-name + shared-copy + plugin-path 
 	fi
 	@bash scripts/check_action_pins.sh
 
-# End-to-end cases need TeX Live (latex) and the typst wheel (pdf). Where either
-# is absent, TECHNE_NO_TEX / TECHNE_NO_TYPST declares the opt-out; without the
-# declaration the suite fails rather than skipping them unnoticed. The wheel is
-# pulled per-run at the same pin the skill uses, rather than held as a dev dependency.
+# End-to-end cases need TeX Live (latex), the typst wheel (pdf) and Playwright's Chromium
+# (web slides). Where one is absent, TECHNE_NO_TEX / TECHNE_NO_TYPST / TECHNE_NO_BROWSER
+# declares the opt-out; without the declaration the suite fails rather than skipping them
+# unnoticed. The wheels are pulled per-run at the pins the skills use, rather than held as
+# dev dependencies.
 test-unit:              ## pytest over skill-shipped Python
-	@uv run --with 'typst>=0.15,<0.16' pytest
+	@uv run --with 'typst>=0.15,<0.16' --with playwright==1.63.0 --with axe-playwright-python==0.1.8 --with pillow pytest
 
 # The hooks run on the user's system python3, not the project venv. 3.9 is macOS's.
 HOOKS_OLDEST_PYTHON := 3.9

@@ -54,7 +54,7 @@ Install only the ones you use: every enabled plugin's skill list sits in Claude'
 | `graphe:paper` | Scaffolds a new paper dir (LaTeX + results-harvest + shared bib + portfolio row) in a papers-style monorepo so it builds on day one. |
 | `graphe:paper-review` | Pre-submission novelty + reviewer pass for a draft paper: grounds every novelty/claim verdict in retrieved prior work, flags related-work gaps, and surfaces lab-overlap for disclosure. |
 | `graphe:pdf` | Renders markdown to print-quality PDFs through a Typst template, then verifies fonts and content against the source. |
-| `graphe:slides` | Gates a talk deck before it is presented: real slide titles, contrast, alt text, stray figures; renders it through the app that will show it. |
+| `graphe:slides` | Builds and gates a talk deck: an animated web deck on GitHub Pages from a starter, checked for titles, contrast, alt text, missing files and phone fit, then rendered and published. |
 
 ### dokimasia
 

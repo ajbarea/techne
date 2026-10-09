@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>[Talk title]</title>
+  <meta name="description" content="[One sentence: what the talk shows.]">
+  <meta property="og:title" content="[Talk title]">
+  <meta property="og:description" content="[One sentence: what the talk shows.]">
+  <link rel="stylesheet" href="vendor/reveal/reset.css">
+  <link rel="stylesheet" href="vendor/reveal/reveal.css">
+  <link rel="stylesheet" href="deck.css">
+</head>
+<body>
+<div class="reveal">
+<div class="slides">
+
+<section class="title-slide dark" data-background-color="#14181f">
+  <h1>[Talk title: the claim in plain words]</h1>
+  <p class="muted">[Presenter name] · [Affiliation] · [Venue, date]</p>
+  <aside class="notes">[Hi, I'm ... One sentence on why this matters to the people in this room.]</aside>
+</section>
+
+<section>
+  <span class="kicker">Today</span>
+  <h2>[What we will cover]</h2>
+  <ol class="agenda" data-auto></ol>
+  <p class="footnote">[Where the discussion stops fall, in one line.]</p>
+  <aside class="notes">[Here's the plan for the next N minutes. Name each part in the words the rail at the top will show.]</aside>
+</section>
+
+<section data-chapter="1 · The problem">
+  <span class="kicker">1 · The problem</span>
+  <h2>[Claim headline: one full sentence the figure proves]</h2>
+  <div class="figure">
+    <svg viewBox="0 0 1180 420" role="img" aria-labelledby="f1-title f1-desc">
+      <title id="f1-title">[What the figure shows]</title>
+      <desc id="f1-desc">[Before: what goes wrong. After: what the idea changes.]</desc>
+      <defs>
+        <marker id="arrowhead" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#0072b2"/>
+        </marker>
+      </defs>
+      <g>
+        <rect class="box" x="10" y="40" width="440" height="300" rx="14"/>
+        <text x="40" y="90" font-weight="700">[Before]</text>
+        <text x="40" y="140">[What happens today, in one line]</text>
+        <text x="40" y="190">[The cost, in one line]</text>
+      </g>
+      <g class="fragment">
+        <path class="arrow" d="M470,190 L690,190"/>
+        <text x="580" y="170" text-anchor="middle">[the idea]</text>
+      </g>
+      <g class="fragment">
+        <rect class="box" x="720" y="40" width="440" height="300" rx="14"/>
+        <text x="750" y="90" font-weight="700">[After]</text>
+        <text x="750" y="140">[What the idea changes]</text>
+        <circle class="accent" cx="770" cy="210" r="16"/>
+        <text x="800" y="218">[The one mark to look at]</text>
+      </g>
+    </svg>
+  </div>
+  <p class="footnote">[Paper term: the source's name for the idea.] Illustrative example.</p>
+  <aside class="notes">[Here's the problem. Walk the figure left to right as each part appears. End with the line that leads to the next slide.]</aside>
+</section>
+
+<section data-chapter="1 · The problem">
+  <span class="kicker">1 · The problem</span>
+  <h2>[One concrete case before the general rule]</h2>
+  <div class="cards" style="--n:3">
+    <div class="card fragment"><b>[Step one]</b><p>[What happens, in one plain line.]</p></div>
+    <div class="card fragment"><b>[Step two]</b><p>[What happens, in one plain line.]</p></div>
+    <div class="card limit fragment"><b>[Where it breaks]</b><p>[The catch, in one plain line.]</p></div>
+  </div>
+  <p class="footnote">[Term: one-line definition the first time it appears.]</p>
+  <aside class="notes">[Take one case the room already knows and walk it. Then name the pattern it stands for.]</aside>
+</section>
+
+<section data-chapter="1 · The problem">
+  <span class="kicker">1 · The problem</span>
+  <h2>[A quick bet: how often does this go wrong?]</h2>
+  <div class="split">
+    <div class="cards" style="--n:1">
+      <div class="card"><b>[Rarely]</b></div>
+      <div class="card"><b>[Sometimes]</b></div>
+      <div class="card"><b>[Most of the time]</b></div>
+    </div>
+    <div class="dots fragment" data-dots="results.failShare" data-total="100"></div>
+  </div>
+  <p class="footnote">[Each dot: one in a hundred cases. Filled: it went wrong.]</p>
+  <aside class="notes">[Ask for hands on each option before revealing the dots. Then say the answer once, in words.]</aside>
+</section>
+
+<section data-chapter="2 · How it works">
+  <span class="kicker">2 · How it works</span>
+  <h2>[The method in four steps]</h2>
+  <ol class="steps" style="--n:4">
+    <li class="fragment"><b>[Step]</b>[One plain line.]</li>
+    <li class="fragment"><b>[Step]</b>[One plain line.]</li>
+    <li class="fragment"><b>[Step]</b>[One plain line.]</li>
+    <li class="fragment"><b>[Step]</b>[One plain line.]</li>
+  </ol>
+  <aside class="notes">[One sentence per step as it appears. Say what goes in and what comes out.]</aside>
+</section>
+
+<section data-chapter="3 · Where it stands">
+  <span class="kicker">3 · Where it stands</span>
+  <h2>[Others read X or look Y; ours is the only one that does Z]</h2>
+  <div class="relmap" data-source="related"></div>
+  <aside class="notes">[Place each rival by what it reads and when it looks. Then bring ours in, and say the one difference that matters for each.]</aside>
+</section>
+
+<section data-chapter="3 · Where it stands">
+  <span class="kicker">3 · Where it stands</span>
+  <h2>[The field built X first and only lately asked Y]</h2>
+  <div class="timeline" data-source="related"></div>
+  <p class="footnote">[Hover or tab to a dot for its one-line summary.]</p>
+  <aside class="notes">[One lane per family. Point at the gap the talk fills.]</aside>
+</section>
+
+<section class="discussion dark" data-background-color="#14181f" data-chapter="3 · Where it stands">
+  <span class="kicker">Discussion</span>
+  <h2>[One short personal question anyone can answer?]</h2>
+  <p class="muted">[Example answers to get the room started?]</p>
+  <aside class="notes">[Read the question. Offer one example answer. Close with the sentence that ties it back to the talk.]</aside>
+</section>
+
+<section data-chapter="4 · What's next">
+  <span class="kicker">4 · What's next</span>
+  <h2>[What is still untested, said first]</h2>
+  <div class="cards" style="--n:3">
+    <div class="card limit"><b>[Limit]</b><p>[Plain line.]</p></div>
+    <div class="card limit"><b>[Limit]</b><p>[Plain line.]</p></div>
+    <div class="card"><b>[Next]</b><p>[Plain line.]</p></div>
+  </div>
+  <aside class="notes">[Say the limits before anyone asks. Then what comes next.]</aside>
+</section>
+
+<section class="dark" data-background-color="#14181f">
+  <h2>Thank you</h2>
+  <p class="muted">[Presenter name] · [email] · [deck URL]</p>
+  <aside class="notes">[Thank you. Questions?]</aside>
+</section>
+
+<section class="dark" data-background-color="#14181f">
+  <h2>Backup slides</h2>
+</section>
+
+<section>
+  <h2>[Backup: the numbers behind the bet]</h2>
+  <table class="data">
+    <thead><tr><th scope="col">[Measure]</th><th scope="col">[Value]</th></tr></thead>
+    <tbody>
+      <tr><td>[Cases that went wrong]</td><td class="num" data-value="results.failed"></td></tr>
+      <tr><td>[Cases checked]</td><td class="num" data-value="results.total"></td></tr>
+      <tr><td>[Share]</td><td class="num" data-value="results.failShare" data-format="pct"></td></tr>
+    </tbody>
+  </table>
+  <p class="footnote">[Source: artifact path or paper table.]</p>
+</section>
+
+</div>
+</div>
+<script src="data/deck-data.js"></script>
+<script src="vendor/reveal/reveal.js"></script>
+<script src="vendor/reveal/notes.js"></script>
+<script src="deck.js"></script>
+</body>
+</html>

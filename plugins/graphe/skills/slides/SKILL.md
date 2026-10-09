@@ -1,6 +1,6 @@
 ---
 name: slides
-description: Build a talk deck and gate it before it is presented. Use when making or revising slides, a PowerPoint deck or a Typst or Beamer PDF deck, turning a paper or a draft deck into a talk or a recorded video, writing the script to read aloud on each slide, adapting a deck for a new audience, or asking whether a deck is ready to present. Covers the toolchain choice, a starter deck, how to write slides a newcomer can follow, the gates that catch a deck that opens fine but fails its audience (untitled slides, low contrast, missing alt text, stray figures), rendering through the app that will show it, and briefing the presenter. Works alongside a general pptx skill, which owns the .pptx file API; this one owns what goes on the slides and whether the deck is ready.
+description: Build a talk deck and gate it before it is presented. Use when making or revising slides or a talk, an animated web deck to present from a browser or publish on GitHub Pages, a PowerPoint deck, or a Typst or Beamer PDF deck; turning a paper or a draft deck into a talk or a recorded video; drawing how the work differs from related work; writing the script to read aloud on each slide; adapting a deck for a new audience; or asking whether a deck is ready to present. Covers the starter web deck, how to write and animate slides a newcomer can follow, the gates that catch a deck that opens fine but fails its audience (untitled slides, low contrast, missing alt text, missing files, text off the slide or unreadable on a phone, motion that ignores reduced-motion settings), rendering, publishing, and briefing the presenter. Works alongside a general pptx skill, which owns the .pptx file API; this one owns what goes on the slides and whether the deck is ready.
 disable-model-invocation: false
 allowed-tools: Bash Glob Grep Read Edit Write
 ---
@@ -9,67 +9,76 @@ allowed-tools: Bash Glob Grep Read Edit Write
 
 A deck is done when someone who has never seen it can present it from the
 slides alone, and its owner can answer questions on it, not when the file
-opens. Start from the starter deck, write for the room, put a figure on every
-content slide, gate the file, render it through the app that will show it, look
-at every slide, then brief the presenter.
+opens. New talks are web decks: plain HTML on reveal.js, presented from a
+browser, with diagrams that build step by step, and a link that serves as the
+handout. Start from the starter deck, write for the room, put a figure on every
+content slide, gate it, render it, look at every slide, publish it, then brief
+the presenter.
 
 ## Run it
 
 ```
-uv run --no-project --quiet python ${CLAUDE_SKILL_DIR}/scripts/slides.py check  <deck.pptx|deck.pdf> [--jargon "term,term"] [--backup-from N]
-uv run --no-project --quiet --with pillow python ${CLAUDE_SKILL_DIR}/scripts/slides.py render <deck.pptx|deck.pdf> <out-dir>
-uv run --no-project --quiet python ${CLAUDE_SKILL_DIR}/scripts/slides.py script <deck.pptx> > <deck>-script.md
+B="uv run --no-project --quiet --with playwright==1.63.0 --with axe-playwright-python==0.1.8 --with pillow"
+$B python ${CLAUDE_SKILL_DIR}/scripts/slides.py check  <deck/index.html> [--jargon "term,term"] [--backup-from N]
+$B python ${CLAUDE_SKILL_DIR}/scripts/slides.py render <deck/index.html> <out-dir>
+uv run --no-project --quiet python ${CLAUDE_SKILL_DIR}/scripts/slides.py script <deck/index.html> > <deck>-script.md
 ```
 
-A Typst or Beamer deck is checked and rendered from its PDF. `check` reads each
-page's text with poppler's `pdftotext`, a page's first line standing for its
-title, and runs the gates text can answer (`em-dash`, `long-title`,
-`duplicate-title`, `figures`, `dense`, `jargon`); contrast, alt text, fonts and
-notes live in the source and are reported as not checked. `render` takes the
-PDF as built, so no Office app is involved. `--jargon` lists terms a newcomer
-would not know; `--backup-from` marks the first backup slide when no divider is
-titled `Backup` or `Appendix` (an FAQ section, say).
+A web deck is checked and rendered in Chromium through Playwright. Install the
+browser once with `uv run --no-project --with playwright==1.63.0 playwright
+install chromium`. `script` reads the HTML and needs no browser.
 
-`check` has no Python dependencies (a PDF also needs poppler's `pdftotext`). `render` needs poppler, plus PowerPoint (native
-Windows, or Windows reached from WSL) or LibreOffice; with Pillow it also writes
-2x2 contact sheets, which is the fastest way to look at a whole deck. `script`
-prints the speaker notes as one Markdown script, slide by slide, with the talk
-length at 140 words a minute (`--wpm` to change it); backup slides are listed
-after the talk and left out of the length.
+`check` and `script` also take a `.pptx`, and `check` and `render` take a PDF
+(a Typst or Beamer deck), for decks that already exist in those formats; see
+[Other formats](#other-formats).
 
-**`render` needs a folder of its own.** It deletes old `slide-*.png` and
-`sheet-*.png` and overwrites `<deck>.pdf` there, so it refuses any non-empty
+`render` writes one PNG per slide at 1920x1080 with every fragment shown, one
+per slide on a 390px-wide phone, 2x2 contact sheets of both (`sheet-*`,
+`phone-sheet-*`), and the print PDF reveal.js makes, one page per slide. Read
+the sheets: it is the fastest way to look at a whole deck.
+
+**`render` needs a folder of its own.** It deletes old `slide-*`, `phone-*` and
+`sheet-*` images and overwrites `<deck>.pdf` there, so it refuses any non-empty
 folder it did not create (it marks its own with `.techne-slides`). Never point
-it at the deck's folder: that is where the PDF someone is about to send lives.
+it at the deck's folder.
 
 | Code | Meaning |
 |---|---|
 | 0 | Every gate passed. `REVIEW` lines still need a decision. |
-| 1 | The file, or a part it points at, could not be read. |
-| 2 | `BLOCK` findings. Fix them in the generator, not the packed XML. |
+| 1 | The file could not be read, or a web page never started reveal.js. |
+| 2 | `BLOCK` findings. |
 
 ## The gates
 
+On a web deck, each slide is read with every fragment shown, on its 1280x720
+canvas.
+
 | Severity | Gate | Catches |
 |---|---|---|
-| BLOCK | `no-title` | A slide with no title placeholder. A bold text box looks like a title; screen readers and the outline see an untitled slide. |
-| BLOCK | `contrast` | Text below 7:1 (4.5:1 for 18pt+, or 14pt+ bold). `--level AA` drops to 4.5:1 / 3:1. The colour behind the text is resolved: its own fill, else the topmost filled shape under its centre, else the first of slide, layout and master that defines a background. Text over a picture, gradient, theme-styled or translucent fill, or inside a group, is counted as unchecked rather than guessed. A title with no size of its own takes the master's title size. |
-| BLOCK | `alt-text` | A picture with no description and no decorative flag. |
+| BLOCK | `no-title` | A slide with no `h1`, `h2` or `h3` (on a .pptx, no title placeholder). The outline and screen readers see an untitled slide. |
+| BLOCK | `contrast` | Text below 7:1 (4.5:1 for large text). `--level AA` drops to 4.5:1 / 3:1. Web decks are measured by axe-core against each slide's own background; text inside an SVG figure, or over an image or gradient, is counted as unchecked. |
+| BLOCK | `alt-text` | An image, or an SVG with `role="img"`, with no text alternative. |
 | BLOCK | `em-dash` | An em-dash in slide text. |
-| WARN | `small-text` | An explicit size under `--min-pt` (14). The slide-number field is exempt. |
-| WARN | `font` | A family outside the set that renders in both PowerPoint and Google Slides. Theme references (`+mn-lt`, `+mj-lt`) resolve through the master's theme. |
-| WARN | `no-notes` / `duplicate-title` | A talk slide with no script in its speaker notes (backup slides are exempt), or two slides a screen reader cannot tell apart. |
-| REVIEW | `figures` / `dense` | Percentages, ratios, decimals, `x of y` and long numbers (a thousands-separated number is one figure; years and digits inside identifiers are labels), or body text over 60 words, on talk slides. Slide 1 is exempt, and so is everything after a divider titled exactly `Backup`, `Backup slides` or `Appendix`, or from `--backup-from`. On a PDF, words inside figures count too: a `dense` on a figure-heavy slide is not a reason to cut the figure. |
-| REVIEW | `jargon` | A `--jargon` term on a talk slide, title slide included. Use the plain word on the slide and the term in a muted footnote. |
+| BLOCK | `asset` | A file the deck asks for and cannot load: a renamed figure, a missing script. |
+| BLOCK | `script` | A console error, including a `data-value` with no data behind it. |
+| WARN | `small-text` | Text under `--min-pt` (14pt, 19px on the canvas). |
+| WARN | `overflow` | Something drawn past the slide's edge. |
+| WARN | `phone` | On a 390px-wide phone: text under 12px, content past the slide's edge, or a page that scrolls sideways. |
+| WARN | `motion` | Animation still running with reduced motion requested. |
+| WARN | `offline` | The deck fetches from the network, so it fails on a projector laptop with no Wi-Fi. |
+| WARN | `no-notes` / `duplicate-title` | A talk slide with no script (backup slides are exempt), or two slides a screen reader cannot tell apart. |
+| REVIEW | `figures` / `dense` | Percentages, ratios, decimals, `x of y` and long numbers (years and digits inside identifiers are labels), or more than 60 words, on talk slides. Slide 1 is exempt, and so is everything after a divider titled exactly `Backup`, `Backup slides` or `Appendix`, or from `--backup-from`. Words inside figures count: a `dense` on a figure-heavy slide is not a reason to cut the figure. |
+| REVIEW | `jargon` | A `--jargon` term on a talk slide. Use the plain word on the slide and the term in a muted footnote. |
 | REVIEW | `long-title` | Titles over 14 words, on every slide. |
 
-What `check` cannot see: text overflowing its box, shapes overlapping, a
-diagram that reads wrong. That is what `render` is for. Look at every slide,
-including the ones you did not change.
+What `check` cannot see: a diagram that reads wrong, a label on the wrong
+mark, a build order that gives away the punchline. That is what `render` is
+for. Look at every slide, desktop and phone, including the ones you did not
+change.
 
 ## Writing it for the room
 
-`# research(2026-09)`
+`# research(2026-10)`
 
 The test for every slide: someone who has never heard the terms follows it.
 The slide text and the script follow `${CLAUDE_PLUGIN_ROOT}/_shared/plain-prose.md`; the
@@ -154,9 +163,9 @@ slides and never replaces them: a presenter giving the talk at a moment's
 notice may not read it, so every point the talk needs is on the slide. A
 presenter who knows the material may never open it; one recording a video
 reads it line by line.
-PowerPoint's Presenter View shows it beside the slide, and its recording
-teleprompter scrolls it while the camera runs
-([Microsoft](https://support.microsoft.com/en-us/powerpoint/record-your-presentation)).
+In a web deck the script is each slide's `<aside class="notes">`. Press `S` and
+reveal.js opens the speaker view: the script, a timer, and the next slide, beside
+the one the room sees ([reveal.js](https://revealjs.com/speaker-view/)).
 
 - **First person, spoken sentences, start to finish.** "Here's the problem.
   An analyst's evidence lives in four different systems..." Not reminders, not
@@ -182,99 +191,167 @@ should not have to find the notes pane to see it.
 
 ## The starter deck
 
-`templates/deck.js` is a pptxgenjs generator for the look this skill was
-built from: warm off-white background, near-black text, blue labels, an
-orange accent for costs and limits, content in cards with a bold label and
-one plain line, a kicker above every title, and dark discussion slides. It has
-one of each layout: title, agenda, claim with cards and footnotes, vocabulary,
-concrete case, discussion, limits, closing statement, backup divider, backup
-table. Every colour clears 7:1, and the starter passes `check` with nothing to
-review.
+`templates/web/` is a whole deck that passes `check` with nothing to review.
+Copy it and replace every bracketed placeholder:
 
 ```
-cp ${CLAUDE_SKILL_DIR}/templates/deck.js <talk-dir>/build.js
-cd <talk-dir> && npm i pptxgenjs && node build.js talk.pptx
+cp -r ${CLAUDE_SKILL_DIR}/templates/web <talk-dir>
 ```
 
-Replace every bracketed placeholder, drop the layouts the talk does not need,
-and copy a layout to add slides. Keep its helpers (`base`, `kicker`, `card`,
-`footnote`, `discussion`, `backup`): they put titles in the title placeholder
-and keep the kicker, colours and sizes consistent.
+| File | Holds |
+|---|---|
+| `index.html` | One `<section>` per slide: title, agenda, claim with a figure that builds, concrete case, quick bet, method steps, related-work map, timeline, discussion, limits, Thank you, backup divider, backup table. Drop the layouts the talk does not need; copy one to add a slide. |
+| `deck.css` | Colour tokens (every text colour clears 7:1 on its surface; figure marks use the colour-blind-safe Okabe-Ito hues), layouts, the phone layout, and the reduced-motion rule. |
+| `deck.js` | Builds what comes from data, then starts reveal.js. |
+| `data/deck-data.js` | Every figure and every related-work entry the deck shows. |
+| `vendor/reveal/` | reveal.js 6.0.2 (MIT), so the deck opens with no network. |
+
+Open `index.html` in a browser to present. `S` opens the speaker view, `O` the
+slide overview, `F` full screen, `B` blanks the screen; links like
+`#/5` jump to a slide.
+
+**Nothing on a slide is typed by hand when it comes from data.** Slides read
+`data/deck-data.js`: `data-value="results.failShare"` fills in a number
+(`data-format="pct"` for a share), `data-dots` draws a share as filled dots, and
+`data-source="related"` builds the related-work map or timeline. In a repo with
+results, generate that file from the artifacts in the build, the way a paper's
+tables are harvested; a key with no data behind it is a console error, which
+`check` blocks. It is a `.js` file rather than JSON so the deck opens from
+`file://` with no server.
+
+**The chapter rail and the agenda come from `data-chapter`.** Give each talk
+slide its chapter (`data-chapter="2 · How it works"`, the same words as its
+kicker). The agenda slide lists the chapters in order, and a rail across the top
+shows which one the talk is in; click a chapter to jump to it.
+
+**Show how the work differs from related work, from data.** Each entry in
+`related.works` has a year, a group, a position on the two axes (`x`, `y`), a
+one-line summary, and for a rival, the one sentence on how ours differs. The map
+places rivals by the two axes, brings ours in last, and lists the differences
+beside it; the timeline draws the same entries by year, one lane per group.
+Choose axes on which ours sits alone: what each method reads and when it looks,
+say. Hovering or tabbing to a dot shows its summary.
+
+**On a phone** (600px wide or less) the deck switches to a portrait canvas in
+reveal.js scroll view: columns stack, and a wide figure keeps a readable size
+and pans sideways. Look at the phone sheets; `check` warns on text under 12px.
+
+## Motion
+
+`# research(2026-10)`
+
+Motion is for building an idea in steps and pointing at the one mark that
+matters. It is never decoration.
+
+- **Build a process in steps.** A figure that adds one stage per click (a
+  `class="fragment"` on each SVG group or card) lets the room follow a complex
+  idea at the presenter's pace. Learner-paced segments improved transfer in
+  three of three tests ([Mayer, segmenting
+  principle](https://www.cambridge.org/core/books/multimedia-learning/segmenting-principle/37240877DDA0362355ADB39936027982)).
+- **Point at the mark.** Bring in the one dot, bar or arrow the claim is about
+  last, in the accent colour. Cues that point at the essential material help
+  learning ([signaling](https://u.osu.edu/multimedialearning/?p=88)); the cue does the work, not the movement.
+- **Do not reveal bullets one at a time.** A direct test found no learning
+  difference between full, progressive, dimmed and highlighted text
+  ([Virginia Tech](https://vtechworks.lib.vt.edu/handle/10919/88726)). Show the
+  list.
+- **Ask, then reveal.** A quick bet (hands up for each option, then the dots
+  fill in) makes the room commit before the answer.
+- **Honour reduced motion.** `deck.css` stops every animation and transition
+  when the viewer asks for reduced motion, and `deck.js` turns off slide
+  transitions. Keep that rule when adding animations; `check` warns when it is
+  missing.
+
+## Publish
+
+A web deck is published with GitHub Pages, and the link is the handout.
+Publish only what is cleared for release; a public repo's Pages site is public.
+
+1. Commit the deck folder to the repo.
+2. Copy `${CLAUDE_SKILL_DIR}/templates/pages.yml` to `.github/workflows/deck.yml`
+   and replace `DECK_DIR` with the deck folder's path.
+3. Set the Pages source to GitHub Actions:
+   `gh api -X POST repos/<owner>/<repo>/pages -f build_type=workflow`
+   (or `-X PUT` if Pages already exists). A private repo needs a paid plan for
+   Pages.
+4. Push. The deploy job prints the URL; put it on the closing slide.
+
+The template's actions are pinned to commit SHAs, and techne's guard keeps them
+equal to the pins its own docs workflow uses.
 
 ## The toolchain, and why
 
-`# research(2026-09)`
+`# research(2026-10)`
 
-- **Typst + Touying** for a deck you own and present as a PDF, with math,
-  diagrams, or generated figures. The compiler ships in the `typst` wheel the
-  fleet already pins for `graphe:pdf`, so there are no new dependencies. Touying
-  is actively maintained
-  ([0.8.0 on Typst Universe](https://typst.app/universe/package/touying/)
-  needs Typst 0.15; pin the release your `typst` wheel supports). Its
+- **reveal.js 6.0.2** for new talks. It is MIT-licensed and maintained, has a
+  speaker view, PDF export, and a scroll view for phones, and needs no build
+  step: the deck is the HTML file. Slidev, the main alternative, builds through
+  Vite and Vue. Hosted builders such as Claude Design export standalone HTML
+  that `check` cannot read; borrow the look, and build the deck from the
+  starter.
+- **Playwright and axe-core** check and render in the same Chromium that will
+  show the deck. axe-core 4.12.1 comes bundled in `axe-playwright-python`.
+- **Typst + Touying** for a deck that must be a PDF, with math or generated
+  figures. The compiler ships in the `typst` wheel `graphe:pdf` pins. Its
   `simple` theme takes a different signature and fails with "missing argument:
   body"; `metropolis`, `university` and `dewdrop` work.
-- **pptxgenjs** when the deck must be a `.pptx`: it will be presented from
-  PowerPoint or Google Slides, co-edited, recorded, or delivered on a template.
-  Generate it from a script (start from the starter deck) so a rebuild is one
-  command. The Anthropic `pptx` skill covers
-  the API; the traps it does not cover are below.
-- **Fonts: Calibri for text, Consolas for code.** Both render in PowerPoint and
-  in Google Slides, so the deck looks the same wherever it opens. A font that
-  exists only on the build machine is substituted silently on the presenter's.
-- **Render through the presenting app.** PowerPoint via COM is the ground truth
-  when it is installed; `render` finds it from WSL. LibreOffice substitutes
-  fonts it lacks, so its preview can show overflow the real deck does not have,
-  or hide overflow it does.
+- **pptxgenjs** only when the deck must be a `.pptx`: co-edited in PowerPoint,
+  or delivered on a template. The Anthropic `pptx` skill covers the API.
 
 ## Traps
 
-- **pptxgenjs table margins are inches** since v3.8.0. Older docs and search
-  results say points. `margin: [0, 6, 0, 6]` is six-inch padding and collapses
-  every column to one character wide.
-- **Put titles in a title placeholder.** In pptxgenjs, define a master with
-  `placeholder: { options: { type: "title", align: "left" } }` and add each
-  title with `{ placeholder: "title" }`. The placeholder centres text unless
-  told otherwise.
-- **Parse the XML, do not grep it.** pptxgenjs writes `<p:ph` and `type="title"`
-  on different lines, so a one-line grep reports a deck full of titles as
-  untitled.
-- **Text boxes on cards.** A text box drawn over a filled shape has no fill of
-  its own. Contrast is only meaningful against the card, which is why the gate
-  resolves the shape underneath.
-- **PowerPoint is single-instance.** `Quit()` on an instance the user already
-  had open closes their presentations. `render` quits only an instance it
-  started.
-- **PowerShell 5 reads a `.ps1` without a BOM as the ANSI code page**, so a
-  non-ASCII user name in a temp path arrives mangled. Write generated scripts
-  as UTF-8 with a BOM.
-- **A deck open in PowerPoint is locked** (a `~$<name>.pptx` file sits beside
-  it). Copying over it fails, but a PDF beside it copies fine, which leaves a
-  mismatched pair. Publish the `.pptx` first and stop on failure; when it is
-  locked, write the new version under a new name and say so.
-- **Typst passes a bracket as content, not a string.** `member[OpenStack][in]`
-  hands the function the content `[in]`, so `state == "in"` is false and the
-  slide renders the wrong style with no error. Pass `member("OpenStack",
-  "in")` wherever a value is compared.
-- **Placed labels collide silently.** Labels positioned with `place()` on a
-  timeline or axis overlap when their points are close, and nothing warns.
-  Render and look; stagger labels above and below, or merge two close points
-  under one label.
-- **Splicing generated slide text duplicates blocks.** Cutting a section out of
-  a slide file by start and end markers can carry a neighbour's grid along, and
-  the slide quietly spills onto a second page. Count pages after every
-  rebuild, and look at the page that changed.
-- **Headless LibreOffice on the user's own profile** hands the job to an
-  already-open LibreOffice window, which may drop it, and `soffice` still exits
-  0. Give it a private `-env:UserInstallation` profile and check the PDF exists.
+- **Build before `Reveal.initialize`.** reveal.js counts fragments when it
+  starts. A fragment added later is never shown; `deck.js` builds everything
+  first.
+- **Scroll view hides fragments by scroll position.** On a phone a fragment
+  appears as the page scrolls past it and hides again on the way back, so a
+  screenshot taken after `Reveal.slide()` can show the slide half-built.
+  `render` shows every fragment on the phone pass.
+- **reveal.js paints the page white.** `.reveal-viewport` sets
+  `background-color: #fff` on the body, so a background set only on `html` or
+  `body` loses. `deck.css` sets it on `.reveal-viewport` too.
+- **Slide backgrounds live on a separate layer.** `data-background-color`
+  paints a layer beside the slides, which axe reads as an element overlapping
+  the text. `check` gives each slide its own background colour while axe runs.
+- **axe's 7:1 rule skips text that fails 4.5:1.** `color-contrast-enhanced`
+  reports only text between the two thresholds; `check` runs both rules.
+- **`file://` cannot fetch JSON.** A deck opened from disk cannot read a
+  `.json` file, so data lives in a `.js` file that sets `window.DECK_DATA`.
+- **The print PDF lays out after `ready`.** Wait for `.pdf-page` elements
+  before printing, and set `pdfSeparateFragments: false` or each fragment
+  becomes its own page.
+- **SVG text is not contrast-checked.** axe skips text inside a figure marked
+  `role="img"`. Colour figure text with the `deck.css` tokens, which clear 7:1.
+- **A 16:9 canvas shrunk to a phone is unreadable.** At 390px wide it is
+  scaled to about a third, and 30px text becomes 9px. The starter switches
+  phones to a portrait canvas and stacks the columns.
+
+## Other formats
+
+For a deck that already exists as a `.pptx` or a PDF:
+
+- **`.pptx`**: `check` reads the XML directly: title placeholders, contrast
+  resolved through fills and backgrounds, alt text, fonts that render in both
+  PowerPoint and Google Slides (`font`), and speaker notes. `render` exports
+  through PowerPoint when it is installed (natively or from WSL), otherwise
+  LibreOffice, which substitutes fonts and can show overflow the real deck does
+  not have. PowerPoint is single-instance, so `render` quits only an instance it
+  started. pptxgenjs table margins are in inches since v3.8.0.
+- **PDF** (Typst, Beamer): `check` reads each page's text with poppler's
+  `pdftotext`, a page's first line standing for its title, and runs the gates
+  text can answer; contrast, alt text and notes live in the source and are
+  reported as not checked. `render` rasterises it as built.
 
 ## Done means
 
 1. `check` exits 0, and each `REVIEW` item is resolved or deliberately kept.
-2. `render` ran through the presenting app, and every slide was looked at.
+2. `render` ran, and every slide was looked at, on desktop and on the phone.
 3. Every content slide passes the text-alone and figure-alone reading, and has a
-   figure. A deck with a script hands it over with the deck; its length is near
-   the slot, and the slides stand without it.
-4. The presenter has been briefed. A polished deck can outrun its owner. Offer a
+   figure. The script is handed over with the deck; its length is near the
+   slot, and the slides stand without it.
+4. The deck is published (or deliberately kept local) and the link is on the
+   closing slide.
+5. The presenter has been briefed. A polished deck can outrun its owner. Offer a
    mock Q&A, with questions out of order and no notes, before the talk rather
    than after. Two basic questions about material already in the deck mean stop
    polishing and start drilling.

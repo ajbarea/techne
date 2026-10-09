@@ -35,6 +35,11 @@ jobs:
       - name: Hooks module tests (claude plugin test)
         run: make plugin-test
 
+      # graphe:slides checks and renders web decks in Chromium, at the Playwright pin
+      # slides.py names.
+      - name: Install Chromium for the web deck tests
+        run: uv run --no-project --with playwright==1.63.0 playwright install --with-deps chromium
+
       - name: Structural checks + pytest
         run: make test
         env:

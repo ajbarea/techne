@@ -156,6 +156,14 @@ that drift class recurs.
 
 Detail lives in git history (`git log`) and the live skill code. This log is pruned once work is durably shipped.
 
+- 2026-10-09: **`graphe:slides` makes web decks.** New talks start from a reveal.js 6.0.2
+  starter (vendored, offline): figures that build in steps, a chapter rail, a quick bet, and a
+  related-work map and timeline drawn from `data/deck-data.js`. `check` and `render` drive
+  Chromium through Playwright, with axe-core for contrast and alt text, and add gates the pptx
+  path could not have: missing files, console errors, text off the slide, phone fit, motion
+  under reduced-motion settings, and network needed to present. A Pages workflow template
+  publishes the deck, its action pins guarded to match the live workflows. The pptxgenjs starter is gone; pptx
+  and PDF checks stay for existing decks (#120).
 - 2026-10-08: **dokimasia reads hand-written reference lists.** A document whose list is a
   `thebibliography` block has no `.bib` and no `.bbl`; `rendered` used to call it not built and
   `lint` refused the project. Its `\bibitem`s are now its entries: rendered and lint check them,

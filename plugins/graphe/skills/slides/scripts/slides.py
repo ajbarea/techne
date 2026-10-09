@@ -32,6 +32,7 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
+from html.parser import HTMLParser
 
 ERROR, BLOCK, WARN, REVIEW, INFO = "ERROR", "BLOCK", "WARN", "REVIEW", "INFO"
 RANK = {ERROR: 0, BLOCK: 1, WARN: 2, REVIEW: 3, INFO: 4}
@@ -419,6 +420,8 @@ def check(
 ) -> list[Finding]:
     if path.suffix.lower() == ".pdf":
         return check_pdf(path, dense_words, title_words, jargon, backup_from)
+    if path.suffix.lower() in HTML:
+        return check_html(path, level, min_pt, dense_words, title_words, jargon, backup_from)
     try:
         pkg = Package(path)
         parts = pkg.slides()
@@ -503,52 +506,23 @@ def check(
             )
 
         visible = " ".join([s.title, *s.body_text])
-        if "—" in visible:
-            found.append(Finding(BLOCK, "em-dash", "em-dash in slide text", number))
         if not s.notes and not in_backup:
             no_notes.append(number)
-        if len(s.title.split()) > title_words:
-            found.append(
-                Finding(
-                    REVIEW,
-                    "long-title",
-                    f"{len(s.title.split())}-word title (> {title_words})",
-                    number,
-                )
-            )
-        if not in_backup:
-            found += _jargon(visible, jargon, number)
-        # The title slide carries dates, venues and author lists by design, and
-        # backup slides hold the tables the talk left out.
-        if in_backup or number == 1:
-            continue
-        figures = sorted({m.group(0) for m in _FIGURE.finditer(visible)})
-        if figures:
-            found.append(
-                Finding(
-                    REVIEW,
-                    "figures",
-                    f"figures on a talk slide: {', '.join(figures[:6])}; "
-                    "keep only the ones this audience needs",
-                    number,
-                )
-            )
-        words = sum(len(_WORD.findall(t)) for t in s.body_text)
-        if words > dense_words:
-            found.append(
-                Finding(
-                    REVIEW,
-                    "dense",
-                    f"{words} words of body text (> {dense_words}); move the rest to the script",
-                    number,
-                )
-            )
+        found += text_gates(
+            number,
+            s.title,
+            visible,
+            visible,
+            sum(len(_WORD.findall(t)) for t in s.body_text),
+            in_backup,
+            dense_words,
+            title_words,
+            jargon,
+            "of body text",
+            "move the rest to the script",
+        )
 
-    for title, numbers in titles.items():
-        if len(numbers) > 1:
-            found.append(
-                Finding(WARN, "duplicate-title", f"slides {numbers} share the title {title!r}")
-            )
+    found += duplicate_titles(titles)
     odd = {f: sorted(n) for f, n in fonts.items() if f.casefold() not in PORTABLE_FONTS}
     for font, numbers in odd.items():
         found.append(
@@ -580,6 +554,66 @@ def check(
         )
     )
     return sorted(found, key=lambda f: (RANK[f.severity], f.slide or 0))
+
+
+def text_gates(
+    number: int,
+    title: str,
+    visible: str,
+    figure_text: str,
+    words: int,
+    in_backup: bool,
+    dense_words: int,
+    title_words: int,
+    jargon: tuple[str, ...],
+    dense_where: str,
+    dense_advice: str,
+) -> list[Finding]:
+    """The gates a slide's text alone can answer, shared by every deck format."""
+    found: list[Finding] = []
+    if "\u2014" in visible:
+        found.append(Finding(BLOCK, "em-dash", "em-dash in slide text", number))
+    if len(title.split()) > title_words:
+        found.append(
+            Finding(
+                REVIEW, "long-title", f"{len(title.split())}-word title (> {title_words})", number
+            )
+        )
+    if not in_backup:
+        found += _jargon(visible, jargon, number)
+    # The title slide carries dates, venues and author lists by design, and
+    # backup slides hold the tables the talk left out.
+    if in_backup or number == 1:
+        return found
+    figures = sorted({m.group(0) for m in _FIGURE.finditer(figure_text)})
+    if figures:
+        found.append(
+            Finding(
+                REVIEW,
+                "figures",
+                f"figures on a talk slide: {', '.join(figures[:6])}; "
+                "keep only the ones this audience needs",
+                number,
+            )
+        )
+    if words > dense_words:
+        found.append(
+            Finding(
+                REVIEW,
+                "dense",
+                f"{words} words {dense_where} (> {dense_words}); {dense_advice}",
+                number,
+            )
+        )
+    return found
+
+
+def duplicate_titles(titles: dict[str, list[int]]) -> list[Finding]:
+    return [
+        Finding(WARN, "duplicate-title", f"slides {numbers} share the title {title!r}")
+        for title, numbers in titles.items()
+        if len(numbers) > 1
+    ]
 
 
 def _jargon(text: str, terms: tuple[str, ...], number: int) -> list[Finding]:
@@ -639,48 +673,20 @@ def check_pdf(
             or (backup_from is not None and number >= backup_from)
         )
         visible = " ".join(lines)
-        if "\u2014" in visible:
-            found.append(Finding(BLOCK, "em-dash", "em-dash in slide text", number))
-        if len(title.split()) > title_words:
-            found.append(
-                Finding(
-                    REVIEW,
-                    "long-title",
-                    f"{len(title.split())}-word title (> {title_words})",
-                    number,
-                )
-            )
-        if not in_backup:
-            found += _jargon(visible, jargon, number)
-        if in_backup or number == 1:
-            continue
-        figures = sorted({m.group(0) for m in _FIGURE.finditer(" ".join(body))})
-        if figures:
-            found.append(
-                Finding(
-                    REVIEW,
-                    "figures",
-                    f"figures on a talk slide: {', '.join(figures[:6])}; "
-                    "keep only the ones this audience needs",
-                    number,
-                )
-            )
-        words = sum(len(_WORD.findall(t)) for t in body)
-        if words > dense_words:
-            found.append(
-                Finding(
-                    REVIEW,
-                    "dense",
-                    f"{words} words on the page (> {dense_words}), figure labels included; "
-                    "if they are prose, move it to the script or a figure",
-                    number,
-                )
-            )
-    for title, numbers in titles.items():
-        if len(numbers) > 1:
-            found.append(
-                Finding(WARN, "duplicate-title", f"slides {numbers} share the title {title!r}")
-            )
+        found += text_gates(
+            number,
+            title,
+            visible,
+            " ".join(body),
+            sum(len(_WORD.findall(t)) for t in body),
+            in_backup,
+            dense_words,
+            title_words,
+            jargon,
+            "on the page, figure labels included",
+            "if they are prose, move it to the script or a figure",
+        )
+    found += duplicate_titles(titles)
     found.append(
         Finding(
             INFO,
@@ -714,28 +720,30 @@ def script(path: pathlib.Path, wpm: int = 140) -> tuple[int, str]:
     """The speaker notes as a read-aloud script in Markdown, with a talk-time estimate."""
     if wpm <= 0:
         return 1, f"--wpm must be positive, not {wpm}"
+    pairs: list[tuple[str, str]] = []
     try:
-        pkg = Package(path)
-        parts = pkg.slides()
-    except (zipfile.BadZipFile, KeyError, ET.ParseError, OSError) as exc:
+        if path.suffix.lower() in HTML:
+            pairs = html_slides(path)
+        else:
+            pkg = Package(path)
+            for number, part in enumerate(pkg.slides(), 1):
+                s = Slide(pkg, part, number)
+                pairs.append((s.title, s.notes))
+    except (zipfile.BadZipFile, KeyError, ET.ParseError, OSError, UnicodeDecodeError) as exc:
         return 1, f"{path}: {exc}"
-    if not parts:
-        return 1, f"{path}: no slides in sldIdLst"
+    if not pairs:
+        return 1, f"{path}: no slides"
     talk: list[str] = []
     backup: list[str] = []
     words = 0
     in_backup = False
-    for number, part in enumerate(parts, 1):
-        try:
-            s = Slide(pkg, part, number)
-        except (KeyError, ET.ParseError) as exc:
-            return 1, f"{part}: {exc}"
-        in_backup = in_backup or is_backup_divider(s.title)
-        heading = f"## {number}. {s.title or '(untitled)'}"
-        body = s.notes or "_No script on this slide._"
+    for number, (title, notes) in enumerate(pairs, 1):
+        in_backup = in_backup or is_backup_divider(title)
+        heading = f"## {number}. {title or '(untitled)'}"
+        body = notes or "_No script on this slide._"
         (backup if in_backup else talk).append(f"{heading}\n\n{body}\n")
         if not in_backup:
-            words += len(_WORD.findall(s.notes))
+            words += len(_WORD.findall(notes))
     minutes = words / wpm
     head = [
         f"# Script: {path.name}\n",
@@ -743,6 +751,467 @@ def script(path: pathlib.Path, wpm: int = 140) -> tuple[int, str]:
     ]
     tail = ["# Backup slides\n", *backup] if backup else []
     return 0, "\n".join(head + talk + tail)
+
+
+# ------------------------------------------------------------------- html --
+
+# A web deck is reveal.js HTML, checked and rendered in Chromium through Playwright,
+# with axe-core for contrast and alt text. Pinned here so the commands in SKILL.md and
+# the error messages agree.
+PLAYWRIGHT = "playwright==1.63.0"
+AXE = "axe-playwright-python==0.1.8"
+WITH_BROWSER = f"uv run --no-project --quiet --with {PLAYWRIGHT} --with {AXE} --with pillow"
+CANVAS = {"width": 1280, "height": 720}
+SCREEN = {"width": 1920, "height": 1080}
+PHONE = {"width": 390, "height": 844}
+# Below this many CSS pixels on a phone, body text is unreadable at arm's length.
+PHONE_MIN_PX = 12
+AXE_ALT = ["image-alt", "svg-img-alt", "role-img-alt", "input-image-alt", "object-alt"]
+# axe's 7:1 rule reports only text that passes 4.5:1, so AAA runs both.
+AXE_CONTRAST = {"AAA": ["color-contrast", "color-contrast-enhanced"], "AA": ["color-contrast"]}
+
+HTML = (".html", ".htm")
+
+_STILL = "*, *::before, *::after { transition: none !important; animation: none !important; }"
+# Scroll view shows fragments by scroll position and hides them again on the next scroll,
+# so the phone pass shows every one outright.
+_ALL_FRAGMENTS = (
+    _STILL + " .reveal .fragment { opacity: 1 !important; visibility: inherit !important; }"
+)
+_SCROLL_TO = """(i) => {
+  const s = Reveal.getSlides()[i];
+  (s.closest('.scroll-page') || s).scrollIntoView({block: 'start', behavior: 'instant'});
+}"""
+
+# Show slide i with every fragment, then read it. A spill is an element drawn past the
+# slide's edge; only the innermost spilling elements are reported.
+_READ_SLIDE = """(i) => {
+  const s = Reveal.getSlides()[i];
+  const at = Reveal.getIndices(s);
+  Reveal.slide(at.h, at.v);
+  while (Reveal.nextFragment()) {}
+  // Scroll view reveals fragments by scroll position, not by nextFragment.
+  for (const f of s.querySelectorAll('.fragment')) f.classList.add('visible');
+  const heading = s.querySelector('h1, h2, h3');
+  const notes = s.querySelector('aside.notes');
+  const box = s.getBoundingClientRect();
+  const panned = (el) => {
+    for (let a = el.parentElement; a && a !== s; a = a.parentElement) {
+      if (getComputedStyle(a).overflowX !== 'visible') return true;
+    }
+    return false;
+  };
+  const out = [];
+  for (const el of s.querySelectorAll('*')) {
+    if (el.closest('aside.notes') || panned(el)) continue;
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) continue;
+    const st = getComputedStyle(el);
+    if (st.visibility !== 'visible' || st.display === 'none' || st.opacity === '0') continue;
+    if (r.right > box.right + 2 || r.bottom > box.bottom + 2 || r.left < box.left - 2
+        || r.top < box.top - 2) out.push(el);
+  }
+  const spill = out.filter((el) => !out.some((o) => o !== el && el.contains(o)))
+    .map((el) => (el.textContent || el.tagName).trim().replace(/\\s+/g, ' ').slice(0, 40));
+  return {
+    title: heading ? heading.innerText.trim() : '',
+    text: s.innerText,
+    notes: notes ? notes.textContent.trim() : '',
+    spill,
+  };
+}"""
+
+# reveal.js paints slide backgrounds on a layer beside the slides, which axe reads as an
+# element overlapping the text and gives up on. For the run, the slide carries its own
+# background colour and the layer is hidden; an image or gradient stays unresolved.
+_AXE_SLIDE = """async ([i, rules]) => {
+  const s = Reveal.getSlides()[i];
+  const layer = document.querySelector('.reveal .backgrounds');
+  const paint = getComputedStyle(Reveal.getSlideBackground(s));
+  const before = s.style.background;
+  if (paint.backgroundImage === 'none') s.style.background = paint.backgroundColor;
+  if (layer) layer.style.display = 'none';
+  try {
+    const r = await axe.run(s, {runOnly: {type: 'rule', values: rules},
+                                 resultTypes: ['violations', 'incomplete']});
+    const nodes = (list) => list.flatMap((v) => v.nodes.map((n) => ({
+      rule: v.id,
+      target: String(n.target[0] || ''),
+      data: (n.any[0] || n.all[0] || n.none[0] || {}).data || null,
+    })));
+    return {violations: nodes(r.violations),
+            incomplete: nodes(r.incomplete).filter((n) => n.rule.startsWith('color-contrast'))};
+  } finally {
+    s.style.background = before;
+    if (layer) layer.style.display = '';
+  }
+}"""
+
+# Animations still running two frames after a slide change, with reduced motion requested.
+_MOVING = """async (i) => {
+  const s = Reveal.getSlides()[i];
+  const at = Reveal.getIndices(s);
+  Reveal.slide(at.h, at.v);
+  Reveal.nextFragment();
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  return document.getAnimations().filter((a) => a.playState === 'running').length;
+}"""
+
+# The smallest text on slide i, in screen pixels: reveal.js scales the slide, and an SVG's
+# viewBox scales its text again, which getScreenCTM includes. Divided by `per` (the
+# screen-to-canvas ratio) to report it in slide pixels on the desktop pass.
+_SMALLEST_TEXT = """([i, per]) => {
+  const s = Reveal.getSlides()[i];
+  const scale = s.getBoundingClientRect().width / (s.offsetWidth || 1);
+  let px = Infinity, sample = '';
+  for (const el of s.querySelectorAll('*')) {
+    if (el.closest('aside.notes') || el.closest('.slide-number')) continue;
+    const own = [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim());
+    if (!own || !el.getClientRects().length) continue;
+    const st = getComputedStyle(el);
+    if (st.visibility !== 'visible' || st.opacity === '0') continue;
+    const ctm = el instanceof SVGElement && el.getScreenCTM && el.getScreenCTM();
+    const size = parseFloat(st.fontSize) * (ctm ? Math.hypot(ctm.c, ctm.d) : scale) / per;
+    if (size < px) { px = size; sample = el.textContent.trim().slice(0, 40); }
+  }
+  return {px, sample};
+}"""
+
+_SIDEWAYS = "document.documentElement.scrollWidth > innerWidth + 1"
+
+
+def _playwright():
+    try:
+        from playwright.sync_api import sync_playwright  # ty: ignore[unresolved-import]
+    except ImportError:
+        sys.exit(f"a web deck needs Playwright: run this command through `{WITH_BROWSER}`")
+    return sync_playwright
+
+
+def _axe_source() -> str:
+    from importlib import resources
+
+    try:
+        return (resources.files("axe_playwright_python") / "axe.min.js").read_text()
+    except ModuleNotFoundError:
+        sys.exit(f"a web deck needs axe-core: run this command through `{WITH_BROWSER}`")
+
+
+def _launch(pw):
+    try:
+        return pw.chromium.launch()
+    except Exception as exc:  # playwright raises its own Error type, not importable here
+        sys.exit(
+            f"Chromium did not start ({str(exc).splitlines()[0]}). Install it once with "
+            f"`uv run --no-project --with {PLAYWRIGHT} playwright install chromium`"
+        )
+
+
+class _Watch:
+    """What a page asked the network and the console for while it loaded and ran."""
+
+    def __init__(self, page) -> None:
+        self.errors: list[str] = []
+        self.missing: list[str] = []
+        self.hosts: set[str] = set()
+        page.on("console", lambda m: m.type == "error" and self.errors.append(m.text))
+        page.on("pageerror", lambda e: self.errors.append(str(e)))
+        page.on("requestfailed", lambda r: self.missing.append(r.url))
+        page.on("response", lambda r: r.status >= 400 and self.missing.append(r.url))
+        page.on("request", self._request)
+
+    def _request(self, request) -> None:
+        if request.url.startswith(("http:", "https:")):
+            self.hosts.add(request.url.split("/")[2])
+
+
+def _open(browser, deck: pathlib.Path, viewport: dict, query: str = "", **context):
+    page = browser.new_context(viewport=viewport, **context).new_page()
+    watch = _Watch(page)
+    page.goto(deck.resolve().as_uri() + query)
+    page.wait_for_function("window.Reveal && Reveal.isReady && Reveal.isReady()", timeout=15000)
+    return page, watch
+
+
+def check_html(
+    path: pathlib.Path,
+    level: str = "AAA",
+    min_pt: float = 14,
+    dense_words: int = 60,
+    title_words: int = 14,
+    jargon: tuple[str, ...] = (),
+    backup_from: int | None = None,
+) -> list[Finding]:
+    """Gate a reveal.js deck in Chromium: text, accessibility, assets, motion and phone fit."""
+    if not path.is_file():
+        return [Finding(ERROR, "unreadable", f"{path}: no such file")]
+    rules = [*AXE_CONTRAST[level], *AXE_ALT]
+    found: list[Finding] = []
+    with _playwright()() as pw:
+        browser = _launch(pw)
+        try:
+            page, watch = _open(browser, path, CANVAS)
+        except Exception as exc:
+            browser.close()
+            return [
+                Finding(
+                    ERROR,
+                    "unreadable",
+                    f"{path}: not a reveal.js deck, Reveal never became ready "
+                    f"({str(exc).splitlines()[0]})",
+                )
+            ]
+        page.add_style_tag(content=_STILL)
+        page.add_script_tag(content=_axe_source())
+        count = page.evaluate("Reveal.getSlides().length")
+        # Text sizes are judged on the slide's own canvas, the way a pptx point size is.
+        scale = page.evaluate("Reveal.getScale()")
+        min_px = min_pt * 96 / 72
+        titles: dict[str, list[int]] = {}
+        no_notes: list[int] = []
+        unchecked = 0
+        in_backup = False
+        for i in range(count):
+            number = i + 1
+            slide = page.evaluate(_READ_SLIDE, i)
+            title = slide["title"]
+            if title:
+                titles.setdefault(title.casefold(), []).append(number)
+            else:
+                found.append(
+                    Finding(
+                        BLOCK,
+                        "no-title",
+                        "no h1, h2 or h3; the outline sees an untitled slide",
+                        number,
+                    )
+                )
+            in_backup = (
+                in_backup
+                or is_backup_divider(title)
+                or (backup_from is not None and number >= backup_from)
+            )
+            lines = [ln.strip() for ln in slide["text"].splitlines() if ln.strip()]
+            body = [ln for ln in lines if ln != title]
+            visible = " ".join(lines)
+            if not slide["notes"] and not in_backup:
+                no_notes.append(number)
+            found += text_gates(
+                number,
+                title,
+                visible,
+                visible,
+                sum(len(_WORD.findall(t)) for t in body),
+                in_backup,
+                dense_words,
+                title_words,
+                jargon,
+                "on the slide, figure labels included",
+                "if they are prose, move it to the script or a figure",
+            )
+            if slide["spill"]:
+                found.append(
+                    Finding(
+                        WARN,
+                        "overflow",
+                        f"drawn past the slide's edge: {', '.join(map(repr, slide['spill'][:3]))}",
+                        number,
+                    )
+                )
+            text = page.evaluate(_SMALLEST_TEXT, [i, scale])
+            if text["px"] < min_px:
+                found.append(
+                    Finding(
+                        WARN,
+                        "small-text",
+                        f"{text['px']:.0f}px < {min_px:.0f}px ({min_pt:g}pt) on the "
+                        f"{CANVAS['width']}x{CANVAS['height']} slide: {text['sample']!r}",
+                        number,
+                    )
+                )
+            axe = page.evaluate(_AXE_SLIDE, [i, rules])
+            unchecked += len(axe["incomplete"])
+            for node in axe["violations"]:
+                if node["rule"].startswith("color-contrast"):
+                    d = node["data"] or {}
+                    found.append(
+                        Finding(
+                            BLOCK,
+                            "contrast",
+                            f"{d.get('fgColor')} on {d.get('bgColor')} = "
+                            f"{d.get('contrastRatio')}:1, needs {d.get('expectedContrastRatio')} "
+                            f"({level}): {node['target']}",
+                            number,
+                        )
+                    )
+                else:
+                    found.append(
+                        Finding(
+                            BLOCK,
+                            "alt-text",
+                            f"{node['target']} has no text alternative ({node['rule']})",
+                            number,
+                        )
+                    )
+        for url in sorted(set(watch.missing)):
+            found.append(Finding(BLOCK, "asset", f"failed to load: {url}"))
+        for message in dict.fromkeys(watch.errors):
+            found.append(Finding(BLOCK, "script", f"console error: {message[:160]}"))
+        if watch.hosts:
+            found.append(
+                Finding(
+                    WARN,
+                    "offline",
+                    f"needs the network to present: {', '.join(sorted(watch.hosts))}; "
+                    "vendor the files so the deck opens with no connection",
+                )
+            )
+        found += duplicate_titles(titles)
+        if no_notes:
+            found.append(
+                Finding(WARN, "no-notes", f"no script in the speaker notes on slides {no_notes}")
+            )
+        if unchecked:
+            found.append(
+                Finding(
+                    INFO,
+                    "contrast",
+                    f"{unchecked} text element(s) inside an SVG figure, or over an image, "
+                    "gradient or overlap, that axe cannot resolve; not checked",
+                )
+            )
+
+        moving, _ = _open(browser, path, CANVAS, reduced_motion="reduce")
+        restless = [i + 1 for i in range(count) if moving.evaluate(_MOVING, i)]
+        if restless:
+            found.append(
+                Finding(
+                    WARN,
+                    "motion",
+                    f"still animating with reduced motion requested, on slides {restless}; "
+                    "honour prefers-reduced-motion",
+                )
+            )
+
+        # Scroll view loads slides near the viewport only, so each is read after scrolling to it.
+        phone, _ = _open(browser, path, PHONE, is_mobile=True, has_touch=True)
+        phone.add_style_tag(content=_ALL_FRAGMENTS)
+        spilled: list[int] = []
+        least: dict = {"px": float("inf"), "sample": ""}
+        for i in range(count):
+            phone.evaluate(_SCROLL_TO, i)
+            if phone.evaluate(_READ_SLIDE, i)["spill"]:
+                spilled.append(i + 1)
+            text = phone.evaluate(_SMALLEST_TEXT, [i, 1])
+            if text["px"] < least["px"]:
+                least = text
+        if phone.evaluate(_SIDEWAYS):
+            found.append(Finding(WARN, "phone", "the page scrolls sideways on a phone"))
+        if least["px"] < PHONE_MIN_PX:
+            found.append(
+                Finding(
+                    WARN,
+                    "phone",
+                    f"text renders at {least['px']:.1f}px on a {PHONE['width']}px-wide phone "
+                    f"(< {PHONE_MIN_PX}px): {least['sample']!r}",
+                )
+            )
+        if spilled:
+            found.append(
+                Finding(
+                    WARN,
+                    "phone",
+                    f"content drawn past the slide's edge on a phone, slides {spilled}",
+                )
+            )
+        browser.close()
+    found.append(
+        Finding(
+            INFO,
+            "render",
+            "a figure that reads wrong is invisible to this check; render and look at every slide",
+        )
+    )
+    return sorted(found, key=lambda f: (RANK[f.severity], f.slide or 0))
+
+
+class _Sections(HTMLParser):
+    """Each innermost <section>'s first heading and speaker notes, from the static HTML."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.slides: list[dict[str, str]] = []
+        self._stack: list[dict[str, str]] = []
+        self._into: str | None = None
+        self._closer = ""
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "section":
+            if self._stack:
+                self._stack[-1]["leaf"] = ""
+            self._stack.append({"title": "", "notes": "", "leaf": "1"})
+        elif self._stack and self._into is None:
+            if tag in ("h1", "h2", "h3") and not self._stack[-1]["title"]:
+                self._into, self._closer = "title", tag
+            elif tag == "aside" and "notes" in (dict(attrs).get("class") or "").split():
+                self._into, self._closer = "notes", tag
+
+    def handle_endtag(self, tag: str) -> None:
+        if self._into and tag == self._closer:
+            self._into = None
+        elif tag == "section" and self._stack:
+            s = self._stack.pop()
+            if s["leaf"]:
+                self.slides.append(s)
+
+    def handle_data(self, data: str) -> None:
+        if self._into and self._stack:
+            self._stack[-1][self._into] += data
+
+
+def html_slides(path: pathlib.Path) -> list[tuple[str, str]]:
+    """(title, notes) per slide of a reveal.js deck, in order, without a browser."""
+    parser = _Sections()
+    parser.feed(path.read_text(encoding="utf-8"))
+    return [(" ".join(s["title"].split()), s["notes"].strip()) for s in parser.slides]
+
+
+def render_html(deck: pathlib.Path, out: pathlib.Path) -> int:
+    """One PNG per slide at 1920x1080, the deck on a phone, and the print PDF."""
+    prepare_out(out)
+    with _playwright()() as pw:
+        browser = _launch(pw)
+        page, _ = _open(browser, deck, SCREEN)
+        page.add_style_tag(content=_STILL)
+        count = page.evaluate("Reveal.getSlides().length")
+        pngs = []
+        for i in range(count):
+            page.evaluate(_READ_SLIDE, i)
+            target = out / f"slide-{i + 1:02d}.png"
+            page.screenshot(path=str(target))
+            pngs.append(target)
+        phone, _ = _open(browser, deck, PHONE, is_mobile=True, has_touch=True)
+        phone.add_style_tag(content=_ALL_FRAGMENTS)
+        phones = []
+        for i in range(count):
+            phone.evaluate(_SCROLL_TO, i)
+            phone.wait_for_timeout(150)
+            target = out / f"phone-{i + 1:02d}.png"
+            phone.screenshot(path=str(target))
+            phones.append(target)
+        printed, _ = _open(browser, deck, CANVAS, query="?print-pdf")
+        printed.wait_for_function("document.querySelectorAll('.pdf-page').length > 0")
+        pdf = out / (deck.stem + ".pdf")
+        printed.pdf(path=str(pdf), print_background=True, prefer_css_page_size=True)
+        browser.close()
+    sheets = contact_sheets(pngs, out) + contact_sheets(phones, out, "phone-sheet", 4)
+    print("renderer: chromium")
+    print(f"pdf: {pdf}")
+    print(f"slides: {len(pngs)} png at {SCREEN['width']}x{SCREEN['height']} in {out}")
+    print(f"phone: {len(phones)} png at {PHONE['width']}x{PHONE['height']}")
+    for sheet in sheets:
+        print(f"  {sheet}")
+    return 0
 
 
 # ----------------------------------------------------------------- render --
@@ -884,19 +1353,23 @@ def render_libreoffice(deck: pathlib.Path, pdf: pathlib.Path) -> None:
         shutil.copyfile(made, pdf)
 
 
-def contact_sheets(pngs: list[pathlib.Path], out: pathlib.Path) -> list[pathlib.Path]:
+def contact_sheets(
+    pngs: list[pathlib.Path], out: pathlib.Path, name: str = "sheet", cols: int = 2
+) -> list[pathlib.Path]:
+    """Images tiled cols across and two down, so a whole deck can be looked at in a few reads."""
     try:
         from PIL import Image  # ty: ignore[unresolved-import]
     except ImportError:
         return []
     sheets = []
-    for k in range(0, len(pngs), 4):
-        ims = [Image.open(p) for p in pngs[k : k + 4]]
+    per = cols * 2
+    for k in range(0, len(pngs), per):
+        ims = [Image.open(p) for p in pngs[k : k + per]]
         w, h = ims[0].size
-        sheet = Image.new("RGB", (w * 2, h * 2), "white")
+        sheet = Image.new("RGB", (w * cols, h * 2), "white")
         for i, im in enumerate(ims):
-            sheet.paste(im, ((i % 2) * w, (i // 2) * h))
-        target = out / f"sheet-{k // 4 + 1:02d}.png"
+            sheet.paste(im, ((i % cols) * w, (i // cols) * h))
+        target = out / f"{name}-{k // per + 1:02d}.png"
         sheet.save(target)
         sheets.append(target)
     return sheets
@@ -918,11 +1391,13 @@ def prepare_out(out: pathlib.Path) -> None:
         sys.exit(f"{out} is not empty and was not made by render; pass a new folder")
     out.mkdir(parents=True, exist_ok=True)
     (out / MARKER).touch()
-    for old in [*out.glob("slide-*.png"), *out.glob("sheet-*.png")]:
+    for old in [*out.glob("slide-*.png"), *out.glob("sheet-*.png"), *out.glob("phone-*.png")]:
         old.unlink()
 
 
 def render(deck: pathlib.Path, out: pathlib.Path, preference: str = "auto", dpi: int = 80) -> int:
+    if deck.suffix.lower() in HTML:
+        return render_html(deck, out)
     if not shutil.which("pdftoppm"):
         sys.exit("pdftoppm not found (poppler-utils)")
     prepare_out(out)
