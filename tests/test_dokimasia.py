@@ -2970,6 +2970,9 @@ def test_an_unreadable_include_is_not_also_reported_unreached(dk, tmp_path, caps
         "Mary Li. A. Vaswani",
         "Li. A. Vaswani",
         "J.~Wu.\\ A.~Vaswani",
+        "J.Li. A.~Vaswani",
+        "J.Li.A.~Vaswani",
+        "J.-Li. A.~Vaswani",
     ],
 )
 def test_a_two_letter_surname_ending_a_name_does_not_join_two_authors(dk, authors):

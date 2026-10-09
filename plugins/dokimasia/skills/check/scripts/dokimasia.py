@@ -725,6 +725,7 @@ _NAME_MARKUP = re.compile(
 #: only as the surname, so an all-capitals list joined by a word this does not know
 #: (`DOE OG VASWANI`) is never read as one name.
 _INITIAL = re.compile(r"[A-Z][a-z]?\.(?:-?[A-Z][a-z]?\.)*")
+_TWO_LETTER = re.compile(r"[A-Z][a-z]\.")
 _SUFFIX = re.compile(r"(?:Jr|Sr)\.?|II|III|IV")
 _WORD = re.compile(r"[A-Z][A-Za-z]*(?:['\u2019-][A-Za-z]+)*")
 #: One name: up to two given names then initials (`Mary Ann B.`), or initials then at most
@@ -1630,10 +1631,12 @@ def _first_surnames(authors: str) -> set[str]:
         tokens[-1] = tokens[-1][:-1]
     classes = [_name_class(t) for t in tokens]
     for i, token in enumerate(tokens):
-        # `Yu.` abbreviates a given name only at the start; anywhere else, or before another
-        # initial, it may be a surname ending one author (`J.~Li. A.~Vaswani`).
-        if classes[i] == "I" and token[1:2].islower():
-            if i or classes[i + 1 : i + 2] == ["I"]:
+        # `Yu.` abbreviates a given name only as the whole first token; anywhere else, or
+        # before another initial, it may be a surname ending one author (`J.~Li. A.~Vaswani`,
+        # `J.Li. A.~Vaswani`).
+        if classes[i] == "I" and re.search(r"[A-Z][a-z]\.", token):
+            alone = i == 0 and _TWO_LETTER.fullmatch(token)
+            if not alone or classes[i + 1 : i + 2] == ["I"]:
                 classes[i] = "?"
     at = -2 if classes[-1:] == ["S"] else -1
     if len(classes) >= -at and classes[at] == "P":
