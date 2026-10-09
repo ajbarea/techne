@@ -2509,3 +2509,120 @@ def test_a_key_only_in_a_pasted_bbl_is_still_dangling(dk, tmp_path, capsys):
     )
     assert dk.lint(dk.load_config(tmp_path)) == 1
     assert "dangling citation: \\cite{x}" in _err(capsys)
+
+
+# --- #113 fourth review round -------------------------------------------------------------
+
+HANDBOOK = {"title": "Handbook of machine learning systems", "authors": [], "source": "crossref"}
+
+
+@pytest.mark.parametrize(
+    "printed",
+    [
+        # Only the first quoted span can be the title; a later one is the borrowed book.
+        "J.~Doe, ``Fabricated chapter on agents'' in ``Handbook of machine learning systems,''",
+        'J. Doe, "Fabricated chapter"; in: "Handbook of machine learning systems."',
+        "J.~Doe, Fabricated method, in ``Handbook of machine learning systems,'' 2020.",
+    ],
+)
+def test_a_quoted_book_after_the_item_is_never_its_title(dk, printed):
+    assert _compare(dk, printed, HANDBOOK) is None
+
+
+def test_an_enquote_chapter_before_a_quoted_book_is_drift(dk):
+    printed = "J.~Doe, \\enquote{Fabricated chapter}, in ``Handbook of machine learning systems,''"
+    assert _compare(dk, printed, HANDBOOK) == ["title"]
+
+
+@pytest.mark.parametrize(
+    "printed",
+    [
+        "J. Doe \\& A. Vaswani, ``Attention is all you need,'' 2017.",
+        "J. Doe & A. Vaswani, ``Attention is all you need,'' 2017.",
+        "J. Doe with A. Vaswani, ``Attention is all you need,'' 2017.",
+        "J. Doe et A. Vaswani, ``Attention is all you need,'' 2017.",
+        "J. DOE AND A. VASWANI, ``Attention is all you need,'' 2017.",
+    ],
+)
+def test_every_author_separator_ends_the_first_author(dk, printed):
+    assert _compare(dk, printed) == ["first author"]
+
+
+@pytest.mark.parametrize(
+    ("printed", "first"),
+    [
+        (
+            "Kingma DP, Ba J. ``Adam: a method for stochastic optimization.'' 2014.",
+            "Diederik P. Kingma",
+        ),
+        ("Y. Le Cun, ``Adam: a method for stochastic optimization,'' 2014.", "Yann LeCun"),
+        ("Y. LeCun, ``Adam: a method for stochastic optimization,'' 2014.", "Yann Le Cun"),
+    ],
+)
+def test_vancouver_initials_and_split_surnames_are_the_same_author(dk, printed, first):
+    record = {
+        "title": "Adam: a method for stochastic optimization",
+        "authors": [first],
+        "source": "arxiv",
+    }
+    assert _compare(dk, printed, record) == []
+
+
+def test_a_year_after_a_later_arxiv_version_is_not_the_posting_year(dk):
+    record = {"title": "Adam", "authors": ["Diederik Kingma"], "year": 2014, "source": "arxiv"}
+    assert _compare(dk, "D. Kingma, ``Adam,'' arXiv:1412.6980v9, 2017.", record) == []
+
+
+@pytest.mark.parametrize(
+    "printed",
+    [
+        "A. Vaswani, \u201cAttention is all you need,\u201d 2017.",
+        "A. Vaswani, \\enquote{Attention is all you need}, 2017.",
+    ],
+)
+def test_typographic_and_csquotes_titles_are_compared(dk, printed):
+    assert _compare(dk, printed) == []
+
+
+def test_a_bbl_pasted_into_the_tex_does_not_orphan_its_bib(dk, tmp_path):
+    _tree(
+        tmp_path,
+        {
+            "refs.bib": CLEAN,
+            "main.tex": DOC + "\\cite{good2024entry}\n\\begin{thebibliography}{1}"
+            "\\bibitem{good2024entry} J. Doe.\\end{thebibliography}\n",
+        },
+    )
+    assert dk.lint(dk.load_config(tmp_path)) == 0
+
+
+def test_an_etoolbox_test_inside_iffalse_needs_no_fi(dk, tmp_path):
+    tex = HAND.replace(
+        "\\begin{thebibliography}",
+        "\\iffalse old \\iftoggle{draft}{a}{b} \\fi\n\\begin{thebibliography}",
+    )
+    _hand(tmp_path, tex)
+    assert dk.lint(dk.load_config(tmp_path)) == 0
+
+
+def test_the_else_branch_of_iffalse_is_typeset(dk, tmp_path):
+    tex = HAND.replace(
+        "\\begin{thebibliography}", "\\iffalse old list\\else\n\\begin{thebibliography}"
+    )
+    _hand(tmp_path, tex.replace("\\end{thebibliography}", "\\end{thebibliography}\n\\fi"))
+    assert dk.lint(dk.load_config(tmp_path)) == 0
+
+
+def test_a_csname_let_iffalse_does_not_swallow_the_file(dk, tmp_path):
+    tex = HAND.replace("\\end{document}", "\\ifdraft x\\fi\n\\end{document}")
+    _hand(tmp_path, "\\expandafter\\let\\csname ifdraft\\endcsname\\iffalse\n" + tex)
+    assert dk.lint(dk.load_config(tmp_path)) == 0
+
+
+def test_an_xparse_environment_with_a_braced_argument_spec_is_stripped(dk, tmp_path):
+    (tmp_path / "references.bib").write_text(CLEAN)
+    (tmp_path / "paper.tex").write_text(
+        "\\NewDocumentEnvironment{refs}{ O{} m }"
+        "{\\begin{thebibliography}{9}}{\\end{thebibliography}}\n" + DOC + "\\cite{good2024entry}\n"
+    )
+    assert dk.lint(dk.load_config(tmp_path)) == 0

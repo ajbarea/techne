@@ -64,6 +64,7 @@ from __future__ import annotations
 
 import argparse
 import html
+import itertools
 import json
 import os
 import re
@@ -666,13 +667,17 @@ _BIBITEM = re.compile(r"\\bibitem\s*(?:\[.*?\])?\s*\{([^}]*)\}", re.S)
 _COMMENT_ENV = re.compile(r"\\begin\{comment\}.*?\\end\{comment\}", re.S)
 #: Conditional openers and `\fi`. `\iff` is a symbol and `\ifthenelse` a command; neither
 #: opens a conditional that `\fi` closes.
-_IF_TOKEN = re.compile(r"\\if(?!f\b|thenelse\b)[A-Za-z@]*|\\fi\b")
+#: An etoolbox test such as `\iftoggle{x}{a}{b}` takes braced arguments and no `\fi`.
+_IF_TOKEN = re.compile(r"\\if(?!f\b|thenelse\b)(?>[A-Za-z@]*)(?!\*?\s*\{)|\\else\b|\\fi\b")
 #: `\let\ifdraft\iffalse` defines a conditional; it does not open one.
-_LET_IF = re.compile(r"\\let\s*\\[A-Za-z@]+\s*=?\s*\\if(?:false|true)\b")
+_LET_IF = re.compile(
+    r"(?:\\global\s*)?(?:\\expandafter\s*)?\\let\s*"
+    r"(?:\\[A-Za-z@]+|\\csname\b[^\\]*\\endcsname)\s*=?\s*\\if(?:false|true)\b"
+)
 #: A `\newenvironment` body is a template; a `thebibliography` inside one is not a list.
 _ENV_DEFINITION = re.compile(
     r"\\(?:re)?newenvironment\*?\s*\{[^}]*\}\s*(?:\[[^\]]*\]\s*)*\{"
-    r"|\\(?:New|Renew|Provide|Declare)DocumentEnvironment\s*\{[^}]*\}\s*\{[^}]*\}\s*\{"
+    r"|\\(?:New|Renew|Provide|Declare)DocumentEnvironment\s*\{[^}]*\}\s*\{"
 )
 _INLINE_ARXIV = re.compile(
     r"(?:arxiv(?:\.org/(?:abs|pdf)/|[:.\s]*)|corr\}?,?\s*(?:vol\.\s*)?abs/|\\showeprint\s*\[arxiv\]\s*\{)\s*"
@@ -692,8 +697,16 @@ _PREPRINT_YEAR = re.compile(
     _INLINE_ARXIV.pattern + r"(?:\s*\[[^\]]*\])?[^A-Za-z0-9]{0,6}((?:19|20)\d{2})(?!\d)", re.I
 )
 #: The opening of a quoted span: TeX's ``, or a straight quote that is not an umlaut (`\"o`).
-_QUOTE_OPEN = re.compile(r"``|(?<!\\)\"")
+#: The opening of a quoted span: TeX's ``, a straight quote that is not an umlaut (`\"o`),
+#: a typographic opening quote, or csquotes' `\enquote{`.
+_QUOTE_OPEN = re.compile(r"``|(?<!\\)\"|\u201c|\\enquote\s*\{")
 _STRAIGHT_CLOSE = re.compile(r"(?<!\\)\"")
+#: A quoted span after `In` names the containing book or proceedings, never the item.
+_AFTER_IN = re.compile(r"\bin:?\s*$", re.I)
+#: What separates the first author from the rest of a printed author list.
+_AUTHOR_BREAK = re.compile(r",|;|\\?&|\b(?i:and|with|et|und)\b|\\and\b")
+#: Vancouver initials after a surname, `Kingma DP`.
+_CAPITAL_INITIALS = re.compile(r"\b[A-Z]{1,3}\b\.?")
 #: A page range, `1195--1225`, whose ends are not years.
 _PAGE_RANGE = re.compile(r"\d+\s*-{1,3}\s*\d+")
 #: Words in a printed author segment that are not a surname.
@@ -710,27 +723,41 @@ class Bibitem:
 
 
 def _without_environment_definitions(text: str) -> str:
+    """Drop `\\newenvironment` and xparse environment definitions with their bodies.
+
+    The pattern stops inside the first brace group: the begin body for `\\newenvironment`,
+    the argument spec for xparse. One or two more groups follow it.
+    """
     out, pos = [], 0
     while match := _ENV_DEFINITION.search(text, pos):
         out.append(text[pos : match.start()])
         pos = _close_brace(text, match.end())
-        rest = re.match(r"\s*\{", text[pos:])
-        if rest:
+        for _ in range(2 if "DocumentEnvironment" in match.group() else 1):
+            rest = re.match(r"\s*\{", text[pos:])
+            if not rest:
+                break
             pos = _close_brace(text, pos + rest.end())
     out.append(text[pos:])
     return "".join(out)
 
 
 def _without_iffalse(text: str) -> str:
-    """Drop each `\\iffalse ... \\fi`, counting the conditionals nested inside it."""
+    """Drop each `\\iffalse ... \\fi`, counting the conditionals nested inside it, and keep
+    its `\\else` branch, which is what LaTeX typesets."""
     out, pos = [], 0
     while (start := text.find("\\iffalse", pos)) >= 0:
         out.append(text[pos:start])
-        depth, end = 0, len(text)
+        depth, end, orelse = 0, len(text), None
         for token in _IF_TOKEN.finditer(text, start):
+            if token.group() == "\\else":
+                if depth == 1 and orelse is None:
+                    orelse = token.end()
+                continue
             depth += -1 if token.group() == "\\fi" else 1
             if depth == 0:
                 end = token.end()
+                if orelse is not None:
+                    out.append(_without_iffalse(text[orelse : token.start()]))
                 break
         pos = end
     out.append(text[pos:])
@@ -1082,7 +1109,9 @@ def lint(cfg: Config) -> int:
             if stars:
                 star_docs[_name(cfg, file)] = set(stars)
                 continue
-            seen_here = loose_cites.union(*(d.cites for d in users))
+            # A .bbl pasted into a .tex reads as hand-written, yet cites this .bib's entries.
+            pasted = [d for d in docs if d.hand_written]
+            seen_here = loose_cites.union(*(d.cites for d in users + pasted))
             for _, key, _ in parsed[file]:
                 if key not in seen_here and key not in accounted:
                     add(
@@ -1497,43 +1526,66 @@ def _bib_findings(
     return findings
 
 
+def _quoted_span(text: str, opening: re.Match[str]) -> tuple[str, int] | None:
+    """The text inside a quote that opens at `opening`, and the index after its close."""
+    kind = opening.group()
+    if kind == "``":
+        depth, i = 1, opening.end()
+        while i < len(text) and depth:
+            depth += text.startswith("``", i) - text.startswith("''", i)
+            i += 2 if text.startswith(("``", "''"), i) else 1
+        return (text[opening.end() : i - 2], i) if not depth else None
+    if kind == "\u201c":
+        end = text.find("\u201d", opening.end())
+        return (text[opening.end() : end], end + 1) if end >= 0 else None
+    if kind.startswith("\\enquote"):
+        end = _close_brace(text, opening.end())
+        return text[opening.end() : end - 1], end
+    ending = _STRAIGHT_CLOSE.search(text, opening.end())
+    return (text[opening.end() : ending.start()], ending.end()) if ending else None
+
+
 def quoted_title(text: str) -> tuple[int, str] | None:
     """The printed title, where the entry quotes it, and where it starts; else None.
 
     IEEE, Chicago, MLA and the like quote the title and close it with punctuation, `Title,''`.
-    A quoted word inside an unquoted title, The ``attention'' trap, is followed by more
-    words and is not a title. Nested TeX quotes are counted, so ``On ``robust'' estimation,''
-    is one title.
+    Only the first quoted span can be the title. When it is not one (a quoted word inside an
+    unquoted title, a nickname, a chapter quoted without punctuation) or it follows `In`, the
+    entry has no title this can compare: looking further would find the quoted book a
+    fabricated chapter borrowed its DOI from. Nested TeX quotes are counted, so
+    ``On ``robust'' estimation,'' is one title.
     """
-    pos = 0
-    while opening := _QUOTE_OPEN.search(text, pos):
-        if opening.group() == "``":
-            depth, i = 1, opening.end()
-            while i < len(text) and depth:
-                step = 2 if text.startswith(("``", "''"), i) else 1
-                depth += (text.startswith("``", i)) - (text.startswith("''", i))
-                i += step
-            if depth:
-                return None
-            inner, close = text[opening.end() : i - 2], i
-        else:
-            ending = _STRAIGHT_CLOSE.search(text, opening.end())
-            if not ending:
-                return None
-            inner, close = text[opening.end() : ending.start()], ending.end()
-        after = text[close:].lstrip()[:1]
-        if inner.rstrip()[-1:] in (",", ".", "?", "!") or after in (",", "."):
-            return opening.start(), inner
-        pos = close
+    opening = _QUOTE_OPEN.search(text)
+    if not opening or _AFTER_IN.search(text[: opening.start()]):
+        return None
+    span = _quoted_span(text, opening)
+    if span is None:
+        return None
+    inner, close = span
+    after = text[close:].lstrip()[:1]
+    if inner.rstrip()[-1:] in (",", ".", "?", "!") or after in (",", "."):
+        return opening.start(), inner
     return None
 
 
-def _first_surname(authors: str) -> str:
-    """The first author's surname in a printed author list: the last word of the first
-    segment that is not an initial or a suffix. `J.~Doe, A.~Roe` and `Doe, J.` give `doe`."""
-    first = re.split(r",|;|\band\b|\\and\b", authors, maxsplit=1)[0]
+def _first_surnames(authors: str) -> set[str]:
+    """Spellings of the first author's surname in a printed author list.
+
+    The last word of the first segment that is not an initial or a suffix, and that word
+    joined to the one before it, since `Le Cun` and `LeCun` are one name. `J.~Doe, A.~Roe`,
+    `Doe, J.` and Vancouver's `Doe JA` all give `doe`.
+    """
+    first = _AUTHOR_BREAK.split(authors, maxsplit=1)[0]
+    if re.search(r"[a-z]", first):
+        first = _CAPITAL_INITIALS.sub(" ", first)
     words = [w for w in normalise(first).split() if len(w) > 1 and w not in _NOT_NAMES]
-    return words[-1] if words else ""
+    return {words[-1], "".join(words[-2:])} if words else set()
+
+
+def _name_words(name: str) -> set[str]:
+    """A source author's words, and each adjacent pair joined."""
+    words = normalise(name).split()
+    return set(words) | {a + b for a, b in itertools.pairwise(words)}
 
 
 def _printed_findings(
@@ -1562,8 +1614,8 @@ def _printed_findings(
         return findings
     shown = text if len(text) <= 200 else text[:197] + "..."
     source_authors = record.get("authors") or []
-    surname = _first_surname(text[:at])
-    if source_authors and surname and surname not in normalise(source_authors[0]).split():
+    surnames = _first_surnames(text[:at])
+    if source_authors and surnames and not surnames & _name_words(source_authors[0]):
         findings.append(("first author", shown, source_authors[0]))
     accepted = _accepted_years(record)
     if record.get("source") == "crossref":
@@ -1571,7 +1623,13 @@ def _printed_findings(
         bare = _PAGE_RANGE.sub(" ", bare)
         claimed = {int(y) for y in _YEAR.findall(bare)}
     else:
-        claimed = {int(m.group(2)) for m in _PREPRINT_YEAR.finditer(text)}
+        # A year after a later version, `arXiv:1412.6980v9, 2017`, dates that version, not
+        # the first posting the record carries.
+        claimed = {
+            int(m.group(2))
+            for m in _PREPRINT_YEAR.finditer(text)
+            if not re.search(r"v(?:[2-9]|\d{2,})\b", m.group(0))
+        }
     if claimed and accepted and not claimed & accepted:
         mine = "/".join(str(y) for y in sorted(claimed))
         findings.append(("year", mine, "/".join(str(y) for y in sorted(accepted))))

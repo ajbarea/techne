@@ -68,11 +68,13 @@ whose only reference lists are hand-written is not a configuration error.
 - `lint` does not require an identifier: printed styles routinely drop the DOI. It counts the
   items that print none, and `verify` names each of them as unverifiable.
 - `verify` resolves only an arXiv id or DOI printed in the item. It then compares the item with
-  the record only where the item quotes its title, as IEEE, Chicago and MLA do: the whole
-  quoted title by the `.bib` rule, the first surname before it against the source's first
-  author, and the year. Anywhere else the printed text does not say which part is the title,
-  and guessing passed fabricated titles in review. Such an item is **uncompared**: the work
-  exists, and whether the entry describes it is left to a human.
+  the record only where the item quotes its title, as IEEE, Chicago and MLA do (TeX, straight,
+  typographic or `\enquote` quotes): the whole quoted title by the `.bib` rule, the first
+  surname before it against the source's first author, and the year. Only the first quoted
+  span counts, and not when it follows `In`, since a later one is the book a fabricated
+  chapter borrowed its DOI from. Anywhere else the printed text does not say which part is the
+  title, and guessing passed fabricated titles in review. Such an item is **uncompared**: the
+  work exists, and whether the entry describes it is left to a human.
 - It never looks an entry up by its title: a search hit is weaker evidence than a resolved
   identifier.
 - Output names a hand-written entry with its file, `key (paper.tex)`, since two papers may
