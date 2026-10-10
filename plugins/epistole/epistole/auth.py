@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -34,10 +36,15 @@ def client_secret_path(base: Path) -> Path:
 def save_token(path: Path, data: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.parent.chmod(0o700)
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as fh:
-        fh.write(data)
-    path.chmod(0o600)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+    try:
+        os.chmod(tmp, 0o600)
+        with os.fdopen(fd, "w") as fh:
+            fh.write(data)
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
 
 
 def _hint(alias: str) -> str:
@@ -48,7 +55,10 @@ def load_credentials(base: Path, alias: str) -> Credentials:
     path = token_path(base, alias)
     if not path.is_file():
         raise LoginRequired(f"account {alias!r} is not signed in: {_hint(alias)}.")
-    creds = Credentials.from_authorized_user_file(str(path), SCOPES)
+    try:
+        creds = Credentials.from_authorized_user_file(str(path), SCOPES)
+    except (ValueError, json.JSONDecodeError) as exc:
+        raise LoginRequired(f"account {alias!r} token is unreadable: {_hint(alias)}.") from exc
     if not creds.valid:
         try:
             creds.refresh(Request())
@@ -90,6 +100,7 @@ def login(
     creds = flow.run_local_server(
         host="127.0.0.1",
         port=0,
+        timeout_seconds=300,
         open_browser=True,
         authorization_prompt_message="If no browser opens, visit this URL to sign in:\n{url}",
         success_message="epistole is signed in. You can close this tab.",

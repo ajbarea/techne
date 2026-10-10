@@ -40,3 +40,10 @@ def test_alias_all_is_reserved(tmp_path):
     write(tmp_path, '[accounts]\nall = "user@example.com"\n')
     with pytest.raises(config.ConfigError, match="reserved"):
         config.load(tmp_path)
+
+
+@pytest.mark.parametrize("alias", ["a:b", "../x"])
+def test_invalid_alias_rejected(tmp_path, alias):
+    write(tmp_path, f'[accounts]\n"{alias}" = "user@example.com"\n')
+    with pytest.raises(config.ConfigError, match="invalid"):
+        config.load(tmp_path)

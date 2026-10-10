@@ -3,6 +3,8 @@ import stat
 
 import pytest
 from epistole import auth, config
+from google.auth.exceptions import RefreshError
+from google.oauth2.credentials import Credentials
 
 TOML = '[accounts]\nschool = "user@example.edu"\n'
 
@@ -10,7 +12,6 @@ TOML = '[accounts]\nschool = "user@example.edu"\n'
 @pytest.fixture
 def cfg(tmp_path):
     (tmp_path / "accounts.toml").write_text(TOML)
-    (tmp_path / "client_secret.json").write_text("{}")
     return config.load(tmp_path)
 
 
@@ -68,6 +69,7 @@ def test_login_saves_matching_account_on_loopback(tmp_path, cfg):
     )
     assert got == "user@example.edu"
     assert flow.kwargs["host"] == "127.0.0.1" and flow.kwargs["port"] == 0
+    assert flow.kwargs["timeout_seconds"] == 300
     assert auth.token_path(tmp_path, "school").is_file()
 
 
@@ -80,3 +82,33 @@ def test_unknown_alias_is_refused(tmp_path, cfg):
             flow_factory=lambda: FakeFlow("x"),
             profile_email=lambda c: c.email,
         )
+
+
+def test_save_token_leaves_no_temp_files(tmp_path):
+    path = auth.token_path(tmp_path, "school")
+    auth.save_token(path, "one")
+    auth.save_token(path, "two")
+    assert path.read_text() == "two"
+    assert [p.name for p in path.parent.iterdir()] == ["school.json"]
+
+
+@pytest.mark.parametrize("body", ['{"refresh_tok', '{"client_id": "c"}'])
+def test_unreadable_token_asks_for_login(tmp_path, body):
+    path = auth.token_path(tmp_path, "school")
+    auth.save_token(path, body)
+    with pytest.raises(auth.LoginRequired, match="epistole-login school"):
+        auth.load_credentials(tmp_path, "school")
+
+
+def test_failed_refresh_asks_for_login(tmp_path, monkeypatch):
+    auth.save_token(auth.token_path(tmp_path, "school"), "{}")
+
+    class Expired:
+        valid = False
+
+        def refresh(self, request):
+            raise RefreshError("invalid_grant")
+
+    monkeypatch.setattr(Credentials, "from_authorized_user_file", lambda *a, **k: Expired())
+    with pytest.raises(auth.LoginRequired, match="epistole-login school"):
+        auth.load_credentials(tmp_path, "school")

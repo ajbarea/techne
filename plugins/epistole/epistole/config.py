@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import os
+import re
 import tomllib
 from pathlib import Path
 from typing import NamedTuple
 
 RESERVED = {"all"}
+ALIAS_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 class ConfigError(Exception):
@@ -49,6 +51,9 @@ def load(base: Path | None = None) -> Config:
     bad = RESERVED & raw.keys()
     if bad:
         raise ConfigError(f"alias {sorted(bad)[0]!r} is reserved; pick another name.")
+    for alias in raw:
+        if not ALIAS_RE.match(alias):
+            raise ConfigError(f"alias {alias!r} is invalid; use only letters, digits, '_' and '-'.")
     accounts = {alias: Account(alias, str(addr).lower()) for alias, addr in raw.items()}
     attach = tuple(_path(p) for p in data.get("attach_dirs", ["~/Downloads"]))
     download = _path(data.get("download_dir", "~/Downloads/epistole"))
