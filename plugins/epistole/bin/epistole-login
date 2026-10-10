@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# One-time browser sign-in for an epistole account. Run it in Claude Code as: !epistole-login <alias>
+set -euo pipefail
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export UV_PROJECT_ENVIRONMENT="${XDG_CACHE_HOME:-$HOME/.cache}/epistole/venv"
+exec uv run --quiet --directory "$root" python -m epistole.login "$@"
