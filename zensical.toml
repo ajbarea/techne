@@ -45,6 +45,7 @@ nav = [
         { "check" = "skills/check.md" },
       ]},
   ]},
+  { "epistole" = "epistole.md" },
   { "Architecture" = "architecture.md" },
   { "Examples" = "examples.md" },
   { "Conventions" = "conventions.md" },

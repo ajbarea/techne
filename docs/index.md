@@ -25,7 +25,7 @@ hide:
 <section class="landing-section landing-section--intro">
   <div class="section-inner">
     <h2 class="section-title">What is techne?</h2>
-    <p class="section-lead">A Claude Code plugin marketplace. <code>techne</code> covers work in a code repo: audit builds, tame CI noise, hunt doc/code drift, and keep linked repos in lockstep. <code>graphe</code> builds and gates documents: LaTeX, PDFs, slides and papers. <code>dokimasia</code> verifies a bibliography against its sources. <code>phylax</code> adds opt-in git guards, and <code>keryx</code> speaks each reply. Adopt the conventions and the skills work for any developer.</p>
+    <p class="section-lead">A Claude Code plugin marketplace. <code>techne</code> covers work in a code repo: audit builds, tame CI noise, hunt doc/code drift, and keep linked repos in lockstep. <code>graphe</code> builds and gates documents: LaTeX, PDFs, slides and papers. <code>dokimasia</code> verifies a bibliography against its sources. <code>phylax</code> adds opt-in git guards, <code>epistole</code> gives Claude your Gmail accounts, and <code>keryx</code> speaks each reply. Adopt the conventions and the skills work for any developer.</p>
   </div>
 </section>
 

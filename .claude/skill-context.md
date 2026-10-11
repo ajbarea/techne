@@ -9,9 +9,9 @@ audits the skill collection itself.
 ## repo
 
 - name: techne
-- package_root: `plugins/<plugin>/` for each plugin this marketplace ships (`techne` code-repo skills, `graphe` document skills, `dokimasia` bibliography checks, `phylax` hooks); `plugins/<plugin>/skills/` (one directory per skill, each a `SKILL.md` plus supporting markdown, templates and scripts), `plugins/<plugin>/_shared/` (files shared across that plugin's skills; `plugins/techne/_shared/` is the source for a file several plugins carry), `scripts/` (validation helpers), `tests/` (pytest over skill-shipped Python)
+- package_root: `plugins/<plugin>/` for each plugin this marketplace ships (`techne` code-repo skills, `graphe` document skills, `dokimasia` bibliography checks, `epistole` Gmail MCP server and setup skill, `phylax` hooks); `plugins/<plugin>/skills/` (one directory per skill, each a `SKILL.md` plus supporting markdown, templates and scripts), `plugins/<plugin>/_shared/` (files shared across that plugin's skills; `plugins/techne/_shared/` is the source for a file several plugins carry), `scripts/` (validation helpers), `tests/` (pytest over skill-shipped Python)
 - language: Markdown (skill bodies) + Python (skill-shipped scripts under `plugins/*/skills/*/scripts/`, the frontmatter validator, pytest) + Bash (guard and runner scripts) + TypeScript (phylax's hooks module `plugins/phylax/hooks/register.ts`, a mod, with `plugins/phylax/tests/*.test.ts`)
-- cli_entrypoint: none — consumers add the `ajbarea/techne` marketplace, install `techne@techne`, `graphe@techne`, `dokimasia@techne` and/or `phylax@techne`, then invoke `/techne:<skill>`, `/graphe:<skill>` or `/dokimasia:check`. The repo itself is `package = false` in `pyproject.toml`.
+- cli_entrypoint: none — consumers add the `ajbarea/techne` marketplace, install `techne@techne`, `graphe@techne`, `dokimasia@techne`, `epistole@techne` and/or `phylax@techne`, then invoke `/techne:<skill>`, `/graphe:<skill>` or `/dokimasia:check`. The repo itself is `package = false` in `pyproject.toml`.
 - runner_module: no Python runner; `.github/workflows/validate.yml` calls the Makefile targets.
 - default_branch: `main`
 - has: a skill per directory under `plugins/*/skills/` (list them rather than trusting any written-down set), a plugin manifest per plugin at `plugins/*/.claude-plugin/plugin.json`, marketplace manifest at `.claude-plugin/marketplace.json` (also lists keryx from `ajbarea/keryx`), Zensical-powered docs site, no docker, no frontend
@@ -96,7 +96,7 @@ Expected external PR checks: `validate` (in-repo) + `GitGuardian Security Checks
 Source of truth for skill-level claims:
 
 - **Skill descriptions:** `plugins/<plugin>/skills/<name>/SKILL.md` frontmatter `description:` field is the canonical one-line summary surfaced in the plugin registry; README and `docs/skills/*.md` cross-references must match.
-- **Marketplace metadata:** `.claude-plugin/marketplace.json` lists the plugins this marketplace ships (techne, graphe, dokimasia, phylax, plus keryx from `ajbarea/keryx`); each local entry's description must match its `plugins/<plugin>/.claude-plugin/plugin.json`.
+- **Marketplace metadata:** `.claude-plugin/marketplace.json` lists the plugins this marketplace ships (techne, graphe, dokimasia, epistole, phylax, plus keryx from `ajbarea/keryx`); each local entry's description must match its `plugins/<plugin>/.claude-plugin/plugin.json`.
 - **Skill inventory:** the directory listing of `plugins/*/skills/` is the only source of truth. Don't write a skill count into prose anywhere — a number in three files is three things to forget when a skill lands, and it drifted twice before it was removed. README's per-skill table is the one place a written inventory earns its keep, because each row carries a description rather than restating an integer.
 
 Any quantitative or list-shape claim not traceable to one of those is slop.

@@ -79,6 +79,7 @@ Shipped plugins and skills by catalog dimension (the directory listing of `plugi
 | `techne` | **Observation** | `theoros` |
 | `graphe` | **Document build** | `latex`, `pdf`, `paper`, `paper-review`, `slides` |
 | `dokimasia` | **Bibliography** | `check` |
+| `epistole` | **Mail** | MCP server, setup |
 | `phylax` | **Hooks** | git guards (a mod, `hooks/register.ts`), `restart_on_update` (command hooks) |
 
 When picking up the next session, replace the "In flight" block above

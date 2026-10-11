@@ -1,0 +1,83 @@
+# epistole
+
+epistole (ἐπιστολή, a letter) is a local Gmail MCP server for Claude Code. It searches, reads and drafts mail in every Gmail account you configure, whichever Claude account is signed in. Sending a draft always asks you first. It runs on your computer and uses a Google OAuth client you create yourself, so no shared secret ships with it.
+
+Install it from the techne marketplace:
+
+```
+/plugin marketplace add ajbarea/techne
+/plugin install epistole@techne
+```
+
+Requires [uv](https://docs.astral.sh/uv/). Tools appear as `mcp__plugin_epistole_epistole__<tool>`.
+
+## Tools
+
+| Tool | What it does |
+| --- | --- |
+| `accounts` | Shows whether the Google client is set up, and each account's address, sign-in state and send-as address. Never opens a browser. |
+| `search` | Searches one account, or `all`, with Gmail query syntax. Returns thread and message ids with sender, subject, date and snippet. |
+| `read_thread` | Reads a thread by id. Bodies come back wrapped as untrusted content. |
+| `create_draft` | Creates a draft in an account, optionally as a reply, with attachments from your allowed folders. |
+| `update_draft` | Replaces a draft's content and keeps its thread. |
+| `download_attachment` | Saves an attachment into your download folder. Never overwrites a file. |
+| `send_draft` | Sends a draft after you approve it. |
+
+Every id is account-qualified (`alias:id`), and a tool refuses an id whose account differs from the `account` you named.
+
+## Set up
+
+1. Create a Google Cloud project, enable the Gmail API, and create a Desktop app OAuth client with the `gmail.readonly` and `gmail.compose` scopes. Publish the app to production, because tokens issued in Testing mode expire after 7 days.
+2. Import the downloaded client file: `!epistole-login --client <downloaded.json> <alias>`.
+3. Sign each account in: `!epistole-login <alias>`.
+
+The full runbook is [AGENTS.md](AGENTS.md). Or ask Claude: `/epistole:setup`.
+
+`epistole-login` records each account in `~/.config/epistole/accounts.toml`, which also holds the attachment folders and the download folder:
+
+```toml
+attach_dirs = ["~/Documents/outgoing"]
+download_dir = "~/Downloads/epistole"
+
+[accounts]
+personal = "user@example.com"
+school = "user@g.example.edu"
+```
+
+### University and Workspace accounts
+
+The Google login can differ from the address mail goes out from. A university may sign in on a subdomain such as `g.example.edu` while people write to `user@example.edu`. `accounts.toml` records the Google login address, and mail is sent from Gmail's default send-as address; `accounts` shows both. For an alias already in `accounts.toml`, `epistole-login` opens Google's account chooser with that address pre-filled.
+
+An administrator can block apps Google has not verified, or limit third-party access to Gmail. Sign-in then ends on a Google page saying access is blocked, and the login command times out after 5 minutes. Only the administrator can fix that. Ask them to allow your client, or use a personal account. The claude.ai Gmail connector is the fallback for such an account.
+
+## Safety
+
+- **Sending always asks.** `send_draft` carries the `anthropic/requiresUserInteraction` flag, so Claude Code prompts you in every permission mode, including bypass. The server also re-checks the recipients (To, Cc, Bcc), the subject and the attachment names that Claude restates against the draft, and refuses the send if any differs.
+- **Attachments** are read only from the folders in `attach_dirs`. A path with any component starting with `.` is refused, and so is anything under `~/.config/epistole`.
+- **Downloads** go only into `download_dir`, under a sanitized file name. An existing file is never replaced; the new one gets ` (1)`, ` (2)` and so on.
+- **Mail text is labelled untrusted.** Message bodies and headers are wrapped in a marker saying they are data from outside, not instructions. This is a label for Claude, not a defence: a message can still try to steer it. The send prompt and the recipient re-check are the controls that hold.
+- **Keep Claude out of your tokens.** Add this to `~/.claude/settings.json`:
+
+  ```json
+  {
+    "permissions": {
+      "deny": ["Read(~/.config/epistole/**)"]
+    }
+  }
+  ```
+
+- **Audit log.** `~/.config/epistole/audit.jsonl` (mode 0600) records each draft and send with time, account, recipients, subject and attachment names. It never holds message bodies.
+
+## Tokens and removal
+
+Tokens live in `~/.config/epistole/tokens/<alias>.json` (mode 0600, folder 0700). Google stops honoring a token when you change your password, when it goes unused for 6 months, when more than 100 are live for one client, or when an administrator revokes the app. Sign in again with `!epistole-login <alias>`.
+
+To remove epistole, revoke it at [myaccount.google.com/permissions](https://myaccount.google.com/permissions), delete `~/.config/epistole`, and run `/plugin uninstall epistole@techne`.
+
+## Troubleshooting
+
+Run `!epistole-login --status`. It prints whether the client file is present and, per account, `signed in` or `needs login: <reason>`, and exits 0 only when every account is signed in. A tool that reports a missing sign-in names the command to run.
+
+## Privacy
+
+See the [privacy policy](https://ajbarea.github.io/techne/epistole/#privacy).

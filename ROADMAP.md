@@ -156,6 +156,10 @@ that drift class recurs.
 
 Detail lives in git history (`git log`) and the live skill code. This log is pruned once work is durably shipped.
 
+- 2026-10-11: **epistole, and v1.2.0.** A sixth plugin: a local Gmail MCP server that searches,
+  reads and drafts across accounts and sends a draft only after the user approves it, with a
+  `setup` skill and a runbook for creating the user's own Google OAuth client. The docs site
+  carries its privacy policy at `/epistole/`.
 - 2026-10-09: **`graphe:slides` makes web decks.** New talks start from a reveal.js 6.0.2
   starter (vendored, offline): figures that build in steps, a chapter rail, a quick bet, and a
   related-work map and timeline drawn from `data/deck-data.js`. `check` and `render` drive

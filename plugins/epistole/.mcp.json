@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "epistole": {
+      "command": "uv",
+      "args": ["run", "--quiet", "--directory", "${CLAUDE_PLUGIN_ROOT}", "python", "-m", "epistole.server"],
+      "env": {"UV_PROJECT_ENVIRONMENT": "${CLAUDE_PLUGIN_DATA}/venv"}
+    }
+  }
+}

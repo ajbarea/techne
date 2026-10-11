@@ -1,7 +1,7 @@
 {
   "name": "techne",
-  "version": "1.1.0",
-  "description": "AJ's Claude Code plugins: code-repo skills, document builds, git guards, and a spoken Claude Code.",
+  "version": "1.2.0",
+  "description": "AJ's Claude Code plugins: code-repo skills, document builds, git guards, Gmail across accounts, and a spoken Claude Code.",
   "owner": {
     "name": "AJ",
     "email": "ajbareaa@gmail.com"
@@ -30,6 +30,12 @@
       "description": "Opt-in Claude Code hooks: refuse attribution lines in commits and PRs, refuse staging COMMITS.md, warn on commits in a main checkout, and restart idle sessions onto an updated Claude Code.",
       "source": "./plugins/phylax",
       "category": "development"
+    },
+    {
+      "name": "epistole",
+      "description": "Gmail across accounts for Claude Code: search, read and draft in every configured account, and send a draft only after you approve it.",
+      "source": "./plugins/epistole",
+      "category": "productivity"
     },
     {
       "name": "keryx",
