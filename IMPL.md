@@ -42,7 +42,9 @@ server reaches every configured Gmail account whichever Claude account is active
   domain, so `accounts.toml` holds the login address and `From` is Gmail's default send-as, read from
   the API.
 
-**Scope.** `plugins/epistole/`, marketplace entry, docs-site page + nav, an `epistole` dependency group
+**Scope.** `plugins/epistole/`, marketplace entry, docs-site page + nav, first-run onboarding (an
+`AGENTS.md` setup runbook any agent can follow, a `/epistole:setup` skill pointing at it,
+`epistole-login --client` import, accounts added on first login, `--status` and an `accounts` tool), an `epistole` dependency group
 so `ty` resolves, tests in `tests/` against a fake Gmail (MIME, threading, attachment allowlist,
 id routing, the send flag in `tools/list`). First step: a login spike against the Workspace account
 requesting the exact scopes, which also confirms `MCPServer` can set tool `_meta`.
@@ -54,7 +56,13 @@ prompts under bypass (tmux smoke); a live check shows a draft reply threaded in 
 self arriving; refresh token alive after 8 days; tests and docs green. Workspace outcomes: works,
 works read-only (admin blocks compose), or blocked (stays on the claude.ai connector); README says which.
 
-**Next pickup after epistole:** #96, backing the commit guards with Git 2.54 config-based `commit-msg` and
+**Next pickup after epistole:** a marketplace-wide onboarding pass, so each plugin can be cited as a
+finished tool. Every plugin gets the epistole pattern where it has setup: a plugin-level `AGENTS.md` an
+agent can follow, a setup or status entry point, and errors that name the next command. Every README
+gets install, first use and troubleshooting, and the docs site gets a getting-started path per plugin,
+with a citation file (`CITATION.cff`) at the repo root.
+
+**After that:** #96, backing the commit guards with Git 2.54 config-based `commit-msg` and
 `pre-commit` hooks set through `CLAUDE_ENV_FILE`, so commits the Bash parser cannot see are
 still checked. Blocked on Git 2.54 being available to test against.
 
