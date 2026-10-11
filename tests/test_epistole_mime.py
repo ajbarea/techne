@@ -2,6 +2,7 @@ import base64
 import email
 import email.policy
 import os
+import time
 from typing import Any
 
 import pytest
@@ -379,3 +380,67 @@ def test_trim_quoted_keeps_prose_and_requires_quote_marker():
     assert mime.trim_quoted(tail) == "New"
     no_quote = "On 5 Oct 2026 Bob wrote:\nNot a quote line\nmore"
     assert mime.trim_quoted(no_quote) == no_quote
+
+
+# --- fix round 2 -----------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "charset", ["zlib", "base64", "hex", "bz2", "uu", "quopri", "rot13", "idna"]
+)
+def test_non_text_charset_never_raises(charset):
+    part = _part("text/plain", "", charset=charset, raw=b"hello")
+    assert mime.body_text({"mimeType": "text/plain", **part}) == "hello"
+
+
+@pytest.mark.parametrize("tag", ["script", "style", "title"])
+def test_unclosed_tag_scan_is_linear(tag):
+    html = f"<{tag}>" * (1_000_000 // len(f"<{tag}>") + 1) + "<p>after</p>"
+    assert len(html) > 1_000_000
+    start = time.perf_counter()
+    out = mime.body_text({"mimeType": "text/html", **_part("text/html", html)})
+    assert time.perf_counter() - start < 1
+    assert out.split() == ["after"]
+
+
+GMAIL_ATTR = "On Fri, Oct 10, 2026 at 3:00 PM Name <x@example.com> wrote:"
+
+
+@pytest.mark.parametrize("nl", ["\n", "\r\n"])
+def test_trim_quoted_gmail_attribution_any_newline(nl):
+    text = nl.join(["Sounds good, see you then.", "", GMAIL_ATTR, "> Can we meet?", "> Thanks"])
+    assert mime.trim_quoted(text) == "Sounds good, see you then."
+
+
+def test_html_gmail_reply_trims_quoted_blockquote():
+    html = (
+        "<div>new</div><div class='gmail_quote'><div class='gmail_attr'>"
+        f"{GMAIL_ATTR.replace('<', '&lt;').replace('>', '&gt;')}<br></div>"
+        "<blockquote class='gmail_quote'>old text</blockquote></div>"
+    )
+    text = mime.body_text({"mimeType": "text/html", **_part("text/html", html)})
+    assert mime.trim_quoted(text) == "new"
+
+
+def test_os_errors_become_value_errors(tree, monkeypatch):
+    out, ehome, _, _ = tree
+
+    def boom(*_a, **_k):
+        raise PermissionError(13, "denied")
+
+    monkeypatch.setattr(mime.os.path, "samefile", boom)
+    with pytest.raises(ValueError):
+        mime.check_attachment(str(out / "a.pdf"), (out.resolve(),), ehome)
+    with pytest.raises(ValueError, match="allowed"):
+        mime.check_attachment("/proc/1/root/etc/passwd", (out.resolve(),), ehome)
+
+
+def test_br_variants_give_one_newline():
+    def text(html):
+        return mime.body_text({"mimeType": "text/html", **_part("text/html", html)})
+
+    assert text("line1<br>line2<br/>line3<br />line4") == "line1\nline2\nline3\nline4"
+
+
+def test_safe_filename_strips_directional_marks():
+    assert mime.safe_filename("‎abc‏؜.pdf") == "abc.pdf"

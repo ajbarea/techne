@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import base64
-import codecs
 import mimetypes
 import os
 import re
@@ -16,11 +15,11 @@ from typing import NamedTuple
 MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
 MAX_FILENAME_BYTES = 255
 
-QUOTE_START = re.compile(r"^On .+wrote:[ \t]*$", re.MULTILINE)
+QUOTE_START = re.compile(r"^On .+wrote:[ \t\r]*$", re.MULTILINE)
 _REPLY_PREFIX = re.compile(r"(?i)re(\[\d+\])?:")
 _WRAP_TAG = re.compile(r"<(\s*/?\s*)untrusted-email", re.IGNORECASE)
 _CONTROLS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
-_BIDI = re.compile("[\u202a-\u202e\u2066-\u2069]")
+_BIDI = re.compile("[\u200e\u200f\u061c\u202a-\u202e\u2066-\u2069]")
 _RESERVED = {"CON", "PRN", "AUX", "NUL"}
 _RESERVED |= {f"COM{n}" for n in range(1, 10)} | {f"LPT{n}" for n in range(1, 10)}
 _CHARSET = re.compile(r"charset\s*=\s*[\"']?([\w.:-]+)", re.IGNORECASE)
@@ -46,6 +45,13 @@ def _is_home(real: Path, home: Path) -> bool:
 
 
 def check_attachment(path: str, allowed: tuple[Path, ...], home: Path) -> Path:
+    try:
+        return _check(path, allowed, home)
+    except (OSError, RuntimeError) as exc:
+        raise ValueError(f"{path}: cannot be read ({exc.__class__.__name__}).") from exc
+
+
+def _check(path: str, allowed: tuple[Path, ...], home: Path) -> Path:
     given = Path(path).expanduser()
     if not given.is_absolute():
         raise ValueError(f"{path}: give an absolute path.")
@@ -54,10 +60,10 @@ def check_attachment(path: str, allowed: tuple[Path, ...], home: Path) -> Path:
     real = given.resolve()
     if any(part.startswith(".") for part in real.parts[1:]):
         raise ValueError(f"{path}: hidden files and folders cannot be attached.")
-    if _is_home(real, home):
-        raise ValueError(f"{path}: epistole's own files cannot be attached.")
     if not any(real.is_relative_to(d) for d in allowed):
         raise ValueError(f"{path}: not inside an allowed attach_dirs folder.")
+    if _is_home(real, home):
+        raise ValueError(f"{path}: epistole's own files cannot be attached.")
     if not real.is_file():
         raise ValueError(f"{path}: not a file.")
     if real.stat().st_size > MAX_ATTACHMENT_BYTES:
@@ -139,12 +145,12 @@ class _Text(HTMLParser):
         if tag in _SKIPPED:
             self.skip += 1
         elif tag in _BLOCKS:
-            self.out.append("\n")
+            self.out.append(">\n" if tag == "blockquote" else "\n")
 
     def handle_endtag(self, tag):
         if tag in _SKIPPED:
             self.skip = max(0, self.skip - 1)
-        elif tag in _BLOCKS:
+        elif tag in _BLOCKS and tag != "br":
             self.out.append("\n")
         elif tag in ("td", "th"):
             self.out.append(" ")
@@ -156,7 +162,9 @@ class _Text(HTMLParser):
 
 def _drop_unclosed(html: str) -> str:
     for tag in _SKIPPED:
-        html = re.sub(rf"(?is)<{tag}\b[^>]*>(?!.*?</{tag}\s*>)[^<]*", "", html)
+        closes = [m.end() for m in re.finditer(rf"(?i)</{tag}\s*>", html)]
+        cut = closes[-1] if closes else 0
+        html = html[:cut] + re.sub(rf"(?i)<{tag}\b[^<>]*>[^<]*", "", html[cut:])
     return html
 
 
@@ -174,10 +182,9 @@ def _decode(part: dict) -> str:
     match = _CHARSET.search(headers(part).get("content-type", ""))
     charset = match.group(1) if match else "utf-8"
     try:
-        codecs.lookup(charset)
-    except LookupError:
-        charset = "utf-8"
-    return raw.decode(charset, "replace")
+        return raw.decode(charset, "replace")
+    except (LookupError, UnicodeError):
+        return raw.decode("utf-8", "replace")
 
 
 def _find(payload: dict, mime_type: str) -> str | None:
