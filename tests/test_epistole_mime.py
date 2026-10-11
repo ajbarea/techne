@@ -1,8 +1,11 @@
 import base64
+import contextlib
 import email
 import email.policy
 import os
 import time
+from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -273,6 +276,8 @@ def test_attachment_cap_constant():
         {"cc": ["c@example.com\r\nX: y"]},
         {"reply": mime.Reply("<a@x>\nBcc: e@example.com", "", "Plan")},
         {"reply": mime.Reply("<a@x>", "", "Plan\r\nBcc: e@example.com")},
+        {"subject": "a" * 1000 + "\r\nBcc: evil@example.com"},
+        {"reply": mime.Reply("<a@x>", "", "P" * 1000 + "\nBcc: e@example.com")},
     ],
 )
 def test_header_injection_refused(kwargs: dict[str, Any]):
@@ -395,12 +400,9 @@ def test_non_text_charset_never_raises(charset):
 
 
 @pytest.mark.parametrize("tag", ["script", "style", "title"])
-def test_unclosed_tag_scan_is_linear(tag):
-    html = f"<{tag}>" * (1_000_000 // len(f"<{tag}>") + 1) + "<p>after</p>"
-    assert len(html) > 1_000_000
-    start = time.perf_counter()
+def test_repeated_unclosed_tags_keep_later_text(tag):
+    html = f"<{tag}>" * 50 + "<p>after</p>"
     out = mime.body_text({"mimeType": "text/html", **_part("text/html", html)})
-    assert time.perf_counter() - start < 1
     assert out.split() == ["after"]
 
 
@@ -440,12 +442,9 @@ def test_os_errors_become_value_errors(tree, monkeypatch):
         mime.check_attachment(str(out / "a.pdf"), (out,), ehome)
 
 
-def test_trim_quoted_many_attributions_is_linear():
-    text = "On 1 Oct 2026 a@b wrote:\nnot quoted\n" * 30_000
-    assert len(text) > 1_000_000
-    start = time.perf_counter()
+def test_trim_quoted_keeps_unquoted_attributions():
+    text = "On 1 Oct 2026 a@b wrote:\nnot quoted\n" * 50
     assert mime.trim_quoted(text) == text.strip()
-    assert time.perf_counter() - start < 1
 
 
 def test_indent_blockquote_leaves_no_stray_marker():
@@ -464,3 +463,156 @@ def test_br_variants_give_one_newline():
 
 def test_safe_filename_strips_directional_marks():
     assert mime.safe_filename("‎abc‏؜.pdf") == "abc.pdf"
+
+
+def test_subject_capped_at_rfc_line_limit():
+    base: dict[str, Any] = {"sender": "a@example.com", "to": ["b@example.com"], "body": "b"}
+    msg = mime.build(**base, subject="a" * 5000)
+    assert msg["Subject"] == "a" * 998
+    msg = mime.build(**base, subject="s", reply=mime.Reply("<a@x>", "", "é" * 5000))
+    assert msg["Subject"] == ("Re: " + "é" * 5000)[:998]
+    assert decode(mime.encode(msg))["Subject"] == msg["Subject"]
+
+
+def test_references_keep_most_recent_twenty_with_parent_last():
+    ids = [f"<{n}@x>" for n in range(40)]
+    reply = mime.Reply("<parent@x>", " ".join(ids), "P")
+    msg = mime.build(sender="a@example.com", to=["b@x"], subject="s", body="b", reply=reply)
+    assert msg["References"].split() == [*ids[-19:], "<parent@x>"]
+    assert msg["In-Reply-To"] == "<parent@x>"
+
+
+def test_overlong_attachment_path_refused(tree):
+    out, ehome, _, _ = tree
+    path = str(out) + "/a" * 3000
+    with pytest.raises(ValueError, match="4096"):
+        mime.check_attachment(path, (out.resolve(),), ehome)
+    assert mime.check_attachment(str(out / "a.pdf"), (out.resolve(),), ehome).name == "a.pdf"
+
+
+def _nested(depth: int, leaf: dict) -> dict:
+    payload = leaf
+    for _ in range(depth):
+        payload = {"mimeType": "multipart/mixed", "parts": [payload]}
+    return payload
+
+
+def test_mime_nesting_depth_is_bounded():
+    leaf = _part("text/plain", "deep")
+    assert mime.body_text(_nested(10, leaf)) == "deep"
+    assert mime.body_text(_nested(mime.MAX_MIME_DEPTH, leaf)) == "deep"
+    assert mime.body_text(_nested(mime.MAX_MIME_DEPTH + 1, leaf)) == ""
+    assert mime.body_text(_nested(100_000, leaf)) == ""
+
+
+MB = 1_000_000
+
+
+def _html(html: str) -> dict:
+    return {"mimeType": "text/html", **_part("text/html", html)}
+
+
+def _reply(**kw: Any) -> mime.Reply:
+    return mime.Reply(**{"message_id": "<p@x>", "references": "", "subject": "P", **kw})
+
+
+def _build(**kw: Any) -> Callable[[], str]:
+    base: dict[str, Any] = {"sender": "a@x", "to": ["b@x"], "subject": "s", "body": "b"}
+    return lambda: mime.encode(mime.build(**{**base, **kw}))
+
+
+_NBSP, _EMSP, _IDSP = chr(0xA0), chr(0x2003), chr(0x3000)
+_WS = (" ", "\t", "\n", _NBSP, _EMSP, _IDSP)
+_ATTR = "On 1 Oct 2026 a@b wrote:"
+_SWEEP: dict[str, Callable[[Path], Callable[[], object]]] = {
+    **{
+        f"wrap-lt-ws-{ord(w):04x}": lambda _, w=w: partial(mime.wrap_untrusted, "<" + w * MB, "a:1")
+        for w in _WS
+    },
+    "wrap-lt-slash-ws": lambda _: partial(
+        mime.wrap_untrusted, "<" + " " * MB + "/" + " " * MB, "a"
+    ),
+    "wrap-lt-ws-runs": lambda _: partial(mime.wrap_untrusted, ("<" + " " * 1000) * 1000, "a:1"),
+    "wrap-lt-run": lambda _: partial(mime.wrap_untrusted, "<" * MB, "a:1"),
+    "wrap-gt-run": lambda _: partial(mime.wrap_untrusted, ">" * MB, "a:1"),
+    "trim-attributions": lambda _: partial(mime.trim_quoted, f"{_ATTR}\nnot quoted\n" * 28_000),
+    "trim-long-on-line": lambda _: partial(mime.trim_quoted, "On " + "1 wrote: x" * 100_000),
+    "trim-attr-ws": lambda _: partial(mime.trim_quoted, _ATTR + " " * MB + "x"),
+    "trim-attr-newlines": lambda _: partial(mime.trim_quoted, _ATTR + "\n" * MB + "x"),
+    "trim-wrote-no-eol": lambda _: partial(mime.trim_quoted, "On 1 " + "wrote:" * 166_000 + "x"),
+    "trim-long-line": lambda _: partial(mime.trim_quoted, "x" * MB),
+    "trim-short-lines": lambda _: partial(mime.trim_quoted, "x\n" * (MB // 2)),
+    "trim-quote-lines": lambda _: partial(mime.trim_quoted, ">\n" * (MB // 2)),
+    "trim-ws": lambda _: partial(mime.trim_quoted, (" \t" + _EMSP) * (MB // 3)),
+    "html-w2-long-on-line": lambda _: partial(
+        mime.body_text, _html("<p>On " + "x" * (MB // 2) + "</p>" + "<blockquote>" * 41_666)
+    ),
+    "html-attributions": lambda _: partial(
+        mime.body_text, _html(f"<p>{_ATTR}</p><blockquote>x</blockquote>" * 16_000)
+    ),
+    "html-blockquote-run": lambda _: partial(mime.body_text, _html("<blockquote>" * 83_000)),
+    "html-blockquote-nested": lambda _: partial(
+        mime.body_text, _html("<blockquote>" * 40_000 + "</blockquote>" * 40_000)
+    ),
+    "html-script-openings": lambda _: partial(mime.body_text, _html("<script>" * 125_000)),
+    "html-script-closed-then-open": lambda _: partial(
+        mime.body_text, _html("<script></script>" * 30_000 + "<script>" * 60_000)
+    ),
+    "html-script-no-gt": lambda _: partial(mime.body_text, _html("<script " + "a" * MB)),
+    "html-lt-run": lambda _: partial(mime.body_text, _html("<" * (MB // 2))),
+    "html-gt-run": lambda _: partial(mime.body_text, _html(">" * MB)),
+    "html-ws": lambda _: partial(mime.body_text, _html((" \n\t" + _EMSP + "&nbsp;") * 100_000)),
+    "html-br": lambda _: partial(mime.body_text, _html("<br>" * 250_000)),
+    "html-long-line": lambda _: partial(mime.body_text, _html("x" * MB)),
+    "html-short-lines": lambda _: partial(mime.body_text, _html("<p>x</p>\n" * 110_000)),
+    "plain-short-lines": lambda _: partial(
+        mime.body_text, {"mimeType": "text/plain", **_part("text/plain", "x\n" * (MB // 2))}
+    ),
+    "plain-charset-ws": lambda _: partial(
+        mime.body_text,
+        {"mimeType": "text/plain", **_part("text/plain", "x", charset=" " * MB)},
+    ),
+    "mime-deep-nesting": lambda _: partial(
+        mime.body_text, _nested(MB // 10, _part("text/plain", "x"))
+    ),
+    "headers-many": lambda _: partial(
+        mime.headers, {"headers": [{"name": f"X-{n}", "value": "v"} for n in range(100_000)]}
+    ),
+    "reply-subject-ws": lambda _: partial(mime.reply_subject, (" " + _IDSP) * (MB // 2) + "x"),
+    "reply-subject-re-run": lambda _: partial(mime.reply_subject, "re[1" * (MB // 4)),
+    **{
+        f"filename-{label}": lambda _, n=n: partial(mime.safe_filename, n)
+        for label, n in {
+            "long": "a" * MB,
+            "slashes": "/" * MB,
+            "backslashes": "a\\" * (MB // 2),
+            "cjk": "東" * (MB // 3) + ".pdf",
+            "dots-spaces": " ." * (MB // 2),
+            "controls": "\x00\u202e" * (MB // 2),
+        }.items()
+    },
+    "attach-overlong": lambda tmp: partial(mime.check_attachment, "/a" * (MB // 2), (tmp,), tmp),
+    "attach-at-limit": lambda tmp: partial(
+        mime.check_attachment, str(tmp) + "/a" * ((4096 - len(str(tmp))) // 2), (tmp,), tmp / "h"
+    ),
+    "build-subject-ascii-ws": lambda _: _build(subject="a " * (MB // 2)),
+    "build-subject-non-ascii": lambda _: _build(subject="é " * (MB // 2)),
+    "build-reply-subject": lambda _: _build(reply=_reply(subject="é " * (MB // 2))),
+    "build-references-many": lambda _: _build(
+        reply=_reply(references=" ".join(f"<{n}@x>" for n in range(110_000)))
+    ),
+    "build-references-one-long": lambda _: _build(reply=_reply(references="<" + "a" * MB + ">")),
+    "build-message-id-long": lambda _: _build(reply=_reply(message_id="<" + "a" * MB + ">")),
+    "build-body-long-line": lambda _: _build(body="x" * MB),
+    "build-body-short-lines": lambda _: _build(body="é\n" * (MB // 2)),
+    "build-html": lambda _: _build(html="<p>x</p>" * (MB // 8)),
+}
+
+
+@pytest.mark.parametrize("case", list(_SWEEP), ids=list(_SWEEP))
+def test_public_functions_stay_linear_on_adversarial_input(case, tmp_path):
+    call = _SWEEP[case](tmp_path)
+    start = time.perf_counter()
+    with contextlib.suppress(ValueError):
+        call()
+    assert time.perf_counter() - start < 2

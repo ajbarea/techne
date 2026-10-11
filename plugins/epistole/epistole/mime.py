@@ -14,10 +14,14 @@ from typing import NamedTuple
 
 MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
 MAX_FILENAME_BYTES = 255
+MAX_HEADER_CHARS = 998
+MAX_REFERENCES = 20
+MAX_PATH_CHARS = 4096
+MAX_MIME_DEPTH = 50
 
 QUOTE_START = re.compile(r"^On .+wrote:[ \t\r]*$", re.MULTILINE)
 _REPLY_PREFIX = re.compile(r"(?i)re(\[\d+\])?:")
-_WRAP_TAG = re.compile(r"<(\s*/?\s*)untrusted-email", re.IGNORECASE)
+_WRAP_TAG = re.compile(r"<(\s*+/?\s*+)untrusted-email", re.IGNORECASE)
 _CONTROLS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 _BIDI = re.compile("[\u200e\u200f\u061c\u202a-\u202e\u2066-\u2069]")
 _RESERVED = {"CON", "PRN", "AUX", "NUL"}
@@ -45,6 +49,8 @@ def _is_home(real: Path, home: Path) -> bool:
 
 
 def check_attachment(path: str, allowed: tuple[Path, ...], home: Path) -> Path:
+    if len(path) > MAX_PATH_CHARS:
+        raise ValueError(f"attachment path is longer than {MAX_PATH_CHARS} characters.")
     try:
         return _check(path, allowed, home)
     except (OSError, RuntimeError) as exc:
@@ -75,6 +81,13 @@ def _ids(*values: str) -> list[str]:
     return list(dict.fromkeys(i for v in values for i in v.split()))
 
 
+def _header_value(value: str) -> str:
+    """Refuse line breaks anywhere, then cap at the RFC 5322 line limit."""
+    if len(value.splitlines()) > 1:
+        raise ValueError("Header values may not contain linefeed or carriage return characters")
+    return value[:MAX_HEADER_CHARS]
+
+
 def build(
     *,
     sender: str,
@@ -101,16 +114,17 @@ def build(
     if cc:
         msg["Cc"] = ", ".join(cc)
     if reply:
-        msg["Subject"] = reply_subject(reply.subject)
+        msg["Subject"] = _header_value(reply_subject(reply.subject))
         parent = reply.message_id.strip()
         refs = _ids(reply.references) or _ids(reply.in_reply_to)
         refs = [r for r in refs if r != parent] + ([parent] if parent else [])
+        refs = refs[-MAX_REFERENCES:]
         if parent:
             msg["In-Reply-To"] = parent
         if refs:
             msg["References"] = " ".join(refs)
     else:
-        msg["Subject"] = subject
+        msg["Subject"] = _header_value(subject)
     msg.set_content(body)
     if html:
         msg.add_alternative(html, subtype="html")
@@ -171,13 +185,14 @@ def _drop_unclosed(html: str) -> str:
 def _drop_indent_markers(text: str) -> str:
     """Keep a lone ">" blockquote marker only right after an attribution line."""
     kept: list[str] = []
-    prev = ""
+    after_attr = False
     for line in text.split("\n"):
-        if line.strip() == ">" and not _is_attribution(prev):
+        stripped = line.strip()
+        if stripped == ">" and not after_attr:
             continue
         kept.append(line)
-        if line.strip():
-            prev = line.strip()
+        if stripped:
+            after_attr = _is_attribution(stripped)
     return "\n".join(kept)
 
 
@@ -202,13 +217,15 @@ def _decode(part: dict) -> str:
         return raw.decode("utf-8", "replace")
 
 
-def _find(payload: dict, mime_type: str) -> str | None:
+def _find(payload: dict, mime_type: str, depth: int = 0) -> str | None:
     if payload.get("filename") or payload.get("mimeType") == "message/rfc822":
         return None
     if payload.get("mimeType") == mime_type and payload.get("body", {}).get("data"):
         return _decode(payload)
+    if depth >= MAX_MIME_DEPTH:
+        return None
     for part in payload.get("parts", []):
-        found = _find(part, mime_type)
+        found = _find(part, mime_type, depth + 1)
         if found is not None:
             return found
     return None
