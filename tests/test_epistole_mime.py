@@ -474,12 +474,28 @@ def test_subject_capped_at_rfc_line_limit():
     assert decode(mime.encode(msg))["Subject"] == msg["Subject"]
 
 
-def test_references_keep_most_recent_twenty_with_parent_last():
+def test_references_keep_root_and_recent_ids_with_parent_last():
+    def refs(ids: list[str]) -> list[str]:
+        reply = mime.Reply("<parent@x>", " ".join(ids), "P")
+        msg = mime.build(sender="a@example.com", to=["b@x"], subject="s", body="b", reply=reply)
+        assert msg["In-Reply-To"] == "<parent@x>"
+        return msg["References"].split()
+
     ids = [f"<{n}@x>" for n in range(40)]
-    reply = mime.Reply("<parent@x>", " ".join(ids), "P")
-    msg = mime.build(sender="a@example.com", to=["b@x"], subject="s", body="b", reply=reply)
-    assert msg["References"].split() == [*ids[-19:], "<parent@x>"]
-    assert msg["In-Reply-To"] == "<parent@x>"
+    assert refs(ids) == [ids[0], *ids[-18:], "<parent@x>"]
+    assert len(refs(ids)) == mime.MAX_REFERENCES
+    assert refs(ids[:19]) == [*ids[:19], "<parent@x>"]
+
+
+def test_recipient_cap():
+    base: dict[str, Any] = {"sender": "a@example.com", "subject": "s", "body": "b"}
+    addrs = [f"u{n}@example.com" for n in range(mime.MAX_RECIPIENTS + 1)]
+    msg = mime.build(**base, to=addrs[:300], cc=addrs[300:-1])
+    assert len(msg["To"].addresses) + len(msg["Cc"].addresses) == mime.MAX_RECIPIENTS
+    with pytest.raises(ValueError, match="500"):
+        mime.build(**base, to=addrs[:300], cc=addrs[300:])
+    with pytest.raises(ValueError, match="500"):
+        mime.build(**base, to=[", ".join(addrs)])
 
 
 def test_overlong_attachment_path_refused(tree):
@@ -595,6 +611,13 @@ _SWEEP: dict[str, Callable[[Path], Callable[[], object]]] = {
     "attach-at-limit": lambda tmp: partial(
         mime.check_attachment, str(tmp) + "/a" * ((4096 - len(str(tmp))) // 2), (tmp,), tmp / "h"
     ),
+    "build-recipients-at-cap": lambda _: _build(
+        to=[f"user{n}@example.com" for n in range(250)],
+        cc=[f"user{n}@example.org" for n in range(250)],
+    ),
+    "build-recipients-over-cap": lambda _: _build(to=[f"u{n}@example.com" for n in range(50_000)]),
+    "build-recipients-one-field": lambda _: _build(to=[", ".join(["u@example.com"] * 70_000)]),
+    "build-recipients-quoted-commas": lambda _: _build(to=['"' + "a," * (MB // 2) + '" <u@x>']),
     "build-subject-ascii-ws": lambda _: _build(subject="a " * (MB // 2)),
     "build-subject-non-ascii": lambda _: _build(subject="é " * (MB // 2)),
     "build-reply-subject": lambda _: _build(reply=_reply(subject="é " * (MB // 2))),

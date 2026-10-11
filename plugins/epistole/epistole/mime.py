@@ -8,6 +8,7 @@ import os
 import re
 from collections.abc import Iterable
 from email.message import EmailMessage
+from email.utils import getaddresses
 from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
 from typing import NamedTuple
@@ -16,6 +17,7 @@ MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
 MAX_FILENAME_BYTES = 255
 MAX_HEADER_CHARS = 998
 MAX_REFERENCES = 20
+MAX_RECIPIENTS = 500
 MAX_PATH_CHARS = 4096
 MAX_MIME_DEPTH = 50
 
@@ -101,6 +103,9 @@ def build(
 ) -> EmailMessage:
     if isinstance(to, str) or isinstance(cc, str):
         raise TypeError("to and cc must be lists of addresses, not a string.")
+    to, cc = list(to), list(cc)
+    if len(getaddresses(to + cc)) > MAX_RECIPIENTS:
+        raise ValueError(f"more than {MAX_RECIPIENTS} To and Cc recipients.")
     attachments = list(attachments)
     total = sum(p.stat().st_size for p in attachments)
     if total > MAX_ATTACHMENT_BYTES:
@@ -110,7 +115,6 @@ def build(
     msg = EmailMessage()
     msg["From"] = sender
     msg["To"] = ", ".join(to)
-    cc = list(cc)
     if cc:
         msg["Cc"] = ", ".join(cc)
     if reply:
@@ -118,7 +122,8 @@ def build(
         parent = reply.message_id.strip()
         refs = _ids(reply.references) or _ids(reply.in_reply_to)
         refs = [r for r in refs if r != parent] + ([parent] if parent else [])
-        refs = refs[-MAX_REFERENCES:]
+        if len(refs) > MAX_REFERENCES:
+            refs = [refs[0], *refs[1 - MAX_REFERENCES :]]
         if parent:
             msg["In-Reply-To"] = parent
         if refs:
