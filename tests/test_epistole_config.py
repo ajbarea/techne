@@ -142,3 +142,20 @@ def test_wrong_shapes_and_unknown_keys_are_refused(tmp_path, body):
     write(tmp_path, body)
     with pytest.raises(config.ConfigError):
         config.load(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "body",
+    ['accounts = "x"\n', "[accounts]\nschool = 5\n", '[accounts]\nschool = "no-at-sign"\n'],
+)
+def test_accounts_table_shape_is_validated(tmp_path, body):
+    write(tmp_path, body)
+    with pytest.raises(config.ConfigError, match="accounts"):
+        config.load(tmp_path)
+
+
+def test_toml_syntax_error_names_file_and_line(tmp_path):
+    write(tmp_path, '[accounts]\nschool = "ok"\nbroken = \n')
+    with pytest.raises(config.ConfigError) as info:
+        config.load(tmp_path)
+    assert "accounts.toml" in str(info.value) and "line 3" in str(info.value)

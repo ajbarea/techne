@@ -39,12 +39,20 @@ INSTRUCTIONS = (
 )
 
 
-def _connect(base: Path) -> Callable[[str], Any]:
+def _connect(base: Path, timeout: float | None = None) -> Callable[[str], Any]:
+    """A Gmail service factory. With timeout, the HTTP client gives up after that many seconds."""
+
     def connect(alias: str) -> Any:
         from googleapiclient.discovery import build as gbuild
 
-        creds = auth.load_credentials(base, alias)
-        return gbuild("gmail", "v1", credentials=creds, cache_discovery=False)
+        creds = auth.load_credentials(base, alias, timeout=timeout)
+        if timeout is None:
+            return gbuild("gmail", "v1", credentials=creds, cache_discovery=False)
+        import google_auth_httplib2
+        import httplib2
+
+        http = google_auth_httplib2.AuthorizedHttp(creds, http=httplib2.Http(timeout=timeout))
+        return gbuild("gmail", "v1", http=http, cache_discovery=False)
 
     return connect
 
@@ -167,6 +175,7 @@ def _guard(fn: Callable[..., str]) -> Callable[..., str]:
 
 def build(base: Path | None = None, connect: Callable[[str], Any] | None = None) -> MCPServer:
     root: Path = base if base is not None else config.home()
+    probe = connect or _connect(root, timeout=auth.STATUS_TIMEOUT)
     connect = connect or _connect(root)
     app = MCPServer("epistole", instructions=INSTRUCTIONS)
 
@@ -194,7 +203,8 @@ def build(base: Path | None = None, connect: Callable[[str], Any] | None = None)
         for i, row in enumerate(report.rows, start=1):
             if row.ok:
                 try:
-                    lines[i] += f"  send-as {box(row.alias).sender()}"
+                    mailbox = Mailbox(row.alias, row.address, probe(row.alias))
+                    lines[i] += f"  send-as {mailbox.fetch_sender()}"
                 except Exception:
                     lines[i] += "  send-as unavailable"
         return _esc_clip("\n".join(lines), LIMIT)

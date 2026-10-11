@@ -93,7 +93,11 @@ def _path(value: str) -> Path:
 
 
 def _read(base: Path) -> dict:
-    data = tomllib.loads((base / "accounts.toml").read_text())
+    file = base / "accounts.toml"
+    try:
+        data = tomllib.loads(file.read_text())
+    except tomllib.TOMLDecodeError as exc:
+        raise ConfigError(f"{file} is not valid TOML: {exc}") from None
     unknown = sorted(set(data) - KEYS)
     if unknown:
         raise ConfigError(
@@ -104,6 +108,14 @@ def _read(base: Path) -> dict:
         raise ConfigError("attach_dirs in accounts.toml must be a list of folder paths.")
     if not isinstance(data.get("download_dir", DEFAULT_DOWNLOAD), str):
         raise ConfigError("download_dir in accounts.toml must be one folder path.")
+    table = data.get("accounts", {})
+    if not isinstance(table, dict) or not all(
+        isinstance(v, str) and "@" in v for v in table.values()
+    ):
+        raise ConfigError(
+            f"the [accounts] table in {file} must map each alias to an address, "
+            'e.g. school = "user@example.edu".'
+        )
     return data
 
 

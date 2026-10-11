@@ -161,7 +161,9 @@ def import_client(base: Path, src: Path) -> None:
     ):
         raise LoginRequired(
             f"{src} is not a Desktop app client file: it needs an 'installed' entry with "
-            f"{', '.join(CLIENT_KEYS)}. Download the client JSON again."
+            f"{', '.join(CLIENT_KEYS)}. Google shows the client secret only in the dialog "
+            "after the client is created: download the JSON from that dialog, or on the "
+            "client's page add a new client secret and download from its dialog."
         )
     config.write_private(client_secret_path(base), text)
 
@@ -188,7 +190,7 @@ def status(base: Path) -> Report:
     if not (base / "accounts.toml").is_file():
         return Report(client, [])
     rows: list[Row] = []
-    for alias, acct in config.load(base).accounts.items():
+    for alias, acct in config.load(base, allow_empty=True).accounts.items():
         try:
             load_credentials(base, alias, timeout=STATUS_TIMEOUT)
             rows.append(Row(alias, acct.address, True, "signed in"))

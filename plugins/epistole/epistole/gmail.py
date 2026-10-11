@@ -137,6 +137,15 @@ class Mailbox:
                     raise
         return out, res.get("nextPageToken")
 
+    def fetch_sender(self) -> str:
+        """Gmail's default send-as address, from one attempt. Raises if Gmail does not say."""
+        res = self._run(self.users.settings().sendAs().list(userId="me"), tries=1)
+        default = [a.get("sendAsEmail") for a in res.get("sendAs", []) if a.get("isDefault")]
+        found = next((d for d in default if d), None)
+        if found is None:
+            raise LookupError("Gmail lists no default send-as address")
+        return found
+
     def sender(self) -> str:
         """Default send-as address; the login address when Gmail will not say."""
         if self._sender is None:

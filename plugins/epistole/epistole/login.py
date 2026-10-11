@@ -60,7 +60,9 @@ def main(
             auth.import_client(base, config.caller_dir() / Path(args.client).expanduser())
             print("epistole: Google OAuth client saved.")
         if args.alias is not None:
-            cfg = config.load(base) if (base / "accounts.toml").is_file() else None
+            cfg = (
+                config.load(base, allow_empty=True) if (base / "accounts.toml").is_file() else None
+            )
             email = auth.login(
                 base, cfg, args.alias, flow_factory=flow_factory, profile_email=profile_email
             )

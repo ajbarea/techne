@@ -527,3 +527,28 @@ def test_empty_alias_argument_is_refused_not_ignored(tmp_path, monkeypatch, caps
     src.write_text(client_json())
     rc, _ = run_main(tmp_path, monkeypatch, ["--client", str(src), ""])
     assert rc == 1 and "invalid" in capsys.readouterr().err
+
+
+def test_first_login_with_an_existing_file_that_has_no_accounts(tmp_path, monkeypatch, capsys):
+    (tmp_path / "accounts.toml").write_text('attach_dirs = ["~/x"]\n')
+    rc, _ = run_main(tmp_path, monkeypatch, ["personal"])
+    assert rc == 0 and "personal signed in" in capsys.readouterr().out
+    assert config.load(tmp_path).accounts["personal"].address == "user@example.com"
+
+
+def test_status_reports_a_syntax_error_as_a_config_error(tmp_path, monkeypatch, capsys):
+    (tmp_path / "accounts.toml").write_text("[accounts\n")
+    rc, _ = run_main(tmp_path, monkeypatch, ["--status"])
+    err = capsys.readouterr().err
+    assert rc == 1 and "accounts.toml" in err and "sign-in failed" not in err
+
+
+@pytest.mark.parametrize("secret", ["", None])
+def test_missing_or_empty_secret_says_how_to_get_one(tmp_path, secret):
+    inner = {"client_id": "x", "auth_uri": "a", "token_uri": "t"}
+    if secret is not None:
+        inner["client_secret"] = secret
+    src = tmp_path / "dl.json"
+    src.write_text(json.dumps({"installed": inner}))
+    with pytest.raises(auth.LoginRequired, match="new client secret"):
+        auth.import_client(tmp_path / "home", src)

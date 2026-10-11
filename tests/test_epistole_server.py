@@ -601,15 +601,42 @@ def test_accounts_tool_is_read_only_and_needs_no_interaction(env):
 
 
 def test_accounts_lists_state_and_send_as(env):
-    app, _, _, base = env
+    app, svc, _, base = env
+    svc.send_as = [{"sendAsEmail": "alias@example.edu", "isDefault": True}]
     auth.save_token(auth.token_path(base, "school"), token_json())
     (base / "client_secret.json").write_text("{}")
     out = text(call(app, "accounts"))
     assert "client: present" in out
-    assert "school  user@example.edu  signed in" in out and "send-as" in out
+    assert "school  user@example.edu  signed in  send-as alias@example.edu" in out
     assert "personal  user@example.com  needs login: no token" in out
     assert "!epistole-login personal" in out
     assert "refresh_token" not in out and '"s"' not in out
+
+
+@pytest.mark.parametrize(
+    "failure", [TimeoutError("slow"), http_error(503, "backend"), ConnectionError("down")]
+)
+def test_accounts_send_as_is_one_try_and_never_a_guess(env, failure):
+    app, svc, _, base = env
+    auth.save_token(auth.token_path(base, "school"), token_json())
+    svc.fail["settings.sendAs.list"] = [failure] * 8
+    out = text(call(app, "accounts"))
+    assert svc.calls.count("settings.sendAs.list") == 1
+    assert "school  user@example.edu  signed in  send-as unavailable" in out
+
+
+def test_accounts_send_as_unavailable_when_gmail_names_no_default(env):
+    app, svc, _, base = env
+    svc.send_as = []
+    auth.save_token(auth.token_path(base, "school"), token_json())
+    assert "send-as unavailable" in text(call(app, "accounts"))
+
+
+def test_status_connection_has_a_short_http_timeout(tmp_path):
+    (tmp_path / "accounts.toml").write_text('[accounts]\nschool = "user@example.edu"\n')
+    auth.save_token(auth.token_path(tmp_path, "school"), token_json())
+    service = server._connect(tmp_path, timeout=7)("school")
+    assert service._http.http.timeout == 7
 
 
 def test_accounts_works_before_any_setup(tmp_path):

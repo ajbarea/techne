@@ -25,10 +25,10 @@ Each user creates their own client, so no shared secret ships with the plugin. I
 1. Open the Google Cloud console and create a project, for example `epistole`.
 2. Enable the Gmail API for that project (APIs and Services, Library, Gmail API, Enable).
 3. Open Google Auth Platform. The first time, Google shows a Get started wizard. It asks in order for the app name and a user support email, then the audience (choose External), then a contact email for Google's notices, then agreement to the User Data Policy. Complete it.
-4. Under Branding, set the app home page, the privacy policy link and one authorized domain. Google asks for these before the app can be published. Use a domain the user owns, with a one-page site and a privacy page on it that say what the app does: it reads and drafts the user's own mail on their own computer.
+4. Under Branding, set the app home page, the privacy policy link and one authorized domain. Google asks for these only to publish the app; the app stays unverified. A user with no domain can use a free GitHub Pages site at `<username>.github.io`. It needs one page saying what the app does (it reads and drafts the user's own mail on their own computer) and one privacy note. Use `<username>.github.io` as the authorized domain.
 5. Under Audience, confirm the user type is External.
 6. Under Data access, add exactly two scopes: `https://www.googleapis.com/auth/gmail.readonly` and `https://www.googleapis.com/auth/gmail.compose`. Do not add any others.
-7. Under Clients, create a client with application type Desktop app. Download its JSON file. A Web application client does not work and is refused on import.
+7. Under Clients, create a client with application type Desktop app. Download its JSON from the dialog that appears right after the client is created, before closing it, because Google shows the client secret only there. If the dialog was closed, open the client's page, add a new client secret, and download from that dialog. A Web application client does not work and is refused on import.
 8. Back under Audience, publish the app to production, so its status reads "In production". An app left in Testing mode has its tokens expire after 7 days, and the user would have to sign in every week.
 
 Expect the "Google hasn't verified this app" screen at sign-in. It appears for any personal client that has not gone through Google's verification, and it is safe here because the client is the user's own. The user chooses Advanced, then continues to the app.
