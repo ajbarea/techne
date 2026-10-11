@@ -6,7 +6,7 @@ import json
 import re
 
 import pytest
-from epistole import server
+from epistole import auth, server
 from epistole_fake import FakeService, http_error
 from google.auth.exceptions import RefreshError
 from mcp.server.mcpserver.exceptions import ToolError
@@ -104,6 +104,7 @@ def test_only_send_draft_requires_interaction(env):
         "update_draft",
         "download_attachment",
         "send_draft",
+        "accounts",
     }
     for name, tool in tools.items():
         meta = tool.model_dump(by_alias=True, exclude_none=True).get("_meta") or {}
@@ -536,9 +537,72 @@ def test_unsigned_account_gives_login_hint(tmp_path):
     base = tmp_path / "home"
     base.mkdir()
     (base / "accounts.toml").write_text('[accounts]\nschool = "user@example.edu"\n')
-    app = server.build(base)  # default connect: no token on disk
-    assert len(asyncio.run(app.list_tools())) == 6
+    (base / "client_secret.json").write_text("{}")
+    app = server.build(base)  # default connect: client present, no token on disk
+    assert len(asyncio.run(app.list_tools())) == 7
     expect_error(app, "search", "epistole-login school", account="school", query="x")
+
+
+def test_missing_client_names_the_import_command(tmp_path):
+    base = tmp_path / "home"
+    base.mkdir()
+    (base / "accounts.toml").write_text('[accounts]\nschool = "user@example.edu"\n')
+    app = server.build(base)
+    expect_error(
+        app, "search", r"epistole-login --client <downloaded\.json>", account="school", query="x"
+    )
+
+
+def token_json(**over):
+    data = {
+        "token": "t",
+        "refresh_token": "r",
+        "client_id": "c",
+        "client_secret": "s",
+        "scopes": auth.SCOPES,
+        "expiry": "2099-01-01T00:00:00Z",
+    }
+    return json.dumps({**data, **over})
+
+
+def test_instructions_point_at_accounts_and_setup(env):
+    text_ = env[0].instructions
+    assert text_ and "accounts" in text_ and "/epistole:setup" in text_
+    assert "untrusted" in text_ and "epistole-login" in text_
+
+
+def test_accounts_tool_is_read_only_and_needs_no_interaction(env):
+    tool = {t.name: t for t in asyncio.run(env[0].list_tools())}["accounts"]
+    assert tool.annotations.read_only_hint is True
+
+
+def test_accounts_lists_state_and_send_as(env):
+    app, _, _, base = env
+    auth.save_token(auth.token_path(base, "school"), token_json())
+    (base / "client_secret.json").write_text("{}")
+    out = text(call(app, "accounts"))
+    assert "client: present" in out
+    assert "school  user@example.edu  signed in" in out and "send-as" in out
+    assert "personal  user@example.com  needs login: no token" in out
+    assert "!epistole-login personal" in out
+    assert "refresh_token" not in out and '"s"' not in out
+
+
+def test_accounts_works_before_any_setup(tmp_path):
+    base = tmp_path / "home"
+    app = server.build(base)
+    out = text(call(app, "accounts"))
+    assert "client: missing" in out and "--client" in out
+    assert "no accounts" in out
+
+
+def test_accounts_does_not_open_a_browser(env, monkeypatch):
+    def boom(*a, **k):
+        raise AssertionError("browser flow started")
+
+    monkeypatch.setattr(auth, "login", boom)
+    monkeypatch.setattr(auth, "_default_flow", boom)
+    text(call(env[0], "accounts"))
 
 
 def test_unknown_account_names_known_ones(env):
