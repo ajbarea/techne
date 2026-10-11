@@ -14,6 +14,11 @@ RESERVED = {"all"}
 ALIAS_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 DEFAULT_ATTACH = ["~/Downloads"]
 DEFAULT_DOWNLOAD = "~/Downloads/epistole"
+KEYS = {"attach_dirs", "download_dir", "accounts"}
+MANAGED = (
+    "# Managed by epistole-login: it rewrites this file when an account is added, "
+    "and comments are not kept."
+)
 
 
 class ConfigError(Exception):
@@ -31,9 +36,34 @@ class Config(NamedTuple):
     download_dir: Path
 
 
+def caller_dir() -> Path:
+    """The directory the user ran epistole-login from (the wrapper changes its own)."""
+    return Path(os.environ.get("EPISTOLE_CWD") or Path.cwd())
+
+
 def home() -> Path:
     env = os.environ.get("EPISTOLE_HOME")
-    return Path(env) if env else Path.home() / ".config" / "epistole"
+    if not env:
+        return Path.home() / ".config" / "epistole"
+    return caller_dir() / Path(env).expanduser()
+
+
+def client_secret_path(base: Path) -> Path:
+    return base / "client_secret.json"
+
+
+def next_login_command(base: Path) -> str:
+    """The command that moves a user forward: import the client first if there is none."""
+    if client_secret_path(base).is_file():
+        return "`!epistole-login <alias>`"
+    return "`!epistole-login --client <downloaded.json> <alias>`"
+
+
+def _no_accounts(base: Path) -> str:
+    return (
+        f"No accounts yet. Run {next_login_command(base)} for the first account, then "
+        "`!epistole-login <alias>` for each other one (see /epistole:setup)."
+    )
 
 
 def write_private(path: Path, data: str) -> None:
@@ -62,18 +92,29 @@ def _path(value: str) -> Path:
     return Path(value).expanduser().resolve()
 
 
-def load(base: Path | None = None) -> Config:
-    base = base or home()
-    file = base / "accounts.toml"
-    if not file.is_file():
+def _read(base: Path) -> dict:
+    data = tomllib.loads((base / "accounts.toml").read_text())
+    unknown = sorted(set(data) - KEYS)
+    if unknown:
         raise ConfigError(
-            f"{file} not found. Create it with an [accounts] table mapping an alias to an "
-            'address, e.g. personal = "user@example.com"; see the plugin README.'
+            f"accounts.toml has an unknown key {unknown[0]!r}; allowed: {sorted(KEYS)}."
         )
-    data = tomllib.loads(file.read_text())
+    attach = data.get("attach_dirs", DEFAULT_ATTACH)
+    if not isinstance(attach, list) or not all(isinstance(p, str) for p in attach):
+        raise ConfigError("attach_dirs in accounts.toml must be a list of folder paths.")
+    if not isinstance(data.get("download_dir", DEFAULT_DOWNLOAD), str):
+        raise ConfigError("download_dir in accounts.toml must be one folder path.")
+    return data
+
+
+def load(base: Path | None = None, *, allow_empty: bool = False) -> Config:
+    base = base or home()
+    if not (base / "accounts.toml").is_file():
+        raise ConfigError(_no_accounts(base))
+    data = _read(base)
     raw = data.get("accounts") or {}
-    if not raw:
-        raise ConfigError(f"{file} has no [accounts] entries.")
+    if not raw and not allow_empty:
+        raise ConfigError(_no_accounts(base))
     for alias in sorted(raw, key=lambda a: a not in RESERVED):
         check_alias(alias)
     accounts = {alias: Account(alias, str(addr).lower()) for alias, addr in raw.items()}
@@ -96,14 +137,15 @@ def add_account(base: Path, alias: str, address: str) -> None:
     file = base / "accounts.toml"
     data: dict = {}
     if file.is_file():
-        load(base)
-        data = tomllib.loads(file.read_text())
+        load(base, allow_empty=True)
+        data = _read(base)
     accounts = {k: str(v) for k, v in (data.get("accounts") or {}).items()}
     if alias in accounts:
         raise ConfigError(f"alias {alias!r} is already in accounts.toml.")
     accounts[alias] = address.lower()
     attach = [str(p) for p in data.get("attach_dirs", DEFAULT_ATTACH)]
     lines = [
+        MANAGED,
         f"attach_dirs = [{', '.join(_q(p) for p in attach)}]",
         f"download_dir = {_q(str(data.get('download_dir', DEFAULT_DOWNLOAD)))}",
         "",

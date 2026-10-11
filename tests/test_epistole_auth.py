@@ -1,5 +1,9 @@
 import json
+import os
+import shutil
 import stat
+import subprocess
+from pathlib import Path
 
 import pytest
 from epistole import auth, config
@@ -27,7 +31,7 @@ class FakeCreds:
         self.email = email
 
     def to_json(self):
-        return json.dumps({"refresh_token": "r"})
+        return json.dumps({"refresh_token": "r", "who": self.email})
 
 
 class FakeFlow:
@@ -129,7 +133,13 @@ def test_new_alias_refuses_an_address_already_recorded(tmp_path, cfg):
 
 
 def client_json(kind="installed", **over):
-    inner = {"client_id": "id-123.apps.example", "client_secret": "SECRET-xyz", **over}
+    inner = {
+        "client_id": "id-123.apps.example",
+        "client_secret": "SECRET-xyz",
+        "auth_uri": "https://accounts.example.com/auth",
+        "token_uri": "https://oauth.example.com/token",
+        **over,
+    }
     return json.dumps({kind: inner, "extra": 1})
 
 
@@ -329,3 +339,191 @@ def test_main_status_exit_codes(tmp_path, monkeypatch, capsys):
     auth.save_token(auth.token_path(tmp_path, "b"), valid_token())
     rc, _ = run_main(tmp_path, monkeypatch, ["--status"])
     assert rc == 0
+
+
+# ---- fix round 1 ----
+
+
+def nested_login(tmp_path, monkeypatch, outer_email, inner_email, alias="rit", inner_alias=None):
+    """Run login(alias) whose browser wait is interleaved with a complete second login."""
+    from epistole import login
+
+    monkeypatch.setenv("EPISTOLE_HOME", str(tmp_path))
+
+    class Outer(FakeFlow):
+        def run_local_server(self, **kwargs):
+            inner = FakeFlow(inner_email)
+            rc = login.main(
+                [inner_alias or alias],
+                flow_factory=lambda: inner,
+                profile_email=lambda c: c.email,
+            )
+            assert rc == 0
+            return super().run_local_server(**kwargs)
+
+    outer = Outer(outer_email)
+    return auth.login(
+        tmp_path,
+        None,
+        alias,
+        flow_factory=lambda: outer,
+        profile_email=lambda c: c.email,
+    )
+
+
+def test_interleaved_login_never_saves_the_wrong_account_under_an_alias(tmp_path, monkeypatch):
+    with pytest.raises(auth.LoginRequired, match=r"signed in as wrong@example\.com.*right@example"):
+        nested_login(tmp_path, monkeypatch, "wrong@example.com", "right@example.edu")
+    assert config.load(tmp_path).accounts["rit"].address == "right@example.edu"
+    assert json.loads(auth.token_path(tmp_path, "rit").read_text())["who"] == "right@example.edu"
+
+
+def test_interleaved_login_same_account_is_accepted(tmp_path, monkeypatch):
+    got = nested_login(tmp_path, monkeypatch, "Right@Example.edu", "right@example.edu")
+    assert got == "right@example.edu"
+    assert list(config.load(tmp_path).accounts) == ["rit"]
+
+
+def test_interleaved_logins_never_record_one_address_twice(tmp_path, monkeypatch):
+    with pytest.raises(auth.LoginRequired, match="already recorded as 'b1'"):
+        nested_login(tmp_path, monkeypatch, "a@example.com", "a@example.com", "b2", "b1")
+    assert list(config.load(tmp_path).accounts) == ["b1"]
+    assert not auth.token_path(tmp_path, "b2").exists()
+
+
+def test_failed_account_write_leaves_no_token(tmp_path, monkeypatch):
+    def fail(*a, **k):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(config, "add_account", fail)
+    with pytest.raises(OSError):
+        fake_login(tmp_path, None, "new", "n@example.com")
+    assert not auth.token_path(tmp_path, "new").exists()
+
+
+def test_main_relative_client_resolves_against_caller_directory(tmp_path, monkeypatch):
+    work = tmp_path / "downloads"
+    work.mkdir()
+    (work / "installed.json").write_text(client_json())
+    elsewhere = tmp_path / "plugin"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    monkeypatch.setenv("EPISTOLE_CWD", str(work))
+    rc, _ = run_main(tmp_path / "home", monkeypatch, ["--client", "./installed.json"])
+    assert rc == 0 and auth.client_secret_path(tmp_path / "home").is_file()
+
+
+def test_relative_epistole_home_resolves_against_caller_directory(tmp_path, monkeypatch):
+    monkeypatch.setenv("EPISTOLE_CWD", str(tmp_path))
+    monkeypatch.setenv("EPISTOLE_HOME", "rel/home")
+    assert config.home() == tmp_path / "rel" / "home"
+
+
+@pytest.mark.skipif(shutil.which("uv") is None, reason="uv not installed")
+def test_wrapper_passes_the_callers_directory(tmp_path):
+    work = tmp_path / "downloads"
+    work.mkdir()
+    (work / "installed.json").write_text(client_json())
+    wrapper = Path(__file__).resolve().parent.parent / "plugins/epistole/bin/epistole-login"
+    env = {**os.environ, "EPISTOLE_HOME": str(tmp_path / "home")}
+    env.pop("EPISTOLE_CWD", None)
+    done = subprocess.run(
+        [str(wrapper), "--client", "installed.json"],
+        cwd=work,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr
+    assert (tmp_path / "home" / "client_secret.json").is_file()
+    assert "SECRET-xyz" not in done.stdout + done.stderr
+
+
+def test_main_reports_unticked_permission_in_one_line(tmp_path, monkeypatch, capsys):
+    class Unticked(FakeFlow):
+        def run_local_server(self, **kwargs):
+            raise Warning("Scope has changed from a to b")
+
+    from epistole import login
+
+    monkeypatch.setenv("EPISTOLE_HOME", str(tmp_path))
+    rc = login.main(["new"], flow_factory=lambda: Unticked("x"), profile_email=lambda c: "x")
+    err = capsys.readouterr().err
+    assert rc == 1 and "Traceback" not in err and len(err.strip().splitlines()) == 1
+    assert "both Gmail" in err and "epistole-login new" in err
+
+
+def test_main_catches_any_other_failure_without_traceback(tmp_path, monkeypatch, capsys):
+    from epistole import login
+
+    class WSGITimeoutError(AttributeError):
+        pass
+
+    for exc, text in [
+        (WSGITimeoutError("t"), "timed out"),
+        (OSError("disk"), "OSError"),
+        (RuntimeError("SECRET-xyz"), "RuntimeError"),
+    ]:
+
+        class Boom(FakeFlow):
+            def run_local_server(self, _exc=exc, **kwargs):
+                raise _exc
+
+        monkeypatch.setenv("EPISTOLE_HOME", str(tmp_path))
+        rc = login.main(["new"], flow_factory=lambda: Boom("x"), profile_email=lambda c: "x")
+        err = capsys.readouterr().err
+        assert rc == 1 and "Traceback" not in err and text in err and "SECRET-xyz" not in err
+
+
+def test_binary_client_file_is_refused_cleanly(tmp_path):
+    src = tmp_path / "dl.json"
+    src.write_bytes(b"\xff\xfe\x00\x80")
+    with pytest.raises(auth.LoginRequired):
+        auth.import_client(tmp_path / "home", src)
+
+
+def test_import_client_requires_endpoints(tmp_path):
+    src = tmp_path / "dl.json"
+    src.write_text('{"installed": {"client_id": "x", "client_secret": "s"}}')
+    with pytest.raises(auth.LoginRequired, match="auth_uri"):
+        auth.import_client(tmp_path / "home", src)
+
+
+@pytest.mark.parametrize("body", ["[]", "null", "5"])
+def test_non_object_token_is_one_rows_problem(tmp_path, body):
+    (tmp_path / "accounts.toml").write_text(
+        '[accounts]\na = "a@example.com"\nb = "b@example.com"\n'
+    )
+    auth.save_token(auth.token_path(tmp_path, "a"), body)
+    auth.save_token(auth.token_path(tmp_path, "b"), valid_token())
+    rows = auth.status(tmp_path).rows
+    assert [r.ok for r in rows] == [False, True]
+    assert "unreadable token" in rows[0].detail
+
+
+def test_status_refresh_is_bounded(tmp_path, monkeypatch):
+    (tmp_path / "accounts.toml").write_text('[accounts]\na = "a@example.com"\n')
+    auth.save_token(auth.token_path(tmp_path, "a"), valid_token(expiry="2001-01-01T00:00:00Z"))
+    seen = {}
+
+    def refresh(self, request):
+        seen["timeout"] = request.keywords["timeout"]
+        raise RefreshError("invalid_grant")
+
+    monkeypatch.setattr(Credentials, "refresh", refresh)
+    auth.status(tmp_path)
+    assert seen["timeout"] == auth.STATUS_TIMEOUT <= 15
+
+
+def test_missing_client_names_the_alias_asked_for(tmp_path):
+    with pytest.raises(auth.LoginRequired, match=r"--client <downloaded\.json> personal`"):
+        auth.login(tmp_path, None, "personal")
+
+
+def test_empty_alias_argument_is_refused_not_ignored(tmp_path, monkeypatch, capsys):
+    src = tmp_path / "dl.json"
+    src.write_text(client_json())
+    rc, _ = run_main(tmp_path, monkeypatch, ["--client", str(src), ""])
+    assert rc == 1 and "invalid" in capsys.readouterr().err

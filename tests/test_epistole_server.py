@@ -553,6 +553,30 @@ def test_missing_client_names_the_import_command(tmp_path):
     )
 
 
+def test_fresh_install_every_tool_names_the_next_command(tmp_path):
+    app = server.build(tmp_path / "empty")
+    calls = [
+        ("search", {"account": "school", "query": "x"}),
+        ("search", {"account": "all", "query": "x"}),
+        ("read_thread", {"thread_id": "school:t1"}),
+        (
+            "create_draft",
+            {"account": "school", "to": ["a@example.com"], "subject": "s", "body": "b"},
+        ),
+        (
+            "update_draft",
+            {"draft_id": "school:d1", "to": ["a@example.com"], "subject": "s", "body": "b"},
+        ),
+        ("download_attachment", {"message_id": "school:m1", "attachment_id": "a", "filename": "f"}),
+        (
+            "send_draft",
+            {"account": "school", "draft_id": "school:d1", "to": ["a@example.com"], "subject": "s"},
+        ),
+    ]
+    for name, args in calls:
+        expect_error(app, name, r"epistole-login --client <downloaded\.json>", **args)
+
+
 def token_json(**over):
     data = {
         "token": "t",

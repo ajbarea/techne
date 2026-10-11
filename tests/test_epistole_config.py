@@ -34,7 +34,7 @@ def test_load_reads_accounts_and_dirs(tmp_path):
 
 
 def test_missing_file_explains_setup(tmp_path):
-    with pytest.raises(config.ConfigError, match=r"accounts\.toml"):
+    with pytest.raises(config.ConfigError, match="epistole-login"):
         config.load(tmp_path)
 
 
@@ -102,3 +102,43 @@ def test_check_alias(tmp_path):
     for bad in ["all", "", "a b", "x\n"]:
         with pytest.raises(config.ConfigError):
             config.check_alias(bad)
+
+
+def test_missing_file_and_empty_accounts_name_the_next_command(tmp_path):
+    with pytest.raises(config.ConfigError, match=r"epistole-login --client <downloaded\.json>"):
+        config.load(tmp_path)
+    (tmp_path / "client_secret.json").write_text("{}")
+    with pytest.raises(config.ConfigError) as info:
+        config.load(tmp_path)
+    assert "`!epistole-login <alias>`" in str(info.value) and "--client" not in str(info.value)
+    write(tmp_path, 'download_dir = "~/x"\n')
+    with pytest.raises(config.ConfigError, match="epistole-login <alias>"):
+        config.load(tmp_path)
+
+
+def test_add_account_works_on_a_file_with_no_accounts(tmp_path):
+    write(tmp_path, 'attach_dirs = ["~/x"]\n')
+    config.add_account(tmp_path, "personal", "u@example.com")
+    raw = tomllib.loads((tmp_path / "accounts.toml").read_text())
+    assert raw["attach_dirs"] == ["~/x"] and raw["accounts"] == {"personal": "u@example.com"}
+
+
+def test_rewrite_starts_with_a_managed_by_comment(tmp_path):
+    config.add_account(tmp_path, "a", "a@example.com")
+    first = (tmp_path / "accounts.toml").read_text().splitlines()[0]
+    assert first.startswith("#") and "epistole-login" in first and "comments are not kept" in first
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        'attach_dirs = "~/x"\n[accounts]\na = "u@example.com"\n',
+        'attach_dirs = [1]\n[accounts]\na = "u@example.com"\n',
+        'download_dir = ["x"]\n[accounts]\na = "u@example.com"\n',
+        'surprise = 1\n[accounts]\na = "u@example.com"\n',
+    ],
+)
+def test_wrong_shapes_and_unknown_keys_are_refused(tmp_path, body):
+    write(tmp_path, body)
+    with pytest.raises(config.ConfigError):
+        config.load(tmp_path)

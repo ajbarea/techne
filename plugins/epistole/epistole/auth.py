@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import json
 from collections.abc import Callable
 from pathlib import Path
@@ -12,7 +13,7 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 
 from epistole import config
-from epistole.config import Config
+from epistole.config import Config, client_secret_path
 
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
@@ -20,6 +21,7 @@ SCOPES = [
 ]
 
 
+CLIENT_KEYS = ("client_id", "client_secret", "auth_uri", "token_uri")
 NO_CLIENT = (
     "No Google OAuth client yet. Create a Desktop app client (see the epistole setup guide), "
     "then run `!epistole-login --client <downloaded.json> {alias}`."
@@ -36,10 +38,6 @@ def token_path(base: Path, alias: str) -> Path:
     return base / "tokens" / f"{alias}.json"
 
 
-def client_secret_path(base: Path) -> Path:
-    return base / "client_secret.json"
-
-
 def save_token(path: Path, data: str) -> None:
     config.write_private(path, data)
 
@@ -48,7 +46,10 @@ def _hint(alias: str) -> str:
     return f"run `!epistole-login {alias}` in Claude Code to sign in"
 
 
-def load_credentials(base: Path, alias: str) -> Credentials:
+STATUS_TIMEOUT = 10  # seconds per account for the token refresh a status check may trigger
+
+
+def load_credentials(base: Path, alias: str, *, timeout: float | None = None) -> Credentials:
     path = token_path(base, alias)
     if not path.is_file():
         if not client_secret_path(base).is_file():
@@ -56,13 +57,13 @@ def load_credentials(base: Path, alias: str) -> Credentials:
         raise LoginRequired(f"account {alias!r} is not signed in: {_hint(alias)}.", "no token")
     try:
         creds = Credentials.from_authorized_user_file(str(path), SCOPES)
-    except (ValueError, json.JSONDecodeError) as exc:
+    except (ValueError, AttributeError, TypeError) as exc:
         raise LoginRequired(
             f"account {alias!r} token is unreadable: {_hint(alias)}.", "unreadable token"
         ) from exc
     if not creds.valid:
         try:
-            creds.refresh(Request())
+            creds.refresh(functools.partial(Request(), timeout=timeout) if timeout else Request())
         except RefreshError as exc:
             raise LoginRequired(
                 f"account {alias!r} sign-in expired ({exc}): {_hint(alias)}.",
@@ -72,12 +73,12 @@ def load_credentials(base: Path, alias: str) -> Credentials:
     return creds
 
 
-def _default_flow(base: Path) -> Any:
+def _default_flow(base: Path, alias: str) -> Any:
     from google_auth_oauthlib.flow import InstalledAppFlow
 
     secret = client_secret_path(base)
     if not secret.is_file():
-        raise LoginRequired(NO_CLIENT.format(alias="<alias>"), "no client")
+        raise LoginRequired(NO_CLIENT.format(alias=alias), "no client")
     return InstalledAppFlow.from_client_secrets_file(str(secret), SCOPES)
 
 
@@ -100,7 +101,7 @@ def login(
     known = cfg.accounts.get(alias) if cfg else None
     if known is None:
         config.check_alias(alias)
-    flow = flow_factory() if flow_factory else _default_flow(base)
+    flow = flow_factory() if flow_factory else _default_flow(base, alias)
     hint = {"login_hint": known.address} if known else {}
     creds = flow.run_local_server(
         host="127.0.0.1",
@@ -113,23 +114,28 @@ def login(
         success_message="Sign-in received. Return to the terminal to confirm the account.",
     )
     email = (profile_email or _default_profile_email)(creds).lower()
-    if known and email != known.address:
-        raise LoginRequired(
-            f"signed in as {email}, but {alias!r} is {known.address} in accounts.toml; "
-            "nothing was saved. Sign in with the right account."
-        )
-    if not known:
-        owner = next(
-            (a for a, acc in (cfg.accounts if cfg else {}).items() if acc.address == email), None
-        )
-        if owner:
+    # The browser wait can be long and another login may have changed accounts.toml meanwhile.
+    now = config.load(base, allow_empty=True) if (base / "accounts.toml").is_file() else None
+    known = now.accounts.get(alias) if now else None
+    if known:
+        if email != known.address:
             raise LoginRequired(
-                f"{email} is already recorded as {owner!r}; nothing was saved. "
-                f"Sign in with a different Google account, or run `!epistole-login {owner}`."
+                f"signed in as {email}, but {alias!r} is {known.address} in accounts.toml; "
+                "nothing was saved. Sign in with the right account."
             )
+        save_token(token_path(base, alias), creds.to_json())
+        return email
+    owner = next(
+        (a for a, acc in (now.accounts if now else {}).items() if acc.address == email), None
+    )
+    if owner:
+        raise LoginRequired(
+            f"{email} is already recorded as {owner!r}; nothing was saved. "
+            f"Sign in with a different Google account, or run `!epistole-login {owner}`."
+        )
+    # Record the alias first: it fails if the alias appeared, so no token lands under it.
+    config.add_account(base, alias, email)
     save_token(token_path(base, alias), creds.to_json())
-    if not known:
-        config.add_account(base, alias, email)
     return email
 
 
@@ -139,10 +145,10 @@ def import_client(base: Path, src: Path) -> None:
         raise LoginRequired(f"{src} not found; give the path of the downloaded client JSON.")
     if src.stat().st_size > 65_536:
         raise LoginRequired(f"{src} is too large to be a Google OAuth client file.")
-    text = src.read_text()
     try:
+        text = src.read_text()
         data = json.loads(text)
-    except ValueError:
+    except (ValueError, OSError):  # includes UnicodeDecodeError
         raise LoginRequired(f"{src} is not JSON; download the client's JSON file again.") from None
     if isinstance(data, dict) and "installed" not in data and "web" in data:
         raise LoginRequired(
@@ -151,11 +157,11 @@ def import_client(base: Path, src: Path) -> None:
         )
     inner = data.get("installed") if isinstance(data, dict) else None
     if not isinstance(inner, dict) or not all(
-        isinstance(inner.get(k), str) and inner[k] for k in ("client_id", "client_secret")
+        isinstance(inner.get(k), str) and inner[k] for k in CLIENT_KEYS
     ):
         raise LoginRequired(
             f"{src} is not a Desktop app client file: it needs an 'installed' entry with "
-            "client_id and client_secret. Download the client JSON again."
+            f"{', '.join(CLIENT_KEYS)}. Download the client JSON again."
         )
     config.write_private(client_secret_path(base), text)
 
@@ -184,7 +190,7 @@ def status(base: Path) -> Report:
     rows: list[Row] = []
     for alias, acct in config.load(base).accounts.items():
         try:
-            load_credentials(base, alias)
+            load_credentials(base, alias, timeout=STATUS_TIMEOUT)
             rows.append(Row(alias, acct.address, True, "signed in"))
         except LoginRequired as exc:
             detail = f"needs login: {exc.reason}; {_hint(alias)}"
