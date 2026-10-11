@@ -37,6 +37,10 @@ server reaches every configured Gmail account whichever Claude account is active
   `~/.config/epistole/`, 0600; `invalid_grant` returns a re-login hint and the server starts with no
   tokens. Personal client published "In production" unverified (re-login after publishing; tokens
   also die on password change, 6 months unused, or past 100 per client). 429s back off.
+- Workspace spike (2026-10-11): the university account grants both scopes. Google does not know the
+  plain-domain address; its Google login is a `g.` subdomain address while mail goes out from the plain
+  domain, so `accounts.toml` holds the login address and `From` is Gmail's default send-as, read from
+  the API.
 
 **Scope.** `plugins/epistole/`, marketplace entry, docs-site page + nav, an `epistole` dependency group
 so `ty` resolves, tests in `tests/` against a fake Gmail (MIME, threading, attachment allowlist,
