@@ -2,18 +2,34 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import math
 import random
+import socket
 import time
 from collections.abc import Callable
 from typing import Any
 
 from googleapiclient.errors import HttpError
 
-RETRY = {429, 500, 502, 503}
+try:
+    import httplib2
+except ImportError:  # pragma: no cover
+    httplib2 = None
+
+
+class SendOutcomeUnknown(RuntimeError):
+    """The send request failed after Gmail may have accepted it."""
+
+
+RETRY = {429, 500, 502, 503, 504}
 RATE_REASONS = {"rateLimitExceeded", "userRateLimitExceeded"}
 MAX_RETRY_AFTER = 32.0
+SLEEP_BUDGET = 60.0
+NETWORK_ERRORS: tuple[type[BaseException], ...] = (TimeoutError, ConnectionError, socket.timeout)
+if httplib2 is not None:
+    NETWORK_ERRORS += (httplib2.HttpLib2Error,)
 HEADERS = ["From", "To", "Cc", "Subject", "Date", "Message-ID", "References"]
 
 
@@ -34,10 +50,12 @@ class Mailbox:
         self._sender: str | None = None
 
     @staticmethod
-    def _retryable(exc: HttpError) -> bool:
+    def _retryable(exc: HttpError, idempotent: bool) -> bool:
         status = exc.resp.status
-        if status in RETRY:
+        if status == 429:
             return True
+        if status in RETRY:
+            return idempotent
         if status != 403:
             return False
         try:
@@ -55,37 +73,65 @@ class Mailbox:
             return min(hinted, MAX_RETRY_AFTER)
         return self.rand(0, 2**attempt)
 
-    def _run(self, request: Any, tries: int = 4) -> Any:
+    def _pause(self, exc: BaseException, delay: float, slept: float) -> float:
+        if slept + delay > SLEEP_BUDGET:
+            raise exc
+        self.sleep(delay)
+        return slept + delay
+
+    def _run(self, request: Any, tries: int = 4, idempotent: bool = True) -> Any:
+        """Execute with backoff. Non-idempotent requests retry only when Gmail rejected them."""
+        if tries < 1:
+            raise ValueError("tries must be at least 1")
+        slept = 0.0
         for attempt in range(tries):
             try:
                 return request.execute()
             except HttpError as exc:
-                if not self._retryable(exc) or attempt == tries - 1:
+                if not self._retryable(exc, idempotent) or attempt == tries - 1:
                     raise
-                self.sleep(self._delay(exc, attempt))
+                slept = self._pause(exc, self._delay(exc, attempt), slept)
+            except NETWORK_ERRORS as exc:
+                if not idempotent or attempt == tries - 1:
+                    raise
+                slept = self._pause(exc, self.rand(0, 2**attempt), slept)
         raise AssertionError("unreachable")
 
-    def search(self, query: str, max_results: int, page_token: str | None):
+    def search(
+        self, query: str, max_results: int, page_token: str | None
+    ) -> tuple[list[dict], str | None]:
+        """List, then fetch metadata per hit.
+
+        Quota: list 5 units, each get 20 units, 6,000 units/min/user.
+        """
         res = self._run(
             self.users.messages().list(
                 userId="me", q=query, maxResults=max_results, pageToken=page_token
             )
         )
-        out = [
-            self._run(
-                self.users.messages().get(
-                    userId="me", id=m["id"], format="metadata", metadataHeaders=HEADERS
-                )
+        out = []
+        for m in res.get("messages", []):
+            req = self.users.messages().get(
+                userId="me", id=m["id"], format="metadata", metadataHeaders=HEADERS
             )
-            for m in res.get("messages", [])
-        ]
+            try:
+                out.append(self._run(req))
+            except HttpError as exc:
+                if exc.resp.status != 404:
+                    raise
         return out, res.get("nextPageToken")
 
     def sender(self) -> str:
+        """Default send-as address; the login address when Gmail will not say."""
         if self._sender is None:
-            res = self._run(self.users.settings().sendAs().list(userId="me"))
-            default = [a["sendAsEmail"] for a in res.get("sendAs", []) if a.get("isDefault")]
-            self._sender = default[0] if default else self.address
+            try:
+                res = self._run(self.users.settings().sendAs().list(userId="me"))
+                default = [
+                    a.get("sendAsEmail") for a in res.get("sendAs", []) if a.get("isDefault")
+                ]
+                self._sender = next((d for d in default if d), self.address)
+            except (HttpError, KeyError, TypeError, AttributeError, *NETWORK_ERRORS):
+                self._sender = self.address
         return self._sender
 
     def thread(self, thread_id: str) -> dict:
@@ -101,7 +147,8 @@ class Mailbox:
         return {"message": message}
 
     def create_draft(self, raw: str, thread_id: str | None) -> dict:
-        return self._run(self.users.drafts().create(userId="me", body=self._body(raw, thread_id)))
+        req = self.users.drafts().create(userId="me", body=self._body(raw, thread_id))
+        return self._run(req, idempotent=False)
 
     def update_draft(self, draft_id: str, raw: str, thread_id: str | None) -> dict:
         body = {"id": draft_id, **self._body(raw, thread_id)}
@@ -111,15 +158,21 @@ class Mailbox:
         return self._run(self.users.drafts().get(userId="me", id=draft_id, format="full"))
 
     def send_draft(self, draft_id: str) -> dict:
-        return self._run(self.users.drafts().send(userId="me", body={"id": draft_id}))
+        req = self.users.drafts().send(userId="me", body={"id": draft_id})
+        try:
+            return self._run(req, idempotent=False)
+        except HttpError as exc:
+            if exc.resp.status < 500:
+                raise
+            raise SendOutcomeUnknown("send outcome unknown; check Sent before retrying") from exc
+        except NETWORK_ERRORS as exc:
+            raise SendOutcomeUnknown("send outcome unknown; check Sent before retrying") from exc
 
     def attachment(self, message_id: str, attachment_id: str) -> bytes:
-        import base64
-
         res = self._run(
             self.users.messages()
             .attachments()
             .get(userId="me", messageId=message_id, id=attachment_id)
         )
-        data = res["data"]
+        data = res.get("data", "")
         return base64.urlsafe_b64decode(data + "=" * (-len(data) % 4))

@@ -25,9 +25,10 @@ def record(base: Path, event: str, **fields: object) -> None:
     try:
         base.mkdir(parents=True, exist_ok=True)
         path = base / "audit.jsonl"
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW | os.O_CLOEXEC
+        fd = os.open(path, flags, 0o600)
         with os.fdopen(fd, "a") as fh:
-            fh.write(json.dumps(entry) + "\n")
-        path.chmod(0o600)
+            os.fchmod(fd, 0o600)
+            fh.write(json.dumps(entry, default=str) + "\n")
     except OSError:
         return

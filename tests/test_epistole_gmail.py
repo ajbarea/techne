@@ -1,9 +1,10 @@
 import json
 import stat
 
+import httplib2
 import pytest
 from epistole import audit, gmail
-from epistole_fake import FakeService
+from epistole_fake import FakeService, http_error
 from googleapiclient.errors import HttpError
 
 
@@ -32,13 +33,6 @@ def test_create_and_send_draft():
     assert svc.drafts[d["id"]]["message"] == {"raw": "cmF3", "threadId": "t1"}
     box.send_draft(d["id"])
     assert svc.sent == [d["id"]]
-
-
-def http_error(status, reason="", headers=None):
-    resp = {"status": status, **(headers or {})}
-    resp = type("R", (dict,), {"status": status, "reason": "x"})(resp)
-    body = {"error": {"errors": [{"reason": reason}]}} if reason else {}
-    return HttpError(resp, json.dumps(body).encode())
 
 
 class Flaky:
@@ -196,3 +190,192 @@ def test_audit_drops_entry_when_write_fails(tmp_path, monkeypatch):
     monkeypatch.setattr(audit.os, "open", boom)
     audit.record(tmp_path, "send", account="school")
     assert not (tmp_path / "audit.jsonl").exists()
+
+
+# --- fix round 1 ---
+
+
+def test_sender_falls_back_and_caches_when_send_as_list_fails():
+    svc, box = make()
+    svc.fail["settings.sendAs.list"] = [http_error(403, "insufficientPermissions")]
+    svc.send_as = [{"sendAsEmail": "other@example.edu", "isDefault": True}]
+    assert box.sender() == "user@example.edu"
+    assert box.sender() == "user@example.edu"
+    assert svc.calls.count("settings.sendAs.list") == 1
+
+
+def test_sender_falls_back_after_persistent_503():
+    svc, box = make()
+    svc.fail["settings.sendAs.list"] = [http_error(503)] * 4
+    assert box.sender() == "user@example.edu"
+
+
+def test_sender_falls_back_on_missing_email_or_bad_payload():
+    svc, box = make()
+    svc.send_as = [{"isDefault": True}]
+    assert box.sender() == "user@example.edu"
+    svc2, box2 = make()
+    svc2.send_as = None
+    assert box2.sender() == "user@example.edu"
+
+
+def test_send_draft_not_retried_on_5xx_and_reports_unknown_outcome():
+    svc, box = make()
+    svc.fail["drafts.send"] = [http_error(500), http_error(500)]
+    with pytest.raises(gmail.SendOutcomeUnknown, match="check Sent before retrying"):
+        box.send_draft("d1")
+    assert svc.calls == ["drafts.send"] and svc.sent == []
+
+
+def test_send_draft_network_error_reports_unknown_outcome():
+    svc, box = make()
+    svc.fail["drafts.send"] = [TimeoutError()]
+    with pytest.raises(gmail.SendOutcomeUnknown):
+        box.send_draft("d1")
+    assert svc.calls == ["drafts.send"]
+
+
+@pytest.mark.parametrize(
+    "err",
+    [
+        http_error(429),
+        http_error(403, "userRateLimitExceeded"),
+    ],
+)
+def test_send_draft_retried_when_rejected_before_work(err):
+    svc, box = make()
+    svc.fail["drafts.send"] = [err]
+    box.send_draft("d1")
+    assert svc.calls == ["drafts.send", "drafts.send"] and svc.sent == ["d1"]
+
+
+def test_create_draft_not_retried_on_5xx_but_retried_on_429():
+    svc, box = make()
+    svc.fail["drafts.create"] = [http_error(503)]
+    with pytest.raises(HttpError):
+        box.create_draft("cmF3", None)
+    assert svc.calls == ["drafts.create"]
+    svc.fail["drafts.create"] = [http_error(429)]
+    box.create_draft("cmF3", None)
+    assert svc.drafts and svc.calls.count("drafts.create") == 3
+
+
+def test_504_retried_when_idempotent():
+    _, box = make()
+    req = Flaky(1, http_error(504))
+    assert box._run(req) == {"ok": True} and req.calls == 2
+
+
+@pytest.mark.parametrize(
+    "err", [TimeoutError(), ConnectionResetError(), httplib2.ServerNotFoundError("dns")]
+)
+def test_network_errors_retried_when_idempotent(err):
+    _, box = make()
+    req = Flaky(1, err)
+    assert box._run(req) == {"ok": True} and req.calls == 2
+
+
+def test_network_error_gives_up_after_tries():
+    _, box = make()
+    req = Flaky(10, TimeoutError())
+    with pytest.raises(TimeoutError):
+        box._run(req)
+    assert req.calls == 4
+
+
+def test_network_and_5xx_not_retried_when_not_idempotent():
+    _, box = make()
+    for err in (TimeoutError(), http_error(500)):
+        req = Flaky(1, err)
+        with pytest.raises(type(err)):
+            box._run(req, idempotent=False)
+        assert req.calls == 1
+
+
+def test_sleep_budget_raises_last_error_when_next_sleep_would_exceed():
+    box, slept = timed(rand=lambda lo, hi: 0)
+    req = Flaky(10, http_error(429, headers={"retry-after": "32"}))
+    with pytest.raises(HttpError):
+        box._run(req)
+    assert slept == [32.0] and req.calls == 2
+
+
+def test_sleep_budget_allows_exactly_sixty():
+    box, slept = timed(rand=lambda lo, hi: 0)
+    req = Flaky(10, http_error(429, headers={"retry-after": "30"}))
+    with pytest.raises(HttpError):
+        box._run(req, tries=5)
+    assert slept == [30.0, 30.0] and req.calls == 3
+
+
+def test_run_rejects_zero_tries():
+    _, box = make()
+    with pytest.raises(ValueError):
+        box._run(Flaky(0, http_error(429)), tries=0)
+
+
+def test_search_skips_message_deleted_between_list_and_get():
+    svc, box = make()
+    svc.search_hits = ["m1", "gone"]
+    hits, _ = box.search("x", 10, None)
+    assert [h["id"] for h in hits] == ["m1"]
+
+
+def test_search_still_fails_on_other_errors():
+    svc, box = make()
+    svc.fail["messages.get"] = [http_error(400)]
+    with pytest.raises(HttpError):
+        box.search("x", 10, None)
+
+
+def test_search_paginates():
+    svc, box = make()
+    for i in (2, 3):
+        svc.messages[f"m{i}"] = {"id": f"m{i}", "threadId": "t1"}
+    svc.search_hits = ["m1", "m2", "m3"]
+    first, tok = box.search("x", 2, None)
+    assert [h["id"] for h in first] == ["m1", "m2"] and tok
+    second, tok = box.search("x", 2, tok)
+    assert [h["id"] for h in second] == ["m3"] and tok is None
+
+
+def test_attachment_without_data_is_empty():
+    svc, box = make()
+    svc.attachment_data = ""
+    assert box.attachment("m1", "a") == b""
+
+
+def test_fake_rejects_unknown_format():
+    svc = FakeService()
+    with pytest.raises(TypeError):
+        svc.users().messages().get(userId="me", id="m1", format="metdata")
+    with pytest.raises(TypeError):
+        svc.users().threads().get(userId="me", id="t", format="raw")
+
+
+def test_audit_refuses_symlinked_log(tmp_path):
+    victim = tmp_path / "victim.txt"
+    victim.write_text("keep")
+    victim.chmod(0o644)
+    base = tmp_path / "base"
+    base.mkdir()
+    (base / "audit.jsonl").symlink_to(victim)
+    audit.record(base, "send", account="school")
+    assert victim.read_text() == "keep"
+    assert stat.S_IMODE(victim.stat().st_mode) == 0o644
+
+
+def test_audit_tightens_existing_loose_file_before_writing(tmp_path):
+    log = tmp_path / "audit.jsonl"
+    log.write_text("")
+    log.chmod(0o644)
+    audit.record(tmp_path, "send", account="school")
+    assert stat.S_IMODE(log.stat().st_mode) == 0o600 and log.read_text()
+
+
+def test_audit_serialises_non_json_values(tmp_path):
+    from pathlib import Path
+
+    audit.record(tmp_path, "draft", attachments=[Path("/x/y.pdf")], to={"a@example.com"})
+    data = json.loads((tmp_path / "audit.jsonl").read_text())
+    assert data["attachments"] == ["/x/y.pdf"]
