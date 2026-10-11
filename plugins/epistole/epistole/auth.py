@@ -96,17 +96,19 @@ def login(
 ) -> str:
     if alias not in cfg.accounts:
         raise LoginRequired(f"no account {alias!r} in accounts.toml.")
+    expected = cfg.accounts[alias].address
     flow = flow_factory() if flow_factory else _default_flow(base)
     creds = flow.run_local_server(
         host="127.0.0.1",
         port=0,
         timeout_seconds=300,
         open_browser=True,
+        prompt="select_account",
+        login_hint=expected,
         authorization_prompt_message="If no browser opens, visit this URL to sign in:\n{url}",
         success_message="epistole is signed in. You can close this tab.",
     )
     email = (profile_email or _default_profile_email)(creds).lower()
-    expected = cfg.accounts[alias].address
     if email != expected:
         raise LoginRequired(
             f"signed in as {email}, but {alias!r} is {expected} in accounts.toml; "

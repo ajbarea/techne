@@ -70,6 +70,8 @@ def test_login_saves_matching_account_on_loopback(tmp_path, cfg):
     assert got == "user@example.edu"
     assert flow.kwargs["host"] == "127.0.0.1" and flow.kwargs["port"] == 0
     assert flow.kwargs["timeout_seconds"] == 300
+    assert flow.kwargs["prompt"] == "select_account"
+    assert flow.kwargs["login_hint"] == cfg.accounts["school"].address
     assert auth.token_path(tmp_path, "school").is_file()
 
 
