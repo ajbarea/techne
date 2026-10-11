@@ -168,12 +168,27 @@ def _drop_unclosed(html: str) -> str:
     return html
 
 
+def _drop_indent_markers(text: str) -> str:
+    """Keep a lone ">" blockquote marker only right after an attribution line."""
+    kept: list[str] = []
+    prev = ""
+    for line in text.split("\n"):
+        if line.strip() == ">" and not _is_attribution(prev):
+            continue
+        kept.append(line)
+        if line.strip():
+            prev = line.strip()
+    return "\n".join(kept)
+
+
 def _html_to_text(html: str) -> str:
     parser = _Text()
     parser.feed(_drop_unclosed(html))
     parser.close()
     text = "".join(parser.out).replace("\xa0", " ")
-    return re.sub(r"\n[ \t]*\n(?:[ \t]*\n)+", "\n\n", re.sub(r"[ \t]+", " ", text)).strip()
+    text = re.sub(r"[ \t]+", " ", text)
+    text = _drop_indent_markers(text)
+    return re.sub(r"\n[ \t]*\n(?:[ \t]*\n)+", "\n\n", text).strip()
 
 
 def _decode(part: dict) -> str:
@@ -207,13 +222,19 @@ def body_text(payload: dict) -> str:
     return _html_to_text(html) if html is not None else ""
 
 
+_NEXT_CHAR = re.compile(r"\s*(\S)")
+
+
+def _is_attribution(line: str) -> bool:
+    return bool(QUOTE_START.match(line)) and bool(re.search(r"@|\d", line))
+
+
 def _cut_at_attribution(text: str) -> str:
     for match in QUOTE_START.finditer(text):
         if not re.search(r"@|\d", match.group(0)):
             continue
-        rest = text[match.end() :].split("\n")
-        following = next((ln for ln in rest if ln.strip()), None)
-        if following is None or following.lstrip().startswith(">"):
+        nxt = _NEXT_CHAR.match(text, match.end())
+        if nxt is None or nxt.group(1) == ">":
             return text[: match.start()]
     return text
 

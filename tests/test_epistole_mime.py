@@ -3,6 +3,7 @@ import email
 import email.policy
 import os
 import time
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -423,7 +424,7 @@ def test_html_gmail_reply_trims_quoted_blockquote():
 
 
 def test_os_errors_become_value_errors(tree, monkeypatch):
-    out, ehome, _, _ = tree
+    out, ehome, outside, _ = tree
 
     def boom(*_a, **_k):
         raise PermissionError(13, "denied")
@@ -432,7 +433,26 @@ def test_os_errors_become_value_errors(tree, monkeypatch):
     with pytest.raises(ValueError):
         mime.check_attachment(str(out / "a.pdf"), (out.resolve(),), ehome)
     with pytest.raises(ValueError, match="allowed"):
-        mime.check_attachment("/proc/1/root/etc/passwd", (out.resolve(),), ehome)
+        mime.check_attachment(str(outside), (out.resolve(),), ehome)
+    monkeypatch.undo()
+    monkeypatch.setattr(Path, "resolve", boom)
+    with pytest.raises(ValueError):
+        mime.check_attachment(str(out / "a.pdf"), (out,), ehome)
+
+
+def test_trim_quoted_many_attributions_is_linear():
+    text = "On 1 Oct 2026 a@b wrote:\nnot quoted\n" * 30_000
+    assert len(text) > 1_000_000
+    start = time.perf_counter()
+    assert mime.trim_quoted(text) == text.strip()
+    assert time.perf_counter() - start < 1
+
+
+def test_indent_blockquote_leaves_no_stray_marker():
+    html = "<p>Steps:</p><blockquote>1. do this</blockquote><p>done</p>"
+    text = mime.body_text({"mimeType": "text/html", **_part("text/html", html)})
+    assert ">" not in text.splitlines()
+    assert text.split() == ["Steps:", "1.", "do", "this", "done"]
 
 
 def test_br_variants_give_one_newline():
