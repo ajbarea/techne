@@ -252,7 +252,7 @@ def test_send_draft_retried_when_rejected_before_work(err):
 def test_create_draft_not_retried_on_5xx_but_retried_on_429():
     svc, box = make()
     svc.fail["drafts.create"] = [http_error(503)]
-    with pytest.raises(HttpError):
+    with pytest.raises(gmail.DraftOutcomeUnknown):
         box.create_draft("cmF3", None)
     assert svc.calls == ["drafts.create"]
     svc.fail["drafts.create"] = [http_error(429)]
@@ -379,3 +379,61 @@ def test_audit_serialises_non_json_values(tmp_path):
     audit.record(tmp_path, "draft", attachments=[Path("/x/y.pdf")], to={"a@example.com"})
     data = json.loads((tmp_path / "audit.jsonl").read_text())
     assert data["attachments"] == ["/x/y.pdf"]
+
+
+# --- fix round 2 ---
+
+
+def test_search_shares_one_sleep_budget_across_hits():
+    svc, box = make()
+    slept = []
+    box.sleep = slept.append
+    svc.search_hits = [f"m{i}" for i in range(50)]
+    for i in range(50):
+        svc.messages[f"m{i}"] = {"id": f"m{i}", "threadId": "t"}
+    svc.fail["messages.get"] = [
+        e for _ in range(50) for e in (http_error(429, headers={"retry-after": "30"}), None)
+    ]
+    with pytest.raises(HttpError):
+        box.search("x", 50, None)
+    assert sum(slept) <= 60 and slept == [30.0, 30.0]
+
+
+def test_separate_operations_get_fresh_budgets():
+    svc, box = make()
+    slept = []
+    box.sleep = slept.append
+    svc.fail["messages.get"] = [http_error(429, headers={"retry-after": "30"})] * 2
+    box.message("m1")
+    svc.fail["messages.get"] = [http_error(429, headers={"retry-after": "30"})] * 2
+    box.message("m1")
+    assert slept == [30.0] * 4
+
+
+def test_audit_survives_missing_nofollow_and_cloexec(tmp_path, monkeypatch):
+    monkeypatch.delattr(audit.os, "O_NOFOLLOW", raising=False)
+    monkeypatch.delattr(audit.os, "O_CLOEXEC", raising=False)
+    audit.record(tmp_path, "send", account="school")
+    assert (tmp_path / "audit.jsonl").read_text()
+
+
+def test_audit_survives_missing_fchmod(tmp_path, monkeypatch):
+    monkeypatch.delattr(audit.os, "fchmod", raising=False)
+    audit.record(tmp_path, "send", account="school")
+    assert (tmp_path / "audit.jsonl").read_text()
+
+
+@pytest.mark.parametrize("err", [http_error(503), TimeoutError()])
+def test_create_draft_unknown_outcome_says_check_drafts(err):
+    svc, box = make()
+    svc.fail["drafts.create"] = [err]
+    with pytest.raises(gmail.DraftOutcomeUnknown, match="check Drafts before retrying"):
+        box.create_draft("cmF3", None)
+    assert svc.calls == ["drafts.create"]
+
+
+def test_create_draft_client_error_stays_plain():
+    svc, box = make()
+    svc.fail["drafts.create"] = [http_error(400)]
+    with pytest.raises(HttpError):
+        box.create_draft("cmF3", None)

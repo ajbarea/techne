@@ -1,10 +1,10 @@
 """A tiny stand-in for the googleapiclient Gmail service: chained calls ending in .execute().
 
 Error injection: `svc.fail["drafts.send"] = [HttpError(...), TimeoutError()]` makes the next
-executions of that method raise those, one per call, then behave normally. Names are
-`messages.list`, `messages.get`, `messages.attachments.get`, `threads.get`, `drafts.create`,
-`drafts.update`, `drafts.get`, `drafts.send`, `settings.sendAs.list`. Every execution is
-recorded in `svc.calls`.
+executions of that method raise those, one per call, then behave normally. A None entry lets
+that call succeed. Method names: messages.list, messages.get, messages.attachments.get,
+threads.get, drafts.create, drafts.update, drafts.get, drafts.send, settings.sendAs.list.
+Every execution is recorded in `svc.calls`.
 """
 
 from __future__ import annotations
@@ -40,7 +40,9 @@ class _Req:
         self.svc.calls.append(self.name)
         queue = self.svc.fail.get(self.name)
         if queue:
-            raise queue.pop(0)
+            err = queue.pop(0)
+            if err is not None:
+                raise err
         return self.fn()
 
 

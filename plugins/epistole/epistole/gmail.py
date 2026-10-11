@@ -23,10 +23,15 @@ class SendOutcomeUnknown(RuntimeError):
     """The send request failed after Gmail may have accepted it."""
 
 
+class DraftOutcomeUnknown(RuntimeError):
+    """The create-draft request failed after Gmail may have accepted it."""
+
+
 RETRY = {429, 500, 502, 503, 504}
 RATE_REASONS = {"rateLimitExceeded", "userRateLimitExceeded"}
 MAX_RETRY_AFTER = 32.0
 SLEEP_BUDGET = 60.0
+DRAFT_UNKNOWN = "draft outcome unknown; check Drafts before retrying"
 NETWORK_ERRORS: tuple[type[BaseException], ...] = (TimeoutError, ConnectionError, socket.timeout)
 if httplib2 is not None:
     NETWORK_ERRORS += (httplib2.HttpLib2Error,)
@@ -73,28 +78,38 @@ class Mailbox:
             return min(hinted, MAX_RETRY_AFTER)
         return self.rand(0, 2**attempt)
 
-    def _pause(self, exc: BaseException, delay: float, slept: float) -> float:
-        if slept + delay > SLEEP_BUDGET:
+    def _pause(self, exc: BaseException, delay: float, budget: list[float]) -> None:
+        if budget[0] + delay > SLEEP_BUDGET:
             raise exc
         self.sleep(delay)
-        return slept + delay
+        budget[0] += delay
 
-    def _run(self, request: Any, tries: int = 4, idempotent: bool = True) -> Any:
-        """Execute with backoff. Non-idempotent requests retry only when Gmail rejected them."""
+    def _run(
+        self,
+        request: Any,
+        tries: int = 4,
+        idempotent: bool = True,
+        budget: list[float] | None = None,
+    ) -> Any:
+        """Execute with backoff. Non-idempotent requests retry only when Gmail rejected them.
+
+        `budget` is the seconds slept so far; pass one list to share a sleep cap across the
+        requests of a single operation. Without it the request gets its own.
+        """
         if tries < 1:
             raise ValueError("tries must be at least 1")
-        slept = 0.0
+        budget = [0.0] if budget is None else budget
         for attempt in range(tries):
             try:
                 return request.execute()
             except HttpError as exc:
                 if not self._retryable(exc, idempotent) or attempt == tries - 1:
                     raise
-                slept = self._pause(exc, self._delay(exc, attempt), slept)
+                self._pause(exc, self._delay(exc, attempt), budget)
             except NETWORK_ERRORS as exc:
                 if not idempotent or attempt == tries - 1:
                     raise
-                slept = self._pause(exc, self.rand(0, 2**attempt), slept)
+                self._pause(exc, self.rand(0, 2**attempt), budget)
         raise AssertionError("unreachable")
 
     def search(
@@ -110,12 +125,13 @@ class Mailbox:
             )
         )
         out = []
+        budget = [0.0]
         for m in res.get("messages", []):
             req = self.users.messages().get(
                 userId="me", id=m["id"], format="metadata", metadataHeaders=HEADERS
             )
             try:
-                out.append(self._run(req))
+                out.append(self._run(req, budget=budget))
             except HttpError as exc:
                 if exc.resp.status != 404:
                     raise
@@ -148,7 +164,14 @@ class Mailbox:
 
     def create_draft(self, raw: str, thread_id: str | None) -> dict:
         req = self.users.drafts().create(userId="me", body=self._body(raw, thread_id))
-        return self._run(req, idempotent=False)
+        try:
+            return self._run(req, idempotent=False)
+        except HttpError as exc:
+            if exc.resp.status < 500:
+                raise
+            raise DraftOutcomeUnknown(DRAFT_UNKNOWN) from exc
+        except NETWORK_ERRORS as exc:
+            raise DraftOutcomeUnknown(DRAFT_UNKNOWN) from exc
 
     def update_draft(self, draft_id: str, raw: str, thread_id: str | None) -> dict:
         body = {"id": draft_id, **self._body(raw, thread_id)}
