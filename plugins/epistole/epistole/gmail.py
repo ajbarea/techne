@@ -31,7 +31,7 @@ RETRY = {429, 500, 502, 503, 504}
 RATE_REASONS = {"rateLimitExceeded", "userRateLimitExceeded"}
 MAX_RETRY_AFTER = 32.0
 SLEEP_BUDGET = 60.0
-DRAFT_UNKNOWN = "draft outcome unknown; check Drafts before retrying"
+DRAFT_UNKNOWN = "draft may exist; check Drafts before retrying"
 NETWORK_ERRORS: tuple[type[BaseException], ...] = (TimeoutError, ConnectionError, socket.timeout)
 if httplib2 is not None:
     NETWORK_ERRORS += (httplib2.HttpLib2Error,)

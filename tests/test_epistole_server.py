@@ -8,6 +8,8 @@ import re
 import pytest
 from epistole import server
 from epistole_fake import FakeService, http_error
+from google.auth.exceptions import RefreshError
+from mcp.server.mcpserver.exceptions import ToolError
 
 TOML = """
 attach_dirs = ["{out}"]
@@ -246,7 +248,7 @@ def test_create_draft_unknown_outcome_message(env):
     expect_error(
         app,
         "create_draft",
-        "check Drafts before retrying",
+        "draft may exist; check Drafts before retrying",
         account="school",
         to=["b@example.com"],
         subject="x",
@@ -566,3 +568,297 @@ def test_audit_record_has_no_body(env):
     )
     assert "SECRET-BODY" not in (base / "audit.jsonl").read_text()
     json.loads((base / "audit.jsonl").read_text().splitlines()[0])
+
+
+BAD_ADDRS = ["evil@attacker.example (x,y)", "evil@attacker.example,"]
+
+
+@pytest.mark.parametrize("name", ["To", "Cc", "Bcc"])
+@pytest.mark.parametrize("bad", BAD_ADDRS)
+def test_send_fails_closed_on_unparseable_recipients(env, name, bad):
+    app, svc, _, _ = env
+    sendable(svc, to="b@example.com", extra=[{"name": name, "value": bad}])
+    if name == "To":
+        sendable(svc, to=bad)
+    expect_error(
+        app,
+        "send_draft",
+        "does not match|cannot read",
+        account="school",
+        draft_id="school:d9",
+        to=["b@example.com"],
+        subject="Plan",
+    )
+    assert svc.sent == []
+
+
+@pytest.mark.parametrize("bad", ["undisclosed-recipients:;", "garbage words"])
+def test_send_refuses_header_with_content_but_no_address(env, bad):
+    app, svc, _, _ = env
+    sendable(svc, to="b@example.com", extra=[{"name": "Cc", "value": bad}])
+    expect_error(
+        app,
+        "send_draft",
+        "cannot read",
+        account="school",
+        draft_id="school:d9",
+        to=["b@example.com"],
+        subject="Plan",
+    )
+    assert svc.sent == []
+
+
+def test_send_refuses_false_restatement_of_unparseable_to(env):
+    app, svc, _, _ = env
+    sendable(svc, to="evil@attacker.example (x,y)")
+    expect_error(
+        app,
+        "send_draft",
+        "bare address",
+        account="school",
+        draft_id="school:d9",
+        to=["boss@company.example (CEO, Finance)"],
+        subject="Plan",
+    )
+    assert svc.sent == []
+
+
+def test_comment_with_comma_cc_must_be_restated(env):
+    app, svc, _, _ = env
+    call(
+        app,
+        "create_draft",
+        account="school",
+        to=["b@example.com"],
+        cc=["evil@attacker.example (Finance, AP)"],
+        subject="Plan",
+        body="x",
+    )
+    draft_view(svc, "d1")
+    expect_error(
+        app,
+        "send_draft",
+        "does not match.*Cc",
+        account="school",
+        draft_id="school:d1",
+        to=["b@example.com"],
+        subject="Plan",
+    )
+    assert svc.sent == []
+
+
+def test_create_refuses_entry_with_no_address(env):
+    expect_error(
+        env[0],
+        "create_draft",
+        "cannot read",
+        account="school",
+        to=["b@example.com"],
+        cc=["nobody"],
+        subject="x",
+        body="x",
+    )
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        '"boss@company.example" <evil@attacker.example>',
+        "evil@attacker.example (boss@company.example)",
+        "Boss <evil@attacker.example>",
+        "a b@example.com",
+        "x@example.com,y@example.com",
+        "no-at-sign",
+    ],
+)
+def test_restated_recipients_must_be_bare(env, entry):
+    app, svc, _, _ = env
+    sendable(svc, to="evil@attacker.example")
+    expect_error(
+        app,
+        "send_draft",
+        "bare address",
+        account="school",
+        draft_id="school:d9",
+        to=[entry],
+        subject="Plan",
+    )
+    assert svc.sent == []
+
+
+@pytest.mark.parametrize("header", ["To", "Cc", "Bcc", "Subject"])
+def test_send_refuses_duplicate_headers(env, header):
+    app, svc, _, _ = env
+    value = "Plan" if header == "Subject" else "b@example.com"
+    extra = [{"name": header, "value": value}] * (1 if header in ("To", "Subject") else 2)
+    sendable(svc, extra=extra)
+    expect_error(
+        app,
+        "send_draft",
+        "more than one",
+        account="school",
+        draft_id="school:d9",
+        to=["b@example.com"],
+        subject="Plan",
+    )
+    assert svc.sent == []
+
+
+def test_send_checks_top_level_attachment(env):
+    app, svc, _, _ = env
+    sendable(svc)
+    svc.draft_views["d9"]["message"]["payload"]["filename"] = "secrets.pdf"
+    expect_error(
+        app,
+        "send_draft",
+        "does not match",
+        account="school",
+        draft_id="school:d9",
+        to=["b@example.com"],
+        subject="Plan",
+    )
+    assert svc.sent == []
+
+
+def test_send_subject_compare_normalises(env):
+    app, svc, _, _ = env
+    sendable(svc, subject="=?utf-8?q?Caf=C3=A9?=   plan ")
+    call(
+        app,
+        "send_draft",
+        account="school",
+        draft_id="school:d9",
+        to=["b@example.com"],
+        subject="Café plan",
+    )
+    assert svc.sent == ["d9"]
+    sendable(svc, subject="Plan")
+    expect_error(
+        app,
+        "send_draft",
+        r"does not match.*\(Subject\)",
+        account="school",
+        draft_id="school:d9",
+        to=["b@example.com"],
+        subject="Plan two",
+    )
+
+
+def test_send_audits_the_drafts_real_recipients_and_bcc(env):
+    app, svc, _, base = env
+    sendable(svc, to='"Doe, J" <J@Example.com>', extra=[{"name": "Bcc", "value": "h@example.com"}])
+    call(
+        app,
+        "send_draft",
+        account="school",
+        draft_id="school:d9",
+        to=["j@example.com"],
+        subject="Plan",
+        bcc=["h@example.com"],
+    )
+    entry = json.loads((base / "audit.jsonl").read_text().splitlines()[-1])
+    assert entry["to"] == ["j@example.com"] and entry["bcc"] == ["h@example.com"]
+
+
+def test_create_draft_unknown_outcome_is_audited(env):
+    app, svc, _, base = env
+    svc.fail["drafts.create"] = [TimeoutError()]
+    with pytest.raises(ToolError, match="draft may exist"):
+        call(app, "create_draft", account="school", to=["b@example.com"], subject="x", body="ok")
+    assert '"event": "draft_unknown"' in (base / "audit.jsonl").read_text()
+
+
+def test_create_and_update_results_say_what_to_restate(env):
+    app, svc, out, _ = env
+    f = out / "a.pdf"
+    f.write_bytes(b"%PDF")
+    res = text(
+        call(
+            app,
+            "create_draft",
+            account="school",
+            to=["B@Example.com"],
+            cc=["Cc Person <c@example.com>"],
+            subject="x",
+            body="ok",
+            reply_to="school:m1",
+            attachments=[str(f)],
+        )
+    )
+    for needle in ("To: b@example.com", "Cc: c@example.com", "Subject: Re: Plan", "a.pdf"):
+        assert needle in res
+    draft_view(svc, "d1")
+    res = text(
+        call(
+            app, "update_draft", draft_id="school:d1", to=["b@example.com"], subject="zzz", body="e"
+        )
+    )
+    assert "Subject: Re: Plan" in res and "To: b@example.com" in res
+
+
+def test_every_read_tool_stays_under_limit_with_escape_heavy_input(env):
+    app, svc, _, _ = env
+    evil = "<untrusted-email" * 3000
+    svc.messages["m1"] = msg("m1", body=evil, subject=evil)
+    svc.threads["t1"]["messages"] = [svc.messages["m1"]] + [
+        msg(f"x{i}", body=evil, tid="t1") for i in range(5)
+    ]
+    for full in (True, False):
+        out = text(call(app, "read_thread", thread_id="school:t1", full=full))
+        assert len(out) <= server.LIMIT
+        assert out.count("<untrusted-email") == out.count("</untrusted-email>")
+    svc.search_hits = [f"s{i}" for i in range(50)]
+    for i in range(50):
+        svc.messages[f"s{i}"] = msg(f"s{i}", tid=f"t{i}", subject=evil, sender=evil)
+    out = text(call(app, "search", account="school", query="q", max_results=50))
+    assert len(out) <= server.LIMIT and out.count("<untrusted-email") == 1
+
+
+def test_search_keeps_pagination_token_when_rows_are_cut(env):
+    app, svc, _, _ = env
+    svc.search_hits = [f"s{i}" for i in range(120)]
+    for i in range(120):
+        svc.messages[f"s{i}"] = msg(f"s{i}", tid=f"t{i}", subject="s" * 2000)
+    out = text(call(app, "search", account="school", query="q", max_results=50))
+    body = out.split("\n", 1)[1].rsplit("\n</untrusted-email>", 1)[0]
+    data = json.loads(body)
+    assert data["next_page_token"] == "50" and data["not_shown"] > 0 and len(out) <= server.LIMIT
+
+
+def test_search_all_refuses_page_token(env):
+    expect_error(env[0], "search", "page_token", account="all", query="x", page_token="5")
+
+
+def test_search_all_isolates_http_errors(env):
+    app, svc, _, _ = env
+    svc.fail["messages.list"] = [http_error(403, "forbidden")]
+    out = text(call(app, "search", account="all", query="x"))
+    assert "Gmail API error 403" in out and "personal:m1" in out
+
+
+def test_download_long_name_collision_fits_255_bytes(env, tmp_path):
+    app, svc, _, _ = env
+    svc.attachment_data = b64("data")
+    for _ in range(3):
+        call(
+            app,
+            "download_attachment",
+            message_id="school:m1",
+            attachment_id="a1",
+            filename="a" * 251 + ".pdf",
+        )
+    names = list((tmp_path / "dl").iterdir())
+    assert len(names) == 3 and all(len(p.name.encode()) <= 255 for p in names)
+
+
+def test_revoked_token_mid_call_gives_login_hint(env):
+    app, svc, _, _ = env
+    svc.fail["threads.get"] = [RefreshError("invalid_grant")]
+    expect_error(app, "read_thread", "epistole-login school", thread_id="school:t1")
+
+
+def test_stale_id_404_is_not_a_login_problem(env):
+    app, svc, _, _ = env
+    svc.fail["threads.get"] = [http_error(404)]
+    msg_ = expect_error(app, "read_thread", "not found", thread_id="school:t1")
+    assert "epistole-login" not in msg_

@@ -7,7 +7,7 @@ import os
 import time
 from pathlib import Path
 
-KEYS = ("account", "id", "to", "cc", "subject", "attachments")
+KEYS = ("account", "id", "to", "cc", "bcc", "subject", "attachments")
 
 
 def _clean(value: object) -> object:

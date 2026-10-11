@@ -267,8 +267,13 @@ def trim_quoted(text: str) -> str:
     return "\n".join(lines).strip()
 
 
+def escape_untrusted(text: str) -> str:
+    """Neutralise wrapper tags; idempotent, so escape, then clip, then wrap."""
+    return _WRAP_TAG.sub(r"&lt;\1untrusted-email", text)
+
+
 def wrap_untrusted(text: str, source: str) -> str:
-    text = _WRAP_TAG.sub(r"&lt;\1untrusted-email", text)
+    text = escape_untrusted(text)
     return f'<untrusted-email source="{source}">\n{text}\n</untrusted-email>'
 
 
