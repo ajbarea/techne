@@ -6,6 +6,7 @@ import contextvars
 import functools
 import json
 import os
+import re
 from collections.abc import Callable
 from email import policy
 from pathlib import Path
@@ -25,6 +26,8 @@ CONCISE = 4_000
 HEADER_CHARS = 300
 SEND_META = {"anthropic/requiresUserInteraction": True}
 TRUNCATED = "\n[truncated]"
+ERROR_CHARS = 1_500
+ENCODED_WORD = re.compile(r"=\?[^?\s]+\?[bBqQ]\?[^?\s]*\?=")
 
 
 def _connect(base: Path) -> Callable[[str], Any]:
@@ -57,23 +60,29 @@ def _parse(name: str, value: str) -> set[str]:
     return {a.addr_spec.lower() for a in addrs}
 
 
-def _restated(name: str, values: list[str] | None) -> set[str]:
+def _bare(name: str, values: list[str] | None) -> set[str]:
+    """Lowercase addresses; every entry must be exactly one bare ASCII address."""
     out: set[str] = set()
     for v in values or []:
         v = v.strip()
-        if v.count("@") != 1 or any(c in v for c in ' <>()",\t') or _parse(name, v) != {v.lower()}:
+        bad = (
+            not v.isascii()
+            or v.count("@") != 1
+            or any(c in v for c in '<>()",;:\\')
+            or any(ord(c) < 33 for c in v)
+            or _parse(name, v) != {v.lower()}
+        )
+        if bad:
             raise ValueError(
-                f"{name} entry {v!r} is not a bare address; restate each recipient as a bare "
-                "address like user@example.com."
+                f"{name} entry {v[:100]!r} is not a bare address; give bare addresses like "
+                "user@example.com, with no names or comments."
             )
         out.add(v.lower())
     return out
 
 
 def _check_recipients(name: str, values: list[str]) -> None:
-    for v in values:
-        if not _parse(name, v):
-            raise ValueError(f"{name} entry {v!r} is not an address.")
+    _bare(name, values)
 
 
 def _all(payload: dict, name: str) -> list[str]:
@@ -84,7 +93,7 @@ def _one(payload: dict, name: str) -> str:
     values = _all(payload, name)
     if len(values) > 1:
         raise ValueError(f"the draft has more than one {name} header; recreate the draft.")
-    return values[0] if values else ""
+    return re.sub(r"\r?\n[ \t]+", " ", values[0]) if values else ""
 
 
 def _subject(value: str) -> str:
@@ -136,10 +145,13 @@ def _guard(fn: Callable[..., str]) -> Callable[..., str]:
         except ToolError:
             raise
         except OSError as exc:
-            raise ToolError(f"file error ({type(exc).__name__}): {exc.strerror or exc}") from None
+            raise ToolError(
+                _esc_clip(f"file error ({type(exc).__name__}): {exc.strerror or exc}", ERROR_CHARS)
+            ) from None
         except Exception as exc:
             message = _explain(exc, _ACTIVE.get())
-            raise ToolError(message or f"unexpected error ({type(exc).__name__})") from None
+            text = message or f"unexpected error ({type(exc).__name__})"
+            raise ToolError(_esc_clip(text, ERROR_CHARS)) from None
 
     return run
 
@@ -192,10 +204,10 @@ def build(base: Path | None = None, connect: Callable[[str], Any] | None = None)
                     {
                         "thread": ids.qualify(alias, m["threadId"]),
                         "message": ids.qualify(alias, m["id"]),
-                        "from": h.get("from"),
-                        "subject": h.get("subject"),
-                        "date": h.get("date"),
-                        "snippet": m.get("snippet", ""),
+                        "from": _clip(h.get("from") or "", HEADER_CHARS),
+                        "subject": _clip(h.get("subject") or "", HEADER_CHARS),
+                        "date": _clip(h.get("date") or "", HEADER_CHARS),
+                        "snippet": _clip(m.get("snippet", ""), HEADER_CHARS),
                     }
                 )
             if account != "all":
@@ -436,10 +448,12 @@ def build(base: Path | None = None, connect: Callable[[str], Any] | None = None)
         payload = mb.get_draft(raw).get("message", {}).get("payload", {})
         actual = {n: _parse(n, _one(payload, n)) for n in ("To", "Cc", "Bcc")}
         stated = {
-            "To": _restated("To", to),
-            "Cc": _restated("Cc", cc),
-            "Bcc": _restated("Bcc", bcc),
+            "To": _bare("To", to),
+            "Cc": _bare("Cc", cc),
+            "Bcc": _bare("Bcc", bcc),
         }
+        if ENCODED_WORD.search(subject):
+            raise ValueError("restate the subject as plain text, not an encoded-word (=?...?=).")
         draft_subject = _subject(_one(payload, "Subject"))
         names = sorted(_filenames([payload]))
         wrong = [n for n in actual if actual[n] != stated[n]]
