@@ -71,7 +71,6 @@ def test_all_off_is_ready_and_checks_nothing_else(tmp_path, env):
         assert found[name][0] == "n/a", name
 
 
-# Review Focus 4: an unset option in every form it can arrive in.
 def test_unset_options_in_every_form_read_as_off(tmp_path, env):
     argv = [
         "block_attribution_trailers=${user_config.block_attribution_trailers}",
@@ -121,16 +120,66 @@ def test_restart_on_without_proc(tmp_path, env):
     assert "Linux and WSL only" in found["proc"][1]
 
 
-def test_restart_launcher(tmp_path, env):
-    no_tmux = {k: v for k, v in STUBS.items() if k != "tmux"}
-    proc, found = doctor(tmp_path, args(restart_on_update=True), env, stubs=no_tmux)
+NO_TMUX = {k: v for k, v in STUBS.items() if k != "tmux"}
+WT = {"WSL_DISTRO_NAME": "Ubuntu", "WT_SESSION": "abc", "TECHNE_DOCTOR_WSL": "1"}
+
+
+def test_launcher_ok_inside_tmux(tmp_path, env):
+    proc, found = doctor(tmp_path, args(restart_on_update=True), env, extra={"TMUX_PANE": "%3"})
+    assert found["launcher"][0] == "ok" and "tmux" in found["launcher"][1]
+    assert proc.returncode == 0
+
+
+def test_launcher_ok_inside_windows_terminal_under_wsl(tmp_path, env):
+    stubs = {**NO_TMUX, "wt.exe": "exit 0"}
+    proc, found = doctor(tmp_path, args(restart_on_update=True), env, stubs=stubs, extra=WT)
+    assert found["launcher"][0] == "ok" and "Windows Terminal" in found["launcher"][1]
+    assert proc.returncode == 0
+
+
+def test_launcher_missing_outside_tmux_even_with_tmux_installed(tmp_path, env):
+    proc, found = doctor(tmp_path, args(restart_on_update=True), env)
+    assert proc.returncode == 1 and found["launcher"][0] == "missing"
+    assert "inside tmux or Windows Terminal" in found["launcher"][1]
+    assert "configuration/#restart-on-update" in found["launcher"][1]
+    assert "  fix: tmux new-session claude" in proc.stdout.splitlines()
+
+
+def test_launcher_missing_in_a_non_wt_wsl_terminal_with_wt_on_path(tmp_path, env):
+    stubs = {**NO_TMUX, "wt.exe": "exit 0"}
+    extra = {"WSL_DISTRO_NAME": "Ubuntu", "TECHNE_DOCTOR_WSL": "1"}
+    _, found = doctor(tmp_path, args(restart_on_update=True), env, stubs=stubs, extra=extra)
+    assert found["launcher"][0] == "missing"
+
+
+def test_launcher_without_tmux_installed_names_the_install(tmp_path, env):
+    proc, found = doctor(tmp_path, args(restart_on_update=True), env, stubs=NO_TMUX)
     assert found["launcher"][0] == "missing"
     assert "  fix: sudo apt install tmux" in proc.stdout.splitlines()
-    wsl = {**no_tmux, "wt.exe": "exit 0"}
-    proc, found = doctor(
-        tmp_path, args(restart_on_update=True), env, stubs=wsl, extra={"TECHNE_DOCTOR_WSL": "1"}
-    )
-    assert found["launcher"][0] == "ok" and "Windows Terminal" in found["launcher"][1]
+
+
+def test_launcher_agrees_with_the_hook(tmp_path, env, monkeypatch):
+    hook = _load("phylax_stale_restart_agree", PLUGIN / "hooks" / "stale_restart.py")
+    cases = [
+        ({"TMUX_PANE": "%1"}, {}, "tmux"),
+        ({}, WT, "wt"),
+        ({}, {}, None),
+    ]
+    real_path = os.environ["PATH"]
+    for hook_env, extra, want in cases:
+        monkeypatch.setenv("PATH", real_path)
+        stubs = {**STUBS, "wt.exe": "exit 0"}
+        _, found = doctor(
+            tmp_path, args(restart_on_update=True), env, stubs=stubs, extra={**hook_env, **extra}
+        )
+        for key in ("TMUX_PANE", "WSL_DISTRO_NAME", "WT_SESSION"):
+            monkeypatch.delenv(key, raising=False)
+        for key, value in {**hook_env, **extra}.items():
+            monkeypatch.setenv(key, value)
+        monkeypatch.setenv("PATH", stub_dir(tmp_path, stubs))
+        session = {"tmux": "s:0.%1"} if "TMUX_PANE" in hook_env else {}
+        assert hook.pick_launcher(session) == want
+        assert (found["launcher"][0] == "ok") == (want is not None)
 
 
 def test_restart_needs_claude_on_path(tmp_path, env):
@@ -253,10 +302,15 @@ def test_runbook_gives_every_sudo_fix_to_the_user():
         "claude": "claude",
         "state-dir": None,
     }
+    mixed = {"python3": "The user runs a `sudo` or `xcode-select --install` line with `!`"}
     for name, key in by_row.items():
         fix = lib.FIXES[key] if key else None
         needs_user = fix and ("sudo" in (fix.apt or "") or "xcode-select" in (fix.brew or ""))
-        if needs_user:
+        if name in mixed:
+            assert mixed[name] in row(name) and "after the user approves" in row(name), name
+        elif name == "launcher":
+            assert "the user runs the install line with `!`" in row(name), name
+        elif needs_user:
             assert "The user runs the fix line with `!`" in row(name), name
         else:
             assert "after the user approves" in row(name), name

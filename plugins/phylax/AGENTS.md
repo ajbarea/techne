@@ -31,11 +31,11 @@ The user switches them on in `/config`. Then they run `/reload-plugins`, and you
 
 | Check | When it matters | What to do |
 | --- | --- | --- |
-| `mod` | a guard is on | Claude Code 2.1.287 or later runs the guards from a mod. An older version still runs them from the command hook, so this line is optional. Run the fix line after the user approves; `claude update` moves to the newest version. |
-| `python3` | any option is on | The hooks run on the system python3, 3.9 or newer. The user runs the fix line with `!`. |
+| `mod` | a guard is on | Claude Code 2.1.287 or later runs the guards from a mod. An older version still runs them from the command hook, so this line is optional. Run the fix line after the user approves; `claude update` moves to the newest version, and the mod loads after the user restarts Claude Code. |
+| `python3` | any option is on | The hooks run on the system python3, 3.9 or newer. The user runs a `sudo` or `xcode-select --install` line with `!`. Run the `uv python install --default 3.12 && uv python update-shell` line after the user approves. |
 | `git` | a guard is on | The user runs the fix line with `!`. |
 | `proc` | restart_on_update is on | macOS and native Windows have no `/proc`. The user switches the option off there. |
-| `launcher` | restart_on_update is on | Install tmux, or under WSL run Claude Code in Windows Terminal. The user runs the fix line with `!`. |
+| `launcher` | restart_on_update is on | The restart works only in a session running inside tmux, or inside Windows Terminal under WSL. If tmux is missing, the user runs the install line with `!`. Then the user starts Claude Code inside tmux with `tmux new-session claude`, or under WSL opens it in Windows Terminal. |
 | `claude` | restart_on_update is on | The restart starts the `claude` on PATH. Run the fix line after the user approves. |
 | `state-dir` | restart_on_update is on | Run the fix line it prints after the user approves. A folder owned by another user has no fix line; the user sets `XDG_RUNTIME_DIR` to a private folder. |
 

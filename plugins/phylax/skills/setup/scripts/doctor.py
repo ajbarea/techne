@@ -96,19 +96,20 @@ def proc() -> d.Check:
 
 
 def launcher(platform: d.Platform) -> d.Check:
-    tmux = d.which("tmux")
-    if tmux and not (platform.wsl and d.windows_side(tmux)):
-        return d.Check(d.OK, "launcher", f"tmux at {tmux}")
-    if platform.wsl:
-        wt = d.which("wt.exe")
-        if wt:
-            return d.Check(d.OK, "launcher", f"Windows Terminal at {wt}")
-    return d.Check(
-        d.MISSING,
-        "launcher",
-        "neither tmux nor Windows Terminal (wt.exe) is on PATH",
-        d.fix_lines(platform, d.FIXES["tmux"]),
+    """Judged by the hook's own launcher_for(), from this session's environment."""
+    module = stale_restart()
+    pane = os.environ.get("TMUX_PANE", "")
+    found = module.launcher_for(pane.startswith("%"))
+    if found == "tmux":
+        return d.Check(d.OK, "launcher", f"this session runs in tmux at {d.which('tmux')}")
+    if found == "wt":
+        return d.Check(d.OK, "launcher", "this session runs in Windows Terminal")
+    detail = (
+        "restart_on_update only restarts a session running inside tmux or Windows Terminal"
+        f" under WSL; start Claude Code inside tmux (see {d.CONFIG_DOCS}#restart-on-update)"
     )
+    fixes = () if d.which("tmux") else d.fix_lines(platform, d.FIXES["tmux"])
+    return d.Check(d.MISSING, "launcher", detail, (*fixes, "fix: tmux new-session claude"))
 
 
 def state_dir() -> d.Check:
