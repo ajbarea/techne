@@ -1,10 +1,11 @@
 import json
 import re
+import shutil
 import subprocess
 import tomllib
 from pathlib import Path
 
-from conftest import EMAIL, MACHINE_PATH
+from conftest import DOCTOR_LIB, EMAIL, MACHINE_PATH, _load
 
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "epistole"
@@ -186,3 +187,39 @@ def test_attach_dirs_default_is_empty_and_documented():
     assert "attach_dirs" in agents and "Downloads" in agents
     assert re.search(r"[Aa]sk the user which folder", agents)
     assert re.search(r"empty|none|no folder", _section(readme, "## Safety"))
+
+
+def test_login_without_uv_names_the_installer(tmp_path):
+    bash = shutil.which("bash")
+    assert bash
+    empty = tmp_path / "empty-bin"
+    empty.mkdir()
+    proc = subprocess.run(
+        [bash, str(PLUGIN / "bin" / "epistole-login"), "--status"],
+        env={"PATH": str(empty), "HOME": str(tmp_path)},
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 127
+    assert _load("epistole_doctor_lib", DOCTOR_LIB).FIXES["uv"].cmd in proc.stderr
+
+
+def test_login_wrapper_copy_of_the_uv_installer_is_the_fixes_entry():
+    cmd = _load("epistole_doctor_lib_tie", DOCTOR_LIB).FIXES["uv"].cmd
+    assert cmd in (PLUGIN / "bin" / "epistole-login").read_text()
+
+
+def test_readme_troubleshoots_a_missing_uv():
+    text = _section((PLUGIN / "README.md").read_text(), "## Troubleshooting")
+    assert "command -v uv" in text and "/mcp" in text
+    assert _load("epistole_doctor_lib_doc", DOCTOR_LIB).FIXES["uv"].cmd in text
+
+
+def test_agents_step_one_handles_a_missing_accounts_tool():
+    step = _section((PLUGIN / "AGENTS.md").read_text(), "## 1. Check where things stand")
+    assert "`accounts` tool is not available" in step and "command -v uv" in step
+
+
+def test_setup_description_names_uv():
+    head = (PLUGIN / "skills" / "setup" / "SKILL.md").read_text().split("---")[1]
+    assert "uv is missing" in head

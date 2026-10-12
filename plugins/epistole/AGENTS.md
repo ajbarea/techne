@@ -11,6 +11,8 @@ This is the single setup guide for epistole, written for an agent guiding a user
 
 ## 1. Check where things stand
 
+If the `accounts` tool is not available, the epistole server did not start. Ask the user to run `!command -v uv`. If it prints nothing, uv is missing: the user installs it with `!curl -LsSf https://astral.sh/uv/install.sh | sh` and restarts Claude Code. If uv is present, the first start may still be downloading packages; the user reconnects epistole from `/mcp`.
+
 Call the `accounts` tool, or ask the user to run `!epistole-login --status`. Both print the same lines: whether the Google client file is present, then one line per account with its address and either `signed in` or `needs login: <reason>`. The command exits 0 only when every account is signed in.
 
 - `client: missing` and no accounts yet: go to step 2.

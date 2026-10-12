@@ -1,6 +1,6 @@
 ---
 name: setup
-description: Set up or fix epistole Gmail access. Use when the user wants to connect Gmail accounts, add another account, create the Google OAuth client, or when an epistole tool says an account is not signed in, needs login, or has no OAuth client.
+description: Set up or fix epistole Gmail access. Use when the user wants to connect Gmail accounts, add another account, or create the Google OAuth client, when an epistole tool says an account is not signed in, needs login, or has no OAuth client, or when the epistole MCP server fails to start because uv is missing.
 ---
 
 # Set up epistole
