@@ -5,7 +5,7 @@ This is the setup guide for graphe, written for an agent guiding a user. Run the
 ## Rules
 
 - The doctor only reads. Run it again after each fix to confirm.
-- The user runs every fix line that contains `sudo`, `xcode-select --install` and any Homebrew cask line (it asks for the admin password). In Claude Code they type it after `!`, for example `!sudo apt install poppler-utils`.
+- The user runs every fix line that contains `sudo`, `xcode-select --install` and any Homebrew cask line (a cask install asks for the admin password). A Homebrew formula line with no `sudo` (`brew install poppler`, `brew install biber`, `brew install node`) you may run after the user approves. In Claude Code they type it after `!`, for example `!sudo apt install poppler-utils`.
 - The Chromium library install needs `sudo` inside it, so the user runs that one too.
 - Any other fix line, such as the uv installer, the Chromium install and the pptxgenjs install, you may run after the user approves.
 - Report only what the doctor printed.
@@ -22,12 +22,12 @@ If the shell says `python3` is not found, the doctor cannot start. The user inst
 | --- | --- | --- |
 | `uv` | every graphe script | Run the fix line after the user approves, then open a new terminal so `uv` is on PATH. |
 | `latexmk`, `pdflatex` | graphe:latex, graphe:paper | The user runs the fix line with `!`. One install covers both. After a macOS install, open a new terminal. |
-| `biber` | documents that use biblatex | Optional. The user runs the fix line with `!`. |
-| `pdftotext`, `pdfinfo`, `pdffonts`, `pdftoppm` | graphe:latex gates, graphe:slides | The user runs the fix line with `!`. One poppler install covers all four. |
+| `biber` | documents that use biblatex | Optional. On Debian or Ubuntu the user runs the fix line with `!`. On macOS you may run it after the user approves. |
+| `pdftotext`, `pdfinfo`, `pdffonts`, `pdftoppm` | graphe:latex gates, graphe:slides | On Debian or Ubuntu the user runs the fix line with `!`. On macOS you may run it after the user approves. One poppler install covers all four. |
 | `strings` | graphe:pdf font report | The user runs the fix line with `!`. It is part of binutils on Linux and of the Xcode command line tools on macOS. |
 | `chromium` | graphe:slides web decks | Run the fix line after the user approves; it downloads the Chromium build that Playwright 1.63.0 uses. If the doctor says it does not run on Linux, a system library is missing: the user types `uv run --no-project --with playwright==1.63.0 playwright install-deps chromium` after `!`, and it calls `sudo apt` itself. |
 | `pptx-renderer` | rendering a `.pptx` deck | Optional. The user runs the fix line with `!`. PowerPoint on Windows, or under WSL, also counts. |
-| `node` | building a `.pptx` deck | Optional. The user runs the fix line with `!`. |
+| `node` | building a `.pptx` deck | Optional. On Debian or Ubuntu the user runs the fix line with `!`. On macOS you may run it after the user approves. |
 | `pptxgenjs` | building a `.pptx` deck | Optional. Run the fix line in the folder that will hold the deck, after the user approves. It installs into that folder's `node_modules`, so it needs no `sudo`. |
 
 ## 3. Check the result

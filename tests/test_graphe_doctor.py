@@ -111,19 +111,22 @@ def test_optional_gaps_leave_it_ready(tmp_path, home):
     assert "  fix: sudo apt install libreoffice-impress" in proc.stdout.splitlines()
 
 
-def test_pptxgenjs_found_under_the_global_npm_root_or_the_current_folder(tmp_path, home):
+def test_pptxgenjs_is_found_only_where_require_looks_from_the_current_folder(tmp_path, home):
     root = tmp_path / "npm-root"
     (root / "pptxgenjs").mkdir(parents=True)
     stubs = {**STUBS, "node": "echo v24.18.0", "npm": f"echo {root}"}
-    _, found = doctor(tmp_path, home, stubs)
-    assert found["node"][0] == "ok" and found["pptxgenjs"] == ("ok", str(root / "pptxgenjs"))
-    (root / "pptxgenjs").rmdir()
-    proc, found = doctor(tmp_path, home, stubs)
-    assert found["pptxgenjs"][0] == "optional"
-    assert "  fix: npm install pptxgenjs" in proc.stdout.splitlines()
     deck = tmp_path / "deck"
+    deck.mkdir()
+    proc, found = doctor(tmp_path, home, stubs, cwd=deck)
+    assert found["node"][0] == "ok" and found["pptxgenjs"][0] == "optional"
+    assert str(deck) in found["pptxgenjs"][1]
+    assert "  fix: npm install pptxgenjs" in proc.stdout.splitlines()
     (deck / "node_modules" / "pptxgenjs").mkdir(parents=True)
     _, found = doctor(tmp_path, home, stubs, cwd=deck)
+    assert found["pptxgenjs"] == ("ok", str(deck / "node_modules" / "pptxgenjs"))
+    sub = deck / "slides"
+    sub.mkdir()
+    _, found = doctor(tmp_path, home, stubs, cwd=sub)
     assert found["pptxgenjs"] == ("ok", str(deck / "node_modules" / "pptxgenjs"))
 
 
@@ -232,7 +235,11 @@ def test_runbook_gives_every_sudo_and_browser_fix_to_the_user():
     }
     for name, key in by_row.items():
         fix = lib.FIXES[key]
-        if "sudo" in (fix.apt or "") or "xcode-select" in (fix.brew or ""):
+        brew = fix.brew or ""
+        if "sudo" in (fix.apt or "") and brew.startswith("brew install ") and "--cask" not in brew:
+            assert "On Debian or Ubuntu the user runs the fix line with `!`" in row(name), name
+            assert "On macOS you may run it after the user approves" in row(name), name
+        elif "sudo" in (fix.apt or "") or "xcode-select" in brew:
             assert "The user runs the fix line with `!`" in row(name), name
         else:
             assert "after the user approves" in row(name), name

@@ -41,18 +41,16 @@ def pptxgenjs(platform: d.Platform) -> d.Check:
     node, npm = d.native_which("node", platform), d.native_which("npm", platform)
     if not node or not npm:
         return d.Check(d.NA, "pptxgenjs", "node and npm are missing")
-    homes = []
-    code, out = d.run([npm, "root", "-g"])
-    if code == 0 and d.first_line(out, limit=4096):
-        homes.append(Path(d.first_line(out, limit=4096)))
-    homes.append(Path.cwd() / "node_modules")
-    for home in homes:
-        if (home / "pptxgenjs").is_dir():
-            return d.Check(d.OK, "pptxgenjs", str(home / "pptxgenjs"))
+    here = Path.cwd()
+    for folder in [here, *here.parents]:
+        found = folder / "node_modules" / "pptxgenjs"
+        if found.is_dir():
+            return d.Check(d.OK, "pptxgenjs", str(found))
     return d.Check(
         d.OPTIONAL,
         "pptxgenjs",
-        f"not in the global npm folder or ./node_modules ({PPTX_ONLY})",
+        f"not found from {here} or a parent folder; require() reads the deck folder's "
+        f"node_modules, not the global one, so run the fix in the deck folder ({PPTX_ONLY})",
         d.fix_lines(platform, d.FIXES["pptxgenjs"]),
     )
 
