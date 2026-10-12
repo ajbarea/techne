@@ -169,6 +169,9 @@ def run(argv: Sequence[str], timeout: float = DEFAULT_TIMEOUT) -> tuple[int | No
         return None, str(exc)
     try:
         out, _ = proc.communicate(timeout=timeout)
+    except KeyboardInterrupt:
+        _kill_group(proc)
+        raise
     except subprocess.TimeoutExpired:
         _kill_group(proc)
         try:
@@ -180,13 +183,14 @@ def run(argv: Sequence[str], timeout: float = DEFAULT_TIMEOUT) -> tuple[int | No
 
 
 def parse_version(text: str) -> tuple[int, ...] | None:
-    """The first dotted number, preferring one after the word "version"."""
-    lowered = text.lower()
-    at = lowered.find("version")
-    for chunk in (text[at:], text) if at >= 0 else (text,):
-        m = _VERSION.search(chunk)
-        if m:
-            return tuple(int(g) for g in m.groups() if g is not None)
+    """The first dotted number of the first line that has one, preferring a number after the
+    word "version" within that line."""
+    for line in text.splitlines():
+        at = line.lower().find("version")
+        for chunk in (line[at:], line) if at >= 0 else (line,):
+            m = _VERSION.search(chunk)
+            if m:
+                return tuple(int(g) for g in m.groups() if g is not None)
     return None
 
 
@@ -288,7 +292,7 @@ def tool(
     if version_argv is None:
         return Check(OK, shown, found)
     code, out = run([found, *version_argv], timeout=timeout)
-    version = parse_version(out) if code is not None else None
+    version = parse_version(out) if code == 0 else None
     if version is None:
         said = first_line(out)
         if code == 0 and minimum is None:
@@ -302,11 +306,13 @@ def tool(
     return Check(OK, shown, f"{fmt_version(version)} at {found}")
 
 
-def program(platform: Platform, name: str, fix: str, **options) -> Check:
-    """`tool` for the program `name`, with the FIXES entry `fix`, guarded against a bug in the
+def program(platform: Platform, name: str, fix_key: str, **options) -> Check:
+    """`tool` for the program `name`, with the FIXES entry `fix_key`, guarded against a bug in the
     check. `options` are the other `tool` keywords."""
     required = options.get("required", True)
-    return guarded(name, required, lambda: tool(name, platform=platform, fix=FIXES[fix], **options))
+    return guarded(
+        name, required, lambda: tool(name, platform=platform, fix=FIXES[fix_key], **options)
+    )
 
 
 def playwright_root(
@@ -382,13 +388,18 @@ def guarded(name: str, required: bool, fn: Callable[[], Check]) -> Check:
         return Check(status, name, f"could not check: {type(exc).__name__}: {exc}")
 
 
+def _one_line(text: str) -> str:
+    """Join lines and drop control characters, so a field cannot forge another output line."""
+    return "".join(c for c in " ".join(text.splitlines()) if c >= " " and c != "\x7f")
+
+
 def render(checks: Iterable[Check]) -> str:
     found = list(checks)
     lines = []
     for check in found:
-        lines.append(f"{check.status} {check.name}: {check.detail}")
+        lines.append(f"{check.status} {_one_line(check.name)}: {_one_line(check.detail)}")
         if check.status in (MISSING, OPTIONAL):
-            lines.extend(f"  {fix}" for fix in check.fixes)
+            lines.extend(f"  {_one_line(fix)}" for fix in check.fixes)
     missing = [check.name for check in found if check.status == MISSING]
     lines.append("result: missing " + ", ".join(missing) if missing else "result: ready")
     return "\n".join(lines)

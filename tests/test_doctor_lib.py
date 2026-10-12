@@ -101,6 +101,11 @@ def test_which_tries_pathext_on_windows(dl, tmp_path):
         ("uv 0.11.5 (x86_64-unknown-linux-gnu)", (0, 11, 5)),
         ("Latexmk, John Collins, 31 Jan. 2024. Version 4.83", (4, 83)),
         ("pdfTeX 3.141592653-2.6-1.40.25 (TeX Live 2023/Debian)", (3, 141592653)),
+        (
+            "pdfTeX 3.141592653-2.6-1.40.25 (TeX Live 2023/Debian)\n"
+            "kpathsea version 6.3.5\nCopyright 2023 Han The Thanh",
+            (3, 141592653),
+        ),
         ("tmux 3.3a", (3, 3)),
         ("tmux next-3.5", (3, 5)),
         ("2.1.296 (Claude Code)", (2, 1, 296)),
@@ -314,7 +319,12 @@ def test_odd_version_output_never_tracebacks_and_never_hangs(tmp_path):
     start = time.monotonic()
     proc = subprocess.run(
         [HOOK_PYTHON, str(driver), str(DOCTOR_LIB.parent), *ODD],
-        env={"PATH": path, "TECHNE_DOCTOR_OS": "debian", "TECHNE_DOCTOR_WSL": "0"},
+        env={
+            "PATH": path,
+            "TECHNE_DOCTOR_OS": "debian",
+            "TECHNE_DOCTOR_WSL": "0",
+            "PYTHONDONTWRITEBYTECODE": "1",
+        },
         capture_output=True,
         text=True,
         timeout=60,
@@ -427,3 +437,51 @@ def test_a_doctor_importing_doctor_lib_writes_no_bytecode(tmp_path):
     assert proc.returncode == 0, proc.stderr
     assert sorted(p.relative_to(plugin) for p in plugin.rglob("*")) == before
     assert not list(plugin.rglob("__pycache__"))
+
+
+def test_a_version_in_the_output_of_a_failed_run_is_not_a_version(dl, deb, tmp_path, monkeypatch):
+    glibc = (
+        "echo \"node: libc.so.6: version 'GLIBC_2.28' not found (required by node)\" >&2; exit 1"
+    )
+    monkeypatch.setenv("PATH", stub_dir(tmp_path, {"node": glibc}))
+    got = dl.tool("node", platform=deb, fix=dl.FIXES["node"], version_argv=("--version",))
+    assert got.status == dl.MISSING and "ok" not in got.detail.split()[:1]
+
+
+def test_run_kills_the_grandchild_it_leaves_behind(dl, tmp_path):
+    pidfile = tmp_path / "pid"
+    stub = stub_dir(tmp_path, {"t": f'/bin/sleep 30 &\necho $! > "{pidfile}"\nexit 0'})
+    code, _ = dl.run([os.path.join(stub, "t")], timeout=1.0)
+    pid = int(pidfile.read_text())
+    try:
+        assert code is None
+        for _ in range(40):  # SIGKILL lands at once; a zombie lingers until init reaps it
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                break
+            if "Z" in _proc_state(pid):
+                break
+            time.sleep(0.05)
+        else:
+            raise AssertionError(f"grandchild {pid} is still running")
+    finally:
+        try:
+            os.kill(pid, 9)
+        except ProcessLookupError:
+            pass
+
+
+def _proc_state(pid):
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            return f.read().rsplit(")", 1)[1].split()[0]
+    except OSError:
+        return "Z"
+
+
+def test_render_keeps_each_field_on_one_line(dl):
+    bad = dl.Check(dl.MISSING, "x", "line1\nok sneaky: all good\x1b[31m", ("fix: a\nb",))
+    lines = dl.render([bad]).splitlines()
+    assert len(lines) == 3 and "\x1b" not in lines[0]
+    assert all(DOCTOR_LINE.match(line) for line in lines), lines
