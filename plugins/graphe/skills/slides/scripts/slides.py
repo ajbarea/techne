@@ -1463,9 +1463,27 @@ SLIDE_EMU = (12192000, 6858000)
 # The "Title Only" layout of python-pptx's default template.
 _TITLE_ONLY = 5
 # reveal.js's own navigation: PowerPoint has its own, so the pictures leave it out.
+# `.web-only` marks text that only makes sense in a browser (a "hover for a summary" note);
+# the export hides it, so it is neither in the picture nor in the alt text.
 _NO_NAVIGATION = (
-    ".reveal .controls, .reveal .progress, .reveal .slide-number { display: none !important; }"
+    ".reveal .controls, .reveal .progress, .reveal .slide-number, .web-only"
+    " { display: none !important; }"
 )
+# The picture is the slide's text, so its alt text carries that text; past this many
+# characters it is cut at a word, as screen readers and PowerPoint's alt pane cope badly
+# with more.
+ALT_MAX = 1000
+
+
+def _alt_text(title: str, text: str, number: int) -> str:
+    """The slide's visible text on one line, title first, cut at `ALT_MAX` at a word."""
+    body = " ".join(text.split())
+    if title and not body.startswith(title):
+        body = f"{title}. {body}" if body else title
+    body = body or f"Slide {number}"
+    if len(body) <= ALT_MAX:
+        return body
+    return body[: ALT_MAX - 1].rsplit(" ", 1)[0].rstrip(".,;:") + "\u2026"
 
 
 def pptx_html(deck: pathlib.Path, target: pathlib.Path, images: pathlib.Path | None = None) -> int:
@@ -1474,8 +1492,9 @@ def pptx_html(deck: pathlib.Path, target: pathlib.Path, images: pathlib.Path | N
 
     Each slide keeps its title in the title placeholder, placed just above the slide, where
     it is not shown but PowerPoint's outline, slide list and screen readers still read it;
-    the picture carries the same title as its alt text. With `images`, the slide pictures
-    are also written there as PNGs, in a folder render's rules govern.
+    the picture's alt text is the slide's visible text, title first, read from the same page
+    (elements with the class `web-only` are hidden for the export). With `images`, the slide
+    pictures are also written there as PNGs, in a folder render's rules govern.
     """
     if not deck.is_file():
         sys.exit(f"{deck}: no such file")
@@ -1506,7 +1525,8 @@ def pptx_html(deck: pathlib.Path, target: pathlib.Path, images: pathlib.Path | N
             for i in range(count):
                 read = page.evaluate(_READ_SLIDE, i)
                 title = " ".join(read["title"].split())
-                shots.append((title, read["notes"], page.screenshot()))
+                alt = _alt_text(title, read["text"], i + 1)
+                shots.append((title, alt, read["notes"], page.screenshot()))
         except DeckError as exc:
             sys.exit(f"{deck}: {exc}")
         except Exception as exc:  # a Playwright error mid-export
@@ -1517,7 +1537,7 @@ def pptx_html(deck: pathlib.Path, target: pathlib.Path, images: pathlib.Path | N
     prs = Presentation()
     prs.slide_width, prs.slide_height = Emu(SLIDE_EMU[0]), Emu(SLIDE_EMU[1])
     layout = prs.slide_layouts[_TITLE_ONLY]
-    for number, (title, notes, png) in enumerate(shots, 1):
+    for number, (title, alt, notes, png) in enumerate(shots, 1):
         slide = prs.slides.add_slide(layout)
         heading = slide.shapes.title
         heading.text = title or f"Slide {number}"
@@ -1525,12 +1545,12 @@ def pptx_html(deck: pathlib.Path, target: pathlib.Path, images: pathlib.Path | N
         heading.width, heading.height = prs.slide_width, Emu(SLIDE_EMU[1] // 6)
         picture = slide.shapes.add_picture(io.BytesIO(png), 0, 0, prs.slide_width, prs.slide_height)
         picture.name = f"Slide {number}"
-        picture._element.nvPicPr.cNvPr.set("descr", title or f"Slide {number}")
+        picture._element.nvPicPr.cNvPr.set("descr", alt)
         if notes:
             slide.notes_slide.notes_text_frame.text = notes
     if images is not None:
         prepare_out(images)
-        for number, (_, _, png) in enumerate(shots, 1):
+        for number, (_, _, _, png) in enumerate(shots, 1):
             (images / f"slide-{number:02d}.png").write_bytes(png)
     target.parent.mkdir(parents=True, exist_ok=True)
     partial = target.with_name(target.name + ".partial")

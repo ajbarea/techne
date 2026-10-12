@@ -37,7 +37,9 @@ formats; see [Other formats](#other-formats).
 `pptx` exports a web deck for PowerPoint: each slide becomes one picture of it at
 1920x1080, fully built, with its script in the speaker notes and its title kept
 in the title placeholder just above the slide, where the outline, the slide list
-and screen readers find it. It is for presenting from PowerPoint and handing out
+and screen readers find it. Each picture's alt text is the slide's visible text
+(title first, cut at 1000 characters); mark browser-only text, such as "hover
+for a summary", with `class="web-only"` and the export hides it. It is for presenting from PowerPoint and handing out
 a file; the pictures cannot be edited, links in them do not work, and nothing
 animates. Build it, never commit it: it is regenerated from the web deck.
 `--images` also writes the slide PNGs to a folder render's rules govern.
