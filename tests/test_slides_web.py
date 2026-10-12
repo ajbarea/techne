@@ -228,6 +228,7 @@ def test_pptx_exports_every_slide_as_a_picture_with_its_script(sl, web, tmp_path
         assert heading.top + heading.height <= 0, "the title must sit off the slide"
         assert slide.notes_slide.notes_text_frame.text == notes
     assert len(list((tmp_path / "images").glob("slide-*.png"))) == len(expected)
+    assert all("\n" not in s.shapes.title.text for s in prs.slides)
     # The export passes the .pptx gates it can answer: a title and alt text on every slide.
     blocks = [f for f in sl.check(out) if f.severity == "BLOCK"]
     assert blocks == []
@@ -238,6 +239,22 @@ def test_pptx_writes_only_a_pptx(sl, web, tmp_path, name):
     with pytest.raises(SystemExit, match=r"must be a \.pptx"):
         sl.pptx_html(web.index, tmp_path / name)
     assert not (tmp_path / name).exists()
+
+
+@pytest.mark.parametrize("where", ["same", "inside"])
+def test_pptx_images_cannot_hold_the_pptx(sl, web, tmp_path, where):
+    images = tmp_path / "out.pptx" if where == "same" else tmp_path / "images"
+    target = images if where == "same" else images / "deck.pptx"
+    with pytest.raises(SystemExit, match="cannot hold"):
+        sl.pptx_html(web.index, target, images)
+    assert not images.exists()
+
+
+def test_pptx_refuses_a_target_under_a_file(sl, web, tmp_path):
+    (tmp_path / "file").write_text("mine")
+    with pytest.raises(SystemExit, match="is a file"):
+        sl.pptx_html(web.index, tmp_path / "file" / "deck.pptx")
+    assert (tmp_path / "file").read_text() == "mine"
 
 
 @needs_browser

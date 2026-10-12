@@ -1485,6 +1485,10 @@ def pptx_html(deck: pathlib.Path, target: pathlib.Path, images: pathlib.Path | N
         sys.exit(f"{target}: the output must be a .pptx file")
     if target.is_dir():
         sys.exit(f"{target} is a folder; pass the .pptx file to write")
+    if any(p.exists() and not p.is_dir() for p in target.resolve().parents):
+        sys.exit(f"{target}: a folder on its path is a file")
+    if images is not None and target.resolve().is_relative_to(images.resolve()):
+        sys.exit(f"{images}: the images folder cannot hold the .pptx it exports")
     try:
         from pptx import Presentation  # ty: ignore[unresolved-import]
         from pptx.util import Emu  # ty: ignore[unresolved-import]
@@ -1501,7 +1505,8 @@ def pptx_html(deck: pathlib.Path, target: pathlib.Path, images: pathlib.Path | N
             shots = []
             for i in range(count):
                 read = page.evaluate(_READ_SLIDE, i)
-                shots.append((read["title"], read["notes"], page.screenshot()))
+                title = " ".join(read["title"].split())
+                shots.append((title, read["notes"], page.screenshot()))
         except DeckError as exc:
             sys.exit(f"{deck}: {exc}")
         except Exception as exc:  # a Playwright error mid-export
