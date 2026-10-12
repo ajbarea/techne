@@ -1213,3 +1213,99 @@ def test_full_read_lists_forty_attachments_with_long_ids(env):
     assert out.count("<untrusted-email") == out.count("</untrusted-email>") == 1
     concise = text(call(app, "read_thread", thread_id="school:t1"))
     assert concise.count("attachment_id:") < 40
+
+
+def test_send_derives_account_from_draft_id(env):
+    app, svc, _, _ = env
+    sendable(svc)
+    call(app, "send_draft", draft_id="school:d9", to=["b@example.com"], subject="Plan")
+    assert svc.sent == ["d9"]
+
+
+def test_send_mismatched_account_still_refused_when_given(env):
+    app, svc, _, _ = env
+    sendable(svc)
+    expect_error(
+        app,
+        "send_draft",
+        "belongs to 'school'",
+        account="personal",
+        draft_id="school:d9",
+        to=["b@example.com"],
+        subject="Plan",
+    )
+    assert svc.sent == []
+
+
+def test_reply_draft_without_subject_gets_re(env):
+    app, svc, _, _ = env
+    call(
+        app, "create_draft", account="school", to=["b@example.com"], body="ok", reply_to="school:m1"
+    )
+    assert stored(svc, "d1")["Subject"] == "Re: Plan"
+
+
+def test_reply_draft_derives_account_from_reply_to(env):
+    app, _, _, _ = env
+    out = text(call(app, "create_draft", to=["b@example.com"], body="ok", reply_to="school:m1"))
+    assert "school:d1" in out
+
+
+def test_create_without_reply_or_subject_refused(env):
+    expect_error(
+        env[0],
+        "create_draft",
+        "subject is required",
+        account="school",
+        to=["b@example.com"],
+        body="ok",
+    )
+
+
+def test_create_without_account_or_reply_refused(env):
+    expect_error(
+        env[0], "create_draft", "account is required", to=["b@example.com"], subject="s", body="ok"
+    )
+
+
+def test_string_recipients_work_on_all_three_tools(env):
+    app, svc, _, _ = env
+    call(
+        app,
+        "create_draft",
+        account="school",
+        to="b@example.com",
+        cc="c@example.com",
+        subject="s",
+        body="ok",
+    )
+    parsed = stored(svc, "d1")
+    assert parsed["To"] == "b@example.com"
+    assert parsed["Cc"] == "c@example.com"
+    draft_view(svc, "d1")
+    call(
+        app,
+        "update_draft",
+        draft_id="school:d1",
+        to="b@example.com",
+        cc="c@example.com",
+        subject="s2",
+        body="ok",
+    )
+    assert stored(svc, "d1")["To"] == "b@example.com"
+    sendable(svc)
+    call(app, "send_draft", draft_id="school:d9", to="b@example.com", subject="Plan")
+    assert svc.sent == ["d9"]
+
+
+@pytest.mark.parametrize("tool", ["create_draft", "update_draft", "send_draft"])
+def test_comma_string_recipient_refused(env, tool):
+    app, svc, _, _ = env
+    sendable(svc)
+    args = {
+        "create_draft": {"account": "school", "subject": "s", "body": "ok"},
+        "update_draft": {"draft_id": "school:d9", "subject": "s", "body": "ok"},
+        "send_draft": {"draft_id": "school:d9", "subject": "Plan"},
+    }[tool]
+    expect_error(app, tool, "not a bare address", to="a@example.com, b@example.com", **args)
+    assert svc.sent == []

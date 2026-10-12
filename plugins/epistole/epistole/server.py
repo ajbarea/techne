@@ -102,10 +102,15 @@ def _parse(name: str, value: str) -> set[str]:
     return {a.addr_spec.lower() for a in addrs}
 
 
-def _bare(name: str, values: list[str] | None) -> set[str]:
+def _listed(values: str | list[str] | None) -> list[str]:
+    """A recipient argument as a list: one string is one entry, never split on commas."""
+    return [values] if isinstance(values, str) else list(values or [])
+
+
+def _bare(name: str, values: str | list[str] | None) -> set[str]:
     """Lowercase addresses; every entry must be exactly one bare ASCII address."""
     out: set[str] = set()
-    for v in values or []:
+    for v in _listed(values):
         v = v.strip()
         bad = (
             not v.isascii()
@@ -123,10 +128,10 @@ def _bare(name: str, values: list[str] | None) -> set[str]:
     return out
 
 
-def _check_recipients(name: str, values: list[str] | None) -> list[str]:
+def _check_recipients(name: str, values: str | list[str] | None) -> list[str]:
     """The trimmed entries, once each is a bare address."""
     _bare(name, values)
-    return [v.strip() for v in values or []]
+    return [v.strip() for v in _listed(values)]
 
 
 def _all(payload: dict, name: str) -> list[str]:
@@ -362,19 +367,28 @@ def build(base: Path | None = None, connect: Callable[[str], Any] | None = None)
     @app.tool(annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False))
     @_guard
     def create_draft(
-        account: str,
-        to: list[str],
-        subject: str,
+        to: str | list[str],
         body: str,
-        cc: list[str] | None = None,
+        account: str | None = None,
+        subject: str | None = None,
+        cc: str | list[str] | None = None,
         html: str | None = None,
         attachments: list[str] | None = None,
         reply_to: str | None = None,
     ) -> str:
-        """Create a draft in account. reply_to is an account-qualified message id to reply
-        in its thread (the subject becomes 'Re: ...'). attachments are absolute file paths
+        """Create a draft in account. to and cc take one bare address or a list. reply_to is an
+        account-qualified message id to reply in its thread: subject is then optional (it
+        becomes 'Re: <original>') and account may be omitted (taken from reply_to); without
+        reply_to, subject and account are required. attachments are absolute file paths
         inside the configured attach_dirs. The result lists the To, Cc, Subject and
         attachment names to restate to send_draft."""
+        if reply_to and not account:
+            account = ids.parse(reply_to, aliases())[0]
+        if not account:
+            raise ValueError("account is required unless reply_to is set.")
+        if not reply_to and not (subject and subject.strip()):
+            raise ValueError("subject is required unless reply_to is set.")
+        subject = subject or ""
         to, cc = _check_recipients("To", to), _check_recipients("Cc", cc)
         files = _attach(attachments or [])
         reply, thread = _reply(account, reply_to)
@@ -410,14 +424,15 @@ def build(base: Path | None = None, connect: Callable[[str], Any] | None = None)
     @_guard
     def update_draft(
         draft_id: str,
-        to: list[str],
+        to: str | list[str],
         subject: str,
         body: str,
-        cc: list[str] | None = None,
+        cc: str | list[str] | None = None,
         html: str | None = None,
         attachments: list[str] | None = None,
     ) -> str:
-        """Replace an existing draft's content, keeping its thread. attachments replaces the
+        """Replace an existing draft's content, keeping its thread. to and cc take one bare
+        address or a list. attachments replaces the
         draft's attachments (omit it to drop them). For a reply draft the subject stays the
         thread's reply subject ('Re: <original>') whatever subject is passed, because Gmail
         threads on a matching Subject. The result lists what to restate to send_draft."""
@@ -495,20 +510,21 @@ def build(base: Path | None = None, connect: Callable[[str], Any] | None = None)
     )
     @_guard
     def send_draft(
-        account: str,
         draft_id: str,
-        to: list[str],
+        to: str | list[str],
         subject: str,
-        cc: list[str] | None = None,
-        bcc: list[str] | None = None,
+        account: str | None = None,
+        cc: str | list[str] | None = None,
+        bcc: str | list[str] | None = None,
         attachments: list[str] | None = None,
     ) -> str:
-        """Send an existing draft. Restate its To, Cc and Bcc recipients as bare addresses
-        (user@example.com, no names or comments), its subject and its attachment file names;
+        """Send an existing draft. account is optional (taken from draft_id; if given it must
+        match). Restate its To, Cc and Bcc recipients (one bare address or a list; bare means
+        user@example.com, no names or comments), its subject and its attachment file names;
         the send is refused if any differs from the draft. Always asks the user first.
         The draft is checked, then sent in a separate call, so an edit made elsewhere in
         between is not caught."""
-        raw = ids.require(draft_id, account, aliases())
+        account, raw = ids.resolve(draft_id, account, aliases())
         mb = box(account)
         sender = mb.sender()  # before the send, so the success message cannot fail after it
         payload = mb.get_draft(raw).get("message", {}).get("payload", {})

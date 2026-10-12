@@ -23,3 +23,11 @@ def require(qid: str, account: str, aliases: Iterable[str]) -> str:
     if alias != account:
         raise ValueError(f"{qid!r} belongs to {alias!r}, not {account!r}.")
     return raw
+
+
+def resolve(qid: str, account: str | None, aliases: Iterable[str]) -> tuple[str, str]:
+    """The (alias, raw id) of qid; an explicit account must match the id's own alias."""
+    aliases = list(aliases)
+    if account is not None:
+        return account, require(qid, account, aliases)
+    return parse(qid, aliases)
