@@ -4,15 +4,12 @@ import subprocess
 import tomllib
 from pathlib import Path
 
+from conftest import EMAIL, MACHINE_PATH
+
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "epistole"
 DOC = ROOT / "docs" / "epistole.md"
 PRIVACY_URL = "https://ajbarea.github.io/techne/epistole/"
-
-EMAIL = re.compile(
-    r"[\w.+-]+@(?!(?:[\w-]+\.)*example\.(?:com|edu|org)(?![\w-]*\.\w))[\w-]+\.[\w.]+"
-)
-MACHINE_PATH = re.compile(r"/(?:home|mnt|Users)/|[A-Za-z]:\\Users")
 
 
 def _published_files() -> list[Path]:

@@ -15,15 +15,13 @@ import sys
 import time
 
 import pytest
+from conftest import HOOK_PYTHON
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "phylax"
 GUARDS = PLUGIN / "hooks" / "git_guards.py"
 HOOKS_JSON = PLUGIN / "hooks" / "hooks.json"
 MANIFEST = PLUGIN / ".claude-plugin" / "plugin.json"
-
-# The hook runs on the user's system python3; `make test-hooks-oldest` sets this to 3.9.
-GUARD_PYTHON = os.environ.get("TECHNE_GUARD_PYTHON", sys.executable)
 
 ATTRIBUTION = "block_attribution_trailers"
 COMMITS_MD = "block_commits_md"
@@ -62,7 +60,7 @@ def run_hook(command: str, cwd: pathlib.Path, *, on=ALL) -> dict | None:
         env[f"CLAUDE_PLUGIN_OPTION_{key.upper()}"] = "true"
     payload = json.dumps({"cwd": str(cwd), "tool_input": {"command": command}})
     proc = subprocess.run(
-        [GUARD_PYTHON, str(GUARDS)],
+        [HOOK_PYTHON, str(GUARDS)],
         input=payload,
         capture_output=True,
         text=True,
@@ -435,7 +433,7 @@ def run_raw(command: str, cwd: pathlib.Path, *, on, path_prefix: pathlib.Path | 
         env["PATH"] = f"{path_prefix}:{env['PATH']}"
     payload = json.dumps({"cwd": str(cwd), "tool_input": {"command": command}})
     return subprocess.run(
-        [GUARD_PYTHON, str(GUARDS)],
+        [HOOK_PYTHON, str(GUARDS)],
         input=payload,
         capture_output=True,
         text=True,

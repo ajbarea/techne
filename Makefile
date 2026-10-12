@@ -80,13 +80,15 @@ guards:                 ## Stale-path + legacy-name + shared-copy + plugin-path 
 test-unit:              ## pytest over skill-shipped Python
 	@uv run --with 'typst>=0.15,<0.16' --with playwright==1.63.0 --with axe-playwright-python==0.1.8 --with pillow --with python-pptx==1.0.2 pytest
 
-# The hooks run on the user's system python3, not the project venv. 3.9 is macOS's.
+# The hooks and the setup doctors run on the user's system python3, not the project venv.
+# 3.9 is macOS's.
 HOOKS_OLDEST_PYTHON := 3.9
+HOOK_TESTS := tests/test_git_guards.py tests/test_stale_restart.py $(wildcard tests/test_*doctor*.py)
 
-test-hooks-oldest:      ## Hook tests with the hook run on the oldest supported python3
+test-hooks-oldest:      ## Hook and doctor tests with the code under test run on the oldest python3
 	@py="$$(uv python find --no-project $(HOOKS_OLDEST_PYTHON) 2>/dev/null || { uv python install -q $(HOOKS_OLDEST_PYTHON) && uv python find --no-project $(HOOKS_OLDEST_PYTHON); })"; \
 	[ -n "$$py" ] || { echo "FAIL: no Python $(HOOKS_OLDEST_PYTHON) from uv"; exit 1; }; \
-	TECHNE_GUARD_PYTHON="$$py" uv run pytest tests/test_git_guards.py tests/test_stale_restart.py
+	TECHNE_GUARD_PYTHON="$$py" uv run pytest $(HOOK_TESTS)
 
 zizmor:                 ## zizmor GHA security scan (.github/workflows/)
 	@uv run zizmor .github/workflows/
