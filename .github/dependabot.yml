@@ -1,10 +1,13 @@
 # Source of truth: templates/dependabot.yml.example. /techne:sisters audits
-# drift across the fleet. techne is single-package uv + GitHub Actions only.
+# drift across the fleet. techne is uv + GitHub Actions only.
 version: 2
 
 updates:
   - package-ecosystem: "uv"
-    directory: "/"
+    # The epistole server runs from its own lock; a test requires it to match the root lock.
+    directories:
+      - "/"
+      - "/plugins/epistole"
     schedule:
       interval: "weekly"
       day: "monday"

@@ -1,6 +1,6 @@
 # epistole
 
-epistole (ἐπιστολή, a letter) is a local Gmail MCP server for Claude Code. It searches, reads and drafts mail in every Gmail account you configure, whichever Claude account is signed in. Sending a draft always asks you first. It runs on your computer and uses a Google OAuth client you create yourself, so no shared secret ships with it.
+epistole (ἐπιστολή, a letter) is a local Gmail MCP server for Claude Code. It searches, reads and drafts mail in every Gmail account you configure, whichever Claude account is signed in. Its `send_draft` tool always asks you first. It runs on your computer and uses a Google OAuth client you create yourself, so no shared secret ships with it.
 
 Install it from the techne marketplace:
 
@@ -33,7 +33,7 @@ Every id is account-qualified (`alias:id`), and a tool refuses an id whose accou
 
 The full runbook is [AGENTS.md](AGENTS.md). Or ask Claude: `/epistole:setup`.
 
-`epistole-login` records each account in `~/.config/epistole/accounts.toml`, which also holds the attachment folders and the download folder:
+`epistole-login` records each account in `~/.config/epistole/accounts.toml`, which also holds the attachment folders and the download folder. The first login writes `attach_dirs = []`, so attachments are off until you list the folders Claude may attach from. Use a folder that holds only files you mean to send, not `~/Downloads`. Every path, and `EPISTOLE_HOME` if you set it, must be absolute or start with `~`.
 
 ```toml
 attach_dirs = ["~/Documents/outgoing"]
@@ -52,8 +52,9 @@ An administrator can block apps Google has not verified, or limit third-party ac
 
 ## Safety
 
-- **Sending always asks.** `send_draft` carries the `anthropic/requiresUserInteraction` flag, so Claude Code prompts you in every mode that can prompt, including bypass. In `dontAsk` mode the send is refused instead. The server also re-checks the recipients (To, Cc, Bcc), the subject and the attachment names that Claude restates against the draft, and refuses the send if any differs.
-- **Attachments** are read only from the folders in `attach_dirs`. A path with any component starting with `.` is refused, and so is anything under `~/.config/epistole`.
+- **The `send_draft` tool always asks.** It carries the `anthropic/requiresUserInteraction` flag, so Claude Code prompts you before each call in every mode that can prompt, including bypass. In `dontAsk` mode the send is refused instead. The server reads the draft once and checks the recipients (To, Cc, Bcc), the subject and the attachment names that Claude restates. It refuses the send if any differs, and otherwise sends exactly the message it checked, so an edit made elsewhere after the check does not change what goes out.
+- **The prompt gates the tool, not the token.** The token in `~/.config/epistole/tokens/` can also send mail, so a script that reads it could send without a prompt. The controls for that are the `Read(~/.config/epistole/**)` deny rule below and Claude Code's [sandbox](https://code.claude.com/docs/en/sandboxing), which applies that rule to shell commands too. Claude can also put any text it has read into a draft body, and that text leaves with the message once you approve the send.
+- **Attachments** are off until you list folders in `attach_dirs`; the first login writes an empty list. epistole attaches files only from those folders. A path with any component starting with `.` is refused, and so is anything under `~/.config/epistole`.
 - **Downloads** go only into `download_dir`, under a sanitized file name. An existing file is never replaced; the new one gets ` (1)`, ` (2)` and so on.
 - **Mail text is labelled untrusted.** Message bodies and headers are wrapped in a marker saying they are data from outside, not instructions. This is a label for Claude, not a defence: a message can still try to steer it. The send prompt and the recipient re-check are the controls that hold.
 - **Drafts are not gated by default.** `create_draft` and `update_draft` run without a prompt when your permission mode or an allow rule lets them, and a message that steers Claude could trigger them. They only write to Gmail drafts. To be asked before each one, add `ask` rules to `permissions` in `~/.claude/settings.json`:

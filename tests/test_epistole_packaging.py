@@ -136,3 +136,56 @@ def test_no_personal_addresses_or_machine_paths_in_published_files():
             continue
         assert not EMAIL.search(text), f
         assert not MACHINE_PATH.search(text), f
+
+
+RUNTIME = ("mcp", "google-api-python-client", "google-auth", "google-auth-oauthlib")
+
+
+def _locked(path: Path) -> dict[str, set[str]]:
+    out: dict[str, set[str]] = {}
+    for pkg in tomllib.loads(path.read_text())["package"]:
+        out.setdefault(pkg["name"], set()).add(pkg.get("version", ""))
+    return out
+
+
+def test_root_and_plugin_locks_pin_the_same_runtime_versions():
+    root, plugin = _locked(ROOT / "uv.lock"), _locked(PLUGIN / "uv.lock")
+    assert set(RUNTIME) <= set(plugin) and set(RUNTIME) <= set(root)
+    shared = sorted((set(plugin) & set(root)) - {"epistole", "techne"})
+    differ = {n: (plugin[n], root[n]) for n in shared if plugin[n] != root[n]}
+    assert not differ, f"plugin lock vs root lock: {differ}; re-lock so they match"
+
+
+def test_dependabot_updates_the_plugin_lock():
+    import yaml
+
+    updates = yaml.safe_load((ROOT / ".github" / "dependabot.yml").read_text())["updates"]
+    uv = next(u for u in updates if u["package-ecosystem"] == "uv")
+    assert {"/", "/plugins/epistole"} <= set(uv.get("directories", [uv.get("directory")]))
+
+
+def _section(text: str, heading: str) -> str:
+    start = text.index(heading)
+    nxt = text.find("\n## ", start + len(heading))
+    return text[start : nxt if nxt != -1 else None]
+
+
+def test_send_claim_is_scoped_to_the_tool_with_its_controls_named():
+    readme = _section((PLUGIN / "README.md").read_text(), "## Safety")
+    privacy = _section(DOC.read_text(), "## Privacy")
+    agents = (PLUGIN / "AGENTS.md").read_text()
+    for text in (readme, privacy, agents):
+        assert "send_draft" in text
+        assert "token" in text and "sandbox" in text
+        assert "Read(~/.config/epistole/**)" in text
+        assert "draft body" in text
+
+
+def test_attach_dirs_default_is_empty_and_documented():
+    readme = (PLUGIN / "README.md").read_text()
+    agents = (PLUGIN / "AGENTS.md").read_text()
+    example = re.search(r"attach_dirs = \[(.*)\]", readme)
+    assert example and "Downloads" not in example.group(1)
+    assert "attach_dirs" in agents and "Downloads" in agents
+    assert re.search(r"[Aa]sk the user which folder", agents)
+    assert re.search(r"empty|none|no folder", _section(readme, "## Safety"))

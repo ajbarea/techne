@@ -16,7 +16,7 @@ Call the `accounts` tool, or ask the user to run `!epistole-login --status`. Bot
 - `client: missing` and no accounts yet: go to step 2.
 - `client: present` and no accounts yet: go to step 4.
 - An account `needs login`: go to step 4 for that alias. If the client is also missing, go to step 2 first.
-- All accounts `signed in`: setup is done, even if the client shows as missing. The client file is needed only to add an account or to sign one in again.
+- All accounts `signed in`: sign-in is done, even if the client shows as missing. The client file is needed only to add an account or to sign one in again. Go to step 5 if the user has not chosen attachment folders yet.
 
 ## 2. Create a Google OAuth client
 
@@ -61,6 +61,12 @@ At Google's consent screen the user must leave both Gmail permission boxes ticke
 
 The browser page ends with "Sign-in received". The terminal then prints `<alias> signed in as <address>`. Run `--status` again to confirm. If the sign-in fails for any other reason, the command prints one line with the cause and the command to run again; it never saves a half-finished account.
 
+## 5. Choose attachment folders
+
+Attachments are off until `attach_dirs` in `accounts.toml` lists at least one folder; the first login writes `attach_dirs = []`, and `create_draft` with an attachment says so. Ask the user which folder to allow. Recommend a dedicated folder that holds only files they mean to send, such as `~/epistole-outgoing`. Never suggest `~/Downloads`: it holds the Google client JSON from step 2.7 and usually other private files.
+
+The user adds the line to `accounts.toml` in the epistole home themselves, for example `attach_dirs = ["~/epistole-outgoing"]`, because the recommended `Read(~/.config/epistole/**)` deny rule keeps Claude's file tools out of that folder. Every path in `accounts.toml`, and `EPISTOLE_HOME` if set, must be absolute or start with `~`. A relative path is refused, because the server and `epistole-login` run from different folders.
+
 ## University and Workspace accounts
 
 - The Google login can differ from the mail address. Some universities sign in on a subdomain such as `g.example.edu`, or the mail address is an alias of the login. The recorded address is whatever Google returns, so use the account chooser and check the address in the output.
@@ -93,4 +99,6 @@ Run `!epistole-login <alias>` again when `--status` or a tool reports that the a
 
 ## Checking the result
 
-After `--status` shows every account signed in, call `search` with `account` set to one alias and a small query, to confirm Gmail answers. Drafts are created in Gmail and sending always asks the user first.
+After `--status` shows every account signed in, call `search` with `account` set to one alias and a small query, to confirm Gmail answers. Drafts are created in Gmail, and the `send_draft` tool always asks the user first.
+
+Tell the user what the prompt covers. It gates the `send_draft` tool. The stored token can also send mail, so a script that reads it could send without a prompt. The controls for that are the `Read(~/.config/epistole/**)` deny rule in the README and Claude Code's sandbox. Claude can put any text it has read into a draft body.
