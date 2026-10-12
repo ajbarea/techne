@@ -1,9 +1,11 @@
 #!/bin/bash
-# Assemble the eval-only plugins that `make evals` routes against. Each holds every skill from
-# every plugin here plus stand-ins for the general document and catch-up skills, named after
-# the plugin whose cases load it, so a description that overlaps a sibling plugin's skill or a
-# stand-in fails a case. An eval case can load one plugin set, so they all go in one.
-# Output is generated and gitignored; the paths are fixed, never taken from an argument.
+# Assemble the eval-only plugin that `make evals` routes against, for every plugin with an
+# evals/ dir. Each holds every skill from every plugin here plus stand-ins for the general
+# document and catch-up skills, named after the plugin whose cases load it, so a description
+# that overlaps a sibling plugin's skill or a stand-in fails a case. The host plugin is copied
+# last, so its own skill wins when a sibling ships one of the same name (every setup skill is
+# `setup`). Output is generated and gitignored; the paths are fixed, never taken from an
+# argument.
 
 set -euo pipefail
 
@@ -11,13 +13,19 @@ plugins="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/plugins"
 
 for root in "$plugins"/*/; do
     root="${root%/}"
-    [ -d "$root/eval-fixtures/rival-skills" ] || continue
+    [ -d "$root/evals" ] || continue
     name="$(basename "$root")"
     out="$root/eval-fixtures/with-rivals"
 
+    siblings=()
+    for src in "$plugins"/*/; do
+        src="${src%/}"
+        [ "$src" = "$root" ] || siblings+=("$src")
+    done
+
     rm -rf "$out"
     mkdir -p "$out/.claude-plugin" "$out/skills" "$out/_shared"
-    for src in "$plugins"/*/; do
+    for src in ${siblings[@]+"${siblings[@]}"} "$root"; do
         for dir in skills _shared eval-fixtures/rival-skills/skills; do
             if [ -d "$src/$dir" ]; then
                 case "$dir" in

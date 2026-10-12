@@ -4,7 +4,7 @@
 ## that techne itself documents at docs/conventions.md.
 ##
 
-.PHONY: help check-env setup manifests plugin-validate plugin-test test-hooks-oldest frontmatter fix lint shellcheck guards test-unit zizmor test validate build ci clean docs evals evals-bash
+.PHONY: help check-env setup manifests citation plugin-validate plugin-test test-hooks-oldest frontmatter fix lint shellcheck guards test-unit zizmor test validate build ci clean docs evals evals-bash
 .DEFAULT_GOAL := help
 
 check-env:              ## Verify required tools are on PATH
@@ -93,7 +93,11 @@ test-hooks-oldest:      ## Hook and doctor tests with the code under test run on
 zizmor:                 ## zizmor GHA security scan (.github/workflows/)
 	@uv run zizmor .github/workflows/
 
-test: manifests frontmatter guards test-unit  ## Structural checks + pytest
+# cffconvert pins jsonschema<4, which the dev group cannot hold, so it runs in its own env.
+citation:               ## Validate CITATION.cff against the CFF schema (cffconvert)
+	@uv run --no-project --quiet --with cffconvert==2.0.0 cffconvert --validate -i CITATION.cff
+
+test: manifests frontmatter guards citation test-unit  ## Structural checks + pytest
 
 # `build` belongs here: a dependency bump can leave lint and tests green and
 # still abort the site build, and docs.yml only runs on push to main, so
