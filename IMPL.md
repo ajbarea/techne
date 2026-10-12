@@ -49,6 +49,10 @@ so `ty` resolves, tests in `tests/` against a fake Gmail (MIME, threading, attac
 id routing, the send flag in `tools/list`). First step: a login spike against the Workspace account
 requesting the exact scopes, which also confirms `MCPServer` can set tool `_meta`.
 
+**Status (2026-10-12).** Built and reviewed; live checks passed on both accounts: search, a threaded
+reply draft, the send prompt under bypass, a send to self, a restated Bcc, the plain-domain send-as, and
+a 7 MB upload send. Open: the refresh token must still be alive on 2026-10-19 (day 8).
+
 **Out of scope.** Labels, archive/delete, Calendar/Drive, push notifications, a hosted server.
 
 **Definition of done.** Under either Claude account, both inboxes search, read and draft; a send
