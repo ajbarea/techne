@@ -53,7 +53,7 @@ def test_the_browser_is_present_or_its_absence_is_declared():
 
 
 def test_the_pins_agree_everywhere_they_are_written(sl):
-    """Every file that writes a Playwright or axe version writes the one slides.py uses."""
+    """Every file writing a Playwright, axe or python-pptx version writes the one slides.py uses."""
     files = (
         "Makefile",
         ".github/workflows/validate.yml",
@@ -63,8 +63,8 @@ def test_the_pins_agree_everywhere_they_are_written(sl):
     )
     for path in files:
         text = (ROOT / path).read_text()
-        for pin in re.findall(r"(?:playwright|axe-playwright-python)==[\w.]+", text):
-            assert pin in (sl.PLAYWRIGHT, sl.AXE), f"{path} pins {pin}"
+        for pin in re.findall(r"(?:playwright|axe-playwright-python|python-pptx)==[\w.]+", text):
+            assert pin in (sl.PLAYWRIGHT, sl.AXE, sl.PPTX), f"{path} pins {pin}"
     for path in files[:4]:
         assert sl.PLAYWRIGHT in (ROOT / path).read_text(), f"{path} does not pin {sl.PLAYWRIGHT}"
 
@@ -205,6 +205,67 @@ def test_render_writes_slides_phone_views_and_a_print_pdf(sl, web, tmp_path):
     if shutil.which("pdfinfo"):
         info = subprocess.run(["pdfinfo", str(pdf)], capture_output=True, text=True).stdout
         assert re.search(rf"Pages:\s+{count}\b", info)
+
+
+@needs_browser
+def test_pptx_exports_every_slide_as_a_picture_with_its_script(sl, web, tmp_path):
+    from pptx import Presentation  # ty: ignore[unresolved-import]
+    from pptx.enum.shapes import MSO_SHAPE_TYPE  # ty: ignore[unresolved-import]
+
+    out = tmp_path / "deck.pptx"
+    assert sl.pptx_html(web.index, out, tmp_path / "images") == 0
+    expected = sl.html_slides(web.index)
+    prs = Presentation(str(out))
+    assert (prs.slide_width, prs.slide_height) == sl.SLIDE_EMU
+    assert len(prs.slides) == len(expected)
+    for number, (slide, (title, notes)) in enumerate(zip(prs.slides, expected, strict=True), 1):
+        pictures = [s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.PICTURE]
+        assert len(pictures) == 1
+        frame = (pictures[0].left, pictures[0].top, pictures[0].width, pictures[0].height)
+        assert frame == (0, 0, *sl.SLIDE_EMU)
+        heading = slide.shapes.title
+        assert heading.text == (title or f"Slide {number}")
+        assert heading.top + heading.height <= 0, "the title must sit off the slide"
+        assert slide.notes_slide.notes_text_frame.text == notes
+    assert len(list((tmp_path / "images").glob("slide-*.png"))) == len(expected)
+    assert all("\n" not in s.shapes.title.text for s in prs.slides)
+    # The export passes the .pptx gates it can answer: a title and alt text on every slide.
+    blocks = [f for f in sl.check(out) if f.severity == "BLOCK"]
+    assert blocks == []
+
+
+@pytest.mark.parametrize("name", ["export.pdf", "export"])
+def test_pptx_writes_only_a_pptx(sl, web, tmp_path, name):
+    with pytest.raises(SystemExit, match=r"must be a \.pptx"):
+        sl.pptx_html(web.index, tmp_path / name)
+    assert not (tmp_path / name).exists()
+
+
+@pytest.mark.parametrize("where", ["same", "inside"])
+def test_pptx_images_cannot_hold_the_pptx(sl, web, tmp_path, where):
+    images = tmp_path / "out.pptx" if where == "same" else tmp_path / "images"
+    target = images if where == "same" else images / "deck.pptx"
+    with pytest.raises(SystemExit, match="cannot hold"):
+        sl.pptx_html(web.index, target, images)
+    assert not images.exists()
+
+
+def test_pptx_refuses_a_target_under_a_file(sl, web, tmp_path):
+    (tmp_path / "file").write_text("mine")
+    with pytest.raises(SystemExit, match="is a file"):
+        sl.pptx_html(web.index, tmp_path / "file" / "deck.pptx")
+    assert (tmp_path / "file").read_text() == "mine"
+
+
+@needs_browser
+def test_pptx_images_refuse_a_folder_render_did_not_make(sl, web, tmp_path):
+    images = tmp_path / "mine"
+    images.mkdir()
+    (images / "keep.txt").write_text("mine")
+    with pytest.raises(SystemExit, match="not empty"):
+        sl.pptx_html(web.index, tmp_path / "deck.pptx", images)
+    assert (images / "keep.txt").read_text() == "mine"
+    assert not (tmp_path / "deck.pptx").exists()
 
 
 # ------------------------------------------------- cases the first review found --

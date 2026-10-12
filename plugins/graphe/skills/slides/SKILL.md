@@ -18,10 +18,11 @@ the presenter.
 ## Run it
 
 ```
-B="uv run --no-project --quiet --with playwright==1.63.0 --with axe-playwright-python==0.1.8 --with pillow"
+B="uv run --no-project --quiet --with playwright==1.63.0 --with axe-playwright-python==0.1.8 --with pillow --with python-pptx==1.0.2"
 $B python ${CLAUDE_SKILL_DIR}/scripts/slides.py check  <deck/index.html> [--jargon "term,term"] [--backup-from N]
 $B python ${CLAUDE_SKILL_DIR}/scripts/slides.py render <deck/index.html> <out-dir>
 $B python ${CLAUDE_SKILL_DIR}/scripts/slides.py script <deck/index.html> > <deck>-script.md
+$B python ${CLAUDE_SKILL_DIR}/scripts/slides.py pptx   <deck/index.html> <deck>.pptx [--images <dir>]
 ```
 
 A web deck is checked and rendered in Chromium through Playwright. Install the
@@ -32,6 +33,14 @@ what the speaker view shows.
 `check`, `render` and `script` also take a `.pptx`, and `check` and `render`
 take a PDF (a Typst or Beamer deck), for decks that already exist in those
 formats; see [Other formats](#other-formats).
+
+`pptx` exports a web deck for PowerPoint: each slide becomes one picture of it at
+1920x1080, fully built, with its script in the speaker notes and its title kept
+in the title placeholder just above the slide, where the outline, the slide list
+and screen readers find it. It is for presenting from PowerPoint and handing out
+a file; the pictures cannot be edited, links in them do not work, and nothing
+animates. Build it, never commit it: it is regenerated from the web deck.
+`--images` also writes the slide PNGs to a folder render's rules govern.
 
 `render` writes one PNG per slide at 1920x1080 with every fragment shown, one
 per slide on a 390px-wide phone, contact sheets of both (`sheet-*` two across,
