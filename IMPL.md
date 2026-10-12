@@ -18,36 +18,52 @@ source, and the marketplace should be citable by DOI. Today only epistole has a 
 techne, graphe, dokimasia and phylax have no README; a missing `latexmk` is a Python traceback and a
 missing `uv` is silent in keryx; the cited version 1.2.0 has no tag, release or DOI.
 
-**Decisions** `# research(2026-10)`
+**Decisions** `# research(2026-10)` (reviewed 2026-10-12; 12 changes folded in)
 - One pattern, copied from epistole, for each plugin that has setup (techne, graphe, phylax; epistole
   already has it): `plugins/<p>/AGENTS.md` is the runbook an agent follows; `skills/setup/SKILL.md`
-  (`/<p>:setup`) reads it and runs a read-only doctor. dokimasia needs only `uv`, so it gets a README
-  and docs page, not a setup skill.
-- Doctors are stdlib Python run with `uv run --no-project`; each check prints one line,
-  `ok|missing|optional <name>: <detail>`, and a missing one adds `fix: <exact command>`
-  (Debian/Ubuntu and macOS lines). Exit 0 when nothing required is missing. Shared check helpers live
-  in `plugins/techne/_shared/doctor_lib.py`, copied to each plugin's `_shared/` (the guard keeps
-  copies identical). Doctors never install; the setup skill may run a user-approved non-sudo fix
-  (`gh auth login`, `playwright install chromium`) through `!`.
-- Checks: techne: git, `gh` installed and signed in, `tmux` (theoros), the repo's
-  `.claude/skill-context.md` (offer the conventions skeleton), `~/.claude/techne.toml` (optional).
-  graphe: `uv`, `latexmk` + `pdflatex`, poppler (`pdftotext`, `pdfinfo`, `pdffonts`, `pdftoppm`),
-  Playwright Chromium, LibreOffice or PowerPoint (optional, pptx only). phylax: Claude Code version
-  for the mod, `python3` ≥ 3.9, which options are on, and for `restart_on_update` `/proc`, `tmux` or
-  `wt.exe`, and a private state dir.
-- Errors name the next command: fix every vague path the inventory found (graphe `latexmk` and
-  poppler tracebacks, catchup `gh` missing, theoros `tmux` missing, audit/sisters missing config ->
-  `/techne:setup`, epistole and keryx `uv` missing).
-- Docs: each plugin gets a README (what, install, prerequisites, first use, troubleshooting, link)
-  and a docs page under a new **Plugins** nav section (phylax and keryx gain entries; the epistole
-  page keeps its `/epistole/` URL, which Google holds as the privacy link). AGENTS.md is the single
-  runbook; the docs page embeds it if Zensical snippets work, else links it.
-- Citation: README "Cite" section (BibTeX + `CITATION.cff`); every plugin.json `homepage` points at
-  its docs page; tag and release the next version with `CITATION.cff` and marketplace in step.
-  Zenodo mints a concept DOI from the GitHub release once AJ enables the repo there; the DOI then goes
-  into `CITATION.cff` `identifiers` and a README badge.
-- keryx (its own repo, own PR): `keryx doctor` (uv, `powershell.exe`, Ollama reachable, model pulled,
-  audio dir on a Windows drive), AGENTS.md, and a cite pointer to techne.
+  (`/<p>:setup`) reads it and runs a read-only doctor. dokimasia needs only `uv`, so it gets a docs
+  page and README, not a setup skill.
+- Doctors run on the system `python3` (stdlib, 3.9-compatible, added to `make test-hooks-oldest`),
+  never through `uv`, so a missing `uv` is reportable. Each check prints one line,
+  `ok|missing|optional|n/a <name>: <detail>`, and a missing one adds `fix: <exact command>`
+  (Debian/Ubuntu and macOS lines; platform-only checks print `n/a`). Exit 0 when nothing required is
+  missing. Shared helpers: `plugins/techne/_shared/doctor_lib.py`, copied to each plugin's `_shared/`
+  (the `cmp` guard keeps copies identical). Doctors never install. The user runs interactive fixes
+  (`gh auth login`) with `!`; Claude may run a non-sudo fix (`playwright install chromium`) after
+  the user approves.
+- Checks. techne: git, `gh` installed and signed in, `uv`, `python3` >= 3.11 (sisters needs
+  `tomllib`), `tmux` (theoros), Playwright Chromium (docs-site visual QA, optional), `lsof` (macOS
+  only), the repo's `.claude/skill-context.md`, `~/.claude/techne.toml` (optional). graphe: `uv`,
+  `latexmk` + `pdflatex`, `biber` (optional), poppler (`pdftotext`, `pdfinfo`, `pdffonts`,
+  `pdftoppm`), `strings`, Playwright Chromium, LibreOffice or PowerPoint and node/pptxgenjs (optional,
+  pptx only). phylax: Claude Code version for the mod, system `python3` >= 3.9, each option's value
+  (SKILL.md passes `${user_config.KEY}` as arguments; no settings.json parsing), and for
+  `restart_on_update` `/proc`, `tmux` or `wt.exe`, and the state dir via the existing `state_ok()`.
+- Errors name the next command: fix every vague path found (graphe `latexmk`, poppler and `strings`
+  tracebacks; catchup `gh` missing; theoros `tmux` missing; audit/sisters missing config ->
+  `/techne:setup`; epistole and keryx `uv` missing).
+- One home per fact. Setup steps live in AGENTS.md; install, first use and troubleshooting live in
+  the plugin's docs page; the plugin README is a short pointer (what it is, install line, links), and
+  a packaging test enforces it. No snippet embedding of AGENTS.md (it duplicates the h1 and breaks
+  relative links); docs pages link it. The skill-context skeleton moves from `docs/conventions.md`
+  into `plugins/techne/skills/setup/` so an installed plugin ships it; the docs page links it.
+- Docs nav: a **Plugins** section after Getting Started with `docs/plugins/{techne,graphe,dokimasia,
+  phylax,keryx}.md`; epistole stays at `docs/epistole.md` (its URL is Google's privacy link) and is
+  listed there too. The per-plugin Skills groups stay.
+- Evals: fix `scripts/eval-plugin.sh` so same-named skills from sibling plugins no longer overwrite
+  each other (the host plugin's skills win); add `fires-setup` and `never-*` routing evals for every
+  setup skill, epistole's included; give phylax an `evals/` dir. Setup descriptions name their
+  plugin and its tools.
+- Citation and release: release **1.3.0** (1.2.0 was declared but never tagged), with `pyproject.toml`,
+  marketplace and `CITATION.cff` in step under a guard test, and `cffconvert --validate` in `make
+  test`. `CITATION.cff` only, no `.zenodo.json` (Zenodo ignores the CFF when both exist). AJ enables
+  the repo on Zenodo before the release is published; the concept DOI then goes into `CITATION.cff`
+  `doi`/`identifiers` and a README badge in a commit after the release. README gains a "Cite" section.
+  Every plugin.json `homepage` points at its docs page.
+- keryx (its own repo, own PR): extend `keryx status` with the checks (uv, `powershell.exe`, Ollama
+  reachable, model pulled, audio dir on a Windows drive); `bin/keryx` checks `command -v uv` before its
+  exec and names the install; AGENTS.md; a cite pointer to techne.
+- Missing-tool tests build PATH from a temp dir of chosen stubs, never `/usr/bin:/bin`.
 
 **Scope.** The five plugins here plus keryx; README, docs nav and getting-started; doctor tests that
 drive each missing-tool path with a stripped PATH; a packaging test that every plugin has a README and
@@ -55,8 +71,8 @@ docs page, and every setup skill an AGENTS.md; routing evals for each new setup 
 
 **Out of scope.** Installers that need sudo, a JOSS paper (possible later), new skill features.
 
-**Definition of done.** On this machine each doctor reports all required checks ok; under
-`env -i PATH=/usr/bin:/bin` each names what is missing and its fix; no traceback remains on a missing
+**Definition of done.** On this machine each doctor reports all required checks ok; with a stub PATH
+each names what is missing and its fix; no traceback remains on a missing
 tool; every plugin has README + docs page; nav lists all six plugins; `make validate` green; the
 release is tagged (with a DOI if Zenodo is on); keryx doctor merged. epistole's day-8 token check
 (2026-10-19) stays open from #123.
