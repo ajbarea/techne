@@ -14,6 +14,7 @@ if the body has one, else the stored draft, records it in `svc.delivered`, and d
 
 from __future__ import annotations
 
+import base64
 import json
 
 from googleapiclient.errors import HttpError
@@ -135,19 +136,26 @@ class _Drafts:
             if id not in self.svc.drafts:
                 raise http_error(404)
             stored = self.svc.drafts[id]["message"]
-            message = {"id": "m-" + id, "raw": stored["raw"]}
+            message = {"id": "m-" + id}
+            if stored.get("raw"):  # Gmail omits an empty string (proto3)
+                message["raw"] = stored["raw"]
             if stored.get("threadId"):
                 message["threadId"] = stored["threadId"]
             return {"id": id, "message": message}
 
         return _Req(self.svc, "drafts.get", run)
 
-    def send(self, userId, body):
+    def send(self, userId, body, media_body=None):
         def run():
             did = body["id"]
             if did not in self.svc.drafts:
                 raise http_error(404)
             supplied = body.get("message", {}).get("raw")
+            if media_body is not None:
+                supplied = base64.urlsafe_b64encode(
+                    media_body.getbytes(0, media_body.size())
+                ).decode()
+            self.svc.send_media.append(media_body)
             self.svc.delivered.append(supplied or self.svc.drafts[did]["message"]["raw"])
             self.svc.sent.append(did)
             del self.svc.drafts[did]
@@ -202,6 +210,7 @@ class FakeService:
         self.search_hits: list[str] = []
         self.sent: list[str] = []
         self.delivered: list[str] = []
+        self.send_media: list = []
         self.after: dict = {}
         self.attachment_data = ""
         self.send_as: list[dict] = []

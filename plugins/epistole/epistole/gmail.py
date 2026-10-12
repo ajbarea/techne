@@ -14,6 +14,7 @@ from collections.abc import Callable
 from typing import Any
 
 from googleapiclient.errors import HttpError
+from googleapiclient.http import MediaInMemoryUpload
 
 try:
     import httplib2
@@ -34,6 +35,7 @@ RATE_REASONS = {"rateLimitExceeded", "userRateLimitExceeded"}
 MAX_RETRY_AFTER = 32.0
 SLEEP_BUDGET = 60.0
 DRAFT_UNKNOWN = "draft may exist; check Drafts before retrying"
+UPLOAD_ABOVE = 5 * 1024 * 1024  # bytes; Google suggests simple upload only up to 5 MB
 SEND_UNKNOWN = "send outcome unknown; check Sent before retrying"
 KNOWN_NETWORK: tuple[type[BaseException], ...] = (
     TimeoutError,
@@ -236,9 +238,17 @@ class Mailbox:
         A 404 is an unknown outcome: httplib2 resends a POST after a dropped connection, and the
         resend finds the draft gone if the first one was sent.
         """
-        req = self.users.drafts().send(
-            userId="me", body={"id": draft_id, **self._body(raw, thread_id)}
-        )
+        body: dict[str, Any] = {"id": draft_id, **self._body(raw, thread_id)}
+        data = base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4))
+        if len(data) > UPLOAD_ABOVE:
+            # Large messages go through the media-upload endpoint (message/*, up to 35 MB).
+            del body["message"]["raw"]
+            if not body["message"]:
+                del body["message"]
+            media = MediaInMemoryUpload(data, mimetype="message/rfc822", resumable=True)
+            req = self.users.drafts().send(userId="me", body=body, media_body=media)
+        else:
+            req = self.users.drafts().send(userId="me", body=body)
         try:
             return self._run(req, idempotent=False)
         except HttpError as exc:

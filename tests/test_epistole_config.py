@@ -202,3 +202,17 @@ def test_rewrite_round_trips_every_control_character(tmp_path):
     write(tmp_path, f'download_dir = {config._q(weird)}\n[accounts]\na = "u@example.com"\n')
     config.add_account(tmp_path, "b", "v@example.com")
     assert tomllib.loads((tmp_path / "accounts.toml").read_text())["download_dir"] == weird
+
+
+@pytest.mark.parametrize("key", ["attach_dirs", "download_dir"])
+def test_unknown_tilde_user_is_a_config_error_naming_the_key(tmp_path, key):
+    value = '["~nosuchuser_epistole/x"]' if key == "attach_dirs" else '"~nosuchuser_epistole/x"'
+    write(tmp_path, f'{key} = {value}\n[accounts]\na = "u@example.com"\n')
+    with pytest.raises(config.ConfigError, match=key):
+        config.load(tmp_path)
+
+
+def test_unknown_tilde_user_in_epistole_home_is_a_config_error(monkeypatch):
+    monkeypatch.setenv("EPISTOLE_HOME", "~nosuchuser_epistole/h")
+    with pytest.raises(config.ConfigError, match="EPISTOLE_HOME"):
+        config.home()

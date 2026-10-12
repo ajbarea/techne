@@ -554,3 +554,15 @@ def test_missing_or_empty_secret_says_how_to_get_one(tmp_path, secret):
     src.write_text(json.dumps({"installed": inner}))
     with pytest.raises(auth.LoginRequired, match="new client secret"):
         auth.import_client(tmp_path / "home", src)
+
+
+def test_login_reports_an_unknown_tilde_user_as_a_config_error(tmp_path, monkeypatch, capsys):
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / "accounts.toml").write_text(
+        'attach_dirs = ["~nosuchuser_epistole/x"]\n[accounts]\na = "u@example.com"\n'
+    )
+    monkeypatch.setenv("EPISTOLE_HOME", str(home))
+    assert login.main(["--status"]) == 1
+    err = capsys.readouterr().err
+    assert "attach_dirs" in err and "RuntimeError" not in err

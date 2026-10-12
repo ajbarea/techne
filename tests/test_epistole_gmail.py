@@ -1,3 +1,4 @@
+import base64
 import json
 import stat
 
@@ -505,3 +506,22 @@ def test_get_raw_draft_returns_raw_and_thread():
     svc, box = make()
     _stored_draft(svc)
     assert box.get_raw_draft("d1") == {"id": "m-d1", "raw": "cmF3", "threadId": "t1"}
+
+
+def test_send_draft_uploads_a_large_message_as_media():
+    svc, box = make()
+    big = b"To: b@example.com\r\n\r\n" + b"x" * (gmail.UPLOAD_ABOVE + 1)
+    raw = base64.urlsafe_b64encode(big).decode()
+    _stored_draft(svc)
+    box.send_draft("d1", raw, "t1")
+    (media,) = svc.send_media
+    assert media is not None and media.mimetype() == "message/rfc822" and media.resumable()
+    assert media.getbytes(0, media.size()) == big
+    assert svc.delivered == [raw]
+
+
+def test_send_draft_keeps_a_small_message_in_the_json_body():
+    svc, box = make()
+    _stored_draft(svc)
+    box.send_draft("d1", "cmF3", "t1")
+    assert svc.send_media == [None]

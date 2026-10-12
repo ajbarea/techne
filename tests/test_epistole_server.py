@@ -1610,3 +1610,61 @@ def test_relative_epistole_home_is_reported_by_every_tool(tmp_path, monkeypatch)
     assert len(asyncio.run(app.list_tools())) == 7
     expect_error(app, "accounts", "EPISTOLE_HOME")
     expect_error(app, "search", "EPISTOLE_HOME", account="school", query="x")
+
+
+def _put_raw(svc, raw: bytes, did="d9"):
+    svc.drafts[did] = {"message": {"raw": base64.urlsafe_b64encode(raw).decode()}}
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        b"To: b@example.com\r\nSubject: Plan\r\r\nBcc: evil@y.org\r\n\r\nhi\r\n",
+        b"To: b@example.com\r\nSubject: Plan\r\rBcc: evil@y.org\r\n\r\nhi\r\n",
+        b"To: b@example.com\rBcc: evil@y.org\r\nSubject: Plan\r\n\r\nhi\r\n",
+    ],
+)
+def test_send_refuses_a_lone_cr_in_the_header_block(env, raw):
+    app, svc, _, _ = env
+    _put_raw(svc, raw)
+    expect_error(
+        app, "send_draft", "recreate the draft", draft_id="school:d9", to="b@example.com",
+        subject="Plan",
+    )  # fmt: skip
+    assert svc.sent == [] and svc.delivered == []
+
+
+def test_send_allows_a_cr_in_the_body(env):
+    app, svc, _, _ = env
+    _put_raw(svc, b"To: b@example.com\r\nSubject: Plan\r\n\r\nline\rtwo\r\n")
+    call(app, "send_draft", draft_id="school:d9", to="b@example.com", subject="Plan")
+    assert svc.sent == ["d9"]
+
+
+def test_send_refuses_an_empty_raw_and_never_sends_it(env):
+    app, svc, _, _ = env
+    svc.drafts["d9"] = {"message": {"raw": ""}}
+    expect_error(
+        app, "send_draft", "recreate the draft", draft_id="school:d9", to=[], subject="",
+    )  # fmt: skip
+    assert svc.sent == [] and "drafts.send" not in svc.calls
+
+
+def test_send_refuses_a_draft_view_with_no_raw(env, monkeypatch):
+    app, svc, _, _ = env
+    sendable(svc)
+    real = type(svc.users().drafts()).get
+
+    def no_raw(self, userId, id, format="full"):
+        req = real(self, userId, id, format)
+        fn = req.fn
+        req.fn = lambda: {"id": id, "message": {"id": "m-" + id}}
+        assert fn
+        return req
+
+    monkeypatch.setattr(type(svc.users().drafts()), "get", no_raw)
+    expect_error(
+        app, "send_draft", "recreate the draft", draft_id="school:d9", to="b@example.com",
+        subject="Plan",
+    )  # fmt: skip
+    assert svc.sent == [] and "drafts.send" not in svc.calls

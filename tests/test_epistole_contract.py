@@ -1,5 +1,6 @@
 """Wire contract: Mailbox through the real googleapiclient and bundled Gmail discovery doc."""
 
+import base64
 import json
 from urllib.parse import parse_qs, urlsplit
 
@@ -21,7 +22,14 @@ class Recorder(HttpMockSequence):
     ):
         parts = urlsplit(uri)
         query = {k: v for k, v in parse_qs(parts.query).items() if k != "alt"}
-        self.seen.append((method, parts.path, query, json.loads(body) if body else None))
+        self.seen.append(
+            (
+                method,
+                parts.path,
+                query,
+                json.loads(body) if body and isinstance(body, str | bytes) else None,
+            )
+        )
         return super().request(uri, method, body, headers, redirections, connection_type)
 
 
@@ -94,3 +102,20 @@ def test_method_wire(call, expected):
     box, http = mailbox({"id": "x", "data": "aGk", "sendAs": []})
     call(box)
     assert http.seen == [expected]
+
+
+def test_large_send_goes_to_the_upload_endpoint():
+    http = Recorder(
+        [({"status": "200", "location": "https://up.example/u1"}, ""), (OK, '{"id": "s"}')]
+    )
+    service = build("gmail", "v1", http=http, static_discovery=True)
+    box = gmail.Mailbox("school", "user@example.edu", service, sleep=lambda s: None)
+    data = b"x" * (gmail.UPLOAD_ABOVE + 1)
+    assert box.send_draft("d", base64.urlsafe_b64encode(data).decode(), "t") == {"id": "s"}
+    method, path, query, body = http.seen[0]
+    assert (method, path) == ("POST", "/upload/gmail/v1/users/me/drafts/send")
+    assert query == {"uploadType": ["resumable"]} and body == {
+        "id": "d",
+        "message": {"threadId": "t"},
+    }
+    assert http.seen[1][1] == "/u1"

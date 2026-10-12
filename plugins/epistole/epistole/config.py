@@ -46,7 +46,10 @@ def home() -> Path:
     env = os.environ.get("EPISTOLE_HOME")
     if not env:
         return Path.home() / ".config" / "epistole"
-    path = Path(env).expanduser()
+    try:
+        path = Path(env).expanduser()
+    except RuntimeError:
+        raise ConfigError(f"EPISTOLE_HOME has an unknown user in {env!r}.") from None
     if not path.is_absolute():
         raise ConfigError(
             f"EPISTOLE_HOME must be an absolute path or start with ~, not {env!r}; "
@@ -100,7 +103,11 @@ def _path(value: str) -> Path:
 
 
 def _check_absolute(key: str, value: str) -> None:
-    if not Path(value).expanduser().is_absolute():
+    try:
+        absolute = Path(value).expanduser().is_absolute()
+    except RuntimeError:
+        raise ConfigError(f"{key} in accounts.toml has an unknown user in {value!r}.") from None
+    if not absolute:
         raise ConfigError(
             f"{key} in accounts.toml must be an absolute path or start with ~, not {value!r}."
         )

@@ -164,9 +164,17 @@ def _subject(value: str) -> str:
     return " ".join(str(policy.default.header_factory("Subject", value)).split())
 
 
+_LONE_CR = re.compile(rb"\r(?!\n)")
+
+
 def _read_raw(raw: str) -> EmailMessage:
     """Parse a draft's base64url RFC 822 bytes; a header section that ends early fails closed."""
-    data = base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4))
+    data = base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)) if raw else b""
+    if not data:
+        raise ValueError("the draft has no content to send; recreate the draft.")
+    ends = [i for i in (data.find(b"\r\n\r\n"), data.find(b"\n\n")) if i >= 0]
+    if _LONE_CR.search(data[: min(ends)] if ends else data):
+        raise ValueError("the draft's headers cannot be read; recreate the draft.")
     msg = email.message_from_bytes(data, policy=policy.default)
     if any(isinstance(d, errors.MissingHeaderBodySeparatorDefect) for d in msg.defects):
         raise ValueError("the draft's headers cannot be read; recreate the draft.")
@@ -599,7 +607,7 @@ def build(base: Path | None = None, connect: Callable[[str], Any] | None = None)
         mb = box(c, account)
         sender = mb.sender()  # before the send, so the success message cannot fail after it
         draft = mb.get_raw_draft(raw)
-        checked = draft.get("raw", "")
+        checked = draft.get("raw") or ""
         message = _read_raw(checked)
         payload = _raw_headers(message)
         actual = {n: _parse(n, _one(payload, n)) for n in ("To", "Cc", "Bcc")}
