@@ -31,9 +31,7 @@ nothing on a deck where every slide has a title.
 from __future__ import annotations
 
 import argparse
-import glob
 import io
-import os
 import pathlib
 import posixpath
 import re
@@ -43,6 +41,13 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
+
+# The install table and the PowerPoint lookup ship in the plugin's _shared/ directory.
+sys.dont_write_bytecode = True  # a missing-tool exit leaves no file behind in the plugin cache
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "_shared"))
+import doctor_lib  # noqa: E402  # ty: ignore[unresolved-import]
+
+SETUP = "/graphe:setup"
 
 ERROR, BLOCK, WARN, REVIEW, INFO = "ERROR", "BLOCK", "WARN", "REVIEW", "INFO"
 RANK = {ERROR: 0, BLOCK: 1, WARN: 2, REVIEW: 3, INFO: 4}
@@ -634,7 +639,7 @@ def _jargon(text: str, terms: tuple[str, ...], number: int) -> list[Finding]:
 def pdf_pages(path: pathlib.Path) -> list[str]:
     """Each page's text, in reading order, through poppler's pdftotext."""
     if not shutil.which("pdftotext"):
-        raise OSError("pdftotext not found (poppler-utils)")
+        raise OSError(doctor_lib.missing_message([("pdftotext", "poppler")], SETUP, one_line=True))
     out = subprocess.run(
         ["pdftotext", str(path), "-"], capture_output=True, text=True, check=True
     ).stdout
@@ -1567,39 +1572,23 @@ def pptx_html(deck: pathlib.Path, target: pathlib.Path, images: pathlib.Path | N
 # ----------------------------------------------------------------- render --
 
 
-def is_wsl() -> bool:
-    try:
-        return "microsoft" in pathlib.Path("/proc/version").read_text().lower()
-    except OSError:
-        return False
-
-
 def powerpoint_available() -> bool:
+    platform = doctor_lib.detect_platform()
     if sys.platform == "win32":
-        roots = [os.environ.get("ProgramFiles", ""), os.environ.get("ProgramFiles(x86)", "")]
         shell = shutil.which("powershell")
-    elif is_wsl():
-        roots = ["/mnt/c/Program Files", "/mnt/c/Program Files (x86)"]
+    elif platform.wsl:
         shell = shutil.which("powershell.exe")
     else:
         return False
-    return bool(shell and powerpoint_exes(roots))
-
-
-def powerpoint_exes(roots: list[str]) -> list[str]:
-    """Click-to-Run installs under root/Office16, MSI and volume licences under Office16."""
-    layouts = (("root", "Office*"), ("Office*",))
-    return [
-        g
-        for r in roots
-        if r
-        for layout in layouts
-        for g in glob.glob(os.path.join(r, "Microsoft Office", *layout, "POWERPNT.EXE"))
-    ]
+    return bool(shell and doctor_lib.powerpoint_exes(doctor_lib.office_roots(platform.wsl)))
 
 
 def libreoffice() -> str | None:
-    return shutil.which("soffice") or shutil.which("libreoffice")
+    """A LibreOffice that runs here: on WSL a copy found only on the Windows side is no use."""
+    platform = doctor_lib.detect_platform()
+    return doctor_lib.native_which("soffice", platform) or doctor_lib.native_which(
+        "libreoffice", platform
+    )
 
 
 def pick_renderer(preference: str = "auto") -> str:
@@ -1611,7 +1600,10 @@ def pick_renderer(preference: str = "auto") -> str:
         )
     if libreoffice():
         return "libreoffice"
-    sys.exit("no renderer: install LibreOffice, or run where PowerPoint is installed")
+    sys.exit(
+        "no renderer for a .pptx: install LibreOffice, or run where PowerPoint is installed.\n"
+        + doctor_lib.missing_message([("soffice", "libreoffice")], SETUP)
+    )
 
 
 # Quit only an instance this script started: PowerPoint is single-instance, so
@@ -1749,7 +1741,7 @@ def render(deck: pathlib.Path, out: pathlib.Path, preference: str = "auto", dpi:
     if deck.suffix.lower() in HTML:
         return render_html(deck, out)
     if not shutil.which("pdftoppm"):
-        sys.exit("pdftoppm not found (poppler-utils)")
+        doctor_lib.exit_missing([("pdftoppm", "poppler")], SETUP)
     prepare_out(out)
     pdf = out / (deck.stem + ".pdf")
     if deck.suffix.lower() == ".pdf":

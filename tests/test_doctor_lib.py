@@ -13,7 +13,7 @@ import subprocess
 import time
 
 import pytest
-from conftest import DOCTOR_LIB, DOCTOR_LINE, HOOK_PYTHON, ROOT, _load, stub_dir
+from conftest import DOCTOR_LIB, DOCTOR_LINE, HOOK_PYTHON, ROOT, _load, fake_chromium, stub_dir
 
 
 @pytest.fixture(scope="module")
@@ -259,13 +259,29 @@ def test_wsl_windows_side_binary_counts_as_absent(dl, monkeypatch):
     assert native.status == dl.OK
 
 
-def test_chromium_found_by_either_build_name(dl, tmp_path, monkeypatch):
+def test_chromium_is_ok_only_for_the_expected_runnable_build(dl, tmp_path, monkeypatch):
     monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", str(tmp_path))
     assert dl.chromium(required=True).status == dl.MISSING
     assert dl.chromium(required=False).status == dl.OPTIONAL
-    (tmp_path / "chromium_headless_shell-1243").mkdir()
+    exe = fake_chromium(tmp_path)
     got = dl.chromium(required=True)
-    assert got.status == dl.OK and "chromium_headless_shell-1243" in got.detail
+    assert got.status == dl.OK and "Chromium 150" in got.detail and str(exe) in got.detail
+
+
+def test_stale_partial_or_broken_chromium_is_missing(dl, tmp_path, monkeypatch):
+    monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", str(tmp_path))
+    fake_chromium(tmp_path, revision="1234")  # a build for another Playwright
+    stale = dl.chromium(required=True)
+    assert stale.status == dl.MISSING and "1243" in stale.detail
+    assert stale.fixes == (f"fix: {dl.CHROMIUM_INSTALL}",)
+    (tmp_path / "chromium_headless_shell-1243").mkdir()  # a download that stopped early
+    assert dl.chromium(required=True).status == dl.MISSING
+    fake_chromium(
+        tmp_path, body="echo 'error while loading shared libraries: libnss3.so' >&2; exit 127"
+    )
+    broken = dl.chromium(required=True)
+    assert broken.status == dl.MISSING and "libnss3" in broken.detail
+    assert broken.fixes == (f"fix: {dl.CHROMIUM_INSTALL}", f"fix: {dl.CHROMIUM_DEPS}")
 
 
 def test_playwright_root_per_platform(dl, tmp_path):

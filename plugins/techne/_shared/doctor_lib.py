@@ -26,6 +26,10 @@ LABELS = {DEBIAN: "Debian/Ubuntu", MACOS: "macOS"}
 UV_INSTALL = "curl -LsSf https://astral.sh/uv/install.sh | sh"
 PLAYWRIGHT_PIN = "playwright==1.63.0"
 CHROMIUM_INSTALL = f"uv run --no-project --with {PLAYWRIGHT_PIN} playwright install chromium"
+CHROMIUM_DEPS = f"uv run --no-project --with {PLAYWRIGHT_PIN} playwright install-deps chromium"
+# The build folder Playwright 1.63.0 expects: the chromium-headless-shell revision in its
+# browsers.json. Raise it with PLAYWRIGHT_PIN.
+CHROMIUM_REVISION = "1243"
 CLAUDE_INSTALL = "curl -fsSL https://claude.ai/install.sh | bash"
 # cli.github.com's apt instructions (docs/install_linux.md in cli/cli), on one line.
 GH_APT = (
@@ -75,11 +79,13 @@ FIXES = {
     "poppler": Fix(apt="sudo apt install poppler-utils", brew="brew install poppler"),
     "strings": Fix(apt="sudo apt install binutils", brew="xcode-select --install"),
     "chromium": Fix(cmd=CHROMIUM_INSTALL),
+    "chromium-deps": Fix(cmd=CHROMIUM_DEPS),
     "libreoffice": Fix(
         apt="sudo apt install libreoffice-impress", brew="brew install --cask libreoffice"
     ),
     "node": Fix(apt="sudo apt install nodejs npm", brew="brew install node"),
-    "pptxgenjs": Fix(cmd="npm install -g pptxgenjs"),
+    # Installs into the current folder: a global install fails with EACCES after an apt npm.
+    "pptxgenjs": Fix(cmd="npm install pptxgenjs"),
     "claude": Fix(cmd=CLAUDE_INSTALL),
     "claude-update": Fix(cmd="claude update"),
 }
@@ -349,12 +355,25 @@ def chromium(*, required: bool, why: str = "") -> Check:
             detail,
             (f"fix: unset PLAYWRIGHT_BROWSERS_PATH && {CHROMIUM_INSTALL}",),
         )
-    builds = sorted(p.name for p in root.glob("chromium*-*") if p.is_dir()) if root.is_dir() else []
-    if builds:
-        return Check(OK, "chromium", f"{', '.join(builds)} in {root}")
-    return Check(
-        absent, "chromium", f"no Chromium in {root}{suffix}", (f"fix: {CHROMIUM_INSTALL}",)
+    build = root / f"chromium_headless_shell-{CHROMIUM_REVISION}"
+    names = ("chrome-headless-shell", "chrome-headless-shell.exe")
+    exes = sorted(
+        p for p in build.glob("chrome-headless-shell-*/chrome-headless-shell*") if p.name in names
     )
+    install = (f"fix: {CHROMIUM_INSTALL}",)
+    if not exes:
+        have = (
+            sorted(p.name for p in root.glob("chromium*-*") if p.is_dir()) if root.is_dir() else []
+        )
+        found = f"; found {', '.join(have)}" if have else ""
+        detail = f"no {build.name} in {root} ({PLAYWRIGHT_PIN} needs it{found}){suffix}"
+        return Check(absent, "chromium", detail, install)
+    code, out = run([str(exes[0]), "--version"])
+    if code != 0:
+        said = first_line(out) or f"exit {code}"
+        detail = f"{exes[0]} does not run ({said}){suffix}"
+        return Check(absent, "chromium", detail, (*install, f"fix: {CHROMIUM_DEPS}"))
+    return Check(OK, "chromium", f"{first_line(out)} at {exes[0]}")
 
 
 def office_roots(

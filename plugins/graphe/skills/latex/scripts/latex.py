@@ -19,15 +19,27 @@ import argparse
 import os
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
 
-# The prose check ships in the plugin's _shared/ directory, beside the rubric it reads.
+# The prose check and the install table ship in the plugin's _shared/ directory.
+sys.dont_write_bytecode = True  # a missing-tool exit leaves no file behind in the plugin cache
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "_shared"))
+import doctor_lib  # noqa: E402  # ty: ignore[unresolved-import]
+
 try:
     import prose_check  # ty: ignore[unresolved-import]
-except ImportError:  # an install without _shared/
+except ImportError:  # an install without prose_check.py
     prose_check = None
+
+SETUP = "/graphe:setup"
+TOOLS = (
+    ("latexmk", "latex"),
+    ("pdftotext", "poppler"),
+    ("pdfinfo", "poppler"),
+    ("pdffonts", "poppler"),
+)
 
 ERROR, BLOCK, WARN, REVIEW, INFO = "ERROR", "BLOCK", "WARN", "REVIEW", "INFO"
 RANK = {ERROR: 0, BLOCK: 1, WARN: 2, REVIEW: 3, INFO: 4}
@@ -76,6 +88,13 @@ class Finding:
     def __str__(self) -> str:
         tail = f"  [{self.where}]" if self.where else ""
         return f"{self.severity:<6} {self.gate:<16} {self.message}{tail}"
+
+
+def require_tools() -> None:
+    """Stop before the build when a tool is missing, naming the command that installs it."""
+    absent = [(name, key) for name, key in TOOLS if shutil.which(name) is None]
+    if absent:
+        doctor_lib.exit_missing(absent, SETUP)
 
 
 def find_main_tex(target: pathlib.Path) -> pathlib.Path:
@@ -377,6 +396,7 @@ def main() -> int:
     )
     args = ap.parse_args()
 
+    require_tools()
     tex = find_main_tex(args.path)
     code = build(tex, args.engine)
     log, pdf = tex.with_suffix(".log"), tex.with_suffix(".pdf")

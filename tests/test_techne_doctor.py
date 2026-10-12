@@ -7,7 +7,16 @@ import shutil
 import subprocess
 
 import pytest
-from conftest import DOCTOR_LIB, EMAIL, MACHINE_PATH, ROOT, _load, run_doctor, stub_dir
+from conftest import (
+    DOCTOR_LIB,
+    EMAIL,
+    MACHINE_PATH,
+    ROOT,
+    _load,
+    fake_chromium,
+    run_doctor,
+    stub_dir,
+)
 from conftest import doctor as run_checks
 
 DOCTOR = ROOT / "plugins" / "techne" / "skills" / "setup" / "scripts" / "doctor.py"
@@ -44,7 +53,7 @@ def machine(tmp_path):
     home = tmp_path / "home"
     (home / ".claude").mkdir(parents=True)
     (home / ".claude" / "techne.toml").write_text(TOML)
-    (home / "ms-playwright" / "chromium-1243").mkdir(parents=True)
+    fake_chromium(home / "ms-playwright")
     repo = tmp_path / "repo"
     (repo / ".claude").mkdir(parents=True)
     (repo / ".claude" / "skill-context.md").write_text("# ctx\n")
@@ -173,7 +182,7 @@ def test_unknown_platform_prints_both_labelled_lines(tmp_path, machine):
 def test_optional_gaps_leave_it_ready(tmp_path, machine):
     home, repo = machine
     (home / ".claude" / "techne.toml").unlink()
-    (home / "ms-playwright" / "chromium-1243").rmdir()
+    shutil.rmtree(home / "ms-playwright")
     proc, found = doctor(tmp_path, home, repo)
     assert proc.returncode == 0
     assert found["chromium"][0] == "optional" and found["techne.toml"][0] == "optional"

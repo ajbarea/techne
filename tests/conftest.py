@@ -78,6 +78,18 @@ def stub_dir(
     return str(bindir)
 
 
+def fake_chromium(
+    root: pathlib.Path, revision: str = "1243", body: str = "echo 'Chromium 150.0.7871.0'"
+) -> pathlib.Path:
+    """The headless-shell executable `playwright install chromium` puts under `root`."""
+    exe = root / f"chromium_headless_shell-{revision}" / "chrome-headless-shell-linux64"
+    exe.mkdir(parents=True, exist_ok=True)
+    exe = exe / "chrome-headless-shell"
+    exe.write_text(f"#!/bin/sh\n{body}\n")
+    exe.chmod(0o755)
+    return exe
+
+
 def run_doctor(
     script: pathlib.Path,
     *args: str,
