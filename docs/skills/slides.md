@@ -54,7 +54,7 @@ A PDF deck gets the gates its text can answer, read with `pdftotext`. A figure t
 
 `plugins/graphe/skills/slides/templates/web/` is a reveal.js 6.0.2 deck that passes `check` with nothing to review: title, agenda, a claim whose figure builds step by step, a concrete case, a quick bet answered with dots, method steps, a related-work map and timeline, a discussion stop, limits, Thank you, and backup slides. Copy the folder and open `index.html` in a browser; `S` opens the speaker view. Figures and related work are read from `data/deck-data.js`, so a repo can generate them from its results. A chapter rail and the agenda come from each slide's `data-chapter`. On a phone the deck switches to a portrait scroll view.
 
-`plugins/graphe/skills/slides/templates/pages.yml` publishes the deck folder to GitHub Pages. Its actions are pinned to the same commit SHAs as techne's own workflows, and `make guards` fails when they drift. A repository has one Pages site, so a repo that already publishes a docs site needs the deck in its own repo or inside that site's build.
+`plugins/graphe/skills/slides/templates/pages.yml` publishes the deck folder to GitHub Pages. Its actions are pinned to the same commit SHAs as techne's own workflows, and `make guards` fails when they drift. A repository has one Pages site, but the site serves folders, so the skill recommends one public talks repo with a folder per talk, each at its own address; [ajbarea/talks](https://github.com/ajbarea/talks) is the worked example. The template is for a deck that must stay in a repo of its own.
 
 ## Testing it
 
