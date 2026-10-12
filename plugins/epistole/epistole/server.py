@@ -102,9 +102,13 @@ def _parse(name: str, value: str) -> set[str]:
     """Bare lowercase addresses of one header value; any parse defect fails closed."""
     if not value.strip():
         return set()
-    h = policy.default.header_factory(name, value)
-    addrs = getattr(h, "addresses", ())
-    if h.defects or not addrs or any(a.addr_spec.count("@") != 1 for a in addrs):
+    try:
+        h = policy.default.header_factory(name, value)
+        addrs = getattr(h, "addresses", ())
+    except (IndexError, ValueError, TypeError, AttributeError):
+        # Some stdlib versions (3.12.3) raise instead of recording a defect, e.g. on "user@".
+        addrs, h = (), None
+    if h is None or h.defects or not addrs or any(a.addr_spec.count("@") != 1 for a in addrs):
         raise ValueError(f"cannot read the {name} header {value!r}; recreate the draft.")
     return {a.addr_spec.lower() for a in addrs}
 
