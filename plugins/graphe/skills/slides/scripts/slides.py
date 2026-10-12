@@ -6,11 +6,14 @@
     python slides.py render <deck/index.html|deck.pptx|deck.pdf> <out-dir>
                             [--renderer auto|powerpoint|libreoffice] [--dpi 80]
     python slides.py script <deck/index.html|deck.pptx> [--wpm 140]
+    python slides.py pptx   <deck/index.html> <out.pptx> [--images <dir>]
 
 A reveal.js web deck (``.html``) is checked and rendered in Chromium through Playwright,
 with axe-core for contrast and alt text; it needs ``playwright`` and
 ``axe-playwright-python`` (pinned in PLAYWRIGHT and AXE below) and, for contact sheets,
-Pillow. ``script`` reads a web deck in the same browser.
+Pillow. ``script`` reads a web deck in the same browser. ``pptx`` exports a web deck for
+PowerPoint, one picture per slide with every fragment shown and the script in the notes; it
+also needs ``python-pptx`` (pinned in PPTX below, and part of WITH_BROWSER).
 
 A PDF (a Typst or Beamer deck, say) gets the gates its text can answer: titles, density,
 figures, em-dashes and jargon, read page by page with poppler's ``pdftotext``. Contrast, alt
@@ -29,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import io
 import os
 import pathlib
 import posixpath
@@ -766,7 +770,11 @@ def script(path: pathlib.Path, wpm: int = 140) -> tuple[int, str]:
 # the error messages agree.
 PLAYWRIGHT = "playwright==1.63.0"
 AXE = "axe-playwright-python==0.1.8"
-WITH_BROWSER = f"uv run --no-project --quiet --with {PLAYWRIGHT} --with {AXE} --with pillow"
+# python-pptx writes the .pptx `pptx` exports; one command serves every subcommand.
+PPTX = "python-pptx==1.0.2"
+WITH_BROWSER = (
+    f"uv run --no-project --quiet --with {PLAYWRIGHT} --with {AXE} --with pillow --with {PPTX}"
+)
 CANVAS = {"width": 1280, "height": 720}
 SCREEN = {"width": 1920, "height": 1080}
 PHONE = {"width": 390, "height": 844}
@@ -1446,6 +1454,91 @@ def _render_in(browser, deck: pathlib.Path, out: pathlib.Path):
     return pngs, phones, pdf
 
 
+# ------------------------------------------------------------------- pptx --
+
+# A web deck for PowerPoint: each slide a full-bleed picture of it fully built, its script in
+# the speaker notes.
+# PowerPoint's widescreen slide, 13.333 by 7.5 inches, in EMU; the same 16:9 as SCREEN.
+SLIDE_EMU = (12192000, 6858000)
+# The "Title Only" layout of python-pptx's default template.
+_TITLE_ONLY = 5
+# reveal.js's own navigation: PowerPoint has its own, so the pictures leave it out.
+_NO_NAVIGATION = (
+    ".reveal .controls, .reveal .progress, .reveal .slide-number { display: none !important; }"
+)
+
+
+def pptx_html(deck: pathlib.Path, target: pathlib.Path, images: pathlib.Path | None = None) -> int:
+    """Export a web deck as a .pptx: one picture per slide, every fragment shown, the script
+    in the speaker notes.
+
+    Each slide keeps its title in the title placeholder, placed just above the slide, where
+    it is not shown but PowerPoint's outline, slide list and screen readers still read it;
+    the picture carries the same title as its alt text. With `images`, the slide pictures
+    are also written there as PNGs, in a folder render's rules govern.
+    """
+    if not deck.is_file():
+        sys.exit(f"{deck}: no such file")
+    if deck.suffix.lower() not in HTML:
+        sys.exit(f"{deck}: pptx exports a web deck (.html); a .pptx or PDF already is one")
+    if target.suffix.lower() != ".pptx":
+        sys.exit(f"{target}: the output must be a .pptx file")
+    if target.is_dir():
+        sys.exit(f"{target} is a folder; pass the .pptx file to write")
+    try:
+        from pptx import Presentation  # ty: ignore[unresolved-import]
+        from pptx.util import Emu  # ty: ignore[unresolved-import]
+    except ImportError:
+        sys.exit(f"exporting a .pptx needs python-pptx: run this command through `{WITH_BROWSER}`")
+    with _playwright()() as pw:
+        browser = _launch(pw)
+        try:
+            page, _ = _open(browser, deck, SCREEN)
+            count = page.evaluate(_COUNT)
+            if not count:
+                raise DeckError("no slides")
+            page.add_style_tag(content=_STILL + " " + _NO_NAVIGATION)
+            shots = []
+            for i in range(count):
+                read = page.evaluate(_READ_SLIDE, i)
+                shots.append((read["title"], read["notes"], page.screenshot()))
+        except DeckError as exc:
+            sys.exit(f"{deck}: {exc}")
+        except Exception as exc:  # a Playwright error mid-export
+            sys.exit(f"{deck}: the browser failed: {_first_line(exc)}")
+        finally:
+            browser.close()
+
+    prs = Presentation()
+    prs.slide_width, prs.slide_height = Emu(SLIDE_EMU[0]), Emu(SLIDE_EMU[1])
+    layout = prs.slide_layouts[_TITLE_ONLY]
+    for number, (title, notes, png) in enumerate(shots, 1):
+        slide = prs.slides.add_slide(layout)
+        heading = slide.shapes.title
+        heading.text = title or f"Slide {number}"
+        heading.left, heading.top = Emu(0), Emu(-SLIDE_EMU[1] // 6)
+        heading.width, heading.height = prs.slide_width, Emu(SLIDE_EMU[1] // 6)
+        picture = slide.shapes.add_picture(io.BytesIO(png), 0, 0, prs.slide_width, prs.slide_height)
+        picture.name = f"Slide {number}"
+        picture._element.nvPicPr.cNvPr.set("descr", title or f"Slide {number}")
+        if notes:
+            slide.notes_slide.notes_text_frame.text = notes
+    if images is not None:
+        prepare_out(images)
+        for number, (_, _, png) in enumerate(shots, 1):
+            (images / f"slide-{number:02d}.png").write_bytes(png)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    partial = target.with_name(target.name + ".partial")
+    prs.save(str(partial))
+    partial.replace(target)
+    print(f"pptx: {target}")
+    size = f"{SCREEN['width']}x{SCREEN['height']}"
+    print(f"slides: {len(shots)}, each a {size} picture, notes from the script")
+    if images is not None:
+        print(f"images: {images}")
+    return 0
+
+
 # ----------------------------------------------------------------- render --
 
 
@@ -1694,6 +1787,16 @@ def main() -> int:
         help=".pptx only",
     )
     r.add_argument("--dpi", type=int, default=80, help=".pptx and PDF only")
+    x = sub.add_parser(
+        "pptx",
+        help="export a web deck as a .pptx: one picture per slide, every fragment shown, "
+        "the script in the speaker notes",
+    )
+    x.add_argument("deck", type=pathlib.Path)
+    x.add_argument("out", type=pathlib.Path)
+    x.add_argument(
+        "--images", type=pathlib.Path, default=None, help="also write the slide PNGs here"
+    )
     t = sub.add_parser("script", help="print the speaker notes as a read-aloud script")
     t.add_argument("deck", type=pathlib.Path)
     t.add_argument("--wpm", type=int, default=140)
@@ -1701,6 +1804,8 @@ def main() -> int:
 
     if args.cmd == "render":
         return render(args.deck, args.out, args.renderer, args.dpi)
+    if args.cmd == "pptx":
+        return pptx_html(args.deck, args.out, args.images)
     if args.cmd == "script":
         code, out = script(args.deck, args.wpm)
         print(out, file=sys.stderr if code else sys.stdout)

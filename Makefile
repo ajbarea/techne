@@ -78,7 +78,7 @@ guards:                 ## Stale-path + legacy-name + shared-copy + plugin-path 
 # unnoticed. The wheels are pulled per-run at the pins the skills use, rather than held as
 # dev dependencies.
 test-unit:              ## pytest over skill-shipped Python
-	@uv run --with 'typst>=0.15,<0.16' --with playwright==1.63.0 --with axe-playwright-python==0.1.8 --with pillow pytest
+	@uv run --with 'typst>=0.15,<0.16' --with playwright==1.63.0 --with axe-playwright-python==0.1.8 --with pillow --with python-pptx==1.0.2 pytest
 
 # The hooks run on the user's system python3, not the project venv. 3.9 is macOS's.
 HOOKS_OLDEST_PYTHON := 3.9
