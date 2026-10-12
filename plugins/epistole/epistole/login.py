@@ -50,8 +50,8 @@ def main(
     if args.status == given or not (args.status or given):
         print(USAGE, file=sys.stderr)
         return 2
-    base = config.home()
     try:
+        base = config.home()
         if args.status:
             report = auth.status(base)
             print("\n".join(auth.status_lines(report)))

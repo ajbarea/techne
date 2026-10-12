@@ -39,7 +39,9 @@ class Reply(NamedTuple):
 
 
 def reply_subject(original: str) -> str:
-    original = original.strip()
+    """Re: <original>, on one line: every str.splitlines() separator in the sender's subject
+    becomes a space, so a hostile subject cannot block the reply."""
+    original = " ".join(original.splitlines()).strip()
     return original if _REPLY_PREFIX.match(original) else f"Re: {original}"
 
 
@@ -84,10 +86,12 @@ def _ids(*values: str) -> list[str]:
 
 
 def _header_value(value: str) -> str:
-    """Refuse line breaks anywhere, then cap at the RFC 5322 line limit."""
+    """Refuse line breaks anywhere and a value over the RFC 5322 line limit."""
     if len(value.splitlines()) > 1:
         raise ValueError("Header values may not contain linefeed or carriage return characters")
-    return value[:MAX_HEADER_CHARS]
+    if len(value) > MAX_HEADER_CHARS:
+        raise ValueError(f"the subject is over {MAX_HEADER_CHARS} characters; shorten it.")
+    return value
 
 
 def build(
@@ -121,7 +125,7 @@ def build(
     if cc:
         msg["Cc"] = ", ".join(cc)
     if reply:
-        msg["Subject"] = _header_value(reply_subject(reply.subject))
+        msg["Subject"] = _header_value(reply_subject(reply.subject)[:MAX_HEADER_CHARS])
         parent = reply.message_id.strip()
         refs = _ids(reply.references) or _ids(reply.in_reply_to)
         refs = [r for r in refs if r != parent] + ([parent] if parent else [])

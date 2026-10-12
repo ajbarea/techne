@@ -26,8 +26,8 @@ def require(qid: str, account: str, aliases: Iterable[str]) -> str:
 
 
 def resolve(qid: str, account: str | None, aliases: Iterable[str]) -> tuple[str, str]:
-    """The (alias, raw id) of qid; an explicit account must match the id's own alias."""
+    """The (alias, raw id) of qid; an account other than None or "" must match the id's alias."""
     aliases = list(aliases)
-    if account is not None:
+    if account:
         return account, require(qid, account, aliases)
     return parse(qid, aliases)

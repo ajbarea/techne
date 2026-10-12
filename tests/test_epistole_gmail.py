@@ -31,8 +31,8 @@ def test_create_and_send_draft():
     svc, box = make()
     d = box.create_draft("cmF3", "t1")
     assert svc.drafts[d["id"]]["message"] == {"raw": "cmF3", "threadId": "t1"}
-    box.send_draft(d["id"])
-    assert svc.sent == [d["id"]]
+    box.send_draft(d["id"], "cmF3", "t1")
+    assert svc.sent == [d["id"]] and svc.delivered == ["cmF3"]
 
 
 class Flaky:
@@ -221,17 +221,19 @@ def test_sender_falls_back_on_missing_email_or_bad_payload():
 
 def test_send_draft_not_retried_on_5xx_and_reports_unknown_outcome():
     svc, box = make()
+    _stored_draft(svc)
     svc.fail["drafts.send"] = [http_error(500), http_error(500)]
     with pytest.raises(gmail.SendOutcomeUnknown, match="check Sent before retrying"):
-        box.send_draft("d1")
+        box.send_draft("d1", "cmF3", "t1")
     assert svc.calls == ["drafts.send"] and svc.sent == []
 
 
 def test_send_draft_network_error_reports_unknown_outcome():
     svc, box = make()
+    _stored_draft(svc)
     svc.fail["drafts.send"] = [TimeoutError()]
     with pytest.raises(gmail.SendOutcomeUnknown):
-        box.send_draft("d1")
+        box.send_draft("d1", "cmF3", "t1")
     assert svc.calls == ["drafts.send"]
 
 
@@ -244,8 +246,9 @@ def test_send_draft_network_error_reports_unknown_outcome():
 )
 def test_send_draft_retried_when_rejected_before_work(err):
     svc, box = make()
+    _stored_draft(svc)
     svc.fail["drafts.send"] = [err]
-    box.send_draft("d1")
+    box.send_draft("d1", "cmF3", "t1")
     assert svc.calls == ["drafts.send", "drafts.send"] and svc.sent == ["d1"]
 
 
@@ -459,3 +462,46 @@ def test_fake_garbage_page_token_is_an_http_400():
     with pytest.raises(HttpError) as err:
         box.search("x", 5, "not-a-token")
     assert err.value.resp.status == 400
+
+
+def _stored_draft(svc, raw="cmF3"):
+    svc.drafts["d1"] = {"message": {"raw": raw, "threadId": "t1"}}
+
+
+def test_send_draft_sends_the_supplied_raw_in_its_thread():
+    svc, box = make()
+    _stored_draft(svc, raw="b2xk")
+    box.send_draft("d1", "bmV3", "t1")
+    assert svc.delivered == ["bmV3"] and svc.sent == ["d1"]
+
+
+@pytest.mark.parametrize(
+    "err",
+    [
+        __import__("ssl").SSLError("bad record mac"),
+        OSError(101, "Network is unreachable"),
+        __import__("socket").gaierror(-2, "Name or service not known"),
+        http_error(404),
+    ],
+)
+def test_send_draft_transport_failures_and_404_are_unknown_outcomes(err):
+    svc, box = make()
+    _stored_draft(svc)
+    svc.fail["drafts.send"] = [err]
+    with pytest.raises(gmail.SendOutcomeUnknown, match="check Sent before retrying"):
+        box.send_draft("d1", "cmF3", "t1")
+    assert svc.calls == ["drafts.send"]
+
+
+def test_send_draft_local_file_error_is_not_a_network_error():
+    svc, box = make()
+    _stored_draft(svc)
+    svc.fail["drafts.send"] = [FileNotFoundError(2, "No such file")]
+    with pytest.raises(FileNotFoundError):
+        box.send_draft("d1", "cmF3", "t1")
+
+
+def test_get_raw_draft_returns_raw_and_thread():
+    svc, box = make()
+    _stored_draft(svc)
+    assert box.get_raw_draft("d1") == {"id": "m-d1", "raw": "cmF3", "threadId": "t1"}

@@ -173,6 +173,7 @@ class Row(NamedTuple):
     address: str
     ok: bool
     detail: str
+    creds: Any = None  # the loaded credentials when ok, so a caller need not load them again
 
 
 class Report(NamedTuple):
@@ -192,8 +193,8 @@ def status(base: Path) -> Report:
     rows: list[Row] = []
     for alias, acct in config.load(base, allow_empty=True).accounts.items():
         try:
-            load_credentials(base, alias, timeout=STATUS_TIMEOUT)
-            rows.append(Row(alias, acct.address, True, "signed in"))
+            creds = load_credentials(base, alias, timeout=STATUS_TIMEOUT)
+            rows.append(Row(alias, acct.address, True, "signed in", creds))
         except LoginRequired as exc:
             detail = f"needs login: {exc.reason}; {_hint(alias)}"
             rows.append(Row(alias, acct.address, False, detail))

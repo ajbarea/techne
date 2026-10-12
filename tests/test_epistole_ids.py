@@ -18,3 +18,10 @@ def test_require_refuses_account_mismatch():
     with pytest.raises(ValueError, match="belongs to 'school'"):
         ids.require("school:18f0a", "personal", ALIASES)
     assert ids.require("school:18f0a", "school", ALIASES) == "18f0a"
+
+
+def test_resolve_treats_empty_account_like_none():
+    assert ids.resolve("school:18f0a", "", ALIASES) == ("school", "18f0a")
+    assert ids.resolve("school:18f0a", None, ALIASES) == ("school", "18f0a")
+    with pytest.raises(ValueError, match="belongs to 'school'"):
+        ids.resolve("school:18f0a", "personal", ALIASES)

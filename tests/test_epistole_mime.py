@@ -275,9 +275,7 @@ def test_attachment_cap_constant():
         {"to": ["b@example.com\nBcc: evil@example.com"]},
         {"cc": ["c@example.com\r\nX: y"]},
         {"reply": mime.Reply("<a@x>\nBcc: e@example.com", "", "Plan")},
-        {"reply": mime.Reply("<a@x>", "", "Plan\r\nBcc: e@example.com")},
         {"subject": "a" * 1000 + "\r\nBcc: evil@example.com"},
-        {"reply": mime.Reply("<a@x>", "", "P" * 1000 + "\nBcc: e@example.com")},
     ],
 )
 def test_header_injection_refused(kwargs: dict[str, Any]):
@@ -465,10 +463,11 @@ def test_safe_filename_strips_directional_marks():
     assert mime.safe_filename("‎abc‏؜.pdf") == "abc.pdf"
 
 
-def test_subject_capped_at_rfc_line_limit():
+def test_subject_over_rfc_line_limit_is_refused_and_reply_subject_capped():
     base: dict[str, Any] = {"sender": "a@example.com", "to": ["b@example.com"], "body": "b"}
-    msg = mime.build(**base, subject="a" * 5000)
-    assert msg["Subject"] == "a" * 998
+    assert mime.build(**base, subject="a" * 998)["Subject"] == "a" * 998
+    with pytest.raises(ValueError, match="998"):
+        mime.build(**base, subject="a" * 999)
     msg = mime.build(**base, subject="s", reply=mime.Reply("<a@x>", "", "é" * 5000))
     assert msg["Subject"] == ("Re: " + "é" * 5000)[:998]
     assert decode(mime.encode(msg))["Subject"] == msg["Subject"]
@@ -700,3 +699,19 @@ def test_build_refuses_a_list_with_an_unparseable_address(to, cc):
 def test_build_accepts_quoted_comma_name_and_exactly_500():
     mime.build(sender="a@x", to=['"Doe, J" <j@x.com>'], subject="s", body="b")
     mime.build(sender="a@x", to=[f"u{n}@example.com" for n in range(500)], subject="s", body="b")
+
+
+@pytest.mark.parametrize(
+    "original",
+    [
+        "Plan\r\nBcc: e@example.com",
+        "P" * 900 + "\nBcc: e@example.com",
+        *(f"Plan{sep}Bcc: e@example.com" for sep in "\r\x0b\x0c\x1c\x1d\x1e\x85\u2028\u2029"),
+    ],
+)
+def test_reply_subject_line_separators_become_spaces(original):
+    reply = mime.Reply("<a@x>", "", original)
+    msg = mime.build(sender="a@x", to=["b@x"], subject="", body="b", reply=reply)
+    parsed = decode(mime.encode(msg))
+    assert parsed["Bcc"] is None and "Bcc: e@example.com" in parsed["Subject"]
+    assert len(parsed["Subject"].splitlines()) == 1

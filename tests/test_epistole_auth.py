@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from epistole import auth, config
+from epistole import auth, config, login
 from google.auth.exceptions import RefreshError
 from google.oauth2.credentials import Credentials
 
@@ -413,10 +413,12 @@ def test_main_relative_client_resolves_against_caller_directory(tmp_path, monkey
     assert rc == 0 and auth.client_secret_path(tmp_path / "home").is_file()
 
 
-def test_relative_epistole_home_resolves_against_caller_directory(tmp_path, monkeypatch):
+def test_relative_epistole_home_is_refused_by_login(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("EPISTOLE_CWD", str(tmp_path))
     monkeypatch.setenv("EPISTOLE_HOME", "rel/home")
-    assert config.home() == tmp_path / "rel" / "home"
+    assert login.main(["--status"]) == 1
+    assert "EPISTOLE_HOME" in capsys.readouterr().err
+    assert not (tmp_path / "rel").exists()
 
 
 @pytest.mark.skipif(shutil.which("uv") is None, reason="uv not installed")

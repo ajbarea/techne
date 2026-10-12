@@ -12,7 +12,7 @@ from typing import NamedTuple
 
 RESERVED = {"all"}
 ALIAS_RE = re.compile(r"^[A-Za-z0-9_-]+$")
-DEFAULT_ATTACH = ["~/Downloads"]
+DEFAULT_ATTACH: list[str] = []
 DEFAULT_DOWNLOAD = "~/Downloads/epistole"
 KEYS = {"attach_dirs", "download_dir", "accounts"}
 MANAGED = (
@@ -42,10 +42,17 @@ def caller_dir() -> Path:
 
 
 def home() -> Path:
+    """The epistole home: EPISTOLE_HOME, which must be absolute or start with ~."""
     env = os.environ.get("EPISTOLE_HOME")
     if not env:
         return Path.home() / ".config" / "epistole"
-    return caller_dir() / Path(env).expanduser()
+    path = Path(env).expanduser()
+    if not path.is_absolute():
+        raise ConfigError(
+            f"EPISTOLE_HOME must be an absolute path or start with ~, not {env!r}; "
+            "the server and epistole-login run from different folders."
+        )
+    return path
 
 
 def client_secret_path(base: Path) -> Path:
@@ -92,6 +99,13 @@ def _path(value: str) -> Path:
     return Path(value).expanduser().resolve()
 
 
+def _check_absolute(key: str, value: str) -> None:
+    if not Path(value).expanduser().is_absolute():
+        raise ConfigError(
+            f"{key} in accounts.toml must be an absolute path or start with ~, not {value!r}."
+        )
+
+
 def _read(base: Path) -> dict:
     file = base / "accounts.toml"
     try:
@@ -108,6 +122,9 @@ def _read(base: Path) -> dict:
         raise ConfigError("attach_dirs in accounts.toml must be a list of folder paths.")
     if not isinstance(data.get("download_dir", DEFAULT_DOWNLOAD), str):
         raise ConfigError("download_dir in accounts.toml must be one folder path.")
+    for value in attach:
+        _check_absolute("attach_dirs", value)
+    _check_absolute("download_dir", data.get("download_dir", DEFAULT_DOWNLOAD))
     table = data.get("accounts", {})
     if not isinstance(table, dict) or not all(
         isinstance(v, str) and "@" in v for v in table.values()
@@ -136,7 +153,8 @@ def load(base: Path | None = None, *, allow_empty: bool = False) -> Config:
 
 
 def _q(value: str) -> str:
-    return json.dumps(value, ensure_ascii=False)
+    """A TOML basic string. JSON escapes every control character TOML forbids except DEL."""
+    return json.dumps(value, ensure_ascii=False).replace("\x7f", "\\u007f")
 
 
 def add_account(base: Path, alias: str, address: str) -> None:

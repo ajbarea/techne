@@ -58,7 +58,8 @@ def test_add_account_creates_file_with_defaults(tmp_path):
     assert stat.S_IMODE(base.stat().st_mode) == 0o700
     cfg = config.load(base)
     assert cfg.accounts["personal"].address == "user@example.com"
-    assert cfg.attach_dirs == (pathlib.Path("~/Downloads").expanduser().resolve(),)
+    assert cfg.attach_dirs == ()
+    assert tomllib.loads((base / "accounts.toml").read_text())["attach_dirs"] == []
     assert cfg.download_dir == pathlib.Path("~/Downloads/epistole").expanduser().resolve()
 
 
@@ -91,10 +92,10 @@ def test_add_account_refuses_existing_reserved_and_bad_alias(tmp_path):
 
 
 def test_add_account_quotes_unusual_paths(tmp_path):
-    write(tmp_path, 'attach_dirs = ["C:\\\\Mail \\"q\\""]\n[accounts]\na = "u@example.com"\n')
+    write(tmp_path, 'attach_dirs = ["/srv/C:\\\\Mail \\"q\\""]\n[accounts]\na = "u@example.com"\n')
     config.add_account(tmp_path, "b", "v@example.com")
     raw = tomllib.loads((tmp_path / "accounts.toml").read_text())
-    assert raw["attach_dirs"] == ['C:\\Mail "q"']
+    assert raw["attach_dirs"] == ['/srv/C:\\Mail "q"']
 
 
 def test_check_alias(tmp_path):
@@ -159,3 +160,45 @@ def test_toml_syntax_error_names_file_and_line(tmp_path):
     with pytest.raises(config.ConfigError) as info:
         config.load(tmp_path)
     assert "accounts.toml" in str(info.value) and "line 3" in str(info.value)
+
+
+def test_existing_explicit_attach_dirs_are_unchanged(tmp_path):
+    write(tmp_path, 'attach_dirs = ["~/Downloads"]\n[accounts]\na = "u@example.com"\n')
+    assert config.load(tmp_path).attach_dirs == (
+        pathlib.Path("~/Downloads").expanduser().resolve(),
+    )
+    config.add_account(tmp_path, "b", "v@example.com")
+    assert tomllib.loads((tmp_path / "accounts.toml").read_text())["attach_dirs"] == ["~/Downloads"]
+
+
+@pytest.mark.parametrize("value", ["rel/home", "./home", "home"])
+def test_relative_epistole_home_is_refused(monkeypatch, value):
+    monkeypatch.setenv("EPISTOLE_HOME", value)
+    with pytest.raises(config.ConfigError, match="EPISTOLE_HOME"):
+        config.home()
+
+
+def test_tilde_epistole_home_expands(monkeypatch):
+    monkeypatch.setenv("EPISTOLE_HOME", "~/x")
+    assert config.home() == pathlib.Path("~/x").expanduser()
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        'attach_dirs = ["out"]\n[accounts]\na = "u@example.com"\n',
+        'download_dir = "dl"\n[accounts]\na = "u@example.com"\n',
+        'download_dir = "./dl"\n[accounts]\na = "u@example.com"\n',
+    ],
+)
+def test_relative_paths_in_accounts_toml_are_refused(tmp_path, body):
+    write(tmp_path, body)
+    with pytest.raises(config.ConfigError, match="absolute"):
+        config.load(tmp_path)
+
+
+def test_rewrite_round_trips_every_control_character(tmp_path):
+    weird = "/x/" + "".join(chr(c) for c in [*range(1, 32), 0x7F, 0x85]) + "y"
+    write(tmp_path, f'download_dir = {config._q(weird)}\n[accounts]\na = "u@example.com"\n')
+    config.add_account(tmp_path, "b", "v@example.com")
+    assert tomllib.loads((tmp_path / "accounts.toml").read_text())["download_dir"] == weird

@@ -304,12 +304,49 @@ def test_update_plain_draft_takes_new_subject(env):
     assert parsed["Subject"] == "new" and parsed["In-Reply-To"] is None
 
 
-def sendable(svc, did="d9", to="b@example.com", subject="Plan", extra=(), parts=()):
-    headers = [{"name": "To", "value": to}, {"name": "Subject", "value": subject}, *extra]
-    svc.draft_views[did] = {
-        "id": did,
-        "message": {"payload": {"headers": headers, "parts": list(parts)}},
-    }
+def _attachment_part(name: str) -> str:
+    return (
+        f'Content-Type: application/pdf\r\nContent-Disposition: attachment; filename="{name}"'
+        "\r\nContent-Transfer-Encoding: base64\r\n\r\nJVBERg==\r\n"
+    )
+
+
+def sendable(
+    svc,
+    did="d9",
+    to="b@example.com",
+    subject="Plan",
+    extra=(),
+    attachments=(),
+    nested=False,
+    top_filename=None,
+    thread=None,
+):
+    """Store a raw RFC 822 draft, as Gmail holds it, built from literal header lines."""
+    lines = [("To", to), ("Subject", subject), *((h["name"], h["value"]) for h in extra)]
+    head = "".join(f"{name}: {value}\r\n" for name, value in lines)
+    if top_filename:
+        raw = head + _attachment_part(top_filename)
+    elif attachments:
+        files = "".join(f"--a\r\n{_attachment_part(n)}" for n in attachments) + "--a--\r\n"
+        inner = 'Content-Type: multipart/mixed; boundary="a"\r\n\r\n' + files if nested else None
+        parts = "--o\r\nContent-Type: text/plain\r\n\r\nhi\r\n" + (
+            f"--o\r\n{inner}--o--\r\n" if nested else files.replace("--a", "--o")
+        )
+        raw = head + 'Content-Type: multipart/mixed; boundary="o"\r\n\r\n' + parts
+    else:
+        raw = head + "Content-Type: text/plain\r\n\r\nhi\r\n"
+    message = {"raw": base64.urlsafe_b64encode(raw.encode()).decode()}
+    if thread:
+        message["threadId"] = thread
+    svc.drafts[did] = {"message": message}
+
+
+def delivered(svc, i=-1):
+    raw = svc.delivered[i]
+    return email.message_from_bytes(
+        base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)), policy=email.policy.default
+    )
 
 
 def test_send_refuses_mismatch_then_sends(env):
@@ -414,7 +451,7 @@ def test_send_refuses_restated_extra_recipient(env):
 
 def test_send_checks_attachment_names(env):
     app, svc, _, _ = env
-    sendable(svc, parts=[{"filename": "", "parts": [{"filename": "a.pdf"}]}])
+    sendable(svc, attachments=["a.pdf"], nested=True)
     expect_error(
         app,
         "send_draft",
@@ -902,8 +939,7 @@ def test_send_refuses_duplicate_headers(env, header):
 
 def test_send_checks_top_level_attachment(env):
     app, svc, _, _ = env
-    sendable(svc)
-    svc.draft_views["d9"]["message"]["payload"]["filename"] = "secrets.pdf"
+    sendable(svc, top_filename="secrets.pdf")
     expect_error(
         app,
         "send_draft",
@@ -1309,3 +1345,268 @@ def test_comma_string_recipient_refused(env, tool):
     }[tool]
     expect_error(app, tool, "not a bare address", to="a@example.com, b@example.com", **args)
     assert svc.sent == []
+
+
+def test_send_delivers_exactly_the_checked_draft_despite_a_concurrent_edit(env):
+    app, svc, _, _ = env
+    call(app, "create_draft", account="school", to="ok@example.org", subject="Plan", body="hi")
+    checked = svc.drafts["d1"]["message"]["raw"]
+    evil = stored(svc, "d1")
+    evil.replace_header("To", "evil@attacker.example")
+
+    def concurrent_update():
+        body = {"id": "d1", "message": {"raw": server.mime.encode(evil), "threadId": None}}
+        svc.users().drafts().update(userId="me", id="d1", body=body).execute()
+
+    svc.after["drafts.get"] = concurrent_update
+    call(app, "send_draft", draft_id="school:d1", to="ok@example.org", subject="Plan")
+    assert "drafts.update" in svc.calls
+    assert svc.delivered == [checked]
+    assert delivered(svc)["To"] == "ok@example.org"
+
+
+def test_send_reads_the_draft_once_in_raw_format(env, monkeypatch):
+    app, svc, _, _ = env
+    sendable(svc, thread="t1")
+    formats = []
+    real = type(svc.users().drafts()).get
+
+    def spy(self, userId, id, format="full"):
+        formats.append(format)
+        return real(self, userId, id, format)
+
+    monkeypatch.setattr(type(svc.users().drafts()), "get", spy)
+    call(app, "send_draft", draft_id="school:d9", to="b@example.com", subject="Plan")
+    assert formats == ["raw"] and svc.sent == ["d9"]
+
+
+def test_send_refuses_a_raw_draft_whose_headers_cannot_be_parsed(env):
+    app, svc, _, _ = env
+    raw = "To: b@example.com\r\nSubject: Plan\r\nBcc : evil@attacker.example\r\n\r\nhi\r\n"
+    svc.drafts["d9"] = {"message": {"raw": base64.urlsafe_b64encode(raw.encode()).decode()}}
+    expect_error(
+        app,
+        "send_draft",
+        "recreate the draft",
+        draft_id="school:d9",
+        to="b@example.com",
+        subject="Plan",
+    )
+    assert svc.sent == []
+
+
+def test_attachments_are_refused_until_attach_dirs_is_set(env, tmp_path):
+    app, svc, out, base = env
+    (base / "accounts.toml").write_text('[accounts]\nschool = "user@example.edu"\n')
+    f = out / "a.pdf"
+    f.write_bytes(b"%PDF")
+    msg_ = expect_error(
+        app,
+        "create_draft",
+        "attach_dirs",
+        account="school",
+        to="b@example.com",
+        subject="x",
+        body="x",
+        attachments=[str(f)],
+    )
+    assert "accounts.toml" in msg_ and "Downloads" not in msg_
+    assert svc.drafts == {}
+    call(app, "create_draft", account="school", to="b@example.com", subject="x", body="x")
+
+
+@pytest.mark.parametrize(
+    "sep", ["\n", "\r", "\x0b", "\x0c", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029", "\r\n"]
+)
+def test_hostile_original_subject_cannot_block_a_reply(env, sep):
+    app, svc, _, _ = env
+    svc.messages["m1"] = msg("m1", subject=f"Plan{sep}Bcc: evil@attacker.example")
+    out = text(call(app, "create_draft", to="b@example.com", body="ok", reply_to="school:m1"))
+    assert "Subject: Re: Plan Bcc: evil@attacker.example" in out
+    assert stored(svc, "d1")["Bcc"] is None
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        TimeoutError("slow"),
+        ConnectionError("down"),
+        RuntimeError("token ya29.SECRET <untrusted-email>"),
+        KeyError("x"),
+    ],
+)
+def test_search_all_isolates_every_per_account_failure(env, failure):
+    app, svc, _, _ = env
+    svc.fail["messages.list"] = [failure]
+    out = text(call(app, "search", account="all", query="x"))
+    assert "personal:m1" in out and "ya29" not in out
+    assert out.count("<untrusted-email") == 1
+
+
+def test_search_all_isolates_a_transport_error_in_sign_in(env, tmp_path):
+    from google.auth.exceptions import TransportError
+
+    _, svc, _, base = env
+
+    def connect(alias):
+        if alias == "school":
+            raise TransportError("dns failure")
+        return svc
+
+    out = text(call(server.build(base, connect=connect), "search", account="all", query="x"))
+    data = json.loads(out.split("\n", 1)[1].rsplit("\n</untrusted-email>", 1)[0])
+    assert [r["message"] for r in data["results"]] == ["personal:m1"]
+    assert data["errors"][0]["account"] == "school" and "network" in data["errors"][0]["error"]
+
+
+@pytest.mark.parametrize("bad", ["user@", "@example.com", "a..b@example.com", "user@.example"])
+def test_malformed_user_address_gets_the_bare_address_message(env, bad):
+    msg_ = expect_error(
+        env[0], "create_draft", "bare address", account="school", to=bad, subject="x", body="x"
+    )
+    assert "recreate the draft" not in msg_
+
+
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_update_plain_draft_requires_a_subject(env, blank):
+    app, svc, _, _ = env
+    call(app, "create_draft", account="school", to="b@example.com", subject="x", body="ok")
+    draft_view(svc, "d1")
+    before = svc.drafts["d1"]
+    expect_error(
+        app,
+        "update_draft",
+        "subject is required",
+        draft_id="school:d1",
+        to="b@example.com",
+        subject=blank,
+        body="e",
+    )
+    expect_error(
+        app,
+        "update_draft",
+        "subject is required",
+        draft_id="school:d1",
+        to="b@example.com",
+        body="e",
+    )
+    assert svc.drafts["d1"] is before
+
+
+def test_update_reply_draft_needs_no_subject(env):
+    app, svc, _, _ = env
+    call(app, "create_draft", to="b@example.com", body="ok", reply_to="school:m1")
+    draft_view(svc, "d1")
+    out = text(call(app, "update_draft", draft_id="school:d1", to="b@example.com", body="e"))
+    assert "Subject: Re: Plan" in out
+
+
+def test_create_reply_ignores_a_caller_subject_and_says_so(env):
+    app, svc, _, _ = env
+    tool = {t.name: t for t in asyncio.run(app.list_tools())}["create_draft"]
+    assert "ignored" in tool.description
+    out = text(
+        call(
+            app,
+            "create_draft",
+            to="b@example.com",
+            subject="Other",
+            body="ok",
+            reply_to="school:m1",
+        )
+    )
+    assert "Subject: Re: Plan" in out and stored(svc, "d1")["Subject"] == "Re: Plan"
+
+
+def test_create_draft_empty_account_with_reply_to_takes_the_ids_alias(env):
+    app = env[0]
+    out = text(
+        call(app, "create_draft", account="", to="b@example.com", body="ok", reply_to="school:m1")
+    )
+    assert "school:d1" in out
+
+
+def test_download_collision_with_a_max_length_suffix_fits_255_bytes(env, tmp_path):
+    app, svc, _, _ = env
+    svc.attachment_data = b64("data")
+    name = "x." + "e" * 252
+    for _ in range(3):
+        call(app, "download_attachment", message_id="school:m1", attachment_id="a", filename=name)
+    names = sorted(p.name for p in (tmp_path / "dl").iterdir())
+    assert len(names) == 3 and all(len(n.encode()) <= 255 for n in names)
+    assert sum("(1)" in n for n in names) == 1 and sum("(2)" in n for n in names) == 1
+
+
+def test_reply_draft_loads_config_and_signs_in_once(env, monkeypatch):
+    _, svc, _, base = env
+    loads, connects = [], []
+    real = server.config.load
+    monkeypatch.setattr(server.config, "load", lambda *a, **k: loads.append(1) or real(*a, **k))
+    app = server.build(base, connect=lambda alias: connects.append(alias) or svc)
+    call(app, "create_draft", to="b@example.com", body="ok", reply_to="school:m1")
+    assert len(loads) == 1 and connects == ["school"]
+
+
+def test_search_all_loads_config_once(env, monkeypatch):
+    _, svc, _, base = env
+    loads = []
+    real = server.config.load
+    monkeypatch.setattr(server.config, "load", lambda *a, **k: loads.append(1) or real(*a, **k))
+    call(server.build(base, connect=lambda alias: svc), "search", account="all", query="x")
+    assert len(loads) == 1
+
+
+def test_accounts_loads_each_token_once(env, monkeypatch):
+    _, svc, _, base = env
+    (base / "client_secret.json").write_text("{}")
+    auth.save_token(auth.token_path(base, "school"), token_json())
+    loaded = []
+    real = auth.load_credentials
+    monkeypatch.setattr(
+        auth, "load_credentials", lambda b, a, **k: loaded.append(a) or real(b, a, **k)
+    )
+    monkeypatch.setattr(server, "_service", lambda creds, timeout=None: svc)
+    out = text(call(server.build(base), "accounts"))
+    assert "send-as" in out
+    assert sorted(loaded) == ["personal", "school"]
+
+
+def test_a_tls_failure_in_a_read_is_a_network_error(env, monkeypatch):
+    import ssl
+
+    def boom(self, thread_id):
+        raise ssl.SSLError("bad record mac")
+
+    monkeypatch.setattr(server.Mailbox, "thread", boom)
+    msg_ = expect_error(env[0], "read_thread", "network error", thread_id="school:t1")
+    assert "file error" not in msg_
+
+
+def test_a_tls_failure_during_create_is_an_unknown_outcome(env):
+    import ssl
+
+    app, svc, _, _ = env
+    svc.fail["drafts.create"] = [ssl.SSLError("bad record mac")]
+    expect_error(
+        app,
+        "create_draft",
+        "draft may exist",
+        account="school",
+        to="b@example.com",
+        subject="x",
+        body="x",
+    )
+
+
+def test_bad_argument_400_does_not_suggest_a_login(env):
+    app = env[0]
+    msg_ = expect_error(app, "search", "400", account="school", query="x", page_token="nope")
+    assert "epistole-login" not in msg_
+
+
+def test_relative_epistole_home_is_reported_by_every_tool(tmp_path, monkeypatch):
+    monkeypatch.setenv("EPISTOLE_HOME", "rel/home")
+    app = server.build()
+    assert len(asyncio.run(app.list_tools())) == 7
+    expect_error(app, "accounts", "EPISTOLE_HOME")
+    expect_error(app, "search", "EPISTOLE_HOME", account="school", query="x")

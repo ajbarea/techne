@@ -76,7 +76,16 @@ def test_search_next_page_wire():
             lambda b: b.update_draft("d", "cmF3", "t"),
             ("PUT", f"{P}/drafts/d", {}, {"id": "d", "message": {"raw": "cmF3", "threadId": "t"}}),
         ),
-        (lambda b: b.send_draft("d"), ("POST", f"{P}/drafts/send", {}, {"id": "d"})),
+        (lambda b: b.get_raw_draft("d"), ("GET", f"{P}/drafts/d", {"format": ["raw"]}, None)),
+        (
+            lambda b: b.send_draft("d", "cmF3", "t"),
+            (
+                "POST",
+                f"{P}/drafts/send",
+                {},
+                {"id": "d", "message": {"raw": "cmF3", "threadId": "t"}},
+            ),
+        ),
         (lambda b: b.attachment("m", "att"), ("GET", f"{P}/messages/m/attachments/att", {}, None)),
         (lambda b: b.sender(), ("GET", f"{P}/settings/sendAs", {}, None)),
     ],

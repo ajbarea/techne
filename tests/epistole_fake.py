@@ -4,7 +4,12 @@ Error injection: `svc.fail["drafts.send"] = [HttpError(...), TimeoutError()]` ma
 executions of that method raise those, one per call, then behave normally. A None entry lets
 that call succeed. Method names: messages.list, messages.get, messages.attachments.get,
 threads.get, drafts.create, drafts.update, drafts.get, drafts.send, settings.sendAs.list.
-Every execution is recorded in `svc.calls`.
+Every execution is recorded in `svc.calls`. `svc.after[name] = fn` runs fn once, after that
+method has computed its result (a concurrent edit landing between two calls).
+
+Drafts: `drafts.get(format="raw")` and `drafts.send` work on `svc.drafts`, as Gmail does;
+`format="full"` returns `svc.draft_views`. `drafts.send` delivers the supplied `message.raw`
+if the body has one, else the stored draft, records it in `svc.delivered`, and deletes the draft.
 """
 
 from __future__ import annotations
@@ -43,7 +48,11 @@ class _Req:
             err = queue.pop(0)
             if err is not None:
                 raise err
-        return self.fn()
+        result = self.fn()
+        hook = self.svc.after.pop(self.name, None)
+        if hook is not None:
+            hook()
+        return result
 
 
 class _Messages:
@@ -119,12 +128,30 @@ class _Drafts:
 
     def get(self, userId, id, format="full"):
         _check_format(format, FORMATS)
-        return _Req(self.svc, "drafts.get", lambda: self.svc.draft_views[id])
+
+        def run():
+            if format != "raw":
+                return self.svc.draft_views[id]
+            if id not in self.svc.drafts:
+                raise http_error(404)
+            stored = self.svc.drafts[id]["message"]
+            message = {"id": "m-" + id, "raw": stored["raw"]}
+            if stored.get("threadId"):
+                message["threadId"] = stored["threadId"]
+            return {"id": id, "message": message}
+
+        return _Req(self.svc, "drafts.get", run)
 
     def send(self, userId, body):
         def run():
-            self.svc.sent.append(body["id"])
-            return {"id": "sent-" + body["id"]}
+            did = body["id"]
+            if did not in self.svc.drafts:
+                raise http_error(404)
+            supplied = body.get("message", {}).get("raw")
+            self.svc.delivered.append(supplied or self.svc.drafts[did]["message"]["raw"])
+            self.svc.sent.append(did)
+            del self.svc.drafts[did]
+            return {"id": "sent-" + did}
 
         return _Req(self.svc, "drafts.send", run)
 
@@ -174,6 +201,8 @@ class FakeService:
         self.draft_views: dict[str, dict] = {}
         self.search_hits: list[str] = []
         self.sent: list[str] = []
+        self.delivered: list[str] = []
+        self.after: dict = {}
         self.attachment_data = ""
         self.send_as: list[dict] = []
         self.send_as_calls = 0
