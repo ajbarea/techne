@@ -10,10 +10,13 @@ and only the GitHub PR lookup is faked.
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
+from conftest import HYGIENE_SCRIPT, ROOT
 
 ME = "ajbarea"
 
@@ -450,3 +453,75 @@ def test_bad_config_points_at_setup(hy, monkeypatch, tmp_path, body, said):
     with pytest.raises(SystemExit) as exc:
         hy.load_sisters([])
     assert said in str(exc.value) and "/techne:setup" in str(exc.value)
+
+
+GOOD = (
+    'workspace_root = "~/w x"\ngithub_user = "u"\n\n'
+    '[[sisters]]\nname = "a"\n\n[[sisters]]\nname = "b"\nkind = "team"\n\n'
+    '[[sisters]]\nname = "c"\nstatus = "retired"\n'
+)
+
+
+def run_env(tmp_path, body, script=HYGIENE_SCRIPT):
+    home = tmp_path / "home"
+    (home / ".claude").mkdir(parents=True, exist_ok=True)
+    if body is not None:
+        (home / ".claude" / "techne.toml").write_text(body)
+    return subprocess.run(
+        [sys.executable, str(script), "--env"],
+        env={"HOME": str(home), "PATH": str(tmp_path)},
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_env_prints_the_audit_preamble_variables(tmp_path):
+    proc = run_env(tmp_path, GOOD)
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.splitlines() == [
+        "SISTERS='a b'",
+        "TEAM_SISTERS=b",
+        "WORKSPACE='~/w x'",
+        "GITHUB_USER=u",
+    ]
+
+
+@pytest.mark.parametrize(
+    "body, said",
+    [
+        (None, "not found"),
+        ("workspace_root = [", "not valid TOML"),
+        ('workspace_root = "~/w"\ngithub_user = "u"\n[[sisters]]\nx = 1\n', "no name"),
+        ('workspace_root = "~/w"\ngithub_user = "u"\nsisters = "a"\n', "list of tables"),
+        (
+            'workspace_root = "~/w"\ngithub_user = "u"\n[[sisters]]\nname = "a"\nstatus = "off"\n',
+            "no active",
+        ),
+    ],
+)
+def test_env_failures_are_one_line_with_the_setup_pointer(tmp_path, body, said):
+    proc = run_env(tmp_path, body)
+    assert proc.returncode == 1 and proc.stdout == ""
+    assert "Traceback" not in proc.stderr
+    assert said in proc.stderr and "/techne:setup" in proc.stderr
+
+
+def test_a_sisters_entry_without_a_name_is_a_message_not_a_traceback(hy, monkeypatch, tmp_path):
+    path = tmp_path / "techne.toml"
+    path.write_text('workspace_root = "w"\ngithub_user = "u"\n[[sisters]]\nx = 1\n')
+    monkeypatch.setattr(hy, "TECHNE_TOML", path)
+    with pytest.raises(SystemExit) as exc:
+        hy.load_sisters([])
+    assert "no name" in str(exc.value)
+
+
+def test_hygiene_leaves_no_bytecode_in_the_plugin(tmp_path):
+    plugin = tmp_path / "techne"
+    shutil.copytree(
+        ROOT / "plugins" / "techne",
+        plugin,
+        ignore=shutil.ignore_patterns("__pycache__", "evals", "eval-fixtures"),
+    )
+    proc = run_env(tmp_path, GOOD, plugin / "skills" / "sisters" / "scripts" / "hygiene.py")
+    assert proc.returncode == 0, proc.stderr
+    assert not list(plugin.rglob("__pycache__"))

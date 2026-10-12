@@ -29,9 +29,13 @@ def gh_auth() -> d.Check:
         return d.Check(d.NA, "gh-auth", "gh is missing")
     host = os.environ.get("GH_HOST") or "github.com"
     code, out = d.run([gh, "auth", "status", "--hostname", host])
-    if code == 0:
+    # gh 2.45 exits 0 for a dead token, a bad GH_TOKEN or a host with no sign-in, and marks
+    # the failure with an "X Failed to log in" line.
+    failed = [line.strip()[2:].strip() for line in out.splitlines() if line.strip()[:2] == "X "]
+    if code == 0 and not failed and "Failed to log in" not in out:
         return d.Check(d.OK, "gh-auth", f"signed in to {host}")
-    why = d.first_line(out) or "not signed in"
+    lines = [line.strip() for line in out.splitlines() if line.strip() and line.strip() != host]
+    why = d.first_line(failed[0] if failed else "\n".join(lines)) or "not signed in"
     return d.Check(
         d.MISSING, "gh-auth", f"{host}: {why}", (f"fix: gh auth login --hostname {host}",)
     )
@@ -74,7 +78,8 @@ def techne_toml() -> d.Check:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
         return d.Check(d.OPTIONAL, "techne.toml", f"unreadable: {exc}", edit)
-    lacking = [k for k in TOML_KEYS if not re.search(rf"^\s*{k}\s*=", text, re.MULTILINE)]
+    top = re.split(r"^\s*\[", text, maxsplit=1, flags=re.MULTILINE)[0]  # keys before any table
+    lacking = [k for k in TOML_KEYS if not re.search(rf"^\s*{k}\s*=", top, re.MULTILINE)]
     if not re.search(r"^\s*\[\[sisters\]\]", text, re.MULTILINE):
         lacking.append("[[sisters]]")
     if lacking:
@@ -92,7 +97,7 @@ def lsof(platform: d.Platform) -> d.Check:
         d.MISSING,
         "lsof",
         "not on PATH; macOS ships it in /usr/sbin (techne:sisters clean mode)",
-        ('fix: export PATH="$PATH:/usr/sbin"',),
+        ("fix: echo 'export PATH=\"$PATH:/usr/sbin\"' >> ~/.zprofile",),
     )
 
 

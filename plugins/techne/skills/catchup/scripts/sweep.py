@@ -129,13 +129,15 @@ def run(cmd, **kw):
         proc = subprocess.run(cmd, capture_output=True, text=True, **kw)
     except FileNotFoundError:
         if cmd[0] == "gh":
+            sys.dont_write_bytecode = True  # the plugin cache stays as installed
             sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "_shared"))
             import doctor_lib  # ty: ignore[unresolved-import]
 
+            message = doctor_lib.missing_message([("gh", "gh")], "/techne:setup")
+            head, _, setup = message.rpartition("\n")
             sys.exit(
-                "catchup: "
-                + doctor_lib.missing_message([("gh", "gh")], "/techne:setup")
-                + "\nThen sign in with `gh auth login`."
+                f"catchup: {head}\n  After installing, the user signs in with "
+                f"`!gh auth login --hostname github.com`.\n{setup}"
             )
         sys.exit(f"catchup: {cmd[0]} not found on PATH. Run /techne:setup to check it.")
     if proc.returncode != 0:

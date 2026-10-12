@@ -5,9 +5,9 @@ This is the setup guide for techne, written for an agent guiding a user. Run the
 ## Rules
 
 - The doctor only reads. Run it again after each fix to confirm.
-- After the user approves, you may run a fix that needs no `sudo` and no browser: the Chromium install and the skill-context copy.
-- The user runs every fix that starts with `sudo`, and `xcode-select --install`. In Claude Code they type it after `!`.
+- The user runs every fix line that contains `sudo`, and `xcode-select --install`. In Claude Code they type it after `!`, for example `!sudo apt install tmux`.
 - The user runs `gh auth login`, because it opens a browser and asks questions: `!gh auth login --hostname github.com`.
+- Any other fix line, such as the uv installer, a Homebrew install, the Chromium install and the skill-context copy, you may run after the user approves.
 - Report only what the doctor printed.
 
 ## 1. Run the doctor
@@ -20,13 +20,13 @@ If the shell says `python3` is not found, the doctor cannot start. The user inst
 
 | Check | Used by | What to do |
 | --- | --- | --- |
-| `git` | every skill | Run the fix line. |
-| `gh`, `gh-auth` | catchup, ci-audit, sisters, elenchus, auto-commit | Install gh with the fix line, then the user signs in with `!gh auth login --hostname <host>`. The host is `GH_HOST` when set, otherwise `github.com`. |
-| `uv` | docs-site, elenchus, and most repos' make targets | Run the fix line, then open a new terminal so `uv` is on PATH. |
-| `python3` | catchup, sisters | sisters reads TOML with `tomllib`, which needs Python 3.11. On a system whose package python3 is older, `uv python install --default 3.12` puts a newer `python3` in `~/.local/bin`. |
-| `tmux` | theoros | Run the fix line. |
+| `git` | every skill | The user runs the fix line with `!`. |
+| `gh`, `gh-auth` | catchup, ci-audit, sisters, elenchus, auto-commit | The user runs the fix line with `!` (it contains `sudo` on Debian or Ubuntu; on macOS you may run `brew install gh` after the user approves), then the user signs in with `!gh auth login --hostname <host>`. The host is `GH_HOST` when set, otherwise `github.com`. |
+| `uv` | docs-site, elenchus, and most repos' make targets | Run the fix line after the user approves, then open a new terminal so `uv` is on PATH. |
+| `python3` | catchup, sisters, docs-site | sisters reads TOML with `tomllib`, which needs Python 3.11. The distro package is the old version already installed, so for a version below 3.11 the doctor prints only `uv python install --default 3.12 && uv python update-shell`. Run it after the user approves, then open a new terminal so `~/.local/bin` is on PATH. |
+| `tmux` | theoros | The user runs the fix line with `!`. |
 | `chromium` | docs-site visual QA | Optional. Run the fix line after the user approves; it downloads Chromium for Playwright 1.63.0. |
-| `lsof` | sisters clean mode, macOS only | macOS keeps it in `/usr/sbin`; add that folder to PATH. |
+| `lsof` | sisters clean mode, macOS only | macOS keeps it in `/usr/sbin`; the fix line adds that folder to PATH in `~/.zprofile`; run it after the user approves. |
 
 ## 3. Give the repo a skill context
 

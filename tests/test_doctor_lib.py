@@ -237,7 +237,7 @@ def test_tool_statuses(dl, deb, tmp_path, monkeypatch):
     assert new.status == dl.OK and new.detail.startswith("3.12.3 at ")
     old = dl.tool("old", platform=deb, fix=fix, version_argv=v, minimum=(3, 11))
     assert old.status == dl.MISSING and "3.10.12" in old.detail and "need 3.11" in old.detail
-    assert old.fixes == ("fix: sudo apt install python3", "fix: uv python install --default 3.12")
+    assert old.fixes == ("fix: uv python install --default 3.12 && uv python update-shell",)
     unread = dl.tool("quiet", platform=deb, fix=fix, version_argv=v)
     assert unread.status == dl.OK and "version not read" in unread.detail
     assert dl.tool("quiet", platform=deb, fix=fix, version_argv=v, minimum=(3, 9)).status == (

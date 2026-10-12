@@ -82,7 +82,7 @@ def test_all_present_is_ready(tmp_path, machine):
     [
         ("gh", "sudo apt install gh -y"),
         ("uv", "fix: curl -LsSf https://astral.sh/uv/install.sh | sh"),
-        ("python3", "fix: uv python install --default 3.12"),
+        ("python3", "fix: uv python install --default 3.12 && uv python update-shell"),
         ("tmux", "fix: sudo apt install tmux"),
     ],
 )
@@ -94,6 +94,36 @@ def test_each_missing_tool_names_its_fix(tmp_path, machine, drop, fix):
     assert found[drop][0] == "missing"
     assert fix in proc.stdout
     assert proc.stdout.splitlines()[-1].startswith("result: missing ")
+
+
+# gh 2.45 exits 0 and prints these lines for a dead token, a bad GH_TOKEN or an unknown host.
+def failed_gh(first):
+    return (
+        'case "$1" in --version) echo "gh version 2.45.0 (2025-07-18)";; '
+        f'auth) echo "$4"; echo "  {first}"; echo "  - The token is invalid."; exit 0;; esac'
+    )
+
+
+@pytest.mark.parametrize(
+    "marker",
+    [
+        "X Failed to log in to github.com account u (/c/hosts.yml)",
+        "X Failed to log in to github.com using token (GH_TOKEN)",
+        "X Failed to log in to ghe.example.com using token (/c/hosts.yml)",
+    ],
+)
+def test_gh_auth_exit_zero_with_a_failure_marker_is_missing(tmp_path, machine, marker):
+    home, repo = machine
+    proc, found = doctor(tmp_path, home, repo, {**STUBS, "gh": failed_gh(marker)})
+    assert proc.returncode == 1 and found["gh-auth"][0] == "missing"
+    assert found["gh-auth"][1] == f"github.com: {marker[2:]}"
+    assert "  fix: gh auth login --hostname github.com" in proc.stdout.splitlines()
+
+
+def test_gh_auth_marker_without_the_failed_wording_is_missing(tmp_path, machine):
+    home, repo = machine
+    _, found = doctor(tmp_path, home, repo, {**STUBS, "gh": failed_gh("X something else")})
+    assert found["gh-auth"][0] == "missing"
 
 
 def test_missing_gh_makes_sign_in_not_applicable(tmp_path, machine):
@@ -111,9 +141,11 @@ def test_missing_git_names_its_fix_and_skips_the_repo_check(tmp_path, machine):
 
 def test_old_python3_is_missing(tmp_path, machine):
     home, repo = machine
-    _, found = doctor(tmp_path, home, repo, {**STUBS, "python3": "echo 3.10.12"})
+    proc, found = doctor(tmp_path, home, repo, {**STUBS, "python3": "echo 3.10.12"})
     assert found["python3"][0] == "missing"
     assert "3.10.12" in found["python3"][1] and "need 3.11 or newer" in found["python3"][1]
+    fixes = [line for line in proc.stdout.splitlines() if line.startswith("  fix")]
+    assert fixes == ["  fix: uv python install --default 3.12 && uv python update-shell"]
 
 
 def test_macos_lines(tmp_path, machine):
@@ -122,7 +154,7 @@ def test_macos_lines(tmp_path, machine):
     proc, found = doctor(tmp_path, home, repo, stubs, env={"TECHNE_DOCTOR_OS": "macos"})
     assert "  fix: brew install gh" in proc.stdout.splitlines()
     assert found["lsof"][0] == "missing"
-    assert 'fix: export PATH="$PATH:/usr/sbin"' in proc.stdout
+    assert "fix: echo 'export PATH=\"$PATH:/usr/sbin\"' >> ~/.zprofile" in proc.stdout
     proc, found = doctor(
         tmp_path, home, repo, {**STUBS, "lsof": "exit 0"}, env={"TECHNE_DOCTOR_OS": "macos"}
     )
@@ -200,6 +232,26 @@ def test_missing_skill_context_is_optional_and_offers_the_template(tmp_path, mac
     assert str(SKELETON) in fix and not (repo / ".claude" / "skill-context.md").exists()
 
 
+def test_skill_context_fix_quotes_a_path_with_a_space(tmp_path, machine):
+    home, _ = machine
+    spaced = tmp_path / "sp ace"
+    spaced.mkdir()
+    git(spaced, "init", "-q")
+    proc, found = doctor(tmp_path, home, spaced, cwd=spaced)
+    assert found["skill-context"][0] == "optional"
+    fix = next(line for line in proc.stdout.splitlines() if "skill-context.template.md" in line)
+    assert f"mkdir -p '{spaced}/.claude'" in fix and f"'{spaced}/.claude/skill-context.md'" in fix
+
+
+def test_techne_toml_keys_inside_a_sisters_table_do_not_count(tmp_path, machine):
+    home, repo = machine
+    (home / ".claude" / "techne.toml").write_text(
+        'workspace_root = "~/w"\n\n[[sisters]]\nname = "a"\ngithub_user = "u"\n'
+    )
+    _, found = doctor(tmp_path, home, repo)
+    assert found["techne.toml"] == ("optional", "missing github_user")
+
+
 def test_running_the_doctor_leaves_no_bytecode(tmp_path, machine):
     home, repo = machine
     plugin = tmp_path / "plugin" / "techne"
@@ -241,3 +293,28 @@ def test_published_text_has_no_email_or_machine_path():
     for path in (AGENTS, SKELETON, DOCTOR.parent.parent / "SKILL.md"):
         text = path.read_text(encoding="utf-8")
         assert not EMAIL.search(text) and not MACHINE_PATH.search(text), path
+
+
+def agents_rows():
+    rows = {}
+    for line in AGENTS.read_text(encoding="utf-8").splitlines():
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if line.startswith("| `") and len(cells) == 3:
+            rows[cells[0]] = cells[2]
+    return rows
+
+
+def test_runbook_gives_every_sudo_and_browser_fix_to_the_user():
+    text = AGENTS.read_text(encoding="utf-8")
+    assert "contains `sudo`" in text and "!gh auth login --hostname" in text
+    rows = agents_rows()
+    lib = _load("techne_doctor_lib_rows", DOCTOR_LIB)
+
+    def row(key):
+        return next(cell for name, cell in rows.items() if f"`{key}`" in name)
+
+    for key in ("git", "gh", "tmux"):
+        assert "sudo" in (lib.FIXES[key].apt or ""), key
+        assert "The user runs the fix line with `!`" in row(key), key
+    for key in ("uv", "chromium"):
+        assert "after the user approves" in row(key), key

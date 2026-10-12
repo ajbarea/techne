@@ -120,7 +120,7 @@ authoritative_sources:
   - "src/"
 ```
 
-See [Conventions](conventions.md) for the full skeleton, and [Configuration](configuration.md) for the user-level `~/.claude/techne.toml`.
+See [Conventions](conventions.md) for the skeleton and what each section does, and [Configuration](configuration.md) for the user-level `~/.claude/techne.toml`.
 
 ### Multi-Repo Configuration
 

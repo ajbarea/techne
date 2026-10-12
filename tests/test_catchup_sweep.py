@@ -7,7 +7,12 @@ follows guards a path that would produce one quietly.
 
 from __future__ import annotations
 
+import shutil
+import subprocess
+import sys
+
 import pytest
+from conftest import ROOT
 
 ME = "ajbarea"
 
@@ -543,8 +548,28 @@ def test_reported_events_come_back_in_time_order(sw):
 
 def test_missing_gh_names_the_install_and_the_setup_skill(sw, monkeypatch, tmp_path):
     monkeypatch.setenv("PATH", str(tmp_path))
+    monkeypatch.setenv("TECHNE_DOCTOR_OS", "debian")
     with pytest.raises(SystemExit) as exc:
         sw.run(["gh", "api", "user"])
     message = str(exc.value)
     assert "https://cli.github.com" in message
-    assert "gh auth login" in message and "/techne:setup" in message
+    assert "!gh auth login --hostname github.com" in message
+    assert message.rstrip().endswith("everything else this plugin needs.")
+
+
+def test_missing_gh_leaves_no_bytecode_in_the_plugin(tmp_path):
+    plugin = tmp_path / "techne"
+    shutil.copytree(
+        ROOT / "plugins" / "techne",
+        plugin,
+        ignore=shutil.ignore_patterns("__pycache__", "evals", "eval-fixtures"),
+    )
+    script = plugin / "skills" / "catchup" / "scripts" / "sweep.py"
+    proc = subprocess.run(
+        [sys.executable, str(script), "owner/name"],
+        env={"PATH": str(tmp_path), "HOME": str(tmp_path)},
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 1 and "/techne:setup" in proc.stderr, proc.stderr
+    assert not list(plugin.rglob("__pycache__"))

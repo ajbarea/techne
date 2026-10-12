@@ -64,7 +64,7 @@ FIXES = {
     "python3": Fix(
         apt="sudo apt install python3",
         brew="brew install python",
-        cmd="uv python install --default 3.12",
+        cmd="uv python install --default 3.12 && uv python update-shell",
     ),
     "tmux": Fix(apt="sudo apt install tmux", brew="brew install tmux"),
     "latex": Fix(
@@ -302,7 +302,9 @@ def tool(
         return Check(absent, shown, f"{found} gave no version ({why_not}){need}{suffix}", fixes)
     if minimum is not None and version < tuple(minimum):
         detail = f"{fmt_version(version)} at {found}; need {fmt_version(minimum)} or newer"
-        return Check(absent, shown, f"{detail}{suffix}", fixes)
+        # The distro package is the old version already installed, so its line fixes nothing.
+        newer = fix_lines(platform, Fix(brew=fix.brew, cmd=fix.cmd))
+        return Check(absent, shown, f"{detail}{suffix}", newer or fixes)
     return Check(OK, shown, f"{fmt_version(version)} at {found}")
 
 
