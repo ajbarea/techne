@@ -11,60 +11,55 @@ has crept in — extract it back to ROADMAP.
 
 ## In flight
 
-### `epistole` — Gmail for Claude Code across accounts (spec approved 2026-10-10, after review)
+### Onboarding pass — every plugin as easy to set up and cite as epistole (spec 2026-10-12)
 
-**Why.** The claude.ai Gmail connector holds one Google account and belongs to the signed-in Claude
-account, so switching between a personal and a university Claude seat loses an inbox. A local MCP
-server reaches every configured Gmail account whichever Claude account is active.
+**Why.** A new user should get from `/plugin install` to a first working command without reading
+source, and the marketplace should be citable by DOI. Today only epistole has a setup entry point;
+techne, graphe, dokimasia and phylax have no README; a missing `latexmk` is a Python traceback and a
+missing `uv` is silent in keryx; the cited version 1.2.0 has no tag, release or DOI.
 
 **Decisions** `# research(2026-10)`
-- MCP Python SDK v2 (`mcp>=2,<3`, `MCPServer`), stdio, `uv` env in `${CLAUDE_PLUGIN_DATA}`. Scopes
-  `gmail.readonly` + `gmail.compose` (no drafts-only scope exists; compose can send).
-- Tools take an `account` alias; ids come back account-qualified (`rit:<id>`) and a mismatch is
-  refused. Tools: `search` (or `all`), `read_thread`, `create_draft`, `update_draft`,
-  `download_attachment`, `send_draft`. Replies set `threadId`, `In-Reply-To`/`References`, a matching
-  Subject and an explicit `From`. Output budgeted under 50k characters: HTML to text, quoted replies
-  trimmed, pagination. Tool list and examples live in the plugin README.
-- Send gate: `send_draft` carries `_meta["anthropic/requiresUserInteraction"]: true`, so it prompts
-  on every call in every mode, bypass included. It takes the account, recipients, subject and
-  attachment names, so the prompt shows them; the server re-reads the draft and refuses a mismatch.
-- Exfiltration limits: attachments only from allowlisted directories, never dotfiles or
-  `~/.config/epistole`; downloads to a fixed directory, sanitized names, no overwrite. Bodies are
-  wrapped as untrusted content, a label rather than a defence. The audit log holds metadata only
-  (time, alias, ids, recipients, subject), 0600. README recommends `Read(~/.config/epistole/**)` deny.
-- Auth: the user's own Desktop OAuth client; loopback + PKCE on `127.0.0.1`, random port, URL always
-  printed (WSL). Login is `bin/epistole-login <alias>`, run with `!`. Tokens per alias in
-  `~/.config/epistole/`, 0600; `invalid_grant` returns a re-login hint and the server starts with no
-  tokens. Personal client published "In production" unverified (re-login after publishing; tokens
-  also die on password change, 6 months unused, or past 100 per client). 429s back off.
-- Workspace spike (2026-10-11): the university account grants both scopes. Google does not know the
-  plain-domain address; its Google login is a `g.` subdomain address while mail goes out from the plain
-  domain, so `accounts.toml` holds the login address and `From` is Gmail's default send-as, read from
-  the API.
+- One pattern, copied from epistole, for each plugin that has setup (techne, graphe, phylax; epistole
+  already has it): `plugins/<p>/AGENTS.md` is the runbook an agent follows; `skills/setup/SKILL.md`
+  (`/<p>:setup`) reads it and runs a read-only doctor. dokimasia needs only `uv`, so it gets a README
+  and docs page, not a setup skill.
+- Doctors are stdlib Python run with `uv run --no-project`; each check prints one line,
+  `ok|missing|optional <name>: <detail>`, and a missing one adds `fix: <exact command>`
+  (Debian/Ubuntu and macOS lines). Exit 0 when nothing required is missing. Shared check helpers live
+  in `plugins/techne/_shared/doctor_lib.py`, copied to each plugin's `_shared/` (the guard keeps
+  copies identical). Doctors never install; the setup skill may run a user-approved non-sudo fix
+  (`gh auth login`, `playwright install chromium`) through `!`.
+- Checks: techne: git, `gh` installed and signed in, `tmux` (theoros), the repo's
+  `.claude/skill-context.md` (offer the conventions skeleton), `~/.claude/techne.toml` (optional).
+  graphe: `uv`, `latexmk` + `pdflatex`, poppler (`pdftotext`, `pdfinfo`, `pdffonts`, `pdftoppm`),
+  Playwright Chromium, LibreOffice or PowerPoint (optional, pptx only). phylax: Claude Code version
+  for the mod, `python3` ≥ 3.9, which options are on, and for `restart_on_update` `/proc`, `tmux` or
+  `wt.exe`, and a private state dir.
+- Errors name the next command: fix every vague path the inventory found (graphe `latexmk` and
+  poppler tracebacks, catchup `gh` missing, theoros `tmux` missing, audit/sisters missing config ->
+  `/techne:setup`, epistole and keryx `uv` missing).
+- Docs: each plugin gets a README (what, install, prerequisites, first use, troubleshooting, link)
+  and a docs page under a new **Plugins** nav section (phylax and keryx gain entries; the epistole
+  page keeps its `/epistole/` URL, which Google holds as the privacy link). AGENTS.md is the single
+  runbook; the docs page embeds it if Zensical snippets work, else links it.
+- Citation: README "Cite" section (BibTeX + `CITATION.cff`); every plugin.json `homepage` points at
+  its docs page; tag and release the next version with `CITATION.cff` and marketplace in step.
+  Zenodo mints a concept DOI from the GitHub release once AJ enables the repo there; the DOI then goes
+  into `CITATION.cff` `identifiers` and a README badge.
+- keryx (its own repo, own PR): `keryx doctor` (uv, `powershell.exe`, Ollama reachable, model pulled,
+  audio dir on a Windows drive), AGENTS.md, and a cite pointer to techne.
 
-**Scope.** `plugins/epistole/`, marketplace entry, docs-site page + nav, first-run onboarding (an
-`AGENTS.md` setup runbook any agent can follow, a `/epistole:setup` skill pointing at it,
-`epistole-login --client` import, accounts added on first login, `--status` and an `accounts` tool), an `epistole` dependency group
-so `ty` resolves, tests in `tests/` against a fake Gmail (MIME, threading, attachment allowlist,
-id routing, the send flag in `tools/list`). First step: a login spike against the Workspace account
-requesting the exact scopes, which also confirms `MCPServer` can set tool `_meta`.
+**Scope.** The five plugins here plus keryx; README, docs nav and getting-started; doctor tests that
+drive each missing-tool path with a stripped PATH; a packaging test that every plugin has a README and
+docs page, and every setup skill an AGENTS.md; routing evals for each new setup skill.
 
-**Status (2026-10-12).** Built and reviewed; live checks passed on both accounts: search, a threaded
-reply draft, the send prompt under bypass, a send to self, a restated Bcc, the plain-domain send-as, and
-a 7 MB upload send. Open: the refresh token must still be alive on 2026-10-19 (day 8).
+**Out of scope.** Installers that need sudo, a JOSS paper (possible later), new skill features.
 
-**Out of scope.** Labels, archive/delete, Calendar/Drive, push notifications, a hosted server.
-
-**Definition of done.** Under either Claude account, both inboxes search, read and draft; a send
-prompts under bypass (tmux smoke); a live check shows a draft reply threaded in Gmail and a send to
-self arriving; refresh token alive after 8 days; tests and docs green. Workspace outcomes: works,
-works read-only (admin blocks compose), or blocked (stays on the claude.ai connector); README says which.
-
-**Next pickup after epistole:** a marketplace-wide onboarding pass, so each plugin can be cited as a
-finished tool. Every plugin gets the epistole pattern where it has setup: a plugin-level `AGENTS.md` an
-agent can follow, a setup or status entry point, and errors that name the next command. Every README
-gets install, first use and troubleshooting, and the docs site gets a getting-started path per plugin,
-with a citation file (`CITATION.cff`) at the repo root.
+**Definition of done.** On this machine each doctor reports all required checks ok; under
+`env -i PATH=/usr/bin:/bin` each names what is missing and its fix; no traceback remains on a missing
+tool; every plugin has README + docs page; nav lists all six plugins; `make validate` green; the
+release is tagged (with a DOI if Zenodo is on); keryx doctor merged. epistole's day-8 token check
+(2026-10-19) stays open from #123.
 
 **After that:** #96, backing the commit guards with Git 2.54 config-based `commit-msg` and
 `pre-commit` hooks set through `CLAUDE_ENV_FILE`, so commits the Bash parser cannot see are
