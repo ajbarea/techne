@@ -1,6 +1,6 @@
 # Skills
 
-The skills ship in three plugins: `techne` for work in a code repo, `graphe` for documents, `dokimasia` for bibliographies (keryx, from `ajbarea/keryx`, adds `keryx:pronounce`). Grouped by what they do.
+The skills ship in four plugins: `techne` for work in a code repo, `graphe` for documents, `dokimasia` for bibliographies, and `epistole`, whose `epistole:setup` sits beside its Gmail tools. keryx, from `ajbarea/keryx`, adds `keryx:pronounce`. Grouped by what they do.
 
 ## Build hygiene
 
@@ -54,3 +54,9 @@ The skills ship in three plugins: `techne` for work in a code repo, `graphe` for
 | Skill | Purpose |
 |---|---|
 | [`dokimasia:check`](check.md) | Lints any `.bib` or hand-written `thebibliography` offline, verifies it against arXiv and Crossref telling a failed lookup from a wrong entry, and checks every cited key rendered. |
+
+## Mail (epistole)
+
+| Skill | Purpose |
+|---|---|
+| `epistole:setup` | Guides creating a Google OAuth client and signing each Gmail account in. The plugin's Gmail tools are covered on the [epistole](../epistole.md) page. |

@@ -1,0 +1,36 @@
+"""Append-only log of drafts and sends: metadata only, never message bodies."""
+
+from __future__ import annotations
+
+import json
+import os
+import time
+from pathlib import Path
+
+KEYS = ("account", "id", "to", "cc", "bcc", "subject", "attachments")
+
+
+def _clean(value: object) -> object:
+    if isinstance(value, str):
+        return value.replace("\r", " ").replace("\n", " ")
+    if isinstance(value, list | tuple):
+        return [_clean(v) for v in value]
+    return value
+
+
+def record(base: Path, event: str, **fields: object) -> None:
+    """Append one entry; a log failure never fails the caller's operation."""
+    entry = {"time": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "event": _clean(event)}
+    entry.update({k: _clean(fields[k]) for k in KEYS if k in fields})
+    try:
+        base.mkdir(parents=True, exist_ok=True)
+        path = base / "audit.jsonl"
+        flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND
+        flags |= getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+        fd = os.open(path, flags, 0o600)
+        with os.fdopen(fd, "a") as fh:
+            if hasattr(os, "fchmod"):
+                os.fchmod(fd, 0o600)
+            fh.write(json.dumps(entry, default=str) + "\n")
+    except OSError:
+        return

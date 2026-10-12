@@ -1,0 +1,14 @@
+[project]
+name = "epistole"
+version = "0.1.0"
+description = "Gmail across accounts for Claude Code: search, read, draft and gated send."
+requires-python = ">=3.12"
+dependencies = [
+    "mcp>=2.3,<3",
+    "google-api-python-client>=2.180",
+    "google-auth>=2.40",
+    "google-auth-oauthlib>=1.2",
+]
+
+[tool.uv]
+package = false

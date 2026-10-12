@@ -1,0 +1,10 @@
+{
+  "name": "epistole",
+  "description": "Gmail across accounts for Claude Code: search, read and draft in every configured account, and send a draft only after you approve it.",
+  "author": {"name": "AJ"},
+  "repository": "https://github.com/ajbarea/techne",
+  "homepage": "https://ajbarea.github.io/techne/",
+  "privacyPolicyUrl": "https://ajbarea.github.io/techne/epistole/",
+  "license": "MIT",
+  "keywords": ["gmail", "email", "mcp", "accounts"]
+}
