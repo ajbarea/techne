@@ -229,6 +229,11 @@ def test_pptx_exports_every_slide_as_a_picture_with_its_script(sl, web, tmp_path
         assert slide.notes_slide.notes_text_frame.text == notes
     assert len(list((tmp_path / "images").glob("slide-*.png"))) == len(expected)
     assert all("\n" not in s.shapes.title.text for s in prs.slides)
+    for slide in prs.slides:
+        pic = next(s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.PICTURE)
+        alt = pic._element.nvPicPr.cNvPr.get("descr")
+        assert alt.startswith(slide.shapes.title.text.rstrip(".")[:20]), alt
+        assert "\n" not in alt and len(alt) <= sl.ALT_MAX
     # The export passes the .pptx gates it can answer: a title and alt text on every slide.
     blocks = [f for f in sl.check(out) if f.severity == "BLOCK"]
     assert blocks == []
@@ -653,3 +658,30 @@ def test_a_phone_failure_is_not_blamed_on_files_missing_everywhere(sl, tmp_path)
     phone = [f for f in _check(sl, deck) if f.gate == "unreadable"]
     assert phone and "started on the desktop but not on a phone" in phone[0].message
     assert "gone.png" not in phone[0].message
+
+
+@needs_browser
+def test_pptx_alt_text_carries_the_body_and_skips_web_only_text(sl, web, tmp_path):
+    from pptx import Presentation  # ty: ignore[unresolved-import]
+    from pptx.enum.shapes import MSO_SHAPE_TYPE  # ty: ignore[unresolved-import]
+
+    index = web(
+        CLAIM, CLAIM + '<p>Body sentence one.</p><p class="web-only">Hover for a summary.</p>'
+    )
+    out = tmp_path / "deck.pptx"
+    sl.pptx_html(index, out)
+    alts = [
+        s._element.nvPicPr.cNvPr.get("descr")
+        for slide in Presentation(str(out)).slides
+        for s in slide.shapes
+        if s.shape_type == MSO_SHAPE_TYPE.PICTURE
+    ]
+    hit = [a for a in alts if "Body sentence one." in a]
+    assert len(hit) == 1 and hit[0].startswith("[Claim headline")
+    assert not any("Hover for a summary" in a for a in alts)
+
+
+def test_alt_text_is_cut_at_a_word(sl):
+    alt = sl._alt_text("Title", "word " * 1000, 1)
+    assert len(alt) <= sl.ALT_MAX and alt.endswith("word\u2026")
+    assert sl._alt_text("", "", 3) == "Slide 3"
