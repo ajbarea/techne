@@ -46,6 +46,7 @@ Install only the ones you use: every enabled plugin's skill list sits in Claude'
 | `techne:reslop` | Rewrites docstrings grounded in the implementation rather than deleting them outright. |
 | `techne:sisters` | Cross-repo drift audit across the sister repos listed in `~/.claude/techne.toml`. |
 | `techne:theoros` | Starts an observed live dev session: Claude drives the REPL in a named `tmux` session; you spectate read-only via `tmux attach -r`. |
+| `techne:setup` | Checks what the techne skills need on this machine and prints the install command for each gap. |
 
 ### graphe
 
@@ -56,6 +57,7 @@ Install only the ones you use: every enabled plugin's skill list sits in Claude'
 | `graphe:paper-review` | Pre-submission novelty + reviewer pass for a draft paper: grounds every novelty/claim verdict in retrieved prior work, flags related-work gaps, and surfaces lab-overlap for disclosure. |
 | `graphe:pdf` | Renders markdown to print-quality PDFs through a Typst template, then verifies fonts and content against the source. |
 | `graphe:slides` | Builds and gates a talk deck: an animated web deck on GitHub Pages from a starter, checked for titles, contrast, alt text, missing files and phone fit, then rendered and published. |
+| `graphe:setup` | Checks the document tools (TeX Live, poppler, Chromium, uv) and prints the install command for each gap. |
 
 ### dokimasia
 
@@ -69,7 +71,7 @@ A local Gmail MCP server plus one skill, `epistole:setup`, which walks through c
 
 ### phylax
 
-Three opt-in guards on `git commit`, `git add` and `gh pr`, run by a [mod](https://code.claude.com/docs/en/plugins/mods/overview) (Claude Code 2.1.287 or later): block attribution lines, from the text Claude Code composes through to the command Claude runs; block staging `COMMITS.md`; and warn on commits in the main checkout. While a blocking guard is on, a check that fails refuses the command instead of letting it through. A fourth option, `restart_on_update`, moves an idle session onto an updated Claude Code in a new tmux window or Windows Terminal tab and keeps the conversation. Each is off until you switch it on in `/config`. See [Configuration](docs/configuration.md#guards) and [Restart on update](docs/configuration.md#restart-on-update).
+Three opt-in guards on `git commit`, `git add` and `gh pr`, run by a [mod](https://code.claude.com/docs/en/plugins/mods/overview) (Claude Code 2.1.287 or later): block attribution lines, from the text Claude Code composes through to the command Claude runs; block staging `COMMITS.md`; and warn on commits in the main checkout. While a blocking guard is on, a check that fails refuses the command instead of letting it through. A fourth option, `restart_on_update`, moves an idle session onto an updated Claude Code in a new tmux window or Windows Terminal tab and keeps the conversation. Each is off until you switch it on in `/config`; `/phylax:setup` shows which are on and checks what they need. See [phylax](https://ajbarea.github.io/techne/plugins/phylax/).
 
 ## Install
 
@@ -87,7 +89,7 @@ From inside Claude Code:
 
 Invoke a skill as `/techne:<name>`, `/graphe:<name>`, `/dokimasia:check` or `/epistole:setup`, or describe the task and Claude picks the matching skill. Run `/skills` to confirm they loaded. On claude.ai, add `ajbarea/techne` under **Customize > Plugins > Add > Add marketplace**, then add `graphe`.
 
-> **First-time setup:** the techne skills are opinionated about a few conventions (Makefile pattern, dev-runner archive, `.claude/skill-context.md`). See [Conventions](docs/conventions.md) for the minimum each skill needs.
+After installing, run each plugin's setup skill: `/techne:setup`, `/graphe:setup`, `/phylax:setup`, `/epistole:setup`. Each checks what the plugin needs and prints the install command for anything missing. The techne skills follow a few conventions (Makefile pattern, dev-runner archive, `.claude/skill-context.md`); [Conventions](docs/conventions.md) lists the minimum each skill needs.
 
 ## Configuration
 
@@ -132,18 +134,21 @@ techne (marketplace: ajbarea/techne)
 │   ├── research-grounded ── flags un-grounded design decisions
 │   ├── reslop            ── rewrites docstrings from code
 │   ├── sisters           ── cross-repo drift across sisters
-│   └── theoros           ── observed tmux REPL session
+│   ├── theoros           ── observed tmux REPL session
+│   └── setup             ── checks prerequisites, prints each fix
 ├── graphe (plugin, plugins/graphe)
 │   ├── latex             ── builds LaTeX and gates the PDF on its log
 │   ├── paper             ── scaffolds a new paper dir (LaTeX + harvest)
 │   ├── paper-review      ── grounded novelty + reviewer pass for a draft
 │   ├── pdf               ── markdown to print PDF via Typst, verified
-│   └── slides            ── talk deck gated and rendered, presenter briefed
+│   ├── slides            ── talk deck gated and rendered, presenter briefed
+│   └── setup             ── checks prerequisites, prints each fix
 ├── dokimasia (plugin, plugins/dokimasia)
 │   └── check             ── lints, verifies and render-checks a .bib
 ├── epistole (plugin, plugins/epistole)
 │   └── setup             ── guides Google OAuth client and account sign-in (plus the Gmail MCP server)
-├── phylax (plugin, plugins/phylax) ── opt-in git guards + restart on update
+├── phylax (plugin, plugins/phylax)
+│   └── setup             ── shows the options, checks what they need
 └── keryx (plugin, ajbarea/keryx)    ── spoken gist of each reply
 ```
 
@@ -152,6 +157,20 @@ Each skill is self-contained. Invoke one without pulling in the others. They sha
 ## Why "techne"
 
 Greek τέχνη: craft, the practical knowledge of how to make a thing well. The plugins keep the Greek: γραφή (graphe) is writing, φύλαξ (phylax) a guard, κῆρυξ (keryx) a herald, ἐπιστολή (epistole) a letter, δοκιμασία (dokimasia) the scrutiny of a candidate's credentials before office.
+
+## Cite
+
+If you use techne in your research, cite it with the metadata in [CITATION.cff](CITATION.cff). GitHub's **Cite this repository** button, in the repository sidebar, turns it into APA and BibTeX. The citation covers every plugin listed here, keryx included.
+
+```bibtex
+@software{barea_techne,
+  author  = {Barea, Arnaldo},
+  title   = {techne: a Claude Code plugin marketplace for repositories, documents, and bibliographies},
+  url     = {https://github.com/ajbarea/techne},
+  license = {MIT},
+  year    = {2026}
+}
+```
 
 ## License
 

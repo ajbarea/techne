@@ -69,7 +69,8 @@ def test_docs_page_exists_with_privacy_heading():
 
 def test_docs_page_is_in_the_nav():
     nav = tomllib.loads((ROOT / "zensical.toml").read_text())["project"]["nav"]
-    assert {"epistole": "epistole.md"} in nav
+    plugins = next(entry["Plugins"] for entry in nav if "Plugins" in entry)
+    assert {"epistole": "epistole.md"} in plugins
 
 
 def test_privacy_url_matches_the_site_layout():
@@ -92,6 +93,8 @@ def test_every_plugin_list_mentions_epistole():
 
 
 def test_every_install_list_has_the_epistole_line():
+    """A file listing three or more plugins' install lines is a list of plugins; a plugin's own
+    page carries only its own line."""
     listed = [
         f
         for f in subprocess.run(
@@ -101,7 +104,7 @@ def test_every_install_list_has_the_epistole_line():
             text=True,
             check=True,
         ).stdout.splitlines()
-        if "/plugin install dokimasia@techne" in (ROOT / f).read_text()
+        if len(re.findall(r"/plugin install \w+@techne", (ROOT / f).read_text())) >= 3
     ]
     assert {"README.md", "docs/index.md", "docs/getting-started.md"} <= set(listed)
     for name in listed:

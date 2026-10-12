@@ -1,6 +1,6 @@
 # Skills
 
-The skills ship in four plugins: `techne` for work in a code repo, `graphe` for documents, `dokimasia` for bibliographies, and `epistole`, whose `epistole:setup` sits beside its Gmail tools. keryx, from `ajbarea/keryx`, adds `keryx:pronounce`. Grouped by what they do.
+The skills ship in five plugins: `techne` for work in a code repo, `graphe` for documents, `dokimasia` for bibliographies, `phylax` for git guards, and `epistole` for Gmail. keryx, from `ajbarea/keryx`, adds `keryx:pronounce`. Grouped by what they do.
 
 ## Build hygiene
 
@@ -60,3 +60,12 @@ The skills ship in four plugins: `techne` for work in a code repo, `graphe` for 
 | Skill | Purpose |
 |---|---|
 | `epistole:setup` | Guides creating a Google OAuth client and signing each Gmail account in. The plugin's Gmail tools are covered on the [epistole](../epistole.md) page. |
+
+## Setup
+
+| Skill | Purpose |
+|---|---|
+| [`techne:setup`](../plugins/techne.md) | Checks what the techne skills need on this machine and prints each fix. |
+| [`graphe:setup`](../plugins/graphe.md) | Checks TeX Live, poppler, Chromium and the other document tools. |
+| [`phylax:setup`](../plugins/phylax.md) | Shows which phylax options are on and checks what they need. |
+| [`epistole:setup`](../epistole.md) | Creates the Google OAuth client and signs each Gmail account in. |

@@ -50,7 +50,7 @@ DOCTOR_LINE = re.compile(
 
 # Published text must not carry a personal address or a path from someone's machine.
 EMAIL = re.compile(
-    r"[\w.+-]+@(?!(?:[\w-]+\.)*example\.(?:com|edu|org)(?![\w-]*\.\w))[\w-]+\.[\w.]+"
+    r"[\w.+-]+@(?!(?:[\w-]+\.)*example\.(?:com|edu|org)(?![\w-]*\.\w))[\w-]+\.[A-Za-z][\w.]*"
 )
 MACHINE_PATH = re.compile(r"/(?:home|mnt|Users)/|[A-Za-z]:\\Users")
 
