@@ -1,0 +1,46 @@
+# phylax setup runbook
+
+This is the setup guide for phylax, written for an agent guiding a user. Every phylax option is off until the user switches it on. Run the doctor first; it prints each option's value and checks only what the options that are on need. The setup skill gives the doctor command.
+
+## Rules
+
+- The doctor only reads. Run it again after each change.
+- The user switches options on and off in `/config`, under the phylax plugin's options. Do not edit settings files for them.
+- The user runs every fix line that contains `sudo`, and `xcode-select --install`. In Claude Code they type it after `!`, for example `!sudo apt install tmux`.
+- Any other fix line, such as the Claude Code installer, `claude update`, `rm` and `chmod`, you may run after the user approves.
+- Report only what the doctor printed.
+
+## 1. Run the doctor
+
+The first four lines are the options. `ok` means on; `n/a` means off, or not set, which is off. The lines after them check what the options need. A `missing` or `optional` line is followed by `fix:` lines. The last line is `result: ready`, or `result: missing` with the names of the required checks that failed. The doctor exits 0 when nothing required is missing.
+
+If the shell says `python3` is not found, the doctor cannot start. The user installs it with `sudo apt install python3` on Debian or Ubuntu, or `xcode-select --install` on macOS.
+
+## 2. Choose the options
+
+Explain each option, and ask which the user wants:
+
+- `block_attribution_trailers` refuses a commit or PR whose message or body carries a Claude-Session link, a Co-Authored-By: Claude trailer, or a Generated with Claude Code line.
+- `block_commits_md` refuses staging or committing a `COMMITS.md` scratchpad.
+- `warn_main_checkout_commit` warns when a commit runs in a repo's main checkout while linked worktrees exist.
+- `restart_on_update` moves an idle session onto a newly installed Claude Code in a new tmux window or Windows Terminal tab, keeping the conversation. It works on Linux and WSL only.
+
+The user switches them on in `/config`. Then they run `/reload-plugins`, and you run the setup skill again so the doctor sees the new values.
+
+## 3. Fix each missing line
+
+| Check | When it matters | What to do |
+| --- | --- | --- |
+| `mod` | a guard is on | Claude Code 2.1.287 or later runs the guards from a mod. An older version still runs them from the command hook, so this line is optional. Run the fix line after the user approves; `claude update` moves to the newest version. |
+| `python3` | any option is on | The hooks run on the system python3, 3.9 or newer. The user runs the fix line with `!`. |
+| `git` | a guard is on | The user runs the fix line with `!`. |
+| `proc` | restart_on_update is on | macOS and native Windows have no `/proc`. The user switches the option off there. |
+| `launcher` | restart_on_update is on | Install tmux, or under WSL run Claude Code in Windows Terminal. The user runs the fix line with `!`. |
+| `claude` | restart_on_update is on | The restart starts the `claude` on PATH. Run the fix line after the user approves. |
+| `state-dir` | restart_on_update is on | Run the fix line it prints after the user approves. A folder owned by another user has no fix line; the user sets `XDG_RUNTIME_DIR` to a private folder. |
+
+For `restart_on_update` under Windows Terminal, the old tab closes itself only with the shell snippet in [Restart on update](https://ajbarea.github.io/techne/configuration/#restart-on-update). Offer to show it.
+
+## 4. Check the result
+
+Run the doctor again until it prints `result: ready`.
