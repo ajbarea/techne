@@ -15,6 +15,7 @@ import subprocess
 import uuid
 
 import pytest
+from conftest import DOCTOR_LIB, _load
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SKILLS = ROOT / "plugins" / "techne" / "skills"
@@ -323,3 +324,26 @@ def test_missing_required_field_fails_in_every_command(theoros, repo):
         done = run(cmd)
         assert done.returncode == 1, cmd
         assert "session_name" in done.stderr
+
+
+def test_missing_tmux_names_the_install(repo, tmp_path):
+    (repo / ".claude").mkdir()
+    (repo / ".claude" / "skill-context.md").write_text(
+        "## theoros\n\n```yaml\nrepl_command: cat\nsession_name: s\n```\n"
+    )
+    bash = shutil.which("bash")
+    assert bash
+    empty = tmp_path / "empty-bin"
+    empty.mkdir()
+    fixes = _load("techne_doctor_lib_theoros", DOCTOR_LIB).FIXES["tmux"]
+    for command in ("up", "status", "down"):
+        proc = subprocess.run(
+            [bash, str(THEOROS), command],
+            cwd=repo,
+            env={"PATH": str(empty), "HOME": str(tmp_path)},
+            capture_output=True,
+            text=True,
+        )
+        assert proc.returncode == 1, command
+        assert fixes.apt in proc.stderr and fixes.brew in proc.stderr
+        assert "/techne:setup" in proc.stderr

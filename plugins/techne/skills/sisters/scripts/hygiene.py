@@ -43,6 +43,9 @@ import tomllib
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "_shared"))
+import doctor_lib  # ty: ignore[unresolved-import]
+
 TECHNE_TOML = Path.home() / ".claude" / "techne.toml"
 
 # A worktree touched this recently may belong to a session that is still working
@@ -336,10 +339,18 @@ def collect(name: str, path: str, slug: str, me: str, prs: dict[str, dict]) -> l
 
 
 def load_sisters(names: list[str]) -> tuple[list[tuple[str, str, str]], str]:
-    with TECHNE_TOML.open("rb") as f:
-        cfg = tomllib.load(f)
-    ws, me = cfg["workspace_root"], cfg["github_user"]
-    active = [s["name"] for s in cfg["sisters"] if s.get("status", "active") == "active"]
+    where = f"Run /techne:setup, or see {doctor_lib.CONFIG_DOCS}"
+    try:
+        with TECHNE_TOML.open("rb") as f:
+            cfg = tomllib.load(f)
+        ws, me, sisters = cfg["workspace_root"], cfg["github_user"], cfg["sisters"]
+    except FileNotFoundError:
+        sys.exit(f"sisters: {TECHNE_TOML} not found. {where}")
+    except tomllib.TOMLDecodeError as exc:
+        sys.exit(f"sisters: {TECHNE_TOML} is not valid TOML ({exc}). {where}")
+    except KeyError as exc:
+        sys.exit(f"sisters: {TECHNE_TOML} has no {exc.args[0]}. {where}")
+    active = [s["name"] for s in sisters if s.get("status", "active") == "active"]
     chosen = names or active
     return [(n, f"{me}/{n}", str(Path(ws) / n)) for n in chosen], me
 

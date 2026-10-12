@@ -432,3 +432,21 @@ def test_an_open_pr_outranks_a_newer_closed_one_on_the_same_branch(hy, monkeypat
 )
 def test_only_build_output_counts_as_regenerable(hy, path, expected):
     assert hy.regenerable(path) is expected
+
+
+@pytest.mark.parametrize(
+    "body, said",
+    [
+        (None, "not found"),
+        ("workspace_root = [", "not valid TOML"),
+        ('workspace_root = "~/w"\n', "has no github_user"),
+    ],
+)
+def test_bad_config_points_at_setup(hy, monkeypatch, tmp_path, body, said):
+    path = tmp_path / "techne.toml"
+    if body is not None:
+        path.write_text(body)
+    monkeypatch.setattr(hy, "TECHNE_TOML", path)
+    with pytest.raises(SystemExit) as exc:
+        hy.load_sisters([])
+    assert said in str(exc.value) and "/techne:setup" in str(exc.value)

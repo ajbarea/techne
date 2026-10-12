@@ -17,7 +17,7 @@ The pattern: a long-running tmux session where you exercise the repo's interacti
 echo "<!-- skill-context: $(git rev-parse --show-toplevel 2>/dev/null || pwd) -->"; cat "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/skill-context.md" 2>/dev/null || echo "(no .claude/skill-context.md in this repo)"
 ```
 
-No context file: this skill needs one; ask the user to add a `## theoros` section with a fenced YAML block containing at minimum `repl_command` and `session_name`. See the scaffolding section below. Run from the target repo's root; the bundled script reads the same file.
+No context file: this skill needs one. Tell the user to run /techne:setup, which offers to copy the skeleton, then add a `## theoros` section with a fenced YAML block holding at least `repl_command` and `session_name` (see the scaffolding section below). Run from the target repo's root; the bundled script reads the same file.
 
 If the injected content above does not contain a `## theoros` section, abort and direct the user to the **Scaffolding theoros into a new repo** section below.
 

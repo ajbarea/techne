@@ -31,7 +31,7 @@ PY
 )"
 ```
 
-If `~/.claude/techne.toml` is missing or yields zero active sisters, stop and tell the user — don't guess. Each sister's canonical local path is `$WORKSPACE/<name>` and its GitHub slug is `$GITHUB_USER/<name>`.
+If `~/.claude/techne.toml` is missing or yields zero active sisters, stop and tell the user to run /techne:setup; do not guess. Each sister's canonical local path is `$WORKSPACE/<name>` and its GitHub slug is `$GITHUB_USER/<name>`.
 
 ## What to check
 
@@ -155,4 +155,4 @@ What the script counts as safe, and what it never touches:
 - If one repo is in a broken state (e.g., `.claude/skill-context.md` missing), report it and continue the other checks — don't abort.
 - `gh` calls go through the user's authenticated CLI; if auth fails, surface the error and stop that check (don't retry).
 - Do not invoke `techne:ci-audit` recursively. If a PR has failing checks, *name* it and tell the user to run `techne:ci-audit` separately.
-- The active sister list comes from `~/.claude/techne.toml`. If the file is missing, malformed, or yields zero active sisters, stop and ask — don't invent paths.
+- The active sister list comes from `~/.claude/techne.toml`. If the file is missing, malformed, or yields zero active sisters, stop and point the user at /techne:setup; do not invent paths.

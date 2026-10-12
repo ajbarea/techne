@@ -128,7 +128,16 @@ def run(cmd, **kw):
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, **kw)
     except FileNotFoundError:
-        sys.exit(f"catchup: {cmd[0]} not found on PATH")
+        if cmd[0] == "gh":
+            sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "_shared"))
+            import doctor_lib  # ty: ignore[unresolved-import]
+
+            sys.exit(
+                "catchup: "
+                + doctor_lib.missing_message([("gh", "gh")], "/techne:setup")
+                + "\nThen sign in with `gh auth login`."
+            )
+        sys.exit(f"catchup: {cmd[0]} not found on PATH. Run /techne:setup to check it.")
     if proc.returncode != 0:
         err = (proc.stderr or proc.stdout).strip()
         sys.exit(f"catchup: `{' '.join(cmd)}` failed: {err}")

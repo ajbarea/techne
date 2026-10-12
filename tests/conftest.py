@@ -122,6 +122,22 @@ def doctor_lines(proc: subprocess.CompletedProcess) -> dict[str, tuple[str, str]
     return found
 
 
+def doctor(
+    script: pathlib.Path,
+    tmp_path: pathlib.Path,
+    home: pathlib.Path,
+    *args: str,
+    stubs: Mapping[str, str] | None = None,
+    links: Iterable[str] = (),
+    cwd: pathlib.Path | None = None,
+    env: Mapping[str, str] | None = None,
+) -> tuple[subprocess.CompletedProcess, dict[str, tuple[str, str]]]:
+    """Run a doctor on a PATH of just these stubs and links; (process, parsed lines)."""
+    path = stub_dir(tmp_path, stubs, links)
+    proc = run_doctor(script, *args, path=path, home=home, cwd=cwd, env=env)
+    return proc, doctor_lines(proc)
+
+
 # The variables a git hook exports that point git at a repository.
 GIT_REPO_VARS = (
     "GIT_DIR",

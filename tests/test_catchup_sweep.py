@@ -539,3 +539,12 @@ def test_reported_events_come_back_in_time_order(sw):
     events = [ev("2026-09-09T00:00:00Z"), ev("2026-09-02T00:00:00Z", mentions=True)]
     reported, _, _ = sw.select_reported(events, set(), 80)
     assert [e["ts"] for e in reported] == ["2026-09-02T00:00:00Z", "2026-09-09T00:00:00Z"]
+
+
+def test_missing_gh_names_the_install_and_the_setup_skill(sw, monkeypatch, tmp_path):
+    monkeypatch.setenv("PATH", str(tmp_path))
+    with pytest.raises(SystemExit) as exc:
+        sw.run(["gh", "api", "user"])
+    message = str(exc.value)
+    assert "https://cli.github.com" in message
+    assert "gh auth login" in message and "/techne:setup" in message

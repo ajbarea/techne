@@ -27,6 +27,12 @@ STATE_DIR="${THEOROS_STATE_DIR:-/tmp}"
 info() { printf '%s\n' "$*"; }
 err() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
+# tmux holds the session; without it every command would fail on "command not found".
+need_tmux() {
+    command -v tmux >/dev/null 2>&1 \
+        || err "tmux not found. Install it with sudo apt install tmux (Debian/Ubuntu) or brew install tmux (macOS). /techne:setup checks everything else techne needs."
+}
+
 # The YAML body of the `## theoros` section, without fences.
 extract_theoros_yaml() {
     [[ -f "$SKILL_CONTEXT" ]] || err "Skill context not found: $SKILL_CONTEXT"
@@ -181,8 +187,8 @@ cmd_down() {
 }
 
 case "${1:-}" in
-    up) cmd_up ;;
-    down) cmd_down ;;
-    status) cmd_status ;;
+    up) need_tmux; cmd_up ;;
+    down) need_tmux; cmd_down ;;
+    status) need_tmux; cmd_status ;;
     *) printf 'Usage: bash %s {up|down|status}\n' "$0" >&2; exit 2 ;;
 esac
