@@ -85,7 +85,7 @@ From inside Claude Code:
 /plugin install keryx@techne    # WSL2 on Windows only
 ```
 
-Invoke a skill as `/techne:<name>`, `/graphe:<name>` or `/dokimasia:check`, or describe the task and Claude picks the matching skill. Run `/skills` to confirm they loaded. On claude.ai, add `ajbarea/techne` under **Customize > Plugins > Add > Add marketplace**, then add `graphe`.
+Invoke a skill as `/techne:<name>`, `/graphe:<name>`, `/dokimasia:check` or `/epistole:setup`, or describe the task and Claude picks the matching skill. Run `/skills` to confirm they loaded. On claude.ai, add `ajbarea/techne` under **Customize > Plugins > Add > Add marketplace**, then add `graphe`.
 
 > **First-time setup:** the techne skills are opinionated about a few conventions (Makefile pattern, dev-runner archive, `.claude/skill-context.md`). See [Conventions](docs/conventions.md) for the minimum each skill needs.
 
@@ -151,7 +151,7 @@ Each skill is self-contained. Invoke one without pulling in the others. They sha
 
 ## Why "techne"
 
-Greek τέχνη: craft, the practical knowledge of how to make a thing well. The plugins keep the Greek: γραφή (graphe) is writing, φύλαξ (phylax) a guard, κῆρυξ (keryx) a herald, δοκιμασία (dokimasia) the scrutiny of a candidate's credentials before office.
+Greek τέχνη: craft, the practical knowledge of how to make a thing well. The plugins keep the Greek: γραφή (graphe) is writing, φύλαξ (phylax) a guard, κῆρυξ (keryx) a herald, ἐπιστολή (epistole) a letter, δοκιμασία (dokimasia) the scrutiny of a candidate's credentials before office.
 
 ## License
 

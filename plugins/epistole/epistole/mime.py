@@ -236,6 +236,27 @@ def _find(payload: dict, mime_type: str, depth: int = 0) -> str | None:
     return None
 
 
+def attachments(payload: dict, depth: int = 0) -> list[dict]:
+    """Named parts a client can fetch: filename, size and Gmail attachment id."""
+    body = payload.get("body", {})
+    if payload.get("mimeType") == "message/rfc822":
+        return []
+    if payload.get("filename") and body.get("attachmentId"):
+        return [
+            {
+                "filename": payload["filename"],
+                "size": body.get("size", 0),
+                "id": body["attachmentId"],
+            }
+        ]
+    if depth >= MAX_MIME_DEPTH:
+        return []
+    found: list[dict] = []
+    for part in payload.get("parts", []):
+        found.extend(attachments(part, depth + 1))
+    return found
+
+
 def body_text(payload: dict) -> str:
     plain = _find(payload, "text/plain")
     if plain is not None and plain.strip():

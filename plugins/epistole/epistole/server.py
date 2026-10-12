@@ -24,6 +24,7 @@ from epistole.gmail import DraftOutcomeUnknown, Mailbox, SendOutcomeUnknown
 LIMIT = 50_000
 CONCISE = 4_000
 HEADER_CHARS = 300
+ATTACHMENT_CHARS = 6_000
 SEND_META = {"anthropic/requiresUserInteraction": True}
 TRUNCATED = "\n[truncated]"
 ERROR_CHARS = 1_500
@@ -64,6 +65,30 @@ def _clip(text: str, limit: int) -> str:
 def _esc_clip(text: str, limit: int) -> str:
     """Escape wrapper tags first, so the clip bounds the final length."""
     return _clip(mime.escape_untrusted(text), limit)
+
+
+def _attachment_lines(payload: dict) -> str:
+    """Attachments as lines of name, size and id, within ATTACHMENT_CHARS. The name is
+    attacker text, so it is JSON-quoted (no raw newline) and tag-escaped."""
+    lines: list[str] = []
+    used = 0
+    found = mime.attachments(payload)
+    for a in found:
+        name = json.dumps(a["filename"][:200], ensure_ascii=False)
+        line = mime.escape_untrusted(f"- {name} ({a['size']} bytes) attachment_id: {a['id']}")
+        if used + len(line) + 1 > ATTACHMENT_CHARS:
+            break
+        lines.append(line)
+        used += len(line) + 1
+    if not found:
+        return ""
+    hidden = len(found) - len(lines)
+    if hidden:
+        lines.append(f"[{hidden} more attachments not shown]")
+    return (
+        "\nAttachments (download_attachment takes the message id and attachment_id):\n"
+        + "\n".join(lines)
+    )
 
 
 def _parse(name: str, value: str) -> set[str]:
@@ -276,13 +301,18 @@ def build(base: Path | None = None, connect: Callable[[str], Any] | None = None)
             h = mime.headers(payload)
             body = mime.body_text(payload)
             body = _esc_clip(
-                body if full else mime.trim_quoted(body), LIMIT - 2_000 if full else CONCISE
+                body if full else mime.trim_quoted(body),
+                LIMIT - 2_000 - ATTACHMENT_CHARS if full else CONCISE,
             )
             head = "".join(
                 f"{label}: {_esc_clip(h.get(key, ''), HEADER_CHARS)}\n"
                 for label, key in (("From", "from"), ("Date", "date"), ("Subject", "subject"))
             )
-            blocks.append(mime.wrap_untrusted(head + body, ids.qualify(alias, m["id"])))
+            blocks.append(
+                mime.wrap_untrusted(
+                    head + body + _attachment_lines(payload), ids.qualify(alias, m["id"])
+                )
+            )
         if not blocks:
             return "(thread has no messages)"
         out: list[str] = []
@@ -430,7 +460,9 @@ def build(base: Path | None = None, connect: Callable[[str], Any] | None = None)
     @app.tool(annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False))
     @_guard
     def download_attachment(message_id: str, attachment_id: str, filename: str) -> str:
-        """Save an attachment into the configured download_dir; never overwrites."""
+        """Save an attachment into the configured download_dir; never overwrites. message_id and
+        attachment_id come from the Attachments lines read_thread prints; filename is the name
+        listed there."""
         alias, raw = ids.parse(message_id, aliases())
         data = box(alias).attachment(raw, attachment_id)
         folder = cfg().download_dir

@@ -9,8 +9,10 @@ PLUGIN = ROOT / "plugins" / "epistole"
 DOC = ROOT / "docs" / "epistole.md"
 PRIVACY_URL = "https://ajbarea.github.io/techne/epistole/"
 
-EMAIL = re.compile(r"[\w.+-]+@(?!(?:[\w-]+\.)*example\.(?:com|edu|org)\b)[\w-]+\.[\w.]+")
-MACHINE_PATH = re.compile(r"/(?:home|mnt)/")
+EMAIL = re.compile(
+    r"[\w.+-]+@(?!(?:[\w-]+\.)*example\.(?:com|edu|org)(?![\w-]*\.\w))[\w-]+\.[\w.]+"
+)
+MACHINE_PATH = re.compile(r"/(?:home|mnt|Users)/|[A-Za-z]:\\Users")
 
 
 def _published_files() -> list[Path]:
@@ -31,6 +33,12 @@ def _published_files() -> list[Path]:
         check=True,
     ).stdout.splitlines()
     return [ROOT / name for name in out if (ROOT / name).is_file()]
+
+
+def _scanned_files() -> list[Path]:
+    """The plugin, plus the shared files and docs pages that mention it."""
+    extra = [ROOT / n for n in ("README.md", "ROADMAP.md", "CITATION.cff", "IMPL.md")]
+    return _published_files() + extra + sorted((ROOT / "docs").rglob("*.md"))
 
 
 def test_root_group_matches_plugin_deps():
@@ -85,10 +93,43 @@ def test_every_plugin_list_mentions_epistole():
         assert "epistole" in (ROOT / name).read_text(), name
 
 
+def test_every_install_list_has_the_epistole_line():
+    listed = [
+        f
+        for f in subprocess.run(
+            ["git", "ls-files", "-co", "--exclude-standard", "--", "*.md", "*.html"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.splitlines()
+        if "/plugin install dokimasia@techne" in (ROOT / f).read_text()
+    ]
+    assert {"README.md", "docs/index.md", "docs/getting-started.md"} <= set(listed)
+    for name in listed:
+        assert "/plugin install epistole@techne" in (ROOT / name).read_text(), name
+
+
+def test_guard_patterns_catch_what_they_should():
+    for bad in (
+        "me@gmail.com",
+        "a@example.com.evil.io",
+        "a@example.edu.evil.io",
+        "a@notexample.com",
+        "/home/x",
+        "/mnt/c/x",
+        "/Users/x",
+        "C:\\Users\\x",
+    ):
+        assert EMAIL.search(bad) or MACHINE_PATH.search(bad), bad
+    for ok in ("user@example.com", "user@g.example.edu", "x@mail.example.org."):
+        assert not EMAIL.search(ok), ok
+
+
 def test_no_personal_addresses_or_machine_paths_in_published_files():
     files = _published_files()
     assert DOC in files and (PLUGIN / "README.md") in files
-    for f in files:
+    for f in _scanned_files():
         try:
             text = f.read_text()
         except UnicodeDecodeError:

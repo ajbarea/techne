@@ -639,3 +639,27 @@ def test_public_functions_stay_linear_on_adversarial_input(case, tmp_path):
     with contextlib.suppress(ValueError):
         call()
     assert time.perf_counter() - start < 2
+
+
+def test_attachments_lists_named_parts_with_ids():
+    payload = {
+        "mimeType": "multipart/mixed",
+        "parts": [
+            {"mimeType": "text/plain", "body": {"data": "aGk"}},
+            {
+                "mimeType": "image/png",
+                "filename": "a.png",
+                "body": {"attachmentId": "A", "size": 5},
+            },
+            {"mimeType": "application/pdf", "filename": "", "body": {"attachmentId": "B"}},
+            {"mimeType": "text/plain", "filename": "inline.txt", "body": {"data": "aGk"}},
+        ],
+    }
+    assert mime.attachments(payload) == [{"filename": "a.png", "size": 5, "id": "A"}]
+
+
+def test_attachments_is_depth_bounded():
+    node: dict = {"mimeType": "text/plain", "filename": "deep.txt", "body": {"attachmentId": "Z"}}
+    for _ in range(mime.MAX_MIME_DEPTH + 5):
+        node = {"mimeType": "multipart/mixed", "parts": [node]}
+    assert mime.attachments(node) == []

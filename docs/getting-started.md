@@ -30,7 +30,7 @@ Verify the install:
 /skills
 ```
 
-The `techne:*`, `graphe:*` and `dokimasia:*` skills should be listed (for the plugins you installed). If they are not, run `/reload-plugins` and check again.
+The `techne:*`, `graphe:*`, `dokimasia:*` and `epistole:setup` skills should be listed (for the plugins you installed). If they are not, run `/reload-plugins` and check again.
 
 Install only the plugins you use: `techne` holds the code-repo skills, `graphe` the document skills (LaTeX, PDF, slides, papers), `dokimasia` the bibliography checker, `phylax` the opt-in git guards, `epistole` Gmail across accounts (see [epistole](epistole.md)), and `keryx` speaks a gist of each reply (WSL2 only).
 
