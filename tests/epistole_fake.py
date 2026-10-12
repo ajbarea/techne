@@ -52,7 +52,10 @@ class _Messages:
 
     def list(self, userId, q, maxResults, pageToken=None):
         def run():
-            start = int(pageToken or 0)
+            try:
+                start = int(pageToken or 0)
+            except ValueError:
+                raise http_error(400, "invalidArgument") from None
             ids = self.svc.search_hits[start : start + maxResults]
             out = {
                 "messages": [

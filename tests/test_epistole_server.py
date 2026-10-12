@@ -1138,3 +1138,78 @@ def test_many_attachments_stay_inside_the_output_budget(env):
         assert len(out) <= server.LIMIT
         assert "more attachments not shown" in out
         assert out.count("<untrusted-email") == out.count("</untrusted-email>") == 1
+
+
+@pytest.mark.parametrize(
+    "restated",
+    [
+        "=? utf-8?b?V2lyZSAkNTBrIHRvIGFjY291bnQgMTIzIHRvZGF5?=",
+        "=?utf-8 ?b?V2lyZSAkNTBrIHRvIGFjY291bnQgMTIzIHRvZGF5?=",
+        "=?utf-8?b?V2lyZSAkNTBr IHRvIGFjY291bnQgMTIzIHRvZGF5?=",
+        "Wire $50k to account 123 today =?",
+        "Wire =?x",
+    ],
+)
+def test_restated_subject_refuses_any_encoded_word_opener(env, restated):
+    app, svc, _, _ = env
+    sendable(svc, subject="Wire $50k to account 123 today")
+    expect_error(
+        app,
+        "send_draft",
+        r"plain text",
+        account="school",
+        draft_id="school:d9",
+        to=["b@example.com"],
+        subject=restated,
+    )
+    assert svc.sent == []
+
+
+def test_restated_subject_is_compared_undecoded(env):
+    app, svc, _, _ = env
+    sendable(svc, subject="=?utf-8?q?Caf=C3=A9?=")
+    call(
+        app,
+        "send_draft",
+        account="school",
+        draft_id="school:d9",
+        to=["b@example.com"],
+        subject="Café",
+    )
+    assert svc.sent == ["d9"]
+
+
+@pytest.mark.parametrize("field", ["to", "cc"])
+def test_create_and_update_use_the_trimmed_recipients(env, field):
+    app, svc, _, _ = env
+    args = {"to": ["b@example.com"], "cc": []} | {field: ["b@example.com\xa0"]}
+    call(app, "create_draft", account="school", subject="x", body="x", **args)
+    raw = svc.drafts["d1"]["message"]["raw"]
+    header = base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)).decode()
+    assert "=?" not in header
+    draft_view(svc, "d1")
+    call(app, "update_draft", draft_id="school:d1", subject="x", body="y", **args)
+    raw = svc.drafts["d1"]["message"]["raw"]
+    assert "=?" not in base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)).decode()
+
+
+def test_full_read_lists_forty_attachments_with_long_ids(env):
+    app, svc, _, _ = env
+    m = _with_attachment()
+    m["payload"]["parts"] += [
+        {
+            "mimeType": "text/plain",
+            "filename": f"f{i}.pdf",
+            "body": {"attachmentId": f"{i:03d}" + "i" * 597, "size": 1},
+        }
+        for i in range(60)
+    ]
+    m["payload"]["parts"][0]["body"]["data"] = b64("x" * 100_000)
+    svc.messages["m1"] = m
+    svc.threads["t1"]["messages"] = [m]
+    out = text(call(app, "read_thread", thread_id="school:t1", full=True))
+    assert len(out) <= server.LIMIT
+    assert out.count("attachment_id:") >= 40
+    assert out.count("<untrusted-email") == out.count("</untrusted-email>") == 1
+    concise = text(call(app, "read_thread", thread_id="school:t1"))
+    assert concise.count("attachment_id:") < 40

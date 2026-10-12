@@ -104,7 +104,10 @@ def build(
     if isinstance(to, str) or isinstance(cc, str):
         raise TypeError("to and cc must be lists of addresses, not a string.")
     to, cc = list(to), list(cc)
-    if len(getaddresses(to + cc)) > MAX_RECIPIENTS:
+    addrs = getaddresses(to + cc)
+    if any(not addr for _, addr in addrs):
+        raise ValueError("a To or Cc address could not be parsed.")
+    if len(addrs) > MAX_RECIPIENTS:
         raise ValueError(f"more than {MAX_RECIPIENTS} To and Cc recipients.")
     attachments = list(attachments)
     total = sum(p.stat().st_size for p in attachments)

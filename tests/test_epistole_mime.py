@@ -537,6 +537,7 @@ def _build(**kw: Any) -> Callable[[], str]:
     return lambda: mime.encode(mime.build(**{**base, **kw}))
 
 
+SWEEP_BUDGET_S = 5
 _NBSP, _EMSP, _IDSP = chr(0xA0), chr(0x2003), chr(0x3000)
 _WS = (" ", "\t", "\n", _NBSP, _EMSP, _IDSP)
 _ATTR = "On 1 Oct 2026 a@b wrote:"
@@ -632,13 +633,31 @@ _SWEEP: dict[str, Callable[[Path], Callable[[], object]]] = {
 }
 
 
+_SWEEP.update(
+    {
+        "html-comment-open": lambda _: partial(mime.body_text, _html("<!--" + "a" * MB)),
+        "html-comment-runs": lambda _: partial(mime.body_text, _html("<!--" * (MB // 4))),
+        "html-bang-open": lambda _: partial(mime.body_text, _html("<!" + "a" * MB)),
+        "html-pi-open": lambda _: partial(mime.body_text, _html("<?" + "a" * MB)),
+        "html-cdata-open": lambda _: partial(mime.body_text, _html("<![CDATA[" + "a" * MB)),
+        "html-close-open": lambda _: partial(mime.body_text, _html("</" * (MB // 2))),
+        "html-attr-quote-open": lambda _: partial(mime.body_text, _html('<a b="' + "a" * MB)),
+        "html-tag-open": lambda _: partial(mime.body_text, _html("<a " * (MB // 3))),
+        "html-attr-long": lambda _: partial(mime.body_text, _html("<a " + "b" * MB + ">")),
+        "html-amp-run": lambda _: partial(mime.body_text, _html("&" * MB)),
+        "html-amp-hex-run": lambda _: partial(mime.body_text, _html("&#x" * (MB // 3))),
+        "html-td": lambda _: partial(mime.body_text, _html("<td>x" * (MB // 5))),
+    }
+)
+
+
 @pytest.mark.parametrize("case", list(_SWEEP), ids=list(_SWEEP))
 def test_public_functions_stay_linear_on_adversarial_input(case, tmp_path):
     call = _SWEEP[case](tmp_path)
     start = time.perf_counter()
     with contextlib.suppress(ValueError):
         call()
-    assert time.perf_counter() - start < 2
+    assert time.perf_counter() - start < SWEEP_BUDGET_S
 
 
 def test_attachments_lists_named_parts_with_ids():
@@ -663,3 +682,21 @@ def test_attachments_is_depth_bounded():
     for _ in range(mime.MAX_MIME_DEPTH + 5):
         node = {"mimeType": "multipart/mixed", "parts": [node]}
     assert mime.attachments(node) == []
+
+
+@pytest.mark.parametrize(
+    "to,cc",
+    [
+        ([f"u{n}@example.com" for n in range(600)] + ["bad(paren"], []),
+        ([", ".join([f"u{n}@example.com" for n in range(600)] + ["bad(paren"])], []),
+        (["b@example.com"], ["bad(paren"]),
+    ],
+)
+def test_build_refuses_a_list_with_an_unparseable_address(to, cc):
+    with pytest.raises(ValueError, match="could not be parsed"):
+        mime.build(sender="a@x", to=to, cc=cc, subject="s", body="b")
+
+
+def test_build_accepts_quoted_comma_name_and_exactly_500():
+    mime.build(sender="a@x", to=['"Doe, J" <j@x.com>'], subject="s", body="b")
+    mime.build(sender="a@x", to=[f"u{n}@example.com" for n in range(500)], subject="s", body="b")

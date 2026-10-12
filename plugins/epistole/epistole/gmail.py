@@ -119,13 +119,14 @@ class Mailbox:
 
         Quota: list 5 units, each get 20 units, 6,000 units/min/user.
         """
+        budget = [0.0]
         res = self._run(
             self.users.messages().list(
                 userId="me", q=query, maxResults=max_results, pageToken=page_token
-            )
+            ),
+            budget=budget,
         )
         out = []
-        budget = [0.0]
         for m in res.get("messages", []):
             req = self.users.messages().get(
                 userId="me", id=m["id"], format="metadata", metadataHeaders=HEADERS

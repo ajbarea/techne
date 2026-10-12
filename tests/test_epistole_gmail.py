@@ -437,3 +437,25 @@ def test_create_draft_client_error_stays_plain():
     svc.fail["drafts.create"] = [http_error(400)]
     with pytest.raises(HttpError):
         box.create_draft("cmF3", None)
+
+
+def test_search_list_call_shares_the_sleep_budget():
+    svc, box = make()
+    slept = []
+    box.sleep = slept.append
+    svc.search_hits = [f"m{i}" for i in range(5)]
+    for i in range(5):
+        svc.messages[f"m{i}"] = {"id": f"m{i}", "threadId": "t"}
+    throttle = http_error(429, headers={"retry-after": "30"})
+    svc.fail["messages.list"] = [throttle, None]
+    svc.fail["messages.get"] = [throttle, None, throttle, None]
+    with pytest.raises(HttpError):
+        box.search("x", 5, None)
+    assert sum(slept) <= 60 and slept == [30.0, 30.0]
+
+
+def test_fake_garbage_page_token_is_an_http_400():
+    _, box = make()
+    with pytest.raises(HttpError) as err:
+        box.search("x", 5, "not-a-token")
+    assert err.value.resp.status == 400
