@@ -12,6 +12,7 @@
 [![uv](https://img.shields.io/badge/uv-package_manager-DE5FE9?style=flat-square)](https://docs.astral.sh/uv/)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-plugin-D97757?style=flat-square)](https://code.claude.com/docs)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23330765.svg)](https://doi.org/10.5281/zenodo.23330765)
 
 </div>
 
@@ -160,13 +161,14 @@ Greek τέχνη: craft, the practical knowledge of how to make a thing well. Th
 
 ## Cite
 
-If you use techne in your research, cite it with the metadata in [CITATION.cff](CITATION.cff). GitHub's **Cite this repository** button, in the repository sidebar, turns it into APA and BibTeX. The citation covers every plugin listed here, keryx included.
+If you use techne in your research, cite it with the metadata in [CITATION.cff](CITATION.cff). GitHub's **Cite this repository** button, in the repository sidebar, turns it into APA and BibTeX. The DOI resolves to the latest release on Zenodo. The citation covers every plugin listed here, keryx included.
 
 ```bibtex
 @software{barea_techne,
   author  = {Barea, Arnaldo},
   title   = {techne: a Claude Code plugin marketplace for repositories, documents, and bibliographies},
   url     = {https://github.com/ajbarea/techne},
+  doi     = {10.5281/zenodo.23330765},
   license = {MIT},
   version = {1.3.0},
   year    = {2026}

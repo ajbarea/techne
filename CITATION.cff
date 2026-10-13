@@ -12,6 +12,11 @@ abstract: >-
 type: software
 version: 1.3.0
 date-released: "2026-10-13"
+doi: 10.5281/zenodo.23330765
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.23330765
+    description: Concept DOI, all versions
 authors:
   - given-names: Arnaldo
     family-names: Barea
