@@ -24,7 +24,9 @@ def _locked() -> str:
 def test_versions_are_in_step():
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
     market = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text())["version"]
-    assert project == market == _cff("version") == _locked()
+    bibtex = re.search(r"version\s*=\s*\{([^}]+)\}", (ROOT / "README.md").read_text())
+    assert bibtex, "README.md Cite block has no BibTeX version"
+    assert project == market == _cff("version") == _locked() == bibtex.group(1)
 
 
 def test_release_date_is_an_iso_date():

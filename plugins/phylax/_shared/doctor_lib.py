@@ -455,6 +455,19 @@ def missing_message(
     return " ".join(line.strip() for line in lines) if one_line else "\n".join(lines)
 
 
+def require_python(minimum: tuple[int, int], skill: str, setup: str) -> None:
+    """Stop a skill script with one line when the running python3 is older than `minimum`."""
+    if sys.version_info[:2] >= minimum:
+        return
+    running = ".".join(str(part) for part in sys.version_info[:3])
+    need = ".".join(str(part) for part in minimum)
+    fix = FIXES["python3"].cmd
+    sys.exit(
+        f"{skill}: python3 {running} is older than {need}. The user installs a newer one "
+        f"with `!{fix}` and opens a new terminal. Run {setup} to check everything else."
+    )
+
+
 def exit_missing(
     tools: Sequence[tuple[str, str]], setup: str, platform: Platform | None = None
 ) -> None:

@@ -30,6 +30,7 @@ Shipped plugins and skills by catalog dimension (the directory listing of `plugi
 | `techne` | **Hygiene** | `auto-commit`, `deslop`, `reslop` |
 | `techne` | **Review** | `catchup`, `elenchus` |
 | `techne` | **Observation** | `theoros` |
+| `techne`, `graphe`, `phylax` | **Setup** | `setup` (a read-only doctor per plugin) |
 | `graphe` | **Document build** | `latex`, `pdf`, `paper`, `paper-review`, `slides` |
 | `dokimasia` | **Bibliography** | `check` |
 | `epistole` | **Mail** | MCP server, setup |

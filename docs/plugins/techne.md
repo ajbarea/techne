@@ -21,6 +21,6 @@ Then run `/techne:setup`. It checks git, the GitHub CLI and its sign-in, uv, pyt
 - **`gh` or `gh-auth` is missing.** Install the GitHub CLI with the doctor's fix line, then run `!gh auth login --hostname github.com` in Claude Code. On GitHub Enterprise, set `GH_HOST` to your host first; the doctor and gh both read it.
 - **`skill-context` is missing.** `/techne:setup` offers to copy the skeleton into the repo. Keep the sections for the skills you use.
 - **`techne.toml` is missing.** Only `techne:sisters` reads it. The schema is on the [configuration page](../configuration.md).
-- **`python3` is older than 3.11.** `techne:sisters` reads TOML with `tomllib`. `uv python install --default 3.12` puts a newer `python3` in `~/.local/bin`.
+- **`python3` is older than 3.11.** `techne:catchup` and `techne:sisters` need 3.11, and stock macOS ships 3.9. Both stop with one line naming the fix. `uv python install --default 3.12 && uv python update-shell` puts a newer `python3` in `~/.local/bin` and on your PATH.
 - **Chromium does not start on Linux.** Its system libraries are missing. Run `uv run --no-project --with playwright==1.63.0 playwright install-deps chromium`, which calls `sudo apt` itself.
 - **A skill is not listed.** Run `/reload-plugins`, then `/skills`.

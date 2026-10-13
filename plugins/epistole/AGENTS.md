@@ -6,7 +6,7 @@ This is the single setup guide for epistole, written for an agent guiding a user
 
 - Never ask the user to paste a token or the client secret into chat. The client file is imported by path, and tokens are written by the login command.
 - Never print or read `client_secret.json` or anything under `tokens/`.
-- The login commands open a browser, so the user runs them. In Claude Code they type `!epistole-login ...` at the prompt.
+- The user runs the login commands, because they open a browser. In Claude Code they type it after `!`, for example `!epistole-login <alias>`.
 - State only what `--status` or the `accounts` tool reports. Do not guess which step is done.
 
 ## 1. Check where things stand

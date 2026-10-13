@@ -121,7 +121,7 @@ hide:
 /plugin install epistole@techne
 /plugin install keryx@techne</code></pre>
     </div>
-    <p class="section-lead">Install the plugins you use (keryx on WSL2 only), then invoke a skill as <code>/techne:&lt;name&gt;</code>, <code>/graphe:&lt;name&gt;</code>, <code>/dokimasia:check</code> or <code>/epistole:setup</code>, or describe the task and let Claude pick it.</p>
+    <p class="section-lead">Install the plugins you use (keryx on WSL2 only), then invoke a skill as <code>/techne:&lt;name&gt;</code>, <code>/graphe:&lt;name&gt;</code>, <code>/dokimasia:check</code> or <code>/phylax:setup</code>, or describe the task and let Claude pick it. Run <code>/&lt;plugin&gt;:setup</code> for each plugin you install: it checks what the plugin needs and prints the install command for anything missing.</p>
     <div class="hero-buttons hero-buttons--cta">
       <a href="getting-started/" class="md-button md-button--primary">Get Started</a>
       <a href="configuration/" class="md-button">Configuration</a>

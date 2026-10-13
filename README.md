@@ -87,7 +87,7 @@ From inside Claude Code:
 /plugin install keryx@techne    # WSL2 on Windows only
 ```
 
-Invoke a skill as `/techne:<name>`, `/graphe:<name>`, `/dokimasia:check` or `/epistole:setup`, or describe the task and Claude picks the matching skill. Run `/skills` to confirm they loaded. On claude.ai, add `ajbarea/techne` under **Customize > Plugins > Add > Add marketplace**, then add `graphe`.
+Invoke a skill as `/techne:<name>`, `/graphe:<name>`, `/dokimasia:check` or `/<plugin>:setup`, or describe the task and Claude picks the matching skill. Run `/skills` to confirm they loaded. On claude.ai, add `ajbarea/techne` under **Customize > Plugins > Add > Add marketplace**, then add `graphe`.
 
 After installing, run each plugin's setup skill: `/techne:setup`, `/graphe:setup`, `/phylax:setup`, `/epistole:setup`. Each checks what the plugin needs and prints the install command for anything missing. The techne skills follow a few conventions (Makefile pattern, dev-runner archive, `.claude/skill-context.md`); [Conventions](docs/conventions.md) lists the minimum each skill needs.
 

@@ -10,6 +10,7 @@ import pytest
 from conftest import (
     DOCTOR_LIB,
     EMAIL,
+    HOOK_PYTHON,
     MACHINE_PATH,
     ROOT,
     _load,
@@ -316,6 +317,7 @@ def agents_rows():
 def test_runbook_gives_every_sudo_and_browser_fix_to_the_user():
     text = AGENTS.read_text(encoding="utf-8")
     assert "contains `sudo`" in text and "!gh auth login --hostname" in text
+    assert "or a Homebrew cask" in text
     rows = agents_rows()
     lib = _load("techne_doctor_lib_rows", DOCTOR_LIB)
 
@@ -324,6 +326,54 @@ def test_runbook_gives_every_sudo_and_browser_fix_to_the_user():
 
     for key in ("git", "gh", "tmux"):
         assert "sudo" in (lib.FIXES[key].apt or ""), key
+    for key in ("git", "gh"):
         assert "The user runs the fix line with `!`" in row(key), key
+    assert "On Debian or Ubuntu the user runs the fix line with `!`" in row("tmux")
+    assert "On macOS you may run it after the user approves" in row("tmux")
     for key in ("uv", "chromium"):
         assert "after the user approves" in row(key), key
+
+
+SWEEP = ROOT / "plugins" / "techne" / "skills" / "catchup" / "scripts" / "sweep.py"
+HYGIENE = ROOT / "plugins" / "techne" / "skills" / "sisters" / "scripts" / "hygiene.py"
+
+
+def _hook_python_is_old() -> bool:
+    out = subprocess.run(
+        [HOOK_PYTHON, "-c", "import sys; print(sys.version_info < (3, 11))"],
+        capture_output=True,
+        text=True,
+    ).stdout
+    return out.strip() == "True"
+
+
+@pytest.mark.skipif(not _hook_python_is_old(), reason="runs under make test-hooks-oldest")
+@pytest.mark.parametrize(
+    ("script", "skill"), [(SWEEP, "catchup"), (HYGIENE, "sisters")], ids=["catchup", "sisters"]
+)
+def test_script_on_python_before_3_11_prints_the_fix_not_a_traceback(tmp_path, script, skill):
+    home = tmp_path / "home"
+    home.mkdir()
+    args = ("--env",) if skill == "sisters" else ("owner/name",)
+    proc = run_doctor(script, *args, path=stub_dir(tmp_path), home=home)
+    fix = _load("techne_doctor_lib_old", DOCTOR_LIB).FIXES["python3"].cmd
+    assert proc.returncode != 0
+    assert "Traceback" not in proc.stderr + proc.stdout
+    message = proc.stderr.strip()
+    assert len(message.splitlines()) == 1
+    assert message.startswith(f"{skill}: ")
+    assert fix in message
+    assert "/techne:setup" in message
+
+
+def test_require_python_exits_with_one_line_when_too_old():
+    d = _load("techne_doctor_lib_old", DOCTOR_LIB)
+    with pytest.raises(SystemExit) as exc:
+        d.require_python((99, 0), "catchup", "/techne:setup")
+    assert str(exc.value).count("\n") == 0
+    assert d.FIXES["python3"].cmd in str(exc.value)
+    d.require_python((3, 0), "catchup", "/techne:setup")
+
+
+def test_doctor_names_catchup_and_sisters_as_needing_python_3_11():
+    assert "techne:catchup and techne:sisters need 3.11" in DOCTOR.read_text()

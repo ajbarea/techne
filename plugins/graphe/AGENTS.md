@@ -5,9 +5,9 @@ This is the setup guide for graphe, written for an agent guiding a user. Run the
 ## Rules
 
 - The doctor only reads. Run it again after each fix to confirm.
-- The user runs every fix line that contains `sudo`, `xcode-select --install` and any Homebrew cask line (a cask install asks for the admin password). A Homebrew formula line with no `sudo` (`brew install poppler`, `brew install biber`, `brew install node`) you may run after the user approves. In Claude Code they type it after `!`, for example `!sudo apt install poppler-utils`.
+- The user runs every fix line that contains `sudo`, `xcode-select --install` or a Homebrew cask (a cask install asks for the admin password). In Claude Code they type it after `!`, for example `!sudo apt install poppler-utils`.
 - The Chromium library install needs `sudo` inside it, so the user runs that one too.
-- Any other fix line, such as the uv installer, the Chromium install and the pptxgenjs install, you may run after the user approves.
+- You may run any other fix line after the user approves, such as the uv installer, a Homebrew formula install without `sudo`, the Chromium install and the pptxgenjs install.
 - Report only what the doctor printed.
 
 ## 1. Run the doctor

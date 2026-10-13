@@ -14,6 +14,8 @@ Techne is a collection of independent, composable skills that share conventions 
 
 **Review and collaboration.** `techne:catchup` reads every comment, review and state change on a repo since you last participated and reports who is blocked on whom; read-only. `techne:elenchus` is adversarial pre-merge review: it drives `/code-review`, then reproduces the load-bearing claim, traces every consumer across the repo, and walks a bug-class rubric.
 
+**Setup.** `techne:setup`, `graphe:setup` and `phylax:setup` each run a read-only doctor for their plugin and print the install command for anything missing; `epistole:setup` does the same for the Google sign-in.
+
 **Mail.** `epistole` runs a local Gmail MCP server that searches, reads and drafts in each configured account and sends a draft only after you approve it; `epistole:setup` guides the one-time Google sign-in. See [epistole](epistole.md).
 
 **Bibliographies.** `dokimasia:check` lints any `.bib` or hand-written `thebibliography`, resolves its identifiers against arXiv and Crossref, and checks that every cited key rendered in the built document; a failed lookup is reported apart from a wrong entry.

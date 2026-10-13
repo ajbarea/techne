@@ -6,8 +6,8 @@ This is the setup guide for phylax, written for an agent guiding a user. Every p
 
 - The doctor only reads. Run it again after each change.
 - The user switches options on and off in `/config`, under the phylax plugin's options. Do not edit settings files for them.
-- The user runs every fix line that contains `sudo`, and `xcode-select --install`. In Claude Code they type it after `!`, for example `!sudo apt install tmux`.
-- Any other fix line, such as the Claude Code installer, `claude update`, `rm` and `chmod`, you may run after the user approves.
+- The user runs every fix line that contains `sudo`, `xcode-select --install` or a Homebrew cask (a cask install asks for the admin password). In Claude Code they type it after `!`, for example `!sudo apt install tmux`.
+- You may run any other fix line after the user approves, such as the Claude Code installer, `claude update`, `rm` and `chmod`.
 - Report only what the doctor printed.
 
 ## 1. Run the doctor

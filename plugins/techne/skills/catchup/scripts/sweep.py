@@ -20,8 +20,16 @@ import os
 import subprocess
 import sys
 import time
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
+
+sys.dont_write_bytecode = True  # the plugin cache stays as installed
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "_shared"))
+import doctor_lib  # noqa: E402  # ty: ignore[unresolved-import]
+
+# Stock macOS python3 is 3.9; stop with the fix before the 3.11-only imports below.
+doctor_lib.require_python((3, 11), "catchup", "/techne:setup")
+
+from datetime import UTC, datetime, timedelta  # noqa: E402
 
 TECHNE_TOML = Path.home() / ".claude" / "techne.toml"
 
@@ -129,10 +137,6 @@ def run(cmd, **kw):
         proc = subprocess.run(cmd, capture_output=True, text=True, **kw)
     except FileNotFoundError:
         if cmd[0] == "gh":
-            sys.dont_write_bytecode = True  # the plugin cache stays as installed
-            sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "_shared"))
-            import doctor_lib  # ty: ignore[unresolved-import]
-
             message = doctor_lib.missing_message([("gh", "gh")], "/techne:setup")
             head, _, setup = message.rpartition("\n")
             sys.exit(
