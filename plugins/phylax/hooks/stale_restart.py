@@ -559,13 +559,18 @@ def respawnable_pane(session: dict) -> dict | None:
     return {"pane": pane, "shell": shell} if shell else None
 
 
-def pick_launcher(session: dict) -> str | None:
-    if tmux_pane(session) and shutil.which("tmux"):
+def launcher_for(in_tmux_pane: bool) -> str | None:
+    """The launcher this process's environment allows: the setup doctor calls it too."""
+    if in_tmux_pane and shutil.which("tmux"):
         return "tmux"
     wsl = os.environ.get("WSL_DISTRO_NAME") and os.environ.get("WT_SESSION")
     if wsl and shutil.which("wt.exe"):
         return "wt"
     return None
+
+
+def pick_launcher(session: dict) -> str | None:
+    return launcher_for(bool(tmux_pane(session)))
 
 
 def resume_args(plan: dict) -> list[str]:

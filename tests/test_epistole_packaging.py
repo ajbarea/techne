@@ -1,18 +1,16 @@
 import json
 import re
+import shutil
 import subprocess
 import tomllib
 from pathlib import Path
+
+from conftest import DOCTOR_LIB, EMAIL, MACHINE_PATH, _load
 
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "epistole"
 DOC = ROOT / "docs" / "epistole.md"
 PRIVACY_URL = "https://ajbarea.github.io/techne/epistole/"
-
-EMAIL = re.compile(
-    r"[\w.+-]+@(?!(?:[\w-]+\.)*example\.(?:com|edu|org)(?![\w-]*\.\w))[\w-]+\.[\w.]+"
-)
-MACHINE_PATH = re.compile(r"/(?:home|mnt|Users)/|[A-Za-z]:\\Users")
 
 
 def _published_files() -> list[Path]:
@@ -71,7 +69,8 @@ def test_docs_page_exists_with_privacy_heading():
 
 def test_docs_page_is_in_the_nav():
     nav = tomllib.loads((ROOT / "zensical.toml").read_text())["project"]["nav"]
-    assert {"epistole": "epistole.md"} in nav
+    plugins = next(entry["Plugins"] for entry in nav if "Plugins" in entry)
+    assert {"epistole": "epistole.md"} in plugins
 
 
 def test_privacy_url_matches_the_site_layout():
@@ -94,6 +93,8 @@ def test_every_plugin_list_mentions_epistole():
 
 
 def test_every_install_list_has_the_epistole_line():
+    """A file listing three or more plugins' install lines is a list of plugins; a plugin's own
+    page carries only its own line."""
     listed = [
         f
         for f in subprocess.run(
@@ -103,7 +104,7 @@ def test_every_install_list_has_the_epistole_line():
             text=True,
             check=True,
         ).stdout.splitlines()
-        if "/plugin install dokimasia@techne" in (ROOT / f).read_text()
+        if len(re.findall(r"/plugin install \w+@techne", (ROOT / f).read_text())) >= 3
     ]
     assert {"README.md", "docs/index.md", "docs/getting-started.md"} <= set(listed)
     for name in listed:
@@ -189,3 +190,39 @@ def test_attach_dirs_default_is_empty_and_documented():
     assert "attach_dirs" in agents and "Downloads" in agents
     assert re.search(r"[Aa]sk the user which folder", agents)
     assert re.search(r"empty|none|no folder", _section(readme, "## Safety"))
+
+
+def test_login_without_uv_names_the_installer(tmp_path):
+    bash = shutil.which("bash")
+    assert bash
+    empty = tmp_path / "empty-bin"
+    empty.mkdir()
+    proc = subprocess.run(
+        [bash, str(PLUGIN / "bin" / "epistole-login"), "--status"],
+        env={"PATH": str(empty), "HOME": str(tmp_path)},
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 127
+    assert _load("epistole_doctor_lib", DOCTOR_LIB).FIXES["uv"].cmd in proc.stderr
+
+
+def test_login_wrapper_copy_of_the_uv_installer_is_the_fixes_entry():
+    cmd = _load("epistole_doctor_lib_tie", DOCTOR_LIB).FIXES["uv"].cmd
+    assert cmd in (PLUGIN / "bin" / "epistole-login").read_text()
+
+
+def test_readme_troubleshoots_a_missing_uv():
+    text = _section((PLUGIN / "README.md").read_text(), "## Troubleshooting")
+    assert "command -v uv" in text and "/mcp" in text
+    assert _load("epistole_doctor_lib_doc", DOCTOR_LIB).FIXES["uv"].cmd in text
+
+
+def test_agents_step_one_handles_a_missing_accounts_tool():
+    step = _section((PLUGIN / "AGENTS.md").read_text(), "## 1. Check where things stand")
+    assert "`accounts` tool is not available" in step and "command -v uv" in step
+
+
+def test_setup_description_names_uv():
+    head = (PLUGIN / "skills" / "setup" / "SKILL.md").read_text().split("---")[1]
+    assert "uv is missing" in head

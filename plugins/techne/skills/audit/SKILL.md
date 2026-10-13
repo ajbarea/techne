@@ -15,7 +15,7 @@ Run the full `make` audit in phases. Each phase builds on the previous; the orde
 echo "<!-- skill-context: $(git rev-parse --show-toplevel 2>/dev/null || pwd) -->"; cat "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/skill-context.md" 2>/dev/null || echo "(no .claude/skill-context.md in this repo)"
 ```
 
-No context file: abort and direct the user to `docs/conventions.md` in the techne docs for the canonical scaffolding template.
+No context file: abort and tell the user to run /techne:setup, which offers to copy the skeleton into the repo.
 
 The injected content above is the source of truth for this repo's toolchain. Read the `## audit` section (and `## repo` for context) and use those phases — do not fall back to hardcoded defaults. Specifically, expect it to supply:
 

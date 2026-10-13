@@ -20,8 +20,16 @@ import os
 import subprocess
 import sys
 import time
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
+
+sys.dont_write_bytecode = True  # the plugin cache stays as installed
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "_shared"))
+import doctor_lib  # noqa: E402  # ty: ignore[unresolved-import]
+
+# Stock macOS python3 is 3.9; stop with the fix before the 3.11-only imports below.
+doctor_lib.require_python((3, 11), "catchup", "/techne:setup")
+
+from datetime import UTC, datetime, timedelta  # noqa: E402
 
 TECHNE_TOML = Path.home() / ".claude" / "techne.toml"
 
@@ -128,7 +136,14 @@ def run(cmd, **kw):
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, **kw)
     except FileNotFoundError:
-        sys.exit(f"catchup: {cmd[0]} not found on PATH")
+        if cmd[0] == "gh":
+            message = doctor_lib.missing_message([("gh", "gh")], "/techne:setup")
+            head, _, setup = message.rpartition("\n")
+            sys.exit(
+                f"catchup: {head}\n  After installing, the user signs in with "
+                f"`!gh auth login --hostname github.com`.\n{setup}"
+            )
+        sys.exit(f"catchup: {cmd[0]} not found on PATH. Run /techne:setup to check it.")
     if proc.returncode != 0:
         err = (proc.stderr or proc.stdout).strip()
         sys.exit(f"catchup: `{' '.join(cmd)}` failed: {err}")

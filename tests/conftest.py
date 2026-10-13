@@ -14,9 +14,14 @@ max_print_line, which is the line the log parsing depends on.
 from __future__ import annotations
 
 import importlib.util
+import os
 import pathlib
+import re
+import shutil
+import subprocess
 import sys
 import types
+from collections.abc import Iterable, Mapping
 
 import pytest
 
@@ -30,6 +35,119 @@ SLIDES_SCRIPT = DOC_SKILLS / "slides" / "scripts" / "slides.py"
 HYGIENE_SCRIPT = SKILLS / "sisters" / "scripts" / "hygiene.py"
 PROSE_SCRIPT = ROOT / "plugins" / "graphe" / "_shared" / "prose_check.py"
 DOKIMASIA_SCRIPT = ROOT / "plugins" / "dokimasia" / "skills" / "check" / "scripts" / "dokimasia.py"
+DOCTOR_LIB = ROOT / "plugins" / "techne" / "_shared" / "doctor_lib.py"
+
+# The doctors and hooks run on the user's system python3; `make test-hooks-oldest` sets this
+# to python3 3.9.
+HOOK_PYTHON = os.environ.get("TECHNE_GUARD_PYTHON", sys.executable)
+
+# One doctor output line: a check, an indented fix, or the closing result.
+DOCTOR_LINE = re.compile(
+    r"^(ok|missing|optional|n/a) [^\s:]+: .+$"
+    r"|^  fix( \((Debian/Ubuntu|macOS)\))?: .+$"
+    r"|^result: (ready|missing .+)$"
+)
+
+# Published text must not carry a personal address or a path from someone's machine.
+EMAIL = re.compile(
+    r"[\w.+-]+@(?!(?:[\w-]+\.)*example\.(?:com|edu|org)(?![\w-]*\.\w))[\w-]+\.[A-Za-z][\w.]*"
+)
+MACHINE_PATH = re.compile(r"/(?:home|mnt|Users)/|[A-Za-z]:\\Users")
+
+
+def stub_dir(
+    root: pathlib.Path, stubs: Mapping[str, str] | None = None, links: Iterable[str] = ()
+) -> str:
+    """A PATH holding only the given stubs and links to chosen real tools.
+
+    A stub body is POSIX sh after a `#!/bin/sh` line; anything it runs besides sh builtins
+    must be named by absolute path, since PATH holds only this directory.
+    """
+    bindir = root / "stub-bin"
+    if bindir.exists():
+        shutil.rmtree(bindir)  # each call defines the whole PATH
+    bindir.mkdir()
+    for name, body in (stubs or {}).items():
+        script = bindir / name
+        script.write_text(f"#!/bin/sh\n{body}\n")
+        script.chmod(0o755)
+    for name in links:
+        real = shutil.which(name)
+        assert real, f"{name} is needed on this machine to build the stub PATH"
+        (bindir / name).symlink_to(real)
+    return str(bindir)
+
+
+def fake_chromium(
+    root: pathlib.Path, revision: str = "1243", body: str = "echo 'Chromium 150.0.7871.0'"
+) -> pathlib.Path:
+    """The headless-shell executable `playwright install chromium` puts under `root`."""
+    exe = root / f"chromium_headless_shell-{revision}" / "chrome-headless-shell-linux64"
+    exe.mkdir(parents=True, exist_ok=True)
+    exe = exe / "chrome-headless-shell"
+    exe.write_text(f"#!/bin/sh\n{body}\n")
+    exe.chmod(0o755)
+    return exe
+
+
+def run_doctor(
+    script: pathlib.Path,
+    *args: str,
+    path: str,
+    home: pathlib.Path,
+    cwd: pathlib.Path | None = None,
+    env: Mapping[str, str] | None = None,
+) -> subprocess.CompletedProcess:
+    """Run a doctor the way the setup skill does: on the system python3, in a bare env."""
+    base = {
+        "PATH": path,
+        "HOME": str(home),
+        "LANG": "C.UTF-8",
+        "TECHNE_DOCTOR_OS": "debian",
+        "TECHNE_DOCTOR_WSL": "0",
+        "PLAYWRIGHT_BROWSERS_PATH": str(home / "ms-playwright"),
+    }
+    return subprocess.run(
+        [HOOK_PYTHON, str(script), *args],
+        cwd=cwd or home,
+        env={**base, **(env or {})},
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+
+def doctor_lines(proc: subprocess.CompletedProcess) -> dict[str, tuple[str, str]]:
+    """{check name: (status, detail)}, after asserting every line is in the doctor format."""
+    assert "Traceback" not in proc.stderr, proc.stderr
+    lines = proc.stdout.splitlines()
+    assert lines and lines[-1].startswith("result: "), proc.stdout
+    bad = [line for line in lines if not DOCTOR_LINE.match(line)]
+    assert not bad, bad
+    found: dict[str, tuple[str, str]] = {}
+    for line in lines:
+        if line.startswith(("  ", "result: ")):
+            continue
+        status, _, rest = line.partition(" ")
+        name, _, detail = rest.partition(": ")
+        found[name] = (status, detail)
+    return found
+
+
+def doctor(
+    script: pathlib.Path,
+    tmp_path: pathlib.Path,
+    home: pathlib.Path,
+    *args: str,
+    stubs: Mapping[str, str] | None = None,
+    links: Iterable[str] = (),
+    cwd: pathlib.Path | None = None,
+    env: Mapping[str, str] | None = None,
+) -> tuple[subprocess.CompletedProcess, dict[str, tuple[str, str]]]:
+    """Run a doctor on a PATH of just these stubs and links; (process, parsed lines)."""
+    path = stub_dir(tmp_path, stubs, links)
+    proc = run_doctor(script, *args, path=path, home=home, cwd=cwd, env=env)
+    return proc, doctor_lines(proc)
 
 
 # The variables a git hook exports that point git at a repository.

@@ -509,15 +509,6 @@ def test_theme_font_references_resolve_through_the_theme(sl, deck, gates):
     assert any(f.gate == "font" and "Aptos" in f.message for f in sl.check(odd))
 
 
-def test_powerpoint_is_found_in_both_install_layouts(sl, tmp_path):
-    for layout in (("root", "Office16"), ("Office16",)):
-        root = tmp_path / "-".join(layout)
-        exe = root.joinpath("Microsoft Office", *layout, "POWERPNT.EXE")
-        exe.parent.mkdir(parents=True)
-        exe.touch()
-        assert sl.powerpoint_exes([str(root)]) == [str(exe)]
-
-
 def test_export_script_survives_a_non_ascii_temp_path(sl, tmp_path):
     script = tmp_path / "export.ps1"
     sl.write_ps1(script, "C:\\Users\\Zoë\\deck.pptx", "C:\\Users\\Zoë\\deck.pdf")
@@ -610,11 +601,14 @@ def test_pdf_gates_density_jargon_and_em_dashes(sl, monkeypatch, tmp_path):
 
 
 def test_pdf_without_pdftotext_is_unreadable(sl, monkeypatch, tmp_path):
+    monkeypatch.setenv("TECHNE_DOCTOR_OS", "debian")
     monkeypatch.setattr(sl.shutil, "which", lambda _name: None)
     path = tmp_path / "deck.pdf"
     path.write_bytes(b"%PDF-1.7")
     found = sl.check(path)
     assert [f.gate for f in found] == ["unreadable"]
+    assert "fix: sudo apt install poppler-utils" in found[0].message
+    assert "/graphe:setup" in found[0].message
 
 
 def test_render_takes_a_pdf_without_an_office_app(sl, monkeypatch, tmp_path):

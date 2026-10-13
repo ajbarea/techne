@@ -18,6 +18,14 @@ extra_javascript = ["javascripts/reveal.js"]
 nav = [
   { "Home" = "index.md" },
   { "Getting Started" = "getting-started.md" },
+  { "Plugins" = [
+      { "techne" = "plugins/techne.md" },
+      { "graphe" = "plugins/graphe.md" },
+      { "dokimasia" = "plugins/dokimasia.md" },
+      { "phylax" = "plugins/phylax.md" },
+      { "epistole" = "epistole.md" },
+      { "keryx" = "plugins/keryx.md" },
+  ]},
   { "Skills" = [
       { "Overview" = "skills/index.md" },
       { "techne" = [
@@ -45,7 +53,6 @@ nav = [
         { "check" = "skills/check.md" },
       ]},
   ]},
-  { "epistole" = "epistole.md" },
   { "Architecture" = "architecture.md" },
   { "Examples" = "examples.md" },
   { "Conventions" = "conventions.md" },

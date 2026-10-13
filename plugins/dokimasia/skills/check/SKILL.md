@@ -18,6 +18,7 @@ uv run --no-project --quiet python ${CLAUDE_SKILL_DIR}/scripts/dokimasia.py [--r
 
 The script is one file with no dependencies and needs Python 3.11 or later. Invoke it through
 `uv run` rather than `python`, which is absent on a machine that ships only `python3`.
+If the shell says uv is not found, install it with `curl -LsSf https://astral.sh/uv/install.sh | sh` and open a new terminal.
 
 | Mode | Network | Checks |
 |---|---|---|

@@ -4,6 +4,7 @@
 Usage:
     hygiene.py [--repo NAME ...] [--json] [--plan-out FILE]
     hygiene.py --apply FILE
+    hygiene.py --env
 
 Report mode (the default) reads every active sister in ~/.claude/techne.toml, or
 the --repo names, and sorts what it finds into three groups per repo:
@@ -36,12 +37,21 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import subprocess
 import sys
 import time
-import tomllib
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+
+sys.dont_write_bytecode = True  # the plugin cache stays as installed
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "_shared"))
+import doctor_lib  # noqa: E402  # ty: ignore[unresolved-import]
+
+# Stock macOS python3 is 3.9; stop with the fix before the 3.11-only import below.
+doctor_lib.require_python((3, 11), "sisters", "/techne:setup")
+
+import tomllib  # noqa: E402
 
 TECHNE_TOML = Path.home() / ".claude" / "techne.toml"
 
@@ -335,13 +345,45 @@ def collect(name: str, path: str, slug: str, me: str, prs: dict[str, dict]) -> l
     return items
 
 
+def read_config() -> tuple[str, str, list[dict]]:
+    """(workspace_root, github_user, [[sisters]] tables), or exit with a message."""
+    where = f"Run /techne:setup, or see {doctor_lib.CONFIG_DOCS}"
+    try:
+        with TECHNE_TOML.open("rb") as f:
+            cfg = tomllib.load(f)
+        ws, me, sisters = cfg["workspace_root"], cfg["github_user"], cfg["sisters"]
+    except FileNotFoundError:
+        sys.exit(f"sisters: {TECHNE_TOML} not found. {where}")
+    except tomllib.TOMLDecodeError as exc:
+        sys.exit(f"sisters: {TECHNE_TOML} is not valid TOML ({exc}). {where}")
+    except KeyError as exc:
+        sys.exit(f"sisters: {TECHNE_TOML} has no {exc.args[0]}. {where}")
+    if not isinstance(sisters, list) or not all(isinstance(s, dict) for s in sisters):
+        sys.exit(f"sisters: sisters in {TECHNE_TOML} must be a list of tables. {where}")
+    for number, sister in enumerate(sisters, 1):
+        if not isinstance(sister.get("name"), str):
+            sys.exit(f"sisters: [[sisters]] entry {number} in {TECHNE_TOML} has no name. {where}")
+    return str(ws), str(me), sisters
+
+
 def load_sisters(names: list[str]) -> tuple[list[tuple[str, str, str]], str]:
-    with TECHNE_TOML.open("rb") as f:
-        cfg = tomllib.load(f)
-    ws, me = cfg["workspace_root"], cfg["github_user"]
-    active = [s["name"] for s in cfg["sisters"] if s.get("status", "active") == "active"]
+    ws, me, sisters = read_config()
+    active = [s["name"] for s in sisters if s.get("status", "active") == "active"]
     chosen = names or active
     return [(n, f"{me}/{n}", str(Path(ws) / n)) for n in chosen], me
+
+
+def print_env() -> None:
+    """The audit preamble's shell variables, quoted for eval."""
+    ws, me, sisters = read_config()
+    active = [s for s in sisters if s.get("status", "active") == "active"]
+    if not active:
+        sys.exit(f"sisters: no active sisters in {TECHNE_TOML}. Run /techne:setup.")
+    team = [s["name"] for s in active if s.get("kind") == "team"]
+    print(f"SISTERS={shlex.quote(' '.join(s['name'] for s in active))}")
+    print(f"TEAM_SISTERS={shlex.quote(' '.join(team))}")
+    print(f"WORKSPACE={shlex.quote(ws)}")
+    print(f"GITHUB_USER={shlex.quote(me)}")
 
 
 def survey(targets: list[tuple[str, str, str]], me: str) -> list[Repo]:
@@ -446,8 +488,12 @@ def main() -> int:
     parser.add_argument("--repo", action="append", default=[], help="sister name; repeatable")
     parser.add_argument("--json", action="store_true", help="print the full survey as JSON")
     parser.add_argument("--plan-out", type=Path, help="write the safe-to-remove items here")
+    parser.add_argument("--env", action="store_true", help="print the audit's shell variables")
     parser.add_argument("--apply", type=Path, metavar="PLAN", help="remove what PLAN approved")
     args = parser.parse_args()
+    if args.env:
+        print_env()
+        return 0
     if args.apply:
         return apply(args.apply)
     targets, me = load_sisters(args.repo)

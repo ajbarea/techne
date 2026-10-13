@@ -85,7 +85,7 @@ A site is done when it looks right, not when it builds. Hold it to
 [references/polish.md](references/polish.md), the checklist learned across the fleet, and run:
 
 ```bash
-uv run --quiet --no-project --with playwright --with pillow \
+uv run --quiet --no-project --with playwright==1.63.0 --with pillow \
     python ${CLAUDE_SKILL_DIR}/scripts/visual_qa.py http://127.0.0.1:8000/<repo>/ --out qa/
 ```
 

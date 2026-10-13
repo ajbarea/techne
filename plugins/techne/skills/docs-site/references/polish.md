@@ -43,7 +43,7 @@ Serve the build under its repo path, the way GitHub Pages does, so absolute link
 ```bash
 mkdir -p /tmp/serve && ln -sfn "$PWD/site" /tmp/serve/<repo>
 python3 -m http.server -d /tmp/serve 8000 &
-uv run --quiet --no-project --with playwright --with pillow \
+uv run --quiet --no-project --with playwright==1.63.0 --with pillow \
     python ${CLAUDE_SKILL_DIR}/scripts/visual_qa.py http://127.0.0.1:8000/<repo>/ --out qa/
 ```
 

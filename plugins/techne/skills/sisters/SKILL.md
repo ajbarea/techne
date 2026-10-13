@@ -14,24 +14,12 @@ Audit the active sister repos for cross-repo drift. Report every finding, groupe
 Active sister list, workspace root, and GitHub user are read from `~/.claude/techne.toml` at runtime. Run this preamble before any audit checks below; it sets `$SISTERS`, `$TEAM_SISTERS` (active sisters marked `kind = "team"`), `$WORKSPACE`, and `$GITHUB_USER`:
 
 ```
-eval "$(python3 - <<'PY'
-import tomllib, os, shlex
-with open(os.path.expanduser('~/.claude/techne.toml'), 'rb') as f:
-    d = tomllib.load(f)
-active = [s for s in d['sisters'] if s.get('status', 'active') == 'active']
-sisters = ' '.join(s['name'] for s in active)
-team = ' '.join(s['name'] for s in active if s.get('kind') == 'team')
-ws = d['workspace_root']  # required; fails loudly with KeyError on misconfig
-gu = d['github_user']     # required; fails loudly with KeyError on misconfig
-print(f"SISTERS={shlex.quote(sisters)}")
-print(f"TEAM_SISTERS={shlex.quote(team)}")
-print(f"WORKSPACE={shlex.quote(ws)}")
-print(f"GITHUB_USER={shlex.quote(gu)}")
-PY
-)"
+env=$(python3 "${CLAUDE_SKILL_DIR}/scripts/hygiene.py" --env) && eval "$env"
 ```
 
-If `~/.claude/techne.toml` is missing or yields zero active sisters, stop and tell the user — don't guess. Each sister's canonical local path is `$WORKSPACE/<name>` and its GitHub slug is `$GITHUB_USER/<name>`.
+The script prints one line and exits 1 when the file is missing, is not valid TOML, lacks a key, or lists no active sister. Report that line and stop.
+
+If `~/.claude/techne.toml` is missing or yields zero active sisters, stop and tell the user to run /techne:setup; do not guess. Each sister's canonical local path is `$WORKSPACE/<name>` and its GitHub slug is `$GITHUB_USER/<name>`.
 
 ## What to check
 
@@ -155,4 +143,4 @@ What the script counts as safe, and what it never touches:
 - If one repo is in a broken state (e.g., `.claude/skill-context.md` missing), report it and continue the other checks — don't abort.
 - `gh` calls go through the user's authenticated CLI; if auth fails, surface the error and stop that check (don't retry).
 - Do not invoke `techne:ci-audit` recursively. If a PR has failing checks, *name* it and tell the user to run `techne:ci-audit` separately.
-- The active sister list comes from `~/.claude/techne.toml`. If the file is missing, malformed, or yields zero active sisters, stop and ask — don't invent paths.
+- The active sister list comes from `~/.claude/techne.toml`. If the file is missing, malformed, or yields zero active sisters, stop and point the user at /techne:setup; do not invent paths.

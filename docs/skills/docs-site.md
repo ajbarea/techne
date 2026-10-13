@@ -26,7 +26,7 @@ The skill covers site mechanics, not prose accuracy. For prose drift (stale CLI 
 A build that passes can still look wrong. `visual_qa.py` screenshots a served build and reports what a build cannot see:
 
 ```
-uv run --quiet --no-project --with playwright --with pillow \
+uv run --quiet --no-project --with playwright==1.63.0 --with pillow \
     python plugins/techne/skills/docs-site/scripts/visual_qa.py http://127.0.0.1:8000/<repo>/ --out qa/
 ```
 

@@ -7,8 +7,7 @@ Install techne and run your first skill in minutes.
 You'll need:
 
 - **Claude Code**: the CLI, desktop app, or IDE extension. See [code.claude.com/docs](https://code.claude.com/docs).
-- **GitHub CLI** (`gh`): Several skills use this to interact with GitHub. Install: [github.com/cli/cli](https://github.com/cli/cli)
-- **A git repository**: Most skills work within git repos. Initialize one if needed: `git init`
+- **Each plugin's setup skill** checks the rest. `/techne:setup`, `/graphe:setup` and `/phylax:setup` print the install command for each tool that is missing.
 
 ## Installation
 
@@ -24,13 +23,15 @@ From inside Claude Code:
 /plugin install keryx@techne   # WSL2 only
 ```
 
+Then run the setup skill for each plugin you installed: `/techne:setup`, `/graphe:setup`, `/phylax:setup`, `/epistole:setup`. dokimasia needs only uv. Each plugin's page under **Plugins** covers first use and troubleshooting.
+
 Verify the install:
 
 ```bash
 /skills
 ```
 
-The `techne:*`, `graphe:*`, `dokimasia:*` and `epistole:setup` skills should be listed (for the plugins you installed). If they are not, run `/reload-plugins` and check again.
+The `techne:*`, `graphe:*`, `dokimasia:*`, `phylax:setup` and `epistole:setup` skills should be listed (for the plugins you installed). If they are not, run `/reload-plugins` and check again.
 
 Install only the plugins you use: `techne` holds the code-repo skills, `graphe` the document skills (LaTeX, PDF, slides, papers), `dokimasia` the bibliography checker, `phylax` the opt-in git guards, `epistole` Gmail across accounts (see [epistole](epistole.md)), and `keryx` speaks a gist of each reply (WSL2 only).
 
@@ -108,19 +109,7 @@ See [Examples](examples.md) for real-world workflows.
 
 ### Per-Repo Configuration
 
-Several skills read repo-specific facts from `.claude/skill-context.md`, one `##` section per skill family (markdown headers, not top-level keys). For example:
-
-```markdown
-## audit
-phases: [setup, lint, test, ci]
-fast_subset: [lint, test]
-
-## slop_ground_truth
-authoritative_sources:
-  - "src/"
-```
-
-See [Conventions](conventions.md) for the full skeleton, and [Configuration](configuration.md) for the user-level `~/.claude/techne.toml`.
+Several skills read repo-specific facts from `.claude/skill-context.md`, one `##` section per skill family. `/techne:setup` offers to copy the skeleton into a repo that has none. [Conventions](conventions.md) explains each section, and [Configuration](configuration.md) the user-level `~/.claude/techne.toml`.
 
 ### Multi-Repo Configuration
 
@@ -172,9 +161,8 @@ A: The skills are prompt-driven, not CLI tools with flags; steer them in natural
 - Run `/reload-plugins`, then `/skills` to confirm the `techne:*` skills are listed.
 - To pick up a newer techne, run `/plugin install techne@techne` again, or enable auto-update for the marketplace in `/plugin`.
 
-**"gh: command not found"**  
-- Install GitHub CLI: [github.com/cli/cli](https://github.com/cli/cli)
-- Authenticate: `gh auth login`
+**A tool or sign-in is missing**  
+- Run the plugin's setup skill. Each plugin's page under Plugins lists its fixes.
 
 **"Skill runs but output looks wrong"**  
 - Re-run and tell Claude what specifically looked off. There are no `--verbose`/`--debug` flags; the skills are prompt-driven, so natural language is the control surface.

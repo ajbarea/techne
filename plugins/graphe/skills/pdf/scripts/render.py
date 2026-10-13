@@ -19,16 +19,22 @@ from __future__ import annotations
 import argparse
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 
-# The prose check ships in the plugin's _shared/ directory, beside the rubric it reads.
+# The prose check and the install table ship in the plugin's _shared/ directory.
+sys.dont_write_bytecode = True  # a missing-tool exit leaves no file behind in the plugin cache
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "_shared"))
+import doctor_lib  # noqa: E402  # ty: ignore[unresolved-import]
+
 try:
     import prose_check  # ty: ignore[unresolved-import]
-except ImportError:  # an install without _shared/
+except ImportError:  # an install without prose_check.py
     prose_check = None
+
+SETUP = "/graphe:setup"
 
 # Ordered fallbacks. Libertinus Serif and DejaVu Sans Mono
 # ship inside the typst wheel, so the last entry of each list always resolves.
@@ -141,6 +147,8 @@ def main(argv: list[str] | None = None) -> int:
         "--no-prose", action="store_true", help="skip the plain-prose pattern check"
     )
     args = parser.parse_args(argv)
+    if shutil.which("strings") is None:
+        doctor_lib.exit_missing([("strings", "strings")], SETUP)
 
     sources = sorted(args.src.glob("*.md")) if args.src.is_dir() else [args.src]
     if not sources:

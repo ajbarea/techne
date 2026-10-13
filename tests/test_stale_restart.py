@@ -16,11 +16,10 @@ import shlex
 import shutil
 import signal
 import subprocess
-import sys
 import time
 
 import pytest
-from conftest import _load
+from conftest import HOOK_PYTHON, _load
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "phylax"
@@ -29,9 +28,6 @@ HOOKS_JSON = PLUGIN / "hooks" / "hooks.json"
 MANIFEST = PLUGIN / ".claude-plugin" / "plugin.json"
 OPTION = "restart_on_update"
 EVENTS = ("Notification", "Stop", "UserPromptSubmit", "SessionEnd")
-
-# The hook runs on the user's system python3; `make test-hooks-oldest` sets this to 3.9.
-HOOK_PYTHON = os.environ.get("TECHNE_GUARD_PYTHON", sys.executable)
 
 OLD, NEW = "2.1.287", "2.1.288"
 SID = "11111111-2222-3333-4444-555555555555"

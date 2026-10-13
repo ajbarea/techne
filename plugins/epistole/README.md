@@ -94,6 +94,10 @@ To remove epistole, revoke it at [myaccount.google.com/linkedapps](https://myacc
 
 Run `!epistole-login --status`. It prints whether the client file is present and, per account, `signed in` or `needs login: <reason>`, and exits 0 only when every account is signed in. A tool that reports a missing sign-in names the command to run.
 
+If `/mcp` shows epistole failed, or the `accounts` tool is missing, the server did not start. It starts through `uv`, so run `command -v uv` in a terminal. If that prints nothing, install uv with `curl -LsSf https://astral.sh/uv/install.sh | sh`, then restart Claude Code, because the server takes its PATH from the session that starts it. If uv is installed, the first start was probably still downloading packages: reconnect epistole from `/mcp`.
+
+If `epistole-login` says uv is not on PATH, install uv the same way, open a new terminal, and run the command again.
+
 ## Privacy
 
 See the [privacy policy](https://ajbarea.github.io/techne/epistole/#privacy).

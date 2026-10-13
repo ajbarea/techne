@@ -1,6 +1,6 @@
 """Screenshot a Zensical site in both schemes at wide, desktop and phone width, and measure it.
 
-    uv run --quiet --no-project --with playwright --with pillow \\
+    uv run --quiet --no-project --with playwright==1.63.0 --with pillow \\
         python visual_qa.py http://127.0.0.1:8000/ --out qa/ [--pages 12] [--path getting-started/]
 
 Every page in the sitemap (or the --path list) is loaded in light and dark at 1920, 1280 and
