@@ -27,13 +27,14 @@ $B python plugins/graphe/skills/slides/scripts/slides.py check <deck/index.html|
 $B python plugins/graphe/skills/slides/scripts/slides.py render <deck/index.html|deck.pptx|deck.pdf> <out-dir> [--renderer {auto,powerpoint,libreoffice}] [--dpi N]
 $B python plugins/graphe/skills/slides/scripts/slides.py script <deck/index.html|deck.pptx> [--wpm N] > script.md
 $B python plugins/graphe/skills/slides/scripts/slides.py pptx <deck/index.html> <out.pptx> [--images <dir>]
+$B python plugins/graphe/skills/slides/scripts/slides.py pdf <deck/index.html> <out.pdf>
 ```
 
 A web deck is checked and rendered in Chromium through Playwright; install it once with `uv run --no-project --with playwright==1.63.0 playwright install chromium`. `script` reads a web deck in the same browser; a `.pptx` or PDF needs none.
 
 `check` takes `--level` (default `AAA`), `--min-pt` (14), `--dense-words` (60) and `--title-words` (14). `render` takes `--renderer` (default `auto`) and `--dpi` (80) for a `.pptx` or PDF. `script` takes `--wpm` (140).
 
-`check` exits 0 when every gate passed, 1 when the file is not a readable deck, and 2 on a blocker. On a web deck, `render` writes one PNG per slide at 1920x1080 with every fragment shown, one per slide on a 390px-wide phone, contact sheets of both, and the print PDF; `--renderer` and `--dpi` apply to a `.pptx` or PDF only. A `.pptx` is exported through PowerPoint when it is installed and LibreOffice otherwise. Give `render` a folder of its own: it refuses a non-empty folder it did not create. `script` prints the speaker notes as one Markdown script with the talk length; backup slides come after the talk and are left out of the length. `pptx` exports a web deck for PowerPoint: one 1920x1080 picture per slide with every fragment shown, the script in the speaker notes, and the slide's title kept in the title placeholder just above the slide for the outline and screen readers; `--images` also writes the PNGs.
+`check` exits 0 when every gate passed, 1 when the file is not a readable deck, and 2 on a blocker. On a web deck, `render` writes one PNG per slide at 1920x1080 with every fragment shown, one per slide on a 390px-wide phone, contact sheets of both, and the print PDF; `--renderer` and `--dpi` apply to a `.pptx` or PDF only. A `.pptx` is exported through PowerPoint when it is installed and LibreOffice otherwise. Give `render` a folder of its own: it refuses a non-empty folder it did not create. `script` prints the speaker notes as one Markdown script with the talk length; backup slides come after the talk and are left out of the length. `pptx` exports a web deck for PowerPoint: one 1920x1080 picture per slide with every fragment shown, the script in the speaker notes, and the slide's title kept in the title placeholder just above the slide for the outline and screen readers; `--images` also writes the PNGs. `pdf` exports a web deck as a vector PDF: one page per slide with every fragment shown, selectable text and working links, from reveal.js's print layout printed by Chromium; `web-only` text is left out.
 
 ## What it checks
 

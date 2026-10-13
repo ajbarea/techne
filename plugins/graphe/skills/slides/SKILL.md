@@ -23,6 +23,7 @@ $B python ${CLAUDE_SKILL_DIR}/scripts/slides.py check  <deck/index.html> [--jarg
 $B python ${CLAUDE_SKILL_DIR}/scripts/slides.py render <deck/index.html> <out-dir>
 $B python ${CLAUDE_SKILL_DIR}/scripts/slides.py script <deck/index.html> > <deck>-script.md
 $B python ${CLAUDE_SKILL_DIR}/scripts/slides.py pptx   <deck/index.html> <deck>.pptx [--images <dir>]
+$B python ${CLAUDE_SKILL_DIR}/scripts/slides.py pdf    <deck/index.html> <deck>.pdf
 ```
 
 A web deck is checked and rendered in Chromium through Playwright. Install the
@@ -43,6 +44,16 @@ for a summary", with `class="web-only"` and the export hides it. It is for prese
 a file; the pictures cannot be edited, links in them do not work, and nothing
 animates. Build it, never commit it: it is regenerated from the web deck.
 `--images` also writes the slide PNGs to a folder render's rules govern.
+
+`pdf` exports the same web deck as a PDF: reveal.js's `?print-pdf` layout printed by
+Chromium, one page per slide with every fragment shown (it sets
+`pdfSeparateFragments: false` itself, so the deck's setting cannot add pages),
+vector text you can select and search, and live links (`#/slide-id` links are
+rewritten to anchors, which the browser turns into links). A footnote pinned to
+the slide's bottom stays on the page, and `class="web-only"` text and reveal.js's
+own navigation are left out, as in `pptx`. It is the file to hand out or print;
+use `pptx` when the audience will present from PowerPoint. Build it, never commit
+it. `render`'s `<deck>.pdf` is the same file.
 
 `render` writes one PNG per slide at 1920x1080 with every fragment shown, one
 per slide on a 390px-wide phone, contact sheets of both (`sheet-*` two across,

@@ -7,11 +7,13 @@
                             [--renderer auto|powerpoint|libreoffice] [--dpi 80]
     python slides.py script <deck/index.html|deck.pptx> [--wpm 140]
     python slides.py pptx   <deck/index.html> <out.pptx> [--images <dir>]
+    python slides.py pdf    <deck/index.html> <out.pdf>
 
 A reveal.js web deck (``.html``) is checked and rendered in Chromium through Playwright,
 with axe-core for contrast and alt text; it needs ``playwright`` and
 ``axe-playwright-python`` (pinned in PLAYWRIGHT and AXE below) and, for contact sheets,
-Pillow. ``script`` reads a web deck in the same browser. ``pptx`` exports a web deck for
+Pillow. ``script`` reads a web deck in the same browser. ``pdf`` exports a web deck as a
+vector PDF, one page per slide with every fragment shown. ``pptx`` exports a web deck for
 PowerPoint, one picture per slide with every fragment shown and the script in the notes; it
 also needs ``python-pptx`` (pinned in PPTX below, and part of WITH_BROWSER).
 
@@ -1064,6 +1066,7 @@ def _open(
     query: str = "",
     during: str = "",
     seen: bool = False,
+    init: str = "",
     **context,
 ):
     """A page with the deck loaded and reveal.js ready, or DeckError saying why not.
@@ -1073,6 +1076,8 @@ def _open(
     """
     page = browser.new_context(viewport=viewport, bypass_csp=True, **context).new_page()
     watch = _Watch(page)
+    if init:
+        page.add_init_script(init)
     try:
         page.goto(deck.resolve().as_uri() + query)
         page.wait_for_function("window.Reveal && Reveal.isReady && Reveal.isReady()", timeout=15000)
@@ -1399,6 +1404,108 @@ def html_slides(path: pathlib.Path) -> list[tuple[str, str]]:
             browser.close()
 
 
+# ---------------------------------------------------------------- print PDF --
+
+# The print PDF is reveal.js's own `?print-pdf` layout printed by Chromium: vector, text
+# selectable, links live. Three things in it need help on any deck:
+# - reveal.js starts one page per fragment unless `pdfSeparateFragments` is false, so the
+#   export sets it false as the deck starts, whatever the deck says;
+# - a slide taller than its page (a footnote pinned to the slide's bottom) is cut to the page,
+#   or its bottom is cut off;
+# - reveal.js's own navigation and `.web-only` text mean nothing on paper.
+_PDF_FRAGMENTS = """(() => {
+  let deck;
+  Object.defineProperty(window, 'Reveal', {
+    configurable: true,
+    get: () => deck,
+    set: (value) => {
+      deck = value;
+      const start = value && value.initialize;
+      if (typeof start === 'function') {
+        value.initialize = (config) =>
+          start.call(value, { ...config, pdfSeparateFragments: false });
+      }
+    },
+  });
+})()"""
+# `#/id` is reveal.js's link to a slide by id; on paper the browser needs plain `#id` to make
+# a link of it.
+_PDF_FIT = """() => {
+  for (const a of document.querySelectorAll('a[href^="#/"]')) {
+    const id = decodeURIComponent(a.getAttribute('href').slice(2));
+    if (id && document.getElementById(id)) a.setAttribute('href', `#${id}`);
+  }
+  for (const page of document.querySelectorAll('.pdf-page')) {
+    const slide = page.querySelector(':scope > section');
+    if (!slide) continue;
+    const over = slide.getBoundingClientRect().bottom - page.getBoundingClientRect().bottom;
+    const height = slide.getBoundingClientRect().height;
+    if (over > 0.5) slide.style.height = `${Math.max(0, height - over)}px`;
+  }
+}"""
+_PDF_OPTIONS = {"print_background": True, "prefer_css_page_size": True}
+
+
+def _open_print(browser, deck: pathlib.Path, count: int):
+    """The deck in reveal.js's print layout, one page per slide, ready to print, or DeckError."""
+    page, _ = _open(
+        browser,
+        deck,
+        CANVAS,
+        query="?print-pdf",
+        during=" for print",
+        seen=True,
+        init=_PDF_FRAGMENTS,
+    )
+    try:
+        page.wait_for_function("document.querySelectorAll('.pdf-page').length > 0")
+    except Exception as exc:
+        raise DeckError(f"the print layout never appeared ({_first_line(exc)})") from exc
+    page.add_style_tag(content=_STILL + " " + _NO_NAVIGATION)
+    pages = page.evaluate("document.querySelectorAll('.pdf-page').length")
+    if pages != count:
+        raise DeckError(f"the print layout has {pages} pages for {count} slides")
+    page.evaluate(_PDF_FIT)
+    return page
+
+
+def pdf_html(deck: pathlib.Path, target: pathlib.Path) -> int:
+    """Export a web deck as a PDF: one page per slide, every fragment shown, vector text you
+    can select and search, links that work. The slides are the ones the browser shows, so
+    elements with the class `web-only` are left out, as in `pptx`."""
+    if not deck.is_file():
+        sys.exit(f"{deck}: no such file")
+    if deck.suffix.lower() not in HTML:
+        sys.exit(f"{deck}: pdf exports a web deck (.html); a PDF already is one")
+    if target.suffix.lower() != ".pdf":
+        sys.exit(f"{target}: the output must be a .pdf file")
+    if target.is_dir():
+        sys.exit(f"{target} is a folder; pass the .pdf file to write")
+    if any(p.exists() and not p.is_dir() for p in target.resolve().parents):
+        sys.exit(f"{target}: a folder on its path is a file")
+    with _playwright()() as pw:
+        browser = _launch(pw)
+        try:
+            page, _ = _open(browser, deck, SCREEN)
+            count = page.evaluate(_COUNT)
+            if not count:
+                raise DeckError("no slides")
+            printed = _open_print(browser, deck, count)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            partial = target.with_name(target.name + ".partial")
+            printed.pdf(path=str(partial), **_PDF_OPTIONS)
+            partial.replace(target)
+        except DeckError as exc:
+            sys.exit(f"{deck}: {exc}")
+        except Exception as exc:  # a Playwright error mid-export
+            sys.exit(f"{deck}: the browser failed: {_first_line(exc)}")
+        finally:
+            browser.close()
+    print(f"pdf: {target}")
+    print(f"pages: {count}, one per slide, every fragment shown")
+    return 0
+
+
 def render_html(deck: pathlib.Path, out: pathlib.Path) -> int:
     """One PNG per slide at 1920x1080, the deck on a phone, and the print PDF."""
     if not deck.is_file():
@@ -1433,11 +1540,7 @@ def _render_in(browser, deck: pathlib.Path, out: pathlib.Path):
     phone, _ = _open(
         browser, deck, PHONE, during=" on a phone", seen=True, is_mobile=True, has_touch=True
     )
-    printed, _ = _open(browser, deck, CANVAS, query="?print-pdf", during=" for print", seen=True)
-    try:
-        printed.wait_for_function("document.querySelectorAll('.pdf-page').length > 0")
-    except Exception as exc:
-        raise DeckError(f"the print layout never appeared ({_first_line(exc)})") from exc
+    printed = _open_print(browser, deck, count)
     prepare_out(out)
     page.add_style_tag(content=_STILL)
     pngs = []
@@ -1455,7 +1558,7 @@ def _render_in(browser, deck: pathlib.Path, out: pathlib.Path):
         phone.screenshot(path=str(target))
         phones.append(target)
     pdf = out / (deck.stem + ".pdf")
-    printed.pdf(path=str(pdf), print_background=True, prefer_css_page_size=True)
+    printed.pdf(path=str(pdf), **_PDF_OPTIONS)
     return pngs, phones, pdf
 
 
@@ -1814,6 +1917,13 @@ def main() -> int:
     x.add_argument(
         "--images", type=pathlib.Path, default=None, help="also write the slide PNGs here"
     )
+    f = sub.add_parser(
+        "pdf",
+        help="export a web deck as a PDF: one page per slide, every fragment shown, "
+        "vector text, working links",
+    )
+    f.add_argument("deck", type=pathlib.Path)
+    f.add_argument("out", type=pathlib.Path)
     t = sub.add_parser("script", help="print the speaker notes as a read-aloud script")
     t.add_argument("deck", type=pathlib.Path)
     t.add_argument("--wpm", type=int, default=140)
@@ -1823,6 +1933,8 @@ def main() -> int:
         return render(args.deck, args.out, args.renderer, args.dpi)
     if args.cmd == "pptx":
         return pptx_html(args.deck, args.out, args.images)
+    if args.cmd == "pdf":
+        return pdf_html(args.deck, args.out)
     if args.cmd == "script":
         code, out = script(args.deck, args.wpm)
         print(out, file=sys.stderr if code else sys.stdout)
