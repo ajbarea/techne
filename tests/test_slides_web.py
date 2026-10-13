@@ -163,6 +163,15 @@ def test_text_past_the_slide_edge_warns(sl, web, gates):
 
 
 @needs_browser
+def test_content_past_the_edge_on_a_phone_blocks_at_both_widths(sl, web, gates):
+    wide = '<div style="width:900px;height:20px;background:#000">[wider than a phone]</div>'
+    found = _check(sl, web(CLAIM, CLAIM + wide))
+    assert ("BLOCK", "phone-clip") in gates(found)
+    clip = [f.message for f in found if f.gate == "phone-clip"]
+    assert any("390px" in m for m in clip) and any("360px" in m for m in clip)
+
+
+@needs_browser
 def test_small_text_warns_on_desktop_and_phone(sl, web, gates):
     found = _check(sl, web(CLAIM, CLAIM + '<p style="font-size:11px">[fine print]</p>'))
     assert {("WARN", "small-text"), ("WARN", "phone")} <= gates(found)
@@ -451,8 +460,8 @@ def test_a_vertical_stack_keeps_phone_slides_aligned(sl, tmp_path):
         OPENING + '<section><section><h2>Top</h2><aside class="notes">a</aside></section>'
         f'<section><h2>Long</h2>{lines}<aside class="notes">b</aside></section></section>',
     )
-    phone = [f for f in _check(sl, deck) if f.gate == "phone" and "edge" in f.message]
-    assert phone and phone[0].message.endswith("slides [3]")
+    phone = [f for f in _check(sl, deck) if f.gate == "phone-clip"]
+    assert phone and "slides [3]" in phone[0].message
     out = tmp_path / "render"
     sl.render(deck, out)
     assert len(list(out.glob("phone-[0-9]*.png"))) == 3

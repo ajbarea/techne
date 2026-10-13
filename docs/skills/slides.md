@@ -40,12 +40,13 @@ A web deck is checked and rendered in Chromium through Playwright; install it on
 
 | Severity | Gate | Catches |
 |---|---|---|
+| BLOCK | `phone-clip` | Content drawn past the slide's edge on a 390px or 360px-wide phone. |
 | BLOCK | `no-title` | A slide with no heading (web) or no title placeholder (`.pptx`). |
 | BLOCK | `contrast` | Text below 7:1, or 4.5:1 for large text (`--level AA` relaxes both). Web decks are measured with axe-core against each slide's own background. |
 | BLOCK | `alt-text` | An image or figure with no text alternative. |
 | BLOCK | `em-dash` | An em-dash in slide text. |
 | BLOCK | `asset`, `script` | A web deck that cannot load a file it asks for, or logs a console error, including a value with no data behind it. |
-| WARN | `small-text`, `overflow`, `nested-section`, `phone`, `motion`, `offline` | Text under 14pt; anything drawn past the slide's edge; a `<section>` inside slide content, which reveal.js shows as separate slides; text under 12px or content off the slide on a phone; animation that ignores reduced-motion settings; a deck that needs the network to present. |
+| WARN | `small-text`, `overflow`, `nested-section`, `phone`, `motion`, `offline` | Text under 14pt; anything drawn past the slide's edge; a `<section>` inside slide content, which reveal.js shows as separate slides; text under 12px on a phone; animation that ignores reduced-motion settings; a deck that needs the network to present. |
 | WARN | `font`, `no-notes`, `duplicate-title` | A font that will be substituted in PowerPoint or Google Slides (`.pptx`), talk slides with no script, titles a screen reader cannot tell apart. |
 | REVIEW | `jargon` | A term from `--jargon` on a talk slide. |
 | REVIEW | `figures`, `dense`, `long-title` | Numbers and walls of text on talk slides (slide 1 and everything after a `Backup` divider are exempt), and headlines that stopped being headlines. |

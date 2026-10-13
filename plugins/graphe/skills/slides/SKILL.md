@@ -87,7 +87,8 @@ pass is reported on its own, beside the desktop findings.
 | BLOCK | `script` | A console error, including a `data-value` with no data behind it. |
 | WARN | `small-text` | Text under `--min-pt` (14pt: 19px on a 1280-wide canvas, scaled to the deck's own width). |
 | WARN | `overflow` | Something drawn past the edge of the slide canvas, clipped or not. Content inside a container that scrolls sideways is exempt. |
-| WARN | `phone` | On a 390px-wide phone: text under 12px, content past the slide's edge, a page that scrolls sideways, or no viewport meta tag. Figures that pan sideways are listed as INFO. |
+| BLOCK | `phone-clip` | Content drawn past the slide's edge on a 390px or 360px-wide phone. A phone cannot pan to it: reflow the figure or draw a tall version for the phone. |
+| WARN | `phone` | On a 390px-wide phone: text under 12px, a page that scrolls sideways, or no viewport meta tag. Figures that pan sideways are listed as INFO. |
 | WARN | `nested-section` | A `<section>` inside a slide's content, which reveal.js shows as separate slides. |
 | WARN | `motion` | Animation on a slide still running a quarter second after it opens, with reduced motion requested. |
 | WARN | `offline` | The deck fetches from the network, so it fails on a projector laptop with no Wi-Fi. |

@@ -785,6 +785,8 @@ WITH_BROWSER = (
 CANVAS = {"width": 1280, "height": 720}
 SCREEN = {"width": 1920, "height": 1080}
 PHONE = {"width": 390, "height": 844}
+# The narrowest phones still sold; content must fit here too.
+SMALL_PHONE = {"width": 360, "height": 780}
 # Below this many CSS pixels on a phone, body text is unreadable at arm's length.
 PHONE_MIN_PX = 12
 AXE_ALT = ["image-alt", "svg-img-alt", "role-img-alt", "input-image-alt", "object-alt"]
@@ -1325,6 +1327,26 @@ def _motion_pass(browser, path: pathlib.Path, found: list[Finding]) -> _Watch:
     return watch
 
 
+def _small_phone_spill(browser, path: pathlib.Path) -> list[int]:
+    """Slides with content past the edge on the narrowest phone."""
+    page, _ = _open(
+        browser,
+        path,
+        SMALL_PHONE,
+        during=" on a small phone",
+        seen=True,
+        is_mobile=True,
+        has_touch=True,
+    )
+    page.add_style_tag(content=_ALL_FRAGMENTS)
+    spilled = []
+    for i in range(page.evaluate(_COUNT)):
+        page.evaluate(_SCROLL_TO, i)
+        if page.evaluate(_READ_SLIDE, i)["spill"]:
+            spilled.append(i + 1)
+    return spilled
+
+
 def _phone_pass(browser, path: pathlib.Path, found: list[Finding]) -> _Watch:
     # Scroll view loads slides near the viewport only, so each is read after scrolling to it.
     phone, watch = _open(
@@ -1365,12 +1387,17 @@ def _phone_pass(browser, path: pathlib.Path, found: list[Finding]) -> _Watch:
                 f"(< {PHONE_MIN_PX}px): {least['sample']!r}",
             )
         )
-    if spilled:
-        found.append(
-            Finding(
-                WARN, "phone", f"content drawn past the slide's edge on a phone, slides {spilled}"
+    small = _small_phone_spill(browser, path)
+    for width, slides in ((PHONE["width"], spilled), (SMALL_PHONE["width"], small)):
+        if slides:
+            found.append(
+                Finding(
+                    BLOCK,
+                    "phone-clip",
+                    f"content drawn past the slide's edge on a {width}px-wide phone, slides "
+                    f"{slides}: reflow it or scale it to fit; a phone cannot pan to it",
+                )
             )
-        )
     if panned:
         found.append(
             Finding(
