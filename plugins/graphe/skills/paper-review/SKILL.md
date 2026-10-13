@@ -91,6 +91,17 @@ mandatory citation-integrity gate, then OpenNovelty's four-phase pipeline (arXiv
      of a cited paper against its full text where it is open access (qualifiers are lost in
      abstracts), "consistent with X" only where the setups match, and a proposal's promises
      against what the time allows.
+   - **§3c Quality** per `${CLAUDE_PLUGIN_ROOT}/_shared/paper-quality.md`:
+     every-sentence test (list sentences that help no venue review criterion and no required
+     element; propose cut or merge, never apply); comparison against `conventions.md` (titles,
+     abstract length, RQ phrasing, section order, tense) or, if absent, against the venue's
+     accepted papers; integrity guards (ethics or IRB claims with no written determination,
+     numbers from data without permission, a "not in a published figure" promise broken
+     anywhere); registered-report tense and no results in the abstract; claim sentences that
+     read as assistant-written. If `CUTS.md` exists, audit it against the call's required
+     elements and flag any cut that removed one. Reviewer lenses (a skeptical reviewer, the
+     venue's criteria, the advisor) are used to find real weaknesses; report a finding only
+     if fixing it makes the paper clearer, more rigorous or more concise.
    - **§3b Structure.** The sections the target venue expects. A manuscript with no Related
      Work or no References is a stop-ship finding, however clean the prose.
    - **§4 Lab-overlap — surface, do not adjudicate.** Parse `lab_line`; list adjacent lab papers

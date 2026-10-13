@@ -54,15 +54,22 @@ biblatex, which skews against a system biber the moment a paper moves off classi
    A fresh scaffold exits 2 with exactly one blocker, `draft-marker` for the template's
    `TODO` placeholders; that is the expected result. Any other finding is a real failure.
    Report the PDF path and size. Without TeX Live, say so and point at Overleaf instead.
-6. Report the directory, the build status, and: "write prose into the `% HARVEST:` blocks
+6. Quality setup. Copy `templates/conventions.md.tmpl` and `templates/CUTS.md.tmpl` into
+   `papers/<name>/`. With `--venue`, fill the conventions sheet from the venue's accepted
+   papers per `_shared/paper-quality.md` (structure and counts, titles only). Read that file
+   before any drafting: it sets the bar, voice, integrity guards and registered-report tense.
+7. Report the directory, the build status, and: "write prose into the `% HARVEST:` blocks
    following `_shared/plain-prose.md`; run `python harvest.py` once `--from` is wired."
    Read `${CLAUDE_PLUGIN_ROOT}/_shared/plain-prose.md` yourself before writing any of the prose.
+   The author writes the claim-bearing sentences; you do structure, editing and evidence tracing.
 
 ## Common mistakes
 
 - Hand-typing result numbers — they belong in `harvest.py` output (`\input`-ed) so they
   regenerate. The template's `\nocite{*}` line is only a build-enabler; delete it once real
   `\cite{}` commands exist (an empty bibliography errors under many classes).
+- Drafting claim sentences for the author, or copying prose from accepted papers.
+- Stating an ethics or IRB determination the author has no written record of.
 - Overwriting an existing paper dir — step 1 guards this.
 
-The exact `main.tex` and `harvest.py` scaffolds live in `templates/`.
+The exact `main.tex`, `harvest.py`, `conventions.md` and `CUTS.md` scaffolds live in `templates/`.
