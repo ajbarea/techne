@@ -168,6 +168,7 @@ If you use techne in your research, cite it with the metadata in [CITATION.cff](
   title   = {techne: a Claude Code plugin marketplace for repositories, documents, and bibliographies},
   url     = {https://github.com/ajbarea/techne},
   license = {MIT},
+  version = {1.3.0},
   year    = {2026}
 }
 ```

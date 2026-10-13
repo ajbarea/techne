@@ -10,8 +10,8 @@ abstract: >-
   key rendered. epistole gives Claude your Gmail accounts, with every send gated on
   your approval.
 type: software
-version: 1.2.0
-date-released: "2026-10-11"
+version: 1.3.0
+date-released: "2026-10-12"
 authors:
   - given-names: Arnaldo
     family-names: Barea

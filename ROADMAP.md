@@ -156,6 +156,7 @@ that drift class recurs.
 
 Detail lives in git history (`git log`) and the live skill code. This log is pruned once work is durably shipped.
 
+- 2026-10-12: **Onboarding pass, and v1.3.0.** techne, graphe and phylax gain a setup skill on the epistole pattern: an AGENTS.md runbook and a read-only doctor on the system python3 that prints each missing tool with its install command. A missing latexmk, poppler, strings, gh, tmux or uv now names its fix instead of a traceback. Each plugin has a README and a docs page under a new Plugins section, the README has a Cite section, and the release is the first with a tag since 1.1.0.
 - 2026-10-11: **epistole, and v1.2.0.** A sixth plugin: a local Gmail MCP server that searches,
   reads and drafts across accounts and sends a draft only after the user approves it, with a
   `setup` skill and a runbook for creating the user's own Google OAuth client. The docs site
