@@ -37,6 +37,8 @@ renders no verdict — the solo-vs-lab boundary is a human agreement.
 
 Claim-support also runs the *Claims* checks in `_shared/plain-prose.md`: numbers against the code or data behind them, method descriptions against the code, summaries of cited papers against their full text where open access, and a proposal's promises against the time it has. A manuscript missing the sections its venue expects, such as Related Work or References, is a stop-ship finding.
 
+The pass also applies `_shared/paper-quality.md`: the every-sentence test, a comparison against the venue conventions sheet, an audit of `CUTS.md` against the call's required elements, integrity guards (ethics or IRB claims, restricted data, "not in a published figure" promises), and registered-report tense. Reviewer lenses find weaknesses; a finding counts only if fixing it makes the paper clearer, more rigorous or more concise.
+
 ## See also
 
 - [`graphe:paper`](paper.md): scaffolds the draft this skill reviews.

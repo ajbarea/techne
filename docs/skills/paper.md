@@ -21,6 +21,8 @@ scaffold's only finding is the template's `TODO` draft markers), and
 adds a row to the portfolio file. Then write prose into the `% HARVEST:` blocks, following `_shared/plain-prose.md`; run
 `python harvest.py` to regenerate the evaluation table from the source repo's corpus.
 
+It also adds a `conventions.md` sheet (filled from the target venue's accepted papers: structure and counts, titles only) and a `CUTS.md` log of every sentence cut. The rules for both live in `_shared/paper-quality.md`: the bar is clarity and conciseness, every sentence earns its place, the author writes the claim sentences, and integrity guards on ethics statements and restricted data.
+
 ## See also
 
 - [`techne:sisters`](sisters.md): the sister repos a paper harvests from.
