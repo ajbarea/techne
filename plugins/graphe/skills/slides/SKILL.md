@@ -23,6 +23,7 @@ $B python ${CLAUDE_SKILL_DIR}/scripts/slides.py check  <deck/index.html> [--jarg
 $B python ${CLAUDE_SKILL_DIR}/scripts/slides.py render <deck/index.html> <out-dir>
 $B python ${CLAUDE_SKILL_DIR}/scripts/slides.py script <deck/index.html> > <deck>-script.md
 $B python ${CLAUDE_SKILL_DIR}/scripts/slides.py pptx   <deck/index.html> <deck>.pptx [--images <dir>]
+$B python ${CLAUDE_SKILL_DIR}/scripts/slides.py pdf    <deck/index.html> <deck>.pdf
 ```
 
 A web deck is checked and rendered in Chromium through Playwright. Install the
@@ -43,6 +44,16 @@ for a summary", with `class="web-only"` and the export hides it. It is for prese
 a file; the pictures cannot be edited, links in them do not work, and nothing
 animates. Build it, never commit it: it is regenerated from the web deck.
 `--images` also writes the slide PNGs to a folder render's rules govern.
+
+`pdf` exports the same web deck as a PDF: reveal.js's `?print-pdf` layout printed by
+Chromium, one page per slide with every fragment shown (it sets
+`pdfSeparateFragments: false` itself, so the deck's setting cannot add pages),
+vector text you can select and search, and live links (`#/slide-id` links are
+rewritten to anchors, which the browser turns into links). A footnote pinned to
+the slide's bottom stays on the page, and `class="web-only"` text and reveal.js's
+own navigation are left out, as in `pptx`. It is the file to hand out or print;
+use `pptx` when the audience will present from PowerPoint. Build it, never commit
+it. `render`'s `<deck>.pdf` is the same file.
 
 `render` writes one PNG per slide at 1920x1080 with every fragment shown, one
 per slide on a 390px-wide phone, contact sheets of both (`sheet-*` two across,
@@ -76,7 +87,8 @@ pass is reported on its own, beside the desktop findings.
 | BLOCK | `script` | A console error, including a `data-value` with no data behind it. |
 | WARN | `small-text` | Text under `--min-pt` (14pt: 19px on a 1280-wide canvas, scaled to the deck's own width). |
 | WARN | `overflow` | Something drawn past the edge of the slide canvas, clipped or not. Content inside a container that scrolls sideways is exempt. |
-| WARN | `phone` | On a 390px-wide phone: text under 12px, content past the slide's edge, a page that scrolls sideways, or no viewport meta tag. Figures that pan sideways are listed as INFO. |
+| BLOCK | `phone-clip` | Content drawn past the slide's edge on a 390px or 360px-wide phone. A phone cannot pan to it: reflow the figure or draw a tall version for the phone. |
+| WARN | `phone` | On a 390px-wide phone: text under 12px, a page that scrolls sideways, or no viewport meta tag. Figures that pan sideways are listed as INFO. |
 | WARN | `nested-section` | A `<section>` inside a slide's content, which reveal.js shows as separate slides. |
 | WARN | `motion` | Animation on a slide still running a quarter second after it opens, with reduced motion requested. |
 | WARN | `offline` | The deck fetches from the network, so it fails on a projector laptop with no Wi-Fi. |

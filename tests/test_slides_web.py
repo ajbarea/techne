@@ -163,6 +163,15 @@ def test_text_past_the_slide_edge_warns(sl, web, gates):
 
 
 @needs_browser
+def test_content_past_the_edge_on_a_phone_blocks_at_both_widths(sl, web, gates):
+    wide = '<div style="width:900px;height:20px;background:#000">[wider than a phone]</div>'
+    found = _check(sl, web(CLAIM, CLAIM + wide))
+    assert ("BLOCK", "phone-clip") in gates(found)
+    clip = [f.message for f in found if f.gate == "phone-clip"]
+    assert any("390px" in m for m in clip) and any("360px" in m for m in clip)
+
+
+@needs_browser
 def test_small_text_warns_on_desktop_and_phone(sl, web, gates):
     found = _check(sl, web(CLAIM, CLAIM + '<p style="font-size:11px">[fine print]</p>'))
     assert {("WARN", "small-text"), ("WARN", "phone")} <= gates(found)
@@ -451,8 +460,8 @@ def test_a_vertical_stack_keeps_phone_slides_aligned(sl, tmp_path):
         OPENING + '<section><section><h2>Top</h2><aside class="notes">a</aside></section>'
         f'<section><h2>Long</h2>{lines}<aside class="notes">b</aside></section></section>',
     )
-    phone = [f for f in _check(sl, deck) if f.gate == "phone" and "edge" in f.message]
-    assert phone and phone[0].message.endswith("slides [3]")
+    phone = [f for f in _check(sl, deck) if f.gate == "phone-clip"]
+    assert phone and "slides [3]" in phone[0].message
     out = tmp_path / "render"
     sl.render(deck, out)
     assert len(list(out.glob("phone-[0-9]*.png"))) == 3
@@ -679,6 +688,88 @@ def test_pptx_alt_text_carries_the_body_and_skips_web_only_text(sl, web, tmp_pat
     hit = [a for a in alts if "Body sentence one." in a]
     assert len(hit) == 1 and hit[0].startswith("[Claim headline")
     assert not any("Hover for a summary" in a for a in alts)
+
+
+def _pdf_text(pdf: pathlib.Path) -> str:
+    return subprocess.run(["pdftotext", str(pdf), "-"], capture_output=True, text=True).stdout
+
+
+needs_poppler = pytest.mark.skipif(not shutil.which("pdftotext"), reason="no poppler")
+
+
+@needs_browser
+@needs_poppler
+def test_pdf_has_one_vector_page_per_slide_with_text_and_working_links(sl, web, tmp_path):
+    index = web(
+        CLAIM,
+        CLAIM
+        + '<p>Body sentence one.</p><p class="web-only">Hover for a summary.</p>'
+        + '<p><a href="https://example.test/paper">the paper</a> <a href="#/agenda">agenda</a></p>',
+    )
+    web(
+        '<section>\n  <span class="kicker">Today',
+        '<section id="agenda">\n  <span class="kicker">Today',
+    )
+    out = tmp_path / "deck.pdf"
+    assert sl.pdf_html(index, out) == 0
+    data = out.read_bytes()
+    assert data[:5] == b"%PDF-" and not out.with_name("deck.pdf.partial").exists()
+    count = len(sl.html_slides(index))
+    info = subprocess.run(["pdfinfo", str(out)], capture_output=True, text=True).stdout
+    assert re.search(rf"Pages:\s+{count}\b", info)
+    text = _pdf_text(out)
+    assert "Body sentence one." in text and "Hover for a summary" not in text
+    # A link to an external page and one to a slide by id, both live in the PDF.
+    assert b"/URI (https://example.test/paper)" in data
+    assert b"/Dest /agenda" in data
+
+
+@needs_browser
+@needs_poppler
+def test_pdf_shows_each_slide_fully_built_whatever_the_deck_configures(sl, web, tmp_path):
+    web("pdfSeparateFragments: false,", "", "deck.js")
+    index = web(CLAIM, CLAIM + '<p class="fragment">first</p><p class="fragment">second</p>')
+    out = tmp_path / "deck.pdf"
+    sl.pdf_html(index, out)
+    info = subprocess.run(["pdfinfo", str(out)], capture_output=True, text=True).stdout
+    assert re.search(rf"Pages:\s+{len(sl.html_slides(index))}\b", info)
+    assert "first" in _pdf_text(out) and "second" in _pdf_text(out)
+
+
+@needs_browser
+@needs_poppler
+def test_pdf_keeps_text_pinned_to_the_bottom_of_a_slide(sl, web, tmp_path):
+    css = web.index.parent / "deck.css"
+    css.write_text(
+        css.read_text()
+        + ".reveal .slides section { height: 100%; } .footnote { position: absolute; bottom: 0; }"
+    )
+    out = tmp_path / "deck.pdf"
+    sl.pdf_html(web.index, out)
+    assert "Where the discussion stops fall" in _pdf_text(out)
+
+
+@pytest.mark.parametrize("name", ["export.pptx", "export"])
+def test_pdf_writes_only_a_pdf(sl, web, tmp_path, name):
+    with pytest.raises(SystemExit, match=r"must be a \.pdf"):
+        sl.pdf_html(web.index, tmp_path / name)
+    assert not (tmp_path / name).exists()
+
+
+def test_pdf_refuses_a_folder_and_a_target_under_a_file(sl, web, tmp_path):
+    (tmp_path / "folder.pdf").mkdir()
+    with pytest.raises(SystemExit, match="is a folder"):
+        sl.pdf_html(web.index, tmp_path / "folder.pdf")
+    (tmp_path / "file").write_text("mine")
+    with pytest.raises(SystemExit, match="is a file"):
+        sl.pdf_html(web.index, tmp_path / "file" / "deck.pdf")
+    assert (tmp_path / "file").read_text() == "mine"
+
+
+def test_pdf_exports_only_a_web_deck(sl, tmp_path):
+    (tmp_path / "deck.pdf").write_bytes(b"%PDF-")
+    with pytest.raises(SystemExit, match="web deck"):
+        sl.pdf_html(tmp_path / "deck.pdf", tmp_path / "out.pdf")
 
 
 def test_alt_text_is_cut_at_a_word(sl):
