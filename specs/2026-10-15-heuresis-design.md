@@ -22,8 +22,13 @@ It succeeds when:
 4. Every idea is tied to AJ's own work: the project it belongs to, the bib entries and related-work
    notes it touches, and earlier ideas like it.
 5. A deferred idea comes back when something related lands, without AJ having to remember it.
+6. The ideas already scattered across markdown and text files, screenshots, Google Docs and Apple
+   Notes end up in the same store, so heuresis replaces those places instead of adding one.
+7. Capture costs no tokens. Terminal and imported ideas are triaged by a queue that works within
+   AJ's usage limits and resumes after each five-hour reset, so a busy week never loses an idea.
 
-Out of scope: multiple users, a hosted web app, numeric scores (ICE, RICE, novelty out of 5).
+Out of scope: multiple users, a hosted web app, numeric scores (ICE, RICE, novelty out of 5), and
+running arbitrary Claude jobs from the queue (heuresis jobs only).
 
 ## Decisions and the research behind them
 
@@ -38,6 +43,11 @@ Out of scope: multiple users, a hosted web app, numeric scores (ICE, RICE, novel
 | Papers | OpenAlex (free key), Semantic Scholar (with key), arXiv | Keyless Semantic Scholar | OpenAlex: 30 req/s with a free key, semantic search 1 req/s ([OpenAlex limits](https://help.openalex.org/how-to-use-the-api/rate-limits-and-authentication)). Keyless S2 returns 429. |
 | Products | GitHub search, Hacker News (Algolia), web search | Product Hunt API | Product Hunt's API "must not be used for commercial purposes" without permission ([PH API docs](https://api.producthunt.com/v2/docs)), and Product is a verdict type. |
 | Classification | `state` (lifecycle) + `type` (kind), two fields | One six-bin field | The six bins mixed verbs (trash, later, build) with kinds (product, research); one idea can be both a product and something to build. Linear's triage (accept, duplicate, decline, snooze) and GTD Someday/Maybe both treat the decision separately from the item ([Linear triage](https://linear.app/docs/triage)). |
+| Triage timing | Phone: immediately, in the Action. Terminal and imports: a local queue paced by AJ's usage windows | Triage every capture at once | AJ's tokens are the scarce resource. Claude Code continues after a usage reset only in interactive sessions, never in `claude -p` ([summary](https://aicatchup.com/news/claude-code-desktop-auto-continue)), so unattended work needs its own pacing. |
+| Usage signal | klepsydra's per-session files (five-hour and weekly `used_percentage`, `resets_at`, reconciled per account) | Polling with a probe request every 5 minutes ([claude-code-auto-resume](https://github.com/PHSM22/claude-code-auto-resume)) | klepsydra already publishes the figures from the status line at no cost; a probe is the fallback when they are stale. |
+| Apple Notes backfill | A JXA script run on AJ's MacBook (`osascript`), exporting every note's folder, dates and body; reruns export only notes modified since the last run | privacy.apple.com data copy; iCloud for Windows; per-note export on iPhone | Notes is scriptable on macOS and existing exporters use that route ([apple-notes-exporter](https://cdn.jsdelivr.net/npm/apple-notes-exporter@1.0.3/README.md)); it keeps folders and dates and can rerun. iCloud for Windows exposes Notes only on icloud.com, which has no export, and iPhone exports one note at a time ([Apple](https://support.apple.com/guide/iphone/export-or-print-notes-iphdf551cfa2/ios)). The privacy.apple.com copy stays as a fallback. |
+| Google Docs backfill | Drive API export as Markdown, through epistole's existing Google OAuth client with a read-only Drive scope | A second OAuth client; Google Takeout | One sign-in per Google account, already set up for both of AJ's inboxes. |
+| Bulk digestion | Haiku splits imported sources into ideas; full triage only through the queue | Full triage on every imported fragment | Thousands of fragments at full triage cost would consume weeks of quota. |
 | Product evidence | A checklist of named rivals, pricing pages, demand links, riskiest assumption | ICE/RICE scores | Scores hide guesswork in a number that looks objective; the riskiest assumption comes from opportunity solution trees. |
 
 ## Architecture
@@ -76,14 +86,19 @@ plugins/heuresis/
   skills/
     idea/SKILL.md          capture + triage one idea; --retriage <id>; --override <id> <state> <reason>
     review/SKILL.md        weekly pass: resurfacing, duplicates, lint
+    import/SKILL.md        backfill from folders, screenshots, Google Docs, Apple Notes export
+    queue/SKILL.md         show, reorder, pin, pause the job queue; run it now
     setup/SKILL.md         check keys, tokens, ideas clone, Action secrets (per-plugin setup convention)
   agents/
     scout-web.md           products, GitHub, HN, general web
     scout-papers.md        OpenAlex, Semantic Scholar, arXiv
     scout-patents.md       Lens, EPO OPS, BigQuery fallback
     scout-context.md       AJ's own sources + earlier ideas
+    digest.md              Haiku: split an imported source into candidate ideas, dedupe, propose project
     judge.md               verdict (Opus)
-  heuresis/                Python package (uv): sources/, store.py, board.py, verify.py, cli.py
+  heuresis/                Python package (uv): sources/, importers/, store.py, board.py,
+                           verify.py, queue.py, budget.py, cli.py
+  systemd/                 heuresis-queue.service + .timer (WSL user units)
   pyproject.toml  uv.lock
   evals/                   plugin eval suites (fires-idea, never-triage-without-retrieval, ...)
   tests/
@@ -157,8 +172,9 @@ id, one-sentence gist, type, project.
 
 ## Triage pipeline
 
-1. **Capture.** Terminal: write the idea file with `state: inbox` and commit before triage starts.
-   Phone: the issue is the capture; the Action writes the file first.
+1. **Capture.** Terminal: write the idea file with `state: inbox`, commit, and enqueue a triage job;
+   `/heuresis:idea --now <text>` triages in the session instead. Phone: the issue is the capture;
+   the Action writes the file first, then triages at once.
 2. **Restate.** Strip enthusiasm and framing; produce the neutral restatement and 3-5 query
    rewrites (broad and short first, then narrow, following Anthropic's research-system guidance).
 3. **Scout, in parallel.** Each scout runs every query rewrite against its sources and returns
@@ -184,6 +200,64 @@ id, one-sentence gist, type, project.
 `--retriage <id>` reruns steps 2-7 and adds a new verdict entry, keeping the old ones.
 `--override <id> <state> [type] <reason>` records AJ's decision as a verdict entry marked
 `override`; overrides are the labels for evaluation.
+
+## Import
+
+`/heuresis:import <source>` runs in three layers so bulk work stays cheap.
+
+1. **Collect (no model calls).** Each importer writes one file per source document to
+   `sources/<importer>/` with its origin path, date and a content hash, and skips hashes already
+   seen, so reruns are safe.
+   - `folder <path>`: `.md` and `.txt` files, recursively.
+   - `screenshots <path>`: local OCR (PaddleOCR, which detects text regions before reading them and
+     handles mixed screenshot layouts, [guide](https://bestllmfor.com/guides/paddleocr-guide/)).
+     Images where OCR finds little text are listed for AJ, not sent to a model.
+   - `gdocs [--folder <id>]`: Google Docs exported as Markdown through the Drive API, using
+     epistole's OAuth client with `drive.readonly` added.
+   - `apple-notes <dir>`: the folder written by `scripts/export-apple-notes.js`, which AJ runs on
+     the MacBook (`osascript -l JavaScript`, Automation permission for Notes) into a synced or
+     copied folder. Note bodies arrive as HTML and are converted to Markdown.
+2. **Digest (Haiku).** The `digest` agent splits each source into candidate ideas, drops ones
+   that duplicate an existing idea, proposes a project and type, and writes them as `inbox` ideas
+   with `captured_via: import` and a link back to the source file. Each source becomes one queued
+   digest job.
+3. **Triage (queue).** Imported ideas enter the queue at the lowest priority unless AJ pins them.
+
+## Queue
+
+`queue.py` keeps one job per line in `queue.jsonl` in the ideas repo: job id, kind (`triage`,
+`digest`, `retriage`, `review`), target, priority, attempts, state (`queued`, `running`,
+`deferred`, `done`, `failed`). Jobs are heuresis jobs only: they read, search and write idea
+files, so they are safe to run unattended.
+
+**Order:** pinned jobs, then phone ideas whose Action run failed, then ideas in projects with
+recent commits, then revisit-due ideas, then oldest first.
+
+**Runner.** A systemd user timer in WSL starts `heuresis queue run` every 10 minutes. Each run:
+
+1. Reads the newest five-hour and weekly figures for AJ's account from klepsydra's files
+   (`accounts/<account>/<session>.json`, later `resets_at` wins, highest reading within a window
+   wins). If the newest file is older than 15 minutes, it sends one minimal `claude -p` request to
+   confirm the window is usable, as claude-code-auto-resume does.
+2. Decides how much it may spend:
+   - five-hour usage under the reserve (default **50%**, AJ's choice): run jobs;
+   - within 30 minutes of `resets_at` (default): the cap rises to 90%, because quota unused at the
+     reset is lost;
+   - weekly usage over the weekly cap (default 80%, so the last fifth of the week stays with AJ):
+     run nothing until the weekly reset.
+3. Runs the top job with `claude -p` and the heuresis plugin, rereading the figures between jobs,
+   and stops when the cap is reached.
+
+**Checkpoints.** Every triage step writes its output into the idea file (restatement, each
+scout's records, the verdict), so a job cut off by a limit restarts from the last finished step.
+A job that hits a limit goes to `deferred` until `resets_at` and does not use up an attempt;
+after 3 failures for other reasons it goes to `failed` and shows under **Needs triage**.
+
+**Lock.** One runner at a time (a file lock), and the runner skips an idea whose file changed
+since it was queued, so it never fights a `/heuresis:idea --now` in a live session.
+
+`/heuresis:queue` shows the queue, the current budget reading, and lets AJ pin, reorder, pause or
+run it now.
 
 ## Resurfacing and review
 
@@ -213,6 +287,9 @@ id, one-sentence gist, type, project.
 
 ## Error handling
 
+- A usage limit mid-job defers the job to the reset; it never counts as a failure.
+- Stale or missing klepsydra files fall back to a probe; if the probe fails, the runner waits for
+  the next timer tick.
 - Capture never depends on triage. A failed triage leaves the idea in `inbox`, records the error in
   the verdict log, and shows it under **Needs triage**.
 - A source that fails, rate-limits or has no key is skipped and named in the coverage line; the
@@ -227,7 +304,9 @@ id, one-sentence gist, type, project.
 
 - **Unit tests** (pytest): front-matter schema, BOARD.md and LOG.md generation, resurfacing match,
   merge, each source adapter against recorded fixtures, `verify.py` on pages with and without the
-  quoted passage, rebase-and-regenerate.
+  quoted passage, rebase-and-regenerate, queue ordering, budget decisions on fixture klepsydra
+  files (under reserve, near reset, over weekly cap, stale), resume from each checkpoint, importer
+  hash dedupe.
 - **Plugin evals** (`evals/`, the techne convention): `fires-idea`, `never-verdict-without-retrieval`,
   `never-do-on-thin-evidence`, `merges-duplicate`.
 - **Gold set:** at least 20 ideas with known answers, including ideas that already exist as
@@ -242,12 +321,15 @@ id, one-sentence gist, type, project.
 
 Each phase gets its own implementation plan.
 
-1. **Store and terminal triage:** `ajbarea/ideas` repo, schema, board and log generation, the five
-   agents, source adapters, `verify.py`, `/heuresis:idea` end to end in the terminal, shared
-   retrieval with paper-review, unit tests and evals.
+1. **Store and terminal triage:** `ajbarea/ideas` repo, schema, board and log generation, the
+   scout and judge agents, source adapters, `verify.py`, `/heuresis:idea --now` end to end in the
+   terminal, shared retrieval with paper-review, unit tests and evals.
 2. **Evaluation:** gold set and the harness above, run before trusting verdicts.
-3. **Phone path:** Action workflow, secrets, iOS Shortcut, issue form, weekly sweep.
-4. **Review:** `/heuresis:review`, resurfacing, merges, lint.
+3. **Queue:** `queue.jsonl`, checkpoints, budget reading from klepsydra, systemd timer,
+   `/heuresis:queue`.
+4. **Phone path:** Action workflow, secrets, iOS Shortcut, issue form, weekly sweep.
+5. **Import:** importers, the digest agent, then the backfill itself.
+6. **Review:** `/heuresis:review`, resurfacing, merges, lint.
 
 ## To verify during planning
 
@@ -258,4 +340,9 @@ Each phase gets its own implementation plan.
 - OpenAlex semantic-search parameter name and the free key's daily budget.
 - Hacker News Algolia API limits.
 - The mechanism for sharing retrieval code across plugins.
+- That reading note bodies through JXA works on AJ's macOS version (no source tests it on Tahoe;
+  an OS upgrade can reset the Automation permission).
+- What `claude -p` returns when it hits a usage limit, and whether its output carries the
+  five-hour figures, which would remove the need for the probe.
+- That WSL systemd user timers run while AJ is logged out of the WSL shell.
 - That Get Contents of URL accepts custom headers (`Authorization`, `Accept`) on current iOS.
