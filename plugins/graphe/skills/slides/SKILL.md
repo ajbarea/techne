@@ -262,6 +262,29 @@ say. Hovering or tabbing to a dot shows its summary.
 reveal.js scroll view: columns stack, and a wide figure keeps a readable size
 and pans sideways. Look at the phone sheets; `check` warns on text under 12px.
 
+## Figures for numbers
+
+`# research(2026-10)`
+
+- **Attrition: a flow of stages, never one width scale.** When stages count
+  different things (comments, then pairs, then examples), a Sankey's shared
+  widths are false. Draw a flow in the CONSORT style, a box per stage with its
+  count and its reasons. Bars are to scale within a stage only, and the final
+  count takes the accent colour. CONSORT recommends a flow diagram and
+  prescribes no format ([CONSORT 2025](https://doi.org/10.1136/bmj-2024-081123)).
+  The generator places every step of the source in a stage, or fails.
+- **Parts of one estimate: a forest plot on one scale.** A dot and its interval
+  for the whole, then for each part, against a "no effect" line, every panel on
+  one shared axis so groups compare by eye. Say in the caption what the parts
+  need to add up to the whole.
+- **The headline claims only what the intervals show.** Compute the flags a
+  sentence depends on in the build: interval above zero, interval holds zero.
+  Bind the wording to them with `data-if` and `data-unless`. A changed result
+  then changes the slide rather than leaving a stale claim.
+- **Worked examples:** `buildFlow` and `buildForest` in
+  [ajbarea/talks](https://github.com/ajbarea/talks) `shared/deck.js`, each with
+  a tall phone layout.
+
 ## Motion
 
 `# research(2026-10)`
@@ -277,6 +300,15 @@ matters. It is never decoration.
 - **Point at the mark.** Bring in the one dot, bar or arrow the claim is about
   last, in the accent colour. Cues that point at the essential material help
   learning ([signaling](https://u.osu.edu/multimedialearning/?p=88)); the cue does the work, not the movement.
+- **Move no more than the eye can follow.** Viewers track about three to four
+  moving objects as a set, and only one or two when each must keep its identity.
+  Past that, move groups held together by a line or a shared colour, or move a
+  few at a time ([Jiang et al.
+  2026](https://doi.org/10.1186/s41235-026-00724-y), from the
+  multiple-object-tracking literature).
+- **One kind of change per step.** Show positions, then sizes, then colours, each
+  in its own fragment, rather than all at once (task staging, same source). The
+  presenter's click is the pacing control the same review recommends.
 - **Do not reveal bullets one at a time.** A direct test found no learning
   difference between full, progressive, dimmed and highlighted text
   ([Virginia Tech](https://vtechworks.lib.vt.edu/handle/10919/88726)). Show the
