@@ -43,6 +43,7 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
+from html.parser import HTMLParser
 
 # The install table and the PowerPoint lookup ship in the plugin's _shared/ directory.
 sys.dont_write_bytecode = True  # a missing-tool exit leaves no file behind in the plugin cache
@@ -809,6 +810,31 @@ _NESTED = """() => [...document.querySelectorAll('.reveal .slides section')]
   .filter((s) => !s.parentElement.matches('.slides, .slides > section'))
   .map((s) => (s.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 40))"""
 _COUNT = "__deckSlides().length"
+# window.DECK_DATA ships beside the deck, so whatever it holds is published even when no slide
+# shows it. A path is bound when a data-* attribute names it or an ancestor of it, in the page as
+# built or in its source (a deck drops a data-if block that is false, and the bindings in it);
+# the smallest subtrees nothing binds are returned.
+_UNBOUND = r"""(source) => {
+  const data = window.DECK_DATA;
+  if (!data || typeof data !== 'object') return [];
+  const isPath = /^[A-Za-z_$][\w$]*(\.[\w$-]+)*$/;
+  const bound = new Set();
+  const live = [...document.querySelectorAll('*')].flatMap((el) =>
+    [...el.attributes].filter((a) => a.name.startsWith('data-')).map((a) => a.value));
+  for (const raw of [...live, ...source]) {
+    const v = raw.trim();
+    if (isPath.test(v) && Object.prototype.hasOwnProperty.call(data, v.split('.')[0])) bound.add(v);
+  }
+  const out = [];
+  const walk = (node, path) => {
+    if (bound.has(path)) return;
+    const below = [...bound].some((b) => b.startsWith(path + '.'));
+    if (!below || node === null || typeof node !== 'object') { out.push(path); return; }
+    for (const k of Object.keys(node)) walk(node[k], `${path}.${k}`);
+  };
+  for (const k of Object.keys(data)) walk(data[k], k);
+  return out;
+}"""
 
 _STILL = "*, *::before, *::after { transition: none !important; animation: none !important; }"
 # Scroll view shows fragments by scroll position and hides them again on the next scroll,
@@ -1102,6 +1128,22 @@ def _open(
     return page, watch
 
 
+class _DataAttributes(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.values: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.values += [v for k, v in attrs if k.startswith("data-") and v]
+
+
+def _data_attributes(path: pathlib.Path) -> list[str]:
+    """Every data-* value in the deck's source, before its script adds or drops anything."""
+    parser = _DataAttributes()
+    parser.feed(path.read_text(encoding="utf-8", errors="replace"))
+    return parser.values
+
+
 def check_html(
     path: pathlib.Path,
     level: str = "AAA",
@@ -1163,6 +1205,17 @@ def _check_in(
                 f"{len(nested)} <section> inside slide content, which reveal.js shows as "
                 f"slides of their own in a vertical stack: {', '.join(map(repr, nested[:3]))}; "
                 "use a <div>",
+            )
+        )
+    unbound = page.evaluate(_UNBOUND, _data_attributes(path))
+    if unbound:
+        more = f" and {len(unbound) - 6} more" if len(unbound) > 6 else ""
+        found.append(
+            Finding(
+                WARN,
+                "unbound-data",
+                f"in the deck's data but bound on no slide: {', '.join(unbound[:6])}{more}; "
+                "the data file is published with the deck, so cut what no slide shows",
             )
         )
     # Text sizes are judged on the slide's own canvas, the way a pptx point size is judged

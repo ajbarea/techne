@@ -91,6 +91,7 @@ pass is reported on its own, beside the desktop findings.
 | WARN | `phone` | On a 390px-wide phone: text under 12px, a page that scrolls sideways, or no viewport meta tag. Figures that pan sideways are listed as INFO. |
 | WARN | `nested-section` | A `<section>` inside a slide's content, which reveal.js shows as separate slides. |
 | WARN | `motion` | Animation on a slide still running a quarter second after it opens, with reduced motion requested. |
+| WARN | `unbound-data` | A path in `window.DECK_DATA` that no `data-*` attribute binds, in the page as built or in its source. The data file is published with the deck, so a figure no slide shows (a withheld reading, a cut slide's numbers) still ships: cut it from the file, or generate only the paths `index.html` binds. |
 | WARN | `offline` | The deck fetches from the network, so it fails on a projector laptop with no Wi-Fi. |
 | WARN | `no-notes` / `duplicate-title` | A talk slide with no script, in `<aside class="notes">` or `data-notes` (backup slides are exempt), or two slides a screen reader cannot tell apart. |
 | REVIEW | `figures` / `dense` | Percentages, ratios, decimals, `x of y` and long numbers (years and digits inside identifiers are labels), or more than 60 words, on talk slides. Slide 1 is exempt, and so is everything after a divider titled exactly `Backup`, `Backup slides` or `Appendix`, or from `--backup-from`. Words inside figures count: a `dense` on a figure-heavy slide is not a reason to cut the figure. |
