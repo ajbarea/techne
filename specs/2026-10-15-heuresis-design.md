@@ -129,7 +129,7 @@ One file per idea: `ideas/YYYY-MM-DD-<slug>.md`.
 id: 2026-10-15-idea-triage-tool
 title: Idea triage tool with prior-art search
 captured: 2026-10-15T14:02:00-04:00
-captured_via: terminal | phone | form
+captured_via: terminal | phone | form | import
 state: inbox | trash | later | do | building | shipped | merged
 type: product | tool | research | improve
 project: techne            # from projects.toml, or "new:<name>" pending AJ's confirmation
