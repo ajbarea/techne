@@ -23,6 +23,8 @@ Requires [uv](https://docs.astral.sh/uv/). The first start downloads about 30 MB
 | `download_attachment` | Saves an attachment, named by the message id and attachment id that `read_thread` lists, into your download folder. Never overwrites a file. |
 | `send_draft` | Sends a draft after you approve it. |
 
+The `catch-me-up` skill (`/epistole:catch-me-up`, or ask to be caught up on your mail) sweeps every signed-in account for mail since the last sweep, archived and filtered mail included, and reports what needs you. `epistole-since` keeps that window: it prints the last sweep time (or, with none, the start of yesterday, Friday on a Monday) and `--set EPOCH` records a new one. Times use the optional `timezone` in `accounts.toml`, an IANA name such as `"America/New_York"`, else the machine's zone.
+
 Every id is account-qualified (`alias:id`), and a tool refuses an id whose account differs from the `account` you named.
 
 ## Set up

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Assemble the eval-only plugin that `make evals` routes against, for every plugin with an
 # evals/ dir. Each holds every skill from every plugin here plus stand-ins for the general
-# document and catch-up skills, named after the plugin whose cases load it, so a description
+# document skills, named after the plugin whose cases load it, so a description
 # that overlaps a sibling plugin's skill or a stand-in fails a case. The host plugin is copied
 # last, so its own skill wins when a sibling ships one of the same name (every setup skill is
 # `setup`). Output is generated and gitignored; the paths are fixed, never taken from an
