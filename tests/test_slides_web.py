@@ -156,6 +156,68 @@ def test_a_network_dependency_warns(sl, web, gates):
 
 
 @needs_browser
+def test_data_no_slide_binds_warns_with_its_path(sl, web, gates):
+    """A figure left in the data file is published with the deck though no slide shows it."""
+    web("    total: 1761,", "    total: 1761,\n    withheld: { early: 0.4 },", "data/deck-data.js")
+    found = _check(sl, web.index)
+    assert ("WARN", "unbound-data") in gates(found)
+    (finding,) = [f for f in found if f.gate == "unbound-data"]
+    assert "results.withheld" in finding.message
+    assert "results.failShare" not in finding.message
+
+
+@needs_browser
+def test_a_binding_the_deck_drops_still_counts(sl, web, gates):
+    """A data-if block that is false leaves the page, but its bindings are still the deck's."""
+    web("    total: 1761,", "    total: 1761,\n    withheld: { early: 0.4 },", "data/deck-data.js")
+    gone = '<p id="gone" data-source="results.withheld"></p><script>gone.remove()</script>'
+    found = _check(sl, web(CLAIM, CLAIM + gone))
+    assert ("WARN", "unbound-data") not in gates(found)
+
+
+@needs_browser
+def test_a_hidden_slide_does_not_bind_its_data(sl, web, gates):
+    """reveal.js removes a data-visibility="hidden" slide, so its numbers are shown nowhere."""
+    web("    total: 1761,", "    total: 1761,\n    withheld: { early: 0.4 },", "data/deck-data.js")
+    cut = (
+        '<section data-visibility="hidden"><h2>Cut</h2>'
+        '<p data-value="results.withheld.early"></p></section>'
+    )
+    found = _check(sl, web("</section>", "</section>\n" + cut))
+    assert ("WARN", "unbound-data") in gates(found)
+
+
+@needs_browser
+def test_a_reveal_attribute_naming_a_key_is_not_a_binding(sl, web, gates):
+    web("    total: 1761,", "    total: 1761,\n    withheld: { early: 0.4 },", "data/deck-data.js")
+    found = _check(sl, web("<section", '<section data-state="results"', "index.html"))
+    assert ("WARN", "unbound-data") in gates(found)
+
+
+@needs_browser
+def test_a_key_outside_ascii_resolves_as_the_deck_reads_it(sl, web, gates):
+    web("    total: 1761,", '    total: 1761,\n    "taux échec": 0.4,', "data/deck-data.js")
+    found = _check(sl, web(CLAIM, CLAIM + '<p data-value="results.taux échec"></p>'))
+    assert ("WARN", "unbound-data") not in gates(found)
+
+
+@needs_browser
+def test_data_that_throws_when_read_leaves_the_check_standing(sl, web, gates):
+    getter = "    total: 1761,\n    get broken() { throw new Error('boom'); },"
+    web("    total: 1761,", getter, "data/deck-data.js")
+    found = _check(sl, web.index)
+    assert ("WARN", "unbound-data") in gates(found)
+    assert all(f.severity != "ERROR" for f in found), [str(f) for f in found]
+
+
+@needs_browser
+def test_binding_a_parent_binds_everything_under_it(sl, web, gates):
+    web("    total: 1761,", "    total: 1761,\n    withheld: { early: 0.4 },", "data/deck-data.js")
+    found = _check(sl, web(CLAIM, CLAIM + '<div data-source="results.withheld" hidden></div>'))
+    assert ("WARN", "unbound-data") not in gates(found)
+
+
+@needs_browser
 def test_text_past_the_slide_edge_warns(sl, web, gates):
     wide = '<p style="width:2400px">[a line far wider than the slide]</p>'
     found = _check(sl, web(CLAIM, CLAIM + wide))

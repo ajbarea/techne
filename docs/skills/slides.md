@@ -47,6 +47,7 @@ A web deck is checked and rendered in Chromium through Playwright; install it on
 | BLOCK | `em-dash` | An em-dash in slide text. |
 | BLOCK | `asset`, `script` | A web deck that cannot load a file it asks for, or logs a console error, including a value with no data behind it. |
 | WARN | `small-text`, `overflow`, `nested-section`, `phone`, `motion`, `offline` | Text under 14pt; anything drawn past the slide's edge; a `<section>` inside slide content, which reveal.js shows as separate slides; text under 12px on a phone; animation that ignores reduced-motion settings; a deck that needs the network to present. |
+| WARN | `unbound-data` | A value in the deck's data file that no slide or script binds; the file is published with the deck, so cut what no slide shows. |
 | WARN | `font`, `no-notes`, `duplicate-title` | A font that will be substituted in PowerPoint or Google Slides (`.pptx`), talk slides with no script, titles a screen reader cannot tell apart. |
 | REVIEW | `jargon` | A term from `--jargon` on a talk slide. |
 | REVIEW | `figures`, `dense`, `long-title` | Numbers and walls of text on talk slides (slide 1 and everything after a `Backup` divider are exempt), and headlines that stopped being headlines. |
