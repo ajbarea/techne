@@ -92,7 +92,7 @@ Don't pull full check details for every PR; that's the job of `techne:ci-audit`.
 ## 5. Branch and worktree hygiene
 
 ```
-python3 ${CLAUDE_SKILL_DIR}/scripts/hygiene.py
+python3 <hygiene script>   # the hygiene.py path SKILL.md names
 ```
 
 One run covers every active sister: local branches, remote branches, worktrees, stashes and uncommitted changes in the main checkout. Each item lands in one of three groups:

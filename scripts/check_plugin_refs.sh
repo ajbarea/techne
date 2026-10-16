@@ -3,8 +3,23 @@
 # installs alone, so a file that lives only in a sibling plugin is missing at runtime.
 set -euo pipefail
 
-cd "$(dirname "${BASH_SOURCE[0]}")/.."
+cd "${PLUGINS_ROOT:-$(dirname "${BASH_SOURCE[0]}")/..}"
 status=0
+
+# Claude Code substitutes these variables only in SKILL.md, agent and command bodies; in any
+# other Markdown file the model Reads they stay literal and the command breaks.
+while IFS= read -r file; do
+	case "$file" in
+	*/skills/*/SKILL.md | */agents/*.md | */commands/*.md) continue ;;
+	esac
+	var=$(grep -ohE '\$\{CLAUDE_(PLUGIN_ROOT|PLUGIN_DATA|SKILL_DIR)\}' "$file" | head -1)
+	if [ -n "$var" ]; then
+		echo "FAIL: $file uses $var, which Claude Code substitutes only in SKILL.md, agent and command bodies"
+		status=1
+	fi
+done < <(grep -rlE '\$\{CLAUDE_(PLUGIN_ROOT|PLUGIN_DATA|SKILL_DIR)\}' plugins --include='*.md' \
+	--exclude-dir=eval-fixtures || true)
+
 for plugin in plugins/*/; do
 	plugin="${plugin%/}"
 	refs=$(grep -rhoE '\$\{CLAUDE_PLUGIN_ROOT\}/[A-Za-z0-9_./-]+' "$plugin" \

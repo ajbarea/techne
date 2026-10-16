@@ -36,7 +36,7 @@ verdict cites a record retrieved this run with a verbatim snippet, or it is mark
 
 Read `## paper-review` from `<repo>/.claude/skill-context.md` (`bash "${CLAUDE_PLUGIN_ROOT}/_shared/skill_context.sh" <target>` prints it): `lab_line` (overlap source of
 truth, default `LINEAGE.md`), `retrieval` (default OpenAlex + web; Semantic Scholar only if
-`S2_API_KEY` is set), `mailto` (OpenAlex polite pool, default `git config user.email`), `report`
+`S2_API_KEY` is set), `mailto` (OpenAlex polite pool, default `git config user.email`; the script reads it from `OPENALEX_MAILTO`), `report`
 (default `papers/<name>/novelty-review.md`, or `<stem>.novelty-review.md` beside a `.tex` path). Sensible defaults if absent.
 
 ## Procedure
@@ -64,8 +64,10 @@ mandatory citation-integrity gate, then OpenNovelty's four-phase pipeline (arXiv
    drive everything downstream.
 
 2. **Retrieve.** Per contribution, build a focused query from its noun phrases and search
-   OpenAlex; collect {title, year, DOI, citations, abstract}. Rank by relevance, then citation
-   count; web-search fills gaps. Log every query. See [retrieval recipes](references/retrieval.md).
+   OpenAlex; collect {title, year, DOI, abstract}. Rank by relevance; web-search fills gaps. Log every query. See [retrieval recipes](references/retrieval.md).
+   Retrieval script: `${CLAUDE_PLUGIN_ROOT}/_shared/scholarly.py`. Run it as
+   `OPENALEX_MAILTO=<mailto> uv run --no-project --quiet python <script> ...` with the configured
+   mailto (default `git config user.email`).
    **Only derived keyword queries leave the machine — never the paper text** (drafts are private,
    often double-blind).
 

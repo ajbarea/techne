@@ -9,8 +9,10 @@ Semantic Scholar enriches only with a key; web-search is the backstop.
 Keyless. Searches the title and abstract, sorted by relevance, and returns the reconstructed
 abstract as the snippet text.
 
+Run the retrieval script that SKILL.md names (shown here as `<retrieval script>`).
+
 ```bash
-uv run --no-project --quiet python ${CLAUDE_PLUGIN_ROOT}/_shared/scholarly.py openalex 'federated learning Byzantine robust' --limit 8
+uv run --no-project --quiet python <retrieval script> openalex 'federated learning Byzantine robust' --limit 8
 ```
 
 Each line is one JSON record: `title`, `url`, `date`, `text` (the abstract), `doi`. Quote snippets from `text`. Set `OPENALEX_MAILTO` to identify yourself; set `OPENALEX_API_KEY` for a larger daily budget.
@@ -26,10 +28,10 @@ indexed in OpenAlex — fall to the web-search backstop for those.
 ## Semantic Scholar (secondary, key-gated)
 
 Keyless requests are rate-limited and return HTTP `429` — do NOT rely on it unprompted. Use only
-when `S2_API_KEY` is set, to enrich a paper already found via OpenAlex (TLDR, citation contexts):
+when `S2_API_KEY` is set, to enrich a paper already found via OpenAlex (it returns title, year, abstract, url and DOI):
 
 ```bash
-[ -n "$S2_API_KEY" ] && uv run --no-project --quiet python ${CLAUDE_PLUGIN_ROOT}/_shared/scholarly.py s2 'byzantine robust federated learning' --limit 5
+[ -n "$S2_API_KEY" ] && uv run --no-project --quiet python <retrieval script> s2 'byzantine robust federated learning' --limit 5
 ```
 
 Without a key, skip S2 and stay on OpenAlex + web-search.
