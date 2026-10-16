@@ -29,6 +29,26 @@ for target in plugins/*/ .; do
 		echo "$out"
 		status=1
 	fi
+	# A hook that can refuse an action must refuse when it fails, which only a .catch does.
+	if [ -f "$target/hooks/hooks.json" ] && grep -q '"modules"' "$target/hooks/hooks.json"; then
+		report=$("${claude_cmd[@]}" plugin validate "$target" --json 2>/dev/null || true)
+		uncaught=$(VALIDATE_JSON="$report" python3 - <<'PY'
+import json
+import os
+
+data = json.loads(os.environ["VALIDATE_JSON"])
+parts = [data.get("manifest") or {}] + list(data.get("contents") or [])
+for part in parts:
+    for hook in part.get("gatingHooks") or []:
+        if not hook.get("hasCatch"):
+            print(hook.get("module"), hook.get("hook"))
+PY
+		) || uncaught="(could not read claude plugin validate --json)"
+		if [ -n "$uncaught" ]; then
+			echo "FAIL: $target has a gating hook without .catch: $uncaught"
+			status=1
+		fi
+	fi
 done
 [ "$status" -eq 0 ] && echo "claude plugin validate: plugins + marketplace clean"
 exit "$status"

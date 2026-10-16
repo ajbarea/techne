@@ -15,7 +15,8 @@ _spec.loader.exec_module(validator)
 
 
 def _skill(tmp_path: pathlib.Path, frontmatter: str, body: str = "body\n") -> pathlib.Path:
-    path = tmp_path / "SKILL.md"
+    path = tmp_path / "x" / "SKILL.md"
+    path.parent.mkdir(exist_ok=True)
     path.write_text(f"---\n{frontmatter}\n---\n{body}", encoding="utf-8")
     return path
 
@@ -58,3 +59,23 @@ def test_every_shipped_skill_passes():
     paths = sorted(validator.REPO_ROOT.glob(validator.SKILLS_GLOB))
     assert paths
     assert [r for r in map(validator.check_skill, paths) if r] == []
+
+
+def test_a_description_over_the_spec_limit_fails(tmp_path):
+    long = "word " * 210
+    reason = validator.check_skill(_skill(tmp_path, f"name: x\ndescription: {long}"))
+    assert reason is not None and "1024" in reason
+    folded = "description: >-\n" + "\n".join("  " + "word " * 20 for _ in range(11))
+    assert "1024" in (validator.check_skill(_skill(tmp_path, f"name: x\n{folded}")) or "")
+
+
+@pytest.mark.parametrize("name", ["X", "a_b", "-a", "a--b", "a" * 65, ""])
+def test_a_bad_name_fails(tmp_path, name):
+    reason = validator.check_skill(_skill(tmp_path, f"name: {name}\ndescription: Clean."))
+    assert reason is not None and "name" in reason
+
+
+def test_name_must_match_the_folder(tmp_path):
+    reason = validator.check_skill(_skill(tmp_path, "name: other\ndescription: Clean."))
+    assert reason is not None and "does not match its folder" in reason
+    assert validator.check_skill(_skill(tmp_path, 'name: "x"\ndescription: Clean.')) is None

@@ -2,6 +2,7 @@
 name: catch-me-up
 description: Catch the user up on everything new in all of their Gmail inboxes since the last sweep, including course-site, calendar and service notifications that arrive by email, and say what needs a reply or a decision. Use when the user asks to be caught up on mail or messages, "catch me up", "what did I miss", "anything new in my email", or "check all my emails". Reports only what changed since the last run. Read-only. Not for GitHub repos, issues or pull requests (techne:catchup).
 allowed-tools: Bash(epistole-since*) Bash(schole-sweep*) mcp__plugin_epistole_epistole__accounts mcp__plugin_epistole_epistole__search mcp__plugin_epistole_epistole__read_thread
+disallowed-tools: mcp__plugin_epistole_epistole__create_draft mcp__plugin_epistole_epistole__update_draft mcp__plugin_epistole_epistole__send_draft Write Edit NotebookEdit
 ---
 
 # Catch me up
