@@ -56,6 +56,10 @@ Two layers, for two kinds of failure.
 
 **Routing** (`make evals`). A skill that never fires does nothing, and a skill that fires on someone else's request does harm. `claude plugin eval` sends natural-language prompts to fresh sessions and records which skill Claude chose. Each skill has a case that must fire it, and collision cases must not: merging a PDF is not `graphe:pdf`, an email catch-up is not `techne:catchup`, editing a slide's title is not `graphe:slides`. Every case also loads every sibling plugin's skills and stand-ins for the general PDF, PPTX and BibTeX-formatting skills; an email catch-up must reach epistole's `catch-me-up`, which every case loads as a sibling, so a description that overlaps any of them fails a case instead of shipping. Evals run on your own credential and are not part of CI.
 
+## Staying current
+
+Claude Code, its plugin system and the Agent Skills spec change weekly, and a skill written against last month's docs can quietly fall behind. Every Monday the `freshness` workflow has Claude read the Claude Code changelog and releases, the plugin and skill docs, the Agent Skills spec and `claude-code-action` releases, compare each change with techne's files, and open one issue labelled `freshness` listing what to change, with a link and a file for each item. It reads and reports only; the changes go through ordinary pull requests. The instructions are [.github/freshness.md](https://github.com/ajbarea/techne/blob/main/.github/freshness.md), and `make freshness` runs the same check on your own login and prints the issue instead of opening it. The workflow needs an `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` repository secret and skips with a notice without one.
+
 ## See also
 
 - [Conventions](conventions.md): the standard file locations and adoption path
