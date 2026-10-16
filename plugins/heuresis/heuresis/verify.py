@@ -12,13 +12,12 @@ import xml.etree.ElementTree as ET
 from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
 
-from heuresis import sources
+from heuresis import sources, store
 from heuresis.model import Record
 from heuresis.sources import http
 
 # Under 20 characters a phrase like "federated learning" matches almost any page in the field.
 MIN_QUOTE = 20
-IDEA_ID = re.compile(r"\d{4}-\d{2}-\d{2}-[a-z0-9-]+")
 FOLD = str.maketrans(
     {
         "\N{LEFT SINGLE QUOTATION MARK}": "'",
@@ -128,15 +127,39 @@ def _headers(url: str) -> dict[str, str]:
     return {}
 
 
+def _bad_repo_path(rel: PurePosixPath) -> bool:
+    return rel.is_absolute() or ".." in rel.parts or not rel.parts
+
+
+def _web_problem(url: str) -> str | None:
+    scheme = urllib.parse.urlsplit(url).scheme.lower()
+    return (
+        None if scheme in ("http", "https") else f"url scheme {scheme or 'missing'!r} not allowed"
+    )
+
+
+def record_problem(record: Record) -> str | None:
+    """Why the record's url cannot be read as evidence, or None when it can."""
+    if record.url.startswith("idea:"):
+        ok = store.IDEA_ID.fullmatch(record.url.removeprefix("idea:"))
+        return None if ok else "invalid idea id"
+    if record.url.startswith("repo:"):
+        bad = _bad_repo_path(PurePosixPath(record.url.removeprefix("repo:")))
+        return "repo path must be relative with no '..'" if bad else None
+    return _web_problem(record.url) or (
+        _web_problem(record.evidence_url) if record.evidence_url else None
+    )
+
+
 def evidence_text(record: Record, ideas_root: Path, repos_root: Path) -> str:
     if record.url.startswith("idea:"):
         idea_id = record.url.removeprefix("idea:")
-        if not IDEA_ID.fullmatch(idea_id):
+        if not store.IDEA_ID.fullmatch(idea_id):
             raise _Refused("invalid idea id")
         return (ideas_root / "ideas" / f"{idea_id}.md").read_text()
     if record.url.startswith("repo:"):
         rel = PurePosixPath(record.url.removeprefix("repo:"))
-        if rel.is_absolute() or ".." in rel.parts or not rel.parts:
+        if _bad_repo_path(rel):
             raise _Refused("path outside repos root")
         return (repos_root / rel).read_text(errors="replace")
     source = sources.by_name(record.source)

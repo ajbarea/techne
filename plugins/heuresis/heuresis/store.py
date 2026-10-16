@@ -30,6 +30,8 @@ FRONT_KEYS = (
 REQUIRED = ("id", "title", "captured", "captured_via")
 TITLE_MAX = 80
 NEW_ATTEMPTS = 100
+# The shape new_id produces; anything built into a path from outside input must match it.
+IDEA_ID = re.compile(r"\d{4}-\d{2}-\d{2}-[a-z0-9-]+")
 # Sections split only on the known headings, so a "## " line inside the idea text stays text.
 _SECTION = re.compile(r"^## (" + "|".join(re.escape(s) for s in SECTIONS) + r")$", re.MULTILINE)
 VERDICT_HEADING = re.compile(r"^### (\d{4}-\d{2}-\d{2}) · (triage|override) · (\w+)$", re.MULTILINE)
