@@ -5,6 +5,7 @@ import subprocess
 import tomllib
 from pathlib import Path
 
+import pytest
 from conftest import DOCTOR_LIB, EMAIL, MACHINE_PATH, _load
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -192,13 +193,14 @@ def test_attach_dirs_default_is_empty_and_documented():
     assert re.search(r"empty|none|no folder", _section(readme, "## Safety"))
 
 
-def test_login_without_uv_names_the_installer(tmp_path):
+@pytest.mark.parametrize("script", ["epistole-login", "epistole-since"])
+def test_bin_without_uv_names_the_installer(tmp_path, script):
     bash = shutil.which("bash")
     assert bash
     empty = tmp_path / "empty-bin"
     empty.mkdir()
     proc = subprocess.run(
-        [bash, str(PLUGIN / "bin" / "epistole-login"), "--status"],
+        [bash, str(PLUGIN / "bin" / script), "--status"],
         env={"PATH": str(empty), "HOME": str(tmp_path)},
         capture_output=True,
         text=True,
@@ -207,9 +209,10 @@ def test_login_without_uv_names_the_installer(tmp_path):
     assert _load("epistole_doctor_lib", DOCTOR_LIB).FIXES["uv"].cmd in proc.stderr
 
 
-def test_login_wrapper_copy_of_the_uv_installer_is_the_fixes_entry():
+@pytest.mark.parametrize("script", ["epistole-login", "epistole-since"])
+def test_bin_wrapper_copy_of_the_uv_installer_is_the_fixes_entry(script):
     cmd = _load("epistole_doctor_lib_tie", DOCTOR_LIB).FIXES["uv"].cmd
-    assert cmd in (PLUGIN / "bin" / "epistole-login").read_text()
+    assert cmd in (PLUGIN / "bin" / script).read_text()
 
 
 def test_readme_troubleshoots_a_missing_uv():

@@ -9,12 +9,13 @@ import tempfile
 import tomllib
 from pathlib import Path
 from typing import NamedTuple
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 RESERVED = {"all"}
 ALIAS_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 DEFAULT_ATTACH: list[str] = []
 DEFAULT_DOWNLOAD = "~/Downloads/epistole"
-KEYS = {"attach_dirs", "download_dir", "accounts"}
+KEYS = {"attach_dirs", "download_dir", "accounts", "timezone"}
 MANAGED = (
     "# Managed by epistole-login: it rewrites this file when an account is added, "
     "and comments are not kept."
@@ -34,6 +35,7 @@ class Config(NamedTuple):
     accounts: dict[str, Account]
     attach_dirs: tuple[Path, ...]
     download_dir: Path
+    timezone: str | None = None
 
 
 def caller_dir() -> Path:
@@ -113,6 +115,20 @@ def _check_absolute(key: str, value: str) -> None:
         )
 
 
+def _check_zone(value: object) -> None:
+    """timezone must be an IANA name such as America/New_York."""
+    if isinstance(value, str) and value and ".." not in value and not value.startswith("/"):
+        try:
+            ZoneInfo(value)
+            return
+        except (ZoneInfoNotFoundError, ValueError):
+            pass
+    raise ConfigError(
+        f"timezone in accounts.toml must be an IANA zone name such as "
+        f'"America/New_York", not {value!r}.'
+    )
+
+
 def _read(base: Path) -> dict:
     file = base / "accounts.toml"
     try:
@@ -132,6 +148,8 @@ def _read(base: Path) -> dict:
     for value in attach:
         _check_absolute("attach_dirs", value)
     _check_absolute("download_dir", data.get("download_dir", DEFAULT_DOWNLOAD))
+    if "timezone" in data:
+        _check_zone(data["timezone"])
     table = data.get("accounts", {})
     if not isinstance(table, dict) or not all(
         isinstance(v, str) and "@" in v for v in table.values()
@@ -156,7 +174,7 @@ def load(base: Path | None = None, *, allow_empty: bool = False) -> Config:
     accounts = {alias: Account(alias, str(addr).lower()) for alias, addr in raw.items()}
     attach = tuple(_path(p) for p in data.get("attach_dirs", DEFAULT_ATTACH))
     download = _path(data.get("download_dir", DEFAULT_DOWNLOAD))
-    return Config(accounts, attach, download)
+    return Config(accounts, attach, download, data.get("timezone"))
 
 
 def _q(value: str) -> str:
@@ -185,6 +203,7 @@ def add_account(base: Path, alias: str, address: str) -> None:
         MANAGED,
         f"attach_dirs = [{', '.join(_q(p) for p in attach)}]",
         f"download_dir = {_q(str(data.get('download_dir', DEFAULT_DOWNLOAD)))}",
+        *([f"timezone = {_q(data['timezone'])}"] if "timezone" in data else []),
         "",
         "[accounts]",
         *(f"{a} = {_q(addr)}" for a, addr in accounts.items()),

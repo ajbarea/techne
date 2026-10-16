@@ -111,8 +111,8 @@ ci: setup validate      ## Mirror CI end-to-end (validate.yml, which includes th
 
 # Routing evals run real Claude sessions on your own login: they draw on your plan's usage,
 # or bill your API key if you use one, so they stay out of validate. Every routing case
-# loads stand-ins for the general document and catch-up skills its plugin shares a session
-# with, so a collision shows up as a failed case.
+# loads every sibling plugin's skills plus stand-ins for the general document skills, so a
+# collision shows up as a failed case.
 # Behavior cases build a fixture repo with a scaffold script and grade what the skill produced.
 EVAL_PLUGINS := $(patsubst %/evals,%,$(wildcard plugins/*/evals))
 

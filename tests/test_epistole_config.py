@@ -216,3 +216,31 @@ def test_unknown_tilde_user_in_epistole_home_is_a_config_error(monkeypatch):
     monkeypatch.setenv("EPISTOLE_HOME", "~nosuchuser_epistole/h")
     with pytest.raises(config.ConfigError, match="EPISTOLE_HOME"):
         config.home()
+
+
+# --- timezone ---
+
+
+def test_timezone_is_optional_and_read(tmp_path):
+    write(tmp_path, TOML.format(tmp=tmp_path))
+    assert config.load(tmp_path).timezone is None
+    write(tmp_path, 'timezone = "America/New_York"\n' + TOML.format(tmp=tmp_path))
+    assert config.load(tmp_path).timezone == "America/New_York"
+
+
+@pytest.mark.parametrize(
+    "value", ['"Mars/Olympus"', '""', "5", '"../etc/passwd"', '"/etc/localtime"']
+)
+def test_bad_timezone_is_refused(tmp_path, value):
+    write(tmp_path, f"timezone = {value}\n" + TOML.format(tmp=tmp_path))
+    with pytest.raises(config.ConfigError, match="IANA zone name"):
+        config.load(tmp_path)
+
+
+def test_add_account_keeps_the_timezone(tmp_path):
+    write(tmp_path, 'timezone = "America/New_York"\n' + TOML.format(tmp=tmp_path))
+    config.add_account(tmp_path, "work", "me@work.example")
+    cfg = config.load(tmp_path)
+    assert cfg.timezone == "America/New_York" and "work" in cfg.accounts
+    config.add_account(tmp_path, "more", "me@more.example")
+    assert config.load(tmp_path).timezone == "America/New_York"
