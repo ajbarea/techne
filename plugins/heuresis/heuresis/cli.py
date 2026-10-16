@@ -160,6 +160,9 @@ def _add_record(args) -> int:
     if problem:
         print(f"heuresis: record rejected: {problem}", file=sys.stderr)
         return 2
+    if record.url == f"idea:{_check_id(args.id)}":
+        print("heuresis: a record cannot cite the idea being triaged", file=sys.stderr)
+        return 2
     out = _run_dir(args.ideas, args.id) / f"scout-{args.group}.json"
     empty = {"group": args.group, "queries": [], "records": [], "coverage": []}
     data = json.loads(out.read_text()) if out.exists() else empty
@@ -326,7 +329,7 @@ def _apply(args) -> int:
     store.add_verdict(idea, verdict)
     _checked_idea(idea)
     path = store.save(args.ideas, idea)
-    paths = [path, *sorted(run.glob("*.json"))]
+    paths = [path, run]
     _publish(args.ideas, path, paths, f"triage: {idea.id} -> {verdict.state}", today)
     kind, project = verdict.type or "no type", verdict.project or "no project"
     print(f"{idea.id}: {verdict.state} ({kind}, {project})")

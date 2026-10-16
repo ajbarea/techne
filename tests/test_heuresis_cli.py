@@ -439,3 +439,43 @@ def test_similar_excludes_the_named_ideas(tmp_path: Path, capsys):
     args = ["similar", "--ideas", str(ideas), "--exclude", first, "records"]
     assert cli.main(args) == 0
     assert first not in capsys.readouterr().out
+
+
+def test_add_record_rejects_a_record_citing_the_idea_under_triage(tmp_path: Path, capsys):
+    ideas = init_ideas(tmp_path)
+    idea_id = _capture(ideas, capsys)
+    record = {"title": "T", "url": f"idea:{idea_id}", "source": "ideas", "kind": "idea"}
+    args = ["add-record", "--ideas", str(ideas), "--id", idea_id, "--group", "context"]
+    capsys.readouterr()
+    assert cli.main([*args, "--json", json.dumps(record)]) == 2
+    assert "cannot cite the idea being triaged" in capsys.readouterr().err
+    assert not (ideas / "runs" / idea_id / "scout-context.json").exists()
+
+
+def test_retriage_commits_the_deletion_of_the_previous_runs_scout_file(
+    tmp_path: Path, capsys, monkeypatch
+):
+    ideas = init_ideas(tmp_path)
+    idea_id, run = _triaged(ideas, capsys)
+    (run / "scout-products.json").write_text("{}")
+    assert _apply(ideas, idea_id) == 0
+
+    def tracked() -> str:
+        cmd = ["git", "-C", str(ideas), "ls-tree", "-r", "--name-only", "HEAD", f"runs/{idea_id}"]
+        return subprocess.run(cmd, capture_output=True, text=True, check=True).stdout
+
+    assert "scout-products.json" in tracked()
+    _stdin(monkeypatch, json.dumps({"restated": "again", "queries": []}))
+    assert cli.main(["restate", "--ideas", str(ideas), "--id", idea_id, "--json", "-"]) == 0
+    pooled = {"records": [], "coverage": [], "queries": {}}
+    (run / "pool.json").write_text(json.dumps(pooled))
+    (run / "judge.json").write_text(json.dumps({"closest": None, "verdict": {"state": "later"}}))
+    (run / "verify.json").write_text("{}")
+    assert _apply(ideas, idea_id) == 0
+    assert "scout-products.json" not in tracked()
+    status = subprocess.run(
+        ["git", "-C", str(ideas), "status", "--porcelain", "--untracked-files=no"],
+        capture_output=True,
+        text=True,
+    )
+    assert status.stdout == ""

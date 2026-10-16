@@ -26,11 +26,11 @@ A failing command prints `heuresis: <message>` on stderr and exits 1 (exit 2 for
 ## Triage
 
 1. **Restate.** Read the idea file `IDEAS/ideas/<id>.md`. Write a neutral one-paragraph restatement: what it does, for whom, how. Drop praise, excitement and claims of novelty. Write 3 to 5 search queries of 3 or 4 words. Save both:
-   ```
-   heuresis restate --ideas IDEAS --id <id> --json - <<'JSON'
-   {"restated": "...", "queries": ["...", "..."]}
-   JSON
-   ```
+```
+heuresis restate --ideas IDEAS --id <id> --json - <<'JSON'
+{"restated": "...", "queries": ["...", "..."]}
+JSON
+```
    Restate starts a fresh run: it deletes the previous run's scout, pool, judge and verify files.
 2. **Scout in parallel.** In one message, dispatch four Agent calls with `subagent_type` `heuresis:scout-papers`, `heuresis:scout-patents`, `heuresis:scout-products` and `heuresis:scout-context`. Give each `IDEAS`, `REPOS`, the id, the restatement and queries. Do not pass AJ's original wording or any opinion about the idea.
 3. **Pool.** `heuresis pool --ideas IDEAS --id <id> > /dev/null`
