@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import argparse
+import re
+
 import yaml
 from conftest import ROOT
+from heuresis import cli
 
 PLUGIN = ROOT / "plugins" / "heuresis"
 SCOUTS = ("scout-papers", "scout-patents", "scout-products", "scout-context")
@@ -35,3 +39,30 @@ def test_skill_dispatches_every_agent_and_uses_the_plugin_venv():
 def test_no_agent_or_skill_text_uses_em_dashes():
     for path in [*PLUGIN.glob("agents/*.md"), *PLUGIN.glob("skills/*/SKILL.md")]:
         assert "—" not in path.read_text(), path
+
+
+def _commands() -> dict[str, set[str]]:
+    parser = cli.build_parser()
+    (sub,) = (a for a in parser._actions if isinstance(a, argparse._SubParsersAction))
+    return {
+        name: {o for a in p._actions for o in a.option_strings if o.startswith("--")}
+        for name, p in sub.choices.items()
+    }
+
+
+def _cli_calls(text: str, known: set[str]):
+    for line in text.splitlines():
+        for m in re.finditer(r"(python -m )?heuresis ([a-z][a-z-]*)\b([^`]*)", line):
+            if m.group(1) or m.group(2) in known:
+                yield m.group(2), set(re.findall(r"--[a-z][a-z-]*", m.group(3)))
+
+
+def test_every_cli_call_in_agents_and_skill_exists_in_the_parser():
+    commands = _commands()
+    seen = 0
+    for path in [*PLUGIN.glob("agents/*.md"), *PLUGIN.glob("skills/*/SKILL.md")]:
+        for command, flags in _cli_calls(path.read_text(), set(commands)):
+            assert command in commands, (path.name, command)
+            assert flags <= commands[command], (path.name, command, flags - commands[command])
+            seen += 1
+    assert seen >= 10

@@ -3,7 +3,7 @@ name: idea
 description: Capture an idea and triage it against prior work. Saves the idea to AJ's ideas repository, then searches papers, patents, products and his own research for anything like it, names the closest existing work, and files the idea as trash, later, do or merged with the evidence. Use when the user shares an idea for an app, tool, product, research direction or improvement and wants it saved or checked, such as "I have an idea", "save this idea", "has anyone built", "is this worth building", "triage my idea", or "/heuresis:idea". Not for reviewing a written paper's novelty (graphe:paper-review).
 argument-hint: "[--now] <idea text> | --triage <id> | --retriage <id> | --override <id> <state> <reason>"
 disable-model-invocation: false
-allowed-tools: Bash Read Write Agent
+allowed-tools: Bash Read Agent
 ---
 
 # Capture and triage an idea
@@ -26,10 +26,15 @@ A failing command prints `heuresis: <message>` on stderr and exits 1 (exit 2 for
 ## Triage
 
 1. **Restate.** Read the idea file `IDEAS/ideas/<id>.md`. Write a neutral one-paragraph restatement: what it does, for whom, how. Drop praise, excitement and claims of novelty. Write 3 to 5 search queries of 3 or 4 words. Save both:
-   `heuresis restate --ideas IDEAS --id <id> --json '{"restated": "...", "queries": ["...", "..."]}'`
-2. **Scout in parallel.** In one message, dispatch four Agent calls with `subagent_type` `heuresis:scout-papers`, `heuresis:scout-patents`, `heuresis:scout-products` and `heuresis:scout-context`. Give each `IDEAS`, `REPOS`, the id, the restatement and the queries. Do not pass AJ's original wording or any opinion about the idea.
+   ```
+   heuresis restate --ideas IDEAS --id <id> --json - <<'JSON'
+   {"restated": "...", "queries": ["...", "..."]}
+   JSON
+   ```
+   Restate starts a fresh run: it deletes the previous run's scout, pool, judge and verify files.
+2. **Scout in parallel.** In one message, dispatch four Agent calls with `subagent_type` `heuresis:scout-papers`, `heuresis:scout-patents`, `heuresis:scout-products` and `heuresis:scout-context`. Give each `IDEAS`, `REPOS`, the id, the restatement and queries. Do not pass AJ's original wording or any opinion about the idea.
 3. **Pool.** `heuresis pool --ideas IDEAS --id <id> > /dev/null`
 4. **Judge.** Dispatch `heuresis:judge` with `IDEAS`, the id and the context scout's reply.
-5. **Verify.** `heuresis verify --ideas IDEAS --id <id> --repos-root REPOS`. Exit 3 means the closest rival's quote failed: dispatch `heuresis:judge` once more, listing the failed refs as dropped, then run verify again. Do not loop a third time. Run verify again after every judge run, because apply counts a ref as verified only when `verify.json` passed that ref for the quote now in `judge.json`.
+5. **Verify.** `heuresis verify --ideas IDEAS --id <id> --repos-root REPOS`. If it fails on judge.json itself, send the message back to `heuresis:judge` once and run verify again. Exit 3 means the closest rival's quote failed: dispatch `heuresis:judge` once more, listing the failed refs as dropped, then run verify again. Do not loop a third time. Run verify again after every judge run, because apply counts a ref as verified only when `verify.json` passed that ref for the quote now in `judge.json`.
 6. **Apply.** `heuresis apply --ideas IDEAS --id <id>`. The rules run here: a `do` without a verified closest rival and paper results becomes `later`. If apply reports a judge.json problem, send the message back to `heuresis:judge` once, then verify and apply again.
 7. **Report** to AJ in four lines: the state, type and project; the closest rival with its link; the reason; the next step. Link the idea file. If any source was skipped for a missing key, name the key once.

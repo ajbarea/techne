@@ -359,3 +359,83 @@ def test_apply_off_main_says_the_verdict_is_saved_locally(tmp_path: Path, capsys
     capsys.readouterr()
     assert _apply(ideas, idea_id) == 1
     assert "saved locally" in capsys.readouterr().err
+
+
+def _stdin(monkeypatch, text: str) -> None:
+    import io
+
+    monkeypatch.setattr("sys.stdin", io.StringIO(text))
+
+
+def test_add_record_reads_json_from_stdin_with_an_apostrophe(tmp_path: Path, capsys, monkeypatch):
+    ideas = init_ideas(tmp_path)
+    idea_id = _capture(ideas, capsys)
+    record = {
+        "title": "T",
+        "url": "https://t.example",
+        "source": "web",
+        "kind": "web",
+        "text": "it's a tool that doesn't quit",
+    }
+    _stdin(monkeypatch, json.dumps(record))
+    args = ["add-record", "--ideas", str(ideas), "--id", idea_id, "--group", "context"]
+    assert cli.main([*args, "--json", "-"]) == 0
+    scout = json.loads((ideas / "runs" / idea_id / "scout-context.json").read_text())
+    assert scout["records"][0]["text"] == "it's a tool that doesn't quit"
+
+
+def test_restate_reads_json_from_stdin_with_an_apostrophe(tmp_path: Path, capsys, monkeypatch):
+    ideas = init_ideas(tmp_path)
+    idea_id = _capture(ideas, capsys)
+    _stdin(monkeypatch, json.dumps({"restated": "AJ's tool", "queries": ["a b c"]}))
+    assert cli.main(["restate", "--ideas", str(ideas), "--id", idea_id, "--json", "-"]) == 0
+    run = ideas / "runs" / idea_id
+    assert json.loads((run / "restate.json").read_text())["restated"] == "AJ's tool"
+
+
+def test_restate_starts_a_new_run(tmp_path: Path, capsys, monkeypatch):
+    ideas = init_ideas(tmp_path)
+    idea_id = _capture(ideas, capsys)
+    run = ideas / "runs" / idea_id
+    run.mkdir(parents=True)
+    names = ["scout-papers.json", "scout-context.json", "pool.json", "judge.json", "verify.json"]
+    for name in names:
+        (run / name).write_text("{}")
+    _stdin(monkeypatch, json.dumps({"restated": "x", "queries": []}))
+    assert cli.main(["restate", "--ideas", str(ideas), "--id", idea_id, "--json", "-"]) == 0
+    assert sorted(p.name for p in run.iterdir()) == ["restate.json"]
+
+
+def test_search_twice_keeps_both_record_sets_and_combines_coverage(
+    tmp_path: Path, capsys, monkeypatch
+):
+    from heuresis.model import Coverage, Record
+
+    ideas = init_ideas(tmp_path)
+    idea_id = _capture(ideas, capsys)
+    batches = iter(
+        [
+            ([Record("A", "https://a.example", "s", "paper")], [Coverage("s", "empty", 2, 0)]),
+            ([Record("B", "https://b.example", "s", "paper")], [Coverage("s", "ok", 1, 1, "n")]),
+        ]
+    )
+    monkeypatch.setattr(cli.sources, "run_queries", lambda *a: next(batches))
+    args = ["search", "--ideas", str(ideas), "--id", idea_id, "--group", "papers"]
+    assert cli.main([*args, "--query", "one"]) == 0
+    capsys.readouterr()
+    assert cli.main([*args, "--query", "two"]) == 0
+    assert capsys.readouterr().out.strip() == "s: ok, 3 queries, 1 hits (n)"
+    scout = json.loads((ideas / "runs" / idea_id / "scout-papers.json").read_text())
+    assert [r["title"] for r in scout["records"]] == ["A", "B"]
+    assert scout["queries"] == ["one", "two"]
+
+
+def test_similar_excludes_the_named_ideas(tmp_path: Path, capsys):
+    ideas = init_ideas(tmp_path)
+    first = _capture(ideas, capsys)
+    capsys.readouterr()
+    assert cli.main(["similar", "--ideas", str(ideas), "records"]) == 0
+    assert first in capsys.readouterr().out
+    args = ["similar", "--ideas", str(ideas), "--exclude", first, "records"]
+    assert cli.main(args) == 0
+    assert first not in capsys.readouterr().out

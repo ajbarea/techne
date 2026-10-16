@@ -8,6 +8,7 @@ import json
 import sys
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import heuresis
 from heuresis import board, context, pool, render, rules, similar, sources, store, sync, verify
@@ -64,10 +65,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = ideas(sub.add_parser("similar", help="earlier ideas sharing words with TEXT"))
     p.add_argument("--k", type=int, default=5)
+    p.add_argument("--exclude", action="append", default=[], help="idea id to leave out")
     p.add_argument("text", nargs="+")
 
     p = ideas(sub.add_parser("restate", help="save the neutral restatement and queries"), True)
-    p.add_argument("--json", required=True)
+    p.add_argument("--json", required=True, help="JSON text, or - to read it from stdin")
 
     p = ideas(sub.add_parser("search", help="run queries against one source group"), True)
     p.add_argument("--group", choices=sorted(sources.REGISTRY), required=True)
@@ -76,7 +78,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = ideas(sub.add_parser("add-record", help="append one record to a scout file"), True)
     p.add_argument("--group", choices=[*sorted(sources.REGISTRY), "context"], required=True)
-    p.add_argument("--json", required=True)
+    p.add_argument("--json", required=True, help="JSON text, or - to read it from stdin")
 
     ideas(sub.add_parser("pool", help="merge scout files for the judge"), True)
 
@@ -118,24 +120,42 @@ def _capture(args) -> int:
     return 0
 
 
+def _json_arg(text: str) -> Any:
+    return json.loads(sys.stdin.read() if text == "-" else text)
+
+
+def _merge_coverage(old: Coverage, new: Coverage) -> Coverage:
+    statuses = {old.status, new.status}
+    status = next((s for s in ("ok", "failed") if s in statuses), new.status)
+    notes = [n for n in (old.note, new.note) if n]
+    note = "; ".join(dict.fromkeys(notes))
+    return Coverage(old.source, status, old.queries + new.queries, old.hits + new.hits, note)
+
+
 def _search(args) -> int:
     group = sources.REGISTRY[args.group]
     records, coverage = sources.run_queries(group, args.query, args.limit)
     out = _run_dir(args.ideas, args.id) / f"scout-{args.group}.json"
+    data = _load_json(out, dict) if out.exists() else {}
+    merged: dict[str, Coverage] = {
+        c["source"]: Coverage.from_dict(c) for c in data.get("coverage", [])
+    }
+    for c in coverage:
+        merged[c.source] = _merge_coverage(merged[c.source], c) if c.source in merged else c
     payload = {
         "group": args.group,
-        "queries": args.query,
-        "records": [r.to_dict() for r in records],
-        "coverage": [c.to_dict() for c in coverage],
+        "queries": [*data.get("queries", []), *args.query],
+        "records": [*data.get("records", []), *(r.to_dict() for r in records)],
+        "coverage": [c.to_dict() for c in merged.values()],
     }
     out.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
-    for c in coverage:
+    for c in merged.values():
         print(c.line())
     return 0
 
 
 def _add_record(args) -> int:
-    record = Record.from_dict(json.loads(args.json))
+    record = Record.from_dict(_json_arg(args.json))
     problem = verify.record_problem(record)
     if problem:
         print(f"heuresis: record rejected: {problem}", file=sys.stderr)
@@ -148,6 +168,7 @@ def _add_record(args) -> int:
     return 0
 
 
+RUN_FILES = ("pool.json", "judge.json", "verify.json")
 TRIAGE_STATES = ("trash", "later", "do", "merged")
 NOT_VERIFIED = "not verified against the current quote"
 
@@ -357,15 +378,18 @@ def _dispatch(args: argparse.Namespace) -> int:
             return 0
         case "similar":
             ideas = [i for _, i, _ in store.load_all(args.ideas) if i is not None]
+            ideas = [i for i in ideas if i.id not in args.exclude]
             print(json.dumps(similar.similar(" ".join(args.text), ideas, args.k)))
             return 0
         case "restate":
             idea = _load_idea(args.ideas, args.id)
-            data = json.loads(args.json)
+            data = _json_arg(args.json)
             if not isinstance(data, dict) or not isinstance(data.get("restated"), str):
                 print('heuresis: --json needs {"restated": str, "queries": [str]}', file=sys.stderr)
                 return 2
             run = _run_dir(args.ideas, args.id)
+            for stale in (*run.glob("scout-*.json"), *(run / n for n in RUN_FILES)):
+                stale.unlink(missing_ok=True)
             (run / "restate.json").write_text(json.dumps(data, indent=2, ensure_ascii=False))
             idea.sections["Restated"] = data["restated"]
             store.save(args.ideas, idea)
