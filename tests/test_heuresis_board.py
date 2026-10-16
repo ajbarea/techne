@@ -71,3 +71,34 @@ def test_write_creates_both_files(tmp_path: Path):
     paths = board.write(tmp_path, TODAY)
     assert [p.name for p in paths] == list(board.GENERATED)
     assert all(p.is_file() for p in paths)
+
+
+def test_board_do_groups_by_project_then_type(tmp_path: Path):
+    make(tmp_path, "r-idea", state="do", type="research", project="p")
+    make(tmp_path, "t-idea", state="do", type="tool", project="p")
+    text = board.render_board(store.load_all(tmp_path), TODAY)
+    tool, research = text.index("#### tool"), text.index("#### research")
+    assert text.index("### p") < tool < research  # TYPES order: tool before research
+    assert "t-idea" in text[tool:research]
+    assert "r-idea" in text[research : text.index("## Later")]
+
+
+def test_board_closed_lists_links(tmp_path: Path):
+    make(tmp_path, "d-do", state="do", type="tool")
+    make(tmp_path, "e-trash", state="trash")
+    make(tmp_path, "f-merged", state="merged", duplicate_of="d-do")
+    closed = board.render_board(store.load_all(tmp_path), TODAY).split("## Closed")[1]
+    assert "### Trash (1)" in closed and "[e-trash](ideas/e-trash.md)" in closed
+    assert "### Merged (1)" in closed and "[f-merged](ideas/f-merged.md)" in closed
+    assert "duplicate of d-do" in closed
+
+
+def test_board_one_line_per_idea(tmp_path: Path):
+    (tmp_path / "ideas").mkdir()
+    (tmp_path / "ideas" / "bad.md").write_text("---\nid: [unclosed\ntitle: x\n---\n")
+    make(tmp_path, "multi", title="two\nlines")
+    text = board.render_board(store.load_all(tmp_path), TODAY)
+    needs = text[text.index("## Needs triage") : text.index("## Due for revisit")]
+    lines = [ln for ln in needs.splitlines()[1:] if ln.strip()]
+    assert len(lines) == 2 and all(ln.startswith("- ") for ln in lines)
+    assert "two lines" in needs
