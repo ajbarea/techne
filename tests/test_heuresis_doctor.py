@@ -1,0 +1,48 @@
+"""heuresis setup doctor: tools, folders, keys."""
+
+from __future__ import annotations
+
+import subprocess
+
+from conftest import DOCTOR_LINE, HOOK_PYTHON, ROOT, _load
+
+DOCTOR = ROOT / "plugins" / "heuresis" / "skills" / "setup" / "scripts" / "doctor.py"
+d = _load("heuresis_doctor", DOCTOR)
+
+
+def names(checks):
+    return {c.name: c.status for c in checks}
+
+
+def test_missing_ideas_repo_is_missing_and_keys_are_optional(tmp_path):
+    values = {"IDEAS_REPO": str(tmp_path / "nope"), "REPOS_ROOT": str(tmp_path)}
+    found = names(d.checks(values, environ={}))
+    assert found["ideas_repo"] == "missing"
+    assert found["OPENALEX_API_KEY"] == "optional"
+    assert found["LENS_API_TOKEN"] == "optional"
+
+
+def test_ready_ideas_repo_and_keys(tmp_path):
+    repo = tmp_path / "ideas"
+    (repo / "ideas").mkdir(parents=True)
+    (repo / "projects.toml").write_text("")
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    keys = ("OPENALEX_API_KEY", "S2_API_KEY", "LENS_API_TOKEN", "EPO_OPS_KEY", "EPO_OPS_SECRET")
+    values = {"IDEAS_REPO": str(repo), "REPOS_ROOT": str(tmp_path)}
+    found = names(d.checks(values, environ=dict.fromkeys(keys, "x")))
+    assert found["ideas_repo"] == "ok"
+    assert found["LENS_API_TOKEN"] == "ok"
+    assert found["EPO_OPS"] == "ok"
+
+
+def test_unsubstituted_placeholder_reads_as_unset(tmp_path):
+    values = {"IDEAS_REPO": "${user_config.ideas_repo}", "REPOS_ROOT": ""}
+    found = names(d.checks(values, environ={}))
+    assert found["ideas_repo"] == "missing" and found["repos_root"] == "missing"
+
+
+def test_output_lines_follow_the_doctor_format(tmp_path):
+    argv = [HOOK_PYTHON, str(DOCTOR), f"IDEAS_REPO={tmp_path}", f"REPOS_ROOT={tmp_path}"]
+    done = subprocess.run(argv, capture_output=True, text=True)
+    assert done.stdout.strip()
+    assert all(DOCTOR_LINE.match(line) for line in done.stdout.splitlines()), done.stdout
