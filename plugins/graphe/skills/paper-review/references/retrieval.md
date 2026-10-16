@@ -6,22 +6,14 @@ Semantic Scholar enriches only with a key; web-search is the backstop.
 
 ## OpenAlex (primary)
 
-Keyless. Identify yourself with `mailto` (the "polite pool" — faster, friendlier). Search the
-title+abstract, sort by relevance, and reconstruct the abstract from its inverted index for the
-snippet.
+Keyless. Searches the title and abstract, sorted by relevance, and returns the reconstructed
+abstract as the snippet text.
 
 ```bash
-MAILTO="${OPENALEX_MAILTO:-$(git config user.email)}"
-Q='federated learning Byzantine robust aggregation'   # one focused query per contribution
-ENC=$(printf '%s' "$Q" | jq -sRr @uri)
-curl -s --max-time 25 \
-  "https://api.openalex.org/works?filter=title_and_abstract.search:${ENC}&per-page=8&sort=relevance_score:desc&mailto=${MAILTO}&select=id,title,publication_year,cited_by_count,doi,abstract_inverted_index" \
-  | jq -r '.results[] | .abstract_inverted_index as $idx
-      | "- \(.title) (\(.publication_year), cites=\(.cited_by_count)) doi=\(.doi // "none")\n  \(([$idx // {} | to_entries[] | .key as $w | .value[] | {p:., w:$w}] | sort_by(.p) | map(.w) | join(" "))[0:280])"'
+uv run --no-project --quiet python ${CLAUDE_PLUGIN_ROOT}/_shared/scholarly.py openalex 'federated learning Byzantine robust' --limit 8
 ```
 
-Each result yields {title, year, citation count, DOI, abstract text} — enough to cite and to
-quote a verbatim snippet. Rank candidates by relevance first; break ties by `cited_by_count`.
+Each line is one JSON record: `title`, `url`, `date`, `text` (the abstract), `doi`. Quote snippets from `text`. Set `OPENALEX_MAILTO` to identify yourself; set `OPENALEX_API_KEY` for a larger daily budget.
 
 **Query construction.** One focused query per *contribution*, built from its noun phrases
 (C3 "Byzantine attack arena" → `federated learning Byzantine attack defense benchmark`). Keep it
@@ -37,8 +29,7 @@ Keyless requests are rate-limited and return HTTP `429` — do NOT rely on it un
 when `S2_API_KEY` is set, to enrich a paper already found via OpenAlex (TLDR, citation contexts):
 
 ```bash
-[ -n "$S2_API_KEY" ] && curl -s --max-time 25 -H "x-api-key: $S2_API_KEY" \
-  "https://api.semanticscholar.org/graph/v1/paper/search?query=byzantine+robust+federated+learning&limit=5&fields=title,year,tldr,citationCount,externalIds"
+[ -n "$S2_API_KEY" ] && uv run --no-project --quiet python ${CLAUDE_PLUGIN_ROOT}/_shared/scholarly.py s2 'byzantine robust federated learning' --limit 5
 ```
 
 Without a key, skip S2 and stay on OpenAlex + web-search.
