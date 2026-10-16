@@ -85,7 +85,9 @@ def test_capture_then_apply_runs_the_rules(tmp_path: Path, capsys):
         },
     }
     (run / "judge.json").write_text(json.dumps(judge))
-    (run / "verify.json").write_text(json.dumps({"r1": {"ok": True, "reason": ""}}))
+    (run / "verify.json").write_text(
+        json.dumps({"r1": {"ok": True, "reason": "", "quote": "a quoted passage long enough"}})
+    )
     capsys.readouterr()
     args = ["apply", "--ideas", str(ideas), "--id", idea_id, "--today", "2026-10-15"]
     assert cli.main(args) == 0
@@ -207,8 +209,153 @@ def test_verify_exits_3_when_the_closest_rival_fails(tmp_path: Path, capsys):
             }
         )
     )
-    judge = {"closest": {"ref": "r1", "quote": "a quoted passage long enough"}, "others": []}
+    judge = {
+        "closest": {"ref": "r1", "quote": "a quoted passage long enough"},
+        "others": [],
+        "verdict": {"state": "trash", "reason": "r"},
+    }
     (run / "judge.json").write_text(json.dumps(judge))
     args = ["verify", "--ideas", str(ideas), "--id", idea_id, "--repos-root", str(tmp_path)]
     assert cli.main(args) == 3
     assert json.loads((run / "verify.json").read_text())["r1"]["ok"] is False
+
+
+QUOTE = "a quoted passage long enough"
+
+
+def _triaged(ideas: Path, capsys, verdict=None, verify_entry=None, quote=QUOTE) -> tuple[str, Path]:
+    """An idea with a one-record pool, a judge file and a verify file, ready for apply."""
+    idea_id = _capture(ideas, capsys)
+    run = ideas / "runs" / idea_id
+    run.mkdir(parents=True)
+    record = {"ref": "r1", "title": "R", "url": "https://r.example", "source": "openalex"}
+    coverage = [{"source": "openalex", "status": "ok", "queries": 1, "hits": 1}]
+    pooled = {"records": [{**record, "kind": "paper"}], "coverage": coverage, "queries": {}}
+    (run / "pool.json").write_text(json.dumps(pooled))
+    differs = dict.fromkeys(("domain", "purpose", "mechanism", "evaluation"), "x")
+    judge = {
+        "closest": {"ref": "r1", "quote": quote, "differs": differs},
+        "others": [],
+        "fit": "f",
+        "verdict": verdict or {"state": "do", "type": "tool", "reason": "new"},
+    }
+    (run / "judge.json").write_text(json.dumps(judge))
+    entry = verify_entry or {"ok": True, "reason": "", "quote": QUOTE}
+    (run / "verify.json").write_text(json.dumps({"r1": entry}))
+    return idea_id, run
+
+
+def _apply(ideas: Path, idea_id: str) -> int:
+    return cli.main(["apply", "--ideas", str(ideas), "--id", idea_id, "--today", "2026-10-15"])
+
+
+@pytest.mark.parametrize(
+    "verdict",
+    [
+        {"state": "maybe", "reason": "r"},
+        {"state": "shipped", "type": "tool", "reason": "r"},
+        {"state": "do", "type": "app", "reason": "r"},
+        {"state": "do", "type": "tool", "reason": "r", "revisit_on": "keyword:x"},
+    ],
+)
+def test_apply_rejects_a_bad_verdict_and_saves_nothing(tmp_path: Path, capsys, verdict):
+    ideas = init_ideas(tmp_path)
+    idea_id, _ = _triaged(ideas, capsys, verdict=verdict)
+    path = ideas / "ideas" / f"{idea_id}.md"
+    before = path.read_text()
+    capsys.readouterr()
+    assert _apply(ideas, idea_id) == 1
+    assert capsys.readouterr().err.startswith("heuresis: judge.json: verdict.")
+    assert path.read_text() == before
+
+
+def test_override_do_without_a_type_leaves_the_idea_unchanged(tmp_path: Path, capsys):
+    ideas = init_ideas(tmp_path)
+    idea_id = _capture(ideas, capsys)
+    path = ideas / "ideas" / f"{idea_id}.md"
+    before = path.read_text()
+    assert cli.main(["override", "--ideas", str(ideas), idea_id, "do", "go"]) == 1
+    assert "needs a type" in capsys.readouterr().err
+    assert path.read_text() == before
+
+
+def test_a_stale_verify_file_does_not_count_as_verified(tmp_path: Path, capsys):
+    ideas = init_ideas(tmp_path)
+    stale = {"ok": True, "reason": "", "quote": "an older quote that was checked"}
+    idea_id, _ = _triaged(ideas, capsys, verify_entry=stale)
+    assert _apply(ideas, idea_id) == 0
+    text = (ideas / "ideas" / f"{idea_id}.md").read_text()
+    assert "· triage · later" in text and "not verified against the current quote" in text
+
+
+def test_a_loose_ok_value_does_not_count_as_verified(tmp_path: Path, capsys):
+    ideas = init_ideas(tmp_path)
+    idea_id, _ = _triaged(ideas, capsys, verify_entry={"ok": "false", "quote": QUOTE})
+    assert _apply(ideas, idea_id) == 0
+    assert "· triage · later" in (ideas / "ideas" / f"{idea_id}.md").read_text()
+
+
+def test_a_cited_ref_missing_from_the_pool_is_dropped(tmp_path: Path, capsys):
+    ideas = init_ideas(tmp_path)
+    idea_id, run = _triaged(ideas, capsys)
+    judge = json.loads((run / "judge.json").read_text())
+    judge["others"] = [{"ref": "r9", "quote": "q", "differs": "x"}]
+    (run / "judge.json").write_text(json.dumps(judge))
+    assert _apply(ideas, idea_id) == 0
+    assert "r9 (not in pool)" in (ideas / "ideas" / f"{idea_id}.md").read_text()
+
+
+@pytest.mark.parametrize(
+    ("name", "edit"),
+    [
+        ("judge.json", lambda d: d.pop("verdict")),
+        ("judge.json", lambda d: d.update(others=["r1"])),
+        ("verify.json", lambda d: d["r1"].pop("ok")),
+        ("pool.json", lambda d: d.pop("records")),
+    ],
+)
+def test_malformed_run_files_are_a_message_and_write_nothing(tmp_path: Path, capsys, name, edit):
+    ideas = init_ideas(tmp_path)
+    idea_id, run = _triaged(ideas, capsys)
+    data = json.loads((run / name).read_text())
+    edit(data)
+    (run / name).write_text(json.dumps(data))
+    path = ideas / "ideas" / f"{idea_id}.md"
+    before = path.read_text()
+    capsys.readouterr()
+    assert _apply(ideas, idea_id) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("heuresis: ") and "Traceback" not in err
+    assert path.read_text() == before
+
+
+def test_verify_with_no_closest_writes_no_none_key(tmp_path: Path, capsys):
+    ideas = init_ideas(tmp_path)
+    idea_id, run = _triaged(ideas, capsys)
+    judge = json.loads((run / "judge.json").read_text())
+    judge["closest"] = None
+    (run / "judge.json").write_text(json.dumps(judge))
+    args = ["verify", "--ideas", str(ideas), "--id", idea_id, "--repos-root", str(tmp_path)]
+    assert cli.main(args) == 0
+    assert json.loads((run / "verify.json").read_text()) == {}
+
+
+def test_verify_records_the_quote_it_checked(tmp_path: Path, capsys):
+    ideas = init_ideas(tmp_path)
+    idea_id, run = _triaged(ideas, capsys)
+    judge = json.loads((run / "judge.json").read_text())
+    judge["others"] = [{"ref": "r9", "quote": "missing quote here", "differs": "x"}]
+    (run / "judge.json").write_text(json.dumps(judge))
+    args = ["verify", "--ideas", str(ideas), "--id", idea_id, "--repos-root", str(tmp_path)]
+    cli.main(args)
+    result = json.loads((run / "verify.json").read_text())
+    assert result["r9"] == {"ok": False, "reason": "not in pool", "quote": "missing quote here"}
+
+
+def test_apply_off_main_says_the_verdict_is_saved_locally(tmp_path: Path, capsys):
+    ideas = init_ideas(tmp_path)
+    idea_id, _ = _triaged(ideas, capsys)
+    subprocess.run(["git", "-C", str(ideas), "checkout", "-q", "-b", "side"], check=True)
+    capsys.readouterr()
+    assert _apply(ideas, idea_id) == 1
+    assert "saved locally" in capsys.readouterr().err

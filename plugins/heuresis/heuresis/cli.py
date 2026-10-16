@@ -113,10 +113,7 @@ def _capture(args) -> int:
         sections={"Idea": text},
     )
     path = store.save(args.ideas, idea, new=True)
-    try:
-        sync.publish(args.ideas, [path], f"capture: {idea.id}", dt.date.today())
-    except sync.SyncError as exc:
-        raise sync.SyncError(f"idea saved locally as {path}, but publishing failed: {exc}") from exc
+    _publish(args.ideas, path, [path], f"capture: {idea.id}", dt.date.today())
     print(idea.id)
     return 0
 
@@ -151,41 +148,134 @@ def _add_record(args) -> int:
     return 0
 
 
+TRIAGE_STATES = ("trash", "later", "do", "merged")
+NOT_VERIFIED = "not verified against the current quote"
+
+
+def _load_json(path: Path, kind: type):
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, kind):
+        raise ValueError(f"{path.name}: expected a JSON {kind.__name__}")
+    return data
+
+
+def _need(ok: bool, name: str, what: str) -> None:
+    if not ok:
+        raise ValueError(f"{name}: {what}")
+
+
+def _load_judge(run: Path) -> dict:
+    judge = _load_json(run / "judge.json", dict)
+    name = "judge.json"
+    closest = judge.get("closest")
+    _need(closest is None or isinstance(closest, dict), name, "closest must be an object or null")
+    others = judge.get("others") or []
+    ok = isinstance(others, list) and all(isinstance(o, dict) for o in others)
+    _need(ok, name, "others must be a list of objects")
+    _need(all("ref" in o for o in others), name, "every item in others needs a ref")
+    verdict = judge.get("verdict")
+    _need(isinstance(verdict, dict), name, "verdict missing")
+    state = verdict.get("state")
+    _need(state in TRIAGE_STATES, name, f"verdict.state {state!r} is not one of {TRIAGE_STATES}")
+    kind = verdict.get("type")
+    _need(kind is None or kind in TYPES, name, f"verdict.type {kind!r} is not one of {TYPES}")
+    revisit_on = verdict.get("revisit_on")
+    ok = revisit_on is None or (
+        isinstance(revisit_on, list) and all(isinstance(v, str) for v in revisit_on)
+    )
+    _need(ok, name, "verdict.revisit_on must be a list of strings")
+    return judge
+
+
+def _load_pool(run: Path) -> dict:
+    pooled = _load_json(run / "pool.json", dict)
+    name = "pool.json"
+    records, coverage = pooled.get("records"), pooled.get("coverage")
+    _need(isinstance(records, list), name, "records must be a list")
+    _need(isinstance(coverage, list), name, "coverage must be a list")
+    need = ("ref", "title", "url", "source", "kind")
+    for r in records:
+        _need(isinstance(r, dict) and all(k in r for k in need), name, f"a record lacks {need}")
+    for c in coverage:
+        _need(isinstance(c, dict) and "source" in c and "status" in c, name, "bad coverage entry")
+    return pooled
+
+
+def _load_verify(run: Path) -> dict:
+    checked = _load_json(run / "verify.json", dict)
+    for ref, entry in checked.items():
+        _need(isinstance(entry, dict) and "ok" in entry, "verify.json", f"{ref} lacks ok")
+    return checked
+
+
+def _cited(judge: dict) -> dict[str, str]:
+    """ref -> the quote the judge gave for it; the closest rival's quote wins a repeated ref."""
+    cited: dict[str, str] = {}
+    for item in [judge.get("closest") or {}, *(judge.get("others") or [])]:
+        if item.get("ref") is not None:
+            cited.setdefault(str(item["ref"]), str(item.get("quote", "")))
+    return cited
+
+
+def _verified(checked: dict, ref: str, quote: str) -> bool:
+    entry = checked.get(ref) or {}
+    return entry.get("ok") is True and entry.get("quote") == quote
+
+
 def _verify(args) -> int:
     run = _run_dir(args.ideas, args.id)
-    judge = json.loads((run / "judge.json").read_text())
-    records = {r["ref"]: r for r in json.loads((run / "pool.json").read_text())["records"]}
-    cited = [judge.get("closest") or {}, *judge.get("others", [])]
+    judge = _load_judge(run)
+    records = {r["ref"]: r for r in _load_pool(run)["records"]}
     results = {}
-    for item in cited:
-        ref = item.get("ref")
+    for ref, quote in _cited(judge).items():
         if ref not in records:
-            results[str(ref)] = {"ok": False, "reason": "not in pool"}
+            results[ref] = {"ok": False, "reason": "not in pool", "quote": quote}
             continue
-        record = Record.from_dict(records[ref])
-        ok, why = verify.check(record, item.get("quote", ""), args.ideas, args.repos_root)
-        results[ref] = {"ok": ok, "reason": why}
-    (run / "verify.json").write_text(json.dumps(results, indent=2))
-    closest_ref = (judge.get("closest") or {}).get("ref")
+        ok, why = verify.check(Record.from_dict(records[ref]), quote, args.ideas, args.repos_root)
+        results[ref] = {"ok": ok, "reason": why, "quote": quote}
+    (run / "verify.json").write_text(json.dumps(results, indent=2, ensure_ascii=False))
     for ref, result in results.items():
         print(f"{ref}: {'ok' if result['ok'] else result['reason']}")
-    if closest_ref and not results.get(closest_ref, {}).get("ok"):
+    closest_ref = (judge.get("closest") or {}).get("ref")
+    if closest_ref is not None and not results[str(closest_ref)]["ok"]:
         return EXIT_CLOSEST_DROPPED
     return 0
+
+
+def _checked_idea(idea: Idea) -> None:
+    problems = store.validate(idea)
+    if problems:
+        raise store.StoreError(f"{idea.id}: " + "; ".join(problems))
+
+
+def _publish(root: Path, idea_path: Path, paths: list[Path], message: str, today: dt.date) -> None:
+    try:
+        sync.publish(root, paths, message, today)
+    except sync.SyncError as exc:
+        raise sync.SyncError(f"saved locally as {idea_path}, but publishing failed: {exc}") from exc
 
 
 def _apply(args) -> int:
     today = args.today or dt.date.today()
     run = _run_dir(args.ideas, args.id)
     idea = _load_idea(args.ideas, args.id)
-    judge = json.loads((run / "judge.json").read_text())
-    pooled = json.loads((run / "pool.json").read_text())
-    checked = json.loads((run / "verify.json").read_text())
+    judge = _load_judge(run)
+    pooled = _load_pool(run)
+    checked = _load_verify(run)
     records = {r["ref"]: r for r in pooled["records"]}
-    dropped = {ref for ref, r in checked.items() if not r["ok"]}
+    cited = _cited(judge)
+    dropped = {ref for ref, quote in cited.items() if not _verified(checked, ref, quote)}
     proposed = judge["verdict"]
     closest = judge.get("closest")
-    closest_ref = (closest or {}).get("ref")
+    closest_ref = str((closest or {}).get("ref"))
+
+    def why(ref: str) -> str:
+        if ref not in records:
+            return "not in pool"
+        entry = checked.get(ref) or {}
+        stale = entry.get("ok") is not False or entry.get("quote") != cited[ref]
+        return NOT_VERIFIED if stale else str(entry.get("reason") or NOT_VERIFIED)
+
     verdict = Verdict(
         date=today.isoformat(),
         origin="triage",
@@ -196,15 +286,13 @@ def _apply(args) -> int:
         next_step=proposed.get("next_step", ""),
         duplicate_of=proposed.get("duplicate_of"),
         coverage=[Coverage.from_dict(c) for c in pooled["coverage"]],
-        dropped=[
-            f"{records[r]['url']} ({checked[r]['reason']})" for r in sorted(dropped) if r in records
-        ],
+        dropped=[f"{records[r]['url'] if r in records else r} ({why(r)})" for r in sorted(dropped)],
     )
     known = {p.stem for p in (args.ideas / "ideas").glob("*.md")} - {idea.id}
     verdict = rules.enforce(
         verdict,
         closest=closest if closest_ref in records else None,
-        closest_verified=bool(checked.get(closest_ref, {}).get("ok")),
+        closest_verified=closest_ref not in dropped and closest_ref in cited,
         known_ids=known,
         today=today,
     )
@@ -215,9 +303,10 @@ def _apply(args) -> int:
         idea.sections["Product evidence"] = product
     idea.revisit_on = list(proposed.get("revisit_on") or idea.revisit_on)
     store.add_verdict(idea, verdict)
+    _checked_idea(idea)
     path = store.save(args.ideas, idea)
     paths = [path, *sorted(run.glob("*.json"))]
-    sync.publish(args.ideas, paths, f"triage: {idea.id} -> {verdict.state}", today)
+    _publish(args.ideas, path, paths, f"triage: {idea.id} -> {verdict.state}", today)
     kind, project = verdict.type or "no type", verdict.project or "no project"
     print(f"{idea.id}: {verdict.state} ({kind}, {project})")
     print(verdict.reason)
@@ -243,9 +332,9 @@ def _override(args) -> int:
     if args.state == "later":
         verdict.revisit = (today + rules.REVISIT_AFTER_INSUFFICIENT).isoformat()
     store.add_verdict(idea, verdict)
-    sync.publish(
-        args.ideas, [store.save(args.ideas, idea)], f"override: {idea.id} -> {args.state}", today
-    )
+    _checked_idea(idea)
+    path = store.save(args.ideas, idea)
+    _publish(args.ideas, path, [path], f"override: {idea.id} -> {args.state}", today)
     return 0
 
 
@@ -307,6 +396,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return _dispatch(args)
-    except (store.StoreError, sync.SyncError, ValueError, OSError) as exc:
+    except (store.StoreError, sync.SyncError, ValueError, FileNotFoundError) as exc:
         print(f"heuresis: {exc}", file=sys.stderr)
         return 1
