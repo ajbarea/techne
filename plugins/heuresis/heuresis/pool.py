@@ -11,7 +11,8 @@ from heuresis.model import Coverage, Record
 # Ten records per source keeps the judge's input near 60 records across six to eight sources,
 # enough to find the closest rival without burying it.
 PER_SOURCE_CAP = 10
-TRACKING = ("utm_", "ref", "fbclid", "gclid")
+TRACKING_PREFIX = "utm_"
+TRACKING_KEYS = ("ref", "fbclid", "gclid")
 
 
 def normalize_url(url: str) -> str:
@@ -19,8 +20,8 @@ def normalize_url(url: str) -> str:
     host = parts.netloc.lower().removeprefix("www.")
     query = [
         (k, v)
-        for k, v in urllib.parse.parse_qsl(parts.query)
-        if not any(k.startswith(t) for t in TRACKING)
+        for k, v in sorted(urllib.parse.parse_qsl(parts.query))
+        if not (k.startswith(TRACKING_PREFIX) or k in TRACKING_KEYS)
     ]
     path = parts.path.rstrip("/")
     tail = f"?{urllib.parse.urlencode(query)}" if query else ""
@@ -35,7 +36,7 @@ def build(scout_files: list[Path]) -> dict:
     queries: dict[str, list[str]] = {}
     for path in scout_files:
         data = json.loads(path.read_text())
-        queries[data["group"]] = list(data.get("queries", []))
+        queries.setdefault(data["group"], []).extend(data.get("queries", []))
         coverage += [Coverage.from_dict(c).to_dict() for c in data.get("coverage", [])]
         for raw in data.get("records", []):
             record = Record.from_dict(raw)

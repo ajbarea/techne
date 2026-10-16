@@ -82,7 +82,7 @@ def test_idea_and_context_records_read_local_files(tmp_path: Path):
 
 
 def test_missing_local_file_is_a_reason_not_a_crash(tmp_path: Path):
-    idea = Record(title="x", url="idea:gone", source="ideas", kind="idea")
+    idea = Record(title="x", url="idea:2026-10-01-gone", source="ideas", kind="idea")
     ok, why = verify.check(idea, "An earlier idea about triaging ideas", tmp_path, tmp_path)
     assert not ok
     assert why.startswith("unreadable")
@@ -134,3 +134,84 @@ def test_a_sources_own_evidence_error_is_contained(monkeypatch):
     rec = Record(title="t", url="https://p.example/x", source="broken", kind="paper")
     ok, why = verify.check(rec, "a tool that triages ideas against", Path("."), Path("."))
     assert (ok, why) == (False, "RuntimeError: api changed")
+
+
+def _page(monkeypatch, body: bytes):
+    monkeypatch.setattr(verify.http, "get", lambda url, headers=None: body)
+
+
+def test_inline_tags_do_not_split_words_or_punctuation(monkeypatch):
+    _page(monkeypatch, b"<p>We present <a>IdeaScout</a>, a tool that Fed<em>er</em>ated</p>")
+    assert verify.check(
+        web(), "We present IdeaScout, a tool that Federated", Path("."), Path(".")
+    ) == (True, "")
+
+
+def test_block_tags_separate_words(monkeypatch):
+    _page(monkeypatch, b"<p>first paragraph ends</p><p>second one starts here</p>")
+    assert verify.check(web(), "first paragraph ends second one starts", Path("."), Path(".")) == (
+        True,
+        "",
+    )
+
+
+def test_atom_and_epo_xml_keep_words_whole(monkeypatch):
+    atom = (
+        b'<?xml version="1.0"?><feed><entry><title>A tool</title>'
+        b"<summary>Triages <i>ideas</i>, fast and cheap</summary></entry></feed>"
+    )
+    _page(monkeypatch, atom)
+    assert verify.check(web(), "A tool Triages ideas, fast and cheap", Path("."), Path(".")) == (
+        True,
+        "",
+    )
+    epo = (
+        b'<?xml version="1.0"?><abstract><p>An apparatus for triage.</p>'
+        b"<p>It ranks ideas.</p></abstract>"
+    )
+    _page(monkeypatch, epo)
+    assert verify.check(
+        web(), "An apparatus for triage. It ranks ideas.", Path("."), Path(".")
+    ) == (True, "")
+
+
+def test_paths_outside_the_roots_are_refused(tmp_path: Path):
+    ideas, repos = tmp_path / "i", tmp_path / "r"
+    (ideas / "ideas").mkdir(parents=True)
+    repos.mkdir()
+    (tmp_path / "secret.md").write_text("a line that is long enough to quote")
+    quote = "a line that is long enough to quote"
+    for url, why in [
+        ("repo:../secret.md", "path outside repos root"),
+        (f"repo:{tmp_path}/secret.md", "path outside repos root"),
+        ("idea:../../secret", "invalid idea id"),
+    ]:
+        rec = Record(title="x", url=url, source="context", kind="context")
+        assert verify.check(rec, quote, ideas, repos) == (False, why)
+
+
+def test_file_scheme_is_refused(tmp_path: Path):
+    target = tmp_path / "s.txt"
+    target.write_text("a line that is long enough to quote")
+    rec = Record(title="x", url=f"file://{target}", source="web", kind="web")
+    assert verify.check(rec, "a line that is long enough to quote", tmp_path, tmp_path) == (
+        False,
+        "unsupported scheme: file",
+    )
+
+
+def test_none_quote_does_not_raise():
+    assert verify.check(web(), None, Path("."), Path(".")) == (False, "quote too short")  # ty: ignore[invalid-argument-type]
+
+
+def test_normalize_drops_soft_hyphens_and_zero_width_and_folds_hyphens():
+    text = "tri\N{SOFT HYPHEN}ages a\N{ZERO WIDTH SPACE}b \N{HYPHEN} c\N{NON-BREAKING HYPHEN}d"
+    assert verify.normalize(text) == "triages ab - c-d"
+
+
+def test_leading_bom_does_not_hide_json(monkeypatch):
+    _page(monkeypatch, b'\xef\xbb\xbf{"description": "Triage your ideas against prior art"}')
+    assert verify.check(web(), "Triage your ideas against prior art", Path("."), Path(".")) == (
+        True,
+        "",
+    )

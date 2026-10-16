@@ -10,7 +10,7 @@ import unicodedata
 import urllib.parse
 import xml.etree.ElementTree as ET
 from html.parser import HTMLParser
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from heuresis import sources
 from heuresis.model import Record
@@ -18,6 +18,7 @@ from heuresis.sources import http
 
 # Under 20 characters a phrase like "federated learning" matches almost any page in the field.
 MIN_QUOTE = 20
+IDEA_ID = re.compile(r"\d{4}-\d{2}-\d{2}-[a-z0-9-]+")
 FOLD = str.maketrans(
     {
         "\N{LEFT SINGLE QUOTATION MARK}": "'",
@@ -27,8 +28,24 @@ FOLD = str.maketrans(
         "\N{EN DASH}": "-",
         "\N{EM DASH}": "-",
         "\N{NO-BREAK SPACE}": " ",
+        "\N{HYPHEN}": "-",
+        "\N{NON-BREAKING HYPHEN}": "-",
     }
 )
+# Soft hyphens and zero-width characters are invisible in a rendered page but split words in source.
+INVISIBLE = dict.fromkeys(
+    map(ord, "\N{SOFT HYPHEN}\N{ZERO WIDTH SPACE}\N{ZERO WIDTH NON-JOINER}\N{ZERO WIDTH JOINER}")
+)
+# Tags that end a line of text. Inline tags (a, em, span) must not add a space inside a word.
+BLOCK = frozenset(
+    "p div li ul ol h1 h2 h3 h4 h5 h6 td th tr br section article header footer blockquote pre "
+    "table dt dd".split()
+)
+INLINE = frozenset("a abbr b cite code em i mark small span strong sub sup u".split())
+
+
+class _Refused(Exception):
+    """The record names evidence outside the places verify may read."""
 
 
 class _Text(HTMLParser):
@@ -42,10 +59,14 @@ class _Text(HTMLParser):
     def handle_starttag(self, tag, attrs):
         if tag in self.SKIP:
             self.depth += 1
+        elif tag in BLOCK and not self.depth:
+            self.parts.append(" ")
 
     def handle_endtag(self, tag):
         if tag in self.SKIP and self.depth:
             self.depth -= 1
+        elif tag in BLOCK and not self.depth:
+            self.parts.append(" ")
 
     def handle_data(self, data):
         if not self.depth:
@@ -56,11 +77,12 @@ def html_text(raw: str) -> str:
     parser = _Text()
     parser.feed(raw)
     parser.close()  # flushes trailing text the parser holds back while it waits for a tag
-    return " ".join(parser.parts)
+    return "".join(parser.parts)
 
 
 def normalize(text: str) -> str:
     text = unicodedata.normalize("NFKC", html.unescape(text)).translate(FOLD)
+    text = text.translate(INVISIBLE)
     return re.sub(r"\s+", " ", text).strip().lower()
 
 
@@ -75,8 +97,17 @@ def _strings(value) -> list[str]:
     return []
 
 
+def _xml_text(node: ET.Element) -> str:
+    local = node.tag.rsplit("}", 1)[-1] if isinstance(node.tag, str) else ""
+    edge = "" if local in INLINE else " "
+    inner = node.text or ""
+    for child in node:
+        inner += _xml_text(child) + (child.tail or "")
+    return f"{edge}{inner}{edge}"
+
+
 def _decode(body: bytes) -> str:
-    text = body.decode("utf-8", errors="replace")
+    text = body.decode("utf-8", errors="replace").removeprefix("\ufeff")
     stripped = text.lstrip()
     if stripped.startswith(("{", "[")):
         try:
@@ -85,7 +116,7 @@ def _decode(body: bytes) -> str:
             pass
     if stripped.startswith("<?xml") or stripped.startswith("<feed"):
         try:
-            return " ".join(ET.fromstring(body).itertext())
+            return _xml_text(ET.fromstring(body.removeprefix(b"\xef\xbb\xbf")))
         except ET.ParseError:
             pass
     return html_text(text)
@@ -100,9 +131,15 @@ def _headers(url: str) -> dict[str, str]:
 
 def evidence_text(record: Record, ideas_root: Path, repos_root: Path) -> str:
     if record.url.startswith("idea:"):
-        return (ideas_root / "ideas" / f"{record.url.removeprefix('idea:')}.md").read_text()
+        idea_id = record.url.removeprefix("idea:")
+        if not IDEA_ID.fullmatch(idea_id):
+            raise _Refused("invalid idea id")
+        return (ideas_root / "ideas" / f"{idea_id}.md").read_text()
     if record.url.startswith("repo:"):
-        return (repos_root / record.url.removeprefix("repo:")).read_text(errors="replace")
+        rel = PurePosixPath(record.url.removeprefix("repo:"))
+        if rel.is_absolute() or ".." in rel.parts or not rel.parts:
+            raise _Refused("path outside repos root")
+        return (repos_root / rel).read_text(errors="replace")
     source = sources.by_name(record.source)
     if source is not None:
         own = source.evidence(record)
@@ -113,12 +150,14 @@ def evidence_text(record: Record, ideas_root: Path, repos_root: Path) -> str:
 
 
 def check(record: Record, quote: str, ideas_root: Path, repos_root: Path) -> tuple[bool, str]:
-    wanted = normalize(quote)
+    wanted = normalize(str(quote or ""))
     if len(wanted) < MIN_QUOTE:
         return False, "quote too short"
     try:
         text = evidence_text(record, ideas_root, repos_root)
     except http.SourceError as exc:
+        return False, str(exc)
+    except _Refused as exc:
         return False, str(exc)
     except OSError as exc:
         return False, f"unreadable: {exc.strerror or exc}"

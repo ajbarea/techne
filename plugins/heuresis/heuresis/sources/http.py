@@ -25,7 +25,10 @@ class SourceError(Exception):
 
 
 def _open(req: urllib.request.Request) -> bytes:
-    host = urllib.parse.urlsplit(req.full_url).netloc
+    parts = urllib.parse.urlsplit(req.full_url)
+    if parts.scheme not in ("http", "https"):
+        raise SourceError(f"unsupported scheme: {parts.scheme}")
+    host = parts.netloc
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
             return resp.read(MAX_BYTES)
