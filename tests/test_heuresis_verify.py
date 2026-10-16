@@ -215,3 +215,16 @@ def test_leading_bom_does_not_hide_json(monkeypatch):
         True,
         "",
     )
+
+
+def test_unlisted_tags_still_separate_words(monkeypatch):
+    for body, quote in [
+        (b"<head><title>Title</title></head><body>Body text here", "Title Body text here"),
+        (
+            b"<nav>Nav items listed</nav><main>Main content here</main>",
+            "Nav items listed Main content",
+        ),
+        (b"<p>first word<img src=x>second word follows</p>", "first word second word follows"),
+    ]:
+        _page(monkeypatch, body)
+        assert verify.check(web(), quote, Path("."), Path(".")) == (True, ""), body

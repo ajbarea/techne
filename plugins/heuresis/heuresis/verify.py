@@ -36,11 +36,8 @@ FOLD = str.maketrans(
 INVISIBLE = dict.fromkeys(
     map(ord, "\N{SOFT HYPHEN}\N{ZERO WIDTH SPACE}\N{ZERO WIDTH NON-JOINER}\N{ZERO WIDTH JOINER}")
 )
-# Tags that end a line of text. Inline tags (a, em, span) must not add a space inside a word.
-BLOCK = frozenset(
-    "p div li ul ol h1 h2 h3 h4 h5 h6 td th tr br section article header footer blockquote pre "
-    "table dt dd".split()
-)
+# Every tag but these ends a word or line, so it becomes a space; an inline tag (a, em, span)
+# must not split a word.
 INLINE = frozenset("a abbr b cite code em i mark small span strong sub sup u".split())
 
 
@@ -59,13 +56,15 @@ class _Text(HTMLParser):
     def handle_starttag(self, tag, attrs):
         if tag in self.SKIP:
             self.depth += 1
-        elif tag in BLOCK and not self.depth:
-            self.parts.append(" ")
+        self._gap(tag)
 
     def handle_endtag(self, tag):
         if tag in self.SKIP and self.depth:
             self.depth -= 1
-        elif tag in BLOCK and not self.depth:
+        self._gap(tag)
+
+    def _gap(self, tag):
+        if tag not in INLINE and not self.depth:
             self.parts.append(" ")
 
     def handle_data(self, data):
