@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ops:world-patent-data xmlns:ops="http://ops.epo.org" xmlns="http://www.epo.org/exchange">
+  <ops:biblio-search total-result-count="2">
+    <ops:query syntax="CQL">ta all "idea triage"</ops:query>
+    <ops:range begin="1" end="2"/>
+    <ops:search-result>
+      <exchange-documents>
+        <exchange-document system="ops.epo.org" family-id="37717388" country="EP" doc-number="2000001" kind="A1">
+          <bibliographic-data>
+            <publication-reference>
+              <document-id document-id-type="docdb">
+                <country>EP</country>
+                <doc-number>2000001</doc-number>
+                <kind>A1</kind>
+                <date>20090102</date>
+              </document-id>
+            </publication-reference>
+            <invention-title lang="de">Ideentriage durch Recherche</invention-title>
+            <invention-title lang="en">Idea triage by prior art search</invention-title>
+          </bibliographic-data>
+          <abstract lang="en">
+            <p>A method for triaging ideas by searching prior art in patent databases.</p>
+          </abstract>
+        </exchange-document>
+        <exchange-document system="ops.epo.org" family-id="35840242" country="US" doc-number="2015123456" kind="A1">
+          <bibliographic-data>
+            <publication-reference>
+              <document-id document-id-type="docdb">
+                <country>US</country>
+                <doc-number>2015123456</doc-number>
+                <kind>A1</kind>
+                <date>20150430</date>
+              </document-id>
+            </publication-reference>
+            <invention-title lang="en">Novelty scoring system for candidate inventions</invention-title>
+          </bibliographic-data>
+          <abstract lang="en">
+            <p>A system scores candidate inventions against retrieved patent documents.</p>
+          </abstract>
+        </exchange-document>
+      </exchange-documents>
+    </ops:search-result>
+  </ops:biblio-search>
+</ops:world-patent-data>

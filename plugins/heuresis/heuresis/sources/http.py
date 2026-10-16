@@ -36,3 +36,9 @@ def post_json(url: str, body: dict, headers: dict[str, str] | None = None) -> by
     data = json.dumps(body).encode()
     merged = {"User-Agent": USER_AGENT, "Content-Type": "application/json", **(headers or {})}
     return _open(urllib.request.Request(url, data=data, headers=merged, method="POST"))
+
+
+def post_form(url: str, fields: dict[str, str], headers: dict[str, str] | None = None) -> bytes:
+    data = urllib.parse.urlencode(fields).encode()
+    merged = {"User-Agent": USER_AGENT, **(headers or {})}
+    return _open(urllib.request.Request(url, data=data, headers=merged, method="POST"))
