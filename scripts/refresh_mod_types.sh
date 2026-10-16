@@ -2,7 +2,9 @@
 # Regenerate scripts/mod-types/ from the Claude Code build the Makefile pins. Since 2.1.295 the
 # engine writes a mod's declarations only in an interactive session that develops it, so this
 # opens one in a detached tmux pane on your own login, accepts the folder trust prompt, waits for
-# the files, quits, and keeps the two the build defines. No prompt is sent, so no model is called.
+# the files, quits, and keeps the two the build defines. No prompt is sent, so no model is called;
+# MCP servers stay off, and so does an installed phylax, whose restart hook could fire in it. Hooks
+# stay on: with disableAllHooks no mod loads and no declarations are written.
 set -euo pipefail
 
 : "${CLAUDE_CODE_VERSION:?run through make mod-types, which pins the Claude Code build}"
@@ -13,17 +15,24 @@ types="$plugin/.claude-plugin/types"
 session="mod-types-$$"
 rm -rf "$types"
 tmux new-session -d -s "$session" -x 200 -y 50 -c "$PWD" \
-	"env -u CLAUDECODE npx --yes @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} --plugin-dir $plugin"
+	"env -u CLAUDECODE npx --yes @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} --plugin-dir $plugin --strict-mcp-config --settings '{\"enabledPlugins\":{\"phylax@techne\":false}}'"
 trap 'tmux kill-session -t "$session" 2>/dev/null || true' EXIT
-trusted=0
+# Done when all three files exist and their sizes hold across two polls.
+last=""
 for _ in $(seq 1 90); do
 	sleep 2
-	[ -f "$types/claude-code/index.d.ts" ] && [ -f "$types/claude-code-tools/index.d.ts" ] && break
-	if [ "$trusted" = 0 ] && tmux capture-pane -t "$session" -p 2>/dev/null | grep -q "Yes, I trust this folder"; then
+	if [ -f "$types/tsconfig.json" ] && [ -f "$types/claude-code/index.d.ts" ] &&
+		[ -f "$types/claude-code-tools/index.d.ts" ]; then
+		now="$(wc -c "$types/claude-code/index.d.ts" "$types/claude-code-tools/index.d.ts" | tail -n 1)"
+		[ "$now" = "$last" ] && break
+		last="$now"
+		continue
+	fi
+	# The dialog focuses "No, exit" and ignores keys just after it opens, so retry until it is gone.
+	if tmux capture-pane -t "$session" -p 2>/dev/null | grep -q "Yes, I trust this folder"; then
 		tmux send-keys -t "$session" Down
 		sleep 0.5
 		tmux send-keys -t "$session" Enter
-		trusted=1
 	fi
 done
 [ -f "$types/claude-code/index.d.ts" ] || { echo "FAIL: the session wrote no declarations to $types" >&2; exit 1; }

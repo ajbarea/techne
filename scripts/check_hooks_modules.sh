@@ -30,6 +30,11 @@ for manifest in plugins/*/hooks/hooks.json; do
 		status=1
 		continue
 	fi
+	if [ ! -f scripts/mod-types/claude-code-tools/index.d.ts ]; then
+		echo "FAIL: scripts/mod-types/claude-code-tools is missing; run make mod-types"
+		status=1
+		continue
+	fi
 	types="$plugin/.claude-plugin/types"
 	rm -rf "$types"
 	mkdir -p "$types"

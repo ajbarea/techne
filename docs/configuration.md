@@ -40,7 +40,7 @@ status = "active"
 
 ## Guards
 
-phylax's guards run from a [mod](https://code.claude.com/docs/en/plugins/mods/overview): a hooks module, `hooks/register.ts`, that Claude Code 2.1.288 or later loads into the session and that checks the main conversation's commands. A `PreToolUse` command hook checks subagents' commands, and every command when the module does not load (an older Claude Code, or an organization that allows only its own mods); it stands down for a command the module already checked. Each guard is off until you switch it on in `/config`, under the phylax plugin's options.
+phylax's guards run from a [mod](https://code.claude.com/docs/en/plugins/mods/overview): a hooks module, `hooks/register.ts`, that Claude Code 2.1.287 or later loads into the session (2.1.288 or later for Bash in worktree subagents) and that checks the main conversation's commands. A `PreToolUse` command hook checks subagents' commands, and every command when the module does not load (an older Claude Code, or an organization that allows only its own mods); it stands down for a command the module already checked. Each guard is off until you switch it on in `/config`, under the phylax plugin's options.
 
 | Option | What it does |
 |---|---|
