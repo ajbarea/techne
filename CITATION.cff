@@ -8,7 +8,8 @@ abstract: >-
   hooks and restarts idle sessions onto an updated Claude Code. keryx speaks a short summary of each reply. dokimasia
   verifies a bibliography against arXiv and Crossref and checks that every cited
   key rendered. epistole gives Claude your Gmail accounts, with every send gated on
-  your approval.
+  your approval. schole reads a Brightspace course site without marking anything
+  read.
 type: software
 version: 1.3.0
 date-released: "2026-10-13"

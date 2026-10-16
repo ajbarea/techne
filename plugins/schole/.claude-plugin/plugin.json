@@ -1,0 +1,9 @@
+{
+  "name": "schole",
+  "description": "Read-only Brightspace (D2L) course sites for Claude Code: new announcements and content, what is due, and what came due unsubmitted, through the site's API after one browser sign-in.",
+  "author": {"name": "AJ"},
+  "repository": "https://github.com/ajbarea/techne",
+  "homepage": "https://ajbarea.github.io/techne/plugins/schole/",
+  "license": "MIT",
+  "keywords": ["brightspace", "d2l", "lms", "courses", "students"]
+}
