@@ -18,7 +18,7 @@ class SyncError(Exception):
 
 
 def _git(root: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
-    env = {**os.environ, "GIT_EDITOR": "true"}
+    env = {**os.environ, "GIT_EDITOR": "true", "LC_ALL": "C", "LANG": "C"}
     done = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, env=env)
     if check and done.returncode:
         raise SyncError(f"git {' '.join(args)} failed: {done.stderr.strip()}")
@@ -70,14 +70,21 @@ def _rebase(root: Path, branch: str) -> None:
         raise
 
 
+_IN_PROGRESS = (
+    (("rebase-merge", "rebase-apply", "MERGE_HEAD"), "a rebase or merge"),
+    (("CHERRY_PICK_HEAD", "REVERT_HEAD"), "a cherry-pick or revert"),
+)
+
+
 def _preflight(root: Path) -> str:
+    for names, what in _IN_PROGRESS:
+        for name in names:
+            marker = _git(root, "rev-parse", "--git-path", name).stdout.strip()
+            if (root / marker).exists():
+                raise SyncError(f"{what} is in progress in {root}; finish it first")
     head = _git(root, "symbolic-ref", "-q", "--short", "HEAD", check=False)
     if head.returncode:
         raise SyncError("HEAD is detached; check out main first")
-    for name in ("rebase-merge", "rebase-apply", "MERGE_HEAD"):
-        marker = _git(root, "rev-parse", "--git-path", name).stdout.strip()
-        if (root / marker).exists():
-            raise SyncError(f"a rebase or merge is in progress in {root}; finish it first")
     branch = head.stdout.strip()
     if branch != "main":
         raise SyncError(f"heuresis publishes from main; current branch is {branch}")
@@ -102,12 +109,12 @@ def publish(root: Path, paths: list[Path], message: str, today: dt.date) -> str:
     if _git(root, "remote", "get-url", "origin", check=False).returncode:
         return "local"
     if not _git(root, "ls-remote", "--heads", "origin", branch).stdout.strip():
-        _push(root, branch, "-u")
-        return "pushed"
+        if _push(root, branch, "-u"):
+            return "pushed"
     for _ in range(PUSH_ATTEMPTS):
         _git(root, "fetch", "-q", "origin", branch)
         _rebase(root, branch)
         _commit(root, board.write(root, today), "chore: regenerate board")
-        if _push(root, branch):
+        if _push(root, branch, "-u"):
             return "pushed"
     raise SyncError(f"push to origin/{branch} lost {PUSH_ATTEMPTS} races in a row")

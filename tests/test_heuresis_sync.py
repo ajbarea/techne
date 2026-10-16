@@ -149,11 +149,42 @@ def test_detached_head_is_refused_before_writing(tmp_path: Path):
 
 
 def test_rebase_in_progress_is_refused(tmp_path: Path):
-    a, _ = clone_pair(tmp_path)
-    (a / ".git" / "rebase-merge").mkdir()
+    a, b = clone_pair(tmp_path)
+    for repo, text in ((a, "from a\n"), (b, "from b\n")):
+        (repo / "clash.txt").write_text(text)
+        git(repo, "add", "clash.txt")
+        git(repo, "commit", "-qm", "clash")
+    git(a, "push", "-q", "origin", "main")
+    git(b, "fetch", "-q", "origin", "main")
+    subprocess.run(["git", "-C", str(b), "rebase", "origin/main"], capture_output=True)
     with pytest.raises(sync.SyncError, match="rebase or merge is in progress"):
+        sync.publish(b, add(b, "x"), "capture x", TODAY)
+    assert "capture x" not in git(b, "log", "--oneline", "--all")
+
+
+def test_cherry_pick_in_progress_is_refused(tmp_path: Path):
+    a, _ = clone_pair(tmp_path)
+    (a / ".git" / "CHERRY_PICK_HEAD").write_text(git(a, "rev-parse", "HEAD"))
+    with pytest.raises(sync.SyncError, match="cherry-pick or revert is in progress"):
         sync.publish(a, add(a, "x"), "capture x", TODAY)
-    assert "capture x" not in git(a, "log", "--oneline")
+
+
+def test_first_push_losing_a_race_falls_through_to_rebase(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    a, b = clone_pair(tmp_path)
+    assert sync.publish(b, add(b, "from-b"), "capture from-b", TODAY) == "pushed"
+    real = sync._git
+
+    def blind_ls_remote(root: Path, *args: str, **kw):
+        if args[:1] == ("ls-remote",):
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+        return real(root, *args, **kw)
+
+    monkeypatch.setattr(sync, "_git", blind_ls_remote)
+    assert sync.publish(a, add(a, "from-a"), "capture from-a", TODAY) == "pushed"
+    log = git(tmp_path / "remote.git", "log", "--oneline", "main")
+    assert "capture from-a" in log and "capture from-b" in log
 
 
 def test_remote_not_named_origin_counts_as_local(tmp_path: Path):
