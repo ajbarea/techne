@@ -27,7 +27,8 @@ Read, keeping only entries inside the window:
 Compare each change against the repo, reading the files rather than guessing:
 
 - `export CLAUDE_CODE_VERSION :=` in `Makefile` (the build `plugin-validate` and `plugin-test`
-  run) against the newest release, and whether anything techne relies on landed in between.
+  run) against the newest release, and whether anything techne relies on landed in between. A
+  bump also needs `make mod-types`, which regenerates `scripts/mod-types/` for the new build.
 - Every `plugins/*/skills/*/SKILL.md` frontmatter and body length against the spec and the
   skills docs: new, renamed or deprecated fields, limits, `allowed-tools` syntax.
 - `plugins/*/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `hooks/hooks.json`,

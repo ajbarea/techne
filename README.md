@@ -77,7 +77,7 @@ Two skills: `schole:courses` reports a Brightspace (D2L) course site's new annou
 
 ### phylax
 
-Three opt-in guards on `git commit`, `git add` and `gh pr`, run by a [mod](https://code.claude.com/docs/en/plugins/mods/overview) (Claude Code 2.1.287 or later): block attribution lines, from the text Claude Code composes through to the command Claude runs; block staging `COMMITS.md`; and warn on commits in the main checkout. While a blocking guard is on, a check that fails refuses the command instead of letting it through. A fourth option, `restart_on_update`, moves an idle session onto an updated Claude Code in a new tmux window or Windows Terminal tab and keeps the conversation. Each is off until you switch it on in `/config`; `/phylax:setup` shows which are on and checks what they need. See [phylax](https://ajbarea.github.io/techne/plugins/phylax/).
+Three opt-in guards on `git commit`, `git add` and `gh pr`, run by a [mod](https://code.claude.com/docs/en/plugins/mods/overview) (Claude Code 2.1.288 or later; 2.1.287 runs it but breaks Bash in worktree subagents): block attribution lines, from the text Claude Code composes through to the command Claude runs; block staging `COMMITS.md`; and warn on commits in the main checkout. While a blocking guard is on, a check that fails refuses the command instead of letting it through. A fourth option, `restart_on_update`, moves an idle session onto an updated Claude Code in a new tmux window or Windows Terminal tab and keeps the conversation. Each is off until you switch it on in `/config`; `/phylax:setup` shows which are on and checks what they need. See [phylax](https://ajbarea.github.io/techne/plugins/phylax/).
 
 ## Install
 

@@ -4,7 +4,7 @@
 ## that techne itself documents at docs/conventions.md.
 ##
 
-.PHONY: help check-env setup manifests citation plugin-validate plugin-test test-hooks-oldest frontmatter fix lint shellcheck guards test-unit zizmor test validate build ci clean docs evals evals-bash freshness
+.PHONY: help check-env setup manifests citation plugin-validate plugin-test test-hooks-oldest frontmatter fix lint shellcheck guards test-unit zizmor test validate build ci clean docs evals evals-bash freshness mod-types
 .DEFAULT_GOAL := help
 
 check-env:              ## Verify required tools are on PATH
@@ -19,13 +19,16 @@ manifests:              ## Verify plugin + marketplace manifest JSON (stdlib jso
 	done
 
 # The Claude Code build plugin-validate and plugin-test run through npx, so local runs and CI
-# judge the same output. Mods need 2.1.287 or later.
-export CLAUDE_CODE_VERSION := 2.1.291
+# judge the same output. phylax's mod needs 2.1.288 or later.
+export CLAUDE_CODE_VERSION := 2.1.301
 
 plugin-validate:        ## claude plugin validate on each plugin + the marketplace (hooks, userConfig)
 	@bash scripts/check_plugin_manifest.sh
 
 export TYPESCRIPT_VERSION := 7.0.2
+
+mod-types:              ## Regenerate scripts/mod-types for the pinned build (interactive session; tmux + your login)
+	@bash scripts/refresh_mod_types.sh
 
 plugin-test:            ## claude plugin test + strict tsc on each plugin that ships a hooks module
 	@bash scripts/check_hooks_modules.sh
