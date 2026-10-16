@@ -126,11 +126,13 @@ evals:                  ## Routing + behavior evals (claude plugin eval; runs on
 	@cd plugins/techne && claude plugin eval . --tag behavior --ablation none --trust-plugin \
 		--no-publish -j 2 --threshold 0.9 --scaffold
 
-# The weekly freshness check (.github/workflows/freshness.yml), run here on your own login. It
-# prints the issue it would open instead of opening it.
+# The weekly freshness check (.github/workflows/freshness.yml), run here on your own login with
+# the same read-only tools, whatever your default permission mode. It prints the issue.
+FRESHNESS_TOOLS := Read,Glob,Grep,WebFetch(domain:github.com),WebFetch(domain:raw.githubusercontent.com),WebFetch(domain:code.claude.com),WebFetch(domain:agentskills.io),Bash(gh issue list:*),Bash(gh issue view:*)
 freshness:              ## Check upstream Claude Code + skills changes against techne (your credential)
-	@claude -p "Follow the instructions in .github/freshness.md for the repository ajbarea/techne, but in step 4 print the issue title and body instead of creating the label or the issue." \
-		--allowedTools "Read,Glob,Grep,WebFetch,WebSearch,Bash(gh issue list:*),Bash(gh issue view:*),Bash(gh label list:*),Bash(git log:*)"
+	@claude -p "Follow the instructions in .github/freshness.md for the repository ajbarea/techne. In step 4, print the title, summary and body as your final reply." \
+		--permission-mode dontAsk --tools "Read,Glob,Grep,WebFetch,Bash" \
+		--allowedTools "$(FRESHNESS_TOOLS)" --disallowedTools "Write,Edit,WebSearch,Read(//proc/**),Read(./.git/**)"
 
 # Cases that need Bash inside the run. The eval sandbox refuses to grant Bash on a machine
 # whose Docker credential store holds a symlink (Docker Desktop's WSL integration does).

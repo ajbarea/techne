@@ -1,9 +1,9 @@
 name: freshness
 
-# Weekly check of Claude Code, plugin and Agent Skills changes against techne. Claude reads the
-# sources and techne's files, then opens one issue labelled `freshness` listing what to change.
-# It never edits files or pushes. The instructions are .github/freshness.md; `make freshness`
-# runs the same check locally and prints the issue instead.
+# Weekly check of Claude Code, plugin and Agent Skills changes against techne. Two jobs, so the
+# one that reads the web never holds a token that can write: `analyze` runs Claude read-only and
+# returns the issue as structured output; `report` files it with no model in the loop.
+# The instructions are .github/freshness.md; `make freshness` runs the same check locally.
 
 on:
   schedule:
@@ -18,12 +18,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  freshness:
+  analyze:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read
-      issues: write
+      issues: read
+    outputs:
+      result: ${{ steps.claude.outputs.structured_output }}
     steps:
       - name: Need a Claude credential
         id: auth
@@ -44,9 +46,12 @@ jobs:
           persist-credentials: false
 
       - uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b # v1.0.247
+        id: claude
         if: steps.auth.outputs.ok == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          # Keep credentials out of every subprocess Claude starts.
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -54,4 +59,32 @@ jobs:
           prompt: "Follow the instructions in .github/freshness.md for the repository ${{ github.repository }}."
           claude_args: |
             --max-turns 80
-            --allowedTools Read,Glob,Grep,WebFetch,WebSearch,Bash(gh issue list:*),Bash(gh issue view:*),Bash(gh issue create:*),Bash(gh label list:*),Bash(gh label create:*),Bash(git log:*)
+            --permission-mode dontAsk
+            --allowedTools 'Read,Glob,Grep,WebFetch(domain:github.com),WebFetch(domain:raw.githubusercontent.com),WebFetch(domain:code.claude.com),WebFetch(domain:agentskills.io),Bash(gh issue list:*),Bash(gh issue view:*)'
+            --disallowedTools 'Write,Edit,WebSearch,Read(//proc/**),Read(./.git/**)'
+            --json-schema '{"type":"object","properties":{"file":{"type":"boolean"},"title":{"type":"string"},"body":{"type":"string"},"summary":{"type":"string"}},"required":["file","summary"]}'
+
+  report:
+    needs: analyze
+    if: needs.analyze.outputs.result != '' && fromJSON(needs.analyze.outputs.result).file
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: File the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RESULT: ${{ needs.analyze.outputs.result }}
+        run: |
+          title="$(jq -r '.title // empty' <<<"$RESULT")"
+          jq -r '.body // empty' <<<"$RESULT" > body.md
+          if [ -z "$title" ] || [ ! -s body.md ]; then
+            echo "::error::analyze asked to file an issue but returned no title or body."
+            exit 1
+          fi
+          gh label list --search freshness --json name --jq '.[].name' | grep -qx freshness ||
+            gh label create freshness --color 0e8a16 \
+              --description "Upstream Claude Code and skills changes to act on"
+          gh issue create --label freshness --title "$title" --body-file body.md
