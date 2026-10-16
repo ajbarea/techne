@@ -1,4 +1,7 @@
-"""Read, write and validate idea files: YAML front matter plus fixed Markdown sections."""
+"""Read, write and validate idea files: YAML front matter plus fixed Markdown sections.
+
+The Idea text is stored with surrounding blank lines trimmed and line endings normalized to LF.
+"""
 
 from __future__ import annotations
 
@@ -26,9 +29,11 @@ FRONT_KEYS = (
 )
 REQUIRED = ("id", "title", "captured", "captured_via")
 TITLE_MAX = 80
+NEW_ATTEMPTS = 100
 # Sections split only on the known headings, so a "## " line inside the idea text stays text.
 _SECTION = re.compile(r"^## (" + "|".join(re.escape(s) for s in SECTIONS) + r")$", re.MULTILINE)
 VERDICT_HEADING = re.compile(r"^### (\d{4}-\d{2}-\d{2}) · (triage|override) · (\w+)$", re.MULTILINE)
+_CLOSING_FENCE = re.compile(r"\n---[ \t]*\n")
 NEEDS_TYPE = ("do", "building", "shipped")
 # The idea text is AJ's, verbatim, so it may hold any heading; markers fence it off from the
 # section split. GitHub hides HTML comments when rendering.
@@ -63,11 +68,14 @@ def idea_path(root: Path, idea_id: str) -> Path:
 
 
 def render(idea: Idea) -> str:
+    idea_body = idea.sections.get("Idea", "")
+    if IDEA_START in idea_body or IDEA_END in idea_body:
+        raise StoreError("idea text contains a heuresis marker line; remove it")
     front = {key: getattr(idea, key) for key in FRONT_KEYS}
     head = yaml.safe_dump(front, sort_keys=False, allow_unicode=True, width=1000)
     parts = [f"---\n{head}---\n\n# {idea.title}\n"]
     for name in SECTIONS:
-        body = idea.sections.get(name, "").strip("\n")
+        body = idea.sections.get(name, "").replace("\r\n", "\n").strip("\n")
         if name == "Idea":
             parts.append(f"\n## Idea\n\n{IDEA_START}\n{body}\n{IDEA_END}\n")
         elif body:
@@ -84,11 +92,13 @@ def _text(value: object) -> str | None:
 
 
 def parse(text: str) -> Idea:
+    text = text.removeprefix("\ufeff").replace("\r\n", "\n")
     if not text.startswith("---\n"):
         raise StoreError("no front matter")
-    end = text.find("\n---\n", 4)
-    if end < 0:
+    fence = _CLOSING_FENCE.search(text, 3)
+    if fence is None:
         raise StoreError("front matter is not closed")
+    end = fence.start()
     try:
         front = yaml.safe_load(text[4:end]) or {}
     except yaml.YAMLError as exc:
@@ -98,7 +108,10 @@ def parse(text: str) -> Idea:
     missing = [key for key in REQUIRED if not front.get(key)]
     if missing:
         raise StoreError("front matter lacks " + ", ".join(missing))
-    body = text[end + 5 :]
+    body = text[fence.end() :]
+    for key in ("revisit_on", "related"):
+        if front.get(key) is not None and not isinstance(front[key], list):
+            raise StoreError(f"{key} must be a list")
     sections = {}
     start, stop = body.find(IDEA_START), body.find(IDEA_END)
     if 0 <= start < stop:
@@ -150,14 +163,35 @@ def validate(idea: Idea, stem: str | None = None) -> list[str]:
 
 
 def load(path: Path) -> Idea:
-    return parse(path.read_text(encoding="utf-8"))
+    try:
+        return parse(path.read_text(encoding="utf-8-sig"))
+    except UnicodeDecodeError as exc:
+        raise StoreError(f"file is not valid UTF-8: {exc}") from exc
 
 
-def save(root: Path, idea: Idea) -> Path:
+def save(root: Path, idea: Idea, *, new: bool = False) -> Path:
+    text = render(idea)
     path = idea_path(root, idea.id)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(render(idea), encoding="utf-8")
-    return path
+    if not new:
+        path.write_text(text, encoding="utf-8")
+        return path
+    for _ in range(NEW_ATTEMPTS):
+        try:
+            with path.open("x", encoding="utf-8") as handle:
+                handle.write(text)
+        except FileExistsError:
+            taken = [p.stem for p in path.parent.glob("*.md")]
+            try:
+                day = dt.date.fromisoformat(idea.id[:10])
+            except ValueError:
+                day = dt.date.today()
+            idea.id = new_id(day, idea.title, taken)
+            path = idea_path(root, idea.id)
+            text = render(idea)
+        else:
+            return path
+    raise StoreError("could not find a free idea id")
 
 
 def load_all(root: Path) -> list[tuple[Path, Idea | None, str]]:

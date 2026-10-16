@@ -94,14 +94,48 @@ def test_validate_checks_id_matches_filename():
 
 
 def test_save_and_load_all_skip_nothing_and_report_bad_files(tmp_path: Path):
-    good = idea()
-    store.save(tmp_path, good)
-    (tmp_path / "ideas" / "broken.md").write_text("not an idea")
-    rows = store.load_all(tmp_path)
-    assert [(p.name, i is not None) for p, i, _ in rows] == [
-        ("2026-10-15-idea-triage-tool.md", True),
-        ("broken.md", False),
-    ]
+    store.save(tmp_path, idea())
+    ideas = tmp_path / "ideas"
+    (ideas / "broken.md").write_text("not an idea")
+    good_text = store.render(idea(id="x"))
+    (ideas / "listy.md").write_text(good_text.replace("revisit_on: []", "revisit_on: 5"))
+    (ideas / "dated.md").write_text(good_text.replace("related: []", "related: 2027-01-01"))
+    (ideas / "binary.md").write_bytes(b"\xff\xfe not utf-8 \x80")
+    rows = {p.name: (i, msg) for p, i, msg in store.load_all(tmp_path)}
+    assert rows["2026-10-15-idea-triage-tool.md"][0] is not None
+    for name in ("broken.md", "listy.md", "dated.md", "binary.md"):
+        assert rows[name][0] is None and rows[name][1], name
+
+
+@pytest.mark.parametrize("marker", [store.IDEA_START, store.IDEA_END])
+def test_render_and_save_refuse_marker_lines(tmp_path: Path, marker: str):
+    bad = idea(sections={"Idea": f"before\n{marker}\nafter"})
+    with pytest.raises(store.StoreError, match="marker"):
+        store.render(bad)
+    with pytest.raises(store.StoreError):
+        store.save(tmp_path, bad)
+    assert not (tmp_path / "ideas").exists()
+
+
+def test_save_new_never_overwrites(tmp_path: Path):
+    a = idea(sections={"Idea": "first"})
+    b = idea(sections={"Idea": "second"})
+    pa = store.save(tmp_path, a, new=True)
+    pb = store.save(tmp_path, b, new=True)
+    assert pa != pb
+    assert b.id == "2026-10-15-idea-triage-tool-2"
+    assert store.load(pa).sections["Idea"] == "first"
+    assert store.load(pb).sections["Idea"] == "second"
+
+
+def test_load_strips_bom_and_parse_accepts_padded_closing_fence(tmp_path: Path):
+    text = store.render(idea())
+    path = tmp_path / "bom.md"
+    path.write_bytes(b"\xef\xbb\xbf" + text.encode())
+    assert store.load(path).id == "2026-10-15-idea-triage-tool"
+    padded = text.replace("\n---\n", "\n---  \t\n", 1)
+    assert padded != text
+    assert store.parse(padded).sections["Idea"] == "An idea triage tool."
 
 
 def test_add_verdict_prepends_newest_first_and_sets_fields():
