@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# What changed on the course site since a time, and what is due: schole-sweep [--since EPOCH]
+set -euo pipefail
+command -v uv >/dev/null 2>&1 || {
+  printf 'schole needs uv, which is not on PATH.\n  fix: curl -LsSf https://astral.sh/uv/install.sh | sh\nOpen a new terminal, then run this command again.\n' >&2
+  exit 127
+}
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export PYTHONDONTWRITEBYTECODE=1
+export PYTHONPATH="$root${PYTHONPATH:+:$PYTHONPATH}"
+exec uv run --quiet --no-project --directory "$root" --with playwright==1.63.0 python -P -m schole.cli sweep "$@"

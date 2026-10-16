@@ -20,10 +20,11 @@ From inside Claude Code:
 /plugin install dokimasia@techne
 /plugin install phylax@techne
 /plugin install epistole@techne
+/plugin install schole@techne
 /plugin install keryx@techne   # WSL2 only
 ```
 
-Then run the setup skill for each plugin you installed: `/techne:setup`, `/graphe:setup`, `/phylax:setup`, `/epistole:setup`. dokimasia needs only uv. Each plugin's page under **Plugins** covers first use and troubleshooting.
+Then run the setup skill for each plugin you installed: `/techne:setup`, `/graphe:setup`, `/phylax:setup`, `/epistole:setup`, `/schole:setup`. dokimasia needs only uv. Each plugin's page under **Plugins** covers first use and troubleshooting.
 
 Verify the install:
 
@@ -31,9 +32,9 @@ Verify the install:
 /skills
 ```
 
-The `techne:*`, `graphe:*`, `dokimasia:*`, `phylax:setup` and `epistole:setup` skills should be listed (for the plugins you installed). If they are not, run `/reload-plugins` and check again.
+The `techne:*`, `graphe:*`, `dokimasia:*`, `phylax:setup`, `epistole:*` and `schole:*` skills should be listed (for the plugins you installed). If they are not, run `/reload-plugins` and check again.
 
-Install only the plugins you use: `techne` holds the code-repo skills, `graphe` the document skills (LaTeX, PDF, slides, papers), `dokimasia` the bibliography checker, `phylax` the opt-in git guards, `epistole` Gmail across accounts (see [epistole](epistole.md)), and `keryx` speaks a gist of each reply (WSL2 only).
+Install only the plugins you use: `techne` holds the code-repo skills, `graphe` the document skills (LaTeX, PDF, slides, papers), `dokimasia` the bibliography checker, `phylax` the opt-in git guards, `epistole` Gmail across accounts (see [epistole](epistole.md)), `schole` Brightspace course sites (see [schole](plugins/schole.md)), and `keryx` speaks a gist of each reply (WSL2 only).
 
 ## First Workflow
 

@@ -126,7 +126,7 @@ Most skills read additional repo-local config when needed (e.g. `techne:audit` l
 
 ```
 ~/.claude/techne.toml      ← user-controlled sister-repo registry
-~/.claude/plugins/...      ← installed techne, graphe, dokimasia, epistole, phylax and keryx plugins
+~/.claude/plugins/...      ← installed techne, graphe, dokimasia, epistole, schole, phylax and keryx plugins
 ~/.claude/settings.json    ← pluginConfigs: hook options set in /config
 <repo>/.claude/...         ← per-repo overrides (skill-context, etc.)
 <repo>/Makefile, logs/, zensical.toml, ... ← what individual skills read
