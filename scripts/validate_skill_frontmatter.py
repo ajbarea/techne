@@ -27,6 +27,12 @@ _FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.DOTALL)
 _DESCRIPTION_RE = re.compile(
     r"^description:[ \t]*(?:[>|][+-]?[ \t]*\n)?(.*(?:\n[ \t]+.*)*)", re.MULTILINE
 )
+_NAME_RE = re.compile(r"^name:[ \t]*[\"']?([^\"'\n]*?)[\"']?[ \t]*$", re.MULTILINE)
+# Agent Skills spec (agentskills.io/specification): name 1-64 lowercase letters, digits and
+# hyphens, matching the skill's folder; description at most 1024 characters.
+_NAME_OK = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+NAME_MAX = 64
+DESCRIPTION_MAX = 1024
 
 
 def check_skill(path: Path) -> str | None:
@@ -43,6 +49,17 @@ def check_skill(path: Path) -> str | None:
     desc = _DESCRIPTION_RE.search(fm)
     if desc and re.search(r"[<>]", desc.group(1)):
         return f"{path}: description contains < or >, which claude.ai strips"
+    if desc:
+        text = " ".join(line.strip() for line in desc.group(1).splitlines()).strip()
+        if len(text) > DESCRIPTION_MAX:
+            limit = DESCRIPTION_MAX
+            return f"{path}: description is {len(text)} characters; the spec allows {limit}"
+    name = _NAME_RE.search(fm)
+    value = name.group(1) if name else ""
+    if len(value) > NAME_MAX or not _NAME_OK.fullmatch(value):
+        return f"{path}: name {value!r} must be 1-{NAME_MAX} lowercase letters, digits and hyphens"
+    if value != path.parent.name:
+        return f"{path}: name {value!r} does not match its folder {path.parent.name!r}"
     return None
 
 

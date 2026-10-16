@@ -2,6 +2,7 @@
 name: courses
 description: Check the user's Brightspace (D2L) course site, such as myCourses, for new announcements and new or updated content since a time, what is due in the next two weeks, and what came due without a submission. Use when the user asks what is due, what is new in their courses, whether they missed a deadline, or for course announcements. Read-only, never marks anything read. Not for mail; a combined mail and course catch-up is epistole's catch-me-up, which runs this sweep too.
 allowed-tools: Bash(schole-sweep*) Bash(schole-login --status*)
+disallowed-tools: Write Edit NotebookEdit
 ---
 
 # Courses
