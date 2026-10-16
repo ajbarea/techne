@@ -1,0 +1,18 @@
+{
+  "hits": [
+    {
+      "objectID": "21753272",
+      "title": "From SaaS idea validation in 1 day to 150+ Beta signups",
+      "url": "https://rocketchart.co/en/saas-founders-story",
+      "story_text": null,
+      "created_at": "2019-12-10T15:23:26Z"
+    },
+    {
+      "objectID": "5916181",
+      "title": "Show HN: Upboat, idea validation with a twist",
+      "url": null,
+      "story_text": "http:&#x2F;&#x2F;www.upboat.us<p>Demo: http:&#x2F;&#x2F;www.upboat.us&#x2F;idea&#x2F;upboat\nScreenshot of logged-in view: http:&#x2F;&#x2F;i.imgur.com&#x2F;vUZXfZc.png<p>Upboat is an idea validation platform, somewhere inbetween Kickstarter and LaunchRock. If the idea you pitch receives over 200* &quot;upboat&quot;s (consented would-be users) within one week, you get the whole emailing list of all those who upboat&#x27;d it. If not, you get nothing. This is helpful for those who have ideas for side-projects, but lack the strong-enough incentive to get to work and just hack something together. Should you put up an idea you came up with, and in a week it gets enough upboats, you have a 200-strong user incentive to get to work. If not, then not a big deal.<p>You can upboat an idea as an potential user of the service, a potential developer of the idea (github auth&#x27;d), and&#x2F;or as a potential investor in the idea (angelList auth&#x27;d). No commitment--just the chance to chat. This hopefully provides a stronger social proof scheme than a landing-page-captured email count.<p>* In the future, I&#x27;d prefer this to be 500 instead of 200.<p>Backstory: I built this at the Angelhack Silicon Valley hackathon this past weekend in 24 hours of maddening, restless typing. Granted, I was also &quot;in the zone&quot; for most of it. In past Angelhacks, I&#x27;ve done silly things like single-handedly build and present 3 different hacks (drives the judges nuts), but this time I decided to go for one production-ready hack (we&#x27;ll see if I&#x27;m right). Upboat came out of it, so please, if you can contain yourself, don&#x27;t mind the sloppiest code you&#x27;d ever laid eyes on.<p>I&#x27;d love to get some feedback, but I&#x27;d love even more to get enough Upboats to keep working on it :)",
+      "created_at": "2013-06-21T02:31:55Z"
+    }
+  ]
+}

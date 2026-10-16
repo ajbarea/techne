@@ -35,12 +35,17 @@ def run_queries(
     records: list[Record] = []
     coverage: list[Coverage] = []
     for source in sources:
-        ok, why = source.available()
+        try:
+            ok, why = source.available()
+        except Exception as exc:  # a broken availability probe is a coverage line, not a crash
+            coverage.append(Coverage(source.name, "failed", note=f"{type(exc).__name__}: {exc}"))
+            continue
         if not ok:
             coverage.append(Coverage(source.name, "skipped", note=why))
             continue
-        hits, error = 0, ""
+        hits, error, attempted = 0, "", 0
         for query in queries:
+            attempted += 1
             try:
                 found = source.search(query, limit)
             except Exception as exc:  # any adapter bug or API change is reported, not raised
@@ -50,7 +55,7 @@ def run_queries(
             hits += len(found)
             records.extend(found)
         status = "failed" if error else ("ok" if hits else "empty")
-        coverage.append(Coverage(source.name, status, len(queries), hits, error))
+        coverage.append(Coverage(source.name, status, attempted, hits, error))
     return records, coverage
 
 

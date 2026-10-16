@@ -100,3 +100,27 @@ def test_openalex_evidence_reconstructs_abstract(monkeypatch):
         evidence_url="https://api.openalex.org/works/W1?select=x",
     )
     assert papers.OpenAlex().evidence(rec) == "T hello world"
+
+
+def test_available_raising_is_a_failed_line_and_the_run_continues():
+    class Boom(Fake):
+        def available(self):
+            raise RuntimeError("gh exploded")
+
+    good = Fake("openalex", [R])
+    records, coverage = sources.run_queries([Boom("github"), good], ["q"], limit=5)
+    assert records == [R]
+    assert coverage[0].source == "github" and coverage[0].status == "failed"
+    assert coverage[0].note == "RuntimeError: gh exploded"
+    assert coverage[1].status == "ok"
+
+
+def test_coverage_counts_queries_actually_attempted():
+    class FailsSecond(Fake):
+        def search(self, query, limit):
+            if query == "q2":
+                raise http.SourceError("http 500 from x")
+            return self._results
+
+    _, coverage = sources.run_queries([FailsSecond("openalex", [R])], ["q1", "q2", "q3"], limit=5)
+    assert (coverage[0].status, coverage[0].queries, coverage[0].hits) == ("failed", 2, 1)

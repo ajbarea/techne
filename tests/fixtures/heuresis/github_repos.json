@@ -1,0 +1,17 @@
+{
+  "total_count": 98,
+  "items": [
+    {
+      "full_name": "andrehuang/research-companion",
+      "html_url": "https://github.com/andrehuang/research-companion",
+      "description": "Strategic research thinking agents for Claude Code \u2014 idea evaluation, project triage, and structured brainstorming. Helps you decide which papers to write, not just how to write them.",
+      "pushed_at": "2026-04-13T07:23:07Z"
+    },
+    {
+      "full_name": "yshmarov/ideasbugs",
+      "html_url": "https://github.com/yshmarov/ideasbugs",
+      "description": "\ud83d\udca1 In-app product feedback for Rails: drop-in widget + built-in triage dashboard. Your database, your users, your auth \u2014 alternative to Canny, inside your Rails app. (Formerly feedback_engine.)",
+      "pushed_at": "2026-08-11T20:59:17Z"
+    }
+  ]
+}
