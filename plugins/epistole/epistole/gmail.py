@@ -91,6 +91,7 @@ class Mailbox:
         self.sleep = sleep
         self.rand = rand
         self._sender: str | None = None
+        self._signature = ""
 
     @staticmethod
     def _retryable(exc: HttpError, idempotent: bool) -> bool:
@@ -176,23 +177,42 @@ class Mailbox:
                     raise
         return out, res.get("nextPageToken")
 
-    def fetch_sender(self, tries: int = 1) -> str:
-        """Gmail's default send-as address. Raises if Gmail does not say."""
+    def _default_send_as(self, tries: int) -> dict:
+        """Gmail's default send-as entry. Raises if Gmail does not name one."""
         res = self._run(self.users.settings().sendAs().list(userId="me"), tries=tries)
-        default = [a.get("sendAsEmail") for a in res.get("sendAs", []) if a.get("isDefault")]
-        found = next((d for d in default if d), None)
+        found = next(
+            (a for a in res.get("sendAs", []) if a.get("isDefault") and a.get("sendAsEmail")),
+            None,
+        )
         if found is None:
             raise LookupError("Gmail lists no default send-as address")
         return found
 
-    def sender(self) -> str:
-        """Default send-as address; the login address when Gmail will not say."""
+    def fetch_sender(self, tries: int = 1) -> str:
+        """Gmail's default send-as address. Raises if Gmail does not say."""
+        return self._default_send_as(tries)["sendAsEmail"]
+
+    def _identity(self) -> tuple[str, str]:
+        """Default send-as address and its Gmail signature (HTML, "" for none), looked up once.
+        When Gmail will not say: the login address and no signature."""
         if self._sender is None:
             try:
-                self._sender = self.fetch_sender(tries=4)
+                entry = self._default_send_as(tries=4)
+                sig = entry.get("signature")
+                self._signature = sig if isinstance(sig, str) else ""
+                self._sender = entry["sendAsEmail"]
             except (HttpError, LookupError, KeyError, TypeError, AttributeError, *NETWORK_ERRORS):
-                self._sender = self.address
-        return self._sender
+                self._sender, self._signature = self.address, ""
+        return self._sender, self._signature
+
+    def sender(self) -> str:
+        """Default send-as address; the login address when Gmail will not say."""
+        return self._identity()[0]
+
+    def signature(self) -> str:
+        """The default send-as address's Gmail signature, HTML; "" when none is set or Gmail
+        will not say. Gmail calls it the signature for new emails."""
+        return self._identity()[1]
 
     def thread(self, thread_id: str) -> dict:
         return self._run(self.users.threads().get(userId="me", id=thread_id, format="full"))

@@ -715,3 +715,64 @@ def test_reply_subject_line_separators_become_spaces(original):
     parsed = decode(mime.encode(msg))
     assert parsed["Bcc"] is None and "Bcc: e@example.com" in parsed["Subject"]
     assert len(parsed["Subject"].splitlines()) == 1
+
+
+# --- signature ---
+
+SIG = '<div dir="ltr">AJ Barea<br>PhD Student<br><a href="https://x.example">x.example</a></div>'
+
+
+def test_sign_without_signature_changes_nothing():
+    assert mime.sign("hi", None, "") == ("hi", None)
+    assert mime.sign("hi", "<p>hi</p>", "") == ("hi", "<p>hi</p>")
+
+
+def test_sign_builds_html_from_text_body():
+    text, html = mime.sign("Hello <team>,\nline two\n\n", None, SIG)
+    assert html is not None
+    assert text == "Hello <team>,\nline two\n\n-- \nAJ Barea\nPhD Student\nx.example\n"
+    assert html.startswith('<div dir="ltr">Hello &lt;team&gt;,<br>line two<br clear="all">')
+    assert 'class="gmail_signature"' in html and SIG in html
+
+
+def test_sign_appends_to_given_html_and_respects_a_body_tag():
+    _, html = mime.sign("hi", "<p>hi</p>", SIG)
+    assert html is not None
+    assert html.startswith('<p>hi</p><br clear="all">') and html.endswith(SIG + "</div>")
+    _, html = mime.sign("hi", "<html><body><p>hi</p></BODY></html>", SIG)
+    assert html is not None
+    assert html.endswith(SIG + "</div></BODY></html>")
+
+
+def test_build_with_signature_has_both_parts():
+    msg = mime.build(
+        sender="me@example.edu", to=["b@example.com"], subject="s", body="hi", signature=SIG
+    )
+    plain_part, html_part = msg.get_body(("plain",)), msg.get_body(("html",))
+    assert plain_part is not None and html_part is not None
+    plain, html = plain_part.get_content(), html_part.get_content()
+    assert plain.rstrip().endswith("-- \nAJ Barea\nPhD Student\nx.example")
+    assert 'class="gmail_signature"' in html and "https://x.example" in html
+
+
+def test_build_without_signature_stays_plain_text():
+    msg = mime.build(sender="me@example.edu", to=["b@example.com"], subject="s", body="hi")
+    assert msg.get_content_type() == "text/plain"
+
+
+def test_sign_treats_empty_html_like_none():
+    _, html = mime.sign("hi there", "", SIG)
+    assert html is not None and html.startswith('<div dir="ltr">hi there<br clear="all">')
+
+
+def test_sign_does_not_sign_a_body_read_back_from_a_signed_draft():
+    once, _ = mime.sign("edited", None, SIG)
+    twice, html = mime.sign(once, None, SIG)
+    assert twice == once and twice.count("-- \n") == 1
+    assert html is not None and html.count("AJ Barea") == 1
+
+
+def test_sign_image_only_signature_leaves_plain_part_unsigned():
+    text, html = mime.sign("hi", None, '<img src="https://x.example/logo.png">')
+    assert text == "hi\n"
+    assert html is not None and "logo.png" in html

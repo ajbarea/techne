@@ -9,6 +9,7 @@ import re
 from collections.abc import Iterable
 from email.message import EmailMessage
 from email.utils import getaddresses
+from html import escape
 from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
 from typing import NamedTuple
@@ -94,6 +95,36 @@ def _header_value(value: str) -> str:
     return value
 
 
+_BODY_END = re.compile(r"(?i)</body\s*>")
+
+
+def sign(body: str, html: str | None, signature: str) -> tuple[str, str | None]:
+    """body and html with a Gmail signature (HTML) appended, as Gmail's composer adds it: the
+    HTML part in a gmail_signature block, the plain part after a "-- " line. With no html, the
+    HTML part is built from body so the signature's links and images survive. A body that
+    already ends in this signature's plain text (read back from a signed draft) is not signed
+    twice."""
+    if not signature:
+        return body, html
+    sig_text = _html_to_text(signature)
+    body = body.replace("\r\n", "\n").rstrip()
+    if sig_text and (body + "\n").endswith(f"\n-- \n{sig_text}\n"):
+        body = body.rpartition("\n-- \n")[0].rstrip()  # body read back from a signed draft
+    text = f"{body}\n\n-- \n{sig_text}\n" if sig_text else f"{body}\n"
+    block = (
+        '<br clear="all"><div dir="ltr" class="gmail_signature" '
+        f'data-smartmail="gmail_signature">{signature}</div>'
+    )
+    if not html:
+        page = escape(body, quote=False).replace("\n", "<br>")
+        return text, f'<div dir="ltr">{page}{block}</div>'
+    ends = list(_BODY_END.finditer(html))
+    if ends:
+        cut = ends[-1].start()
+        return text, html[:cut] + block + html[cut:]
+    return text, html + block
+
+
 def build(
     *,
     sender: str,
@@ -104,6 +135,7 @@ def build(
     html: str | None = None,
     attachments: Iterable[Path] = (),
     reply: Reply | None = None,
+    signature: str = "",
 ) -> EmailMessage:
     if isinstance(to, str) or isinstance(cc, str):
         raise TypeError("to and cc must be lists of addresses, not a string.")
@@ -137,6 +169,7 @@ def build(
             msg["References"] = " ".join(refs)
     else:
         msg["Subject"] = _header_value(subject)
+    body, html = sign(body, html, signature)
     msg.set_content(body)
     if html:
         msg.add_alternative(html, subtype="html")
