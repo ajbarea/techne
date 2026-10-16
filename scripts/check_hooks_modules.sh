@@ -2,10 +2,10 @@
 # claude plugin test and a strict tsc on each plugin that ships a hooks module (a mod): one whose
 # hooks/hooks.json names `modules`. Both run on the Claude Code build the Makefile pins.
 #
-# tsc needs the build's declarations, which the engine writes into <plugin>/.claude-plugin/types/
-# whenever it loads the plugin from a folder. A `claude -p --plugin-dir` run in a bare environment
-# (no credentials, a fresh config directory) loads it and stops at "Not logged in", so no model is
-# ever called.
+# tsc needs the build's declarations. Since 2.1.295 the engine writes them only in an interactive
+# session that develops the mod, never in `-p` or CI, so they are kept in scripts/mod-types/ (from
+# `make mod-types`) and copied into <plugin>/.claude-plugin/types/ here. Their first line names the
+# build that wrote them, which must be the pinned one.
 set -euo pipefail
 
 : "${CLAUDE_CODE_VERSION:?run through make plugin-test, which pins the Claude Code build}"
@@ -24,17 +24,28 @@ for manifest in plugins/*/hooks/hooks.json; do
 	fi
 	"${claude_cmd[@]}" plugin test "$plugin" || { status=1; continue; }
 
-	# Stale types from an earlier build must not stand in for this one's.
-	rm -rf "$plugin/.claude-plugin/types"
-	config=$(mktemp -d)
-	env -i PATH="$PATH" HOME="$HOME" CLAUDE_CONFIG_DIR="$config" \
-		timeout 120 "${claude_cmd[@]}" -p --plugin-dir "$plugin" "load only" >/dev/null 2>&1 || true
-	rm -rf "$config"
-	if [ ! -f "$plugin/.claude-plugin/types/tsconfig.json" ]; then
-		echo "FAIL: loading $plugin wrote no types to $plugin/.claude-plugin/types/"
+	stamp="$(head -n 1 scripts/mod-types/claude-code/index.d.ts 2>/dev/null || true)"
+	if [ "$stamp" != "// Written by Claude Code ${CLAUDE_CODE_VERSION}." ]; then
+		echo "FAIL: scripts/mod-types is from '${stamp#// }', not ${CLAUDE_CODE_VERSION}; run make mod-types"
 		status=1
 		continue
 	fi
+	types="$plugin/.claude-plugin/types"
+	rm -rf "$types"
+	mkdir -p "$types"
+	cp -r scripts/mod-types/claude-code scripts/mod-types/claude-code-tools "$types/"
+	printf '*\n' >"$types/.gitignore"
+	cat >"$types/tsconfig.json" <<'JSON'
+{
+  "compilerOptions": {
+    "target": "es2023", "lib": ["es2023"], "module": "esnext", "moduleResolution": "bundler",
+    "strict": true, "noUncheckedIndexedAccess": true, "noEmit": true, "skipLibCheck": true,
+    "jsx": "react", "jsxFactory": "h", "jsxFragmentFactory": "Fragment",
+    "typeRoots": ["."], "types": ["claude-code", "claude-code-tools"]
+  },
+  "include": ["../../hooks", "../../types", "../../tests"]
+}
+JSON
 	npx --yes -p "typescript@${TYPESCRIPT_VERSION}" tsc --noEmit -p "$plugin" || status=1
 done
 [ "$status" -eq 0 ] && echo "hooks modules: tests and tsc clean"

@@ -21,20 +21,27 @@ const WARNING = JSON.stringify({
 type Guard = Partial<ProcessRunResult> | Error
 
 // Stands in for the engine: the session's directory, python3 running git_guards.py, and Bash.
-function engine(on: On, guard: Guard) {
+// `held` makes the engine hold the stamp's write, as an organization's settings can.
+function engine(on: On, guard: Guard, held?: string) {
   const runs: { argv: readonly string[]; init?: ProcessRunInit }[] = []
   const bash: string[] = []
   // Every write of the stamp, and what it held when Bash ran (where the fallback reads it).
   const stamps: (string | undefined)[] = []
   let stamp: string | undefined
   const stampAtRun: (string | undefined)[] = []
+  const logs: string[] = []
   on('session.cwd', () => ({ value: CWD }))
+  on('ui.log', ($, e) => {
+    logs.push(e.text)
+    return { value: undefined }
+  })
   on('env.set', ($, e) => {
     if (e.name === 'PHYLAX_GUARD_CHECKED') {
       stamps.push(e.value)
+      if (held !== undefined) return { value: { deny: held } }
       stamp = e.value
     }
-    return { value: undefined }
+    return { value: {} }
   })
   on('process.run', ($, e) => {
     runs.push(e)
@@ -47,7 +54,7 @@ function engine(on: On, guard: Guard) {
     stampAtRun.push(stamp)
     return { result: { stdout: 'ran', stderr: '', interrupted: false }, text: 'ran' }
   })
-  return { runs, bash, stamps, stampAtRun }
+  return { runs, bash, stamps, stampAtRun, logs }
 }
 
 describe('attribution text', () => {
@@ -150,6 +157,14 @@ describe('git guard', () => {
     expect(bash).toEqual(['git status'])
     expect(stampAtRun).toEqual(['toolu_1'])
     expect(stamps).toEqual(['toolu_1', undefined])
+  })
+
+  test('a held stamp is logged and the command still runs', { options: ATTRIBUTION }, async ($, on) => {
+    const { bash, stampAtRun, logs } = engine(on, {}, 'held by policy')
+    await $.tool.call({ tool: 'Bash', command: 'git status', tool_use_id: 'toolu_3' })
+    expect(bash).toEqual(['git status'])
+    expect(stampAtRun).toEqual([undefined])
+    expect(logs.some(line => line.includes('held by policy'))).toBe(true)
   })
 
   test('a refused call names nothing', { options: ATTRIBUTION }, async ($, on) => {

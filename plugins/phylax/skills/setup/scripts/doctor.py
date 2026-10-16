@@ -27,7 +27,8 @@ OPTIONS = (
     "restart_on_update",
 )
 GUARDS = OPTIONS[:3]
-MOD_MINIMUM = (2, 1, 287)
+# 2.1.287 added mods; 2.1.288 fixed a tool.call hook breaking Bash in worktree subagents.
+MOD_MINIMUM = (2, 1, 288)
 HOOK_FALLBACK = "the command hook runs the guards on any version"
 RESTART_OFF = "restart_on_update is off"
 
@@ -70,8 +71,8 @@ def mod(platform: d.Platform, guards_on: bool) -> d.Check:
         )
     if version < MOD_MINIMUM:
         detail = (
-            f"Claude Code {d.fmt_version(version)} predates mods ({d.fmt_version(MOD_MINIMUM)});"
-            " the command hook runs the guards instead"
+            f"Claude Code {d.fmt_version(version)} is older than {d.fmt_version(MOD_MINIMUM)},"
+            " which the guard mod needs; the command hook runs the guards until you update"
         )
         return d.Check(d.OPTIONAL, "mod", detail, d.fix_lines(platform, d.FIXES["claude-update"]))
     return d.Check(d.OK, "mod", f"Claude Code {d.fmt_version(version)} loads the guard mod")

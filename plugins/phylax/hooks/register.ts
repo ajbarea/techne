@@ -60,7 +60,11 @@ export const register: Register = (on, options) => {
     }
     // The hooks.json fallback runs inside next(e). Naming this call there makes it stand down
     // for this call alone: any call this hook did not pass, it still checks.
-    if (e.tool_use_id !== undefined) await $.env.set('PHYLAX_GUARD_CHECKED', e.tool_use_id)
+    if (e.tool_use_id !== undefined) {
+      const stamped = await $.env.set('PHYLAX_GUARD_CHECKED', e.tool_use_id)
+      // A held write only costs a second check: the fallback runs the guard on this call too.
+      if (stamped.deny !== undefined) $.ui.log(`phylax: ${stamped.deny}; the fallback checks this call again.`, { to: 'debug' })
+    }
     let result
     try {
       result = await next(e)

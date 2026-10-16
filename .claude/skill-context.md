@@ -33,7 +33,7 @@ Audit drives the wrapper `make` targets, which mirror `.github/workflows/validat
 
 ### Phase 2b — Hooks modules
 
-- `make plugin-test` — `claude plugin test` plus a strict `tsc` (TypeScript pinned in the Makefile) on each plugin whose `hooks/hooks.json` names `modules` (a mod), on the pinned Claude Code build; `scripts/check_hooks_modules.sh` loads the plugin once, unauthenticated, so the engine writes the types `tsc` reads.
+- `make plugin-test` — `claude plugin test` plus a strict `tsc` (TypeScript pinned in the Makefile) on each plugin whose `hooks/hooks.json` names `modules` (a mod), on the pinned Claude Code build; `scripts/check_hooks_modules.sh` gives `tsc` the declarations kept in `scripts/mod-types/` and fails when their first line names a build other than the pin. Since 2.1.295 the engine writes declarations only in an interactive session that develops the mod, so `make mod-types` regenerates them on your own login (tmux, no prompt sent); rerun it whenever `CLAUDE_CODE_VERSION` moves.
 
 ### Phase 3 — Skill structural validation
 

@@ -31,7 +31,7 @@ The user switches them on in `/config`. Then they run `/reload-plugins`, and you
 
 | Check | When it matters | What to do |
 | --- | --- | --- |
-| `mod` | a guard is on | Claude Code 2.1.287 or later runs the guards from a mod. An older version still runs them from the command hook, so this line is optional. Run the fix line after the user approves; `claude update` moves to the newest version, and the mod loads after the user restarts Claude Code. |
+| `mod` | a guard is on | Claude Code 2.1.288 or later runs the guards from a mod. An older version still runs them from the command hook, so this line is optional. Run the fix line after the user approves; `claude update` moves to the newest version, and the mod loads after the user restarts Claude Code. |
 | `python3` | any option is on | The hooks run on the system python3, 3.9 or newer. The user runs a `sudo` or `xcode-select --install` line with `!`. Run the `uv python install --default 3.12 && uv python update-shell` line after the user approves. |
 | `git` | a guard is on | The user runs the fix line with `!`. |
 | `proc` | restart_on_update is on | macOS and native Windows have no `/proc`. The user switches the option off there. |
