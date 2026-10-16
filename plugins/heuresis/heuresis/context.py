@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 import subprocess
 import tomllib
 from dataclasses import asdict, dataclass
@@ -54,7 +55,7 @@ def write_projects(path: Path, projects: list[Project]) -> None:
     blocks = []
     for p in projects:
         fields = {k: v for k, v in asdict(p).items() if v is not None}
-        body = "\n".join(f"{k} = {json.dumps(v)}" for k, v in fields.items())
+        body = "\n".join(f"{k} = {json.dumps(v, ensure_ascii=False)}" for k, v in fields.items())
         blocks.append(f"[[project]]\n{body}\n")
     path.write_text("\n".join(blocks), encoding="utf-8")
 
@@ -66,7 +67,9 @@ def load_projects(path: Path) -> list[Project]:
 
 def write_context(path: Path) -> None:
     blocks = [
-        "[[source]]\n" + "\n".join(f"{k} = {json.dumps(v)}" for k, v in s.items()) + "\n"
+        "[[source]]\n"
+        + "\n".join(f"{k} = {json.dumps(v, ensure_ascii=False)}" for k, v in s.items())
+        + "\n"
         for s in DEFAULT_SOURCES
     ]
     path.write_text("\n".join(blocks), encoding="utf-8")
@@ -74,6 +77,13 @@ def write_context(path: Path) -> None:
 
 def resolve_sources(context_toml: Path, projects: list[Project], repos_root: Path) -> list[dict]:
     sources = tomllib.loads(context_toml.read_text()).get("source", [])
+    for source in sources:
+        pattern = Path(source["path"])
+        if pattern.is_absolute() or ".." in pattern.parts:
+            raise ValueError(
+                f"context.toml source {source['kind']!r} has path {source['path']!r}; "
+                "paths must be relative to the repo and contain no '..'"
+            )
     repo_names = sorted({p.repo for p in projects if p.kind == "repo" and p.repo})
     found = []
     for source in sources:
@@ -99,6 +109,13 @@ def init_repo(root: Path, techne_toml: Path | None, repos_root: Path) -> None:
     if not (root / "README.md").exists():
         (root / "README.md").write_text(README, encoding="utf-8")
     board.write(root, dt.date.today())
-    probe = subprocess.run(["git", "-C", str(root), "rev-parse"], capture_output=True, check=False)
-    if probe.returncode:
-        subprocess.run(["git", "init", "-q", "-b", "main", str(root)], check=True)
+    env = {k: v for k, v in os.environ.items() if k not in ("GIT_DIR", "GIT_WORK_TREE")}
+    top = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+    if top.returncode or top.stdout.strip() != str(root.resolve()):
+        subprocess.run(["git", "init", "-q", "-b", "main", str(root)], check=True, env=env)

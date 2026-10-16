@@ -6,6 +6,7 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
 from heuresis import context
 
 
@@ -77,5 +78,31 @@ def test_init_repo_creates_the_layout_and_a_git_repo(tmp_path: Path):
     expected = ("ideas", "runs", "projects.toml", "context.toml", "README.md", "BOARD.md", "LOG.md")
     for name in expected:
         assert (ideas / name).exists(), name
-    assert subprocess.run(["git", "-C", str(ideas), "rev-parse"], check=False).returncode == 0
+    assert (ideas / ".git").is_dir()
+    snapshot = {n: (ideas / n).read_text() for n in ("projects.toml", "context.toml", "README.md")}
     context.init_repo(ideas, None, root)  # a second run changes nothing and does not fail
+    assert {n: (ideas / n).read_text() for n in snapshot} == snapshot
+
+
+def test_init_repo_inside_another_repo_gets_its_own_repo(tmp_path: Path):
+    outer = tmp_path / "outer"
+    outer.mkdir()
+    subprocess.run(["git", "init", "-q", str(outer)], check=True)
+    ideas = outer / "ideas-repo"
+    context.init_repo(ideas, None, repos(tmp_path))
+    assert (ideas / ".git").is_dir()
+
+
+def test_non_ascii_project_name_round_trips(tmp_path: Path):
+    path = tmp_path / "projects.toml"
+    projects = [context.Project("idea:\U0001f680", "new", None)]
+    context.write_projects(path, projects)
+    assert context.load_projects(path) == projects
+
+
+@pytest.mark.parametrize("bad", ["/etc/passwd", "../secret.md", "a/../../b"])
+def test_resolve_sources_rejects_absolute_and_parent_paths(tmp_path: Path, bad: str):
+    ctx = tmp_path / "context.toml"
+    ctx.write_text(f'[[source]]\nkind = "notes"\nrepo = "papers"\npath = "{bad}"\n')
+    with pytest.raises(ValueError, match="notes"):
+        context.resolve_sources(ctx, [], tmp_path)
