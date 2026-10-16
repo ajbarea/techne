@@ -46,3 +46,18 @@ def test_output_lines_follow_the_doctor_format(tmp_path):
     done = subprocess.run(argv, capture_output=True, text=True)
     assert done.stdout.strip()
     assert all(DOCTOR_LINE.match(line) for line in done.stdout.splitlines()), done.stdout
+
+
+def run_doctor(*args):
+    return subprocess.run([HOOK_PYTHON, str(DOCTOR), *args], capture_output=True, text=True)
+
+
+def test_exit_code_is_1_when_ideas_repo_missing_and_0_when_ready(tmp_path):
+    missing = run_doctor(f"IDEAS_REPO={tmp_path / 'nope'}", f"REPOS_ROOT={tmp_path}")
+    assert missing.returncode == 1, missing.stdout
+    repo = tmp_path / "ideas"
+    (repo / "ideas").mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    ready = run_doctor(f"IDEAS_REPO={repo}", f"REPOS_ROOT={tmp_path}")
+    assert ready.returncode == 0, ready.stdout
+    assert ready.stdout.splitlines()[-1] == "result: ready"

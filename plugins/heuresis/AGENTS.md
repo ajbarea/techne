@@ -8,6 +8,7 @@ This is the setup guide for heuresis, written for an agent guiding a user. The s
 - The user sets `ideas_repo` and `repos_root` in `/config`, under the heuresis plugin's options. Do not edit settings files for them.
 - The user runs every fix line that contains `sudo`, `xcode-select --install` or a Homebrew cask. In Claude Code they type it after `!`.
 - You may run any other fix line after the user approves.
+- Every path you pass to the doctor or the heuresis command is absolute. The heuresis command runs with its working directory set to the plugin, so a relative path points inside the plugin.
 - Never ask for an API key in chat and never write one into a file.
 
 ## 1. Run the doctor
@@ -24,8 +25,8 @@ If `ideas_repo` is missing:
 
 1. Pick a folder next to the other clones, for example `<repos_root>/ideas`, and have the user set `ideas_repo` to it in `/config`.
 2. Create it: run the heuresis command with `init <ideas_repo> --repos-root <repos_root>`. It lays out the folders and runs `git init -b main` but does not commit.
-3. Make the first commit: `git -C <ideas_repo> add -A` then `git -C <ideas_repo> commit -m "init: ideas repository"`.
-4. Ask the user before creating the GitHub repository. On a yes: `gh repo create ideas --private --source <ideas_repo> --push`.
+3. Make the first commit: `git -C <ideas_repo> add -A` then `git -C <ideas_repo> commit -m "init: ideas repository"`. If git has no `user.name` or `user.email` (`git config user.name` prints nothing), ask the user to set them with `git config --global user.name "<name>"` and `git config --global user.email "<email>"`. Never invent them.
+4. Create the GitHub repository only when the doctor shows `ok gh` and `gh auth status` succeeds, and ask the user first. On a yes: `gh repo create ideas --private --source <ideas_repo> --push`. If `gh` is missing, the user installs it with the doctor's fix line. If `gh auth status` fails, the user runs `gh auth login`. Until then the ideas repository works locally.
 
 ## 4. Search keys
 
@@ -33,4 +34,4 @@ Each `optional` key line names what the key adds and where to get it. The user e
 
 ## 5. Check the result
 
-Run the doctor again until it prints `result: ready`. Then `/heuresis:idea --now <idea>` works.
+The skill's doctor command was filled in before the user set the paths in `/config`, so it may still show them empty. Run the doctor script the setup skill names, passing the chosen paths explicitly: `IDEAS_REPO=<ideas_repo> REPOS_ROOT=<repos_root>`, both absolute. Or have the user run `/reload-plugins` and invoke `/heuresis:setup` again. Repeat until it prints `result: ready`. Then `/heuresis:idea --now <idea>` works.
