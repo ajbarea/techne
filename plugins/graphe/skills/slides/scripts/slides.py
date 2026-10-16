@@ -811,28 +811,59 @@ _NESTED = """() => [...document.querySelectorAll('.reveal .slides section')]
   .map((s) => (s.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 40))"""
 _COUNT = "__deckSlides().length"
 # window.DECK_DATA ships beside the deck, so whatever it holds is published even when no slide
-# shows it. A path is bound when a data-* attribute names it or an ancestor of it, in the page as
-# built or in its source (a deck drops a data-if block that is false, and the bindings in it);
-# the smallest subtrees nothing binds are returned.
-_UNBOUND = r"""(source) => {
+# shows it. A path is bound when a data-* attribute's value resolves in it, as the deck's lookup
+# splits on dots, or names an ancestor of it. Values are read from the page as built and from its
+# source (a deck drops a data-if block that is false, and the bindings in it). reveal.js's own
+# attributes are not bindings. A value that throws when read counts as unbound.
+_REVEAL_ATTRIBUTES = (
+    "data-state",
+    "data-transition",
+    "data-transition-speed",
+    "data-background",
+    "data-background-color",
+    "data-background-image",
+    "data-background-video",
+    "data-background-iframe",
+    "data-background-gradient",
+    "data-auto-animate",
+    "data-auto-animate-id",
+    "data-auto-animate-easing",
+    "data-id",
+    "data-chapter",
+    "data-visibility",
+    "data-notes",
+    "data-markdown",
+    "data-fragment-index",
+    "data-autoslide",
+)
+_UNBOUND = r"""([source, skip]) => {
   const data = window.DECK_DATA;
   if (!data || typeof data !== 'object') return [];
-  const isPath = /^[A-Za-z_$][\w$]*(\.[\w$-]+)*$/;
+  const read = (node, k) => { try { return node[k]; } catch (e) { return undefined; } };
+  const has = (node, k) => node !== null && typeof node === 'object'
+    && Object.prototype.hasOwnProperty.call(node, k);
+  const resolves = (path) => {
+    let node = data;
+    for (const k of path.split('.')) { if (!has(node, k)) return false; node = read(node, k); }
+    return true;
+  };
   const bound = new Set();
-  const live = [...document.querySelectorAll('*')].flatMap((el) =>
-    [...el.attributes].filter((a) => a.name.startsWith('data-')).map((a) => a.value));
+  const live = [...document.querySelectorAll('*')].flatMap((el) => [...el.attributes]
+    .filter((a) => a.name.startsWith('data-') && !skip.includes(a.name)).map((a) => a.value));
   for (const raw of [...live, ...source]) {
     const v = raw.trim();
-    if (isPath.test(v) && Object.prototype.hasOwnProperty.call(data, v.split('.')[0])) bound.add(v);
+    if (v && resolves(v)) bound.add(v);
   }
   const out = [];
   const walk = (node, path) => {
     if (bound.has(path)) return;
     const below = [...bound].some((b) => b.startsWith(path + '.'));
     if (!below || node === null || typeof node !== 'object') { out.push(path); return; }
-    for (const k of Object.keys(node)) walk(node[k], `${path}.${k}`);
+    let keys;
+    try { keys = Object.keys(node); } catch (e) { out.push(path); return; }
+    for (const k of keys) walk(read(node, k), `${path}.${k}`);
   };
-  for (const k of Object.keys(data)) walk(data[k], k);
+  for (const k of Object.keys(data)) walk(read(data, k), k);
   return out;
 }"""
 
@@ -1129,12 +1160,30 @@ def _open(
 
 
 class _DataAttributes(HTMLParser):
+    """data-* values outside reveal.js's own attributes and outside a slide hidden with
+    data-visibility="hidden", which reveal.js removes from the page."""
+
     def __init__(self) -> None:
         super().__init__()
         self.values: list[str] = []
+        self.sections = 0
+        self.hidden_at: int | None = None
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        self.values += [v for k, v in attrs if k.startswith("data-") and v]
+        if tag == "section":
+            self.sections += 1
+            if self.hidden_at is None and dict(attrs).get("data-visibility") == "hidden":
+                self.hidden_at = self.sections
+        if self.hidden_at is None:
+            self.values += [
+                v for k, v in attrs if k.startswith("data-") and k not in _REVEAL_ATTRIBUTES and v
+            ]
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "section":
+            if self.hidden_at == self.sections:
+                self.hidden_at = None
+            self.sections -= 1
 
 
 def _data_attributes(path: pathlib.Path) -> list[str]:
@@ -1207,7 +1256,7 @@ def _check_in(
                 "use a <div>",
             )
         )
-    unbound = page.evaluate(_UNBOUND, _data_attributes(path))
+    unbound = page.evaluate(_UNBOUND, [_data_attributes(path), list(_REVEAL_ATTRIBUTES)])
     if unbound:
         more = f" and {len(unbound) - 6} more" if len(unbound) > 6 else ""
         found.append(
