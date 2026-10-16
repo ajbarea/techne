@@ -4,7 +4,7 @@
 ## that techne itself documents at docs/conventions.md.
 ##
 
-.PHONY: help check-env setup manifests citation plugin-validate plugin-test test-hooks-oldest frontmatter fix lint shellcheck guards test-unit zizmor test validate build ci clean docs evals evals-bash
+.PHONY: help check-env setup manifests citation plugin-validate plugin-test test-hooks-oldest frontmatter fix lint shellcheck guards test-unit zizmor test validate build ci clean docs evals evals-bash freshness
 .DEFAULT_GOAL := help
 
 check-env:              ## Verify required tools are on PATH
@@ -125,6 +125,14 @@ evals:                  ## Routing + behavior evals (claude plugin eval; runs on
 	[ -z "$$failed" ] || { echo "FAIL: routing evals below threshold in:$$failed"; exit 1; }
 	@cd plugins/techne && claude plugin eval . --tag behavior --ablation none --trust-plugin \
 		--no-publish -j 2 --threshold 0.9 --scaffold
+
+# The weekly freshness check (.github/workflows/freshness.yml), run here on your own login with
+# the same read-only tools, whatever your default permission mode. It prints the issue.
+FRESHNESS_TOOLS := Read,Glob,Grep,WebFetch(domain:github.com),WebFetch(domain:raw.githubusercontent.com),WebFetch(domain:code.claude.com),WebFetch(domain:agentskills.io),Bash(gh issue list:*),Bash(gh issue view:*)
+freshness:              ## Check upstream Claude Code + skills changes against techne (your credential)
+	@claude -p "Follow the instructions in .github/freshness.md for the repository ajbarea/techne. In step 4, print the title, summary and body as your final reply." \
+		--permission-mode dontAsk --tools "Read,Glob,Grep,WebFetch,Bash" \
+		--allowedTools "$(FRESHNESS_TOOLS)" --disallowedTools "Write,Edit,WebSearch,Read(//proc/**),Read(./.git/**)"
 
 # Cases that need Bash inside the run. The eval sandbox refuses to grant Bash on a machine
 # whose Docker credential store holds a symlink (Docker Desktop's WSL integration does).
