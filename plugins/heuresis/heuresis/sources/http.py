@@ -14,7 +14,14 @@ MAX_BYTES = 2_000_000
 
 
 class SourceError(Exception):
-    """A source could not answer: unreachable, an HTTP error, or an unusable body."""
+    """A source could not answer: unreachable, an HTTP error, or an unusable body.
+
+    `status` is the HTTP status code when the failure was an HTTP error, else None.
+    """
+
+    def __init__(self, message: str = "", status: int | None = None):
+        super().__init__(message)
+        self.status = status
 
 
 def _open(req: urllib.request.Request) -> bytes:
@@ -23,7 +30,7 @@ def _open(req: urllib.request.Request) -> bytes:
         with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
             return resp.read(MAX_BYTES)
     except urllib.error.HTTPError as exc:
-        raise SourceError(f"http {exc.code} from {host}") from exc
+        raise SourceError(f"http {exc.code} from {host}", status=exc.code) from exc
     except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
         raise SourceError(f"unreachable: {host}") from exc
 
@@ -42,3 +49,13 @@ def post_form(url: str, fields: dict[str, str], headers: dict[str, str] | None =
     data = urllib.parse.urlencode(fields).encode()
     merged = {"User-Agent": USER_AGENT, **(headers or {})}
     return _open(urllib.request.Request(url, data=data, headers=merged, method="POST"))
+
+
+def json_object(body: bytes) -> dict:
+    try:
+        data = json.loads(body)
+    except ValueError as exc:
+        raise SourceError("response was not JSON") from exc
+    if not isinstance(data, dict):
+        raise SourceError("response JSON was not an object")
+    return data

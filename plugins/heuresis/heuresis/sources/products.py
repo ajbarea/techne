@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import subprocess
@@ -27,16 +26,6 @@ def github_token() -> str | None:
     return done.stdout.strip() or None
 
 
-def _json(body: bytes) -> dict:
-    try:
-        data = json.loads(body)
-    except ValueError as exc:
-        raise http.SourceError("response was not JSON") from exc
-    if not isinstance(data, dict):
-        raise http.SourceError("response JSON was not an object")
-    return data
-
-
 class GitHub:
     name, group = "github", "products"
 
@@ -50,7 +39,9 @@ class GitHub:
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
         }
-        data = _json(http.get(f"https://api.github.com/search/repositories?{params}", headers))
+        data = http.json_object(
+            http.get(f"https://api.github.com/search/repositories?{params}", headers)
+        )
         return [
             Record(
                 title=item["full_name"],
@@ -76,7 +67,7 @@ class HackerNews:
 
     def search(self, query: str, limit: int) -> list[Record]:
         params = urllib.parse.urlencode({"query": query, "tags": "story", "hitsPerPage": limit})
-        data = _json(http.get(f"https://hn.algolia.com/api/v1/search?{params}"))
+        data = http.json_object(http.get(f"https://hn.algolia.com/api/v1/search?{params}"))
         out = []
         for hit in data.get("hits", []):
             item = f"https://news.ycombinator.com/item?id={hit['objectID']}"
