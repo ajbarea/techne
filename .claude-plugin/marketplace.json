@@ -38,6 +38,12 @@
       "category": "productivity"
     },
     {
+      "name": "heuresis",
+      "description": "Idea triage: capture an idea, search papers, patents, products and your own work, and file it with a verdict grounded in checked records.",
+      "source": "./plugins/heuresis",
+      "category": "productivity"
+    },
+    {
       "name": "keryx",
       "description": "Speaks a short gist of each Claude Code reply in a local voice, one voice per terminal, ducking Spotify while it talks. WSL2 on Windows only.",
       "source": {

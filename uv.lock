@@ -1270,6 +1270,9 @@ epistole = [
     { name = "google-auth-oauthlib" },
     { name = "mcp" },
 ]
+heuresis = [
+    { name = "pyyaml" },
+]
 
 [package.metadata]
 
@@ -1289,6 +1292,7 @@ epistole = [
     { name = "google-auth-oauthlib", specifier = ">=1.2" },
     { name = "mcp", specifier = ">=2.3,<3" },
 ]
+heuresis = [{ name = "pyyaml", specifier = ">=6.0.2" }]
 
 [[package]]
 name = "tomli"

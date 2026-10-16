@@ -1,0 +1,21 @@
+{
+  "name": "heuresis",
+  "description": "Idea triage: capture an idea in plain text, search papers, patents, products and your own work for anything like it, and file it with a verdict grounded in records a script has checked.",
+  "author": {"name": "AJ"},
+  "repository": "https://github.com/ajbarea/techne",
+  "homepage": "https://ajbarea.github.io/techne/plugins/heuresis/",
+  "license": "MIT",
+  "keywords": ["ideas", "prior-art", "triage", "research", "novelty"],
+  "userConfig": {
+    "ideas_repo": {
+      "type": "directory",
+      "title": "Ideas repository",
+      "description": "Local clone of your private ideas repository. /heuresis:setup creates it if it does not exist yet."
+    },
+    "repos_root": {
+      "type": "directory",
+      "title": "Repositories folder",
+      "description": "Folder holding your repo clones (papers, talks, your projects). heuresis reads your bibliography, notes, decks and ROADMAPs from here."
+    }
+  }
+}

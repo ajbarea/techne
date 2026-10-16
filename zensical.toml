@@ -22,6 +22,7 @@ nav = [
       { "techne" = "plugins/techne.md" },
       { "graphe" = "plugins/graphe.md" },
       { "dokimasia" = "plugins/dokimasia.md" },
+      { "heuresis" = "plugins/heuresis.md" },
       { "phylax" = "plugins/phylax.md" },
       { "epistole" = "epistole.md" },
       { "keryx" = "plugins/keryx.md" },
