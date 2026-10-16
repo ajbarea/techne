@@ -28,36 +28,86 @@ def _git(root: Path, *args: str, check: bool = True) -> subprocess.CompletedProc
 def _commit(root: Path, paths: list[Path], message: str) -> None:
     rel = [str(p.relative_to(root)) for p in paths]
     _git(root, "add", "--", *rel)
-    if _git(root, "diff", "--cached", "--quiet", check=False).returncode:
-        _git(root, "commit", "-q", "-m", message)
+    if _git(root, "diff", "--cached", "--quiet", "--", *rel, check=False).returncode:
+        _git(root, "commit", "-q", "-m", message, "--only", "--", *rel)
 
 
-def _rebase(root: Path, branch: str) -> None:
-    done = _git(root, "rebase", f"origin/{branch}", check=False)
+def _resolve_generated_conflicts(
+    root: Path, branch: str, done: subprocess.CompletedProcess
+) -> None:
     while done.returncode:
-        conflicted = _git(root, "diff", "--name-only", "--diff-filter=U").stdout.split()
-        if not conflicted or set(conflicted) - set(board.GENERATED):
-            _git(root, "rebase", "--abort", check=False)
-            names = ", ".join(conflicted) or "unknown files"
-            raise SyncError(f"rebase onto origin/{branch} conflicts in {names}; resolve by hand")
+        out = _git(root, "diff", "--name-only", "-z", "--diff-filter=U").stdout
+        conflicted = [name for name in out.split("\0") if name]
+        if not conflicted:
+            detail = done.stderr.strip() or done.stdout.strip()
+            raise SyncError(f"rebase onto origin/{branch} failed: {detail}")
+        if set(conflicted) - set(board.GENERATED):
+            raise SyncError(
+                f"rebase onto origin/{branch} conflicts in {', '.join(conflicted)}; resolve by hand"
+            )
         _git(root, "checkout", "--ours", "--", *conflicted)
         _git(root, "add", "--", *conflicted)
         done = _git(root, "rebase", "--continue", check=False)
 
 
+def _rebase(root: Path, branch: str) -> None:
+    if (
+        _git(
+            root, "merge-base", "--is-ancestor", f"origin/{branch}", "HEAD", check=False
+        ).returncode
+        == 0
+    ):
+        return
+    dirty = _git(root, "status", "--porcelain", "--untracked-files=no").stdout.splitlines()
+    if dirty:
+        paths = ", ".join(line[3:] for line in dirty)
+        raise SyncError(f"uncommitted changes in {paths}; commit or stash them, then publish again")
+    done = _git(root, "rebase", f"origin/{branch}", check=False)
+    try:
+        _resolve_generated_conflicts(root, branch, done)
+    except SyncError:
+        _git(root, "rebase", "--abort", check=False)
+        raise
+
+
+def _preflight(root: Path) -> str:
+    head = _git(root, "symbolic-ref", "-q", "--short", "HEAD", check=False)
+    if head.returncode:
+        raise SyncError("HEAD is detached; check out main first")
+    for name in ("rebase-merge", "rebase-apply", "MERGE_HEAD"):
+        marker = _git(root, "rev-parse", "--git-path", name).stdout.strip()
+        if (root / marker).exists():
+            raise SyncError(f"a rebase or merge is in progress in {root}; finish it first")
+    branch = head.stdout.strip()
+    if branch != "main":
+        raise SyncError(f"heuresis publishes from main; current branch is {branch}")
+    return branch
+
+
+def _push(root: Path, branch: str, *args: str) -> bool:
+    """True when pushed, False when the remote moved first; any other rejection raises."""
+    done = _git(root, "push", "-q", *args, "origin", branch, check=False)
+    if done.returncode == 0:
+        return True
+    err = done.stderr.strip()
+    if "non-fast-forward" in err or "fetch first" in err:
+        return False
+    raise SyncError(f"git push to origin/{branch} failed: {err}")
+
+
 def publish(root: Path, paths: list[Path], message: str, today: dt.date) -> str:
+    branch = _preflight(root)
     generated = board.write(root, today)
     _commit(root, [*paths, *generated], message)
-    if not _git(root, "remote", check=False).stdout.strip():
+    if _git(root, "remote", "get-url", "origin", check=False).returncode:
         return "local"
-    branch = _git(root, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
     if not _git(root, "ls-remote", "--heads", "origin", branch).stdout.strip():
-        _git(root, "push", "-q", "-u", "origin", branch)
+        _push(root, branch, "-u")
         return "pushed"
     for _ in range(PUSH_ATTEMPTS):
         _git(root, "fetch", "-q", "origin", branch)
         _rebase(root, branch)
         _commit(root, board.write(root, today), "chore: regenerate board")
-        if _git(root, "push", "-q", "origin", branch, check=False).returncode == 0:
+        if _push(root, branch):
             return "pushed"
     raise SyncError(f"push to origin/{branch} lost {PUSH_ATTEMPTS} races in a row")

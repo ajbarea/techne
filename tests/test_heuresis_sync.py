@@ -94,3 +94,76 @@ def test_conflicting_idea_edit_aborts_and_keeps_local_commit(tmp_path: Path):
         sync.publish(b, [b / "ideas" / "same.md"], "edit B", TODAY)
     assert "edit B" in git(b, "log", "--oneline", "-1")
     assert not (b / ".git" / "rebase-merge").exists()
+
+
+def test_unrelated_staged_file_is_not_committed(tmp_path: Path):
+    a, _ = clone_pair(tmp_path)
+    (a / "notes.txt").write_text("private\n")
+    git(a, "add", "notes.txt")
+    assert sync.publish(a, add(a, "x"), "capture x", TODAY) == "pushed"
+    assert "notes.txt" not in git(a, "show", "--name-only", "--format=", "origin/main")
+    assert "notes.txt" in git(a, "diff", "--cached", "--name-only")
+
+
+def test_unstaged_edit_with_unmoved_origin_pushes(tmp_path: Path):
+    a, _ = clone_pair(tmp_path)
+    sync.publish(a, add(a, "y"), "capture y", TODAY)
+    y = a / "ideas" / "y.md"
+    y.write_text(y.read_text() + "\nwip\n")
+    assert sync.publish(a, add(a, "x"), "capture x", TODAY) == "pushed"
+    assert "wip" in y.read_text()
+
+
+def test_unstaged_edit_with_moved_origin_names_the_path_and_keeps_commit(tmp_path: Path):
+    a, b = clone_pair(tmp_path)
+    sync.publish(a, add(a, "y"), "capture y", TODAY)
+    git(b, "pull", "-q", "origin", "main")
+    sync.publish(b, add(b, "z"), "capture z", TODAY)
+    y = a / "ideas" / "y.md"
+    y.write_text(y.read_text() + "\nwip\n")
+    with pytest.raises(sync.SyncError, match=r"uncommitted changes in ideas/y\.md"):
+        sync.publish(a, add(a, "x"), "capture x", TODAY)
+    assert "capture x" in git(a, "log", "--oneline", "-1")
+    assert "wip" in y.read_text()
+
+
+def test_rejected_push_that_is_not_a_race_fails_at_once(tmp_path: Path):
+    a, _ = clone_pair(tmp_path)
+    hook = tmp_path / "remote.git" / "hooks" / "pre-receive"
+    count = tmp_path / "attempts"
+    hook.write_text(f"#!/bin/sh\necho x >> {count}\necho 'branch is protected' >&2\nexit 1\n")
+    hook.chmod(0o755)
+    with pytest.raises(sync.SyncError, match="branch is protected"):
+        sync.publish(a, add(a, "x"), "capture x", TODAY)
+    assert len(count.read_text().splitlines()) == 1
+    assert "capture x" in git(a, "log", "--oneline", "-1")
+
+
+def test_detached_head_is_refused_before_writing(tmp_path: Path):
+    a, _ = clone_pair(tmp_path)
+    git(a, "checkout", "-q", "--detach")
+    paths = add(a, "x")
+    with pytest.raises(sync.SyncError, match="HEAD is detached"):
+        sync.publish(a, paths, "capture x", TODAY)
+    assert "capture x" not in git(a, "log", "--oneline")
+
+
+def test_rebase_in_progress_is_refused(tmp_path: Path):
+    a, _ = clone_pair(tmp_path)
+    (a / ".git" / "rebase-merge").mkdir()
+    with pytest.raises(sync.SyncError, match="rebase or merge is in progress"):
+        sync.publish(a, add(a, "x"), "capture x", TODAY)
+    assert "capture x" not in git(a, "log", "--oneline")
+
+
+def test_remote_not_named_origin_counts_as_local(tmp_path: Path):
+    a, _ = clone_pair(tmp_path)
+    git(a, "remote", "rename", "origin", "github")
+    assert sync.publish(a, add(a, "x"), "capture x", TODAY) == "local"
+
+
+def test_non_main_branch_is_refused(tmp_path: Path):
+    a, _ = clone_pair(tmp_path)
+    git(a, "checkout", "-q", "-b", "topic")
+    with pytest.raises(sync.SyncError, match="publishes from main; current branch is topic"):
+        sync.publish(a, add(a, "x"), "capture x", TODAY)
