@@ -56,8 +56,6 @@ MANIFEST = {
         },
         "plain_text": {"type": "string", "title": "Plain", "description": "Not secret."},
         "secret_number": {"type": "number", "sensitive": True, "title": "N", "description": "n"},
-        "bad-name": {"type": "string", "sensitive": True, "title": "B", "description": "b"},
-        "1st": {"type": "string", "sensitive": True, "title": "B", "description": "b"},
     },
     "metadata": {"keyGroups": [["epo_ops_key", "epo_ops_secret"]]},
 }
@@ -141,9 +139,16 @@ def test_load_keys_reads_sensitive_string_options_in_manifest_order(keys):
     assert keys[0].description.startswith("Raises OpenAlex's search budget")
 
 
-def test_load_keys_skips_non_secret_non_string_and_unusable_names(keys):
+def test_load_keys_skips_non_secret_and_non_string_options(keys):
     options = {k.option for k in keys}
-    assert not options & {"ideas_repo", "plain_text", "secret_number", "bad-name", "1st"}
+    assert not options & {"ideas_repo", "plain_text", "secret_number"}
+
+
+@pytest.mark.parametrize("option", ["bad-name", "1st", "has space", ""])
+def test_a_sensitive_option_with_an_unusable_name_raises(tmp_path, option):
+    manifest = {"name": "x", "userConfig": {option: {"type": "string", "sensitive": True}}}
+    with pytest.raises(ValueError, match="not a valid key name"):
+        pk.load_plugin(make_root(tmp_path, manifest))
 
 
 def test_key_groups_come_from_metadata(keys):
@@ -160,7 +165,7 @@ def test_key_groups_come_from_metadata(keys):
 
 def test_group_without_a_shared_prefix_joins_the_names(tmp_path):
     manifest = json.loads(json.dumps(MANIFEST))
-    manifest["metadata"] = {"keyGroups": [["s2_api_key", "lens_api_token"], ["s2_api_key", "x"]]}
+    manifest["metadata"] = {"keyGroups": [["s2_api_key", "lens_api_token"]]}
     loaded = pk.load_keys(make_root(tmp_path, manifest))
     found = {k.env: k.group for k in loaded}
     assert found["S2_API_KEY"] == found["LENS_API_TOKEN"] == 0
@@ -207,10 +212,32 @@ def test_a_label_equal_to_a_key_name_falls_back_to_the_joined_names():
     assert pk.group_labels(keys) == {0: "A_B+A_B_C+A_B_D"}
 
 
-@pytest.mark.parametrize("meta", [None, {}, {"keyGroups": "x"}, {"keyGroups": [["nope"], 5]}])
-def test_malformed_or_missing_key_groups_mean_no_groups(tmp_path, meta):
+@pytest.mark.parametrize("meta", [None, {}, {"keyGroups": []}, "x"])
+def test_missing_key_groups_mean_no_groups(tmp_path, meta):
     manifest = dict(MANIFEST, metadata=meta)
     assert {k.group for k in pk.load_keys(make_root(tmp_path, manifest))} == {-1}
+
+
+@pytest.mark.parametrize(
+    "groups",
+    [
+        "x",
+        [5],
+        [["nope", "s2_api_key"]],
+        [[["a_key"]]],
+        [["s2_api_key"]],
+        [[]],
+        ["s2_api_key"],
+        [["s2_api_key", 5]],
+        [["plain_text", "s2_api_key"]],
+        [["s2_api_key", "lens_api_token"], ["s2_api_key", "openalex_api_key"]],
+        [["s2_api_key", "s2_api_key"]],
+    ],
+)
+def test_a_malformed_key_group_raises(tmp_path, groups):
+    manifest = dict(MANIFEST, metadata={"keyGroups": groups})
+    with pytest.raises(ValueError):
+        pk.load_plugin(make_root(tmp_path, manifest))
 
 
 @pytest.mark.parametrize("manifest", [None, [], {"userConfig": []}, {"name": "x"}])
@@ -233,10 +260,11 @@ def test_plugin_name_and_hint_come_from_the_manifest(root):
     assert pk.configure_hint(plugin.name) == "/plugin configure synth@techne"
 
 
-def test_why_is_the_description_without_its_final_period(keys):
-    assert keys[0].why == "Raises OpenAlex's search budget; free at openalex.org/settings/api"
-    assert pk.Key("x_key", "X_KEY", "t", "EPO adds this.").why == "EPO adds this"
-    assert pk.Key("x_key", "X_KEY", "Title", "").why == "Title"
+def test_sentence_has_a_capital_and_a_final_period(keys):
+    assert keys[0].sentence == "Raises OpenAlex's search budget; free at openalex.org/settings/api."
+    assert pk.Key("x_key", "X_KEY", "t", "adds this").sentence == "Adds this."
+    assert pk.Key("x_key", "X_KEY", "Title", "").sentence == "Title."
+    assert pk.Key("x_key", "X_KEY", "t", "Is it?").sentence == "Is it?"
 
 
 def test_a_missing_description_falls_back_to_the_title(tmp_path):
@@ -260,7 +288,7 @@ def test_a_missing_description_falls_back_to_the_title(tmp_path):
     assert out.startswith("# A key\nA_KEY=\n") and "# c_key\nC_KEY=\n" in out
     assert "# Line one # line two.\nD_KEY=\n" in out
     detail = {n: d for n, _, d in pk.doctor_entries(plugin, {})}
-    assert detail["A_KEY"].startswith("not set; A key; store it with")
+    assert detail["A_KEY"].startswith("not set. A key. Store it with")
 
 
 def test_doctor_entries_one_line_per_key_and_group(keys):
@@ -270,13 +298,13 @@ def test_doctor_entries_one_line_per_key_and_group(keys):
     assert lines["S2_API_KEY"] == (True, "set")
     assert lines["OPENALEX_API_KEY"] == (
         False,
-        "not set; Raises OpenAlex's search budget; free at openalex.org/settings/api; "
-        "store it with /plugin configure synth@techne, then restart",
+        "not set. Raises OpenAlex's search budget; free at openalex.org/settings/api. "
+        "Store it with /plugin configure synth@techne, then restart.",
     )
     assert lines["EPO_OPS"][1] == (
-        "not set; Adds European patents; register at developers.epo.org; "
-        "needs both EPO_OPS_KEY and EPO_OPS_SECRET; "
-        "store it with /plugin configure synth@techne, then restart"
+        "not set. Adds European patents; register at developers.epo.org. "
+        "Needs both EPO_OPS_KEY and EPO_OPS_SECRET. "
+        "Store it with /plugin configure synth@techne, then restart."
     )
 
 
@@ -293,12 +321,13 @@ def test_doctor_group_of_three_says_all_of(tmp_path):
     manifest["metadata"] = {"keyGroups": [["s2_api_key", "lens_api_token", "openalex_api_key"]]}
     three = pk.load_plugin(make_root(tmp_path, manifest))
     detail = pk.doctor_entries(three, {})[-1][2]
-    assert "needs all of OPENALEX_API_KEY and S2_API_KEY and LENS_API_TOKEN" in detail
+    assert "Needs all of OPENALEX_API_KEY and S2_API_KEY and LENS_API_TOKEN." in detail
 
 
 def hook_command(event, mode):
+    guard = '[ -d "${CLAUDE_PLUGIN_DATA}/session-keys" ] && ' if mode == "end" else ""
     return (
-        f'command -v python3 >/dev/null 2>&1 && exec python3 "${{CLAUDE_PLUGIN_ROOT}}'
+        f'{guard}command -v python3 >/dev/null 2>&1 && exec python3 "${{CLAUDE_PLUGIN_ROOT}}'
         f'/_shared/plugin_keys.py" {mode}; exit 0'
     )
 
@@ -308,15 +337,30 @@ def test_hook_commands_run_the_script_and_exit_0_without_python3(tmp_path, root,
     command = hook_command(event, mode)
     marker = tmp_path / "ran"
     bindir = stub_dir(tmp_path, {"python3": f'echo "$@" > {marker}'}, links=["sh"])
-    env = {"PATH": bindir, "CLAUDE_PLUGIN_ROOT": str(root)}
+    (tmp_path / "data" / "session-keys").mkdir(parents=True)
+    data = str(tmp_path / "data")
+    env = {"PATH": bindir, "CLAUDE_PLUGIN_ROOT": str(root), "CLAUDE_PLUGIN_DATA": data}
     done = subprocess.run(["sh", "-c", command], env=env, capture_output=True, text=True)
     assert done.returncode == 0 and marker.read_text().split()[-1] == mode
     assert marker.read_text().split()[0] == f"{root}/_shared/plugin_keys.py"
     bare = stub_dir(tmp_path, {}, links=["sh"])
     done = subprocess.run(
-        ["sh", "-c", command], env={"PATH": bare, "CLAUDE_PLUGIN_ROOT": str(root)}
+        ["sh", "-c", command],
+        env={"PATH": bare, "CLAUDE_PLUGIN_ROOT": str(root), "CLAUDE_PLUGIN_DATA": data},
     )
     assert done.returncode == 0
+
+
+def test_the_end_command_does_not_start_python_without_a_key_folder(tmp_path, root):
+    marker = tmp_path / "ran"
+    bindir = stub_dir(tmp_path, {"python3": f"echo ran > {marker}"}, links=["sh"])
+    env = {
+        "PATH": bindir,
+        "CLAUDE_PLUGIN_ROOT": str(root),
+        "CLAUDE_PLUGIN_DATA": str(tmp_path / "d"),
+    }
+    done = subprocess.run(["sh", "-c", hook_command("SessionEnd", "end")], env=env)
+    assert done.returncode == 0 and not marker.exists()
 
 
 # the hook
@@ -495,6 +539,43 @@ def test_hook_exits_0_when_the_env_file_is_unwritable(tmp_path):
     env = {S2: SECRET, "CLAUDE_ENV_FILE": str(tmp_path / "no" / "f")}
     done, _, _ = run_hook(tmp_path, env, with_file=False)
     assert done.returncode == 0 and SECRET not in done.stdout + done.stderr
+
+
+def test_start_with_no_value_set_creates_nothing_and_end_without_a_folder_is_a_no_op(tmp_path):
+    done, target, _ = run_hook(tmp_path, {})
+    assert done.returncode == 0 and tree(tmp_path / "data") == [] and not target.exists()
+    done, _, _ = run_hook(tmp_path, {}, mode="end")
+    assert done.returncode == 0 and tree(tmp_path / "data") == []
+
+
+def test_start_with_no_value_set_still_cleans_an_existing_folder(tmp_path):
+    directory = tmp_path / "data" / "session-keys"
+    directory.mkdir(parents=True)
+    dead = directory / f"gone.{dead_pid()}.sh"
+    dead.write_text("x")
+    run_hook(tmp_path, {})
+    assert not dead.exists()
+
+
+BROKEN = dict(MANIFEST, metadata={"keyGroups": [[["a_key"]]]})
+
+
+@pytest.mark.parametrize("mode", ["start", "end"])
+def test_a_hook_exits_0_silently_on_a_malformed_manifest(tmp_path, mode):
+    make_root(tmp_path, BROKEN)
+    (tmp_path / "data" / "session-keys").mkdir(parents=True)
+    done, target, _ = run_hook(tmp_path, {S2: SECRET}, mode=mode)
+    assert done.returncode == 0 and not (done.stdout + done.stderr)
+    assert not target.exists()
+
+
+def test_run_hook_swallows_any_exception(tmp_path, monkeypatch):
+    def boom(*_):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(pk, "load_keys", boom)
+    env = {"CLAUDE_PLUGIN_DATA": str(tmp_path)}
+    assert pk.run_hook("start", json.dumps({"session_id": "s"}), env, tmp_path) == 0
 
 
 # the store command
@@ -807,11 +888,157 @@ def test_unknown_subcommand_exits_2_with_usage(root):
 
 
 def test_store_for_a_plugin_without_keys_stores_nothing(tmp_path):
-    root = make_root(tmp_path, {"name": "empty"}, name="empty")
-    path = tmp_path / "k.env"
-    path.write_text("S2_API_KEY=topsecret\n")
-    done = subprocess.run(
-        [HOOK_PYTHON, script(root), "store", str(path)], capture_output=True, text=True
-    )
+    make_root(tmp_path, {"name": "empty"})
+    body = 'if [ "$2" = list ]; then echo \'[{"id":"empty@techne"}]\'; exit 0; fi\nexit 9'
+    done, rec = run_store(tmp_path, body, content="S2_API_KEY=topsecret\n")
     assert done.returncode == 2 and "unknown name" in done.stderr
     assert "topsecret" not in done.stdout + done.stderr
+    assert not list(rec.iterdir())
+
+
+# store into every plugin that declares the key
+
+OTHER = {
+    "name": "other",
+    "userConfig": {
+        "s2_api_key": {"type": "string", "title": "S2", "description": "S2.", "sensitive": True},
+        "other_secret_key": {
+            "type": "string",
+            "title": "Other",
+            "description": "Other.",
+            "sensitive": True,
+        },
+        "epo_ops_key": {"type": "string", "title": "K", "description": "K.", "sensitive": True},
+        "epo_ops_secret": {"type": "string", "title": "S", "description": "S.", "sensitive": True},
+    },
+    "metadata": {"keyGroups": [["epo_ops_key", "epo_ops_secret"]]},
+}
+
+
+def run_multi(tmp_path, others, content, *args, fail=None):
+    """Run store in `synth` (installed at tmp/plug) beside other installs.
+
+    `others` maps an id to (manifest or None, enabled, install path override or None).
+    """
+    shutil.rmtree(tmp_path / "rec", ignore_errors=True)
+    entries = [{"id": "synth@techne", "enabled": True, "installPath": str(tmp_path / "plug")}]
+    for ident, (manifest, enabled, override) in others.items():
+        folder = ident.split("@")[0]
+        shutil.rmtree(tmp_path / folder, ignore_errors=True)
+        installed = make_root(tmp_path, manifest, name=folder) if manifest is not None else None
+        path = str(installed) if override is None else override
+        entries.append({"id": ident, "enabled": enabled, "installPath": path})
+    fail_line = (
+        f'if [ "$3" = {fail} ]; then echo "bad input topsecret" >&2; exit 7; fi\n' if fail else ""
+    )
+    body = (
+        f"if [ \"$2\" = list ]; then printf '%s\\n' '{json.dumps(entries)}'; exit 0; fi\n"
+        'printf \'%s\\n\' "$@" > "$REC/argv.$3"\ncat > "$REC/stdin.$3"\n' + fail_line + "echo ok\n"
+    )
+    return run_store(tmp_path, body, *args, content=content)
+
+
+def sent(rec):
+    return {f.name[len("stdin.") :]: json.loads(f.read_text()) for f in rec.glob("stdin.*")}
+
+
+def test_a_shared_key_is_stored_in_every_plugin_that_declares_it(tmp_path):
+    done, rec = run_multi(tmp_path, {"other@techne": (OTHER, True, None)}, "S2_API_KEY=topsecret\n")
+    assert done.returncode == 0, done.stderr
+    assert sent(rec) == {
+        "synth@techne": {"s2_api_key": "topsecret"},
+        "other@techne": {"s2_api_key": "topsecret"},
+    }
+    lines = done.stdout.splitlines()
+    assert "Stored in Claude Code's secure storage for synth@techne: S2_API_KEY" in lines
+    assert "Stored in Claude Code's secure storage for other@techne: S2_API_KEY" in lines
+    for argv in rec.glob("argv.*"):
+        assert "topsecret" not in argv.read_text()
+        assert argv.read_text().split()[:2] == ["plugin", "configure"]
+    assert "topsecret" not in done.stdout + done.stderr
+
+
+def test_a_key_only_the_other_plugin_declares_goes_only_there(tmp_path):
+    other = {"other@techne": (OTHER, True, None)}
+    done, rec = run_multi(tmp_path, other, "OTHER_SECRET_KEY=zz\n")
+    assert done.returncode == 0, done.stderr
+    assert sent(rec) == {"other@techne": {"other_secret_key": "zz"}}
+    done, rec = run_multi(tmp_path, other, "OTHER_SECRET_KEY=zz\nLENS_API_TOKEN=lt\n")
+    assert sent(rec) == {
+        "synth@techne": {"lens_api_token": "lt"},
+        "other@techne": {"other_secret_key": "zz"},
+    }
+
+
+def test_disabled_empty_path_and_unloadable_installs_are_skipped(tmp_path):
+    others = {
+        "off@techne": (OTHER, False, None),
+        "empty@techne": (OTHER, True, ""),
+        "gone@techne": (OTHER, True, str(tmp_path / "nowhere")),
+        "bare@techne": ({"name": "bare"}, True, None),
+        "broken@techne": (dict(OTHER, metadata={"keyGroups": [[["x"]]]}), True, None),
+    }
+    done, rec = run_multi(tmp_path, others, "S2_API_KEY=topsecret\n")
+    assert done.returncode == 0, done.stderr
+    assert sent(rec) == {"synth@techne": {"s2_api_key": "topsecret"}}
+    assert done.stderr == ""
+
+
+def test_a_failing_plugin_does_not_stop_the_others_and_exits_2(tmp_path):
+    other = {"other@techne": (OTHER, True, None)}
+    done, rec = run_multi(tmp_path, other, "S2_API_KEY=topsecret\n", fail="other@techne")
+    assert done.returncode == 2
+    assert "Stored in Claude Code's secure storage for synth@techne: S2_API_KEY" in done.stdout
+    assert "other@techne exited 7" in done.stderr and "***" in done.stderr
+    assert "topsecret" not in done.stdout + done.stderr
+    first, rec = run_multi(tmp_path, other, "S2_API_KEY=topsecret\n", fail="synth@techne")
+    assert first.returncode == 2 and "synth@techne exited 7" in first.stderr
+    assert "Stored in Claude Code's secure storage for other@techne" in first.stdout
+    assert set(sent(rec)) == {"synth@techne", "other@techne"}
+
+
+def test_plugin_flag_stores_into_that_plugin_only_without_listing(tmp_path):
+    other = {"other@techne": (OTHER, True, None)}
+    done, rec = run_multi(tmp_path, other, "S2_API_KEY=topsecret\n", "--plugin", "other@techne")
+    assert done.returncode == 0, done.stderr
+    assert sent(rec) == {"other@techne": {"s2_api_key": "topsecret"}}
+    done, rec = run_multi(tmp_path, other, "S2_API_KEY=topsecret\n", "--plugin", "synth@techne")
+    assert set(sent(rec)) == {"synth@techne"}
+
+
+def test_a_name_no_plugin_declares_is_the_line_numbered_error(tmp_path):
+    other = {"other@techne": (OTHER, True, None)}
+    done, rec = run_multi(tmp_path, other, "S2_API_KEY=ok\nNOPE=hunter2hunter2\n")
+    assert done.returncode == 2 and "line 2" in done.stderr and "NOPE" in done.stderr
+    assert "hunter2" not in done.stderr and not list(rec.glob("stdin.*"))
+    done, rec = run_multi(tmp_path, {}, "OTHER_SECRET_KEY=zz\n")
+    assert done.returncode == 2 and "line 1" in done.stderr and not list(rec.glob("stdin.*"))
+
+
+def test_half_group_warnings_are_per_plugin(tmp_path):
+    other = {"other@techne": (OTHER, True, None)}
+    done, _ = run_multi(tmp_path, other, "EPO_OPS_KEY=k2\n")
+    assert done.returncode == 0, done.stderr
+    assert "warning: synth@techne: EPO_OPS_KEY given without EPO_OPS_SECRET" in done.stderr
+    assert "warning: other@techne: EPO_OPS_KEY given without EPO_OPS_SECRET" in done.stderr
+    solo = {"other@techne": (dict(OTHER, metadata={}), True, None)}
+    done, _ = run_multi(tmp_path, solo, "EPO_OPS_KEY=k2\n")
+    assert "other@techne: EPO_OPS_KEY given" not in done.stderr
+    assert "synth@techne: EPO_OPS_KEY given" in done.stderr
+
+
+def test_own_install_needs_a_string_id_named_for_this_plugin(tmp_path):
+    here = tmp_path / "here"
+    here.mkdir()
+    listing = json.dumps(
+        [
+            {"id": 5, "installPath": str(here)},
+            {"id": "", "installPath": str(here)},
+            {"id": "other@techne", "enabled": True, "installPath": str(here)},
+            {"id": "synth@techne", "enabled": True, "installPath": str(tmp_path / "x")},
+        ]
+    )
+    assert pk.find_plugin_id(listing, None, "synth", here) == "synth@techne"
+    bad = json.dumps([{"id": "other@techne", "installPath": str(here)}, {"id": 7}])
+    with pytest.raises(pk.StoreError, match="not installed"):
+        pk.find_plugin_id(bad, None, "synth", here)

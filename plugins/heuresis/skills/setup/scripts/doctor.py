@@ -18,8 +18,6 @@ sys.path.insert(0, str(PLUGIN / "_shared"))
 import doctor_lib as d  # noqa: E402  # ty: ignore[unresolved-import]
 import plugin_keys as pk  # noqa: E402  # ty: ignore[unresolved-import]
 
-INFO = pk.load_plugin(PLUGIN)
-
 
 def parse(argv: Sequence[str]) -> dict[str, str]:
     values = {}
@@ -51,7 +49,7 @@ def checks(values: Mapping[str, str], environ: Mapping[str, str]) -> list[d.Chec
         folder("ideas_repo", values.get("IDEAS_REPO", ""), is_ideas_repo=True),
         folder("repos_root", values.get("REPOS_ROOT", ""), is_ideas_repo=False),
     ]
-    return found + d.key_checks(pk.doctor_entries(INFO, environ))
+    return found + d.key_checks(pk.doctor_entries_for(PLUGIN, environ))
 
 
 def main(argv: Sequence[str] | None = None) -> int:

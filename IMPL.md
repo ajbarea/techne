@@ -20,7 +20,8 @@ work together. One module, `plugins/techne/_shared/plugin_keys.py` (its copies i
 `cp plugins/techne/_shared/plugin_keys.py plugins/<plugin>/_shared/` for each), runs the SessionStart and SessionEnd hooks (`start` / `end`), the `.env` import
 (`store`, `template`) and `load_plugin` (name and keys from one manifest read) for the doctors. `store` configures the
 plugin id whose `installPath` is this script's own plugin root, else the one enabled install with an
-install path. At session start it writes the keys to a
+install path, and also every other enabled install whose manifest declares a key in the file
+(`--plugin <id>` limits it to one). At session start it writes the keys to a
 private (0600) per-process file `<session_id>.<claude pid>.sh` in `CLAUDE_PLUGIN_DATA/session-keys`
 and appends only a line that sources it to `CLAUDE_ENV_FILE` (Claude Code leaves those files at
 0644 and never deletes them, so no value goes in one). SessionEnd deletes its own process's file,

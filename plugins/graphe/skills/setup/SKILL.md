@@ -17,4 +17,4 @@ The runbook's "store command" is:
 python3 "${CLAUDE_PLUGIN_ROOT}/_shared/plugin_keys.py"
 ```
 
-It takes `template`, or `store` and the path of a filled-in file.
+It takes `template`, or `store` and the path of a filled-in file. `store` saves each key into every installed plugin that declares it; `--plugin <id>` limits it to one.

@@ -26,8 +26,12 @@ deletes only its own process's file. `start` prunes files whose owner process is
 that idles for days keeps its file.
 
 Store. `store` saves a filled-in .env file with `claude plugin configure <id> --values-stdin`
-and never prints a value. Exit codes: 0 stored, 1 nothing stored (the file holds no values), 2 any
-error (usage, unreadable or unparsable file, `claude` missing or failing, configure failure).
+and never prints a value. Without --plugin it saves each key into every enabled installed plugin
+that declares it: this plugin's own install and any other plugin whose manifest lists the key. A
+name no installed plugin declares is an error. With --plugin it saves into that plugin only. Exit
+codes: 0 stored, 1 nothing stored (the file holds no values), 2 any error (usage, unreadable or
+unparsable file, `claude` missing or failing, a configure failure; the other plugins still get
+their keys).
 
 Runs on the system python3 (3.9 or newer, standard library only).
 """
@@ -72,9 +76,11 @@ class Key(NamedTuple):
     group: int = -1  # index into metadata.keyGroups; keys with the same index work together
 
     @property
-    def why(self) -> str:
-        """The description as a clause: no final period."""
-        return self.description.strip().rstrip(".").rstrip() or self.title
+    def sentence(self) -> str:
+        """The description as a sentence: a capital first, a final period."""
+        text = self.description.strip() or self.title
+        text = text[:1].upper() + text[1:]
+        return text if text[-1:] in (".", "!", "?") else text + "."
 
 
 class Plugin(NamedTuple):
@@ -97,7 +103,10 @@ def one_line(value: object) -> str:
 def load_plugin(plugin_root: Path | None = None) -> Plugin:
     """Read plugin.json once: the plugin's name and its keys in manifest order.
 
-    A missing or unreadable manifest gives the folder name and no keys.
+    A missing or unreadable manifest gives the folder name and no keys. A manifest that is
+    readable but wrong raises ValueError: a sensitive string option whose capitalised name is not
+    an environment variable name, or a keyGroups entry that is not a list of two or more distinct
+    sensitive key option names, or a key listed in two groups.
     """
     root = plugin_root or ROOT
     manifest = read_manifest(root)
@@ -108,22 +117,30 @@ def load_plugin(plugin_root: Path | None = None) -> Plugin:
         return Plugin(name, [])
     keyed = {}
     for option, spec in options.items():
-        env = option.upper() if isinstance(option, str) else ""
-        if (
+        if not (
             isinstance(spec, dict)
             and spec.get("sensitive") is True
             and spec.get("type") == "string"
-            and ENV_NAME.fullmatch(env)
         ):
-            keyed[option] = (env, spec)
+            continue
+        env = option.upper() if isinstance(option, str) else ""
+        if not ENV_NAME.fullmatch(env):
+            raise ValueError(f"userConfig option {option!r} is sensitive but not a valid key name")
+        keyed[option] = (env, spec)
     group_of: dict[str, int] = {}
     meta = manifest.get("metadata")
     groups = meta.get("keyGroups") if isinstance(meta, dict) else None
-    for index, members in enumerate(groups if isinstance(groups, list) else []):
-        names = [m for m in members if m in keyed] if isinstance(members, list) else []
-        if len(set(names)) > 1:
-            for member in names:
-                group_of.setdefault(member, index)
+    if groups is not None and not isinstance(groups, list):
+        raise ValueError("metadata.keyGroups must be a list of lists of option names")
+    for index, members in enumerate(groups or []):
+        if not isinstance(members, list) or len(members) < 2:
+            raise ValueError(f"keyGroups[{index}] needs at least two option names")
+        for member in members:
+            if not isinstance(member, str) or member not in keyed:
+                raise ValueError(f"keyGroups[{index}]: {member!r} is not a sensitive key option")
+            if member in group_of:
+                raise ValueError(f"keyGroups: {member!r} is in more than one group")
+            group_of[member] = index
     keys = []
     for option, (env, spec) in keyed.items():
         title = one_line(spec.get("title")) or option
@@ -185,21 +202,31 @@ def configure_hint(name: str) -> str:
 
 def doctor_entries(plugin: Plugin, environ: Mapping[str, str]) -> list[tuple[str, bool, str]]:
     """(name, present, detail) for a setup doctor: one per ungrouped key, one per group."""
-    store = f"store it with {configure_hint(plugin.name)}, then restart"
+    store = f"Store it with {configure_hint(plugin.name)}, then restart."
     keys = plugin.keys
 
-    def entry(name: str, why: str, present: bool) -> tuple[str, bool, str]:
-        return name, present, "set" if present else f"not set; {why}; {store}"
+    def entry(name: str, text: str, present: bool) -> tuple[str, bool, str]:
+        return name, present, "set" if present else f"not set. {text} {store}"
 
-    found = [entry(k.env, k.why, bool(environ.get(k.env))) for k in keys if k.group < 0]
+    found = [entry(k.env, k.sentence, bool(environ.get(k.env))) for k in keys if k.group < 0]
     labels = group_labels(keys)
     for group in group_ids(keys):
         members = members_of(keys, group)
         envs = [k.env for k in members]
         need = "both" if len(envs) == 2 else "all of"
-        why = f"{members[0].why}; needs {need} {' and '.join(envs)}"
-        found.append(entry(labels[group], why, all(environ.get(env) for env in envs)))
+        text = f"{members[0].sentence} Needs {need} {' and '.join(envs)}."
+        found.append(entry(labels[group], text, all(environ.get(env) for env in envs)))
     return found
+
+
+def doctor_entries_for(
+    plugin_root: Path, environ: Mapping[str, str]
+) -> list[tuple[str, bool, str]]:
+    """doctor_entries for the plugin at this root; a manifest that does not load is one line."""
+    try:
+        return doctor_entries(load_plugin(plugin_root), environ)
+    except Exception:
+        return [("search keys", False, "plugin.json unreadable")]
 
 
 # the session hook
@@ -300,10 +327,13 @@ def file_name(sid: str) -> str:
     return f"{sid}.{os.getppid()}.sh"
 
 
-def start(keys: Sequence[Key], sid: str, directory: str, environ: Mapping[str, str]) -> None:
+def start(keys: Sequence[Key], sid: str, data_dir: str, environ: Mapping[str, str]) -> None:
+    lines = export_lines(keys, environ)
+    if not lines and not os.path.isdir(os.path.join(data_dir, SUBDIR)):
+        return  # nothing to write and nothing to clean up
+    directory = private_dir(data_dir)
     prune(directory, time.time())
     path = os.path.join(directory, file_name(sid))
-    lines = export_lines(keys, environ)
     target = environ.get("CLAUDE_ENV_FILE")
     if not lines or not target:
         remove(path)
@@ -317,18 +347,19 @@ def start(keys: Sequence[Key], sid: str, directory: str, environ: Mapping[str, s
 
 
 def run_hook(mode: str, stdin_text: str, environ: Mapping[str, str], plugin_root: Path) -> int:
-    data_dir = environ.get("CLAUDE_PLUGIN_DATA")
-    sid = session_id(stdin_text)
-    if not data_dir or sid is None:
-        return 0
+    """Always 0: whatever goes wrong, a hook never blocks a session."""
     try:
-        directory = private_dir(data_dir)
+        data_dir = environ.get("CLAUDE_PLUGIN_DATA")
+        sid = session_id(stdin_text)
+        if not data_dir or sid is None:
+            return 0
+        directory = os.path.join(data_dir, SUBDIR)
         if mode == "start":
-            start(load_keys(plugin_root), sid, directory, environ)
-        else:
+            start(load_keys(plugin_root), sid, data_dir, environ)
+        elif os.path.isdir(directory):
             remove(os.path.join(directory, file_name(sid)))
-    except (OSError, ValueError):
-        pass  # a hook never blocks a session
+    except Exception:
+        pass
     return 0
 
 
@@ -405,23 +436,29 @@ def real(path: object) -> str:
         return ""
 
 
-def find_plugin_id(listing: str, wanted: str | None, name: str, plugin_root: Path) -> str:
-    """The id to configure: --plugin, else the entry installed at this script's own plugin root,
-    else the one enabled install of this plugin name that has an install path (a synced entry
-    has an empty one)."""
-    if wanted:
-        return wanted
+def parse_listing(listing: str) -> list[dict]:
     try:
         entries = json.loads(listing)
     except ValueError:
         raise StoreError("could not read `claude plugin list --json`; pass --plugin <id>") from None
-    entries = [e for e in entries if isinstance(e, dict)] if isinstance(entries, list) else []
+    return [e for e in entries if isinstance(e, dict)] if isinstance(entries, list) else []
+
+
+def plugin_name_of(entry: dict) -> str | None:
+    """The name part of an entry's id, or None when the id is not a non-empty string."""
+    ident = entry.get("id")
+    return ident.partition("@")[0] if isinstance(ident, str) and ident else None
+
+
+def own_id(entries: Sequence[dict], name: str, plugin_root: Path) -> str:
+    """The entry installed at this script's own plugin root, else the one enabled install of this
+    plugin name that has an install path (a synced entry has an empty one)."""
     here = real(plugin_root)
     own = sorted(
         {
-            str(e.get("id"))
+            e["id"]
             for e in entries
-            if e.get("installPath") and real(e["installPath"]) == here
+            if plugin_name_of(e) == name and e.get("installPath") and real(e["installPath"]) == here
         }
     )
     if len(own) == 1:
@@ -429,8 +466,7 @@ def find_plugin_id(listing: str, wanted: str | None, name: str, plugin_root: Pat
     installs = [
         e
         for e in entries
-        if str(e.get("id", "")).startswith(name + "@")
-        and ("installPath" not in e or e["installPath"])
+        if plugin_name_of(e) == name and ("installPath" not in e or e["installPath"])
     ]
     enabled = sorted({e["id"] for e in installs if e.get("enabled", True)})
     every = sorted({e["id"] for e in installs})
@@ -443,6 +479,40 @@ def find_plugin_id(listing: str, wanted: str | None, name: str, plugin_root: Pat
         raise StoreError(f"{name} is not installed; install it or pass --plugin <id>")
     listed = ", ".join(enabled or every)
     raise StoreError(f"several {name} installs ({listed}); pass --plugin <id>")
+
+
+def find_plugin_id(listing: str, wanted: str | None, name: str, plugin_root: Path) -> str:
+    """The id to configure: --plugin, else this plugin's own install."""
+    return wanted or own_id(parse_listing(listing), name, plugin_root)
+
+
+class Target(NamedTuple):
+    id: str
+    keys: list[Key]
+
+
+def other_targets(entries: Sequence[dict], skip: str) -> list[Target]:
+    """Every other enabled install whose manifest loads and declares at least one key."""
+    found: dict[str, Target] = {}
+    for e in entries:
+        ident, path = e.get("id"), e.get("installPath")
+        if (
+            not isinstance(ident, str)
+            or not ident
+            or ident == skip
+            or ident in found
+            or not e.get("enabled", True)
+            or not isinstance(path, str)
+            or not path
+        ):
+            continue
+        try:
+            keys = load_plugin(Path(path)).keys
+        except Exception:
+            continue
+        if keys:
+            found[ident] = Target(ident, keys)
+    return list(found.values())
 
 
 def redact(text: str, values: Sequence[str]) -> str:
@@ -464,56 +534,85 @@ def warn_if_shared(path: Path) -> None:
         print(f"warning: {path} can be read or changed by others; run chmod 600", file=sys.stderr)
 
 
+def have_claude() -> bool:
+    if shutil.which("claude"):
+        return True
+    print("error: `claude` is not on PATH; install Claude Code first", file=sys.stderr)
+    return False
+
+
 def store(path: Path, plugin: str | None, plugin_root: Path) -> int:
-    name, keys = load_plugin(plugin_root)
+    try:
+        name, keys = load_plugin(plugin_root)
+    except ValueError as exc:
+        print(f"error: plugin.json: {exc}", file=sys.stderr)
+        return 2
     try:
         text = path.read_text(encoding="utf-8-sig")
     except (OSError, UnicodeDecodeError) as exc:
         print(f"error: cannot read {path}: {type(exc).__name__}", file=sys.stderr)
         return 2
     warn_if_shared(path)
+    targets = [Target(plugin, keys)] if plugin else []
+    if not plugin:
+        if not have_claude():
+            return 2
+        try:
+            entries = parse_listing(run_claude(["claude", "plugin", "list", "--json"]).stdout)
+            ident = own_id(entries, name, plugin_root)
+        except StoreError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        targets = [Target(ident, keys), *other_targets(entries, ident)]
+    declared = {k.env: k for t in reversed(targets) for k in t.keys}
     try:
-        found = parse(text, keys)
+        found = parse(text, list(declared.values()))
     except StoreError as exc:
         print(f"error: {path}: {exc}", file=sys.stderr)
         return 2
     if not found:
         print(f"No values in {path}; nothing stored.")
         return 1
-    partial = half_groups(keys, found)
-    labels = group_labels(keys)
-    for given, missing in partial.values():
-        print(
-            f"warning: {' and '.join(given)} given without {' and '.join(missing)}", file=sys.stderr
-        )
-    if not shutil.which("claude"):
-        print("error: `claude` is not on PATH; install Claude Code first", file=sys.stderr)
+    if plugin and not have_claude():
         return 2
-    try:
-        listing = run_claude(["claude", "plugin", "list", "--json"]) if not plugin else None
-        plugin_id = find_plugin_id(listing.stdout if listing else "", plugin, name, plugin_root)
-    except StoreError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 2
-    option_of = {k.env: k.option for k in keys}
-    values = {option_of[env]: value for env, value in found.items()}
-    try:
-        done = run_claude(
-            ["claude", "plugin", "configure", plugin_id, "--values-stdin"], stdin=json.dumps(values)
-        )
-    except StoreError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 2
-    if done.returncode != 0:
-        print(f"error: claude plugin configure exited {done.returncode}", file=sys.stderr)
-        print(redact(done.stderr or "", list(values.values())).strip(), file=sys.stderr)
-        return 2
-    print(f"Stored in Claude Code's secure storage for {plugin_id}: {', '.join(found)}")
-    for group, (_, missing) in partial.items():
-        print(f"{labels[group]} stays skipped until {' and '.join(missing)} is saved too.")
-    print("Restart Claude Code to apply it.")
-    print(f"Delete {path} now, or keep it somewhere private; it holds the keys in plain text.")
-    return 0
+    secrets_ = list(found.values())
+    stored = failed = False
+    for target in targets:
+        subset = {env: v for env, v in found.items() if env in {k.env for k in target.keys}}
+        if not subset:
+            continue
+        partial = half_groups(target.keys, subset)
+        for given, missing in partial.values():
+            msg = f"{' and '.join(given)} given without {' and '.join(missing)}"
+            print(f"warning: {target.id}: {msg}", file=sys.stderr)
+        option_of = {k.env: k.option for k in target.keys}
+        values = {option_of[env]: v for env, v in subset.items()}
+        try:
+            done = run_claude(
+                ["claude", "plugin", "configure", target.id, "--values-stdin"],
+                stdin=json.dumps(values),
+            )
+        except StoreError as exc:
+            print(f"error: {target.id}: {exc}", file=sys.stderr)
+            failed = True
+            continue
+        if done.returncode != 0:
+            print(
+                f"error: claude plugin configure {target.id} exited {done.returncode}",
+                file=sys.stderr,
+            )
+            print(redact(done.stderr or "", secrets_).strip(), file=sys.stderr)
+            failed = True
+            continue
+        stored = True
+        print(f"Stored in Claude Code's secure storage for {target.id}: {', '.join(subset)}")
+        labels = group_labels(target.keys)
+        for group, (_, missing) in partial.items():
+            print(f"{labels[group]} stays skipped until {' and '.join(missing)} is saved too.")
+    if stored:
+        print("Restart Claude Code to apply it.")
+        print(f"Delete {path} now, or keep it somewhere private; it holds the keys in plain text.")
+    return 2 if failed else 0
 
 
 def main(argv: Sequence[str], stdin_text: str | None, environ: Mapping[str, str]) -> int:
@@ -521,14 +620,19 @@ def main(argv: Sequence[str], stdin_text: str | None, environ: Mapping[str, str]
     mode = argv[1] if len(argv) > 1 else ""
     if mode in ("start", "end"):
         return run_hook(mode, stdin_text or "", environ, ROOT)
-    if mode == "template":
-        print(template(load_keys(ROOT)), end="")
-        return 0
-    if mode == "store":
+    if mode in ("template", "store"):
+        try:
+            plugin = load_plugin(ROOT)
+        except ValueError as exc:
+            print(f"error: plugin.json: {exc}", file=sys.stderr)
+            return 2
+        if mode == "template":
+            print(template(plugin.keys), end="")
+            return 0
         ap = argparse.ArgumentParser(prog="plugin_keys.py store")
         ap.add_argument("file", help=".env file holding the keys")
         ap.add_argument(
-            "--plugin", help=f"plugin id, such as {load_plugin(ROOT).name}@{MARKETPLACE}"
+            "--plugin", help=f"save into this plugin only, such as {plugin.name}@{MARKETPLACE}"
         )
         args = ap.parse_args(list(argv[2:]))
         return store(Path(args.file).expanduser(), args.plugin, ROOT)
@@ -537,12 +641,10 @@ def main(argv: Sequence[str], stdin_text: str | None, environ: Mapping[str, str]
 
 
 if __name__ == "__main__":
-    hook_mode = len(sys.argv) > 1 and sys.argv[1] in ("start", "end")
-    text = None
-    if hook_mode:
+    if len(sys.argv) > 1 and sys.argv[1] in ("start", "end"):
         try:
-            text = sys.stdin.read()
-        except (OSError, ValueError):
-            text = ""
-    code = main(sys.argv, text, os.environ)
-    sys.exit(0 if hook_mode else code)
+            main(sys.argv, sys.stdin.read(), os.environ)
+        except Exception:
+            pass  # a hook never blocks a session
+        sys.exit(0)
+    sys.exit(main(sys.argv, None, os.environ))

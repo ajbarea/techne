@@ -18,8 +18,6 @@ sys.path.insert(0, str(PLUGIN / "_shared"))
 import doctor_lib as d  # noqa: E402  # ty: ignore[unresolved-import]
 import plugin_keys as pk  # noqa: E402  # ty: ignore[unresolved-import]
 
-INFO = pk.load_plugin(PLUGIN)
-
 POPPLER = ("pdftotext", "pdfinfo", "pdffonts", "pdftoppm")
 PPTX_ONLY = "only for a deck that must be a .pptx"
 
@@ -62,7 +60,7 @@ def pptxgenjs(platform: d.Platform) -> d.Check:
 
 def key_checks(environ: Mapping[str, str]) -> list[d.Check]:
     """The optional search keys: a missing one never makes the result `missing`."""
-    return d.key_checks(pk.doctor_entries(INFO, environ))
+    return d.key_checks(pk.doctor_entries_for(PLUGIN, environ))
 
 
 def checks(platform: d.Platform, environ: Mapping[str, str] | None = None) -> list[d.Check]:

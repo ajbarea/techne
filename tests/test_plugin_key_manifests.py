@@ -72,6 +72,19 @@ def test_manifest_key_options_are_optional_sensitive_strings_with_a_source(name)
         assert opt["description"].endswith(".")
 
 
+def test_every_plugin_manifest_loads_strictly():
+    """A bad key name or key group fails here, not at a user's session start."""
+    for manifest in (ROOT / "plugins").glob("*/.claude-plugin/plugin.json"):
+        options = json.loads(manifest.read_text(encoding="utf-8")).get("userConfig", {})
+        plugin = pk.load_plugin(manifest.parent.parent)
+        sensitive = [
+            n
+            for n, o in options.items()
+            if isinstance(o, dict) and o.get("sensitive") is True and o.get("type") == "string"
+        ]
+        assert [k.option for k in plugin.keys] == sensitive, manifest.parent.parent.name
+
+
 def test_every_sensitive_option_has_a_description_and_the_hook():
     for manifest in (ROOT / "plugins").glob("*/.claude-plugin/plugin.json"):
         plugin = manifest.parent.parent
@@ -109,8 +122,9 @@ def test_hooks_json_is_identical_in_shape_across_plugins():
     for event, mode in (("SessionStart", "start"), ("SessionEnd", "end")):
         (entry,) = hooks[event]
         (hook,) = entry["hooks"]
+        guard = '[ -d "${CLAUDE_PLUGIN_DATA}/session-keys" ] && ' if mode == "end" else ""
         assert hook["command"] == (
-            "command -v python3 >/dev/null 2>&1 && exec python3 "
+            f"{guard}command -v python3 >/dev/null 2>&1 && exec python3 "
             f'"${{CLAUDE_PLUGIN_ROOT}}/_shared/plugin_keys.py" {mode}; exit 0'
         )
         assert hook["type"] == "command" and hook["timeout"] == 10

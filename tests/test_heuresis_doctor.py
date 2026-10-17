@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 
 from conftest import DOCTOR_LINE, HOOK_PYTHON, ROOT, _load
@@ -28,26 +29,26 @@ def test_unset_key_points_at_plugin_configure(tmp_path):
     for env in ("S2_API_KEY", "EPO_OPS"):
         assert "/plugin configure heuresis@techne" in lines[env]
         assert "restart" in lines[env]
-    assert "EPO_OPS_KEY and EPO_OPS_SECRET" in lines["EPO_OPS"]
+    assert "Needs both EPO_OPS_KEY and EPO_OPS_SECRET." in lines["EPO_OPS"]
 
 
 def test_key_lines_are_pinned(tmp_path):
     values = {"IDEAS_REPO": str(tmp_path), "REPOS_ROOT": str(tmp_path)}
     lines = {c.name: (c.status, c.detail) for c in d.checks(values, environ={"S2_API_KEY": "x"})}
-    store = "store it with /plugin configure heuresis@techne, then restart"
+    store = "Store it with /plugin configure heuresis@techne, then restart."
     assert lines["OPENALEX_API_KEY"] == (
         "optional",
-        f"not set; Raises OpenAlex's search budget; free at openalex.org/settings/api; {store}",
+        f"not set. Raises OpenAlex's search budget; free at openalex.org/settings/api. {store}",
     )
     assert lines["S2_API_KEY"] == ("ok", "set")
     assert lines["LENS_API_TOKEN"] == (
         "optional",
-        f"not set; Adds worldwide patents; request API access in your lens.org profile; {store}",
+        f"not set. Adds worldwide patents; request API access in your lens.org profile. {store}",
     )
     assert lines["EPO_OPS"] == (
         "optional",
-        "not set; Adds European patents; register at developers.epo.org; "
-        f"needs both EPO_OPS_KEY and EPO_OPS_SECRET; {store}",
+        "not set. Adds European patents; register at developers.epo.org. "
+        f"Needs both EPO_OPS_KEY and EPO_OPS_SECRET. {store}",
     )
     keys = [n for n in lines if n.isupper()]
     assert keys == ["OPENALEX_API_KEY", "S2_API_KEY", "LENS_API_TOKEN", "EPO_OPS"]
@@ -59,17 +60,17 @@ def test_epo_needs_both_halves(tmp_path):
 
 
 def test_every_group_gets_a_line_needing_all_members(tmp_path, monkeypatch):
-    base = d.INFO.keys[0]
+    real = d.pk.load_plugin(d.PLUGIN)
     extra = [
-        base._replace(option=f"zz_{n}", env=f"ZZ_{n}", group=7, description="Adds zz.")
+        real.keys[0]._replace(option=f"zz_{n}", env=f"ZZ_{n}", group=7, description="Adds zz.")
         for n in (1, 2, 3)
     ]
-    monkeypatch.setattr(d, "INFO", d.INFO._replace(keys=[*d.INFO.keys, *extra]))
+    monkeypatch.setattr(d.pk, "load_plugin", lambda root: real._replace(keys=[*real.keys, *extra]))
     values = {"IDEAS_REPO": str(tmp_path), "REPOS_ROOT": str(tmp_path)}
     lines = {c.name: c for c in d.checks(values, environ={"ZZ_1": "x", "ZZ_2": "x"})}
     assert lines["ZZ"].status == "optional"
-    assert "needs all of ZZ_1 and ZZ_2 and ZZ_3" in lines["ZZ"].detail
-    assert "needs both EPO_OPS_KEY and EPO_OPS_SECRET" in lines["EPO_OPS"].detail
+    assert "Needs all of ZZ_1 and ZZ_2 and ZZ_3" in lines["ZZ"].detail
+    assert "Needs both EPO_OPS_KEY and EPO_OPS_SECRET" in lines["EPO_OPS"].detail
     every = dict.fromkeys(["ZZ_1", "ZZ_2", "ZZ_3"], "x")
     assert {c.name: c.status for c in d.checks(values, environ=every)}["ZZ"] == "ok"
 
@@ -113,3 +114,15 @@ def test_exit_code_is_1_when_ideas_repo_missing_and_0_when_ready(tmp_path):
     ready = run_doctor(f"IDEAS_REPO={repo}", f"REPOS_ROOT={tmp_path}")
     assert ready.returncode == 0, ready.stdout
     assert ready.stdout.splitlines()[-1] == "result: ready"
+
+
+def test_a_malformed_manifest_is_one_optional_line_not_a_traceback(tmp_path, monkeypatch):
+    plugin = tmp_path / "plugin"
+    (plugin / ".claude-plugin").mkdir(parents=True)
+    manifest = {"name": "x", "userConfig": {"a_key": {"type": "string", "sensitive": True}}}
+    manifest["metadata"] = {"keyGroups": [[["a_key"]]]}
+    (plugin / ".claude-plugin" / "plugin.json").write_text(json.dumps(manifest))
+    monkeypatch.setattr(d, "PLUGIN", plugin)
+    values = {"IDEAS_REPO": str(tmp_path), "REPOS_ROOT": str(tmp_path)}
+    lines = {c.name: (c.status, c.detail) for c in d.checks(values, environ={})}
+    assert lines["search keys"] == ("optional", "plugin.json unreadable")
