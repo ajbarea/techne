@@ -72,5 +72,6 @@ def test_idea_skill_documents_folder_overrides():
     meta, text = front(PLUGIN / "skills" / "idea" / "SKILL.md")
     assert "--ideas" in meta["argument-hint"] and "--repos" in meta["argument-hint"]
     assert "take precedence" in text
+    assert "Remove `--ideas" in text
     docs = (ROOT / "docs" / "skills" / "idea.md").read_text()
     assert "--ideas" in docs and "--repos" in docs

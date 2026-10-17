@@ -8,7 +8,7 @@ allowed-tools: Bash Read Agent
 
 # Capture and triage an idea
 
-`IDEAS` is `${user_config.ideas_repo}` and `REPOS` is `${user_config.repos_root}`. When the arguments include `--ideas <path>` or `--repos <path>`, those values take precedence for this run: use them as `IDEAS` and `REPOS`, resolve them to absolute paths with `realpath`, and never touch the configured folders. This is how a second ideas repository or the gold-set runner points a run elsewhere. If `IDEAS` or `REPOS` is still empty, stop and tell the user to run `/heuresis:setup`; do not run it yourself.
+`IDEAS` is `${user_config.ideas_repo}` and `REPOS` is `${user_config.repos_root}`. When the arguments include `--ideas <path>` or `--repos <path>`, those values take precedence for this run: use them as `IDEAS` and `REPOS`, resolve them to absolute paths with `realpath`, and never write to the configured ideas repository; a flag that is not given falls back to its configured value. Remove `--ideas <path>` and `--repos <path>` from the arguments before picking the mode, so they never end up in the idea text. This is how a second ideas repository or the gold-set runner points a run elsewhere. If `IDEAS` or `REPOS` is still empty, stop and tell the user to run `/heuresis:setup`; do not run it yourself.
 
 Every command below starts with:
 `env UV_PROJECT_ENVIRONMENT=${CLAUDE_PLUGIN_DATA}/venv uv run --quiet --directory ${CLAUDE_PLUGIN_ROOT} python -m heuresis`
