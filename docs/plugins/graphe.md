@@ -26,7 +26,11 @@ uv, TeX Live (latexmk and pdflatex; biber for biblatex documents), poppler (`pdf
 
 ## Set up
 
-Run `/graphe:setup`. It only reads, and prints the install command (a `fix:` line) for anything missing. The last line is `result: ready`, or `result: missing` with the names of the required checks that failed, and the doctor exits 1 in that case. Chromium is a required check, so a LaTeX-only user still sees `result: missing chromium` until it is installed. Claude follows the [setup runbook](https://github.com/ajbarea/techne/blob/main/plugins/graphe/AGENTS.md).
+Run `/graphe:setup`. It only reads, and prints the install command (a `fix:` line) for anything missing. The last line is `result: ready`, or `result: missing` with the names of the required checks that failed, and the doctor exits 1 in that case. Chromium is a required check, so a LaTeX-only user still sees `result: missing chromium` until it is installed. It also reports which search keys are saved. Claude follows the [setup runbook](https://github.com/ajbarea/techne/blob/main/plugins/graphe/AGENTS.md).
+
+## Search keys
+
+paper-review runs without keys. An OpenAlex key raises its daily search budget, and a Semantic Scholar key adds Semantic Scholar. Run `/plugin configure graphe@techne`, paste each key into its masked field, and restart Claude Code. The keys sit in Claude Code's secure storage. At session start graphe writes them to a private (0600) per-process file in its plugin data folder that Bash commands load, and deletes the file when the session ends. To import them from a `.env` file instead, `/graphe:setup` prints a template and saves the filled-in file with a store script; the file is yours to delete afterwards. A key already in the Bash environment, such as one exported in your shell profile, wins. A key saved in heuresis also reaches graphe in sessions where both are installed, but graphe's own setting is the one to rely on.
 
 ## Skills
 

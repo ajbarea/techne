@@ -15,7 +15,7 @@ Run the retrieval script that SKILL.md names (shown here as `<retrieval script>`
 uv run --no-project --quiet python <retrieval script> openalex 'federated learning Byzantine robust' --limit 8
 ```
 
-Each line is one JSON record: `title`, `url`, `date`, `text` (the abstract), `doi`. Quote snippets from `text`. Set `OPENALEX_MAILTO` to identify yourself; set `OPENALEX_API_KEY` for a larger daily budget.
+Each line is one JSON record: `title`, `url`, `date`, `text` (the abstract), `doi`. Quote snippets from `text`. Set `OPENALEX_MAILTO` to identify yourself; for a larger daily budget save an OpenAlex key with `/plugin configure graphe@techne` (it reaches this command as `OPENALEX_API_KEY`), or export it in the shell.
 
 **Query construction.** One focused query per *contribution*, built from its noun phrases
 (C3 "Byzantine attack arena" → `federated learning Byzantine attack defense benchmark`). Keep it
@@ -28,7 +28,7 @@ indexed in OpenAlex — fall to the web-search backstop for those.
 ## Semantic Scholar (secondary, key-gated)
 
 Keyless requests are rate-limited and return HTTP `429` — do NOT rely on it unprompted. Use only
-when `S2_API_KEY` is set, to enrich a paper already found via OpenAlex (it returns title, year, abstract, url and DOI):
+when `S2_API_KEY` is set (saved with `/plugin configure graphe@techne`, or exported in the shell), to enrich a paper already found via OpenAlex (it returns title, year, abstract, url and DOI):
 
 ```bash
 [ -n "$S2_API_KEY" ] && uv run --no-project --quiet python <retrieval script> s2 'byzantine robust federated learning' --limit 5

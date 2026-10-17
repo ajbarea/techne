@@ -22,7 +22,7 @@ env UV_PROJECT_ENVIRONMENT=${CLAUDE_PLUGIN_DATA}/venv uv run --quiet --directory
 The runbook's "store command" is:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/setup/scripts/store_keys.py"
+python3 "${CLAUDE_PLUGIN_ROOT}/_shared/plugin_keys.py"
 ```
 
-It takes `--template` or the path of a filled-in file.
+It takes `template`, or `store` and the path of a filled-in file.

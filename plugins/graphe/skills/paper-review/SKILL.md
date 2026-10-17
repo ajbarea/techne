@@ -36,7 +36,7 @@ verdict cites a record retrieved this run with a verbatim snippet, or it is mark
 
 Read `## paper-review` from `<repo>/.claude/skill-context.md` (`bash "${CLAUDE_PLUGIN_ROOT}/_shared/skill_context.sh" <target>` prints it): `lab_line` (overlap source of
 truth, default `LINEAGE.md`), `retrieval` (default OpenAlex + web; Semantic Scholar only if
-`S2_API_KEY` is set), `mailto` (OpenAlex polite pool, default `git config user.email`; the script reads it from `OPENALEX_MAILTO`), `report`
+`S2_API_KEY` is set; save it with `/plugin configure graphe@techne`, or export it in the shell), `mailto` (OpenAlex polite pool, default `git config user.email`; the script reads it from `OPENALEX_MAILTO`), `report`
 (default `papers/<name>/novelty-review.md`, or `<stem>.novelty-review.md` beside a `.tex` path). Sensible defaults if absent.
 
 ## Procedure
@@ -121,7 +121,7 @@ lab-overlap: needs-discussion). **Never edit the paper** — this pass is adviso
 - **Eyeballing the bibliography.** §2 gaps come from parsing `references.bib` (DOIs + titles) and
   comparing to the retrieved set — not from guessing what is already cited.
 - **Relying on keyless Semantic Scholar.** It returns `429`. OpenAlex is primary; S2 only with a
-  key.
+  key, saved with `/plugin configure graphe@techne` or exported in the shell.
 
 ## Why this skill is careful
 

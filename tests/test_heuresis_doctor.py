@@ -31,6 +31,28 @@ def test_unset_key_points_at_plugin_configure(tmp_path):
     assert "EPO_OPS_KEY and EPO_OPS_SECRET" in lines["EPO_OPS"]
 
 
+def test_key_lines_are_pinned(tmp_path):
+    values = {"IDEAS_REPO": str(tmp_path), "REPOS_ROOT": str(tmp_path)}
+    lines = {c.name: (c.status, c.detail) for c in d.checks(values, environ={"S2_API_KEY": "x"})}
+    store = "store it with /plugin configure heuresis@techne, then restart"
+    assert lines["OPENALEX_API_KEY"] == (
+        "optional",
+        f"not set; raises OpenAlex's search budget; free at openalex.org/settings/api; {store}",
+    )
+    assert lines["S2_API_KEY"] == ("ok", "set")
+    assert lines["LENS_API_TOKEN"] == (
+        "optional",
+        f"not set; adds worldwide patents; request API access in your lens.org profile; {store}",
+    )
+    assert lines["EPO_OPS"] == (
+        "optional",
+        "not set; adds European patents; register at developers.epo.org; "
+        f"needs both EPO_OPS_KEY and EPO_OPS_SECRET; {store}",
+    )
+    keys = [n for n in lines if n.isupper()]
+    assert keys == ["OPENALEX_API_KEY", "S2_API_KEY", "LENS_API_TOKEN", "EPO_OPS"]
+
+
 def test_epo_needs_both_halves(tmp_path):
     values = {"IDEAS_REPO": str(tmp_path), "REPOS_ROOT": str(tmp_path)}
     assert names(d.checks(values, environ={"EPO_OPS_KEY": "k"}))["EPO_OPS"] == "optional"
@@ -38,7 +60,10 @@ def test_epo_needs_both_halves(tmp_path):
 
 def test_every_group_gets_a_line_needing_all_members(tmp_path, monkeypatch):
     base = d.KEYS[0]
-    extra = tuple(base._replace(env=f"ZZ_{n}", group="ZZ", why="adds zz") for n in (1, 2, 3))
+    extra = tuple(
+        base._replace(option=f"zz_{n}", env=f"ZZ_{n}", group="ZZ", description="Adds zz.")
+        for n in (1, 2, 3)
+    )
     monkeypatch.setattr(d, "KEYS", (*d.KEYS, *extra))
     values = {"IDEAS_REPO": str(tmp_path), "REPOS_ROOT": str(tmp_path)}
     lines = {c.name: c for c in d.checks(values, environ={"ZZ_1": "x", "ZZ_2": "x"})}
