@@ -41,7 +41,7 @@
 
 {% block extrahead %}
   {#- Before first paint, so hidden side panels do not flash in. -#}
-  <script>try{if(localStorage.getItem("sidebars")==="hidden")document.documentElement.setAttribute("data-sidebars","hidden")}catch(e){}</script>
+  <script>try{if(localStorage.getItem("zensical-sidebars")==="hidden")document.documentElement.setAttribute("data-sidebars","hidden")}catch(e){}</script>
   {% if not social_on %}
   {% set raw_title = (page.meta and page.meta.title) or page.title %}
   {% set page_title = (is_home or not raw_title) and config.site_name or (raw_title ~ ' | ' ~ config.site_name) %}

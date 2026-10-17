@@ -2,20 +2,34 @@
    (plugins/techne/skills/docs-site/templates/shared/); edit it there and run the
    docs-site sync, never in a site. overrides/main.html loads it. */
 
-/* Inline code in a table never wraps. Zensical gives code `word-break: break-word`,
-   which counts a break after every character toward a column's minimum width, so a
-   table squeezes a code column until identifiers split; `word-break: normal` still
-   breaks after a hyphen (techne:research-|grounded). A table wider than its column
-   scrolls inside its own box, which WCAG 1.4.10 allows for data tables. */
-.md-typeset table:not([class]) code {
+/* Inline code in a table breaks between words, never inside one. Zensical gives code
+   `word-break: break-word`, which counts a break after every character toward a
+   column's minimum width, so a table squeezes a code column until identifiers split;
+   `word-break: normal` still breaks after a hyphen (techne:research-|grounded).
+   javascripts/shared.js wraps each word in .nobr; without it, the code stays on one
+   line. A table wider than its column scrolls inside its own box, which WCAG 1.4.10
+   allows for data tables. */
+.md-typeset table:not([class]) :not(pre) > code {
+  white-space: nowrap;
+}
+
+.md-typeset table:not([class]) :not(pre) > code.words {
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+
+.md-typeset code .nobr {
   white-space: nowrap;
 }
 
 /* Zensical's script wraps each table in .md-typeset__scrollwrap, the box that scrolls.
-   It shows a shadow, in the text color so both schemes see it, at an edge with more
-   table past it (the covers scroll with the content, the shadows stay put), and javascripts/shared.js makes an overflowing box
-   a labelled, keyboard-focusable region. */
-.md-typeset__scrollwrap {
+   javascripts/shared.js makes a box that overflows a labelled, keyboard-focusable
+   region, and that box shows a shadow, in the text color so both schemes see it, at
+   an edge with more table past it (the covers scroll with the content, the shadows
+   stay put). The covers are the page color, so a tinted admonition or details block
+   skips them. */
+.md-typeset__scrollwrap[role="region"] {
   background:
     linear-gradient(to right, var(--md-default-bg-color) 30%, transparent) left / 2.5rem 100% no-repeat local,
     linear-gradient(to left, var(--md-default-bg-color) 30%, transparent) right / 2.5rem 100% no-repeat local,
@@ -23,8 +37,16 @@
     radial-gradient(farthest-side at 100% 50%, color-mix(in srgb, var(--md-default-fg-color) 30%, transparent), transparent) right / 0.9rem 100% no-repeat scroll;
 }
 
-.md-typeset__scrollwrap table:not([class]) {
+.md-typeset__scrollwrap[role="region"] table:not([class]) {
   background-color: transparent;
+}
+
+:is(.admonition, details) .md-typeset__scrollwrap[role="region"] {
+  background: none;
+}
+
+:is(.admonition, details) .md-typeset__scrollwrap[role="region"] table:not([class]) {
+  background-color: var(--md-default-bg-color);
 }
 
 .md-typeset__scrollwrap:focus-visible {
@@ -81,5 +103,13 @@
   [data-sidebars="hidden"] .md-sidebar--primary,
   [data-sidebars="hidden"] .md-sidebar--secondary {
     display: none;
+  }
+
+  /* Zensical widens the content margins for the sidebars beside it, with a selector
+     (.md-sidebar--primary:not([hidden]) ~ .md-content > .md-content__inner) this one
+     has to outrank. */
+  [data-sidebars="hidden"] .md-main .md-content > .md-content__inner.md-typeset {
+    margin-right: 0.8rem;
+    margin-left: 0.8rem;
   }
 }

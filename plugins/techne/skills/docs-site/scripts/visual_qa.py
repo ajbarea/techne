@@ -106,7 +106,8 @@ MEASURE = r"""
       return split;
     }).slice(0, 6),
     // A table box that scrolls sideways (Zensical wraps tables in .md-typeset__scrollwrap).
-    tableScroll: [...document.querySelectorAll(".md-typeset__scrollwrap, table")]
+    tableScroll: [...document.querySelectorAll(".md-typeset__scrollwrap, table:not([class])")]
+      .filter((e) => e.matches(".md-typeset__scrollwrap") || !e.closest(".md-typeset__scrollwrap"))
       .filter((e) => e.scrollWidth > e.clientWidth + 1)
       .filter((e) => ["auto", "scroll"].includes(getComputedStyle(e).overflowX))
       .length,
