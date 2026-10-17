@@ -295,7 +295,7 @@ def render_markdown(summary: dict) -> str:
         "",
         f"- Runs: {summary['runs']} ({summary['errors']} errors)",
         f"- Verdict agreement: {_pct(summary['agreement'])}",
-        f"- Prior-art recall (named anywhere in Closest work): {_pct(summary['prior_art_recall'])}",
+        f"- Prior-art recall (a verified cited rival named): {_pct(summary['prior_art_recall'])}",
         f"- Closest-rival recall (named as the closest): {_pct(summary['closest_recall'])}",
         f"- Existing things filed as do: {summary['do_on_existing']}",
         f"- Total cost (client estimate): {_num(summary['cost_usd_total'], '${:.2f}')}",

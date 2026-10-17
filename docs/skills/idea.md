@@ -98,13 +98,13 @@ Patent search covers the granted and published patents these two sources index. 
 
 ## Evaluating heuresis
 
-`make heuresis-gold GUARD=<your ideas repository>` triages every case in `plugins/heuresis/gold/cases.yaml` three times in headless Claude Code sessions and writes `grades.jsonl`, `summary.json` and `summary.md` to a time-stamped folder under `~/.local/state/heuresis-gold` (`$XDG_STATE_HOME/heuresis-gold` when that is set). Pass `GOLD_ARGS="--out <folder>"` to put them elsewhere. It uses your Claude plan.
+From a clone of the techne repository, `make heuresis-gold GUARD=<your ideas repository>` triages every case in `plugins/heuresis/gold/cases.yaml` three times in headless Claude Code sessions and writes `grades.jsonl`, `summary.json` and `summary.md` to a time-stamped folder under `~/.local/state/heuresis-gold` (`$XDG_STATE_HOME/heuresis-gold` when that is set). It uses your Claude plan. Pass `GOLD_ARGS="--out <folder>"` to put the results elsewhere, and keep that folder outside any project: a session started inside a project loads that project's `CLAUDE.md` and settings.
 
-Each run gets its own scratch ideas repository in a folder outside any project, so the session reads none of your project instructions. The sessions run with auto-memory off and without your MCP servers. The runner stops if any run changes the repository named by `GUARD`. Each run's full session stream is in `logs/<case>-<run>.jsonl` with its error output in `logs/<case>-<run>.stderr`, and `grades.jsonl` records the plugin path the session loaded, so you can check that the heuresis under test is the one you meant.
+Each run gets its own scratch ideas repository, kept under `<results>/work/`, in a folder outside any project. The sessions run with `--permission-mode bypassPermissions` in that scratch folder, with auto-memory off and without your MCP servers. The runner stops if any run changes the repository named by `GUARD`. Each run's full session stream is in `logs/<case>-<run>.jsonl` with its error output in `logs/<case>-<run>.stderr`, and `grades.jsonl` records the plugin path the session loaded, so you can check that the heuresis under test is the one you meant.
 
-Each case gives an idea, the state it should get, and terms that name its known prior art. A run agrees when its state is one the case accepts; it finds the prior art when a term appears in Closest work. The summary also counts existing things filed as `do`, the failure the set is built to catch.
+Each case gives an idea, the state it should get, and terms that name its known prior art. A run agrees when its state is one the case accepts. It finds the prior art when a term names the title or URL of a rival the judge cited and the verify step confirmed, matched as a whole word. Closest-rival recall counts only the judge's closest rival. The summary also counts existing things filed as `do`, the failure the set is built to catch.
 
-To add your own labelled ideas, keep a second cases file in your ideas repository and pass it with `GOLD_ARGS="--cases <file>"`. A cases file you pass replaces the built-in one; pass `--cases` once per file to combine them.
+To add your own labelled ideas, keep a second cases file in your ideas repository and pass it with `GOLD_ARGS="--cases <file>"`. A cases file you pass replaces the built-in one; pass `--cases` once per file to combine them. A case id may appear in only one file.
 
 ## Full instructions
 

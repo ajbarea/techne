@@ -150,7 +150,7 @@ evals-bash:             ## Behavior evals that grant Bash (needs a symlink-free 
 GUARD ?=
 heuresis-gold:          ## Run the heuresis gold set (real triages; uses your plan; GUARD=<your ideas repository>)
 	@test -n "$(GUARD)" || { echo "set GUARD=<your ideas repository> (the runner stops if a run changes it)"; exit 2; }
-	@uv run python scripts/heuresis_gold.py run --guard-repo $(GUARD) $(GOLD_ARGS)
+	@uv run python scripts/heuresis_gold.py run --guard-repo "$(GUARD)" $(GOLD_ARGS)
 
 clean:                  ## Remove ruff + build caches
 	@rm -rf .ruff_cache .pytest_cache site/

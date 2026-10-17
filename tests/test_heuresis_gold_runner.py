@@ -290,5 +290,17 @@ def test_missing_claude_is_a_clear_error(tmp_path, monkeypatch, capsys):
 def test_make_target_and_ignore_rule_exist():
     makefile = (ROOT / "Makefile").read_text()
     assert "heuresis-gold:" in makefile and "scripts/heuresis_gold.py run" in makefile
-    assert '-n "$(GUARD)"' in makefile and "--guard-repo $(GUARD)" in makefile
+    assert '-n "$(GUARD)"' in makefile and '--guard-repo "$(GUARD)"' in makefile
     assert ".heuresis-gold/" in (ROOT / ".gitignore").read_text()
+
+
+def test_duplicate_case_id_across_files_is_rejected(fake, capsys):
+    twin = fake / "twin.yaml"
+    twin.write_text(CASES.read_text())
+    out = fake / "out"
+    code = r.main(
+        ["run", "--cases", str(CASES), "--cases", str(twin), "--no-guard", "--out", str(out)]
+    )
+    err = capsys.readouterr().err
+    assert code == 2 and str(CASES) in err and str(twin) in err and "bib-checker" in err
+    assert not out.exists()

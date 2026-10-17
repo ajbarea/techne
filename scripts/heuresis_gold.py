@@ -248,6 +248,19 @@ def triage(
     return "", result, plugin_path
 
 
+def load_all(files: list[Path]) -> list[gold.Case]:
+    """Every case from the files in order; one id in two files is an error naming both."""
+    cases: list[gold.Case] = []
+    origin: dict[str, Path] = {}
+    for f in files:
+        for c in gold.load_cases(f):
+            if c.id in origin:
+                raise gold.GoldError(f"case id {c.id} is in both {origin[c.id]} and {f}")
+            origin[c.id] = f
+            cases.append(c)
+    return cases
+
+
 def selected(cases: list[gold.Case], globs: list[str]) -> list[gold.Case]:
     return [c for c in cases if not globs or any(fnmatch.fnmatch(c.id, g) for g in globs)]
 
@@ -274,7 +287,11 @@ def run(args) -> int:
         except ValueError as exc:
             print(f"heuresis_gold: {exc}", file=sys.stderr)
             return 2
-    cases = selected([c for f in args.cases for c in gold.load_cases(f)], args.case)
+    try:
+        cases = selected(load_all(args.cases), args.case)
+    except (gold.GoldError, OSError) as exc:
+        print(f"heuresis_gold: {exc}", file=sys.stderr)
+        return 2
     stamp = dt.datetime.now(dt.UTC).strftime("%Y%m%dT%H%M%SZ")
     res = args.out / stamp
     (res / "logs").mkdir(parents=True)
