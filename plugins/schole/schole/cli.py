@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import json
 import sys
 import time
 from collections.abc import Iterator
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from schole import config, d2l
 
@@ -17,6 +19,7 @@ LOGIN_WAIT = 600  # seconds the login window waits for the user to finish signin
 POLL = 3
 ARGS = ["--password-store=basic"]  # one cookie store for the headed and headless runs
 NEEDS_LOGIN = "needs login: run !schole-login in Claude Code, or schole-login in a terminal"
+SESSION = "session-cookies.json"  # in the profile; Chromium drops session cookies on close
 CHROMIUM = "uv run --no-project --with playwright==1.63.0 playwright install chromium"
 
 
@@ -37,17 +40,71 @@ def is_browser_error(exc: Exception) -> bool:
 
 
 @contextlib.contextmanager
-def browser(base: Path, headless: bool) -> Iterator[Any]:
+def browser(base: Path, site: str, headless: bool) -> Iterator[Any]:
     from playwright.sync_api import sync_playwright  # ty: ignore[unresolved-import]
 
+    profile = config.profile(base)
+    saved = profile / SESSION
     with sync_playwright() as p:
         ctx = p.chromium.launch_persistent_context(
-            str(config.profile(base)), headless=headless, channel="chromium", args=ARGS
+            str(profile), headless=headless, channel="chromium", args=ARGS
         )
         try:
+            restore_session(ctx, saved, site)
             yield ctx
+            keep_session(ctx, saved, site)
         finally:
             ctx.close()
+
+
+def site_session(cookies: Any, site: str) -> list[dict]:
+    """The cookies that end with the browser and that the site itself receives."""
+    host = urlsplit(site).hostname or ""
+    out = []
+    for c in cookies if isinstance(cookies, list) else []:
+        if not isinstance(c, dict) or c.get("expires", -1) != -1:
+            continue
+        domain = str(c.get("domain", "")).lstrip(".")
+        if domain and (host == domain or host.endswith("." + domain)):
+            out.append(c)
+    return out
+
+
+def restore_session(ctx: Any, path: Path, site: str) -> None:
+    """Add back the site's session cookies the last run kept; a missing or bad file adds none."""
+    try:
+        cookies = site_session(json.loads(path.read_text()), site)
+    except (OSError, ValueError):
+        return
+    if not cookies:
+        return
+    try:
+        ctx.add_cookies(cookies)
+    except Exception as exc:
+        if not is_browser_error(exc):
+            raise
+        print(
+            f"schole: could not restore the saved sign-in: {browser_failure(exc)}", file=sys.stderr
+        )
+
+
+def keep_session(ctx: Any, path: Path, site: str) -> None:
+    """Save the site's session cookies, readable by the user only, once the site accepts them.
+    An ended session, a failing site or a closed browser leaves the saved file as it was."""
+    try:
+        if not signed_in(ctx, site):
+            return
+        cookies = site_session(ctx.cookies(), site)
+    except d2l.SiteError:
+        return
+    except Exception as exc:
+        if not is_browser_error(exc):
+            raise
+        return
+    try:
+        config.write_private(path, json.dumps(cookies))
+    except OSError as exc:
+        print(f"schole: could not save the sign-in to {path}: {exc}", file=sys.stderr)
 
 
 def getter(ctx: Any, site: str) -> d2l.Get:
@@ -92,13 +149,13 @@ def login(args: argparse.Namespace) -> int:
     update_config(base, args)
     cfg = config.load(base)
     if args.status:
-        with browser(base, headless=True) as ctx:
+        with browser(base, cfg.site, headless=True) as ctx:
             ok = signed_in(ctx, cfg.site)
         print(f"{cfg.site}  term {cfg.term or '(all)'}  {'signed in' if ok else NEEDS_LOGIN}")
         return 0 if ok else 3
     print(f"Sign in to {cfg.site} in the browser window that opens. schole never types into it.")
     print(f"This command waits up to {LOGIN_WAIT // 60} minutes, then closes the window.")
-    with browser(base, headless=False) as ctx:
+    with browser(base, cfg.site, headless=False) as ctx:
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         page.goto(cfg.site + "/d2l/home")
         deadline = time.monotonic() + LOGIN_WAIT
@@ -123,7 +180,7 @@ def sweep(args: argparse.Namespace) -> int:
     tz = config.zone(cfg)
     now = datetime.now(tz)
     since = datetime.fromtimestamp(args.since, tz) if args.since else now - timedelta(days=1)
-    with browser(base, headless=True) as ctx:
+    with browser(base, cfg.site, headless=True) as ctx:
         try:
             lines = d2l.sweep(getter(ctx, cfg.site), cfg.term, since, now, tz)
         except d2l.NoSession:

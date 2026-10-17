@@ -29,7 +29,7 @@ Brightspace's API needs an OAuth app your institution registers; students cannot
 
 ## Troubleshooting
 
-- **`needs login`, exit 3.** The site's session expired, often after a few days or a password change. Run `!schole-login`.
+- **`needs login`, exit 3.** The site's session ended. Brightspace ends it after a stretch without use that the school sets, and on a password change. Run `!schole-login`.
 - **Zero courses.** The term filter matches no course code. Run `!schole-login --site <site> --term <code>` with the text your current courses' codes contain.
 - **`APIFAIL <course> :: news:404`.** That part of that course could not be read; the rest still was. Check it on the site yourself.
 - **No window opens on WSL.** The login window needs WSLg (Windows 11).
