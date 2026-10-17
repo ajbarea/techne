@@ -12,7 +12,16 @@ from pathlib import Path
 
 import yaml
 
-from heuresis.model import CAPTURED_VIA, PATENT_SOURCES, SECTIONS, STATES, TYPES, Idea, Verdict
+from heuresis.model import (
+    CAPTURED_VIA,
+    NOTES,
+    PATENT_SOURCES,
+    SECTIONS,
+    STATES,
+    TYPES,
+    Idea,
+    Verdict,
+)
 
 FRONT_KEYS = (
     "id",
@@ -32,8 +41,8 @@ TITLE_MAX = 80
 NEW_ATTEMPTS = 100
 # The shape new_id produces; anything built into a path from outside input must match it.
 IDEA_ID = re.compile(r"\d{4}-\d{2}-\d{2}-[a-z0-9-]+")
-# Sections split only on the known headings, so a "## " line inside the idea text stays text.
-_SECTION = re.compile(r"^## (" + "|".join(re.escape(s) for s in SECTIONS) + r")$", re.MULTILINE)
+# The idea text is cut out before this split, so a "## " line inside it stays idea text.
+_HEADING = re.compile(r"^## (.+?)[ \t]*$", re.MULTILINE)
 VERDICT_HEADING = re.compile(r"^### (\d{4}-\d{2}-\d{2}) · (triage|override) · (\w+)$", re.MULTILINE)
 _CLOSING_FENCE = re.compile(r"\n---[ \t]*\n")
 NEEDS_TYPE = ("do", "building", "shipped")
@@ -114,16 +123,7 @@ def parse(text: str) -> Idea:
     for key in ("revisit_on", "related"):
         if front.get(key) is not None and not isinstance(front[key], list):
             raise StoreError(f"{key} must be a list")
-    sections = {}
-    start, stop = body.find(IDEA_START), body.find(IDEA_END)
-    if 0 <= start < stop:
-        sections["Idea"] = body[start + len(IDEA_START) : stop].strip("\n")
-        body = body[:start] + body[stop + len(IDEA_END) :]
-    matches = list(_SECTION.finditer(body))
-    for i, match in enumerate(matches):
-        stop = matches[i + 1].start() if i + 1 < len(matches) else len(body)
-        if match.group(1) != "Idea" or "Idea" not in sections:
-            sections[match.group(1)] = body[match.end() : stop].strip("\n")
+    sections = _sections(body, str(front["title"]))
     return Idea(
         id=str(front["id"]),
         title=str(front["title"]),
@@ -138,6 +138,36 @@ def parse(text: str) -> Idea:
         related=[str(v) for v in front.get("related") or []],
         sections=sections,
     )
+
+
+def _sections(body: str, title: str) -> dict[str, str]:
+    """Known sections by name; every other non-blank piece of text goes to Notes, in order."""
+    sections: dict[str, str] = {}
+    notes: list[str] = []
+    start, stop = body.find(IDEA_START), body.find(IDEA_END)
+    marked = 0 <= start < stop
+    if marked:
+        sections["Idea"] = body[start + len(IDEA_START) : stop].strip("\n")
+        body = body[:start] + body[stop + len(IDEA_END) :]
+    matches = list(_HEADING.finditer(body))
+    preamble = body[: matches[0].start() if matches else len(body)].split("\n")
+    first = next((i for i, line in enumerate(preamble) if line.strip()), None)
+    if first is not None and preamble[first].rstrip() == f"# {title}":
+        del preamble[first]  # render writes the title heading from the front matter
+    notes.append("\n".join(preamble))
+    for i, match in enumerate(matches):
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(body)
+        name, text = match.group(1), body[match.end() : end].strip("\n")
+        if name == NOTES or (name == "Idea" and marked):
+            notes.append(text)  # the heading is rendered; the text under it is AJ's
+        elif name in SECTIONS and name not in sections:
+            sections[name] = text
+        else:
+            notes.append(body[match.start() : end])
+    kept = [n.strip("\n") for n in notes if n.strip()]
+    if kept:
+        sections[NOTES] = "\n\n".join(kept)
+    return sections
 
 
 def validate(idea: Idea, stem: str | None = None) -> list[str]:

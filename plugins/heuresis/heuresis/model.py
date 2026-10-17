@@ -14,7 +14,10 @@ SECTIONS = (
     "Fit with your work",
     "Product evidence",
     "Verdict log",
+    "Notes",
 )
+# Hand-written text heuresis does not own: stray lines and unknown sections, kept in file order.
+NOTES = "Notes"
 KINDS = ("paper", "patent", "product", "repo", "web", "idea", "context")
 PAPER_SOURCES = ("openalex", "semantic_scholar", "arxiv")
 PATENT_SOURCES = ("lens", "epo")

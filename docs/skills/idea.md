@@ -61,7 +61,7 @@ All inside your ideas repository.
 
 | Path | Holds |
 |---|---|
-| `ideas/<id>.md` | The idea, its state and every verdict with its evidence. |
+| `ideas/<id>.md` | The idea, its state and every verdict with its evidence. Text you add by hand outside the sections heuresis writes is kept, in order, under Notes. |
 | `runs/<id>/` | The latest run's working files: restatement, scout records, pool, judge output, verification. A retriage replaces them. |
 | `BOARD.md` | Needs triage (inbox and invalid files), Due for revisit, Do (by project, then type), Later, and Closed (counts with links). Regenerated. |
 | `LOG.md` | One line per verdict, triage or override, newest first. Regenerated. |

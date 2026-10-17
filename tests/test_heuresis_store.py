@@ -162,3 +162,79 @@ def test_add_verdict_prepends_newest_first_and_sets_fields():
     assert "**Patents:** partial" in log
     assert (target.state, target.type, target.project) == ("do", "tool", "techne")
     assert [m.group(3) for m in store.VERDICT_HEADING.finditer(log)] == ["do", "later"]
+
+
+HAND_EDITED = """---
+id: 2026-10-15-idea-triage-tool
+title: Idea triage tool
+captured: '2026-10-15T14:02:00-04:00'
+captured_via: terminal
+---
+
+# Idea triage tool
+
+A stray line AJ typed under the title.
+
+## Idea
+
+Text above the start marker.
+
+<!-- idea:start -->
+An idea triage tool.
+<!-- idea:end -->
+
+Text below the end marker.
+
+## Restated
+
+Neutral.
+
+## My own thoughts
+
+Ask Dima about $5 pricing.
+- a `list` item
+
+## Verdict log
+
+### 2026-10-15 · triage · later
+
+- **Reason:** thin.
+"""
+STRAYS = (
+    "A stray line AJ typed under the title.",
+    "Text above the start marker.",
+    "Text below the end marker.",
+    "## My own thoughts\n\nAsk Dima about $5 pricing.\n- a `list` item",
+)
+
+
+def _chars(text: str) -> list[str]:
+    """Non-whitespace characters of the body, below the front matter heuresis rewrites."""
+    return sorted(c for c in text[text.find("\n---\n", 3) :] if not c.isspace())
+
+
+def test_parse_keeps_hand_edited_text_in_notes_through_round_trips(tmp_path: Path):
+    parsed = store.parse(HAND_EDITED)
+    notes = parsed.sections["Notes"]
+    positions = [notes.index(s) for s in STRAYS]
+    assert positions == sorted(positions)
+    assert parsed.sections["Idea"] == "An idea triage tool."
+    assert parsed.sections["Restated"] == "Neutral."
+    rendered = store.render(parsed)
+    for s in STRAYS:
+        assert s in rendered
+    # Every non-whitespace character survives; only the Notes heading is added.
+    assert _chars(rendered) == sorted(_chars(HAND_EDITED) + list("##Notes"))
+    again = store.parse(rendered)
+    assert again.sections == parsed.sections
+    assert store.render(again) == rendered
+    path = tmp_path / "ideas" / f"{parsed.id}.md"
+    path.parent.mkdir()
+    path.write_text(HAND_EDITED)
+    loaded = store.load(path)
+    store.add_verdict(
+        loaded, Verdict(date="2026-10-16", origin="override", state="trash", reason="x")
+    )
+    store.save(tmp_path, loaded)
+    for s in STRAYS:
+        assert s in path.read_text()
