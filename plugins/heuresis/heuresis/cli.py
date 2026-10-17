@@ -172,8 +172,12 @@ def _add_record(args) -> int:
 
 
 RUN_FILES = ("pool.json", "judge.json", "verify.json")
+# Written from the pool, so a new pool leaves them describing refs that may now name other records.
+POOL_DEPENDENTS = ("judge.json", "verify.json")
 TRIAGE_STATES = ("trash", "later", "do", "merged")
-NOT_VERIFIED = "not verified against the current quote"
+NOT_VERIFIED = "not verified against the current quote and record"
+# A verify entry holds for the record it checked: re-pooling renumbers refs.
+BOUND = ("url", "source", "evidence_url")
 
 
 def _load_json(path: Path, kind: type):
@@ -241,9 +245,32 @@ def _cited(judge: dict) -> dict[str, str]:
     return cited
 
 
-def _verified(checked: dict, ref: str, quote: str) -> bool:
+def _bound(record: dict) -> dict[str, str]:
+    return {key: str(record.get(key) or "") for key in BOUND}
+
+
+def _same_check(entry: dict, quote: str, record: dict) -> bool:
+    """The verify entry was made for this quote against this record."""
+    return entry.get("quote") == quote and all(entry.get(k) == v for k, v in _bound(record).items())
+
+
+def _verified(checked: dict, ref: str, quote: str, record: dict) -> bool:
     entry = checked.get(ref) or {}
-    return entry.get("ok") is True and entry.get("quote") == quote
+    return entry.get("ok") is True and _same_check(entry, quote, record)
+
+
+def _scouts(run: Path) -> list[Path]:
+    return sorted(run.glob("scout-*.json"))
+
+
+def _pool(args) -> int:
+    run = _run_dir(args.ideas, args.id)
+    pooled = pool.build(_scouts(run))
+    (run / "pool.json").write_text(json.dumps(pooled, indent=2, ensure_ascii=False))
+    for name in POOL_DEPENDENTS:
+        (run / name).unlink(missing_ok=True)
+    print(json.dumps(pooled, ensure_ascii=False))
+    return 0
 
 
 def _verify(args) -> int:
@@ -256,7 +283,7 @@ def _verify(args) -> int:
             results[ref] = {"ok": False, "reason": "not in pool", "quote": quote}
             continue
         ok, why = verify.check(Record.from_dict(records[ref]), quote, args.ideas, args.repos_root)
-        results[ref] = {"ok": ok, "reason": why, "quote": quote}
+        results[ref] = {"ok": ok, "reason": why, "quote": quote, **_bound(records[ref])}
     (run / "verify.json").write_text(json.dumps(results, indent=2, ensure_ascii=False))
     for ref, result in results.items():
         print(f"{ref}: {'ok' if result['ok'] else result['reason']}")
@@ -285,10 +312,16 @@ def _apply(args) -> int:
     idea = _load_idea(args.ideas, args.id)
     judge = _load_judge(run)
     pooled = _load_pool(run)
+    if pool.build(_scouts(run)) != pooled:
+        raise ValueError("pool.json changed since pool ran; run pool again")
     checked = _load_verify(run)
     records = {r["ref"]: r for r in pooled["records"]}
     cited = _cited(judge)
-    dropped = {ref for ref, quote in cited.items() if not _verified(checked, ref, quote)}
+    dropped = {
+        ref
+        for ref, quote in cited.items()
+        if ref not in records or not _verified(checked, ref, quote, records[ref])
+    }
     proposed = judge["verdict"]
     closest = judge.get("closest")
     closest_ref = str((closest or {}).get("ref"))
@@ -297,7 +330,7 @@ def _apply(args) -> int:
         if ref not in records:
             return "not in pool"
         entry = checked.get(ref) or {}
-        stale = entry.get("ok") is not False or entry.get("quote") != cited[ref]
+        stale = entry.get("ok") is not False or not _same_check(entry, cited[ref], records[ref])
         return NOT_VERIFIED if stale else str(entry.get("reason") or NOT_VERIFIED)
 
     verdict = Verdict(
@@ -402,11 +435,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         case "add-record":
             return _add_record(args)
         case "pool":
-            run = _run_dir(args.ideas, args.id)
-            pooled = pool.build(sorted(run.glob("scout-*.json")))
-            (run / "pool.json").write_text(json.dumps(pooled, indent=2, ensure_ascii=False))
-            print(json.dumps(pooled, ensure_ascii=False))
-            return 0
+            return _pool(args)
         case "verify":
             return _verify(args)
         case "apply":

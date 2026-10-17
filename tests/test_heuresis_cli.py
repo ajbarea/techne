@@ -85,8 +85,9 @@ def test_capture_then_apply_runs_the_rules(tmp_path: Path, capsys):
         },
     }
     (run / "judge.json").write_text(json.dumps(judge))
+    bound = {"url": "https://r.example", "source": "openalex", "evidence_url": ""}
     (run / "verify.json").write_text(
-        json.dumps({"r1": {"ok": True, "reason": "", "quote": "a quoted passage long enough"}})
+        json.dumps({"r1": {"ok": True, "reason": "", "quote": QUOTE, **bound}})
     )
     capsys.readouterr()
     args = ["apply", "--ideas", str(ideas), "--id", idea_id, "--today", "2026-10-15"]
@@ -221,6 +222,7 @@ def test_verify_exits_3_when_the_closest_rival_fails(tmp_path: Path, capsys):
 
 
 QUOTE = "a quoted passage long enough"
+R_BOUND = {"url": "https://r.example", "source": "openalex", "evidence_url": ""}
 
 
 def _triaged(ideas: Path, capsys, verdict=None, verify_entry=None, quote=QUOTE) -> tuple[str, Path]:
@@ -228,10 +230,11 @@ def _triaged(ideas: Path, capsys, verdict=None, verify_entry=None, quote=QUOTE) 
     idea_id = _capture(ideas, capsys)
     run = ideas / "runs" / idea_id
     run.mkdir(parents=True)
-    record = {"ref": "r1", "title": "R", "url": "https://r.example", "source": "openalex"}
+    record = {"title": "R", "url": "https://r.example", "source": "openalex", "kind": "paper"}
     coverage = [{"source": "openalex", "status": "ok", "queries": 1, "hits": 1}]
-    pooled = {"records": [{**record, "kind": "paper"}], "coverage": coverage, "queries": {}}
-    (run / "pool.json").write_text(json.dumps(pooled))
+    scout = {"group": "papers", "queries": ["q"], "records": [record], "coverage": coverage}
+    (run / "scout-papers.json").write_text(json.dumps(scout))
+    assert cli.main(["pool", "--ideas", str(ideas), "--id", idea_id]) == 0
     differs = dict.fromkeys(("domain", "purpose", "mechanism", "evaluation"), "x")
     judge = {
         "closest": {"ref": "r1", "quote": quote, "differs": differs},
@@ -240,7 +243,7 @@ def _triaged(ideas: Path, capsys, verdict=None, verify_entry=None, quote=QUOTE) 
         "verdict": verdict or {"state": "do", "type": "tool", "reason": "new"},
     }
     (run / "judge.json").write_text(json.dumps(judge))
-    entry = verify_entry or {"ok": True, "reason": "", "quote": QUOTE}
+    entry = verify_entry or {"ok": True, "reason": "", "quote": QUOTE, **R_BOUND}
     (run / "verify.json").write_text(json.dumps({"r1": entry}))
     return idea_id, run
 
@@ -281,7 +284,7 @@ def test_override_do_without_a_type_leaves_the_idea_unchanged(tmp_path: Path, ca
 
 def test_a_stale_verify_file_does_not_count_as_verified(tmp_path: Path, capsys):
     ideas = init_ideas(tmp_path)
-    stale = {"ok": True, "reason": "", "quote": "an older quote that was checked"}
+    stale = {"ok": True, "reason": "", "quote": "an older quote that was checked", **R_BOUND}
     idea_id, _ = _triaged(ideas, capsys, verify_entry=stale)
     assert _apply(ideas, idea_id) == 0
     text = (ideas / "ideas" / f"{idea_id}.md").read_text()
@@ -290,7 +293,7 @@ def test_a_stale_verify_file_does_not_count_as_verified(tmp_path: Path, capsys):
 
 def test_a_loose_ok_value_does_not_count_as_verified(tmp_path: Path, capsys):
     ideas = init_ideas(tmp_path)
-    idea_id, _ = _triaged(ideas, capsys, verify_entry={"ok": "false", "quote": QUOTE})
+    idea_id, _ = _triaged(ideas, capsys, verify_entry={"ok": "false", "quote": QUOTE, **R_BOUND})
     assert _apply(ideas, idea_id) == 0
     assert "· triage · later" in (ideas / "ideas" / f"{idea_id}.md").read_text()
 
@@ -457,7 +460,10 @@ def test_retriage_commits_the_deletion_of_the_previous_runs_scout_file(
 ):
     ideas = init_ideas(tmp_path)
     idea_id, run = _triaged(ideas, capsys)
-    (run / "scout-products.json").write_text("{}")
+    _scout(run, "products", [])
+    assert cli.main(["pool", "--ideas", str(ideas), "--id", idea_id]) == 0
+    (run / "judge.json").write_text(json.dumps({"closest": None, "verdict": {"state": "later"}}))
+    (run / "verify.json").write_text("{}")
     assert _apply(ideas, idea_id) == 0
 
     def tracked() -> str:
@@ -479,3 +485,69 @@ def test_retriage_commits_the_deletion_of_the_previous_runs_scout_file(
         text=True,
     )
     assert status.stdout == ""
+
+
+def _scout(run: Path, group: str, records: list[dict]) -> None:
+    coverage = [{"source": "openalex", "status": "ok", "queries": 1, "hits": len(records)}]
+    scout = {"group": group, "queries": ["q"], "records": records, "coverage": coverage}
+    (run / f"scout-{group}.json").write_text(json.dumps(scout))
+
+
+def test_a_verify_file_from_an_earlier_pool_does_not_approve_a_renumbered_ref(
+    tmp_path: Path, capsys, monkeypatch
+):
+    ideas = init_ideas(tmp_path)
+    idea_id = _capture(ideas, capsys)
+    run = ideas / "runs" / idea_id
+    run.mkdir(parents=True)
+    first, second = "the first paper triages ideas by hand", "the second paper ranks ideas by votes"
+    _scout(
+        run,
+        "papers",
+        [
+            {"title": "P1", "url": "https://p1.example", "source": "web", "kind": "paper"},
+            {"title": "P2", "url": "https://p2.example", "source": "web", "kind": "paper"},
+        ],
+    )
+    assert cli.main(["pool", "--ideas", str(ideas), "--id", idea_id]) == 0
+    differs = dict.fromkeys(("domain", "purpose", "mechanism", "evaluation"), "x")
+    judge = {
+        "closest": {"ref": "r2", "quote": second, "differs": differs},
+        "others": [],
+        "fit": "f",
+        "verdict": {"state": "do", "type": "tool", "reason": "new"},
+    }
+    (run / "judge.json").write_text(json.dumps(judge))
+    pages = {"https://p1.example": first, "https://p2.example": second}
+    monkeypatch.setattr(cli.verify.http, "get", lambda url, headers=None: pages[url].encode())
+    args = ["verify", "--ideas", str(ideas), "--id", idea_id, "--repos-root", str(tmp_path)]
+    assert cli.main(args) == 0
+    checked = json.loads((run / "verify.json").read_text())
+    assert checked["r2"]["url"] == "https://p2.example" and checked["r2"]["source"] == "web"
+    assert checked["r2"]["evidence_url"] == ""
+    stale = {n: (run / n).read_text() for n in ("judge.json", "verify.json")}
+    record = {"title": "C", "url": "repo:x/ROADMAP.md", "source": "context", "kind": "context"}
+    add = ["add-record", "--ideas", str(ideas), "--id", idea_id, "--group", "context"]
+    assert cli.main([*add, "--json", json.dumps(record)]) == 0
+    assert cli.main(["pool", "--ideas", str(ideas), "--id", idea_id]) == 0
+    assert not (run / "judge.json").exists() and not (run / "verify.json").exists()
+    for name, text in stale.items():
+        (run / name).write_text(text)
+    capsys.readouterr()
+    assert _apply(ideas, idea_id) == 0
+    assert "later" in capsys.readouterr().out
+    assert "**Closest:** none verified." in (ideas / "ideas" / f"{idea_id}.md").read_text()
+
+
+def test_apply_refuses_a_pool_json_edited_after_pool_ran(tmp_path: Path, capsys):
+    ideas = init_ideas(tmp_path)
+    idea_id, run = _triaged(ideas, capsys)
+    pooled = json.loads((run / "pool.json").read_text())
+    pooled["records"][0]["text"] = QUOTE
+    (run / "pool.json").write_text(json.dumps(pooled))
+    path = ideas / "ideas" / f"{idea_id}.md"
+    before = path.read_text()
+    capsys.readouterr()
+    assert _apply(ideas, idea_id) == 1
+    assert "pool.json changed since pool ran; run pool again" in capsys.readouterr().err
+    assert path.read_text() == before
