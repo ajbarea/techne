@@ -1,6 +1,12 @@
+---
+description: Audit the latest GitHub Actions runs on the current branch or PR for warnings, failures and noise, and fix what is fixable in the repo.
+---
+
 # `techne:ci-audit`
 
 Audit the latest GitHub Actions workflow runs on the current branch or PR for warnings, errors, failures, and deprecation notices. Fix what's fixable in-repo; hand commit and push back to you.
+
+Part of [techne](../plugins/techne.md): `/plugin install techne@techne`, then `/techne:setup`.
 
 ## When to use
 
@@ -25,4 +31,8 @@ The skill does not commit, push, or merge. Run `/techne:auto-commit` to group an
 
 - [`techne:audit`](audit.md): audit local `make` targets instead of GitHub Actions.
 - [`techne:auto-commit`](auto-commit.md): group and commit the fixes the audit produced.
-- [Conventions](../conventions.md): `.claude/skill-context.md` `## ci_audit` section for repo-specific config.
+- [Conventions](../conventions.md#section-reference): `.claude/skill-context.md` `## ci_audit` section for repo-specific config.
+
+## Full instructions
+
+[`SKILL.md` on GitHub](https://github.com/ajbarea/techne/blob/main/plugins/techne/skills/ci-audit/SKILL.md) holds the full instructions Claude follows for this skill.

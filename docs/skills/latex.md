@@ -1,6 +1,12 @@
+---
+description: Build a LaTeX document and gate the result on its log, its PDF and the assignment it answers.
+---
+
 # `graphe:latex`
 
 Build a LaTeX document and gate the result on its log, its PDF, and the assignment it answers.
+
+Part of [graphe](../plugins/graphe.md): `/plugin install graphe@techne`, then `/graphe:setup`.
 
 ## When to use
 
@@ -30,11 +36,11 @@ Options:
 | `--prompt FILE` | Assignment text to check coverage against. Default: the lone `*.extracted.md` beside the source. |
 | `--no-prompt` | Skip the coverage check. |
 | `--no-prose` | Skip the plain-prose pattern check. |
-| `--markers A,B` | Draft markers that must not survive into the PDF. |
+| `--markers A,B` | Draft markers that must not survive into the PDF (default `FILL`, `TODO`, `XXX`, `CITATION NEEDED`). |
 | `--overfull-pt N` | Report overfull boxes at or above N points (default 5). |
 | `--engine {pdf,xelatex,lualatex}` | The latexmk engine flag (default `pdf`). |
 
-There are no Python dependencies; the script needs TeX Live and poppler. It runs through `uv run` rather than `python`, which is not on PATH on a machine that ships only `python3`.
+A `## latex` section in the repo's `.claude/skill-context.md` sets `markers`, `overfull_pt` and `engine` per repo, and the options override it. There are no Python dependencies; the script needs TeX Live and poppler. It runs through `uv run` rather than `python`, which is not on PATH on a machine that ships only `python3`.
 
 ## Why one command
 
@@ -44,7 +50,7 @@ The exit code carries the verdict. `0` built clean, `1` did not build, or bad pa
 
 ## What it gates on
 
-Errors come with `file:line`. Blockers are the things that compile without complaint and are still wrong in the PDF: `[?]` from an unresolvable citation, `??` from a missing reference, a label defined twice so refs point at the last one, characters dropped because the font lacks the glyph, and draft markers surviving into the output. Three gates round that out: `bibliography` (BLOCK) reports every biber warning in the `.blg`, `unsettled` (BLOCK) fires when the log still asks for a rerun, and `no-pdf` (ERROR) fires when the run claimed success and wrote nothing. Warnings cover the largest overfull boxes, font substitution and package chatter.
+Errors come with `file:line`. Gate ids are `tex-error`, `undefined-cite`, `undefined-ref`, `duplicate-label`, `missing-glyph` and `draft-marker`. Blockers are the things that compile without complaint and are still wrong in the PDF: `[?]` from an unresolvable citation, `??` from a missing reference, a label defined twice so refs point at the last one, characters dropped because the font lacks the glyph, and draft markers surviving into the output. Three gates round that out: `bibliography` (BLOCK) reports every biber warning in the `.blg`, `unsettled` (BLOCK) fires when the log still asks for a rerun, and `no-pdf` (ERROR) fires when the run claimed success and wrote nothing. Warnings cover the largest overfull boxes, font substitution and package chatter.
 
 One class is advisory. Coverage regexes problem headers out of the assignment prompt and out of `pdftotext` output and reports what it could not locate. A document that renumbers its headers trips it while being complete, so it prints as `REVIEW` and never decides the exit code.
 
@@ -64,3 +70,7 @@ Those need TeX Live, and CI does not install it. Rather than let them skip unnot
 
 - [`graphe:pdf`](pdf.md): markdown in, PDF out, a different pipeline.
 - [`graphe:paper`](paper.md): scaffolding a new paper directory rather than building an existing one.
+
+## Full instructions
+
+[`SKILL.md` on GitHub](https://github.com/ajbarea/techne/blob/main/plugins/graphe/skills/latex/SKILL.md) holds the full instructions Claude follows for this skill.

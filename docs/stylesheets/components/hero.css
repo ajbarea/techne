@@ -118,6 +118,21 @@ body.hero-page .md-content__inner {
   font-size: 0.9em;
 }
 
+/* The marketplace line sits in the hero so a first-time reader sees how to install
+   before any scrolling. */
+.hero-install {
+  margin: 0 0 1.4rem;
+}
+
+.md-typeset .hero-install .highlight,
+.hero-install .highlight {
+  margin: 0;
+}
+
+.md-typeset .hero-install pre > code {
+  font-size: 0.8rem;
+}
+
 .hero-buttons {
   display: flex;
 }
@@ -175,7 +190,7 @@ body.hero-page .md-content__inner {
     align-items: center;
     text-align: center;
     justify-content: flex-start;
-    padding: min(86vw, 28rem) 1.2rem 3rem;
+    padding: min(50vw, 20rem) 1.2rem 2.5rem;
   }
 
   .hero::before {
@@ -184,7 +199,7 @@ body.hero-page .md-content__inner {
     left: 50%;
     right: auto;
     width: min(92vw, 30rem);
-    height: min(90vw, 29rem);
+    height: min(56vw, 20rem);
     transform: translateX(-50%);
     background-position: 60% center;
     background-size: cover;
@@ -204,7 +219,12 @@ body.hero-page .md-content__inner {
 
   .hero-subtitle {
     font-size: 1rem;
-    margin-bottom: 1.4rem;
+    margin-bottom: 1rem;
+  }
+
+  .hero-install {
+    text-align: left;
+    width: 100%;
   }
 
   .hero-buttons,

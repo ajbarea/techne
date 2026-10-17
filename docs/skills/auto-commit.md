@@ -1,6 +1,12 @@
+---
+description: Group pending git changes into a conventional-commit plan in COMMITS.md for review, then branch, commit, push and open a PR on approval.
+---
+
 # `techne:auto-commit`
 
 Analyze pending git changes and write a structured commit plan to `COMMITS.md` so you can review and stage commits in batches before anything lands.
+
+Part of [techne](../plugins/techne.md): `/plugin install techne@techne`, then `/techne:setup`.
 
 ## When to use
 
@@ -25,3 +31,7 @@ Saying "go" (or "ship it", "execute the plan") triggers the full branch-commit-p
 - [`techne:ci-audit`](ci-audit.md): audit CI after the branch lands.
 - [`techne:deslop`](deslop.md): clean up comments before committing.
 - [Conventions](../conventions.md): working-docs convention (`COMMITS.md` is never committed).
+
+## Full instructions
+
+[`SKILL.md` on GitHub](https://github.com/ajbarea/techne/blob/main/plugins/techne/skills/auto-commit/SKILL.md) holds the full instructions Claude follows for this skill.

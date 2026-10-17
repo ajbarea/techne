@@ -1,7 +1,12 @@
+---
+description: "Verify a LaTeX project's bibliography: lint offline, verify against arXiv and Crossref, and check every cited key rendered."
+---
+
 # `dokimasia:check`
 
 Verify a LaTeX project's bibliography: lint any `.bib` or hand-written `thebibliography` offline, resolve its identifiers against arXiv and Crossref, and confirm every cited key rendered.
 
+Part of [dokimasia](../plugins/dokimasia.md): `/plugin install dokimasia@techne`.
 Named for the Athenian *dokimasia*, the scrutiny of a candidate's credentials before office.
 
 ## When to use
@@ -66,7 +71,7 @@ The `.bbl` is the same stem in `outdir` when set and present there, else beside 
 
 ## Configuration
 
-Optional. Put `dokimasia.toml` at the project root, or a `[tool.dokimasia]` table in `pyproject.toml`. An unknown key is an error.
+Optional. Put `dokimasia.toml` at the project root, or a `[tool.dokimasia]` table in `pyproject.toml`; when both exist, `dokimasia.toml` wins. An unknown key is an error. The root is `--root`, else the nearest ancestor holding a config, else the git top-level, else the current directory.
 
 ```toml
 bib = ["references.bib"]        # default: every *.bib under the root
@@ -83,7 +88,11 @@ smith2024x = "arXiv's own title misspells a word"
 [exempt.record]                 # key = reason: skips first author and year
 ```
 
-A configured intake file that does not exist is an error, as is a cache file that is not a JSON object. The root search stops at the git top-level. Every exemption needs a reason, and one naming a key that is not in the bibliography is a lint finding. Set `DOKIMASIA_MAILTO` to use Crossref's polite pool.
+The sample shows values, and the defaults are `orphans = true`, `cache = ".dokimasia-cache.json"` and `staged_headings = ["not yet positioned", "do not cite"]`; `bib` defaults to every `*.bib` under the root. A configured intake file that does not exist is an error, as is a cache file that is not a JSON object. Cached records expire after 14 days. Hidden directories, `node_modules` and broken symlinks are always skipped, and an unreadable file is named on stderr as `cannot read`. Every exemption needs a reason, and one naming a key that is not in the bibliography is a lint finding. Set `DOKIMASIA_MAILTO` to use Crossref's polite pool.
+
+## Output
+
+Every line is prefixed `dokimasia:`. Findings go to stderr and the summary to stdout. `verify` waits 3 seconds between arXiv lookups, and retries a 406, 429 or 503 up to three times, after 5 and then 20 seconds.
 
 ## Testing it
 
@@ -92,3 +101,7 @@ A configured intake file that does not exist is an error, as is a cache file tha
 ## See also
 
 - [`graphe:latex`](latex.md): builds the document whose `.bbl` `rendered` reads.
+
+## Full instructions
+
+[`SKILL.md` on GitHub](https://github.com/ajbarea/techne/blob/main/plugins/dokimasia/skills/check/SKILL.md) holds the full instructions Claude follows for this skill.

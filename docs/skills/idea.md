@@ -1,7 +1,12 @@
+---
+description: Capture an idea and triage it against papers, patents, products and your own work, then file it as trash, later, do or merged.
+---
+
 # `heuresis:idea`
 
 Capture an idea and triage it against prior work. The skill saves the idea to your private ideas repository, searches papers, patents, products and your own research for anything like it, names the closest existing work, and files the idea as trash, later, do or merged, with the evidence.
 
+Part of [heuresis](../plugins/heuresis.md): `/plugin install heuresis@techne`, then `/heuresis:setup`.
 εὕρεσις is discovery. The skill's first question is whether someone already found it.
 
 ## When to use
@@ -50,7 +55,7 @@ The skill reports four lines: the state, type and project; the closest rival wit
 
 They run in code, so no prompt can skip them.
 
-- **`do`** needs a verified closest rival with all four comparisons filled in, and at least one paper source that returned results. Otherwise the verdict becomes `later`, with the reason "insufficient evidence" and a revisit date 90 days out.
+- **`do`** needs a type, a verified closest rival with all four comparisons filled in, and at least one paper source that returned results. Otherwise the verdict becomes `later`, with the reason "insufficient evidence" and a revisit date 90 days out.
 - **`merged`** needs `duplicate_of` to name an idea that exists in the repository.
 - **`later`** always carries a revisit date, and `BOARD.md` lists it as due once the date passes.
 - A quote that is not in its record, or a record that does not verify, never supports a verdict.
@@ -67,6 +72,7 @@ All inside your ideas repository.
 | `runs/<id>/` | The latest run's working files: restatement, scout records, pool, judge output, verification. A retriage replaces them. |
 | `BOARD.md` | Needs triage (inbox and invalid files), Due for revisit, Do (by project, then type), Later, and Closed (counts with links). Regenerated. |
 | `LOG.md` | One line per verdict, triage or override, newest first. Regenerated. |
+| `projects.toml`, `context.toml` | Seeded by `heuresis init`. `heuresis context` reads them to find your research sources, and the `--project` names come from `projects.toml`. |
 
 ## Keys
 
@@ -87,4 +93,8 @@ The Lens and EPO adapters are written against the providers' documented response
 
 ## What it cannot tell you
 
-Patent search covers the granted and published patents these two sources index. A paper or product the sources do not index, or a page that renders its text with JavaScript, is invisible to it. A `later` verdict marked "insufficient evidence" means the search came back thin, not that the idea is new.
+Patent search covers the granted and published patents these two sources index. A source's coverage line reads `ok` (with a `partial:` note when it returned only some results), `empty`, `failed` or `skipped`. A paper or product the sources do not index, or a page that renders its text with JavaScript, is invisible to it. A `later` verdict marked "insufficient evidence" means the search came back thin, not that the idea is new.
+
+## Full instructions
+
+[`SKILL.md` on GitHub](https://github.com/ajbarea/techne/blob/main/plugins/heuresis/skills/idea/SKILL.md) holds the full instructions Claude follows for this skill.

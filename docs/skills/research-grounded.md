@@ -1,6 +1,12 @@
+---
+description: Find design decisions in IMPL.md and ROADMAP.md that lack research provenance, then search the web to ground them.
+---
+
 # `techne:research-grounded`
 
 Flag design decisions in a plan (library, framework, pattern, and architecture choices) that lack a `# research(YYYY-MM):` provenance comment, then web-search to ground them before they harden into code.
+
+Part of [techne](../plugins/techne.md): `/plugin install techne@techne`, then `/techne:setup`.
 
 ## When to use
 
@@ -29,3 +35,7 @@ The skill greps for decision language only as a candidate seed, then reads aroun
 
 - [`techne:docsync`](docsync.md): verifies documentation claims against the code; this skill is the sibling that verifies design *decisions* against *evidence*.
 - [`techne:deslop`](deslop.md): tightens AI-slop prose, a different kind of doc-quality pass.
+
+## Full instructions
+
+[`SKILL.md` on GitHub](https://github.com/ajbarea/techne/blob/main/plugins/techne/skills/research-grounded/SKILL.md) holds the full instructions Claude follows for this skill.

@@ -1,7 +1,12 @@
+---
+description: "Review a change adversarially before merge: reproduce the load-bearing claim, trace every consumer, and walk a bug-class rubric."
+---
+
 # `techne:elenchus`
 
 Adversarial pre-merge code review. Drives `/code-review`, then runs the three passes diff-reading skips and applies a fixed bug-class rubric.
 
+Part of [techne](../plugins/techne.md): `/plugin install techne@techne`, then `/techne:setup`.
 ἔλεγχος is the Socratic cross-examination: you do not confirm what the author meant, you hunt the one input that refutes the claim the change rests on.
 
 ## When to use
@@ -26,7 +31,7 @@ Independence is restored mechanically, not by willpower. `/code-review` at `high
 
 `/code-review` does not force these, so elenchus adds them:
 
-1. **Reproduce the load-bearing claim** — run it; check the null, empty, zero-rows, and boundary cells.
+1. **Reproduce the load-bearing claim**: run it; check the null, empty, zero-rows, and boundary cells.
 2. **Trace every consumer** of every changed symbol across the whole repo.
 3. **Review against `main`**, not against the `+/-` of the diff.
 
@@ -64,4 +69,8 @@ Reads optional per-repo hints from the `## elenchus` section of `.claude/skill-c
 
 - [`techne:catchup`](catchup.md): re-read an item's threads before reviewing it, so you review against current feedback.
 - [`techne:ci-audit`](ci-audit.md): CI-side failures and log noise.
-- [Conventions](../conventions.md): `.claude/skill-context.md` section layout.
+- [Conventions](../conventions.md#section-reference): `.claude/skill-context.md` section layout.
+
+## Full instructions
+
+[`SKILL.md` on GitHub](https://github.com/ajbarea/techne/blob/main/plugins/techne/skills/elenchus/SKILL.md) holds the full instructions Claude follows for this skill.

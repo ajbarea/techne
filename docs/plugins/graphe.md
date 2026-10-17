@@ -1,21 +1,54 @@
+---
+description: graphe plugin, the document skills for Claude Code. Build and gate LaTeX papers, render markdown to PDF, make talk decks, scaffold a paper and review it before submission.
+---
+
 # graphe
 
-graphe builds and checks documents: LaTeX papers, markdown rendered to PDF, and talk decks. It also scaffolds a research paper and runs a pre-submission novelty review. The [skill pages](../skills/index.md) describe each skill.
+graphe builds and checks documents: LaTeX papers, markdown rendered to PDF, and talk decks. It also scaffolds a research paper and runs a pre-submission novelty review.
+
+## Use it when
+
+- A `.tex` file needs a build that checks the log, the PDF and the assignment.
+- Markdown should become a print-quality PDF.
+- You are making or revising a talk deck.
+- You are starting a paper in a papers-style monorepo, or want a novelty and reviewer pass on a draft.
 
 ## Install
 
-```bash
+```text
 /plugin marketplace add ajbarea/techne
 /plugin install graphe@techne
 ```
 
-Then run `/graphe:setup`. It checks uv, TeX Live (latexmk, pdflatex, biber), poppler, `strings`, Playwright's Chromium, and the optional tools for `.pptx` decks. It only reads, and prints the install command for anything missing. Claude follows the [setup runbook](https://github.com/ajbarea/techne/blob/main/plugins/graphe/AGENTS.md).
+## Needs
 
-## First use
+uv, TeX Live (latexmk, pdflatex, biber), poppler (`pdftotext`, `pdfinfo`, `pdffonts`, `pdftoppm`), `strings` from binutils, Playwright's Chromium, and python3 3.9 or newer to run the doctor. LibreOffice or PowerPoint, Node and pptxgenjs are optional and only for `.pptx` decks.
+
+## Set up
+
+Run `/graphe:setup`. It only reads, and prints the install command (a `fix:` line) for anything missing. The last line is `result: ready`, or `result: missing` with the names of the required checks that failed, and the doctor exits 1 in that case. Chromium is a required check, so a LaTeX-only user still sees `result: missing chromium` until it is installed. Claude follows the [setup runbook](https://github.com/ajbarea/techne/blob/main/plugins/graphe/AGENTS.md).
+
+## Skills
+
+| Skill | Use it to |
+|---|---|
+| [`graphe:latex`](../skills/latex.md) | Build a LaTeX document and gate it on its log and PDF. |
+| [`graphe:paper`](../skills/paper.md) | Scaffold a paper directory in a papers-style monorepo. |
+| [`graphe:paper-review`](../skills/paper-review.md) | Run a novelty and reviewer pass on a draft. |
+| [`graphe:pdf`](../skills/pdf.md) | Render markdown to PDF and verify fonts and content. |
+| [`graphe:setup`](../skills/graphe-setup.md) | Check what graphe needs on this machine. |
+| [`graphe:slides`](../skills/slides.md) | Build and gate a talk deck. |
+
+First runs:
 
 - `/graphe:latex paper/main.tex` builds the paper and checks the log and the PDF.
 - `/graphe:pdf notes.md` renders markdown to a PDF.
 - `/graphe:slides` starts a web talk deck from the starter.
+- `/graphe:paper` scaffolds a new paper; `/graphe:paper-review` reviews a draft before submission.
+
+## Configuration
+
+`graphe:latex`, `graphe:paper` and `graphe:paper-review` read the `## latex`, `## paper` and `## paper-review` sections of the repo's `.claude/skill-context.md`; each skill page lists its keys. [Conventions](../conventions.md) describes the file.
 
 ## Troubleshooting
 

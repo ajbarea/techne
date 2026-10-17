@@ -1,6 +1,12 @@
+---
+description: Rewrite docstrings and comments from the implementation, call sites and tests instead of deleting them.
+---
+
 # `techne:reslop`
 
 Rewrite docstrings and comments grounded in the actual implementation, call sites, and tests. Produces factual one-or-two-line descriptions instead of marketing prose or signature restatements.
+
+Part of [techne](../plugins/techne.md): `/plugin install techne@techne`, then `/techne:setup`.
 
 ## When to use
 
@@ -23,4 +29,8 @@ Default scope is the files the user named, or pending-change files. The skill re
 
 - [`techne:deslop`](deslop.md): identify and delete low-value prose; hand off to reslop when a replacement is needed.
 - [`techne:docsync`](docsync.md): verify factual claims in docs after a reslop pass.
-- [Conventions](../conventions.md): `## slop_ground_truth` section in `.claude/skill-context.md` for grounding numeric claims.
+- [Conventions](../conventions.md#section-reference): `## slop_ground_truth` section in `.claude/skill-context.md` for grounding numeric claims.
+
+## Full instructions
+
+[`SKILL.md` on GitHub](https://github.com/ajbarea/techne/blob/main/plugins/techne/skills/reslop/SKILL.md) holds the full instructions Claude follows for this skill.

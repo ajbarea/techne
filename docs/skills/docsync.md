@@ -1,6 +1,12 @@
+---
+description: "Check a documentation file for drift against the code: commands, paths, config keys, signatures, versions and environment variables."
+---
+
 # `techne:docsync`
 
 Compare documentation against the code it describes. Surface where the docs say one thing and the code says another, then propose corrections grounded in current code.
+
+Part of [techne](../plugins/techne.md): `/plugin install techne@techne`, then `/techne:setup`.
 
 ## When to use
 
@@ -29,4 +35,8 @@ The skill extracts checkable claims (commands, paths, signatures, config keys, v
 
 - [`techne:docs-site`](docs-site.md): site mechanics (nav, deploy workflow, link integrity).
 - [`techne:deslop`](deslop.md): slop in documentation prose unrelated to factual drift.
-- [Conventions](../conventions.md): `## repo` section in `.claude/skill-context.md` for CLI entrypoint and runner module.
+- [Conventions](../conventions.md#section-reference): `## repo` section in `.claude/skill-context.md` for CLI entrypoint and runner module.
+
+## Full instructions
+
+[`SKILL.md` on GitHub](https://github.com/ajbarea/techne/blob/main/plugins/techne/skills/docsync/SKILL.md) holds the full instructions Claude follows for this skill.

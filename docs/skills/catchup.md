@@ -1,6 +1,12 @@
+---
+description: Read every comment, review and state change on a GitHub repo since you last took part, and report who is blocked on whom.
+---
+
 # `techne:catchup`
 
 Read every comment, review, and state change on one repo's issues and PRs since you last participated, then report who is blocked on whom. Read-only.
+
+Part of [techne](../plugins/techne.md): `/plugin install techne@techne`, then `/techne:setup`.
 
 ## When to use
 
@@ -34,7 +40,7 @@ Four surfaces, because a comment-only sweep misses the quiet events:
 1. Issue and PR conversation comments
 2. PR review bodies and verdicts
 3. Inline review comments on the diff
-4. State changes carrying no comment at all — merges, closes, approvals, new PRs
+4. State changes carrying no comment at all: merges, closes, approvals, new PRs
 
 It also reports standing state -- open PRs and open issues -- separately from events, because an item nobody answered produces no event at all. An issue you filed and nobody replied to is waiting on them just as much as a blocking review is, and it will never appear in a list of things that happened.
 
@@ -75,3 +81,7 @@ Several tests exist to pin a safety property rather than a behaviour. A close is
 
 - [`techne:elenchus`](elenchus.md): once a catch-up says a PR needs your review, elenchus runs it.
 - [`techne:ci-audit`](ci-audit.md): when a catch-up surfaces a failing check, ci-audit reads the logs.
+
+## Full instructions
+
+[`SKILL.md` on GitHub](https://github.com/ajbarea/techne/blob/main/plugins/techne/skills/catchup/SKILL.md) holds the full instructions Claude follows for this skill.

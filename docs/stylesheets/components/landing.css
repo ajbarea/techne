@@ -96,6 +96,27 @@
   color: var(--card-text-color);
 }
 
+/* Plugin card: the card is a div (the plugin name is the link), with what it needs and
+   its install line at the foot. */
+.skill-card .skill-name a {
+  color: inherit;
+}
+
+.skill-card .plugin-needs {
+  margin-top: 0.6rem;
+  font-size: 0.82rem;
+  color: var(--muted-text-color);
+}
+
+.skill-card .plugin-install {
+  display: block;
+  margin-top: 0.6rem;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.78rem;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
 /* Responsive adjustments */
 @media (max-width: 600px) {
   .landing-section {
@@ -106,7 +127,7 @@
     padding: 0 1rem;
   }
 
-  /* Seventeen cards stacked is a long scroll; on a phone each is a compact row. */
+  /* On a phone each card is a compact row. */
   .skill-grid {
     grid-template-columns: 1fr;
     gap: 0.6rem;

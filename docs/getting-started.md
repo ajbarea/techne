@@ -1,186 +1,79 @@
+---
+description: Install a techne plugin, run its setup skill, and run a first skill. One first-run line for each plugin.
+---
+
 # Getting Started
 
-Install techne and run your first skill in minutes.
+Install the plugins you need, check each one's requirements, and run a first skill.
 
 ## Prerequisites
 
-You'll need:
+[Claude Code](https://code.claude.com/docs): the CLI, the desktop app, or an IDE extension. Each plugin's setup skill checks the rest and prints the install command for each tool that is missing.
 
-- **Claude Code**: the CLI, desktop app, or IDE extension. See [code.claude.com/docs](https://code.claude.com/docs).
-- **Each plugin's setup skill** checks the rest. `/techne:setup`, `/graphe:setup` and `/phylax:setup` print the install command for each tool that is missing.
-
-## Installation
+## 1. Add the marketplace
 
 From inside Claude Code:
 
-```bash
+```text
 /plugin marketplace add ajbarea/techne
-/plugin install techne@techne
-/plugin install graphe@techne
-/plugin install dokimasia@techne
-/plugin install heuresis@techne
-/plugin install phylax@techne
-/plugin install epistole@techne
-/plugin install schole@techne
-/plugin install keryx@techne   # WSL2 only
 ```
 
-Then run the setup skill for each plugin you installed: `/techne:setup`, `/graphe:setup`, `/heuresis:setup`, `/phylax:setup`, `/epistole:setup`, `/schole:setup`. dokimasia needs only uv. Each plugin's page under **Plugins** covers first use and troubleshooting.
+## 2. Pick your plugin
 
-Verify the install:
+Install only the plugins you use. Every enabled plugin's skill list sits in Claude's context on every turn.
 
-```bash
+| You want to | Install | Then run | First run |
+|---|---|---|---|
+| Audit a build, review CI or a change, plan commits, catch up on GitHub | `/plugin install techne@techne` | `/techne:setup` | `/techne:audit` in a repo with a Makefile, or `/techne:catchup` in any GitHub repo |
+| Build LaTeX, PDFs or talk decks, scaffold or review a paper | `/plugin install graphe@techne` | `/graphe:setup` | `/graphe:latex paper/main.tex` |
+| Check a bibliography | `/plugin install dokimasia@techne` | needs only uv | `/dokimasia:check` |
+| Triage an idea against prior work | `/plugin install heuresis@techne` | `/heuresis:setup` | `/heuresis:idea --now <your idea>` |
+| Read and draft Gmail across accounts | `/plugin install epistole@techne` | `/epistole:setup` | `/epistole:catch-me-up` |
+| Check a Brightspace course site | `/plugin install schole@techne` | `/schole:setup` | `/schole:courses` |
+| Block attribution lines, guard commits, restart on update | `/plugin install phylax@techne` | switch options on in `/config`, then `/phylax:setup` | `/phylax:setup` shows what is on |
+| Hear a gist of each reply (WSL2 only) | `/plugin install keryx@techne` | `keryx status` | speaks the next reply |
+
+Each plugin's page under [Plugins](plugins/techne.md) lists what it needs, its commands, and its fixes.
+
+## 3. Set up
+
+Run the setup skill for each plugin you installed. It checks what the plugin needs on this machine and prints the exact install command for anything missing. The doctors only read. Run a `fix:` line yourself when it contains `sudo`, and after `!` in Claude Code.
+
+Confirm the skills loaded:
+
+```text
 /skills
 ```
 
-The `techne:*`, `graphe:*`, `dokimasia:*`, `heuresis:*`, `phylax:setup`, `epistole:*` and `schole:*` skills should be listed (for the plugins you installed). If they are not, run `/reload-plugins` and check again.
+The skills of the plugins you installed should be listed. If they are not, run `/reload-plugins` and check again. To pick up a newer techne, run `/plugin install techne@techne` again, or enable auto-update for the marketplace in `/plugin`.
 
-Install only the plugins you use: `techne` holds the code-repo skills, `graphe` the document skills (LaTeX, PDF, slides, papers), `dokimasia` the bibliography checker, `heuresis` idea triage, `phylax` the opt-in git guards, `epistole` Gmail across accounts (see [epistole](epistole.md)), `schole` Brightspace course sites (see [schole](plugins/schole.md)), and `keryx` speaks a gist of each reply (WSL2 only).
+## 4. First run: validate a build
 
-## First Workflow
+Pick `techne:audit` and run it in a repo that has the [Makefile pattern](conventions.md#the-makefile-pattern):
 
-Let's walk through a typical use case: **validating your local build before pushing**.
-
-### 1. Pick Your First Skill
-
-Choose based on what you're trying to do:
-
-| Want to... | Use |
-|---|---|
-| Validate your local build is clean (lint, test, etc.) | [`techne:audit`](skills/audit.md) |
-| Organize your pending changes into logical commits | [`techne:auto-commit`](skills/auto-commit.md) |
-| Catch up on a repo's threads since you last looked | [`techne:catchup`](skills/catchup.md) |
-| Check GitHub Actions for warnings and failures | [`techne:ci-audit`](skills/ci-audit.md) |
-| Clean up AI-generated slop in your code | [`techne:deslop`](skills/deslop.md) |
-| Rewrite docstrings grounded in the code | [`techne:reslop`](skills/reslop.md) |
-| Verify documentation claims match the code | [`techne:docsync`](skills/docsync.md) |
-| Maintain your Zensical docs site | [`techne:docs-site`](skills/docs-site.md) |
-| Review a change adversarially before merge | [`techne:elenchus`](skills/elenchus.md) |
-| Build a LaTeX document and check the PDF is right | [`graphe:latex`](skills/latex.md) |
-| Turn markdown into print-quality PDFs | [`graphe:pdf`](skills/pdf.md) |
-| Scaffold or review a research paper | [`graphe:paper`](skills/paper.md), [`graphe:paper-review`](skills/paper-review.md) |
-| Ground plan decisions in current best practice | [`techne:research-grounded`](skills/research-grounded.md) |
-| Audit sister repos for consistency | [`techne:sisters`](skills/sisters.md) |
-| Verify a bibliography against arXiv and Crossref | [`dokimasia:check`](skills/check.md) |
-| Capture an idea and check it against prior work | [`heuresis:idea`](skills/idea.md) |
-| Get a talk deck ready to present | [`graphe:slides`](skills/slides.md) |
-| Drive a REPL while someone watches | [`techne:theoros`](skills/theoros.md) |
-
-### 2. Run Your First Skill
-
-Example: `techne:audit` to validate the build.
-
-```bash
+```text
 /techne:audit
 ```
 
 It runs the phases your `.claude/skill-context.md` lists, then prints one table row per command (terminal exit code, archive `SUMMARY` rc, steps, elapsed) and a one-line verdict such as `Full audit clean.` A failing row names the archive to open.
 
-### 3. Review & Approve
+Skills that change files show you the plan, report or diff before making changes. Review it, then say "go" or "apply" to execute it, or ask for changes.
 
-Skills that change files show you the plan, report, or diff **before** making changes. Review it, then approve:
+Once one skill is familiar, combine them:
 
-```bash
-# You see a report or diff
-# Review it: does it look right?
-# If yes, say "go" or "apply" to execute
-# If no, edit manually or ask for refinements
-```
-
-### 4. Next: Multi-Skill Workflows
-
-Once you're comfortable with one skill, combine them:
-
-```bash
-# Validate locally
+```text
 /techne:audit
-
-# Organize your changes
 /techne:auto-commit
-# Review COMMITS.md, then say "go"
-
-# Check GitHub Actions output
 /techne:ci-audit
-
-# Clean up prose before merging
 /techne:deslop src/
 ```
 
-See [Examples](examples.md) for real-world workflows.
+[Examples](examples.md) walks through real workflows.
 
-## Configuration
+## Next steps
 
-### Per-Repo Configuration
-
-Several skills read repo-specific facts from `.claude/skill-context.md`, one `##` section per skill family. `/techne:setup` offers to copy the skeleton into a repo that has none. [Conventions](conventions.md) explains each section, and [Configuration](configuration.md) the user-level `~/.claude/techne.toml`.
-
-### Multi-Repo Configuration
-
-If you manage multiple repositories (sister repos), create `~/.claude/techne.toml`:
-
-```toml
-github_user = "your-github-username"
-workspace_root = "/path/to/your/workspace"
-
-[[sisters]]
-name = "repo-one"
-status = "active"
-
-[[sisters]]
-name = "repo-two"
-status = "active"
-
-[[sisters]]
-name = "repo-three"
-status = "active"
-```
-
-Then use `techne:sisters` to audit cross-repo consistency. See [Configuration](configuration.md) for details.
-
-## Common Questions
-
-**Q: Can I use only one skill?**  
-A: Yes! Each skill is independent. You can use `audit` without `ci-audit`, or `docsync` without any others.
-
-**Q: What if a skill tries to modify my code and I disagree?**  
-A: Skills that edit show a plan or diff first. Review it, edit manually if needed, and approve before execution.
-
-**Q: Can I customize skill behavior?**  
-A: Yes. Use `.claude/skill-context.md` for per-repo overrides, and `~/.claude/techne.toml` for multi-repo config. See [Configuration](configuration.md).
-
-**Q: Does `techne` modify my git history?**  
-A: Only if you approve. `auto-commit` branches, commits, pushes and opens a PR only after you say "go" on its plan. `audit`, `catchup` and `sisters` are read-only; `docsync` and `ci-audit` edit files but leave committing to you.
-
-**Q: What's the difference between `deslop` and `reslop`?**  
-A: `deslop` finds and trims AI-slop (verbose, redundant prose). `reslop` rewrites docstrings grounded in the actual code. Use `deslop` for triage; use `reslop` when you want replacement prose, not deletion. See [Examples](examples.md#pre-release-documentation-audit) for a real workflow.
-
-**Q: How do I debug issues?**  
-A: The skills are prompt-driven, not CLI tools with flags; steer them in natural language. Ask Claude to explain what a skill is doing, or tell it what looked wrong and rerun. If one gets stuck, cancel and try a different approach.
-
-## Troubleshooting
-
-**`/techne:audit` is not recognized**  
-- Ensure you ran `/plugin install techne@techne` inside Claude Code (`graphe@techne` for the document skills).
-- Run `/reload-plugins`, then `/skills` to confirm the `techne:*` skills are listed.
-- To pick up a newer techne, run `/plugin install techne@techne` again, or enable auto-update for the marketplace in `/plugin`.
-
-**A tool or sign-in is missing**  
-- Run the plugin's setup skill. Each plugin's page under Plugins lists its fixes.
-
-**"Skill runs but output looks wrong"**  
-- Re-run and tell Claude what specifically looked off. There are no `--verbose`/`--debug` flags; the skills are prompt-driven, so natural language is the control surface.
-- Check `.claude/skill-context.md` for any overrides that might affect behavior.
-- Ask Claude to explain what the skill is doing.
-
-**"Sister repo config not working"**  
-- Verify `~/.claude/techne.toml` exists and is readable.
-- Check the repo names match your actual directories.
-- Ask `techne:sisters` which repos it detected from the config.
-
-## Next Steps
-
-- **[Explore All Skills](skills/index.md)**: Detailed reference for each skill
-- **[Architecture Guide](architecture.md)**: Understand how skills fit together
-- **[Real-World Examples](examples.md)**: See skills in action across different workflows
-- **[Configuration Reference](configuration.md)**: Customize skills for your repos
-- **[techne on GitHub](https://github.com/ajbarea/techne)**: Source code and issue tracker
+- [Skills](skills/index.md): what each skill does, grouped by job.
+- [Configuration](configuration.md): `~/.claude/techne.toml` and phylax options.
+- [Conventions](conventions.md): the files each techne skill assumes.
+- [Troubleshooting](troubleshooting.md): common questions and fixes.
+- [Architecture](architecture.md): how the skills fit together.
