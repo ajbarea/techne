@@ -85,6 +85,8 @@ def openalex_search(
     mailto: str | None = None,
     fetch: Fetch = _get,
 ) -> list[dict]:
+    # A comma separates OpenAlex filters, so one inside the query is answered with HTTP 400.
+    query = " ".join(query.replace(",", " ").split())
     params = {"per-page": str(limit), "select": OPENALEX_SELECT}
     if semantic:
         params["search.semantic"] = query

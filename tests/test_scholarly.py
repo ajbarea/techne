@@ -82,3 +82,14 @@ def test_cli_prints_json_lines(capsys, monkeypatch):
     assert s.main(["openalex", "federated agents", "--limit", "2"]) == 0
     lines = capsys.readouterr().out.strip().splitlines()
     assert all(json.loads(line)["source"] == "openalex" for line in lines)
+
+
+@pytest.mark.parametrize("semantic", [False, True])
+def test_openalex_search_strips_commas_from_the_query(semantic: bool):
+    import urllib.parse
+
+    seen: list = []
+    s.openalex_search("agents, federated,  audit", semantic=semantic, fetch=fake(b"{}", seen))
+    params = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(seen[0][0]).query))
+    value = params["search.semantic"] if semantic else params["filter"]
+    assert value.removeprefix("title_and_abstract.search:") == "agents federated audit"
