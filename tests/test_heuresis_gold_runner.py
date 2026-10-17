@@ -285,3 +285,10 @@ def test_missing_claude_is_a_clear_error(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("PATH", str(tmp_path))
     assert r.main(["run", "--cases", str(CASES), "--no-guard", "--out", str(tmp_path / "o")]) == 2
     assert "claude is not on PATH" in capsys.readouterr().err
+
+
+def test_make_target_and_ignore_rule_exist():
+    makefile = (ROOT / "Makefile").read_text()
+    assert "heuresis-gold:" in makefile and "scripts/heuresis_gold.py run" in makefile
+    assert '-n "$(GUARD)"' in makefile and "--guard-repo $(GUARD)" in makefile
+    assert ".heuresis-gold/" in (ROOT / ".gitignore").read_text()
