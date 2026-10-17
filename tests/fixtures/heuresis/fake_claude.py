@@ -10,12 +10,28 @@ import time
 from pathlib import Path
 
 mode = os.environ.get("FAKE_CLAUDE_MODE", "trash")
+INSTALLED = [
+    {"id": "dokimasia@techne", "enabled": True, "installPath": "/cache/techne/dokimasia/1"},
+    {"id": "heuresis@techne", "enabled": True, "installPath": "/cache/techne/heuresis/1"},
+]
+if sys.argv[1:3] == ["plugin", "list"]:
+    # What the runner's discovery reads; FAKE_PLUGIN_LIST=fail makes it exit non-zero.
+    if os.environ.get("FAKE_PLUGIN_LIST") == "fail":
+        print("plugin list failed", file=sys.stderr)
+        sys.exit(1)
+    if "--json" in sys.argv:
+        print(json.dumps(INSTALLED))
+    else:
+        print("Installed plugins:\n" + "".join(f"  > {p['id']}\n" for p in INSTALLED))
+    sys.exit(0)
 prompt = sys.argv[sys.argv.index("-p") + 1]
 ideas = Path(next(iter(re.findall(r"--ideas (\S+)", prompt))))
 idea_id = next(iter(re.findall(r"--triage (\S+)", prompt)))
 plugins = [{"name": "heuresis", "path": "/plugins/heuresis"}]
 if mode == "no-plugin":
     plugins = []
+if mode == "wrong-dir":
+    plugins = [{"name": "heuresis", "path": "/plugins/other"}]
 if mode == "two-plugins":
     plugins = [
         {"name": "heuresis", "path": "/plugins/other"},
@@ -46,7 +62,7 @@ if mode in ("guard-modified", "guard-untracked"):
         "tracked.md" if mode == "guard-modified" else "untracked.md"
     )
     target.write_text("B" * len(target.read_text()))
-if mode in ("trash", "guard", "two-plugins"):
+if mode in ("trash", "guard", "two-plugins", "wrong-dir"):
     sys.path.insert(0, os.environ["HEURESIS_SRC"])
     from heuresis import cli, store
     from heuresis.model import FACETS

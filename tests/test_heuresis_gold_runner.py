@@ -176,6 +176,91 @@ def test_plugin_path_is_the_entry_that_matches_plugin_dir(fake, monkeypatch):
     assert grades_of(out)[0]["plugin_path"] == "/plugins/other"
 
 
+def settings_of(argv: list[str]) -> dict | None:
+    return json.loads(argv[argv.index("--settings") + 1]) if "--settings" in argv else None
+
+
+def test_plugin_dir_disables_every_installed_heuresis(fake, monkeypatch):
+    mine = fake / "mine"
+    mine.mkdir()
+    record = fake / "record.json"
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "two-plugins")
+    monkeypatch.setenv("FAKE_PLUGIN_DIR", str(mine))
+    monkeypatch.setenv("FAKE_CLAUDE_RECORD", str(record))
+    assert go(fake / "out", "--no-guard", "--plugin-dir", str(mine)) == 0
+    argv = json.loads(record.read_text())["argv"]
+    assert argv.count("--settings") == 1
+    assert settings_of(argv) == {"enabledPlugins": {"heuresis@techne": False}}
+
+
+def test_every_run_gets_the_settings_and_discovery_runs_once(fake, monkeypatch):
+    mine = fake / "mine"
+    mine.mkdir()
+    calls = fake / "calls.log"
+    real = r.subprocess.run
+
+    def spy(cmd, *a, **k):
+        if cmd[:3] == ["claude", "plugin", "list"]:
+            calls.write_text(calls.read_text() + "x" if calls.exists() else "x")
+        return real(cmd, *a, **k)
+
+    monkeypatch.setattr(r.subprocess, "run", spy)
+    seen = []
+    real_session = r.run_session
+    monkeypatch.setattr(
+        r, "run_session", lambda cmd, *a: (seen.append(cmd), real_session(cmd, *a))[1]
+    )
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "two-plugins")
+    monkeypatch.setenv("FAKE_PLUGIN_DIR", str(mine))
+    assert (
+        go(fake / "out", "--no-guard", "--plugin-dir", str(mine), case=("bib-checker", "teleport"))
+        == 0
+    )
+    assert calls.read_text() == "x"
+    assert [settings_of(c) for c in seen] == [{"enabledPlugins": {"heuresis@techne": False}}] * 2
+
+
+def test_without_plugin_dir_nothing_is_disabled_or_discovered(fake, monkeypatch):
+    record = fake / "record.json"
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "trash")
+    monkeypatch.setenv("FAKE_CLAUDE_RECORD", str(record))
+    monkeypatch.setenv("FAKE_PLUGIN_LIST", "fail")
+    assert go(fake / "out", "--no-guard") == 0
+    assert "--settings" not in json.loads(record.read_text())["argv"]
+
+
+def test_failed_discovery_warns_once_and_runs_without_settings(fake, monkeypatch, capsys):
+    mine = fake / "mine"
+    mine.mkdir()
+    record = fake / "record.json"
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "two-plugins")
+    monkeypatch.setenv("FAKE_PLUGIN_DIR", str(mine))
+    monkeypatch.setenv("FAKE_CLAUDE_RECORD", str(record))
+    monkeypatch.setenv("FAKE_PLUGIN_LIST", "fail")
+    code = go(
+        fake / "out", "--no-guard", "--plugin-dir", str(mine), case=("bib-checker", "teleport")
+    )
+    assert code == 0
+    assert capsys.readouterr().err.count("warning") == 1
+    assert "--settings" not in json.loads(record.read_text())["argv"]
+    assert [g["error"] for g in grades_of(fake / "out")] == ["", ""]
+
+
+def test_plugin_dir_that_did_not_load_is_an_error(fake, monkeypatch):
+    mine = fake / "mine"
+    mine.mkdir()
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "wrong-dir")
+    out = fake / "out"
+    assert go(out, "--no-guard", "--plugin-dir", str(mine)) == 0
+    (g,) = grades_of(out)
+    assert g["error"] == "heuresis plugin from --plugin-dir did not load"
+    assert not g["accepted"]
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "no-plugin")
+    out = fake / "out2"
+    assert go(out, "--no-guard", "--plugin-dir", str(mine)) == 0
+    assert grades_of(out)[0]["error"] == "heuresis plugin from --plugin-dir did not load"
+
+
 def test_only_a_snapshot_failure_is_labelled_as_one(fake, monkeypatch, capsys):
     def broken(repo):
         raise RuntimeError("git write-tree failed")

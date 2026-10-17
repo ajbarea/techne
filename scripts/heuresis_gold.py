@@ -2,6 +2,8 @@
 """Run the heuresis gold set: one headless Claude Code triage per case and run, graded from the
 files it writes. Uses your Claude plan; never touches your real ideas repository, which
 --guard-repo watches (the run stops if its refs or any file content change).
+With --plugin-dir, the installed heuresis plugins are switched off for the sessions (--settings)
+and a run whose session did not load heuresis from that folder is an error.
 Results default to $XDG_STATE_HOME/heuresis-gold (~/.local/state/heuresis-gold).
 
 Usage:
@@ -36,6 +38,8 @@ DEFAULT_CASES = PLUGIN / "gold" / "cases.yaml"
 DEFAULT_TIMEOUT = 1200
 # Seconds a timed-out session gets to exit on SIGTERM before its process group is killed.
 TERM_GRACE = 5
+# `claude plugin list` starts no session; a minute is far past a healthy listing.
+PLUGIN_LIST_TIMEOUT = 60
 
 
 def default_out() -> Path:
@@ -192,8 +196,43 @@ def run_session(cmd: list[str], cwd: Path, timeout: int) -> tuple[str, str, int 
     return out or "", err or "", None
 
 
+def installed_heuresis() -> list[str] | None:
+    """Ids like heuresis@techne of the installed heuresis plugins, or None when the list fails.
+
+    `claude plugin list --json` reads the installed set and starts no session. It runs from a
+    scratch folder, the same place the sessions run, so only user-scope plugins show.
+    """
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            done = subprocess.run(
+                ["claude", "plugin", "list", "--json"],
+                cwd=tmp,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=PLUGIN_LIST_TIMEOUT,
+            )
+        if done.returncode:
+            return None
+        entries = json.loads(done.stdout)
+        return [
+            e["id"]
+            for e in entries
+            if isinstance(e, dict)
+            and isinstance(e.get("id"), str)
+            and e["id"].split("@")[0] == "heuresis"
+        ]
+    except (OSError, subprocess.TimeoutExpired, ValueError, TypeError):
+        return None
+
+
+def disable_settings(ids: list[str]) -> str | None:
+    """The --settings JSON that turns the installed heuresis copies off, or None when none are."""
+    return json.dumps({"enabledPlugins": dict.fromkeys(ids, False)}) if ids else None
+
+
 def triage(
-    ideas: Path, repos: Path, idea_id: str, log: Path, args
+    ideas: Path, repos: Path, idea_id: str, log: Path, args, settings: str | None = None
 ) -> tuple[str, dict | None, str | None]:
     """Run one triage; returns the error ("" if none), the result event and the plugin path."""
     prompt = f"/heuresis:idea --ideas {ideas} --repos {repos} --triage {idea_id}"
@@ -210,6 +249,8 @@ def triage(
     ]
     if args.plugin_dir:
         cmd += ["--plugin-dir", str(args.plugin_dir)]
+    if settings:
+        cmd += ["--settings", settings]
     if args.model:
         cmd += ["--model", args.model]
     out, err, code = run_session(cmd, ideas.parent, args.timeout)
@@ -218,23 +259,20 @@ def triage(
     if code is None:
         return f"timed out after {args.timeout}s", None, None
     init, result = parse_stream(out)
-    names = [(p.get("name"), p.get("path")) for p in (init or {}).get("plugins", [])]
-    wanted = [n for n in names if n[0] == "heuresis"]
-    paths = [str(p) for _, p in wanted if p]
-    plugin_path = next(
-        (
-            p
-            for p in paths
-            if args.plugin_dir and Path(p).resolve() == Path(args.plugin_dir).resolve()
-        ),
-        paths[0] if paths and not args.plugin_dir else None,
-    )
-    if not wanted or (
-        args.plugin_dir
-        and str(Path(args.plugin_dir).resolve())
-        not in {str(Path(p).resolve()) for _, p in wanted if p}
-    ):
-        return "heuresis plugin did not load", result, plugin_path
+    paths = [
+        str(p["path"])
+        for p in (init or {}).get("plugins", [])
+        if p.get("name") == "heuresis" and p.get("path")
+    ]
+    if args.plugin_dir:
+        mine = str(Path(args.plugin_dir).resolve())
+        plugin_path = next((p for p in paths if str(Path(p).resolve()) == mine), None)
+        if plugin_path is None:
+            return "heuresis plugin from --plugin-dir did not load", result, None
+    else:
+        plugin_path = paths[0] if paths else None
+        if plugin_path is None:
+            return "heuresis plugin did not load", result, None
     if code:
         return f"claude exited {code}", result, plugin_path
     if result is None:
@@ -292,6 +330,19 @@ def run(args) -> int:
     except (gold.GoldError, OSError) as exc:
         print(f"heuresis_gold: {exc}", file=sys.stderr)
         return 2
+    settings = None
+    if args.plugin_dir:
+        # The installed copy may predate the branch's flags; with both loaded the session would
+        # see two heuresis plugins, so the installed ones are switched off for these sessions.
+        ids = installed_heuresis()
+        if ids is None:
+            print(
+                "heuresis_gold: warning: could not list installed plugins; running without "
+                "--settings, so an installed heuresis may load beside --plugin-dir",
+                file=sys.stderr,
+            )
+        else:
+            settings = disable_settings(ids)
     stamp = dt.datetime.now(dt.UTC).strftime("%Y%m%dT%H%M%SZ")
     res = args.out / stamp
     (res / "logs").mkdir(parents=True)
@@ -321,7 +372,7 @@ def run(args) -> int:
                     )
                     continue
                 error, result, plugin_path = triage(
-                    ideas, repos, idea_id, res / "logs" / f"{case.id}-{n}.jsonl", args
+                    ideas, repos, idea_id, res / "logs" / f"{case.id}-{n}.jsonl", args, settings
                 )
                 if guard and watch(guard) != before:
                     raise GuardTripped(
