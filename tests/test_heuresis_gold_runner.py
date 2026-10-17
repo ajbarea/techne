@@ -145,6 +145,46 @@ def test_setup_failure_is_recorded_and_the_set_continues(fake, monkeypatch):
     assert all(g["error"] == "setup failed: heuresis init failed: boom" for g in grades)
 
 
+def test_a_capture_that_prints_no_id_is_a_setup_error(fake, monkeypatch):
+    real = r.heuresis
+    monkeypatch.setattr(r, "heuresis", lambda *a, **k: "" if a[0] == "capture" else real(*a, **k))
+    out = fake / "out"
+    assert go(out, "--no-guard", case=("bib-checker", "teleport")) == 0
+    grades = grades_of(out)
+    assert [g["case"] for g in grades] == ["bib-checker", "teleport"]
+    assert all(g["error"] == "setup failed: capture printed no id" for g in grades)
+
+
+def test_a_crashed_session_keeps_its_stderr(fake, monkeypatch):
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "crash")
+    out = fake / "out"
+    assert go(out, "--no-guard") == 0
+    stderr = results(out) / "logs" / "bib-checker-1.stderr"
+    assert "fatal: session diagnostics" in stderr.read_text()
+
+
+def test_plugin_path_is_the_entry_that_matches_plugin_dir(fake, monkeypatch):
+    mine = fake / "mine"
+    mine.mkdir()
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "two-plugins")
+    monkeypatch.setenv("FAKE_PLUGIN_DIR", str(mine))
+    out = fake / "out"
+    assert go(out, "--no-guard", "--plugin-dir", str(mine)) == 0
+    assert grades_of(out)[0]["plugin_path"] == str(mine)
+    out = fake / "out2"
+    assert go(out, "--no-guard") == 0
+    assert grades_of(out)[0]["plugin_path"] == "/plugins/other"
+
+
+def test_only_a_snapshot_failure_is_labelled_as_one(fake, monkeypatch, capsys):
+    def broken(repo):
+        raise RuntimeError("git write-tree failed")
+
+    monkeypatch.setattr(r, "snapshot", broken)
+    assert go(fake / "out", "--guard-repo", str(guard_repo(fake))) == 1
+    assert "cannot snapshot the guard repository" in capsys.readouterr().err
+
+
 def alive(pid: int) -> bool:
     stat = subprocess.run(
         ["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True, check=False

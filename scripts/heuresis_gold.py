@@ -131,6 +131,13 @@ def parse_stream(text: str) -> tuple[dict | None, dict | None]:
     return init, result
 
 
+def watch(guard: Path) -> str:
+    try:
+        return snapshot(guard)
+    except RuntimeError as exc:
+        raise GuardTripped(f"cannot snapshot the guard repository {guard}: {exc}") from exc
+
+
 def prepare(work: Path, case: gold.Case) -> tuple[Path, Path, str]:
     repos, ideas = work / "repos", work / "ideas"
     repos.mkdir(parents=True)
@@ -145,14 +152,16 @@ def prepare(work: Path, case: gold.Case) -> tuple[Path, Path, str]:
         git(ideas, "config", key, value)
     git(ideas, "add", "-A")
     git(ideas, "commit", "-qm", "init")
-    idea_id = heuresis("capture", "--ideas", str(ideas), "--text", "-", stdin=case.idea)
-    return ideas, repos, idea_id.splitlines()[-1]
+    printed = heuresis("capture", "--ideas", str(ideas), "--text", "-", stdin=case.idea)
+    if not printed.strip():
+        raise RuntimeError("capture printed no id")
+    return ideas, repos, printed.splitlines()[-1]
 
 
-def run_session(cmd: list[str], cwd: Path, timeout: int) -> tuple[str, int | None]:
+def run_session(cmd: list[str], cwd: Path, timeout: int) -> tuple[str, str, int | None]:
     """Run cmd in its own process group; on timeout stop the whole group.
 
-    Returns the output and the exit code, or None for a timeout. Children the session started
+    Returns stdout, stderr and the exit code, or None for a timeout. Children the session started
     die with it, so none keeps writing into the work folder or holds the output pipe open.
     """
     # research(2026-10): code.claude.com/docs/en/env-vars, CLAUDE_CODE_DISABLE_AUTO_MEMORY=1
@@ -170,17 +179,17 @@ def run_session(cmd: list[str], cwd: Path, timeout: int) -> tuple[str, int | Non
         start_new_session=True,
     )
     try:
-        out, _ = proc.communicate(timeout=timeout)
-        return out, proc.returncode
+        out, err = proc.communicate(timeout=timeout)
+        return out, err, proc.returncode
     except subprocess.TimeoutExpired:
         pass
     os.killpg(proc.pid, signal.SIGTERM)
     try:
-        out, _ = proc.communicate(timeout=TERM_GRACE)
+        out, err = proc.communicate(timeout=TERM_GRACE)
     except subprocess.TimeoutExpired:
         os.killpg(proc.pid, signal.SIGKILL)
-        out, _ = proc.communicate()
-    return out or "", None
+        out, err = proc.communicate()
+    return out or "", err or "", None
 
 
 def triage(
@@ -203,14 +212,23 @@ def triage(
         cmd += ["--plugin-dir", str(args.plugin_dir)]
     if args.model:
         cmd += ["--model", args.model]
-    out, code = run_session(cmd, ideas.parent, args.timeout)
+    out, err, code = run_session(cmd, ideas.parent, args.timeout)
     log.write_text(out)
+    log.with_suffix(".stderr").write_text(err)
     if code is None:
         return f"timed out after {args.timeout}s", None, None
     init, result = parse_stream(out)
     names = [(p.get("name"), p.get("path")) for p in (init or {}).get("plugins", [])]
     wanted = [n for n in names if n[0] == "heuresis"]
-    plugin_path = next((str(p) for _, p in wanted if p), None)
+    paths = [str(p) for _, p in wanted if p]
+    plugin_path = next(
+        (
+            p
+            for p in paths
+            if args.plugin_dir and Path(p).resolve() == Path(args.plugin_dir).resolve()
+        ),
+        paths[0] if paths and not args.plugin_dir else None,
+    )
     if not wanted or (
         args.plugin_dir
         and str(Path(args.plugin_dir).resolve())
@@ -274,7 +292,7 @@ def run(args) -> int:
         )
 
     try:
-        before = snapshot(guard) if guard else ""
+        before = watch(guard) if guard else ""
         for case in cases:
             for n in range(1, args.runs + 1):
                 work = res / "work" / f"{case.id}-{n}"
@@ -288,7 +306,7 @@ def run(args) -> int:
                 error, result, plugin_path = triage(
                     ideas, repos, idea_id, res / "logs" / f"{case.id}-{n}.jsonl", args
                 )
-                if guard and snapshot(guard) != before:
+                if guard and watch(guard) != before:
                     raise GuardTripped(
                         f"run {case.id}-{n} changed the guard repository {guard}; "
                         "stopping. Inspect it with git status before anything else."
@@ -298,9 +316,6 @@ def run(args) -> int:
                 )
     except GuardTripped as exc:
         print(f"heuresis_gold: {exc}", file=sys.stderr)
-        return 1
-    except RuntimeError as exc:
-        print(f"heuresis_gold: cannot snapshot the guard repository: {exc}", file=sys.stderr)
         return 1
     write_report(res, cases)
     print(res / "summary.md")

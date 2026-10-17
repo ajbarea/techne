@@ -16,6 +16,11 @@ idea_id = next(iter(re.findall(r"--triage (\S+)", prompt)))
 plugins = [{"name": "heuresis", "path": "/plugins/heuresis"}]
 if mode == "no-plugin":
     plugins = []
+if mode == "two-plugins":
+    plugins = [
+        {"name": "heuresis", "path": "/plugins/other"},
+        {"name": "heuresis", "path": os.environ["FAKE_PLUGIN_DIR"]},
+    ]
 if "FAKE_CLAUDE_RECORD" in os.environ:
     Path(os.environ["FAKE_CLAUDE_RECORD"]).write_text(
         json.dumps(
@@ -41,7 +46,7 @@ if mode in ("guard-modified", "guard-untracked"):
         "tracked.md" if mode == "guard-modified" else "untracked.md"
     )
     target.write_text("B" * len(target.read_text()))
-if mode in ("trash", "guard"):
+if mode in ("trash", "guard", "two-plugins"):
     sys.path.insert(0, os.environ["HEURESIS_SRC"])
     from heuresis import cli, store
     from heuresis.model import FACETS
@@ -81,6 +86,7 @@ if mode in ("trash", "guard"):
     }.items():
         (run / f"{name}.json").write_text(json.dumps(data))
 if mode == "crash":
+    print("fatal: session diagnostics", file=sys.stderr)
     sys.exit(3)
 print(
     json.dumps(
