@@ -6,15 +6,18 @@ import re
 
 from heuresis.model import Idea
 
+# Two-letter words count, so acronyms such as FL, AI, UI and 3D match; the common two-letter
+# function words are listed here instead.
 STOPWORDS = frozenset(
     "the and for with that this from into over under about than then them they their there "
     "what when where which while would could should have has had are was were will can "
-    "not but our you your its it's a an of to in on at by is be as or my me we i".split()
+    "not but our you your its it's a an of to in on at by is be as or my me we i "
+    "it if so do go up no us am he vs".split()
 )
 
 
 def _words(text: str) -> set[str]:
-    return {w for w in re.findall(r"[a-z0-9]+", text.lower()) if len(w) > 2 and w not in STOPWORDS}
+    return {w for w in re.findall(r"[a-z0-9]+", text.lower()) if len(w) > 1 and w not in STOPWORDS}
 
 
 def similar(text: str, ideas: list[Idea], k: int = 5) -> list[tuple[str, float]]:

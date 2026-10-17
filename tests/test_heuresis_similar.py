@@ -20,3 +20,13 @@ def test_similar_ranks_overlap_and_ignores_stopwords():
     assert out[0][0] == "a"
     assert all(score > 0 for _, score in out)
     assert "c" not in [i for i, _ in out]
+
+
+def test_two_letter_acronyms_count_and_two_letter_function_words_do_not():
+    from heuresis.similar import _words
+
+    assert _words("FL for EHR audit") == {"fl", "ehr", "audit"}
+    assert _words("AI ML UI AR 3D") == {"ai", "ml", "ui", "ar", "3d"}
+    assert _words("if it is so we do go up to me") == set()
+    out = similar("FL for EHR audit", [idea("fl", "FL EHR anomaly detection")])
+    assert out == [("fl", 0.4)] and out[0][1] > 0.15
