@@ -24,10 +24,23 @@ PAGE = (
     "<meta name=viewport content='width=device-width,initial-scale=1'>{0}<title>t</title>"
     "</head><body><main>{1}</main></body></html>"
 )
-CLEAN = PAGE.format("", "<p style='color:#000;background:#fff'>Readable</p>")
+FITS = "<table><tr><td><code>short_name</code></td><td>Text</td></tr></table>"
+# Zensical's `code { word-break: break-word }` in a squeezed column splits identifiers.
+SPLIT = (
+    "<table style='width:12rem'><tr><td><code style='word-break:break-word'>"
+    "a_long_identifier_name</code></td>"
+    "<td>a cell with enough words to take the width</td></tr></table>"
+)
+WIDE = (
+    "<div class='md-typeset__scrollwrap' style='overflow-x:auto'><table><tr>"
+    "<td style='white-space:nowrap'>" + "wide " * 600 + "</td></tr></table></div>"
+)
+CLEAN = PAGE.format("", "<p style='color:#000;background:#fff'>Readable</p>" + FITS)
 BROKEN = PAGE.format(
     "<meta property='og:title' content='a'><meta name='og:title' content='b'>",
-    "<p style='color:#ccc;background:#fff'>Faint</p><div style='width:1000px;height:30px'></div>",
+    "<p style='color:#ccc;background:#fff'>Faint</p><div style='width:1000px;height:30px'></div>"
+    + SPLIT
+    + WIDE,
 )
 
 PATHS = ["--path", "clean.html", "--path", "broken.html"]
@@ -65,5 +78,9 @@ def test_visual_qa_flags_the_broken_page_only(site, tmp_path):
         assert "axeError" not in clean and "axeError" not in broken, "axe-core did not load"
         assert broken["contrastCount"] >= 1
         assert clean["duplicateMeta"] == [] and broken["duplicateMeta"] == ["og:title"]
+        assert clean["splitTokens"] == [] and clean["tableScroll"] == 0
+        assert broken["splitTokens"] == ["a_long_identifier_name"]
+        assert broken["tableScroll"] >= 1
+    assert "scroll sideways at desktop width" in run.stdout
     assert report["broken.html light phone"]["overflow"] > 1
     assert (out / "broken.html-sheet.png").exists()

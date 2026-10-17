@@ -16,6 +16,8 @@ eye misses:
 - markup that did not render: attr-list braces, :icon: shortcodes, admonition bangs, raw math
 - landing sections still invisible after scrolling
 - social tags written twice (a template and the social plugin both emitting them)
+- inline code in a table split inside a token, at any width
+- a table that scrolls sideways at 1920 or 1280 wide (at phone width that is expected)
 
 Uses Playwright's Chromium (`playwright install chromium`, the browser the setup doctor checks)
 and the axe-core that axe-playwright-python bundles, so a run needs no network.
@@ -88,6 +90,15 @@ MEASURE = r"""
     raw,
     brokenImages: [...document.images].filter((i) => i.complete && i.naturalWidth === 0)
       .map((i) => i.getAttribute("src")),
+    // Inline code with no space that renders on two lines was split inside a token.
+    splitTokens: [...document.querySelectorAll("table code")]
+      .filter((c) => !/\s/.test(c.textContent) && c.getClientRects().length > 1)
+      .map((c) => c.textContent).slice(0, 6),
+    // A table box that scrolls sideways (Zensical wraps tables in .md-typeset__scrollwrap).
+    tableScroll: [...document.querySelectorAll(".md-typeset__scrollwrap, table")]
+      .filter((e) => e.scrollWidth > e.clientWidth + 1)
+      .filter((e) => getComputedStyle(e).overflowX !== "visible")
+      .length,
     duplicateMeta: ["og:title", "og:description", "og:url", "twitter:card"].filter((k) =>
       document.querySelectorAll(`meta[property="${k}"], meta[name="${k}"]`).length > 1),
     hiddenSections: [...document.querySelectorAll(".landing-section")]
@@ -257,6 +268,10 @@ def main() -> int:
             issues.append(f"wrong-scheme surfaces {f['surfaces']}")
         if f.get("contrastCount"):
             issues.append(f"{f['contrastCount']} low-contrast {f['contrast'][:3]}")
+        if f.get("splitTokens"):
+            issues.append(f"code split inside a token {f['splitTokens'][:3]}")
+        if f.get("tableScroll") and not key.endswith(" phone"):
+            issues.append(f"{f['tableScroll']} table(s) scroll sideways at desktop width")
         if f.get("axeError"):
             issues.append(f["axeError"])
         for name in ("raw", "brokenImages", "duplicateMeta", "errors"):

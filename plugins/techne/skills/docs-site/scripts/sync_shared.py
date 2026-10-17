@@ -28,6 +28,8 @@ FILES = (
     Path("overrides") / "main.html",
     Path("overrides") / "partials" / "copyright.html",
     Path("docs") / "javascripts" / "reveal.js",
+    Path("docs") / "javascripts" / "shared.js",
+    Path("docs") / "stylesheets" / "shared.css",
     NAV_TEST,
 )
 MARKER = "canonical copy is in techne"

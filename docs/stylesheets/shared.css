@@ -1,0 +1,83 @@
+/* Shared by every sister docs site. The canonical copy is in techne
+   (plugins/techne/skills/docs-site/templates/shared/); edit it there and run the
+   docs-site sync, never in a site. overrides/main.html loads it. */
+
+/* Inline code in a table never wraps. Zensical gives code `word-break: break-word`,
+   which counts a break after every character toward a column's minimum width, so a
+   table squeezes a code column until identifiers split; `word-break: normal` still
+   breaks after a hyphen (techne:research-|grounded). A table wider than its column
+   scrolls inside its own box, which WCAG 1.4.10 allows for data tables. */
+.md-typeset table:not([class]) code {
+  white-space: nowrap;
+}
+
+/* Zensical's script wraps each table in .md-typeset__scrollwrap, the box that scrolls.
+   It shows a shadow at an edge with more table past it (the covers scroll with the
+   content, the shadows stay put), and javascripts/shared.js makes an overflowing box
+   a labelled, keyboard-focusable region. */
+.md-typeset__scrollwrap {
+  background:
+    linear-gradient(to right, var(--md-default-bg-color) 30%, transparent) left / 2.5rem 100% no-repeat local,
+    linear-gradient(to left, var(--md-default-bg-color) 30%, transparent) right / 2.5rem 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, rgb(0 0 0 / 35%), transparent) left / 0.9rem 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, rgb(0 0 0 / 35%), transparent) right / 0.9rem 100% no-repeat scroll;
+}
+
+.md-typeset__scrollwrap table:not([class]) {
+  background-color: transparent;
+}
+
+.md-typeset__scrollwrap:focus-visible {
+  outline: 0.1rem solid var(--md-accent-fg-color);
+  outline-offset: -0.1rem;
+}
+
+/* Zensical caps the layout at 61rem so prose stays near 80-100 characters a line;
+   on a wide screen its documented widening, 1440px, gives tables room. */
+@media screen and (min-width: 100em) {
+  .md-grid {
+    max-width: 1440px;
+  }
+}
+
+/* Side panels toggle (javascripts/shared.js): hides the navigation and the
+   table of contents on screens wide enough to show them, so the page takes the
+   full width. Phones use the drawer and never see the button. */
+.md-header__button.sidebars-toggle {
+  display: none;
+}
+
+@media screen and (min-width: 60em) {
+  .md-header__button.sidebars-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.2rem;
+    height: 2.2rem;
+    margin: 0 0.2rem;
+    padding: 0;
+    color: currentcolor;
+    background: none;
+    border: 0;
+    border-radius: 0.2rem;
+    cursor: pointer;
+    opacity: 0.85;
+  }
+
+  .sidebars-toggle:hover,
+  .sidebars-toggle:focus-visible {
+    opacity: 1;
+    background-color: color-mix(in srgb, currentcolor 12%, transparent);
+  }
+
+  .sidebars-toggle svg {
+    width: 1.2rem;
+    height: 1.2rem;
+    fill: currentcolor;
+  }
+
+  [data-sidebars="hidden"] .md-sidebar--primary,
+  [data-sidebars="hidden"] .md-sidebar--secondary {
+    display: none;
+  }
+}

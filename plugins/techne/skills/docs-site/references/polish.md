@@ -11,7 +11,13 @@ contact sheet (light and dark; wide, desktop and phone) finds nothing off.
 - Text meets WCAG AA contrast in both schemes, including the parts nobody designs: footer
   prev/next labels, captions, eyebrows, code highlighting tokens, epithets, badges.
 - Links take the site's palette, never the theme default, and stay AA on their surface.
-- Nothing scrolls sideways at 390 wide. Wide tables scroll inside themselves.
+- Nothing scrolls sideways at 390 wide. Wide tables scroll inside themselves, and no table
+  scrolls at 1280 or 1920.
+- No identifier or command in a table splits across lines (`github_use` / `r`). The shared
+  stylesheet keeps table code on one line; a command too long for a table cell belongs in a
+  code block under the table, not in the cell.
+- A reference table with long notes reads as a table on a wide screen; if a column of prose
+  squeezes to a word per line on a phone, move the prose out of the table.
 - No raw markup: attr-list braces, `:icon:` codes, `!!!`, `$...$` read as math.
 - Floating controls stay Zensical's own: the phone TOC button (`.md-sidebar--secondary`, 38px,
   bottom right) and back-to-top. They pass over text only while it scrolls by; a custom
