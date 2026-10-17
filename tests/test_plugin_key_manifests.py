@@ -15,7 +15,6 @@ EXPECTED = {
     "heuresis": [
         "OPENALEX_API_KEY",
         "S2_API_KEY",
-        "LENS_API_TOKEN",
         "EPO_OPS_KEY",
         "EPO_OPS_SECRET",
     ],
@@ -68,7 +67,7 @@ def test_manifest_key_options_are_optional_sensitive_strings_with_a_source(name)
         opt = options[key.option]
         assert opt["type"] == "string" and opt["sensitive"] is True and not opt.get("required")
         assert set(opt) <= {"type", "title", "description", "required", "sensitive"}
-        assert re.search(r"\b(free at|request|register|lens\.org)", opt["description"])
+        assert re.search(r"\b(free at|request|register)", opt["description"])
         assert opt["description"].endswith(".")
 
 

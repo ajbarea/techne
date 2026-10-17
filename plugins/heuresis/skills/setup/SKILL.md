@@ -1,6 +1,6 @@
 ---
 name: setup
-description: Check and set up heuresis, the idea triage plugin. Checks uv, git and gh, the ideas repository and repos folder set in /config, and which search API keys are present (OpenAlex, Semantic Scholar, Lens, EPO), and creates the private ideas repository when it does not exist. Use after installing heuresis, when /heuresis:idea says the ideas repository is not set, or when a source shows skipped in a verdict.
+description: Check and set up heuresis, the idea triage plugin. Checks uv, git and gh, the ideas repository and repos folder set in /config, and which search API keys are present (OpenAlex, Semantic Scholar, EPO), and creates the private ideas repository when it does not exist. Use after installing heuresis, when /heuresis:idea says the ideas repository is not set, or when a source shows skipped in a verdict.
 ---
 
 # Set up heuresis

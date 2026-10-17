@@ -166,6 +166,7 @@ that drift class recurs.
 
 Detail lives in git history (`git log`) and the live skill code. This log is pruned once work is durably shipped.
 
+- 2026-10-17: **heuresis drops Lens; patents come from EPO only.** Lens has no free ongoing tier (the Lens API is available only through an institutional subscription or a time-limited trial), so the Lens source, its `lens_api_token` option and its doctor line are removed and the patent scout searches EPO Open Patent Services alone.
 - 2026-10-17: **Shared key hook; graphe stores its search keys.** One `_shared/plugin_keys.py` reads each plugin's manifest for its sensitive options and passes them to Bash commands; heuresis and graphe both use it, and paper-review's OpenAlex and Semantic Scholar keys are saved with `/plugin configure graphe@techne`.
 - 2026-10-17: **heuresis search keys in secure storage.** The five keys are sensitive plugin options set with `/plugin configure heuresis@techne`; a SessionStart hook passes them to Bash commands, and a store script imports a `.env` file. A key exported in the shell still wins.
 - 2026-10-16: **heuresis phase 1, and v1.4.0.** An eighth plugin: `/heuresis:idea` captures an idea in a private ideas repository and triages it with four scouts (papers, patents, products, your own work), a judge that names the closest rival, and scripts that verify every quote and enforce the verdict rules. Search sources share `_shared/scholarly.py` with graphe. The Lens and EPO adapters follow the documented response shapes and are not yet confirmed with live keys.

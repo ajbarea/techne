@@ -1,4 +1,4 @@
-"""Patent sources: Lens (worldwide) and EPO Open Patent Services. Coverage is always partial."""
+"""Patent source: EPO Open Patent Services. Coverage is always partial."""
 
 from __future__ import annotations
 
@@ -10,8 +10,6 @@ import xml.etree.ElementTree as ET
 from heuresis.model import Record
 from heuresis.sources import http, register
 
-LENS_URL = "https://api.lens.org/patent/search"
-LENS_INCLUDE = ["lens_id", "biblio.invention_title", "abstract", "date_published"]
 EPO_AUTH = "https://ops.epo.org/3.2/auth/accesstoken"
 EPO_PUBLISHED = "https://ops.epo.org/3.2/rest-services/published-data"
 EPO_SEARCH = f"{EPO_PUBLISHED}/search/biblio"
@@ -20,24 +18,6 @@ EX = "{http://www.epo.org/exchange}"
 
 MAX_QUERY_TERMS = 10
 MAX_RANGE = 100
-
-
-def _english(values: object) -> str:
-    if isinstance(values, str):
-        return values
-    if not isinstance(values, list):
-        return ""
-    values = [v for v in values if isinstance(v, dict)]
-    chosen = next((v for v in values if v.get("lang") == "en"), values[0] if values else {})
-    return str(chosen.get("text", ""))
-
-
-def _lens_title(doc: dict) -> str:
-    return _english((doc.get("biblio") or {}).get("invention_title"))
-
-
-def _lens_text(doc: dict) -> str:
-    return f"{_lens_title(doc)} {_english(doc.get('abstract'))}"
 
 
 def _by_language(elements: list[ET.Element]) -> ET.Element | None:
@@ -53,53 +33,6 @@ def _abstract_text(abstract: ET.Element | None) -> str:
 def _cql(query: str) -> str:
     terms = query.replace('"', " ").split()[:MAX_QUERY_TERMS]
     return f'ta all "{" ".join(terms)}"'
-
-
-class Lens:
-    name, group = "lens", "patents"
-
-    def available(self) -> tuple[bool, str]:
-        return (True, "") if os.environ.get("LENS_API_TOKEN") else (False, "no LENS_API_TOKEN")
-
-    def _post(self, body: dict) -> dict:
-        headers = {"Authorization": f"Bearer {os.environ['LENS_API_TOKEN']}"}
-        try:
-            return http.json_object(http.post_json(LENS_URL, body, headers))
-        except http.SourceError as exc:
-            if exc.status is not None:
-                raise
-            raise http.SourceError(f"Lens {exc}") from exc
-
-    def search(self, query: str, limit: int) -> list[Record]:
-        body = {"query": {"query_string": {"query": query}}, "size": limit, "include": LENS_INCLUDE}
-        data = self._post(body).get("data")
-        if not isinstance(data, list):
-            raise http.SourceError("Lens response had no data list")
-        out = []
-        for doc in data:
-            if not isinstance(doc, dict) or not doc.get("lens_id"):
-                continue
-            lens_id = doc["lens_id"]
-            out.append(
-                Record(
-                    title=_lens_title(doc),
-                    url=f"https://www.lens.org/lens/patent/{lens_id}",
-                    source=self.name,
-                    kind="patent",
-                    text=_english(doc.get("abstract")),
-                    date=str(doc.get("date_published") or ""),
-                    evidence_url=f"lens:{lens_id}",
-                )
-            )
-        return out
-
-    def evidence(self, record: Record) -> str | None:
-        lens_id = record.evidence_url.removeprefix("lens:")
-        body = {"query": {"terms": {"lens_id": [lens_id]}}, "include": LENS_INCLUDE}
-        docs = self._post(body).get("data")
-        if not isinstance(docs, list) or not docs or not isinstance(docs[0], dict):
-            return ""
-        return _lens_text(docs[0])
 
 
 class Epo:
@@ -177,5 +110,4 @@ class Epo:
         return _abstract_text(abstract)
 
 
-for _source in (Lens(), Epo()):
-    register(_source)
+register(Epo())

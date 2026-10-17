@@ -20,7 +20,6 @@ def test_missing_ideas_repo_is_missing_and_keys_are_optional(tmp_path):
     found = names(d.checks(values, environ={}))
     assert found["ideas_repo"] == "missing"
     assert found["OPENALEX_API_KEY"] == "optional"
-    assert found["LENS_API_TOKEN"] == "optional"
 
 
 def test_unset_key_points_at_plugin_configure(tmp_path):
@@ -41,17 +40,13 @@ def test_key_lines_are_pinned(tmp_path):
         f"not set. Raises OpenAlex's search budget; free at openalex.org/settings/api. {store}",
     )
     assert lines["S2_API_KEY"] == ("ok", "set")
-    assert lines["LENS_API_TOKEN"] == (
-        "optional",
-        f"not set. Adds worldwide patents; request API access in your lens.org profile. {store}",
-    )
     assert lines["EPO_OPS"] == (
         "optional",
         "not set. Adds European patents; register at developers.epo.org. "
         f"Needs both EPO_OPS_KEY and EPO_OPS_SECRET. {store}",
     )
     keys = [n for n in lines if n.isupper()]
-    assert keys == ["OPENALEX_API_KEY", "S2_API_KEY", "LENS_API_TOKEN", "EPO_OPS"]
+    assert keys == ["OPENALEX_API_KEY", "S2_API_KEY", "EPO_OPS"]
 
 
 def test_epo_needs_both_halves(tmp_path):
@@ -80,11 +75,10 @@ def test_ready_ideas_repo_and_keys(tmp_path):
     (repo / "ideas").mkdir(parents=True)
     (repo / "projects.toml").write_text("")
     subprocess.run(["git", "init", "-q", str(repo)], check=True)
-    keys = ("OPENALEX_API_KEY", "S2_API_KEY", "LENS_API_TOKEN", "EPO_OPS_KEY", "EPO_OPS_SECRET")
+    keys = ("OPENALEX_API_KEY", "S2_API_KEY", "EPO_OPS_KEY", "EPO_OPS_SECRET")
     values = {"IDEAS_REPO": str(repo), "REPOS_ROOT": str(tmp_path)}
     found = names(d.checks(values, environ=dict.fromkeys(keys, "x")))
     assert found["ideas_repo"] == "ok"
-    assert found["LENS_API_TOKEN"] == "ok"
     assert found["EPO_OPS"] == "ok"
 
 
