@@ -253,3 +253,18 @@ def test_remote_ideas_reads_origin_only_for_an_ideas_repository(tmp_path: Path):
     nested = a / "private"
     layout(nested)
     assert sync.remote_ideas(nested) == []
+
+
+def test_git_runs_non_interactive_and_keeps_a_users_ssh_command(tmp_path: Path, monkeypatch):
+    repo = tmp_path / "repo"
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+    monkeypatch.delenv("GIT_SSH_COMMAND", raising=False)
+    monkeypatch.delenv("GIT_SSH", raising=False)
+    env = sync._env(repo)
+    assert env["GIT_TERMINAL_PROMPT"] == "0"
+    assert env["GIT_SSH_COMMAND"] == "ssh -o BatchMode=yes -o ConnectTimeout=5"
+    assert "GIT_SSH_COMMAND" not in sync._env()
+    git(repo, "config", "core.sshCommand", "ssh -i configured")
+    assert "GIT_SSH_COMMAND" not in sync._env(repo)
+    monkeypatch.setenv("GIT_SSH_COMMAND", "ssh -i key")
+    assert sync._env(repo)["GIT_SSH_COMMAND"] == "ssh -i key"

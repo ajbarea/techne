@@ -811,3 +811,29 @@ def test_judge_text_cannot_create_headings_in_the_idea_file(tmp_path: Path, caps
     log_md = (ideas / "LOG.md").read_text()
     assert "2099-01-01" not in log_md and "2098-01-01" not in log_md
     assert cli.store.render(cli.store.parse(path.read_text())) == path.read_text()
+
+
+def test_capture_with_a_stalled_remote_returns_within_the_bound_and_keeps_the_idea(
+    tmp_path: Path, capsys, monkeypatch
+):
+    import time
+
+    ideas = init_ideas(tmp_path)
+    stall = tmp_path / "stall-ssh"
+    stall.write_text("#!/bin/sh\nsleep 60\n")
+    stall.chmod(0o755)
+    monkeypatch.setenv("GIT_SSH_COMMAND", str(stall))
+    url = "ssh://git@stalled.invalid/ideas.git"
+    subprocess.run(["git", "-C", str(ideas), "remote", "add", "origin", url], check=True)
+    monkeypatch.setattr(cli.sync, "FETCH_TIMEOUT", 1)
+    monkeypatch.setattr(cli.sync, "NETWORK_TIMEOUT", 2)
+    capsys.readouterr()
+    start = time.monotonic()
+    code = cli.main(["capture", "--ideas", str(ideas), "Captured while offline"])
+    elapsed = time.monotonic() - start
+    err = capsys.readouterr().err
+    assert elapsed < 10, elapsed
+    assert code == 1 and "timed out" in err and "heuresis publish" in err
+    assert [p.name for p in (ideas / "ideas").glob("*.md")] == [
+        next(p.name for p in (ideas / "ideas").glob("*captured-while-offline.md"))
+    ]

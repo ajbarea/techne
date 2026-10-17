@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import os
+import signal
 import subprocess
 from pathlib import Path, PurePosixPath
 
@@ -14,6 +15,12 @@ PUSH_ATTEMPTS = 3
 # Always committed whole, so an idea a failed publish left behind goes out with the next one.
 OWNED = ("ideas", "runs")
 PUBLISH_HINT = "run `heuresis publish`"
+# Capture's look at origin is a convenience: past this it gives up and uses the local ids.
+FETCH_TIMEOUT = 10
+# A fetch or push still running after a minute is a stalled network, not a slow one.
+NETWORK_TIMEOUT = 60
+# Without a prompt or a key passphrase to answer, ssh fails at once instead of waiting.
+BATCH_SSH = "ssh -o BatchMode=yes -o ConnectTimeout=5"
 
 
 class SyncError(Exception):
@@ -24,10 +31,45 @@ class SyncError(Exception):
 _REPO_OVERRIDES = ("GIT_DIR", "GIT_WORK_TREE")
 
 
-def _git(root: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
+def _env(root: Path | None = None) -> dict[str, str]:
+    """git's environment; with root, also batch-mode ssh unless the user chose an ssh command."""
     env = {k: v for k, v in os.environ.items() if k not in _REPO_OVERRIDES}
-    env.update(GIT_EDITOR="true", LC_ALL="C", LANG="C")
-    done = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, env=env)
+    env.update(GIT_EDITOR="true", GIT_TERMINAL_PROMPT="0", LC_ALL="C", LANG="C")
+    if root is not None and not ({"GIT_SSH_COMMAND", "GIT_SSH"} & env.keys()):
+        chosen = subprocess.run(
+            ["git", "-C", str(root), "config", "--get", "core.sshCommand"],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        if not chosen.stdout.strip():
+            env["GIT_SSH_COMMAND"] = BATCH_SSH
+    return env
+
+
+def _git(
+    root: Path, *args: str, check: bool = True, timeout: float | None = None
+) -> subprocess.CompletedProcess:
+    # Its own process group, so a timeout also ends the ssh or credential helper git started.
+    proc = subprocess.Popen(
+        ["git", "-C", str(root), *args],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=_env(root if timeout is not None else None),
+        start_new_session=True,
+    )
+    try:
+        out, err = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        if hasattr(os, "killpg"):
+            os.killpg(proc.pid, signal.SIGKILL)
+        else:
+            proc.kill()
+        proc.communicate()
+        raise SyncError(f"git {args[0]} timed out after {timeout}s") from None
+    done = subprocess.CompletedProcess(proc.args, proc.returncode, out, err)
     if check and done.returncode:
         raise SyncError(f"git {' '.join(args)} failed: {done.stderr.strip()}")
     return done
@@ -80,14 +122,19 @@ def _added_on_both_sides(root: Path) -> set[str]:
 def remote_ideas(root: Path) -> list[str]:
     """Idea ids already on origin/main, fetched first so another clone's captures count.
 
-    A failed fetch is ignored: capture then picks from the ids it already knows.
+    A fetch that fails or outlasts FETCH_TIMEOUT returns nothing, so capture uses local ids.
     """
     if (
         not _is_ideas_repo(root)
         or _git(root, "remote", "get-url", "origin", check=False).returncode
     ):
         return []
-    _git(root, "fetch", "-q", "origin", check=False)
+    try:
+        fetched = _git(root, "fetch", "-q", "origin", check=False, timeout=FETCH_TIMEOUT)
+    except SyncError:
+        return []
+    if fetched.returncode:
+        return []
     names = _git(root, "ls-tree", "--name-only", "origin/main", "ideas/", check=False).stdout
     return [PurePosixPath(n).stem for n in names.splitlines() if n.endswith(".md")]
 
@@ -146,7 +193,7 @@ def _preflight(root: Path) -> str:
 
 def _push(root: Path, branch: str, *args: str) -> bool:
     """True when pushed, False when the remote moved first; any other rejection raises."""
-    done = _git(root, "push", "-q", *args, "origin", branch, check=False)
+    done = _git(root, "push", "-q", *args, "origin", branch, check=False, timeout=NETWORK_TIMEOUT)
     if done.returncode == 0:
         return True
     err = done.stderr.strip()
@@ -161,11 +208,12 @@ def publish(root: Path, paths: list[Path], message: str, today: dt.date) -> str:
     _commit(root, [*paths, *generated], message)
     if _git(root, "remote", "get-url", "origin", check=False).returncode:
         return "local"
-    if not _git(root, "ls-remote", "--heads", "origin", branch).stdout.strip():
+    heads = _git(root, "ls-remote", "--heads", "origin", branch, timeout=NETWORK_TIMEOUT)
+    if not heads.stdout.strip():
         if _push(root, branch, "-u"):
             return "pushed"
     for _ in range(PUSH_ATTEMPTS):
-        _git(root, "fetch", "-q", "origin", branch)
+        _git(root, "fetch", "-q", "origin", branch, timeout=NETWORK_TIMEOUT)
         _rebase(root, branch)
         _commit(root, board.write(root, today), "chore: regenerate board")
         if _push(root, branch, "-u"):
