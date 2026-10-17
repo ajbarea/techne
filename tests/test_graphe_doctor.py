@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import sys
@@ -244,3 +245,40 @@ def test_runbook_gives_every_sudo_and_browser_fix_to_the_user():
         else:
             assert "after the user approves" in row(name), name
     assert f"`{lib.CHROMIUM_DEPS}` after `!`" in row("chromium")
+
+
+STORE = "Store it with /plugin configure graphe@techne, then restart."
+
+
+def test_search_keys_are_optional_lines_that_never_block_ready(tmp_path, home):
+    proc, found = doctor(tmp_path, home)
+    assert proc.returncode == 0 and proc.stdout.splitlines()[-1] == "result: ready"
+    assert found["OPENALEX_API_KEY"] == (
+        "optional",
+        "not set. Raises the daily search budget of paper-review's OpenAlex retrieval; "
+        f"free at openalex.org/settings/api. {STORE}",
+    )
+    assert found["S2_API_KEY"] == (
+        "optional",
+        "not set. Adds Semantic Scholar to paper-review's retrieval; "
+        f"request one at semanticscholar.org/product/api. {STORE}",
+    )
+    assert [k for k in found if k.endswith("_KEY")] == ["OPENALEX_API_KEY", "S2_API_KEY"]
+
+
+def test_a_key_in_the_environment_reads_ok(tmp_path, home):
+    proc, found = doctor(tmp_path, home, env={"S2_API_KEY": "topsecret"})
+    assert found["S2_API_KEY"] == ("ok", "set") and found["OPENALEX_API_KEY"][0] == "optional"
+    assert "topsecret" not in proc.stdout + proc.stderr
+
+
+def test_a_malformed_manifest_is_one_optional_line_not_a_traceback(tmp_path, monkeypatch):
+    plugin = tmp_path / "plugin"
+    (plugin / ".claude-plugin").mkdir(parents=True)
+    manifest = {"name": "x", "userConfig": {"a_key": {"type": "string", "sensitive": True}}}
+    manifest["metadata"] = {"keyGroups": [[["a_key"]]]}
+    (plugin / ".claude-plugin" / "plugin.json").write_text(json.dumps(manifest))
+    gd, _ = load_doctor(monkeypatch)
+    monkeypatch.setattr(gd, "PLUGIN", plugin)
+    (line,) = [(c.status, c.detail) for c in gd.key_checks({})]
+    assert line == ("optional", "plugin.json unreadable")

@@ -40,17 +40,20 @@
     },
     "epo_ops_key": {
       "type": "string",
-      "title": "EPO OPS key",
-      "description": "Adds European patents; register at developers.epo.org. Needs both the key and the secret.",
+      "title": "EPO OPS key (save with the secret)",
+      "description": "Adds European patents; register at developers.epo.org.",
       "required": false,
       "sensitive": true
     },
     "epo_ops_secret": {
       "type": "string",
-      "title": "EPO OPS secret",
-      "description": "Adds European patents; register at developers.epo.org. Needs both the key and the secret.",
+      "title": "EPO OPS secret (save with the key)",
+      "description": "Adds European patents; register at developers.epo.org.",
       "required": false,
       "sensitive": true
     }
+  },
+  "metadata": {
+    "keyGroups": [["epo_ops_key", "epo_ops_secret"]]
   }
 }

@@ -26,7 +26,7 @@ Part of [graphe](../plugins/graphe.md): `/plugin install graphe@techne`, then `/
 
 Reads the `## paper-review` section of `.claude/skill-context.md` (`lab_line`, the overlap source of truth;
 `retrieval`; `mailto`, for OpenAlex's polite pool and also read from `OPENALEX_MAILTO`; and `report`, the report path), extracts the draft's contributions, retrieves comparable
-prior work from OpenAlex (web-search backstop; Semantic Scholar only with `S2_API_KEY`; `OPENALEX_API_KEY` raises OpenAlex's budget). Only derived keyword queries leave the machine, never the paper text, and writes
+prior work from OpenAlex (web-search backstop; Semantic Scholar only with a key saved in `/plugin configure graphe@techne` or exported in the shell; an OpenAlex key raises OpenAlex's budget). Only derived keyword queries leave the machine, never the paper text, and writes
 `papers/<name>/novelty-review.md` (or `<stem>.novelty-review.md` beside a `.tex` path): citation integrity, novelty per contribution, related-work
 gaps, claim-support, a lab-overlap disclosure section, and a provenance log of every query. Advisory only: it never edits the
 draft.

@@ -15,5 +15,21 @@
     "slides",
     "research-paper",
     "writing"
-  ]
+  ],
+  "userConfig": {
+    "openalex_api_key": {
+      "type": "string",
+      "title": "OpenAlex API key",
+      "description": "Raises the daily search budget of paper-review's OpenAlex retrieval; free at openalex.org/settings/api.",
+      "required": false,
+      "sensitive": true
+    },
+    "s2_api_key": {
+      "type": "string",
+      "title": "Semantic Scholar API key",
+      "description": "Adds Semantic Scholar to paper-review's retrieval; request one at semanticscholar.org/product/api.",
+      "required": false,
+      "sensitive": true
+    }
+  }
 }
