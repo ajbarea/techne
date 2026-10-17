@@ -405,12 +405,12 @@ def _apply(args) -> int:
     if restate.is_file():
         restated = _load_json(restate, dict).get("restated")
         _need(isinstance(restated, str), "restate.json", "restated must be a string")
-        idea.sections["Restated"] = restated
-    idea.sections["Closest work"] = render.closest_section(judge, records, dropped)
-    idea.sections["Fit with your work"] = judge.get("fit", "")
+        idea.sections["Restated"] = store.inert(restated)
+    idea.sections["Closest work"] = store.inert(render.closest_section(judge, records, dropped))
+    idea.sections["Fit with your work"] = store.inert(judge.get("fit", ""))
     product = render.product_section(judge)
     if product:
-        idea.sections["Product evidence"] = product
+        idea.sections["Product evidence"] = store.inert(product)
     else:
         idea.sections.pop("Product evidence", None)
     idea.revisit_on = list(proposed.get("revisit_on") or idea.revisit_on)

@@ -236,6 +236,20 @@ def load_all(root: Path) -> list[tuple[Path, Idea | None, str]]:
     return rows
 
 
+def inert(text: str) -> str:
+    """Escape every line that starts with #, so text from a model can never open a heading.
+
+    parse splits sections on headings, so a "## Verdict log" line in a judge's fit would
+    otherwise replace the real verdict log on the next read.
+    """
+    lines = text.replace("\r\n", "\n").split("\n")
+    out = []
+    for line in lines:
+        body = line.lstrip(" \t")
+        out.append(line[: len(line) - len(body)] + "\\" + body if body.startswith("#") else line)
+    return "\n".join(out)
+
+
 def render_verdict(v: Verdict) -> str:
     lines = [f"### {v.date} · {v.origin} · {v.state}", ""]
     if v.type or v.project:
@@ -256,7 +270,7 @@ def render_verdict(v: Verdict) -> str:
         lines.append("- **Patents:** not searched (no keys).")
     if v.dropped:
         lines.append("- **Dropped:** " + "; ".join(v.dropped))
-    return "\n".join(lines)
+    return "\n".join([lines[0], inert("\n".join(lines[1:]))])
 
 
 def add_verdict(idea: Idea, v: Verdict) -> None:
