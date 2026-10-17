@@ -256,3 +256,33 @@ def test_a_repo_path_inside_the_ideas_repository_is_refused(tmp_path: Path):
             False,
             "path inside the ideas repository; cite an idea as idea:<id>",
         )
+
+
+def test_arxiv_evidence_waits_on_the_shared_throttle(tmp_path: Path, monkeypatch):
+    from heuresis.sources import papers
+
+    stamp = tmp_path / "arxiv-stamp"
+    stamp.write_text("1000.0")
+    events: list = []
+    monkeypatch.setattr(papers.S, "DEFAULT_THROTTLE", stamp)
+    monkeypatch.setattr(papers.S.time, "time", lambda: 1001.0)
+    monkeypatch.setattr(papers.S.time, "sleep", lambda s: events.append(("sleep", s)))
+
+    def get(url, headers=None):
+        events.append(("get", url))
+        return b'<?xml version="1.0"?><feed><summary>An arXiv abstract long enough</summary></feed>'
+
+    monkeypatch.setattr(verify.http, "get", get)
+    rec = Record(
+        title="t",
+        url="http://arxiv.org/abs/2401.00001v1",
+        source="arxiv",
+        kind="paper",
+        evidence_url="https://export.arxiv.org/api/query?id_list=2401.00001v1",
+    )
+    assert verify.check(rec, "An arXiv abstract long enough", tmp_path, tmp_path) == (True, "")
+    assert events[0] == ("sleep", 2.0) and events[1][0] == "get"
+    assert stamp.read_text() == "1001.0"
+    events.clear()
+    assert verify.check(web(), "An arXiv abstract long enough", tmp_path, tmp_path)[0]
+    assert [e[0] for e in events] == ["get"]

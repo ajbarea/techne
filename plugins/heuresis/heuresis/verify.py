@@ -14,8 +14,10 @@ from pathlib import Path, PurePosixPath
 
 from heuresis import sources, store
 from heuresis.model import Record
-from heuresis.sources import http
+from heuresis.sources import http, papers
 
+# arXiv asks for one request every three seconds; searches and verify share one stamp file.
+ARXIV_API_HOST = "export.arxiv.org"
 # Under 20 characters a phrase like "federated learning" matches almost any page in the field.
 MIN_QUOTE = 20
 FOLD = str.maketrans(
@@ -182,6 +184,8 @@ def evidence_text(record: Record, ideas_root: Path, repos_root: Path) -> str:
         if own is not None:
             return own
     url = record.evidence_url or record.url
+    if urllib.parse.urlsplit(url).hostname == ARXIV_API_HOST:
+        papers.S._throttle(papers.S.DEFAULT_THROTTLE)
     return _decode(http.get(url, _headers(url)))
 
 
