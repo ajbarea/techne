@@ -228,3 +228,31 @@ def test_unlisted_tags_still_separate_words(monkeypatch):
     ]:
         _page(monkeypatch, body)
         assert verify.check(web(), quote, Path("."), Path(".")) == (True, ""), body
+
+
+def test_record_problem_rejects_a_repo_path_to_an_idea_file():
+    for url in ("repo:ideas-repo/ideas/2026-10-15-x.md", "repo:a/b/ideas/2026-10-15-x.md"):
+        rec = Record(title="x", url=url, source="context", kind="context")
+        assert verify.record_problem(rec) == "cite an idea as idea:2026-10-15-x"
+    fine = Record(title="x", url="repo:papers/ideas/notes.md", source="context", kind="context")
+    assert verify.record_problem(fine) is None
+
+
+def test_a_repo_path_inside_the_ideas_repository_is_refused(tmp_path: Path):
+    repos = tmp_path / "repos"
+    ideas = repos / "ideas-repo"
+    (ideas / "runs" / "2026-10-15-x").mkdir(parents=True)
+    quote = "a line that is long enough to quote"
+    (ideas / "runs" / "2026-10-15-x" / "scout-context.json").write_text(quote)
+    (ideas / "BOARD.md").write_text(quote)
+    (repos / "link").symlink_to(ideas)
+    for url in (
+        "repo:ideas-repo/runs/2026-10-15-x/scout-context.json",
+        "repo:ideas-repo/BOARD.md",
+        "repo:link/BOARD.md",
+    ):
+        rec = Record(title="x", url=url, source="context", kind="context")
+        assert verify.check(rec, quote, ideas, repos) == (
+            False,
+            "path inside the ideas repository; cite an idea as idea:<id>",
+        )

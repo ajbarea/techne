@@ -131,6 +131,13 @@ def _bad_repo_path(rel: PurePosixPath) -> bool:
     return rel.is_absolute() or ".." in rel.parts or not rel.parts
 
 
+def _idea_file(rel: PurePosixPath) -> str | None:
+    """The idea id when the path names an idea file, which must be cited as idea:<id>."""
+    if len(rel.parts) >= 2 and rel.parts[-2] == "ideas" and rel.suffix == ".md":
+        return rel.stem if store.IDEA_ID.fullmatch(rel.stem) else None
+    return None
+
+
 def _web_problem(url: str) -> str | None:
     scheme = urllib.parse.urlsplit(url).scheme.lower()
     return (
@@ -144,8 +151,11 @@ def record_problem(record: Record) -> str | None:
         ok = store.IDEA_ID.fullmatch(record.url.removeprefix("idea:"))
         return None if ok else "invalid idea id"
     if record.url.startswith("repo:"):
-        bad = _bad_repo_path(PurePosixPath(record.url.removeprefix("repo:")))
-        return "repo path must be relative with no '..'" if bad else None
+        rel = PurePosixPath(record.url.removeprefix("repo:"))
+        if _bad_repo_path(rel):
+            return "repo path must be relative with no '..'"
+        idea_id = _idea_file(rel)
+        return f"cite an idea as idea:{idea_id}" if idea_id else None
     return _web_problem(record.url) or (
         _web_problem(record.evidence_url) if record.evidence_url else None
     )
@@ -161,7 +171,11 @@ def evidence_text(record: Record, ideas_root: Path, repos_root: Path) -> str:
         rel = PurePosixPath(record.url.removeprefix("repo:"))
         if _bad_repo_path(rel):
             raise _Refused("path outside repos root")
-        return (repos_root / rel).read_text(errors="replace")
+        path = (repos_root / rel).resolve()
+        if path.is_relative_to(ideas_root.resolve()):
+            # Run files and idea files there hold the idea's own words, which prove nothing.
+            raise _Refused("path inside the ideas repository; cite an idea as idea:<id>")
+        return path.read_text(errors="replace")
     source = sources.by_name(record.source)
     if source is not None:
         own = source.evidence(record)
