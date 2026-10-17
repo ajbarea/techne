@@ -68,10 +68,12 @@ def test_docs_page_exists_with_privacy_heading():
     assert "~/.config/epistole" in text
 
 
-def test_docs_page_is_in_the_nav():
+def test_plugin_page_and_privacy_policy_are_in_the_nav():
     nav = tomllib.loads((ROOT / "zensical.toml").read_text())["project"]["nav"]
     plugins = next(entry["Plugins"] for entry in nav if "Plugins" in entry)
-    assert {"epistole": "epistole.md"} in plugins
+    reference = next(entry["Reference"] for entry in nav if "Reference" in entry)
+    assert {"epistole": "plugins/epistole.md"} in plugins
+    assert {"epistole privacy policy": "epistole.md"} in reference
 
 
 def test_privacy_url_matches_the_site_layout():

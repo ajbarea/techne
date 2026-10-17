@@ -1,6 +1,10 @@
+---
+description: Every skill, grouped by what it does, with a link to its page. Each page says when to use the skill, how to run it and what it changes.
+---
+
 # Skills
 
-The skills ship in seven plugins: `techne` for work in a code repo, `graphe` for documents, `dokimasia` for bibliographies, `heuresis` for ideas, `phylax` for git guards, `epistole` for Gmail, and `schole` for Brightspace course sites. keryx, from `ajbarea/keryx`, adds `keryx:pronounce`. Grouped by what they do.
+Skills ship as plugins: `techne` for work in a code repo, `graphe` for documents, `dokimasia` for bibliographies, `heuresis` for ideas, `phylax` for git guards, `epistole` for Gmail, and `schole` for Brightspace course sites. keryx, from `ajbarea/keryx`, adds `keryx:pronounce`, documented on the [keryx page](../plugins/keryx.md). Grouped by what they do.
 
 ## Build hygiene
 
@@ -65,22 +69,23 @@ The skills ship in seven plugins: `techne` for work in a code repo, `graphe` for
 
 | Skill | Purpose |
 |---|---|
-| `epistole:catch-me-up` | Sweeps every Gmail account for mail since the last sweep, plus the course site when schole is installed, and reports what needs you. |
-| `epistole:setup` | Guides creating a Google OAuth client and signing each Gmail account in. The plugin's Gmail tools are covered on the [epistole](../epistole.md) page. |
+| [`epistole:catch-me-up`](catch-me-up.md) | Sweeps every Gmail account for mail since the last sweep, plus the course site when schole is installed, and reports what needs you. |
+| [`epistole:setup`](epistole-setup.md) | Guides creating a Google OAuth client and signing each Gmail account in. The Gmail tools are covered on the [epistole](../plugins/epistole.md) page. |
 
 ## Courses (schole)
 
 | Skill | Purpose |
 |---|---|
-| [`schole:courses`](../plugins/schole.md) | New announcements and content, what is due, and what came due unsubmitted on a Brightspace (D2L) course site. Read-only. |
+| [`schole:courses`](courses.md) | New announcements and content, what is due, and what came due unsubmitted on a Brightspace (D2L) course site. Read-only. |
+| [`schole:setup`](schole-setup.md) | Installs the browser and signs you in to the course site once. |
 
 ## Setup
 
 | Skill | Purpose |
 |---|---|
-| [`techne:setup`](../plugins/techne.md) | Checks what the techne skills need on this machine and prints each fix. |
-| [`graphe:setup`](../plugins/graphe.md) | Checks TeX Live, poppler, Chromium and the other document tools. |
-| [`heuresis:setup`](../plugins/heuresis.md) | Checks uv, git and gh, creates the ideas repository, and lists the search keys that are set. |
-| [`phylax:setup`](../plugins/phylax.md) | Shows which phylax options are on and checks what they need. |
-| [`epistole:setup`](../epistole.md) | Creates the Google OAuth client and signs each Gmail account in. |
-| [`schole:setup`](../plugins/schole.md) | Installs the browser and signs you in to the course site once. |
+| [`techne:setup`](techne-setup.md) | Checks what the techne skills need on this machine and prints each fix. |
+| [`graphe:setup`](graphe-setup.md) | Checks TeX Live, poppler, Chromium and the other document tools. |
+| [`heuresis:setup`](heuresis-setup.md) | Checks uv, git and the optional `gh`, creates the ideas repository, and lists the search keys that are set. |
+| [`phylax:setup`](phylax-setup.md) | Shows which phylax options are on and checks what they need. |
+| [`epistole:setup`](epistole-setup.md) | Creates the Google OAuth client and signs each Gmail account in. |
+| [`schole:setup`](schole-setup.md) | Installs the browser and signs you in to the course site once. |

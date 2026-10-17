@@ -58,7 +58,7 @@
 }
 
 /* Skill Card
-   The card is one big <a>, so Material's `.md-typeset a` underline applies to
+   A card that is one big <a> picks up Material's `.md-typeset a` underline on
    all of its text. That selector scores 0,1,1 and a bare `.skill-card` scores
    0,1,0, so the reset below has to name the element to win. */
 .md-typeset a.skill-card,
@@ -73,7 +73,7 @@
   transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
 }
 
-.skill-card:hover {
+a.skill-card:hover {
   transform: translateY(-2px);
   border-color: color-mix(in srgb, var(--bronze-metallic) 50%, transparent);
   background: color-mix(in srgb, var(--bronze-metallic) 6%, transparent);
@@ -96,6 +96,21 @@
   color: var(--card-text-color);
 }
 
+/* Plugin card: the card is a div (the plugin name is the link), with its install line at
+   the foot. */
+.skill-card .skill-name a {
+  color: inherit;
+}
+
+.skill-card .plugin-install {
+  display: block;
+  margin-top: 0.6rem;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.78rem;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
 /* Responsive adjustments */
 @media (max-width: 600px) {
   .landing-section {
@@ -106,7 +121,7 @@
     padding: 0 1rem;
   }
 
-  /* Seventeen cards stacked is a long scroll; on a phone each is a compact row. */
+  /* On a phone each card is a compact row. */
   .skill-grid {
     grid-template-columns: 1fr;
     gap: 0.6rem;

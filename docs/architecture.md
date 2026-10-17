@@ -1,3 +1,7 @@
+---
+description: "How the techne skills fit together: categories, typical workflows, design philosophy, how skills are tested and how the repo stays current."
+---
+
 # Architecture
 
 Techne is a collection of independent, composable skills that share conventions but don't hard-depend on each other. This page maps the skill ecosystem, names the typical workflows, and states the design philosophy.
@@ -14,9 +18,9 @@ Techne is a collection of independent, composable skills that share conventions 
 
 **Review and collaboration.** `techne:catchup` reads every comment, review and state change on a repo since you last participated and reports who is blocked on whom; read-only. `techne:elenchus` is adversarial pre-merge review: it drives `/code-review`, then reproduces the load-bearing claim, traces every consumer across the repo, and walks a bug-class rubric.
 
-**Setup.** `techne:setup`, `graphe:setup`, `heuresis:setup` and `phylax:setup` each run a read-only doctor for their plugin and print the install command for anything missing; `epistole:setup` does the same for the Google sign-in.
+**Setup.** `techne:setup`, `graphe:setup`, `heuresis:setup` and `phylax:setup` each run a read-only doctor for their plugin and print the install command for anything missing; `epistole:setup` guides the Google sign-in and `schole:setup` the course-site sign-in.
 
-**Mail.** `epistole` runs a local Gmail MCP server that searches, reads and drafts in each configured account and sends a draft only after you approve it; `epistole:setup` guides the one-time Google sign-in. See [epistole](epistole.md).
+**Mail.** `epistole` runs a local Gmail MCP server that searches, reads and drafts in each configured account and sends a draft only after you approve it; `epistole:setup` guides the one-time Google sign-in. See [epistole](plugins/epistole.md).
 
 **Bibliographies.** `dokimasia:check` lints any `.bib` or hand-written `thebibliography`, resolves its identifiers against arXiv and Crossref, and checks that every cited key rendered in the built document; a failed lookup is reported apart from a wrong entry.
 
@@ -24,7 +28,7 @@ Techne is a collection of independent, composable skills that share conventions 
 
 **Documents and research.** `graphe:latex` builds a LaTeX document and gates it on its log, its PDF and the assignment it answers. `graphe:pdf` renders markdown to print-quality PDFs through Typst and verifies the words survived. `graphe:slides` starts a talk from an animated reveal.js web deck, gates it on titles, contrast, alt text, missing files and phone fit in a real browser, renders it, and publishes it on GitHub Pages; existing `.pptx` and PDF decks get the same text gates. `graphe:paper` scaffolds a paper directory in a papers-style monorepo, and `graphe:paper-review` runs a novelty and reviewer pass grounded in retrieved prior work.
 
-**Cross-repo consistency.** `techne:sisters` audits drift across the repos listed in `~/.claude/techne.toml`: CI action pins, toolchain pins, skill-context structural parity, GitHub merge settings, open PRs, branch hygiene. Read-only; reports findings, leaves fixes to follow-up work.
+**Cross-repo consistency.** `techne:sisters` audits drift across the repos listed in `~/.claude/techne.toml`: CI action pins, toolchain pins, skill-context structural parity, GitHub merge settings, open PRs, branch hygiene. Its report is read-only and leaves fixes to follow-up work; its clean mode removes finished branches and worktrees after you approve the list.
 
 ## Typical workflows
 
@@ -54,7 +58,7 @@ This invariant runs philosophically; there is no automated check, it's a stance 
 
 Two layers, for two kinds of failure.
 
-**Scripts** (`make test-unit`). Every script a skill ships has pytest coverage: the LaTeX log gates, the markdown-to-Typst renderer, the bibliography checker, the catch-up sweep, the slide-deck checker, auto-commit's staleness fingerprint, and the theoros session lifecycle, which drives real tmux sessions. These run in CI.
+**Scripts** (`make test-unit`). Every script a skill ships has pytest coverage: the LaTeX log gates, the markdown-to-Typst renderer, the bibliography checker, the catch-up sweep, the slide-deck checker, auto-commit's staleness fingerprint, and the theoros session lifecycle, which drives real tmux sessions. These run in CI. A test that needs a tool fails when the tool is missing, so a skipped case is never silent: set `TECHNE_NO_TMUX`, `TECHNE_NO_TEX`, `TECHNE_NO_TYPST` or `TECHNE_NO_BROWSER` to `1` to opt out on purpose on a machine without tmux, TeX Live, Typst or Chromium.
 
 **Routing** (`make evals`). A skill that never fires does nothing, and a skill that fires on someone else's request does harm. `claude plugin eval` sends natural-language prompts to fresh sessions and records which skill Claude chose. Each skill has a case that must fire it, and collision cases must not: merging a PDF is not `graphe:pdf`, an email catch-up is not `techne:catchup`, editing a slide's title is not `graphe:slides`. Every case also loads every sibling plugin's skills and stand-ins for the general PDF, PPTX and BibTeX-formatting skills; an email catch-up must reach epistole's `catch-me-up`, which every case loads as a sibling, so a description that overlaps any of them fails a case instead of shipping. Evals run on your own credential and are not part of CI.
 

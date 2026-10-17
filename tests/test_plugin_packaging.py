@@ -15,10 +15,7 @@ from conftest import DOCTOR_LIB, EMAIL, MACHINE_PATH, ROOT, _load
 ZENSICAL = tomllib.loads((ROOT / "zensical.toml").read_text())["project"]
 SITE = ZENSICAL["site_url"]
 LOCAL = sorted(p.parent.parent.name for p in ROOT.glob("plugins/*/.claude-plugin/plugin.json"))
-PAGES = {name: f"plugins/{name}.md" for name in LOCAL} | {
-    "epistole": "epistole.md",
-    "keryx": "plugins/keryx.md",
-}
+PAGES = {name: f"plugins/{name}.md" for name in LOCAL} | {"keryx": "plugins/keryx.md"}
 SETUP = sorted(p.parents[2].name for p in ROOT.glob("plugins/*/skills/setup/SKILL.md"))
 # epistole's README holds its tools table and safety model, which its privacy page links.
 FULL_README = {"epistole"}

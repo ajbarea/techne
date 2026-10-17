@@ -1,6 +1,12 @@
+---
+description: "Audit the Zensical docs site: nav, deploy workflow, CSS and JS assets, and link and anchor integrity."
+---
+
 # `techne:docs-site`
 
 Audit and maintain the Zensical-powered documentation site as a build and deploy artifact: nav ordering, deploy workflow, CSS and JS assets, and link integrity across `docs/**/*.md`.
+
+Part of [techne](../plugins/techne.md): `/plugin install techne@techne`.
 
 ## When to use
 
@@ -32,6 +38,8 @@ uv run --quiet --no-project --with playwright==1.63.0 --with axe-playwright-pyth
 
 Serve the build under its repo path, as GitHub Pages does. The script captures every sitemap page in light and dark at 1920, 1280 and 390 pixels wide in system Chrome and writes one contact sheet per page. It reports wrong-scheme surfaces, sideways scroll, AA contrast failures, broken images, page errors, unrendered markup and hidden sections. It cannot see a cramped hero or a page that does not say what the project is, so open the sheets and look.
 
+It also checks agent access and theme basics in `zensical.toml`: the `llmstxt` plugin and Copy as Markdown, a description per `llms.txt` entry, and a `media` query on each palette. visual_qa reports social tags written twice.
+
 ## Shared files
 
 The files every sister site carries identically live once, in the skill's `templates/shared/`. Edit them there, then copy them into a site:
@@ -54,3 +62,7 @@ See [Conventions](../conventions.md) for the scaffolding template.
 - [`techne:docsync`](docsync.md): verify prose claims (commands, paths, config keys) inside docs pages.
 - [`techne:deslop`](deslop.md): clean up slop in doc prose after a site audit.
 - [Conventions](../conventions.md): `## docs_site` section reference.
+
+## Full instructions
+
+[`SKILL.md` on GitHub](https://github.com/ajbarea/techne/blob/main/plugins/techne/skills/docs-site/SKILL.md) holds the full instructions Claude follows for this skill.

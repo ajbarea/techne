@@ -6,7 +6,7 @@ This is the setup guide for schole, written for an agent guiding a user. schole 
 
 - The user signs in. Never type into a sign-in, SSO or Duo page, and never ask for a password. The login command opens a real browser window for them.
 - The user runs `schole-login`, because it opens a window. In Claude Code they type it after `!`.
-- The profile in `~/.config/schole/profile` holds the site's session. Never read, copy or print anything in it.
+- The profile in `~/.config/schole/profile` holds the site's session. Never read, copy or print anything in it, including `session-cookies.json`, which holds the site's session cookies.
 - Report only what the commands print.
 
 ## 1. Check where things stand
@@ -33,6 +33,6 @@ On WSL the window needs WSLg (Windows 11). Without a display the window cannot o
 
 ## 4. Confirm
 
-Run `schole-login --status` again, then `schole-sweep`. The sweep prints one `OK` or `APIFAIL` line per course, then any `ANNOUNCE`, `CONTENT`, `DUE` and `PASTDUE` lines. Zero courses usually means the term filter matches nothing; run `!schole-login --site <site> --term <code>` with the right code.
+Run `schole-login --status` again, then `schole-sweep`. The sweep prints a header line, then for each course an `OK` or `APIFAIL` line followed by that course's `ANNOUNCE`, `CONTENT`, `DUE` and `PASTDUE` lines. Zero courses usually means the term filter matches nothing; run `!schole-login --site <site> --term <code>` with the right code.
 
 When the site's session ends (Brightspace ends it after a stretch without use that the school sets, and on a password change), commands print `needs login` and exit 3. The user runs `!schole-login` again with no options.

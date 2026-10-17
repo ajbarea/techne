@@ -1,19 +1,14 @@
+---
+description: "epistole, the Google OAuth app the epistole Claude Code plugin signs in with: what it does, and its privacy policy (what it reads, what stays on your computer, the two Gmail scopes it requests, and how to revoke access)."
+---
+
 # epistole
 
 epistole is a Claude Code plugin that gives Claude access to your Gmail accounts. It can search and read mail, and create or update drafts. Its `send_draft` tool sends a draft only after you approve it. It runs as a local server on your own computer, using a Google OAuth client that you create, so it works with several accounts at once, whichever Claude account is signed in.
 
-## Install
-
-```bash
-/plugin marketplace add ajbarea/techne
-/plugin install epistole@techne
-```
-
-epistole needs [uv](https://docs.astral.sh/uv/). Then ask Claude to run `/epistole:setup`, or follow the [setup guide](https://github.com/ajbarea/techne/blob/main/plugins/epistole/AGENTS.md) yourself. The [README](https://github.com/ajbarea/techne/blob/main/plugins/epistole/README.md) lists the tools and the safety model.
+This page describes the Google OAuth app epistole signs in with and is its privacy policy. Install, setup, tools and commands are on the [epistole plugin page](plugins/epistole.md).
 
 ## Privacy
-
-This is the privacy policy for epistole, the Google OAuth app it signs in with.
 
 - epistole runs entirely on your computer.
 - It reads Gmail only when your Claude Code session calls one of its tools, or when you run `epistole-login` to sign in or check an account.

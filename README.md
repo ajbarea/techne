@@ -27,7 +27,7 @@
 | `dokimasia` | Bibliography verification for LaTeX projects: lint a `.bib` or hand-written reference list, verify it against arXiv and Crossref, check every cited key rendered | Claude Code, or one standalone Python file |
 | `heuresis` | Idea triage: capture an idea, search papers, patents, products and your own work for anything like it, and file it with a verdict grounded in checked records | Claude Code (needs `uv` and git; `gh` for GitHub search and the private remote) |
 | `phylax` | Opt-in git and PR guards (a mod), restart onto an updated Claude Code | Claude Code |
-| `epistole` | Gmail across accounts: search, read and draft in each configured account, and send a draft only after you approve it ([docs](https://ajbarea.github.io/techne/epistole/)) | Claude Code (MCP server, needs `uv`) |
+| `epistole` | Gmail across accounts: search, read and draft in each configured account, and send a draft only after you approve it ([docs](https://ajbarea.github.io/techne/plugins/epistole/)) | Claude Code (MCP server, needs `uv`) |
 | `schole` | Brightspace (D2L) course sites, read-only: new announcements and content, what is due, what came due unsubmitted ([docs](https://ajbarea.github.io/techne/plugins/schole/)) | Claude Code (needs `uv` and Chromium) |
 | [`keryx`](https://github.com/ajbarea/keryx) | Speaks a short gist of each reply in a local voice (WSL2) | Claude Code |
 
@@ -77,11 +77,11 @@ Install only the ones you use: every enabled plugin's skill list sits in Claude'
 
 ### epistole
 
-A local Gmail MCP server and two skills: `epistole:catch-me-up` sweeps every account for mail since the last sweep (and runs schole's course sweep when schole is installed), and `epistole:setup` walks through creating a Google OAuth client and signing each account in. The MCP tools search, read and draft mail in every configured account, new drafts carry the account's Gmail signature, and `send_draft` always asks you first. See the [epistole README](plugins/epistole/README.md) and its [privacy policy](https://ajbarea.github.io/techne/epistole/#privacy).
+A local Gmail MCP server and skills: `epistole:catch-me-up` sweeps every account for mail since the last sweep (and runs schole's course sweep when schole is installed), and `epistole:setup` walks through creating a Google OAuth client and signing each account in. The MCP tools search, read and draft mail in every configured account, new drafts carry the account's Gmail signature, and `send_draft` always asks you first. See the [epistole page](https://ajbarea.github.io/techne/plugins/epistole/), the [epistole README](plugins/epistole/README.md) and its [privacy policy](https://ajbarea.github.io/techne/epistole/#privacy).
 
 ### schole
 
-Two skills: `schole:courses` reports a Brightspace (D2L) course site's new announcements and content, what is due, and what came due unsubmitted; `schole:setup` signs you in once in a browser window. It reads the site's API with GET requests on a fixed allowlist and never opens a content page, so nothing gets marked read. See [schole](https://ajbarea.github.io/techne/plugins/schole/).
+Skills: `schole:courses` reports a Brightspace (D2L) course site's new announcements and content, what is due, and what came due unsubmitted; `schole:setup` signs you in once in a browser window. It reads the site's API with GET requests on a fixed allowlist and never opens a content page, so nothing gets marked read. See [schole](https://ajbarea.github.io/techne/plugins/schole/).
 
 ### phylax
 

@@ -1,6 +1,12 @@
+---
+description: Render markdown to print-quality PDFs with a Typst template and verify the output against the source.
+---
+
 # `graphe:pdf`
 
 Render markdown to print-quality PDFs through a Typst template, then verify the output against the source.
+
+Part of [graphe](../plugins/graphe.md): `/plugin install graphe@techne`, then `/graphe:setup`.
 
 ## When to use
 
@@ -24,7 +30,9 @@ uv run --no-project --quiet --with 'typst>=0.15,<0.16' python \
   plugins/graphe/skills/pdf/scripts/render.py <src> <out-dir>
 ```
 
-Nothing needs installing. The `typst` wheel bundles the compiler, and `cmarker` is pulled from Typst Universe on first compile and cached afterwards.
+The `typst` wheel bundles the compiler, and `cmarker` is pulled from Typst Universe on first compile and cached afterwards. The font report needs `strings` (binutils, present on most systems), and the content check below needs poppler's `pdftotext`. A directory source renders its `*.md` files non-recursively, and the PDFs land beside the sources by default; the skill renders into a `_typst-preview/` folder first when that would overwrite existing PDFs. The font stack is Charter, XCharter, then Libertinus Serif for text, Helvetica Neue through Libertinus Serif for headings, and SF Mono, Menlo, Consolas, then DejaVu Sans Mono for code.
+
+Exit codes: `0` rendered, `1` font drift under `--check-fonts`, `2` the directory holds no `*.md`.
 
 ## Output checks
 
@@ -44,3 +52,7 @@ Those need the typst wheel, and the first compile fetches cmarker from Typst Uni
 
 - [`graphe:paper`](paper.md): LaTeX manuscripts in a papers monorepo, a different pipeline.
 - [Conventions](../conventions.md): where generated artifacts belong relative to their sources.
+
+## Full instructions
+
+[`SKILL.md` on GitHub](https://github.com/ajbarea/techne/blob/main/plugins/graphe/skills/pdf/SKILL.md) holds the full instructions Claude follows for this skill.

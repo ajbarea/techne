@@ -1,5 +1,6 @@
 ---
 title: techne
+description: A Claude Code plugin marketplace for code repos, documents, bibliographies, ideas, Gmail and course sites. Pick the plugin for your job, install it, run its setup skill.
 hide:
   - navigation
   - toc
@@ -10,126 +11,83 @@ hide:
 
 # τέχνη · techne
 
-**Opinionated Claude Code plugins for code repos and documents. Install the ones you use.**
+**Claude Code plugins for code repos, documents, bibliographies, ideas, Gmail and course sites. Install the ones you use.**
 { .hero-subtitle }
+
+<div class="hero-install" markdown>
+
+```text
+/plugin marketplace add ajbarea/techne
+/plugin install <plugin>@techne
+```
+
+</div>
 
 <div class="hero-buttons" markdown>
 
 [:octicons-rocket-24: Get Started](getting-started.md){ .md-button .md-button--primary }
-[:octicons-list-unordered-24: Browse Skills](skills/index.md){ .md-button }
+[:octicons-list-unordered-24: Pick a plugin](#plugins){ .md-button }
 
 </div>
 
 </div>
 
-<section class="landing-section landing-section--intro">
+<section class="landing-section landing-section--intro" id="plugins">
   <div class="section-inner">
-    <h2 class="section-title">What is techne?</h2>
-    <p class="section-lead">A Claude Code plugin marketplace. <code>techne</code> covers work in a code repo: audit builds, tame CI noise, hunt doc/code drift, and keep linked repos in lockstep. <code>graphe</code> builds and gates documents: LaTeX, PDFs, slides and papers. <code>dokimasia</code> verifies a bibliography against its sources. <code>heuresis</code> triages an idea against papers, patents, products and your own work. <code>phylax</code> adds opt-in git guards, <code>epistole</code> gives Claude your Gmail accounts, <code>schole</code> reads your Brightspace course site, and <code>keryx</code> speaks each reply. Adopt the conventions and the skills work for any developer.</p>
-  </div>
-</section>
-
-<section class="landing-section">
-  <div class="section-inner">
-    <h2 class="section-title">The Skills</h2>
+    <h2 class="section-title">Which plugin do you need?</h2>
+    <p class="section-lead">techne is a Claude Code plugin marketplace. Each plugin is installed on its own, so only the ones you pick put their skill list in Claude's context. After installing, run the plugin's setup skill, <code>/&lt;plugin&gt;:setup</code>: it checks what the plugin needs and prints the install command for anything missing. dokimasia needs only uv and has none; keryx checks itself with <code>keryx status</code>.</p>
     <div class="skill-grid">
-      <a href="skills/audit/" class="skill-card">
-        <div class="skill-name"><code>/techne:audit</code></div>
-        <p>Runs your repo's <code>make</code> targets in dependency order and reconciles terminal output against <code>logs/dev-*.log</code> archives.</p>
-      </a>
-      <a href="skills/auto-commit/" class="skill-card">
-        <div class="skill-name"><code>/techne:auto-commit</code></div>
-        <p>Groups working-tree changes into a structured <code>COMMITS.md</code> plan for staged review before anything lands.</p>
-      </a>
-      <a href="skills/catchup/" class="skill-card">
-        <div class="skill-name"><code>/techne:catchup</code></div>
-        <p>Reads every comment, review, and state change on a repo since you last participated, then reports who is blocked on whom.</p>
-      </a>
-      <a href="skills/ci-audit/" class="skill-card">
-        <div class="skill-name"><code>/techne:ci-audit</code></div>
-        <p>Audits GitHub Actions runs on the current branch/PR for warnings, failures, and noise. Fixes what's fixable in-repo.</p>
-      </a>
-      <a href="skills/deslop/" class="skill-card">
-        <div class="skill-name"><code>/techne:deslop</code></div>
-        <p>Scans comments and docstrings for AI-generated slop and proposes tightened rewrites.</p>
-      </a>
-      <a href="skills/docs-site/" class="skill-card">
-        <div class="skill-name"><code>/techne:docs-site</code></div>
-        <p>Maintains the Zensical-powered docs site: config, deploy pipeline, theming, link integrity.</p>
-      </a>
-      <a href="skills/docsync/" class="skill-card">
-        <div class="skill-name"><code>/techne:docsync</code></div>
-        <p>Verifies documentation claims (CLI commands, paths, config keys, signatures) against the actual code.</p>
-      </a>
-      <a href="skills/check/" class="skill-card">
-        <div class="skill-name"><code>/dokimasia:check</code></div>
-        <p>Lints a <code>.bib</code> or hand-written reference list, verifies it against arXiv and Crossref, and checks every cited key rendered.</p>
-      </a>
-      <a href="skills/idea/" class="skill-card">
-        <div class="skill-name"><code>/heuresis:idea</code></div>
-        <p>Captures an idea and triages it against papers, patents, products and your own work, naming the closest existing work.</p>
-      </a>
-      <a href="skills/elenchus/" class="skill-card">
-        <div class="skill-name"><code>/techne:elenchus</code></div>
-        <p>Adversarial pre-merge review: reproduces the load-bearing claim, traces every consumer, and walks a bug-class rubric.</p>
-      </a>
-      <a href="skills/latex/" class="skill-card">
-        <div class="skill-name"><code>/graphe:latex</code></div>
-        <p>Builds a LaTeX document and gates it on its log, its PDF, and the assignment it answers.</p>
-      </a>
-      <a href="skills/paper/" class="skill-card">
-        <div class="skill-name"><code>/graphe:paper</code></div>
-        <p>Scaffolds a new paper directory in a papers-style monorepo so it builds on day one.</p>
-      </a>
-      <a href="skills/paper-review/" class="skill-card">
-        <div class="skill-name"><code>/graphe:paper-review</code></div>
-        <p>Pre-submission novelty and reviewer pass, with every verdict grounded in retrieved prior work.</p>
-      </a>
-      <a href="skills/pdf/" class="skill-card">
-        <div class="skill-name"><code>/graphe:pdf</code></div>
-        <p>Renders markdown to print-quality PDFs through a Typst template, then verifies fonts and content against the source.</p>
-      </a>
-      <a href="skills/research-grounded/" class="skill-card">
-        <div class="skill-name"><code>/techne:research-grounded</code></div>
-        <p>Flags design decisions in <code>IMPL.md</code> / <code>ROADMAP.md</code> that lack <code>research(YYYY-MM)</code> provenance, then web-searches to ground them.</p>
-      </a>
-      <a href="skills/reslop/" class="skill-card">
-        <div class="skill-name"><code>/techne:reslop</code></div>
-        <p>Rewrites docstrings grounded in the implementation rather than deleting them outright.</p>
-      </a>
-      <a href="skills/sisters/" class="skill-card">
-        <div class="skill-name"><code>/techne:sisters</code></div>
-        <p>Cross-repo drift audit across the sister repos listed in <code>~/.claude/techne.toml</code>.</p>
-      </a>
-      <a href="skills/slides/" class="skill-card">
-        <div class="skill-name"><code>/graphe:slides</code></div>
-        <p>Builds and gates a talk deck: an animated web deck on GitHub Pages from a starter, checked for titles, contrast, alt text, missing files and phone fit, then rendered and published.</p>
-      </a>
-      <a href="skills/theoros/" class="skill-card">
-        <div class="skill-name"><code>/techne:theoros</code></div>
-        <p>Starts an observed live dev session: Claude drives the REPL in a named tmux session; you spectate read-only via <code>tmux attach -r</code>.</p>
-      </a>
+      <div class="skill-card">
+        <div class="skill-name"><a href="plugins/techne/">techne</a></div>
+        <p>Work in a code repo: audit the build, review CI and changes before merge, plan commits, catch up on GitHub threads, check docs against code, keep sister repos in step.</p>
+        <code class="plugin-install">/plugin install techne@techne</code>
+      </div>
+      <div class="skill-card">
+        <div class="skill-name"><a href="plugins/graphe/">graphe</a></div>
+        <p>Documents: build and check LaTeX papers, render markdown to PDF, make talk decks, scaffold a paper, review it before submission.</p>
+        <code class="plugin-install">/plugin install graphe@techne</code>
+      </div>
+      <div class="skill-card">
+        <div class="skill-name"><a href="plugins/dokimasia/">dokimasia</a></div>
+        <p>Check a bibliography: lint a <code>.bib</code>, verify entries against arXiv and Crossref, confirm every cited key rendered.</p>
+        <code class="plugin-install">/plugin install dokimasia@techne</code>
+      </div>
+      <div class="skill-card">
+        <div class="skill-name"><a href="plugins/heuresis/">heuresis</a></div>
+        <p>Triage an idea: search papers, patents, products and your own work, name the closest existing work, file the idea.</p>
+        <code class="plugin-install">/plugin install heuresis@techne</code>
+      </div>
+      <div class="skill-card">
+        <div class="skill-name"><a href="plugins/epistole/">epistole</a></div>
+        <p>Gmail across accounts: search, read and draft mail, and send a draft only after you approve it.</p>
+        <code class="plugin-install">/plugin install epistole@techne</code>
+      </div>
+      <div class="skill-card">
+        <div class="skill-name"><a href="plugins/schole/">schole</a></div>
+        <p>Brightspace (D2L) course sites, read-only: new announcements and content, what is due, what came due unsubmitted.</p>
+        <code class="plugin-install">/plugin install schole@techne</code>
+      </div>
+      <div class="skill-card">
+        <div class="skill-name"><a href="plugins/phylax/">phylax</a></div>
+        <p>Opt-in git guards (no attribution lines, no staged <code>COMMITS.md</code>, main-checkout warning) and restart onto an updated Claude Code.</p>
+        <code class="plugin-install">/plugin install phylax@techne</code>
+      </div>
+      <div class="skill-card">
+        <div class="skill-name"><a href="plugins/keryx/">keryx</a></div>
+        <p>Speaks a short gist of each reply in a local voice.</p>
+        <code class="plugin-install">/plugin install keryx@techne</code>
+      </div>
     </div>
   </div>
 </section>
 
 <section class="landing-section landing-section--cta">
   <div class="section-inner">
-    <h2 class="section-title">Install</h2>
-    <div class="highlight">
-      <pre><code>/plugin marketplace add ajbarea/techne
-/plugin install techne@techne
-/plugin install graphe@techne
-/plugin install dokimasia@techne
-/plugin install heuresis@techne
-/plugin install phylax@techne
-/plugin install epistole@techne
-/plugin install schole@techne
-/plugin install keryx@techne</code></pre>
-    </div>
-    <p class="section-lead">Install the plugins you use (keryx on WSL2 only), then invoke a skill as <code>/techne:&lt;name&gt;</code>, <code>/graphe:&lt;name&gt;</code>, <code>/dokimasia:check</code>, <code>/heuresis:idea</code> or <code>/phylax:setup</code>, or describe the task and let Claude pick it. Run <code>/&lt;plugin&gt;:setup</code> for each plugin you install: it checks what the plugin needs and prints the install command for anything missing.</p>
+    <h2 class="section-title">Next</h2>
+    <p class="section-lead">Invoke a skill as <code>/&lt;plugin&gt;:&lt;skill&gt;</code>, or describe the task and let Claude pick one. Every skill has a page that says when to use it and what it changes.</p>
     <div class="hero-buttons hero-buttons--cta">
       <a href="getting-started/" class="md-button md-button--primary">Get Started</a>
+      <a href="skills/" class="md-button">Browse Skills</a>
       <a href="configuration/" class="md-button">Configuration</a>
     </div>
   </div>
