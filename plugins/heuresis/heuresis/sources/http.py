@@ -24,13 +24,33 @@ class SourceError(Exception):
         self.status = status
 
 
+WEB_SCHEMES = ("http", "https")
+# Keys and tokens are meant for the host they were sent to, never one it redirects to.
+CREDENTIAL_HEADERS = frozenset({"x-api-key", "authorization"})
+
+
+class _Redirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        target = urllib.parse.urlsplit(newurl)
+        if target.scheme not in WEB_SCHEMES:
+            raise SourceError(f"redirect to unsupported scheme: {target.scheme or 'none'}")
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new is not None and target.hostname != urllib.parse.urlsplit(req.full_url).hostname:
+            for name in [n for n in new.headers if n.lower() in CREDENTIAL_HEADERS]:
+                del new.headers[name]
+        return new
+
+
+_OPENER = urllib.request.build_opener(_Redirect)
+
+
 def _open(req: urllib.request.Request) -> bytes:
     parts = urllib.parse.urlsplit(req.full_url)
-    if parts.scheme not in ("http", "https"):
+    if parts.scheme not in WEB_SCHEMES:
         raise SourceError(f"unsupported scheme: {parts.scheme}")
     host = parts.netloc
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+        with _OPENER.open(req, timeout=TIMEOUT) as resp:
             return resp.read(MAX_BYTES)
     except urllib.error.HTTPError as exc:
         raise SourceError(f"http {exc.code} from {host}", status=exc.code) from exc
