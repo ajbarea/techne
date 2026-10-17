@@ -31,7 +31,7 @@ The skill runs a doctor script that only reads, then follows the [setup runbook]
 | `tmux` | `theoros`. |
 | `chromium` | Optional. Playwright's Chromium for the docs-site visual check. |
 | `lsof` | macOS only: `sisters` clean mode. |
-| `skill-context` | Optional. The repo's `.claude/skill-context.md`, read by `audit` and `theoros`. The fix line copies the skeleton. |
+| `skill-context` | Optional. The repo's `.claude/skill-context.md`, which most techne skills read; `audit` and `theoros` require it. See the [section reference](../conventions.md#section-reference). The fix line copies the skeleton. |
 | `techne.toml` | Optional. `~/.claude/techne.toml`, read by `sisters` and `catchup`. |
 
 ## Output

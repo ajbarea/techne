@@ -53,7 +53,7 @@ epistole's [`catch-me-up`](../skills/catch-me-up.md) also runs the course sweep 
 | `schole-login --status` | Checks the sign-in headless and prints the site, the term filter and `signed in` or `needs login`. Exits 0 only when signed in. |
 | `schole-sweep [--since EPOCH]` | Prints what changed since `EPOCH` (epoch seconds; default 24 hours ago) and what is due. |
 
-Exit codes: `0` success, `1` the settings or the sign-in are not finished (a missing or invalid `schole.toml`, a closed sign-in window, or a login that ran out of time), `3` `needs login`, `4` the course site failed or the browser could not run (Chromium missing, profile in use).
+Exit codes: `0` success, `1` a missing or bad setting (`schole.toml`, `--site`, `--timezone`) or a sign-in that did not finish (a closed window, or a login that ran out of time), `2` an unknown option or a `--since` that is not a number, `3` `needs login`, `4` the course site failed or the browser could not run (Chromium missing, profile in use), `127` uv is not on PATH. `--help` on either command lists them with examples.
 
 `schole-sweep` prints a header line (`<site> since <time>: N courses`), then for each course an `OK` or `APIFAIL` line followed by that course's lines:
 
@@ -91,7 +91,7 @@ Brightspace's API needs an OAuth app your institution registers; students cannot
 
 ## Troubleshooting
 
-- **`needs login`, exit 3.** The site's session ended. Brightspace ends it after an idle timeout the school sets, and on a password change. A refused cookie restore can also cause it. Run `!schole-login`.
+- **`needs login`, exit 3.** The site's session ended. Brightspace ends it after an idle timeout the school sets, and on a password change. A refused cookie restore can also cause it. The line ends with when the site last accepted the session, if it ever did. Run `!schole-login`.
 - **Zero courses.** The term filter matches no course code. Run `!schole-login --site <site> --term <code>` with the text your current courses' codes contain.
 - **`APIFAIL <course> :: news:404`.** That part of that course could not be read; the rest still was. Check it on the site yourself.
 - **`schole: the course site failed (...); try again later.`** The site did not answer. Exit 4.

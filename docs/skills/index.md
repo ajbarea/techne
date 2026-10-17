@@ -85,7 +85,7 @@ Skills ship as plugins: `techne` for work in a code repo, `graphe` for documents
 |---|---|
 | [`techne:setup`](techne-setup.md) | Checks what the techne skills need on this machine and prints each fix. |
 | [`graphe:setup`](graphe-setup.md) | Checks TeX Live, poppler, Chromium and the other document tools. |
-| [`heuresis:setup`](heuresis-setup.md) | Checks uv and git, creates the ideas repository, and lists the search keys that are set. |
+| [`heuresis:setup`](heuresis-setup.md) | Checks uv, git and the optional `gh`, creates the ideas repository, and lists the search keys that are set. |
 | [`phylax:setup`](phylax-setup.md) | Shows which phylax options are on and checks what they need. |
 | [`epistole:setup`](epistole-setup.md) | Creates the Google OAuth client and signs each Gmail account in. |
 | [`schole:setup`](schole-setup.md) | Installs the browser and signs you in to the course site once. |

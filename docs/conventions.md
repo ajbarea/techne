@@ -110,13 +110,13 @@ The [template](https://github.com/ajbarea/techne/blob/main/plugins/techne/skills
 
 | Section | Read by | Keys |
 |---|---|---|
-| `## repo` | `docsync` | One paragraph on what the repo is, its CLI entrypoint and runner module. |
-| `## audit` | `audit` | `phases` (targets in dependency order), `fast_subset`, `stop_early`, `log_archive_glob`, `do_not_run`. |
+| `## repo` | `docsync`, `audit`, `research-grounded` | One paragraph on what the repo is, its CLI entrypoint and runner module. |
+| `## audit` | `audit`, `elenchus` (its test command) | `phases` (targets in dependency order), `fast_subset`, `stop_early`, `log_archive_glob`, `do_not_run`. |
 | `## ci_audit` | `ci-audit` | `referenced_configs` (files whose edit changes CI output), `tool_error_markers`. |
 | `## slop_ground_truth` | `deslop`, `reslop`, `docsync` | `authoritative_sources`, `test_locations`: what a claim is checked against. |
-| `## scan_scope` | `deslop` | `skip` paths and `areas` (how a wide scan is split). |
-| `## docs_site` | `docs-site` | `config`, `workflow`, `css_files`, `js_files`, `build_command`, `site_url`, `action_pins`. |
-| `## theoros` | `theoros` | `repl_command`, `session_name`, optional `ops_command` for a log pane. |
+| `## scan_scope` | `deslop` | `skip` paths, `areas` (how a wide scan is split), `pattern_sources` (files that quote slop on purpose). |
+| `## docs_site` | `docs-site`, `sisters` | `config`, `workflow`, `css_files`, `js_files`, `build_command`, `site_url`, `action_pins`. |
+| `## theoros` | `theoros`, `elenchus` (its run command) | `repl_command`, `session_name`, optional `ops_command` for a log pane. |
 | `## paper` | `paper` | `author`, `affiliation`, `email`, `bib`, `portfolio`. |
 | `## paper-review` | `paper-review` | `lab_line`, `retrieval`, `mailto`, `report`. |
 | `## latex` | `latex` | `markers`, `overfull_pt`, `engine`. |

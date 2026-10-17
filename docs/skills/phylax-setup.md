@@ -26,7 +26,7 @@ The first four lines are the options: `ok` is on, `n/a` is off or not set, which
 
 | Check | Matters when |
 |---|---|
-| `mod` | A guard is on. Claude Code 2.1.288 or later runs the guards from a mod; older versions use the command hook, so this line is optional. |
+| `mod` | A guard is on. Claude Code 2.1.287 or later runs the guards from a mod, and 2.1.288 fixed that mod breaking Bash in worktree subagents. Older versions run them from the command hook, so this line is optional. |
 | `python3` | Any option is on. 3.9 or newer. |
 | `git` | A guard is on. |
 | `proc`, `launcher`, `claude`, `state-dir` | `restart_on_update` is on: `/proc`, tmux or Windows Terminal, the `claude` on PATH, and a private state folder. |

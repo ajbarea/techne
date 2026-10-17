@@ -94,7 +94,7 @@ When Claude exits in the new tab, you are left in a login shell, as before.
 
 When a newer version is installed but the last turn holds the session (a background task, a subagent or a session cron still running, no completed turn recorded, or the turn recorded by another process), the hook writes the reason to its log, `$XDG_RUNTIME_DIR/phylax-restart-<uid>/log`. Each hold is logged once, and again when its reason changes or after it has lifted, so the log answers why a session has not moved.
 
-A launch that fails blocks another attempt for that session for 10 minutes.
+A launcher that fails (tmux or `wt.exe` exiting non-zero) frees the next idle prompt to try again. A launch that reports success but whose handoff never runs, such as a Windows Terminal tab that timed out, holds that session for 10 minutes before the next attempt.
 
 In any other terminal, the hook tells you once per session that it cannot restart there and does nothing else. Sessions started with `--bg` are never restarted.
 

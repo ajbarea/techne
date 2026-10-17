@@ -92,7 +92,7 @@ The sample shows values, and the defaults are `orphans = true`, `cache = ".dokim
 
 ## Output
 
-Every line is prefixed `dokimasia:`. Findings go to stderr and the summary to stdout. `verify` waits 3 seconds between arXiv lookups, and retries a 406, 429 or 503 up to three times, after 5 and then 20 seconds.
+Every finding starts with a `dokimasia:` line, and a drift finding adds two indented lines, `file  :` and `source:`, with the two values. Findings go to stderr and the summary to stdout. `verify` waits 3 seconds between arXiv lookups, and tries a lookup that answers 406, 429 or 503 three times in all, waiting 5 and then 20 seconds.
 
 ## Testing it
 

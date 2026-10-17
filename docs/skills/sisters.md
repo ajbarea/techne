@@ -36,7 +36,7 @@ Squash merges leave every merged branch "ahead of main", so ahead counts can't t
 - a remote branch with no PR, or someone else's
 - a stash
 
-The audit itself is `hygiene.py`: `--json` prints the full survey as JSON, `--env` prints the shell variables `$SISTERS`, `$TEAM_SISTERS`, `$WORKSPACE` and `$GITHUB_USER` (one line and exit 1 when the config is missing, invalid or lists no active sister), and `--repo NAME`, which may repeat, narrows it to named sisters. One broken repo never stops the others. Open PRs older than 14 days are flagged, and log retention is a 30-day prune.
+Branch, worktree and stash hygiene, and clean mode, run from `hygiene.py`; the other checks run from the skill's instructions. `hygiene.py --json` prints its survey as JSON, `--env` prints the shell variables `$SISTERS`, `$TEAM_SISTERS`, `$WORKSPACE` and `$GITHUB_USER` (one line and exit 1 when the config is missing, invalid or lists no active sister), and `--repo NAME`, which may repeat, narrows it to named sisters. One broken repo never stops the others. The audit flags open PRs older than 14 days and checks that logs are pruned after 30 days.
 
 Clean mode runs `hygiene.py` in two steps. The first writes the plan, and `--repo NAME` narrows it to one sister:
 

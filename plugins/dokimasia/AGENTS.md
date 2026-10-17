@@ -32,7 +32,7 @@ Exit codes: `0` clean, `1` findings, `2` usage or configuration error (an unknow
 | Outcome | What to do |
 | --- | --- |
 | `drift` | Check the source, then decide with the user which side is wrong. |
-| `unresolved` | The lookup did not answer. Rerun later. A 406, 429 or 503 is retried three times, 5 then 20 seconds apart. |
+| `unresolved` | The lookup did not answer. Rerun later. A 406, 429 or 503 is tried three times in all, waiting 5 then 20 seconds. |
 | `unverifiable` | The entry has no `eprint` or `doi`. The user adds an identifier, or a human checks it. |
 | `uncompared` | A hand-written item that does not quote its title. Check it by hand. |
 | `exempt` | Listed in the config with a reason. Nothing to do. |

@@ -31,6 +31,8 @@ Default scope is the whole repo minus vendored/generated paths. Narrow scope by 
 
 For a wide scope the skill fans out parallel subagents per area (a single file or small directory is scanned inline), consolidates findings, then asks `apply all / apply selected / skip?` before editing. Pass `--apply` to edit without asking.
 
+Files that quote slop on purpose, such as a style glossary or the tests that feed a prose checker, go under `pattern_sources` in the `## scan_scope` section; the glossary grep skips them and the report says how many it left out.
+
 ## See also
 
 - [`techne:reslop`](reslop.md): when the answer is better prose, not less prose.
