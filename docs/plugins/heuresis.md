@@ -45,7 +45,7 @@ The skill drives a `heuresis` command and five agents. The agents are `scout-pap
 
 ## Configuration
 
-`ideas_repo` (your local ideas repository) and `repos_root` (the folder holding your clones) are plugin options, set in `/config` under the heuresis plugin. The four search keys are sensitive plugin options, saved with `/plugin configure heuresis@techne` (see [Search keys](#search-keys)); a key exported in your shell profile wins over a saved one.
+`ideas_repo` (your local ideas repository) and `repos_root` (the folder holding your clones) are plugin options, set in `/config` under the heuresis plugin. The search keys are sensitive plugin options, saved with `/plugin configure heuresis@techne` (see [Search keys](#search-keys)); a key exported in your shell profile wins over a saved one.
 
 The ideas repository also holds `projects.toml` and `context.toml`, which `init` seeds. `heuresis context` reads them to find your research sources, and `--project` names come from `projects.toml`.
 
