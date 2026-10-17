@@ -407,6 +407,8 @@ def _apply(args) -> int:
     product = render.product_section(judge)
     if product:
         idea.sections["Product evidence"] = product
+    else:
+        idea.sections.pop("Product evidence", None)
     idea.revisit_on = list(proposed.get("revisit_on") or idea.revisit_on)
     store.add_verdict(idea, verdict)
     _checked_idea(idea)

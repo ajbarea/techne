@@ -261,7 +261,10 @@ def add_verdict(idea: Idea, v: Verdict) -> None:
     entry = render_verdict(v)
     idea.sections["Verdict log"] = f"{entry}\n\n{previous}" if previous else entry
     idea.state = v.state
-    idea.type = v.type or idea.type
-    idea.project = v.project or idea.project
+    if v.origin == "triage":  # a triage judges the idea afresh, so what it leaves out is cleared
+        idea.type, idea.project = v.type, v.project
+    else:  # an override changes only what AJ passed
+        idea.type = v.type or idea.type
+        idea.project = v.project or idea.project
     idea.duplicate_of = v.duplicate_of
     idea.revisit = v.revisit if v.state == "later" else None

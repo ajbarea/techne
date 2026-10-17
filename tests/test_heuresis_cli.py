@@ -712,3 +712,29 @@ def test_judge_shape_errors_are_a_message_and_write_nothing(tmp_path: Path, caps
     err = capsys.readouterr().err
     assert err.startswith(f"heuresis: judge.json: {message}"), err
     assert path.read_text() == before
+
+
+def test_retriage_clears_what_the_new_verdict_omits_and_override_keeps_it(tmp_path: Path, capsys):
+    ideas = init_ideas(tmp_path)
+    verdict = {"state": "do", "type": "product", "project": "plugin:graphe", "reason": "new"}
+    idea_id, run = _triaged(ideas, capsys, verdict=verdict)
+    judge = json.loads((run / "judge.json").read_text())
+    judge["product_evidence"] = {"rivals": ["R charges $5"], "demand": [], "cheapest_test": "x"}
+    (run / "judge.json").write_text(json.dumps(judge))
+    assert _apply(ideas, idea_id) == 0
+    path = ideas / "ideas" / f"{idea_id}.md"
+    first = cli.store.load(path)
+    assert (first.state, first.type, first.project) == ("do", "product", "plugin:graphe")
+    assert "Product evidence" in first.sections
+    judge["verdict"] = {"state": "later", "type": None, "project": None, "reason": "thin"}
+    judge.pop("product_evidence")
+    (run / "judge.json").write_text(json.dumps(judge))
+    assert _apply(ideas, idea_id) == 0
+    second = cli.store.load(path)
+    assert (second.state, second.type, second.project) == ("later", None, None)
+    assert "Product evidence" not in second.sections
+    override = ["override", "--ideas", str(ideas), idea_id]
+    assert cli.main([*override, "do", "--type", "tool", "--project", "techne", "go"]) == 0
+    assert cli.main([*override, "later", "wait"]) == 0
+    third = cli.store.load(path)
+    assert (third.state, third.type, third.project) == ("later", "tool", "techne")
