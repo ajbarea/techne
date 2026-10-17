@@ -18,7 +18,7 @@ After installing heuresis, when `/heuresis:idea` says the ideas repository is no
 /heuresis:setup
 ```
 
-The skill runs a doctor script that only reads, then follows the [setup runbook](https://github.com/ajbarea/techne/blob/main/plugins/heuresis/AGENTS.md). You set `ideas_repo` and `repos_root` in `/config` under the heuresis plugin's options. When the ideas repository does not exist, Claude creates it with `heuresis init`, makes the first commit, and creates the private GitHub repository only after you say yes and `gh` is signed in. Claude never asks for an API key in chat.
+The skill runs a doctor script that only reads, then follows the [setup runbook](https://github.com/ajbarea/techne/blob/main/plugins/heuresis/AGENTS.md). You set `ideas_repo` and `repos_root` in `/config` under the heuresis plugin's options. When the ideas repository does not exist, Claude creates it with `heuresis init`, makes the first commit, and creates the private GitHub repository only after you say yes and `gh` is signed in. Search keys are saved one of two ways: you run `/plugin configure heuresis@techne` and paste each into its masked field, or Claude prints a template, you fill it in at a private path, and a store script saves it to Claude Code's secure storage, printing names only. Restart Claude Code afterwards. Claude never asks for an API key in chat and never reads the file.
 
 ## What it checks
 
@@ -27,7 +27,7 @@ The skill runs a doctor script that only reads, then follows the [setup runbook]
 | `uv`, `git` | Required. |
 | `gh` | Optional. GitHub search and the ideas remote. |
 | `ideas_repo`, `repos_root` | The two folders set in `/config`. |
-| API keys | Optional. One line per key: `S2_API_KEY`, `LENS_API_TOKEN`, `EPO_OPS_KEY` with `EPO_OPS_SECRET`, `OPENALEX_API_KEY`, `OPENALEX_MAILTO` and the GitHub token. A source without its key shows `skipped` in a verdict. |
+| API keys | Optional. One line per key: `S2_API_KEY`, `LENS_API_TOKEN`, `EPO_OPS_KEY` with `EPO_OPS_SECRET`, `OPENALEX_API_KEY`, `OPENALEX_MAILTO` and the GitHub token. Saved in Claude Code's secure storage, or exported in your shell, which wins. A source without its key shows `skipped` in a verdict. |
 
 ## Output
 

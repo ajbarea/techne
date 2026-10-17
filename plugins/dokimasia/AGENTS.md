@@ -25,7 +25,7 @@ uv run --no-project --quiet python <plugin root>/skills/check/scripts/dokimasia.
 | `verify` | yes, `export.arxiv.org` and `api.crossref.org` | Compare each entry's title, first author and year with its arXiv or Crossref record. |
 | `rendered` | no | Confirm every cited key is in the built `.bbl`, or has a `\bibitem`. |
 
-Exit codes: `0` clean, `1` findings, `2` usage or configuration error (an unknown config key is one). With `--require-built`, a document with no `.bbl` is a finding.
+Exit codes: `0` nothing failed, `1` findings, `2` usage or configuration error (an unknown config key is one). For `verify`, only drift exits 1: unresolved, unverifiable and uncompared entries are listed on stdout and the run still exits 0, so read the summary line (`verified N, exempt N, unresolved N, ...`) before calling a bibliography verified. With `--require-built`, a document with no `.bbl` is a finding.
 
 ## 3. Fix each outcome
 

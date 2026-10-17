@@ -96,8 +96,8 @@ a.skill-card:hover {
   color: var(--card-text-color);
 }
 
-/* Plugin card: the card is a div (the plugin name is the link), with what it needs and
-   its install line at the foot. */
+/* Plugin card: the card is a div (the plugin name is the link), with its install line at
+   the foot. */
 .skill-card .skill-name a {
   color: inherit;
 }

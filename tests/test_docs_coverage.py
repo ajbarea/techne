@@ -52,9 +52,11 @@ def test_every_page_has_a_description() -> None:
 def test_llms_sections_repeat_page_descriptions() -> None:
     config = tomllib.loads((ROOT / "zensical.toml").read_text())
     sections = config["project"]["plugins"]["llmstxt"]["sections"]
-    entries = {
-        path: text for items in sections.values() for item in items for path, text in item.items()
-    }
+    listed = [
+        (path, text) for items in sections.values() for item in items for path, text in item.items()
+    ]
+    entries = dict(listed)
+    assert len(entries) == len(listed), "a page is listed twice in llms.txt"
     pages = {p.relative_to(DOCS).as_posix() for p in DOCS.rglob("*.md")}
     assert set(entries) == pages, "every page is an llms.txt entry, and every entry is a page"
     stale = [p for p, text in entries.items() if text != description(DOCS / p)]

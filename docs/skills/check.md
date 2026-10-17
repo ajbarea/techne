@@ -38,7 +38,7 @@ uv run --no-project --quiet python plugins/dokimasia/skills/check/scripts/dokima
 | `verify` | yes | Title, first-author surname and year against the arXiv or Crossref record. |
 | `rendered` | no | Every key a document cites is in its `.bbl`, or has a `\bibitem` in its hand-written list. |
 
-The mode defaults to `lint`. Exit codes: `0` clean, `1` findings, `2` usage or configuration error.
+The mode defaults to `lint`. Exit codes: `0` nothing failed, `1` findings, `2` usage or configuration error (an unknown config key is one). For `verify`, only drift exits 1: unresolved, unverifiable and uncompared entries are listed on stdout and the run still exits 0, so read the summary line (`verified N, exempt N, unresolved N, ...`) before calling a bibliography verified.
 
 ## Why three passes
 
@@ -92,7 +92,7 @@ The sample shows values, and the defaults are `orphans = true`, `cache = ".dokim
 
 ## Output
 
-Every finding starts with a `dokimasia:` line, and a drift finding adds two indented lines, `file  :` and `source:`, with the two values. Findings go to stderr and the summary to stdout. `verify` waits 3 seconds between arXiv lookups, and tries a lookup that answers 406, 429 or 503 three times in all, waiting 5 and then 20 seconds.
+Each finding and each list starts with a `dokimasia:` line; a drift finding adds two indented lines, `file  :` and `source:`, and a list adds one indented line per entry. Drift and lint findings go to stderr; the summary and `verify`'s unresolved, unverifiable and uncompared lists go to stdout. `verify` waits 3 seconds between arXiv lookups, and tries a lookup that answers 406, 429 or 503 three times in all, waiting 5 and then 20 seconds.
 
 ## Testing it
 

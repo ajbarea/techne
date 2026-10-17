@@ -22,7 +22,7 @@ graphe builds and checks documents: LaTeX papers, markdown rendered to PDF, and 
 
 ## Needs
 
-uv, TeX Live (latexmk, pdflatex, biber), poppler (`pdftotext`, `pdfinfo`, `pdffonts`, `pdftoppm`), `strings` from binutils, Playwright's Chromium, and python3 3.9 or newer to run the doctor. LibreOffice or PowerPoint, Node and pptxgenjs are optional and only for `.pptx` decks.
+uv, TeX Live (latexmk and pdflatex; biber for biblatex documents), poppler (`pdftotext`, `pdfinfo`, `pdffonts`, `pdftoppm`), `strings` from binutils, Playwright's Chromium, and python3 3.9 or newer to run the doctor. LibreOffice or PowerPoint, Node and pptxgenjs are optional and only for `.pptx` decks.
 
 ## Set up
 

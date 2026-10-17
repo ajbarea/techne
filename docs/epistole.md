@@ -1,10 +1,12 @@
 ---
-description: Privacy policy for epistole, the Google OAuth app the epistole plugin signs in with. What it reads, what stays on your computer, the two Gmail scopes it requests, and how to revoke access.
+description: "epistole, the Google OAuth app the epistole Claude Code plugin signs in with: what it does, and its privacy policy (what it reads, what stays on your computer, the two Gmail scopes it requests, and how to revoke access)."
 ---
 
-# epistole privacy policy
+# epistole
 
-epistole is a Claude Code plugin that gives Claude access to your Gmail accounts, and the Google OAuth app it signs in with. This page is its privacy policy. For install, setup, tools and commands, see the [epistole plugin page](plugins/epistole.md).
+epistole is a Claude Code plugin that gives Claude access to your Gmail accounts. It can search and read mail, and create or update drafts. Its `send_draft` tool sends a draft only after you approve it. It runs as a local server on your own computer, using a Google OAuth client that you create, so it works with several accounts at once, whichever Claude account is signed in.
+
+This page describes the Google OAuth app epistole signs in with and is its privacy policy. Install, setup, tools and commands are on the [epistole plugin page](plugins/epistole.md).
 
 ## Privacy
 

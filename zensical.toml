@@ -203,7 +203,7 @@ markdown_description = """techne is a Claude Code plugin marketplace (ajbarea/te
   { "architecture.md" = "How the techne skills fit together: categories, typical workflows, design philosophy, how skills are tested and how the repo stays current." },
 ]
 "Privacy" = [
-  { "epistole.md" = "Privacy policy for epistole, the Google OAuth app the epistole plugin signs in with. What it reads, what stays on your computer, the two Gmail scopes it requests, and how to revoke access." },
+  { "epistole.md" = "epistole, the Google OAuth app the epistole Claude Code plugin signs in with: what it does, and its privacy policy (what it reads, what stays on your computer, the two Gmail scopes it requests, and how to revoke access)." },
 ]
 
 [project.extra]

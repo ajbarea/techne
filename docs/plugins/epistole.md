@@ -67,7 +67,7 @@ Two commands run in a terminal, or in Claude Code after `!`:
 | `epistole-since` | Prints the catch-up window: the last sweep time (or, with none, the start of yesterday, Friday on a Monday), the current time and a Gmail `after:` query. |
 | `epistole-since --set EPOCH` | Records when a sweep read the inboxes. |
 
-`epistole-login` exits 127 when uv is not on PATH.
+`epistole-login` and `epistole-since` exit 127 when uv is not on PATH.
 
 ## Configuration
 

@@ -34,14 +34,14 @@ Then run the plugin's setup skill. Each setup guide is the plugin's `AGENTS.md`:
 
 ```bash
 make setup      # uv sync
-make validate   # lint, shellcheck, zizmor, plugin validate and test, tests, strict docs build
+make validate   # lint, shellcheck, zizmor, plugin validate and test, tests, hooks on the oldest python3, strict docs build
 make lint       # ruff check, ruff format --check and ty over scripts/, plugins/ and tests/
 make build      # strict Zensical build of the docs site
 ```
 
 - Work in a git worktree, not the main checkout, and open a pull request; `main` is protected.
 - Never commit `site/` (build output) or `COMMITS.md` (a local scratchpad).
-- A skill's `SKILL.md` frontmatter `description:` is the canonical summary. README and `docs/skills/*.md` must match it, and a new skill needs a docs page (`tests/test_docs_coverage.py` fails without one).
+- A skill's `SKILL.md` frontmatter `description:` is the canonical summary; README rows and `docs/skills/*.md` pages summarize it in their own words. A new skill needs its own page in the nav, titled with the skill's name, and each page's `description:` front matter is what `llms.txt` shows for it (`tests/test_docs_coverage.py` checks both).
 - Do not write skill or plugin counts into prose. README's per-skill tables carry the inventory.
 - `.claude/skill-context.md` holds the facts the techne skills read for this repo.
 - `docs/epistole.md` is the registered privacy-policy URL of the epistole Google OAuth app. Do not move or rename it.
