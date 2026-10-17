@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 import tomllib
 from datetime import datetime, tzinfo
 from pathlib import Path
@@ -101,10 +102,20 @@ def save(base: Path, cfg: Config) -> None:
         f"term = {_q(cfg.term)}",
         *([f"timezone = {_q(cfg.timezone)}"] if cfg.timezone else []),
     ]
-    file = base / "schole.toml"
-    fd = os.open(file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as fh:
-        fh.write("\n".join(lines) + "\n")
+    write_private(base / "schole.toml", "\n".join(lines) + "\n")
+
+
+def write_private(path: Path, data: str) -> None:
+    """Write data atomically at 0600; an interrupted write leaves no partial file."""
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+    try:
+        os.chmod(tmp, 0o600)
+        with os.fdopen(fd, "w") as fh:
+            fh.write(data)
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
 
 
 def zone(cfg: Config | None) -> tzinfo:
