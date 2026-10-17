@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import json
+import os
 import sys
 import time
 from collections.abc import Iterator
@@ -17,6 +19,7 @@ LOGIN_WAIT = 600  # seconds the login window waits for the user to finish signin
 POLL = 3
 ARGS = ["--password-store=basic"]  # one cookie store for the headed and headless runs
 NEEDS_LOGIN = "needs login: run !schole-login in Claude Code, or schole-login in a terminal"
+SESSION = "session-cookies.json"  # in the profile; Chromium drops session cookies on close
 CHROMIUM = "uv run --no-project --with playwright==1.63.0 playwright install chromium"
 
 
@@ -44,10 +47,40 @@ def browser(base: Path, headless: bool) -> Iterator[Any]:
         ctx = p.chromium.launch_persistent_context(
             str(config.profile(base)), headless=headless, channel="chromium", args=ARGS
         )
+        saved = config.profile(base) / SESSION
         try:
+            restore_session(ctx, saved)
             yield ctx
         finally:
+            with contextlib.suppress(Exception):
+                keep_session(ctx, saved)
             ctx.close()
+
+
+def restore_session(ctx: Any, path: Path) -> None:
+    """Add back the session cookies the last run kept. A missing or unreadable file adds none."""
+    try:
+        cookies = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return
+    if not isinstance(cookies, list) or not cookies:
+        return
+    try:
+        ctx.add_cookies(cookies)
+    except Exception as exc:
+        if not is_browser_error(exc):
+            raise
+
+
+def keep_session(ctx: Any, path: Path) -> None:
+    """Save the cookies that end with this browser, readable by the user only."""
+    cookies = [c for c in ctx.cookies() if c.get("expires", -1) == -1]
+    tmp = path.with_name(path.name + ".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        os.fchmod(f.fileno(), 0o600)
+        json.dump(cookies, f)
+    os.replace(tmp, path)
 
 
 def getter(ctx: Any, site: str) -> d2l.Get:

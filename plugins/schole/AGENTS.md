@@ -35,4 +35,4 @@ On WSL the window needs WSLg (Windows 11). Without a display the window cannot o
 
 Run `schole-login --status` again, then `schole-sweep`. The sweep prints one `OK` or `APIFAIL` line per course, then any `ANNOUNCE`, `CONTENT`, `DUE` and `PASTDUE` lines. Zero courses usually means the term filter matches nothing; run `!schole-login --site <site> --term <code>` with the right code.
 
-When the site's session expires (often after a few days or a password change), commands print `needs login` and exit 3. The user runs `!schole-login` again with no options.
+When the site's session ends (Brightspace ends it after a stretch without use that the school sets, and on a password change), commands print `needs login` and exit 3. The user runs `!schole-login` again with no options.

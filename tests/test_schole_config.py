@@ -128,3 +128,49 @@ def test_first_login_needs_a_site(tmp_path, monkeypatch, capsys):
 )
 def test_browser_failures_name_the_fix(message, want):
     assert want in cli.browser_failure(RuntimeError(message))
+
+
+class CookieJar:
+    def __init__(self, cookies):
+        self.jar = list(cookies)
+
+    def cookies(self):
+        return list(self.jar)
+
+    def add_cookies(self, cookies):
+        self.jar.extend(cookies)
+
+
+SESSION_COOKIE = {
+    "name": "d2lSessionVal",
+    "value": "s",
+    "domain": "lms.example.edu",
+    "path": "/",
+    "expires": -1,
+}
+LASTING_COOKIE = {
+    "name": "remember",
+    "value": "r",
+    "domain": "lms.example.edu",
+    "path": "/",
+    "expires": 2e9,
+}
+
+
+def test_session_cookies_outlive_the_browser_privately(tmp_path):
+    saved = tmp_path / cli.SESSION
+    cli.keep_session(CookieJar([SESSION_COOKIE, LASTING_COOKIE]), saved)
+    assert stat.S_IMODE(saved.stat().st_mode) == 0o600
+    fresh = CookieJar([])
+    cli.restore_session(fresh, saved)
+    assert fresh.jar == [SESSION_COOKIE]
+
+
+@pytest.mark.parametrize("body", [None, "", "{not json", "{}", "[]"])
+def test_missing_or_bad_session_file_adds_nothing(tmp_path, body):
+    saved = tmp_path / cli.SESSION
+    if body is not None:
+        saved.write_text(body)
+    fresh = CookieJar([])
+    cli.restore_session(fresh, saved)
+    assert fresh.jar == []
