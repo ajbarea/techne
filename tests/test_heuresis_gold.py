@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 from conftest import ROOT
-from heuresis import gold, render, store
+from heuresis import cli, gold, render, store
 from heuresis.model import FACETS, Idea
 
 PRIOR = "cases:\n  - {id: a, idea: x, expected_state: trash, match_terms: [t], "
@@ -118,7 +118,14 @@ def idea_repo(
 
 
 def rec(ref: str, title: str, url: str = "https://u.example") -> dict:
-    return {"ref": ref, "title": title, "url": url, "source": "github", "kind": "repo"}
+    return {
+        "ref": ref,
+        "title": title,
+        "url": url,
+        "source": "github",
+        "kind": "repo",
+        "evidence_url": f"https://api.example/{ref}",
+    }
 
 
 def run_files(
@@ -128,16 +135,24 @@ def run_files(
     ok: tuple[str, ...] = (),
     differs: str = "",
 ) -> dict:
-    """The four run files; ok lists the refs that verified."""
+    """The four run files in the shapes the CLI writes; ok lists the refs that verified."""
     judge = {
         "closest": {"ref": closest, "quote": "q", "differs": dict.fromkeys(FACETS, differs)},
-        "others": [{"ref": o, "differs": differs} for o in others],
+        "others": [{"ref": o, "quote": "q", "differs": differs} for o in others],
     }
     return {
         "restate": {"restated": "x", "queries": ["q"]},
         "pool": {"records": records, "coverage": [], "queries": {}},
         "judge": judge,
-        "verify": {r["ref"]: {"ok": r["ref"] in ok, "reason": ""} for r in records},
+        "verify": {
+            r["ref"]: {
+                "ok": r["ref"] in ok,
+                "reason": "",
+                "quote": "q",
+                **{k: r.get(k, "") for k in cli.BOUND},
+            }
+            for r in records
+        },
     }
 
 
@@ -223,6 +238,22 @@ def test_a_rival_that_did_not_verify_is_no_hit(tmp_path):
     root, idea_id = idea_repo(tmp_path / "b", "trash", "", files)
     g = gold.grade_run(case, 1, root, idea_id)
     assert (g.closest_hit, g.prior_art_hit) == (False, False)
+
+
+def test_a_verify_file_made_for_an_older_quote_or_record_counts_for_nothing(tmp_path):
+    case = gold.load_cases(FIX)[0]
+    files = run_files(
+        [rec("r1", "dokimasia"), rec("r2", "Crossref API")], "r1", ("r2",), ok=("r1", "r2")
+    )
+    files["judge"]["closest"]["quote"] = "a rewritten quote"
+    root, idea_id = idea_repo(tmp_path / "quote", "trash", "", files)
+    g = gold.grade_run(case, 1, root, idea_id)
+    assert (g.closest_hit, g.prior_art_hit, g.verified_ok) == (False, True, False)
+    files = run_files([rec("r1", "dokimasia")], "r1", ok=("r1",))
+    files["pool"]["records"][0]["url"] = "https://moved.example"
+    root, idea_id = idea_repo(tmp_path / "url", "trash", "", files)
+    g = gold.grade_run(case, 1, root, idea_id)
+    assert (g.closest_hit, g.prior_art_hit, g.verified_ok) == (False, False, False)
 
 
 def test_grade_run_do_on_an_existing_thing_is_not_accepted(tmp_path):

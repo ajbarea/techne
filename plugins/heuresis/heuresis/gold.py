@@ -10,7 +10,7 @@ from pathlib import Path
 
 import yaml
 
-from heuresis import store
+from heuresis import cli, store
 
 # The states a run may file for each expected label. An existing thing filed as trash or merged
 # is right; "later" cases have close prior art with a plausible difference, so trash also agrees.
@@ -157,29 +157,23 @@ def _read_json(path: Path) -> dict:
 def _rivals(run_dir: Path) -> tuple[bool, str | None, list[str]]:
     """Whether the closest rival verified, plus the lowercased identities of the verified rivals.
 
-    An identity is a pool record's title and url. The closest rival's identity comes first when
-    it verified; the verified others follow. Unreadable run files give no rivals.
+    Verified means what apply counts: cli.verified_refs. An identity is a pool record's title and
+    url. The closest rival's identity is None when it did not verify; the verified others follow.
+    Unreadable run files give no rivals.
     """
     try:
         records = {r["ref"]: r for r in _read_json(run_dir / "pool.json")["records"]}
         judge = _read_json(run_dir / "judge.json")
-        checks = _read_json(run_dir / "verify.json")
-        closest_ref = (judge.get("closest") or {}).get("ref")
-        refs = [o["ref"] for o in judge.get("others") or []]
+        kept = cli.verified_refs(judge, records, _read_json(run_dir / "verify.json"))
 
         def identity(ref: object) -> str | None:
-            ok = isinstance(ref, str) and (checks.get(ref) or {}).get("ok") is True
-            if not ok or ref not in records:
+            if str(ref) not in kept:
                 return None
-            return f"{records[ref]['title']} {records[ref]['url']}".lower()
+            return f"{records[str(ref)]['title']} {records[str(ref)]['url']}".lower()
 
-        closest = identity(closest_ref)
-        others = [i for i in map(identity, refs) if i is not None]
-        return (
-            closest_ref is None or (checks.get(closest_ref) or {}).get("ok") is True,
-            closest,
-            others,
-        )
+        closest_ref = (judge.get("closest") or {}).get("ref")
+        others = [i for i in map(identity, [o["ref"] for o in judge.get("others") or []]) if i]
+        return closest_ref is None or str(closest_ref) in kept, identity(closest_ref), others
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return False, None, []
 

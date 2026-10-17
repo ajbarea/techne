@@ -304,6 +304,15 @@ def _verified(checked: dict, ref: str, quote: str, record: dict) -> bool:
     return entry.get("ok") is True and _same_check(entry, quote, record)
 
 
+def verified_refs(judge: dict, records: dict[str, dict], checked: dict) -> set[str]:
+    """The cited refs that apply keeps: in the pool, and checked for this quote and this record."""
+    return {
+        ref
+        for ref, quote in _cited(judge).items()
+        if ref in records and _verified(checked, ref, quote, records[ref])
+    }
+
+
 def _scouts(run: Path) -> list[Path]:
     return sorted(run.glob("scout-*.json"))
 
@@ -365,11 +374,7 @@ def _apply(args) -> int:
     checked = _load_verify(run)
     records = {r["ref"]: r for r in pooled["records"]}
     cited = _cited(judge)
-    dropped = {
-        ref
-        for ref, quote in cited.items()
-        if ref not in records or not _verified(checked, ref, quote, records[ref])
-    }
+    dropped = set(cited) - verified_refs(judge, records, checked)
     proposed = judge["verdict"]
     closest = judge.get("closest")
     closest_ref = str((closest or {}).get("ref"))
