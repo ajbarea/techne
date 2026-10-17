@@ -4,6 +4,7 @@
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -15,12 +16,31 @@ idea_id = next(iter(re.findall(r"--triage (\S+)", prompt)))
 plugins = [{"name": "heuresis", "path": "/plugins/heuresis"}]
 if mode == "no-plugin":
     plugins = []
+if "FAKE_CLAUDE_RECORD" in os.environ:
+    Path(os.environ["FAKE_CLAUDE_RECORD"]).write_text(
+        json.dumps(
+            {
+                "argv": sys.argv[1:],
+                "cwd": os.getcwd(),
+                "auto_memory": os.environ.get("CLAUDE_CODE_DISABLE_AUTO_MEMORY"),
+            }
+        )
+    )
 print(json.dumps({"type": "system", "subtype": "init", "plugins": plugins}), flush=True)
 if mode == "sleep":
+    # A child that inherits the output pipes and outlives its parent, as a tool subprocess would.
+    child = subprocess.Popen(["sleep", "30"])
+    Path(os.environ["FAKE_CLAUDE_PIDFILE"]).write_text(str(child.pid))
     time.sleep(30)
 if mode == "guard":
     guard = Path(os.environ["FAKE_CLAUDE_GUARD"])
     (guard / "ideas" / "stray.md").write_text("written by mistake")
+if mode in ("guard-modified", "guard-untracked"):
+    # Same-length rewrite of a file that was already dirty, so `git status` does not change.
+    target = Path(os.environ["FAKE_CLAUDE_GUARD"]) / (
+        "tracked.md" if mode == "guard-modified" else "untracked.md"
+    )
+    target.write_text("B" * len(target.read_text()))
 if mode in ("trash", "guard"):
     sys.path.insert(0, os.environ["HEURESIS_SRC"])
     from heuresis import cli, store

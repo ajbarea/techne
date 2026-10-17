@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Run the heuresis gold set: one headless Claude Code triage per case and run, graded from the
-files it writes. Uses your Claude plan; never touches your real ideas repository.
+files it writes. Uses your Claude plan; never touches your real ideas repository, which
+--guard-repo watches (the run stops if its refs or any file content change).
+Results default to $XDG_STATE_HOME/heuresis-gold (~/.local/state/heuresis-gold).
 
 Usage:
-  heuresis_gold.py run [--cases FILE]... [--runs N] [--case GLOB]... [--out DIR]
-                       [--plugin-dir DIR] [--guard-repo DIR] [--timeout SECONDS] [--model NAME]
+  heuresis_gold.py run (--guard-repo DIR | --no-guard) [--cases FILE]... [--runs N]
+                       [--case GLOB]... [--out DIR] [--plugin-dir DIR] [--timeout SECONDS]
+                       [--model NAME]
   heuresis_gold.py report RESULTS_DIR
 """
 
@@ -14,9 +17,12 @@ import argparse
 import datetime as dt
 import fnmatch
 import json
+import os
 import shutil
+import signal
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,6 +34,14 @@ DEFAULT_CASES = PLUGIN / "gold" / "cases.yaml"
 # A full triage took about two minutes in the phase 1 live run; twenty minutes leaves room for
 # slow sources and retries without letting a stuck session hold the whole set.
 DEFAULT_TIMEOUT = 1200
+# Seconds a timed-out session gets to exit on SIGTERM before its process group is killed.
+TERM_GRACE = 5
+
+
+def default_out() -> Path:
+    """Outside any repository, so the headless session's cwd loads no repo CLAUDE.md or settings."""
+    state = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
+    return Path(state) / "heuresis-gold"
 
 
 class GuardTripped(Exception):
@@ -35,29 +49,70 @@ class GuardTripped(Exception):
 
 
 def heuresis(*args: str, stdin: str | None = None) -> str:
+    """Run the plugin CLI on this interpreter; inherited UV_* or VIRTUAL_ENV cannot redirect it."""
+    env = {
+        **os.environ,
+        "PYTHONPATH": os.pathsep.join(filter(None, [str(PLUGIN), os.environ.get("PYTHONPATH")])),
+    }
     done = subprocess.run(
-        ["uv", "run", "--quiet", "--directory", str(PLUGIN), "python", "-m", "heuresis", *args],
+        [sys.executable, "-m", "heuresis", *args],
         input=stdin,
         capture_output=True,
         text=True,
         check=False,
+        env=env,
     )
     if done.returncode:
         raise RuntimeError(f"heuresis {args[0]} failed: {done.stderr.strip()}")
     return done.stdout.strip()
 
 
-def git(repo: Path, *args: str) -> str:
-    return subprocess.run(
-        ["git", "-C", str(repo), *args], capture_output=True, text=True, check=True
-    ).stdout
+def git(repo: Path, *args: str, env: dict[str, str] | None = None) -> str:
+    done = subprocess.run(
+        ["git", "-C", str(repo), *args], capture_output=True, text=True, check=False, env=env
+    )
+    if done.returncode:
+        raise RuntimeError(f"git {args[0]} failed in {repo}: {done.stderr.strip()}")
+    return done.stdout
+
+
+def check_guard(path: Path) -> Path:
+    """The guard repository's resolved top level; raises ValueError unless path is exactly that."""
+    resolved = path.resolve()
+    done = subprocess.run(
+        ["git", "-C", str(resolved), "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if done.returncode or Path(done.stdout.strip()).resolve() != resolved:
+        raise ValueError(f"--guard-repo {path} is not the top level of a git repository")
+    return resolved
 
 
 def snapshot(repo: Path) -> str:
-    head = subprocess.run(
-        ["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True, check=False
-    ).stdout.strip()
-    return head + "\n" + git(repo, "status", "--porcelain", "--untracked-files=all")
+    """Everything a run could change in repo: refs, the staged index, and every file's content.
+
+    The content tree comes from a throwaway index (`add -A -f` then `write-tree`), so edits to
+    files that were already modified, untracked or ignored still change it, and the repository's
+    own index is never touched.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        env = {**os.environ, "GIT_INDEX_FILE": str(Path(tmp) / "index")}
+        has_head = (
+            subprocess.run(
+                ["git", "-C", str(repo), "rev-parse", "--verify", "-q", "HEAD"],
+                capture_output=True,
+                check=False,
+            ).returncode
+            == 0
+        )
+        if has_head:
+            git(repo, "read-tree", "HEAD", env=env)
+        git(repo, "add", "-A", "-f", ".", env=env)
+        tree = git(repo, "write-tree", env=env).strip()
+    head = git(repo, "rev-parse", "HEAD").strip() if has_head else ""
+    return "\n".join([head, tree, git(repo, "for-each-ref"), git(repo, "ls-files", "-s")])
 
 
 def parse_stream(text: str) -> tuple[dict | None, dict | None]:
@@ -94,7 +149,44 @@ def prepare(work: Path, case: gold.Case) -> tuple[Path, Path, str]:
     return ideas, repos, idea_id.splitlines()[-1]
 
 
-def triage(ideas: Path, repos: Path, idea_id: str, log: Path, args) -> tuple[str, dict | None]:
+def run_session(cmd: list[str], cwd: Path, timeout: int) -> tuple[str, int | None]:
+    """Run cmd in its own process group; on timeout stop the whole group.
+
+    Returns the output and the exit code, or None for a timeout. Children the session started
+    die with it, so none keeps writing into the work folder or holds the output pipe open.
+    """
+    # research(2026-10): code.claude.com/docs/en/env-vars, CLAUDE_CODE_DISABLE_AUTO_MEMORY=1
+    # stops the session creating or loading auto-memory files, so no memory leaks between runs.
+    env = {**os.environ, "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"}
+    proc = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        errors="replace",
+        start_new_session=True,
+    )
+    try:
+        out, _ = proc.communicate(timeout=timeout)
+        return out, proc.returncode
+    except subprocess.TimeoutExpired:
+        pass
+    os.killpg(proc.pid, signal.SIGTERM)
+    try:
+        out, _ = proc.communicate(timeout=TERM_GRACE)
+    except subprocess.TimeoutExpired:
+        os.killpg(proc.pid, signal.SIGKILL)
+        out, _ = proc.communicate()
+    return out or "", None
+
+
+def triage(
+    ideas: Path, repos: Path, idea_id: str, log: Path, args
+) -> tuple[str, dict | None, str | None]:
+    """Run one triage; returns the error ("" if none), the result event and the plugin path."""
     prompt = f"/heuresis:idea --ideas {ideas} --repos {repos} --triage {idea_id}"
     cmd = [
         "claude",
@@ -105,35 +197,37 @@ def triage(ideas: Path, repos: Path, idea_id: str, log: Path, args) -> tuple[str
         "--verbose",
         "--permission-mode",
         "bypassPermissions",
+        "--strict-mcp-config",
     ]
     if args.plugin_dir:
         cmd += ["--plugin-dir", str(args.plugin_dir)]
     if args.model:
         cmd += ["--model", args.model]
-    try:
-        done = subprocess.run(
-            cmd, cwd=ideas.parent, capture_output=True, text=True, timeout=args.timeout, check=False
-        )
-    except subprocess.TimeoutExpired as exc:
-        log.write_text(exc.stdout.decode() if isinstance(exc.stdout, bytes) else (exc.stdout or ""))
-        return f"timed out after {args.timeout}s", None
-    log.write_text(done.stdout)
-    init, result = parse_stream(done.stdout)
+    out, code = run_session(cmd, ideas.parent, args.timeout)
+    log.write_text(out)
+    if code is None:
+        return f"timed out after {args.timeout}s", None, None
+    init, result = parse_stream(out)
     names = [(p.get("name"), p.get("path")) for p in (init or {}).get("plugins", [])]
     wanted = [n for n in names if n[0] == "heuresis"]
+    plugin_path = next((str(p) for _, p in wanted if p), None)
     if not wanted or (
         args.plugin_dir
         and str(Path(args.plugin_dir).resolve())
         not in {str(Path(p).resolve()) for _, p in wanted if p}
     ):
-        return "heuresis plugin did not load", result
-    if done.returncode:
-        return f"claude exited {done.returncode}", result
+        return "heuresis plugin did not load", result, plugin_path
+    if code:
+        return f"claude exited {code}", result, plugin_path
     if result is None:
-        return "no result in the stream", None
+        return "no result in the stream", None, plugin_path
     if result.get("is_error"):
-        return f"claude reported an error: {str(result.get('result', ''))[:200]}", result
-    return "", result
+        return (
+            f"claude reported an error: {str(result.get('result', ''))[:200]}",
+            result,
+            plugin_path,
+        )
+    return "", result, plugin_path
 
 
 def selected(cases: list[gold.Case], globs: list[str]) -> list[gold.Case]:
@@ -155,6 +249,13 @@ def run(args) -> int:
     if shutil.which("claude") is None:
         print("heuresis_gold: claude is not on PATH", file=sys.stderr)
         return 2
+    guard = None
+    if args.guard_repo:
+        try:
+            guard = check_guard(args.guard_repo)
+        except ValueError as exc:
+            print(f"heuresis_gold: {exc}", file=sys.stderr)
+            return 2
     cases = selected([c for f in args.cases for c in gold.load_cases(f)], args.case)
     stamp = dt.datetime.now(dt.UTC).strftime("%Y%m%dT%H%M%SZ")
     res = args.out / stamp
@@ -162,14 +263,29 @@ def run(args) -> int:
     (res / "grades.jsonl").write_text("")
     files = [str(Path(f).resolve()) for f in args.cases]
     (res / "cases.json").write_text(json.dumps({"ids": [c.id for c in cases], "files": files}))
-    guard = args.guard_repo
-    before = snapshot(guard) if guard else ""
+
+    def record(grade: gold.RunGrade, plugin_path: str | None = None) -> None:
+        with (res / "grades.jsonl").open("a") as fh:
+            fh.write(json.dumps({**grade.to_dict(), "plugin_path": plugin_path}) + "\n")
+        print(
+            f"{grade.case} run {grade.run}: {grade.state or 'error'}"
+            f"{' (' + grade.error + ')' if grade.error else ''}",
+            flush=True,
+        )
+
     try:
+        before = snapshot(guard) if guard else ""
         for case in cases:
             for n in range(1, args.runs + 1):
                 work = res / "work" / f"{case.id}-{n}"
-                ideas, repos, idea_id = prepare(work, case)
-                error, result = triage(
+                try:
+                    ideas, repos, idea_id = prepare(work, case)
+                except (OSError, RuntimeError) as exc:
+                    record(
+                        gold.grade_run(case, n, work / "ideas", "", error=f"setup failed: {exc}")
+                    )
+                    continue
+                error, result, plugin_path = triage(
                     ideas, repos, idea_id, res / "logs" / f"{case.id}-{n}.jsonl", args
                 )
                 if guard and snapshot(guard) != before:
@@ -177,16 +293,14 @@ def run(args) -> int:
                         f"run {case.id}-{n} changed the guard repository {guard}; "
                         "stopping. Inspect it with git status before anything else."
                     )
-                grade = gold.grade_run(case, n, ideas, idea_id, error=error, meta=result)
-                with (res / "grades.jsonl").open("a") as fh:
-                    fh.write(json.dumps(grade.to_dict()) + "\n")
-                print(
-                    f"{case.id} run {n}: {grade.state or 'error'}"
-                    f"{' (' + grade.error + ')' if grade.error else ''}",
-                    flush=True,
+                record(
+                    gold.grade_run(case, n, ideas, idea_id, error=error, meta=result), plugin_path
                 )
     except GuardTripped as exc:
         print(f"heuresis_gold: {exc}", file=sys.stderr)
+        return 1
+    except RuntimeError as exc:
+        print(f"heuresis_gold: cannot snapshot the guard repository: {exc}", file=sys.stderr)
         return 1
     write_report(res, cases)
     print(res / "summary.md")
@@ -209,9 +323,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--cases", type=Path, action="append")
     p.add_argument("--runs", type=int, default=3)
     p.add_argument("--case", action="append", default=[])
-    p.add_argument("--out", type=Path, default=ROOT / ".heuresis-gold")
+    p.add_argument("--out", type=Path, default=default_out())
     p.add_argument("--plugin-dir", type=Path)
-    p.add_argument("--guard-repo", type=Path)
+    guard = p.add_mutually_exclusive_group(required=True)
+    guard.add_argument(
+        "--guard-repo", type=Path, help="your real ideas repository; must not change"
+    )
+    guard.add_argument("--no-guard", action="store_true", help="run without a guard repository")
     p.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT)
     p.add_argument("--model")
     p = sub.add_parser("report")
