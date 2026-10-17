@@ -25,6 +25,7 @@ nav = [
       { "heuresis" = "plugins/heuresis.md" },
       { "phylax" = "plugins/phylax.md" },
       { "epistole" = "epistole.md" },
+      { "schole" = "plugins/schole.md" },
       { "keryx" = "plugins/keryx.md" },
   ]},
   { "Skills" = [

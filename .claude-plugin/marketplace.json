@@ -1,7 +1,7 @@
 {
   "name": "techne",
   "version": "1.4.0",
-  "description": "AJ's Claude Code plugins: code-repo skills (techne), document builds (graphe), bibliography verification (dokimasia), idea triage (heuresis), git guards (phylax), Gmail across accounts (epistole), and a spoken Claude Code (keryx).",
+  "description": "AJ's Claude Code plugins: code-repo skills (techne), document builds (graphe), bibliography verification (dokimasia), idea triage (heuresis), git guards (phylax), Gmail across accounts (epistole), Brightspace course sites (schole), and a spoken Claude Code (keryx).",
   "owner": {
     "name": "AJ",
     "email": "ajbareaa@gmail.com"
@@ -41,6 +41,12 @@
       "name": "heuresis",
       "description": "Idea triage: capture an idea, search papers, patents, products and your own work, and file it with a verdict grounded in checked records.",
       "source": "./plugins/heuresis",
+      "category": "productivity"
+    },
+    {
+      "name": "schole",
+      "description": "Read-only Brightspace (D2L) course sites: new announcements and content, what is due, and what came due unsubmitted, through the site's API after one browser sign-in.",
+      "source": "./plugins/schole",
       "category": "productivity"
     },
     {

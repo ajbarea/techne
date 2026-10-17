@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Print or record the catch-me-up window: epistole-since [--set EPOCH]
+set -euo pipefail
+command -v uv >/dev/null 2>&1 || {
+  printf 'epistole needs uv, which is not on PATH.\n  fix: curl -LsSf https://astral.sh/uv/install.sh | sh\nOpen a new terminal, then run this command again.\n' >&2
+  exit 127
+}
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export UV_PROJECT_ENVIRONMENT="${XDG_CACHE_HOME:-$HOME/.cache}/epistole/venv"
+exec uv run --quiet --directory "$root" python -m epistole.since "$@"

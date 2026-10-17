@@ -25,7 +25,7 @@ hide:
 <section class="landing-section landing-section--intro">
   <div class="section-inner">
     <h2 class="section-title">What is techne?</h2>
-    <p class="section-lead">A Claude Code plugin marketplace. <code>techne</code> covers work in a code repo: audit builds, tame CI noise, hunt doc/code drift, and keep linked repos in lockstep. <code>graphe</code> builds and gates documents: LaTeX, PDFs, slides and papers. <code>dokimasia</code> verifies a bibliography against its sources. <code>heuresis</code> triages an idea against papers, patents, products and your own work. <code>phylax</code> adds opt-in git guards, <code>epistole</code> gives Claude your Gmail accounts, and <code>keryx</code> speaks each reply. Adopt the conventions and the skills work for any developer.</p>
+    <p class="section-lead">A Claude Code plugin marketplace. <code>techne</code> covers work in a code repo: audit builds, tame CI noise, hunt doc/code drift, and keep linked repos in lockstep. <code>graphe</code> builds and gates documents: LaTeX, PDFs, slides and papers. <code>dokimasia</code> verifies a bibliography against its sources. <code>heuresis</code> triages an idea against papers, patents, products and your own work. <code>phylax</code> adds opt-in git guards, <code>epistole</code> gives Claude your Gmail accounts, <code>schole</code> reads your Brightspace course site, and <code>keryx</code> speaks each reply. Adopt the conventions and the skills work for any developer.</p>
   </div>
 </section>
 
@@ -124,6 +124,7 @@ hide:
 /plugin install heuresis@techne
 /plugin install phylax@techne
 /plugin install epistole@techne
+/plugin install schole@techne
 /plugin install keryx@techne</code></pre>
     </div>
     <p class="section-lead">Install the plugins you use (keryx on WSL2 only), then invoke a skill as <code>/techne:&lt;name&gt;</code>, <code>/graphe:&lt;name&gt;</code>, <code>/dokimasia:check</code>, <code>/heuresis:idea</code> or <code>/phylax:setup</code>, or describe the task and let Claude pick it. Run <code>/&lt;plugin&gt;:setup</code> for each plugin you install: it checks what the plugin needs and prints the install command for anything missing.</p>

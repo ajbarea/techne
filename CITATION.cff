@@ -9,7 +9,8 @@ abstract: >-
   verifies a bibliography against arXiv and Crossref and checks that every cited
   key rendered. heuresis triages an idea against papers, patents, products and
   your own work. epistole gives Claude your Gmail accounts, with every send gated on
-  your approval.
+  your approval. schole reads a Brightspace course site without marking anything
+  read.
 type: software
 version: 1.4.0
 date-released: "2026-10-16"

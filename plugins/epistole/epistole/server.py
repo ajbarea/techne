@@ -429,6 +429,16 @@ def build(base: Path | None = None, connect: Callable[[str], Any] | None = None)
             m["threadId"],
         )
 
+    def _signature(mb: Mailbox, wanted: bool | None, reply: mime.Reply | None) -> str:
+        """The Gmail signature to append: by default on new drafts and not on replies, the way
+        Gmail adds its signature for new emails."""
+        return mb.signature() if (reply is None if wanted is None else wanted) else ""
+
+    def _signed_note(sig: str, sender: str) -> str:
+        if sig:
+            return f"Signature: {sender}'s Gmail signature is appended; do not sign the body. "
+        return "Signature: none appended. "
+
     def _summary(msg: Any, files: list[Path]) -> str:
         """What send_draft needs restated, as the draft actually holds it."""
         to = ", ".join(sorted(_parse("To", str(msg["To"]))))
@@ -450,13 +460,17 @@ def build(base: Path | None = None, connect: Callable[[str], Any] | None = None)
         html: str | None = None,
         attachments: list[str] | None = None,
         reply_to: str | None = None,
+        signature: bool | None = None,
     ) -> str:
         """Create a draft in account. to and cc take one bare address or a list. reply_to is an
         account-qualified message id to reply in its thread: the subject is then always
         'Re: <original>' and a subject passed in is ignored, and account may be omitted
         (taken from reply_to). Without reply_to, subject and account are required.
-        attachments are absolute file paths inside the configured attach_dirs. The result
-        lists the To, Cc, Subject and attachment names to restate to send_draft."""
+        attachments are absolute file paths inside the configured attach_dirs. The account's
+        Gmail signature is appended to a new draft but not to a reply; signature=True or False
+        overrides that. The result says whether a signature was appended (if so, leave any
+        sign-off name out of body) and lists the To, Cc, Subject and attachment names to
+        restate to send_draft."""
         c = cfg()
         reply_raw = None
         if reply_to:
@@ -471,6 +485,7 @@ def build(base: Path | None = None, connect: Callable[[str], Any] | None = None)
         mb = box(c, account)
         reply, thread = _reply(mb, reply_raw)
         sender = mb.sender()
+        sig = _signature(mb, signature, reply)
         msg = mime.build(
             sender=sender,
             to=to,
@@ -480,6 +495,7 @@ def build(base: Path | None = None, connect: Callable[[str], Any] | None = None)
             html=html,
             attachments=files,
             reply=reply,
+            signature=sig,
         )
         fields = {
             "account": account,
@@ -495,7 +511,10 @@ def build(base: Path | None = None, connect: Callable[[str], Any] | None = None)
             raise
         qid = ids.qualify(account, d["id"])
         audit.record(root, "draft", id=qid, **fields)
-        return f"Draft {qid} created in {account} ({sender}). {_summary(msg, files)}"
+        return (
+            f"Draft {qid} created in {account} ({sender}). "
+            f"{_signed_note(sig, sender)}{_summary(msg, files)}"
+        )
 
     @app.tool(annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False))
     @_guard
@@ -507,12 +526,16 @@ def build(base: Path | None = None, connect: Callable[[str], Any] | None = None)
         cc: str | list[str] | None = None,
         html: str | None = None,
         attachments: list[str] | None = None,
+        signature: bool | None = None,
     ) -> str:
         """Replace an existing draft's content, keeping its thread. to and cc take one bare
         address or a list. attachments replaces the draft's attachments (omit it to drop
         them). subject is required unless the draft is a reply; a reply draft keeps the
         thread's reply subject ('Re: <original>') and a subject passed in is ignored, because
-        Gmail threads on a matching Subject. The result lists what to restate to send_draft."""
+        Gmail threads on a matching Subject. body is the new text without any signature: the
+        account's Gmail signature is appended again unless the draft is a reply, and
+        signature=True or False overrides that. The result says whether a signature was
+        appended and lists what to restate to send_draft."""
         c = cfg()
         alias, raw = ids.parse(draft_id, c.accounts)
         to, cc = _check_recipients("To", to), _check_recipients("Cc", cc)
@@ -528,8 +551,10 @@ def build(base: Path | None = None, connect: Callable[[str], Any] | None = None)
         )
         if reply is None and not (subject and subject.strip()):
             raise ValueError("subject is required unless the draft is a reply.")
+        sender = mb.sender()
+        sig = _signature(mb, signature, reply)
         msg = mime.build(
-            sender=mb.sender(),
+            sender=sender,
             to=to,
             subject=subject or "",
             body=body,
@@ -537,6 +562,7 @@ def build(base: Path | None = None, connect: Callable[[str], Any] | None = None)
             html=html,
             attachments=files,
             reply=reply,
+            signature=sig,
         )
         mb.update_draft(raw, mime.encode(msg), current.get("threadId"))
         audit.record(
@@ -549,7 +575,7 @@ def build(base: Path | None = None, connect: Callable[[str], Any] | None = None)
             subject=str(msg["Subject"]),
             attachments=[f.name for f in files],
         )
-        return f"Draft {draft_id} updated. {_summary(msg, files)}"
+        return f"Draft {draft_id} updated. {_signed_note(sig, sender)}{_summary(msg, files)}"
 
     @app.tool(annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False))
     @_guard

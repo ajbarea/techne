@@ -1668,3 +1668,114 @@ def test_send_refuses_a_draft_view_with_no_raw(env, monkeypatch):
         subject="Plan",
     )  # fmt: skip
     assert svc.sent == [] and "drafts.send" not in svc.calls
+
+
+# --- signature ---
+
+SIGNED = [{"sendAsEmail": "user@example.edu", "isDefault": True, "signature": "<b>AJ Barea</b>"}]
+
+
+def _html(parsed):
+    part = parsed.get_body(("html",))
+    return part.get_content() if part else ""
+
+
+def test_new_draft_gets_the_gmail_signature(env):
+    app, svc, _, _ = env
+    svc.send_as = SIGNED
+    out = text(
+        call(app, "create_draft", account="school", to=["b@example.com"], subject="x", body="ok")
+    )
+    assert "Gmail signature is appended; do not sign the body" in out
+    parsed = stored(svc, "d1")
+    assert "<b>AJ Barea</b>" in _html(parsed)
+    assert parsed.get_body(("plain",)).get_content().rstrip().endswith("-- \nAJ Barea")
+
+
+def test_reply_draft_has_no_signature_unless_asked(env):
+    app, svc, _, _ = env
+    svc.send_as = SIGNED
+    args = dict(account="school", to=["b@example.com"], body="ok", reply_to="school:m1")
+    out = text(call(app, "create_draft", **args))
+    assert "Signature: none appended" in out
+    assert "AJ Barea" not in stored(svc, "d1").as_string()
+    call(app, "create_draft", signature=True, **args)
+    assert "<b>AJ Barea</b>" in _html(stored(svc, "d2"))
+
+
+def test_signature_false_and_unsigned_account_send_no_signature(env):
+    app, svc, _, _ = env
+    svc.send_as = SIGNED
+    args = dict(account="school", to=["b@example.com"], subject="x", body="ok")
+    out = text(call(app, "create_draft", signature=False, **args))
+    assert "Signature: none appended" in out
+    assert stored(svc, "d1").get_content_type() == "text/plain"
+    svc.send_as = [{"sendAsEmail": "user@example.edu", "isDefault": True, "signature": ""}]
+    out = text(call(app, "create_draft", **args))
+    assert "Signature: none appended" in out
+    assert stored(svc, "d2").get_content_type() == "text/plain"
+
+
+def test_update_draft_appends_the_signature_once(env):
+    app, svc, _, _ = env
+    svc.send_as = SIGNED
+    call(app, "create_draft", account="school", to=["b@example.com"], subject="x", body="ok")
+    draft_view(svc, "d1")
+    out = text(
+        call(
+            app,
+            "update_draft",
+            draft_id="school:d1",
+            to=["b@example.com"],
+            subject="x",
+            body="edited",
+        )
+    )
+    assert "Gmail signature is appended" in out
+    parsed = stored(svc, "d1")
+    assert _html(parsed).count("<b>AJ Barea</b>") == 1
+    assert parsed.get_body(("plain",)).get_content().startswith("edited\n\n-- \n")
+
+
+def test_update_reply_draft_stays_unsigned_and_false_unsigns(env):
+    app, svc, _, _ = env
+    svc.send_as = SIGNED
+    call(
+        app, "create_draft", account="school", to=["b@example.com"], body="ok", reply_to="school:m1"
+    )
+    draft_view(svc, "d1")
+    out = text(call(app, "update_draft", draft_id="school:d1", to=["b@example.com"], body="e"))
+    assert "Signature: none appended" in out and "AJ Barea" not in stored(svc, "d1").as_string()
+    call(app, "create_draft", account="school", to=["b@example.com"], subject="x", body="ok")
+    draft_view(svc, "d2")
+    args = dict(draft_id="school:d2", to=["b@example.com"], subject="x", body="e")
+    out = text(call(app, "update_draft", signature=False, **args))
+    assert "Signature: none appended" in out
+    assert stored(svc, "d2").get_content_type() == "text/plain"
+
+
+def test_failed_signature_lookup_reports_none(env):
+    app, svc, _, _ = env
+    svc.send_as = SIGNED
+    svc.fail["settings.sendAs.list"] = [http_error(403, "insufficientPermissions")]
+    out = text(
+        call(app, "create_draft", account="school", to=["b@example.com"], subject="x", body="ok")
+    )
+    assert "Signature: none appended" in out and "(user@example.edu)" in out
+
+
+def test_html_body_keeps_its_content_and_gets_the_signature(env):
+    app, svc, _, _ = env
+    svc.send_as = SIGNED
+    call(
+        app,
+        "create_draft",
+        account="school",
+        to=["b@example.com"],
+        subject="x",
+        body="see link",
+        html='<p>see <a href="https://x.example">link</a></p>',
+    )
+    page = _html(stored(svc, "d1"))
+    assert page.startswith('<p>see <a href="https://x.example">link</a></p>')
+    assert page.rstrip().endswith("<b>AJ Barea</b></div>")

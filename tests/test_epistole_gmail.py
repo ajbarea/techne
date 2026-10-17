@@ -525,3 +525,37 @@ def test_send_draft_keeps_a_small_message_in_the_json_body():
     _stored_draft(svc)
     box.send_draft("d1", "cmF3", "t1")
     assert svc.send_media == [None]
+
+
+# --- signature ---
+
+
+def test_signature_comes_from_the_default_send_as_in_the_same_lookup():
+    svc, box = make()
+    svc.send_as = [
+        {"sendAsEmail": "user@g.example.edu", "isPrimary": True, "signature": "<b>other</b>"},
+        {"sendAsEmail": "user@example.edu", "isDefault": True, "signature": "<b>AJ</b>"},
+    ]
+    assert box.signature() == "<b>AJ</b>"
+    assert box.sender() == "user@example.edu"
+    assert svc.send_as_calls == 1
+
+
+@pytest.mark.parametrize("value", [None, "", 7, ["<b>x</b>"]])
+def test_signature_is_empty_when_unset_or_not_a_string(value):
+    svc, box = make()
+    entry = {"sendAsEmail": "user@example.edu", "isDefault": True}
+    if value is not None:
+        entry["signature"] = value
+    svc.send_as = [entry]
+    assert box.signature() == ""
+    assert box.sender() == "user@example.edu"
+
+
+def test_signature_is_empty_when_send_as_list_fails():
+    svc, box = make()
+    svc.fail["settings.sendAs.list"] = [http_error(403, "insufficientPermissions")]
+    svc.send_as = [{"sendAsEmail": "other@example.edu", "isDefault": True, "signature": "<b>x</b>"}]
+    assert box.signature() == ""
+    assert box.sender() == "user@example.edu"
+    assert svc.calls.count("settings.sendAs.list") == 1

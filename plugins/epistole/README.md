@@ -18,10 +18,12 @@ Requires [uv](https://docs.astral.sh/uv/). The first start downloads about 30 MB
 | `accounts` | Shows whether the Google client is set up, and each account's address, sign-in state and send-as address. Never opens a browser. |
 | `search` | Searches one account, or `all`, with Gmail query syntax. Returns thread and message ids with sender, subject, date and snippet. |
 | `read_thread` | Reads a thread by id. Bodies come back wrapped as untrusted content, followed by each message's attachments with their names, sizes and attachment ids. |
-| `create_draft` | Creates a draft in an account, optionally as a reply, with attachments from your allowed folders. |
-| `update_draft` | Replaces a draft's content and keeps its thread. |
+| `create_draft` | Creates a draft in an account, optionally as a reply, with attachments from your allowed folders. A new draft gets the account's Gmail signature; a reply does not. |
+| `update_draft` | Replaces a draft's content and keeps its thread, appending the Gmail signature again on a draft that is not a reply. |
 | `download_attachment` | Saves an attachment, named by the message id and attachment id that `read_thread` lists, into your download folder. Never overwrites a file. |
 | `send_draft` | Sends a draft after you approve it. |
+
+The `catch-me-up` skill (`/epistole:catch-me-up`, or ask to be caught up on your mail) sweeps every signed-in account for mail since the last sweep, archived and filtered mail included, and reports what needs you. `epistole-since` keeps that window: it prints the last sweep time (or, with none, the start of yesterday, Friday on a Monday) and `--set EPOCH` records a new one. Times use the optional `timezone` in `accounts.toml`, an IANA name such as `"America/New_York"`, else the machine's zone.
 
 Every id is account-qualified (`alias:id`), and a tool refuses an id whose account differs from the `account` you named.
 
@@ -49,6 +51,10 @@ school = "user@g.example.edu"
 The Google login can differ from the address mail goes out from. A university may sign in on a subdomain such as `g.example.edu` while people write to `user@example.edu`. `accounts.toml` records the Google login address, and mail is sent from Gmail's default send-as address; `accounts` shows both. For an alias already in `accounts.toml`, `epistole-login` opens Google's account chooser with that address pre-filled.
 
 An administrator can block apps Google has not verified, or limit third-party access to Gmail. Sign-in then ends on a Google page saying access is blocked (`Error 400: admin_policy_enforced`), and the login command times out after 5 minutes. An administrator can also allow read access but block the compose scope; sign-in then fails the same way. Only the administrator can fix that. Ask them to allow your client, or use a personal account. The claude.ai Gmail connector is the fallback for such an account.
+
+### Signatures
+
+Drafts made through the Gmail API do not get the signature Gmail's composer inserts, so epistole adds it. It reads the signature set for new emails on the default send-as address (Gmail settings, Signature defaults) and appends it to every new draft, in the HTML part as Gmail lays it out and in the plain-text part after a `-- ` line. Replies get no signature, matching Gmail's separate reply setting, which the API does not expose. Pass `signature=true` or `signature=false` to override either way. An account with no signature set gets none, and the tool result says which happened.
 
 ## Safety
 

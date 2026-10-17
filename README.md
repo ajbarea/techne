@@ -28,6 +28,7 @@
 | `heuresis` | Idea triage: capture an idea, search papers, patents, products and your own work for anything like it, and file it with a verdict grounded in checked records | Claude Code (needs `uv` and git; `gh` for GitHub search and the private remote) |
 | `phylax` | Opt-in git and PR guards (a mod), restart onto an updated Claude Code | Claude Code |
 | `epistole` | Gmail across accounts: search, read and draft in each configured account, and send a draft only after you approve it ([docs](https://ajbarea.github.io/techne/epistole/)) | Claude Code (MCP server, needs `uv`) |
+| `schole` | Brightspace (D2L) course sites, read-only: new announcements and content, what is due, what came due unsubmitted ([docs](https://ajbarea.github.io/techne/plugins/schole/)) | Claude Code (needs `uv` and Chromium) |
 | [`keryx`](https://github.com/ajbarea/keryx) | Speaks a short gist of each reply in a local voice (WSL2) | Claude Code |
 
 Install only the ones you use: every enabled plugin's skill list sits in Claude's context on every turn. graphe holds skills only, so claude.ai and Cowork can install it too, but its build and check steps run shell commands (`uv`, TeX Live, Typst) that need Claude Code.
@@ -76,11 +77,15 @@ Install only the ones you use: every enabled plugin's skill list sits in Claude'
 
 ### epistole
 
-A local Gmail MCP server plus one skill, `epistole:setup`, which walks through creating a Google OAuth client and signing each account in. The MCP tools search, read and draft mail in every configured account; `send_draft` always asks you first. See the [epistole README](plugins/epistole/README.md) and its [privacy policy](https://ajbarea.github.io/techne/epistole/#privacy).
+A local Gmail MCP server and two skills: `epistole:catch-me-up` sweeps every account for mail since the last sweep (and runs schole's course sweep when schole is installed), and `epistole:setup` walks through creating a Google OAuth client and signing each account in. The MCP tools search, read and draft mail in every configured account, new drafts carry the account's Gmail signature, and `send_draft` always asks you first. See the [epistole README](plugins/epistole/README.md) and its [privacy policy](https://ajbarea.github.io/techne/epistole/#privacy).
+
+### schole
+
+Two skills: `schole:courses` reports a Brightspace (D2L) course site's new announcements and content, what is due, and what came due unsubmitted; `schole:setup` signs you in once in a browser window. It reads the site's API with GET requests on a fixed allowlist and never opens a content page, so nothing gets marked read. See [schole](https://ajbarea.github.io/techne/plugins/schole/).
 
 ### phylax
 
-Three opt-in guards on `git commit`, `git add` and `gh pr`, run by a [mod](https://code.claude.com/docs/en/plugins/mods/overview) (Claude Code 2.1.287 or later): block attribution lines, from the text Claude Code composes through to the command Claude runs; block staging `COMMITS.md`; and warn on commits in the main checkout. While a blocking guard is on, a check that fails refuses the command instead of letting it through. A fourth option, `restart_on_update`, moves an idle session onto an updated Claude Code in a new tmux window or Windows Terminal tab and keeps the conversation. Each is off until you switch it on in `/config`; `/phylax:setup` shows which are on and checks what they need. See [phylax](https://ajbarea.github.io/techne/plugins/phylax/).
+Three opt-in guards on `git commit`, `git add` and `gh pr`, run by a [mod](https://code.claude.com/docs/en/plugins/mods/overview) (Claude Code 2.1.288 or later; 2.1.287 runs it but breaks Bash in worktree subagents): block attribution lines, from the text Claude Code composes through to the command Claude runs; block staging `COMMITS.md`; and warn on commits in the main checkout. While a blocking guard is on, a check that fails refuses the command instead of letting it through. A fourth option, `restart_on_update`, moves an idle session onto an updated Claude Code in a new tmux window or Windows Terminal tab and keeps the conversation. Each is off until you switch it on in `/config`; `/phylax:setup` shows which are on and checks what they need. See [phylax](https://ajbarea.github.io/techne/plugins/phylax/).
 
 ## Install
 
@@ -94,12 +99,13 @@ From inside Claude Code:
 /plugin install heuresis@techne
 /plugin install phylax@techne
 /plugin install epistole@techne  # needs uv
+/plugin install schole@techne    # needs uv and Chromium
 /plugin install keryx@techne    # WSL2 on Windows only
 ```
 
 Invoke a skill as `/techne:<name>`, `/graphe:<name>`, `/dokimasia:check`, `/heuresis:idea` or `/<plugin>:setup`, or describe the task and Claude picks the matching skill. Run `/skills` to confirm they loaded. On claude.ai, add `ajbarea/techne` under **Customize > Plugins > Add > Add marketplace**, then add `graphe`.
 
-After installing, run each plugin's setup skill: `/techne:setup`, `/graphe:setup`, `/heuresis:setup`, `/phylax:setup`, `/epistole:setup`. Each checks what the plugin needs and prints the install command for anything missing. The techne skills follow a few conventions (Makefile pattern, dev-runner archive, `.claude/skill-context.md`); [Conventions](docs/conventions.md) lists the minimum each skill needs.
+After installing, run each plugin's setup skill: `/techne:setup`, `/graphe:setup`, `/heuresis:setup`, `/phylax:setup`, `/epistole:setup`, `/schole:setup`. Each checks what the plugin needs and prints the install command for anything missing. The techne skills follow a few conventions (Makefile pattern, dev-runner archive, `.claude/skill-context.md`); [Conventions](docs/conventions.md) lists the minimum each skill needs.
 
 ## Configuration
 
@@ -159,7 +165,11 @@ techne (marketplace: ajbarea/techne)
 │   ├── idea              ── captures an idea, triages it against prior work
 │   └── setup             ── checks prerequisites, creates the ideas repo
 ├── epistole (plugin, plugins/epistole)
+│   ├── catch-me-up       ── sweeps every inbox since the last sweep
 │   └── setup             ── guides Google OAuth client and account sign-in (plus the Gmail MCP server)
+├── schole (plugin, plugins/schole)
+│   ├── courses           ── new, due and past-due on a Brightspace course site
+│   └── setup             ── one browser sign-in to the course site
 ├── phylax (plugin, plugins/phylax)
 │   └── setup             ── shows the options, checks what they need
 └── keryx (plugin, ajbarea/keryx)    ── spoken gist of each reply
@@ -169,7 +179,7 @@ Each skill is self-contained. Invoke one without pulling in the others. They sha
 
 ## Why "techne"
 
-Greek τέχνη: craft, the practical knowledge of how to make a thing well. The plugins keep the Greek: γραφή (graphe) is writing, φύλαξ (phylax) a guard, κῆρυξ (keryx) a herald, ἐπιστολή (epistole) a letter, δοκιμασία (dokimasia) the scrutiny of a candidate's credentials before office, εὕρεσις (heuresis) discovery.
+Greek τέχνη: craft, the practical knowledge of how to make a thing well. The plugins keep the Greek: γραφή (graphe) is writing, φύλαξ (phylax) a guard, κῆρυξ (keryx) a herald, ἐπιστολή (epistole) a letter, σχολή (schole) school, δοκιμασία (dokimasia) the scrutiny of a candidate's credentials before office, εὕρεσις (heuresis) discovery.
 
 ## Cite
 

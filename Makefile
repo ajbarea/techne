@@ -4,7 +4,7 @@
 ## that techne itself documents at docs/conventions.md.
 ##
 
-.PHONY: help check-env setup manifests citation plugin-validate plugin-test test-hooks-oldest frontmatter fix lint shellcheck guards test-unit zizmor test validate build ci clean docs evals evals-bash
+.PHONY: help check-env setup manifests citation plugin-validate plugin-test test-hooks-oldest frontmatter fix lint shellcheck guards test-unit zizmor test validate build ci clean docs evals evals-bash freshness mod-types
 .DEFAULT_GOAL := help
 
 check-env:              ## Verify required tools are on PATH
@@ -19,13 +19,16 @@ manifests:              ## Verify plugin + marketplace manifest JSON (stdlib jso
 	done
 
 # The Claude Code build plugin-validate and plugin-test run through npx, so local runs and CI
-# judge the same output. Mods need 2.1.287 or later.
-export CLAUDE_CODE_VERSION := 2.1.291
+# judge the same output. phylax's mod needs 2.1.288 or later.
+export CLAUDE_CODE_VERSION := 2.1.301
 
 plugin-validate:        ## claude plugin validate on each plugin + the marketplace (hooks, userConfig)
 	@bash scripts/check_plugin_manifest.sh
 
 export TYPESCRIPT_VERSION := 7.0.2
+
+mod-types:              ## Regenerate scripts/mod-types for the pinned build (interactive session; tmux + your login)
+	@bash scripts/refresh_mod_types.sh
 
 plugin-test:            ## claude plugin test + strict tsc on each plugin that ships a hooks module
 	@bash scripts/check_hooks_modules.sh
@@ -111,8 +114,8 @@ ci: setup validate      ## Mirror CI end-to-end (validate.yml, which includes th
 
 # Routing evals run real Claude sessions on your own login: they draw on your plan's usage,
 # or bill your API key if you use one, so they stay out of validate. Every routing case
-# loads stand-ins for the general document and catch-up skills its plugin shares a session
-# with, so a collision shows up as a failed case.
+# loads every sibling plugin's skills plus stand-ins for the general document skills, so a
+# collision shows up as a failed case.
 # Behavior cases build a fixture repo with a scaffold script and grade what the skill produced.
 EVAL_PLUGINS := $(patsubst %/evals,%,$(wildcard plugins/*/evals))
 
@@ -125,6 +128,14 @@ evals:                  ## Routing + behavior evals (claude plugin eval; runs on
 	[ -z "$$failed" ] || { echo "FAIL: routing evals below threshold in:$$failed"; exit 1; }
 	@cd plugins/techne && claude plugin eval . --tag behavior --ablation none --trust-plugin \
 		--no-publish -j 2 --threshold 0.9 --scaffold
+
+# The weekly freshness check (.github/workflows/freshness.yml), run here on your own login with
+# the same read-only tools, whatever your default permission mode. It prints the issue.
+FRESHNESS_TOOLS := Read,Glob,Grep,WebFetch(domain:github.com),WebFetch(domain:raw.githubusercontent.com),WebFetch(domain:code.claude.com),WebFetch(domain:agentskills.io),Bash(gh issue list:*),Bash(gh issue view:*)
+freshness:              ## Check upstream Claude Code + skills changes against techne (your credential)
+	@claude -p "Follow the instructions in .github/freshness.md for the repository ajbarea/techne. In step 4, print the title, summary and body as your final reply." \
+		--permission-mode dontAsk --tools "Read,Glob,Grep,WebFetch,Bash" \
+		--allowedTools "$(FRESHNESS_TOOLS)" --disallowedTools "Write,Edit,WebSearch,Read(//proc/**),Read(./.git/**)"
 
 # Cases that need Bash inside the run. The eval sandbox refuses to grant Bash on a machine
 # whose Docker credential store holds a symlink (Docker Desktop's WSL integration does).

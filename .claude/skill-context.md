@@ -29,15 +29,15 @@ Audit drives the wrapper `make` targets, which mirror `.github/workflows/validat
 
 3. `make manifests` — `python -m json.tool` on `.claude-plugin/marketplace.json` + every `plugins/*/.claude-plugin/plugin.json`.
 
-- `make plugin-validate` — `claude plugin validate` on each plugin and the marketplace (hooks, userConfig), on the pinned Claude Code build.
+- `make plugin-validate` — `claude plugin validate` on each plugin and the marketplace (hooks, userConfig), on the pinned Claude Code build; it also fails a mod whose gating hook (one that can refuse an action) has no `.catch`, read from `validate --json` `gatingHooks`.
 
 ### Phase 2b — Hooks modules
 
-- `make plugin-test` — `claude plugin test` plus a strict `tsc` (TypeScript pinned in the Makefile) on each plugin whose `hooks/hooks.json` names `modules` (a mod), on the pinned Claude Code build; `scripts/check_hooks_modules.sh` loads the plugin once, unauthenticated, so the engine writes the types `tsc` reads.
+- `make plugin-test` — `claude plugin test` plus a strict `tsc` (TypeScript pinned in the Makefile) on each plugin whose `hooks/hooks.json` names `modules` (a mod), on the pinned Claude Code build; `scripts/check_hooks_modules.sh` gives `tsc` the declarations kept in `scripts/mod-types/` and fails when their first line names a build other than the pin. Since 2.1.295 the engine writes declarations only in an interactive session that develops the mod, so `make mod-types` regenerates them on your own login (tmux, no prompt sent); rerun it whenever `CLAUDE_CODE_VERSION` moves.
 
 ### Phase 3 — Skill structural validation
 
-4. `make frontmatter` — `validate_skill_frontmatter.py` (every `plugins/*/skills/*/SKILL.md` has well-formed `name:` + `description:`) + `check_theoros_skill.sh` (theoros-specific section + README cross-reference checks).
+4. `make frontmatter` — `validate_skill_frontmatter.py` (every `plugins/*/skills/*/SKILL.md` has well-formed `name:` + `description:`, a name of 1-64 lowercase letters, digits and hyphens matching its folder, and a description of at most 1024 characters, per the Agent Skills spec) + `check_theoros_skill.sh` (theoros-specific section + README cross-reference checks).
 
 ### Phase 4 — Lint
 

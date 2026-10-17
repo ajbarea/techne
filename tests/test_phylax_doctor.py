@@ -113,6 +113,20 @@ def test_old_claude_code_falls_back_to_the_command_hook(tmp_path, env):
     assert proc.returncode == 0 and found["mod"][0] == "optional"
 
 
+@pytest.mark.parametrize(
+    ("version", "state", "says"),
+    [
+        ("2.1.286", "optional", "predates mods"),
+        ("2.1.287", "optional", "worktree subagents"),
+        ("2.1.288", "ok", "loads the guard mod"),
+    ],
+)
+def test_mod_line_names_what_each_version_does(tmp_path, env, version, state, says):
+    stubs = {**STUBS, "claude": f"echo '{version} (Claude Code)'"}
+    _, found = doctor(tmp_path, args(block_attribution_trailers=True), env, stubs=stubs)
+    assert found["mod"][0] == state and says in found["mod"][1]
+
+
 def test_restart_on_without_proc(tmp_path, env):
     extra = {"PHYLAX_RESTART_PROC": str(tmp_path / "nowhere")}
     proc, found = doctor(tmp_path, args(restart_on_update=True), env, extra=extra)
