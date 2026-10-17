@@ -4,7 +4,7 @@ description: heuresis plugin, idea triage. Capture an idea, search papers, paten
 
 # heuresis
 
-heuresis keeps every idea in one private git repository and gives each one a first opinion grounded in prior work. It searches papers (OpenAlex, Semantic Scholar, arXiv), patents (Lens, EPO), products (GitHub, Hacker News, the web) and your own bibliography, notes, decks and repos, then names the closest existing work and files the idea as trash, later, do or merged.
+heuresis keeps every idea in one private git repository and gives each one a first opinion grounded in prior work. It searches papers (OpenAlex, Semantic Scholar, arXiv), patents (EPO), products (GitHub, Hacker News, the web) and your own bibliography, notes, decks and repos, then names the closest existing work and files the idea as trash, later, do or merged.
 
 ## Use it when
 
@@ -24,7 +24,7 @@ heuresis keeps every idea in one private git repository and gives each one a fir
 
 ## Search keys
 
-Optional keys add Semantic Scholar, Lens, EPO and a larger OpenAlex budget. Run `/plugin configure heuresis@techne`, paste each key into its masked field, and restart Claude Code. The keys sit in Claude Code's secure storage. At session start heuresis writes them to a private (0600) per-process file in its plugin data folder that Bash commands load, and deletes the file when the session ends. To import them from a `.env` file instead, `/heuresis:setup` prints a template and saves the filled-in file with a store script; the script saves each key into every installed plugin that uses it (graphe uses the OpenAlex and Semantic Scholar keys too), and the file is yours to delete afterwards. `/plugin configure` saves into one plugin only, so after changing a shared key there, change it in the other plugin too or use the store script. A key already in the Bash environment, such as one exported in your shell profile, wins. [Keys](../skills/idea.md#keys) lists what each one adds.
+Optional keys add Semantic Scholar, EPO and a larger OpenAlex budget. Run `/plugin configure heuresis@techne`, paste each key into its masked field, and restart Claude Code. The keys sit in Claude Code's secure storage. At session start heuresis writes them to a private (0600) per-process file in its plugin data folder that Bash commands load, and deletes the file when the session ends. To import them from a `.env` file instead, `/heuresis:setup` prints a template and saves the filled-in file with a store script; the script saves each key into every installed plugin that uses it (graphe uses the OpenAlex and Semantic Scholar keys too), and the file is yours to delete afterwards. `/plugin configure` saves into one plugin only, so after changing a shared key there, change it in the other plugin too or use the store script. A key already in the Bash environment, such as one exported in your shell profile, wins. [Keys](../skills/idea.md#keys) lists what each one adds.
 
 ## Set up
 
@@ -45,7 +45,7 @@ The skill drives a `heuresis` command and five agents. The agents are `scout-pap
 
 ## Configuration
 
-`ideas_repo` (your local ideas repository) and `repos_root` (the folder holding your clones) are plugin options, set in `/config` under the heuresis plugin. The five search keys are sensitive plugin options, saved with `/plugin configure heuresis@techne` (see [Search keys](#search-keys)); a key exported in your shell profile wins over a saved one.
+`ideas_repo` (your local ideas repository) and `repos_root` (the folder holding your clones) are plugin options, set in `/config` under the heuresis plugin. The four search keys are sensitive plugin options, saved with `/plugin configure heuresis@techne` (see [Search keys](#search-keys)); a key exported in your shell profile wins over a saved one.
 
 The ideas repository also holds `projects.toml` and `context.toml`, which `init` seeds. `heuresis context` reads them to find your research sources, and `--project` names come from `projects.toml`.
 

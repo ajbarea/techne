@@ -31,8 +31,8 @@ Bash environment wins. graphe gains `openalex_api_key` and `s2_api_key` for pape
 ### Landed: heuresis phase 1 (v1.4.0)
 
 `/heuresis:idea` captures an idea in the private ideas repository and triages it (four scouts, a
-judge, `verify`, `apply`, regenerated `BOARD.md` and `LOG.md`). The Lens and EPO adapters are not
-yet confirmed with live keys.
+judge, `verify`, `apply`, regenerated `BOARD.md` and `LOG.md`). The EPO adapter is not
+yet confirmed with a live key.
 
 ### Next: heuresis phase 2, the gold set
 

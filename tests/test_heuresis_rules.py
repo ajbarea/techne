@@ -13,7 +13,7 @@ TODAY = dt.date(2026, 10, 15)
 FULL = {"domain": "d", "purpose": "p", "mechanism": "m", "evaluation": "e"}
 OK_PAPERS = [
     Coverage("openalex", "ok", 3, 8),
-    Coverage("lens", "skipped", note="no LENS_API_TOKEN"),
+    Coverage("semantic_scholar", "skipped", note="no S2_API_KEY"),
 ]
 
 

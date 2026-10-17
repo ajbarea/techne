@@ -36,10 +36,10 @@ MANIFEST = {
             "description": "Adds Semantic Scholar; request one at semanticscholar.org/product/api.",
             "sensitive": True,
         },
-        "lens_api_token": {
+        "extra_api_token": {
             "type": "string",
-            "title": "Lens API token",
-            "description": "Adds worldwide patents; request API access in your lens.org profile.",
+            "title": "Extra API token",
+            "description": "Adds an extra source; request one at example.org/api.",
             "sensitive": True,
         },
         "epo_ops_key": {
@@ -62,7 +62,7 @@ MANIFEST = {
 ENVS = [
     "OPENALEX_API_KEY",
     "S2_API_KEY",
-    "LENS_API_TOKEN",
+    "EXTRA_API_TOKEN",
     "EPO_OPS_KEY",
     "EPO_OPS_SECRET",
 ]
@@ -155,7 +155,7 @@ def test_key_groups_come_from_metadata(keys):
     assert {k.env: k.group for k in keys} == {
         "OPENALEX_API_KEY": -1,
         "S2_API_KEY": -1,
-        "LENS_API_TOKEN": -1,
+        "EXTRA_API_TOKEN": -1,
         "EPO_OPS_KEY": 0,
         "EPO_OPS_SECRET": 0,
     }
@@ -165,11 +165,11 @@ def test_key_groups_come_from_metadata(keys):
 
 def test_group_without_a_shared_prefix_joins_the_names(tmp_path):
     manifest = json.loads(json.dumps(MANIFEST))
-    manifest["metadata"] = {"keyGroups": [["s2_api_key", "lens_api_token"]]}
+    manifest["metadata"] = {"keyGroups": [["s2_api_key", "extra_api_token"]]}
     loaded = pk.load_keys(make_root(tmp_path, manifest))
     found = {k.env: k.group for k in loaded}
-    assert found["S2_API_KEY"] == found["LENS_API_TOKEN"] == 0
-    assert pk.group_labels(loaded) == {0: "S2_API_KEY+LENS_API_TOKEN"}
+    assert found["S2_API_KEY"] == found["EXTRA_API_TOKEN"] == 0
+    assert pk.group_labels(loaded) == {0: "S2_API_KEY+EXTRA_API_TOKEN"}
 
 
 AWS = {
@@ -230,7 +230,7 @@ def test_missing_key_groups_mean_no_groups(tmp_path, meta):
         ["s2_api_key"],
         [["s2_api_key", 5]],
         [["plain_text", "s2_api_key"]],
-        [["s2_api_key", "lens_api_token"], ["s2_api_key", "openalex_api_key"]],
+        [["s2_api_key", "extra_api_token"], ["s2_api_key", "openalex_api_key"]],
         [["s2_api_key", "s2_api_key"]],
     ],
 )
@@ -294,7 +294,7 @@ def test_a_missing_description_falls_back_to_the_title(tmp_path):
 def test_doctor_entries_one_line_per_key_and_group(keys):
     plugin = pk.Plugin("synth", keys)
     lines = {n: (p, d) for n, p, d in pk.doctor_entries(plugin, {"S2_API_KEY": "x"})}
-    assert list(lines) == ["OPENALEX_API_KEY", "S2_API_KEY", "LENS_API_TOKEN", "EPO_OPS"]
+    assert list(lines) == ["OPENALEX_API_KEY", "S2_API_KEY", "EXTRA_API_TOKEN", "EPO_OPS"]
     assert lines["S2_API_KEY"] == (True, "set")
     assert lines["OPENALEX_API_KEY"] == (
         False,
@@ -318,10 +318,10 @@ def test_doctor_group_needs_every_member(keys):
 
 def test_doctor_group_of_three_says_all_of(tmp_path):
     manifest = json.loads(json.dumps(MANIFEST))
-    manifest["metadata"] = {"keyGroups": [["s2_api_key", "lens_api_token", "openalex_api_key"]]}
+    manifest["metadata"] = {"keyGroups": [["s2_api_key", "extra_api_token", "openalex_api_key"]]}
     three = pk.load_plugin(make_root(tmp_path, manifest))
     detail = pk.doctor_entries(three, {})[-1][2]
-    assert "Needs all of OPENALEX_API_KEY and S2_API_KEY and LENS_API_TOKEN." in detail
+    assert "Needs all of OPENALEX_API_KEY and S2_API_KEY and EXTRA_API_TOKEN." in detail
 
 
 def hook_command(event, mode):
@@ -394,9 +394,10 @@ def test_sourcing_the_env_file_yields_every_value(tmp_path):
 
 
 def test_a_variable_already_in_the_bash_env_wins(tmp_path):
-    _, target, _ = run_hook(tmp_path, {S2: "saved", "CLAUDE_PLUGIN_OPTION_LENS_API_TOKEN": "lens"})
+    opts = {S2: "saved", "CLAUDE_PLUGIN_OPTION_EXTRA_API_TOKEN": "extra"}
+    _, target, _ = run_hook(tmp_path, opts)
     assert sourced(target, "S2_API_KEY", {"S2_API_KEY": "shell"}) == "shell"
-    assert sourced(target, "LENS_API_TOKEN", {"S2_API_KEY": "shell"}) == "lens"
+    assert sourced(target, "EXTRA_API_TOKEN", {"S2_API_KEY": "shell"}) == "extra"
     assert sourced(target, "S2_API_KEY", {"S2_API_KEY": ""}) == "saved"
 
 
@@ -600,26 +601,26 @@ def test_template_grouped_keys_name_their_partner(keys):
 
 def test_parse_handles_comments_export_quotes_and_empties(keys):
     text = (
-        "# note\n\nS2_API_KEY=abc  \nexport LENS_API_TOKEN='q u'\n"
+        "# note\n\nS2_API_KEY=abc  \nexport EXTRA_API_TOKEN='q u'\n"
         'OPENALEX_API_KEY="d"\nEPO_OPS_KEY=\nEPO_OPS_SECRET= \n'
     )
     assert pk.parse(text, keys) == {
         "S2_API_KEY": "abc",
-        "LENS_API_TOKEN": "q u",
+        "EXTRA_API_TOKEN": "q u",
         "OPENALEX_API_KEY": "d",
     }
 
 
 def test_parse_keeps_equals_signs_and_hash_without_space(keys):
-    assert pk.parse("S2_API_KEY=a=b==\nLENS_API_TOKEN=ab#cd\n", keys) == {
+    assert pk.parse("S2_API_KEY=a=b==\nEXTRA_API_TOKEN=ab#cd\n", keys) == {
         "S2_API_KEY": "a=b==",
-        "LENS_API_TOKEN": "ab#cd",
+        "EXTRA_API_TOKEN": "ab#cd",
     }
 
 
 def test_parse_cuts_inline_comments(keys):
     text = (
-        "S2_API_KEY=abc # note\nLENS_API_TOKEN=def\t# tab\n"
+        "S2_API_KEY=abc # note\nEXTRA_API_TOKEN=def\t# tab\n"
         'OPENALEX_API_KEY=\'q # kept\'  # note\nEPO_OPS_KEY="e"#x"\n'
     )
     with pytest.raises(pk.StoreError):  # text after the closing quote
@@ -627,7 +628,7 @@ def test_parse_cuts_inline_comments(keys):
     ok = pk.parse(text.replace('#x"', ""), keys)
     assert ok == {
         "S2_API_KEY": "abc",
-        "LENS_API_TOKEN": "def",
+        "EXTRA_API_TOKEN": "def",
         "OPENALEX_API_KEY": "q # kept",
         "EPO_OPS_KEY": "e",
     }
@@ -636,8 +637,8 @@ def test_parse_cuts_inline_comments(keys):
 
 def test_parse_unterminated_quote_names_line_and_name_not_value(keys):
     with pytest.raises(pk.StoreError) as err:
-        pk.parse("S2_API_KEY=ok\nLENS_API_TOKEN='hunter2hunter2\n", keys)
-    assert "line 2" in str(err.value) and "LENS_API_TOKEN" in str(err.value)
+        pk.parse("S2_API_KEY=ok\nEXTRA_API_TOKEN='hunter2hunter2\n", keys)
+    assert "line 2" in str(err.value) and "EXTRA_API_TOKEN" in str(err.value)
     assert "hunter2" not in str(err.value)
 
 
@@ -963,9 +964,9 @@ def test_a_key_only_the_other_plugin_declares_goes_only_there(tmp_path):
     done, rec = run_multi(tmp_path, other, "OTHER_SECRET_KEY=zz\n")
     assert done.returncode == 0, done.stderr
     assert sent(rec) == {"other@techne": {"other_secret_key": "zz"}}
-    done, rec = run_multi(tmp_path, other, "OTHER_SECRET_KEY=zz\nLENS_API_TOKEN=lt\n")
+    done, rec = run_multi(tmp_path, other, "OTHER_SECRET_KEY=zz\nEXTRA_API_TOKEN=lt\n")
     assert sent(rec) == {
-        "synth@techne": {"lens_api_token": "lt"},
+        "synth@techne": {"extra_api_token": "lt"},
         "other@techne": {"other_secret_key": "zz"},
     }
 

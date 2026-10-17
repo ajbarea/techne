@@ -31,13 +31,6 @@
       "required": false,
       "sensitive": true
     },
-    "lens_api_token": {
-      "type": "string",
-      "title": "Lens API token",
-      "description": "Adds worldwide patents; request API access in your lens.org profile.",
-      "required": false,
-      "sensitive": true
-    },
     "epo_ops_key": {
       "type": "string",
       "title": "EPO OPS key (save with the secret)",

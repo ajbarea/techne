@@ -39,14 +39,14 @@ def test_run_queries_collects_records_and_coverage():
     broken = Fake(
         "semantic_scholar", error=http.SourceError("http 429 from api.semanticscholar.org")
     )
-    off = Fake("lens", available=(False, "no LENS_API_TOKEN"))
+    off = Fake("epo", available=(False, "no EPO_OPS_KEY and EPO_OPS_SECRET"))
     records, coverage = sources.run_queries([ok, empty, broken, off], ["q1", "q2"], limit=5)
     assert records == [("q1", R), ("q2", R)]
     lines = {c.source: (c.status, c.queries, c.hits, c.note) for c in coverage}
     assert lines["openalex"] == ("ok", 2, 2, "")
     assert lines["arxiv"] == ("empty", 2, 0, "")
     assert lines["semantic_scholar"][0] == "failed" and "429" in lines["semantic_scholar"][3]
-    assert lines["lens"] == ("skipped", 0, 0, "no LENS_API_TOKEN")
+    assert lines["epo"] == ("skipped", 0, 0, "no EPO_OPS_KEY and EPO_OPS_SECRET")
 
 
 def test_unexpected_exception_is_a_failed_line_not_a_crash():
