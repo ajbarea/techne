@@ -8,7 +8,7 @@ allowed-tools: Bash Read Agent
 
 # Capture and triage an idea
 
-`IDEAS` is `${user_config.ideas_repo}` and `REPOS` is `${user_config.repos_root}`. If either is empty, stop and run `/heuresis:setup`.
+`IDEAS` is `${user_config.ideas_repo}` and `REPOS` is `${user_config.repos_root}`. If either is empty, stop and tell AJ to run `/heuresis:setup`; do not run it yourself.
 
 Every command below starts with:
 `env UV_PROJECT_ENVIRONMENT=${CLAUDE_PLUGIN_DATA}/venv uv run --quiet --directory ${CLAUDE_PLUGIN_ROOT} python -m heuresis`
