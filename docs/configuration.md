@@ -1,3 +1,7 @@
+---
+description: "Configuration reference: the techne.toml schema for sister repos, phylax guard and restart options, and per-skill config."
+---
+
 # Configuration
 
 ## `~/.claude/techne.toml`
@@ -66,7 +70,7 @@ git config phylax.warnMainCheckoutCommit false
 
 These keys were `techne.*` before the guards moved to the phylax plugin; rename any you set.
 
-The mod checks every Bash command that names `git` or `gh` anywhere, so `time git add` and `sudo git commit` are covered. With every option off it registers no Bash hook. Once one is on, it needs `python3` 3.9 or newer on `PATH`, runs read-only git commands in the target repo, and starts one `python3` process for each `git` or `gh` command it checks. A command without `git` or `gh` starts no process. Parsing is best effort: a git command inside `$(...)` or `bash -c` is not checked, and neither are paths that `xargs` reads from stdin or that `$(...)` produces. A `COMMITS.md` staged that way in one Bash call is still refused by the next call's `git commit`, but not by a commit later in the same call. A command that creates `COMMITS.md` and then runs a broad `git add` (`.`, `-A`) is refused.
+The mod checks every Bash command that names `git` or `gh` anywhere, so `time git add` and `sudo git commit` are covered. With every option off it registers no Bash hook. Once one is on, it needs `python3` 3.9 or newer on `PATH`, runs read-only git commands in the target repo, and starts one `python3` process for each `git` or `gh` command the module checks. The command hook that backs it up also starts one `python3` per Bash call while a guard is on, and exits at once for a command without `git` or `gh`, so a git or gh command starts two processes and any other Bash command one. Parsing is best effort: a git command inside `$(...)` or `bash -c` is not checked, and neither are paths that `xargs` reads from stdin or that `$(...)` produces. A `COMMITS.md` staged that way in one Bash call is still refused by the next call's `git commit`, but not by a commit later in the same call. A command that creates `COMMITS.md` and then runs a broad `git add` (`.`, `-A`) is refused.
 
 ## Restart on update
 
@@ -82,13 +86,15 @@ It then opens a new tmux window, when the session runs in tmux, or a new Windows
 
 1. Checks that the session's directory still exists, then sends SIGTERM to the old process and waits for it to exit. After 10 seconds it keeps waiting and says so, and any key stops the wait. A process that never exits is left running, and the window prints the command to resume it once it does. The handoff never sends SIGKILL.
 2. Closes the old shell, or in tmux respawns the old pane in place. Either happens only when the old session was the pane's first process, or the only child of the tab's or pane's top shell. A shell with a job, an editor's terminal or a nested shell is left open, and in tmux the session resumes in the new window instead.
-3. Runs `claude --resume <session id>` from the directory the session started in, with its launch flags `--model`, `--effort`, `--permission-mode`, `--agent`, `--agents`, `--settings`, `--setting-sources`, `--plugin-dir`, `--add-dir`, `--mcp-config`, `--strict-mcp-config`, `--allowedTools`, `--disallowedTools`, `--fallback-model`, the system-prompt flags, `--dangerously-skip-permissions`, `--allow-dangerously-skip-permissions`, `--chrome`, `--ide` and `--verbose`. Every other argument is dropped, including a positional prompt and the session flags (`--resume`, `--continue`, `--session-id`, `--worktree`, `--name`). Once the old process has exited, the session always resumes: when the old pane or tab cannot take it, or the directory has gone, it resumes in the new window instead.
+3. Runs `claude --resume <session id>` from the directory the session started in, with its launch flags `--model`, `--effort`, `--permission-mode`, `--agent`, `--agents`, `--settings`, `--setting-sources`, `--plugin-dir`, `--add-dir`, `--mcp-config`, `--strict-mcp-config`, `--allowedTools`, `--disallowedTools`, `--fallback-model`, the system-prompt flags, `--dangerously-skip-permissions`, `--allow-dangerously-skip-permissions`, `--chrome`, `--ide` and `--verbose`. Every other argument is dropped, including a positional prompt and the session flags (`--resume`, `--continue`, `--fork-session`, `--session-id`, `--worktree`, `--name`). Once the old process has exited, the session always resumes: when the old pane or tab cannot take it, or the directory has gone, it resumes in the new window instead.
 
 The resumed session keeps the effort and permission mode its last turn ended with. Unless that turn ended in bypass mode, `--dangerously-skip-permissions` becomes `--allow-dangerously-skip-permissions`, so bypass stays one shift+tab away instead of switching back on. For the model, `/model` saves its choice as your default, so the resume normally starts on the same model and keeps aliases such as `opusplan` and a `[1m]` context window. An `ANTHROPIC_MODEL` set for the old process becomes `--model`, since the new window does not inherit it. Only when the model a resume would start on (the `--model` flag, else your settings) is a different family from the session's latest reply, as happens after another session changes the default, is that reply's exact model id passed.
 
 When Claude exits in the new tab, you are left in a login shell, as before.
 
 When a newer version is installed but the last turn holds the session (a background task, a subagent or a session cron still running, no completed turn recorded, or the turn recorded by another process), the hook writes the reason to its log, `$XDG_RUNTIME_DIR/phylax-restart-<uid>/log`. Each hold is logged once, and again when its reason changes or after it has lifted, so the log answers why a session has not moved.
+
+A launch that fails blocks another attempt for that session for 10 minutes.
 
 In any other terminal, the hook tells you once per session that it cannot restart there and does nothing else. Sessions started with `--bg` are never restarted.
 

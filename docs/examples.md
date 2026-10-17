@@ -1,3 +1,7 @@
+---
+description: "Worked workflows that combine techne skills: cross-repo audits, pre-release doc checks, clean multi-commit PRs, observed sessions and CI noise cleanup."
+---
+
 # Examples
 
 Concrete workflows combining techne skills. Each one is a recipe for a real problem; the skill invocations match actual behavior, not hypothetical flags.
@@ -8,10 +12,10 @@ You maintain a few related repos and want to make sure their CI pins, toolchain 
 
 1. Configure the linked repos in `~/.claude/techne.toml` (see [Configuration](configuration.md)).
 2. Run `/techne:sisters`.
-3. Read the drift report. It groups findings by category: action-pin drift, toolchain-pin drift, GitHub merge-setting + branch-protection drift, Codecov config, log-retention, Dependabot coverage, worktree ignore, open PRs, stale branches, local `main` divergence.
+3. Read the drift report. It groups findings by category: action-pin drift, toolchain-pin drift, GitHub merge-setting + branch-protection drift, Codecov config, log-retention, Dependabot coverage, worktree ignore, open PRs, stale branches, local `main` divergence, skill-context parity, the README header, and the shared docs-site files.
 4. Apply fixes in each repo. Re-run `/techne:sisters` to confirm the drift is gone.
 
-The skill is read-only; you commit the fixes manually.
+The report is read-only; you commit the fixes manually. Its clean mode removes finished branches and worktrees, and only after you approve the list.
 
 ## Pre-release documentation audit
 
@@ -31,7 +35,7 @@ You've been refactoring for days; the working tree has changes across many files
 2. Review and edit `COMMITS.md` directly: re-group, rename, add detail, drop noise.
 3. Run `/techne:deslop` to scan source comments and docstrings for AI-generated slop introduced during the refactor. Apply the suggested rewrites.
 4. Run `/techne:audit` to validate lint, test, and any other Make targets pass.
-5. Approve the commit plan; the skill stages files per commit, creates the commits, and pushes.
+5. Approve the commit plan; the skill creates the branch, stages and commits each group, pushes, and opens a PR.
 6. After CI finishes, run `/techne:ci-audit` to triage any new warnings or deprecations the workflow surfaced.
 
 ## Observed pairing session
@@ -48,7 +52,7 @@ A collaborator wants to watch you refactor a complex module in real time without
 
 Your workflow is green but the run log is full of warnings: deprecated action versions, deprecation notices from third-party tools, policy-driven noise.
 
-1. Run `/techne:ci-audit` against the latest workflow run on your branch. It categorizes findings: fixable in-repo (action pins, Python version, workflow YAML), unfixable / policy (bot output, security scanners), and noise.
+1. Run `/techne:ci-audit` against the latest workflow run on your branch. It sorts findings into fix now (action pins, Python version, workflow YAML), version bump, repo-side fix that needs your input, no repo-side fix (deferred, such as bot output and security scanners), and expected.
 2. Apply the in-repo fixes via the skill's proposed edits: typically workflow YAML pin bumps, occasional `pyproject.toml` Python-version updates.
 3. Review with `git diff .github/`.
 4. Commit and push with `/techne:auto-commit`.
