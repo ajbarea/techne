@@ -244,3 +244,12 @@ def test_a_repo_without_the_ideas_layout_is_refused(tmp_path: Path, monkeypatch)
     layout(a)
     monkeypatch.setenv("GIT_DIR", str(tmp_path / "remote.git"))
     assert sync.publish(a, [], "capture x", TODAY) == "pushed"
+
+
+def test_remote_ideas_reads_origin_only_for_an_ideas_repository(tmp_path: Path):
+    a, b = clone_pair(tmp_path)
+    sync.publish(b, add(b, "2026-10-15-from-b"), "capture from-b", TODAY)
+    assert sync.remote_ideas(a) == ["2026-10-15-from-b"]
+    nested = a / "private"
+    layout(nested)
+    assert sync.remote_ideas(nested) == []
