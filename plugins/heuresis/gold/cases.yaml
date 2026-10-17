@@ -45,7 +45,7 @@ cases:
     kind: exists
     idea: "A Claude Code plugin that sends my uncommitted diff to Codex or Gemini for an independent review and brings the findings back."
     expected_state: trash
-    match_terms: [second-opinion, codex-plugin-cc, pal mcp, pal-mcp-server, zen mcp, zen-mcp-server, beehiveinnovations]
+    match_terms: [trailofbits.com/skills/second-opinion, plugins/second-opinion, codex-plugin-cc, pal mcp, pal-mcp-server, zen mcp, zen-mcp-server, beehiveinnovations]
     prior_art:
       - name: Trail of Bits second-opinion
         url: https://trailofbits.com/skills/second-opinion/
@@ -123,7 +123,7 @@ cases:
     kind: exists
     idea: "Check every entry in my bibliography against Crossref, OpenAlex and arXiv and flag references that do not exist or whose authors and year do not match, for LLM-written drafts."
     expected_state: trash
-    match_terms: [markrussinovich/refchecker, academic-refchecker, hallucitechecker, "2604.26835", dokimasia, ajbarea/techne]
+    match_terms: [markrussinovich/refchecker, academic-refchecker, hallucitechecker, "2604.26835", dokimasia]
     prior_art:
       - name: RefChecker
         url: https://github.com/markrussinovich/refchecker
@@ -270,7 +270,7 @@ cases:
     kind: exists
     idea: "Read my Claude Code session transcripts, take each rule in CLAUDE.md, and report per rule how often it was followed or ignored, so I can prune rules or turn them into hooks."
     expected_state: later
-    match_terms: [dead-rules-audit, claude-code-hooks, eval-agent-md, karanb192, ravnhq]
+    match_terms: [dead-rules-audit, karanb192/claude-code-hooks, eval-agent-md, karanb192, ravnhq]
     prior_art:
       - name: dead-rules-audit (claude-code-hooks)
         url: https://github.com/karanb192/claude-code-hooks
