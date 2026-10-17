@@ -1,6 +1,7 @@
 """Screenshot a Zensical site in both schemes at wide, desktop and phone width, and measure it.
 
-    uv run --quiet --no-project --with playwright==1.63.0 --with pillow \\
+    uv run --quiet --no-project --with playwright==1.63.0 \\
+        --with axe-playwright-python==0.1.8 --with pillow \\
         python visual_qa.py http://127.0.0.1:8000/ --out qa/ [--pages 12] [--path getting-started/]
 
 Every page in the sitemap (or the --path list) is loaded in light and dark at 1920, 1280 and
@@ -14,9 +15,10 @@ eye misses:
 - broken images, page errors, failed same-origin requests
 - markup that did not render: attr-list braces, :icon: shortcodes, admonition bangs, raw math
 - landing sections still invisible after scrolling
+- social tags written twice (a template and the social plugin both emitting them)
 
-Uses the system Chrome (channel="chrome"), so nothing is downloaded but the Python packages
-and axe-core from jsdelivr.
+Uses Playwright's Chromium (`playwright install chromium`, the browser the setup doctor checks)
+and the axe-core that axe-playwright-python bundles, so a run needs no network.
 """
 
 from __future__ import annotations
@@ -31,7 +33,6 @@ from pathlib import Path
 from PIL import Image  # ty: ignore[unresolved-import]
 from playwright.sync_api import Page, sync_playwright  # ty: ignore[unresolved-import]
 
-AXE = "https://cdn.jsdelivr.net/npm/axe-core@4.13.0/axe.min.js"
 VIEWPORTS = {"wide": (1920, 1080), "desktop": (1280, 800), "phone": (390, 844)}
 SCHEMES = {"light": "default", "dark": "slate"}
 SHEET_HEIGHT = 3200
@@ -79,11 +80,14 @@ MEASURE = r"""
   if (math) raw.push(`${math} unrendered math`);
   return {
     scheme,
-    overflow: document.scrollingElement.scrollWidth - window.innerWidth,
+    // innerWidth grows to the content width on a phone; clientWidth stays the viewport's.
+    overflow: document.scrollingElement.scrollWidth - document.documentElement.clientWidth,
     surfaces: [...new Set(surfaces)].slice(0, 6),
     raw,
     brokenImages: [...document.images].filter((i) => i.complete && i.naturalWidth === 0)
       .map((i) => i.getAttribute("src")),
+    duplicateMeta: ["og:title", "og:description", "og:url", "twitter:card"].filter((k) =>
+      document.querySelectorAll(`meta[property="${k}"], meta[name="${k}"]`).length > 1),
     hiddenSections: [...document.querySelectorAll(".landing-section")]
       .filter((s) => +getComputedStyle(s).opacity < 0.1).length,
   };
@@ -116,6 +120,12 @@ def schemes_offered(page: Page) -> list[str]:
     return names or ["light"]
 
 
+def axe_source() -> str:
+    from importlib import resources
+
+    return (resources.files("axe_playwright_python") / "axe.min.js").read_text()
+
+
 def capture(page: Page, url: str, scheme: str, errors: list[str]) -> dict:
     page.goto(url, wait_until="networkidle", timeout=45000)
     page.evaluate(
@@ -131,12 +141,12 @@ def capture(page: Page, url: str, scheme: str, errors: list[str]) -> dict:
     )
     found = page.evaluate(MEASURE)
     try:
-        page.add_script_tag(url=AXE)
+        page.add_script_tag(content=axe_source())
         axe = page.evaluate(
             """async () => (await axe.run(document, { runOnly: ["color-contrast"] }))
               .violations.flatMap((v) => v.nodes.map((n) => n.target.join(" ")))"""
         )
-    except Exception as exc:  # a CSP or offline run still gets the rest
+    except Exception as exc:  # a CSP or a missing axe package still gets the rest
         axe = [f"axe unavailable: {exc.__class__.__name__}"]
     found["contrast"] = axe[:8]
     found["contrastCount"] = len(axe)
@@ -181,7 +191,7 @@ def main() -> int:
 
     report: dict[str, dict] = {}
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(channel="chrome")
+        browser = pw.chromium.launch()
         for path in paths:
             slug = path.strip("/").replace("/", "_") or "home"
             shots: list[Path] = []
@@ -243,7 +253,7 @@ def main() -> int:
             issues.append(f"wrong-scheme surfaces {f['surfaces']}")
         if f.get("contrastCount"):
             issues.append(f"{f['contrastCount']} low-contrast {f['contrast'][:3]}")
-        for name in ("raw", "brokenImages", "errors"):
+        for name in ("raw", "brokenImages", "duplicateMeta", "errors"):
             if f.get(name):
                 issues.append(f"{name} {f[name]}")
         if f.get("hiddenSections"):

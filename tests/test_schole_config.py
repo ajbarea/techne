@@ -297,3 +297,22 @@ def test_save_tightens_an_existing_config(tmp_path):
     file.chmod(0o644)
     config.save(tmp_path, config.Config(SITE, "2261", None))
     assert stat.S_IMODE(file.stat().st_mode) == 0o600
+
+
+def test_needs_login_says_when_the_site_last_accepted_the_session(home, monkeypatch, capsys):
+    monkeypatch.setattr(cli, "browser", fake_browser(FakeCtx()))
+    monkeypatch.setattr(cli, "signed_in", lambda ctx, site: False)
+    assert cli.main(["login", "--status"]) == 3
+    assert "last accepted" not in capsys.readouterr().out
+    saved_file(home).write_text("[]")
+    assert cli.main(["login", "--status"]) == 3
+    assert "the site last accepted the session" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("cmd", ["login", "sweep"])
+def test_help_names_the_command_and_its_exit_codes(cmd, capsys):
+    with pytest.raises(SystemExit):
+        cli.main([cmd, "--help"])
+    out = capsys.readouterr().out
+    assert out.startswith(f"usage: schole-{cmd}")
+    assert "exit codes:" in out and "3  needs login" in out

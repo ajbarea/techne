@@ -43,7 +43,7 @@ Run the visual_qa script that SKILL.md names. Serve the build under its repo pat
 ```bash
 mkdir -p /tmp/serve && ln -sfn "$PWD/site" /tmp/serve/<repo>
 python3 -m http.server -d /tmp/serve 8000 &
-uv run --quiet --no-project --with playwright==1.63.0 --with pillow \
+uv run --quiet --no-project --with playwright==1.63.0 --with axe-playwright-python==0.1.8 --with pillow \
     python <visual_qa script> http://127.0.0.1:8000/<repo>/ --out qa/
 ```
 

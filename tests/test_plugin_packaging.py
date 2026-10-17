@@ -127,6 +127,14 @@ def test_no_personal_addresses_or_machine_paths_in_published_markdown():
         assert not MACHINE_PATH.search(text), f
 
 
+def test_skills_and_agents_address_whoever_installed_them():
+    """Shipped instructions say "the user", never the maintainer's name."""
+    shipped = [*ROOT.glob("plugins/*/skills/*/SKILL.md"), *ROOT.glob("plugins/*/agents/*.md")]
+    assert shipped
+    named = [f.relative_to(ROOT) for f in shipped if re.search(r"\bAJ\b", f.read_text())]
+    assert named == []
+
+
 @pytest.mark.parametrize(
     ("prefix", "form"),
     [

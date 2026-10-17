@@ -20,6 +20,25 @@ POLL = 3
 ARGS = ["--password-store=basic"]  # one cookie store for the headed and headless runs
 NEEDS_LOGIN = "needs login: run !schole-login in Claude Code, or schole-login in a terminal"
 SESSION = "session-cookies.json"  # in the profile; Chromium drops session cookies on close
+# (its restore-last-session preference would keep them but reopen the last tab on every run)
+EXIT_CODES = """exit codes:
+  0  done
+  1  no or bad schole.toml, or sign-in not finished
+  3  needs login: run !schole-login
+  4  the site or the browser failed; the line names the fix"""
+LOGIN_EPILOG = f"""examples:
+  schole-login --site https://mycourses.example.edu --term 2261 --timezone America/New_York
+  schole-login               sign in again with the saved settings
+  schole-login --status      check the sign-in without a window
+
+{EXIT_CODES}"""
+SWEEP_EPILOG = f"""examples:
+  schole-sweep                              the last 24 hours
+  schole-sweep --since "$(date -d monday +%s)"
+
+output lines: OK, APIFAIL, ANNOUNCE, CONTENT, DUE, PASTDUE (see /schole:courses)
+
+{EXIT_CODES}"""
 CHROMIUM = "uv run --no-project --with playwright==1.63.0 playwright install chromium"
 
 
@@ -149,9 +168,11 @@ def login(args: argparse.Namespace) -> int:
     update_config(base, args)
     cfg = config.load(base)
     if args.status:
+        last = last_confirmed(base, cfg)
         with browser(base, cfg.site, headless=True) as ctx:
             ok = signed_in(ctx, cfg.site)
-        print(f"{cfg.site}  term {cfg.term or '(all)'}  {'signed in' if ok else NEEDS_LOGIN}")
+        state = "signed in" if ok else NEEDS_LOGIN + last
+        print(f"{cfg.site}  term {cfg.term or '(all)'}  {state}")
         return 0 if ok else 3
     print(f"Sign in to {cfg.site} in the browser window that opens. schole never types into it.")
     print(f"This command waits up to {LOGIN_WAIT // 60} minutes, then closes the window.")
@@ -174,9 +195,20 @@ def login(args: argparse.Namespace) -> int:
     return 1
 
 
+def last_confirmed(base: Path, cfg: config.Config) -> str:
+    """When the site last accepted the saved session, as a suffix for the needs-login line."""
+    try:
+        when = (base / "profile" / SESSION).stat().st_mtime
+    except OSError:
+        return ""
+    stamp = datetime.fromtimestamp(when, config.zone(cfg)).strftime("%a %b %d %H:%M %Z")
+    return f" (the site last accepted the session {stamp})"
+
+
 def sweep(args: argparse.Namespace) -> int:
     base = config.home()
     cfg = config.load(base)
+    last = last_confirmed(base, cfg)
     tz = config.zone(cfg)
     now = datetime.now(tz)
     since = datetime.fromtimestamp(args.since, tz) if args.since else now - timedelta(days=1)
@@ -184,7 +216,7 @@ def sweep(args: argparse.Namespace) -> int:
         try:
             lines = d2l.sweep(getter(ctx, cfg.site), cfg.term, since, now, tz)
         except d2l.NoSession:
-            print(NEEDS_LOGIN, file=sys.stderr)
+            print(NEEDS_LOGIN + last, file=sys.stderr)
             return 3
         except d2l.SiteError as exc:
             print(f"schole: the course site failed ({exc}); try again later.", file=sys.stderr)
@@ -198,12 +230,26 @@ def sweep(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="schole")
     sub = parser.add_subparsers(dest="cmd", required=True)
-    lg = sub.add_parser("login", help="sign in once in a browser window")
+    lg = sub.add_parser(
+        "login",
+        prog="schole-login",
+        help="sign in once in a browser window",
+        description="Sign in to the course site once in a browser window; the sweep reuses it.",
+        epilog=LOGIN_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     lg.add_argument("--site", help="the course site's https origin")
     lg.add_argument("--term", help="text every current course code contains, e.g. 2261")
     lg.add_argument("--timezone", help="IANA zone for printed times")
     lg.add_argument("--status", action="store_true", help="check the sign-in without a window")
-    sw = sub.add_parser("sweep", help="what changed since a time, and what is due")
+    sw = sub.add_parser(
+        "sweep",
+        prog="schole-sweep",
+        help="what changed since a time, and what is due",
+        description="What changed on the course site since a time, and what is due.",
+        epilog=SWEEP_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     sw.add_argument("--since", type=int, help="epoch seconds; default 24 hours ago")
     args = parser.parse_args(argv)
     try:

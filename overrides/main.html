@@ -6,12 +6,16 @@
   the docs-site sync, never in a site.
 
   The home tab reads the site name, not "Home - Site". Open Graph and Twitter
-  card tags are emitted here because Zensical's social-cards plugin is still a
-  stub. A site with card artwork sets `extra.og_image` (a path under docs/);
-  without it the image tags are omitted, since a missing image previews worse
-  than none.
+  card tags are emitted here only when the `social` plugin is off; with it on,
+  the plugin writes them with a generated card. A site without the plugin sets
+  `extra.og_image` (a path under docs/) for card artwork; without it the image
+  tags are omitted, since a missing image previews worse than none.
 -#}
 {% set is_home = page.is_homepage or page.url == '' or page.url == '/' %}
+{#- The social plugin's config is one mapping or a list of instances. -#}
+{% set social = config.plugins and config.plugins.social and config.plugins.social.config %}
+{% set social_on = social and (social.enabled if social is mapping
+  else (social | map(attribute='config') | selectattr('enabled') | list | length > 0)) %}
 
 {% block htmltitle %}
   {% if is_home %}
@@ -22,6 +26,7 @@
 {% endblock %}
 
 {% block extrahead %}
+  {% if not social_on %}
   {% set raw_title = (page.meta and page.meta.title) or page.title %}
   {% set page_title = (is_home or not raw_title) and config.site_name or (raw_title ~ ' | ' ~ config.site_name) %}
   {% set page_desc = (page.meta and page.meta.description) or config.site_description %}
@@ -42,5 +47,6 @@
   <meta name="twitter:description" content="{{ page_desc | e }}">
   {% if og_image %}
     <meta name="twitter:image" content="{{ og_image }}">
+  {% endif %}
   {% endif %}
 {% endblock %}

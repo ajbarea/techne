@@ -4,15 +4,12 @@
 Named for the Athenian *dokimasia*, the scrutiny of a candidate's credentials before office.
 
 A bibliography is a shared, accumulating asset, so an error in it is an error in everything
-downstream, and it is exactly the kind of error that reads as fine. On 2026-08-25 an audit of
-one project's file found three: a title truncated before its second half, a singular/plural
-error, and an entry whose arXiv record had been retitled at v3 while the file still carried
-the v1 title. None were visible in the file. All three were obvious the moment an identifier
-was resolved against the source.
-
-That audit was only possible after a backfill, because the identifiers were not reachable
-before it: 50 entries carried an arXiv id as prose inside
-`journal = {arXiv preprint arXiv:2312.17493}` and only 4 used a real `eprint` field.
+downstream, and it is exactly the kind of error that reads as fine: a title truncated before
+its second half, a singular/plural slip, an entry whose arXiv record was retitled at v3 while
+the file kept the v1 title. None is visible in the file; each is obvious once an identifier
+is resolved against the source. That needs reachable identifiers: an arXiv id written as
+prose, `journal = {arXiv preprint arXiv:2312.17493}`, resolves to nothing, while an `eprint`
+field does.
 
 There are three passes because they fail differently:
 
@@ -22,9 +19,8 @@ duplicate keys, no citation without an entry, no entry nothing accounts for, and
 citing a paper an optional reading log still stages as unread.
 
 `verify` resolves those identifiers against arXiv and Crossref and compares what comes back to
-what the file claims -- title, first-author surname, and year. Title alone was not enough: the
-2026-06-14 audit corrected one entry's *authors* and added six missing author lists, and
-nothing comparing titles would have caught that class a second time.
+what the file claims -- title, first-author surname, and year. Title alone is not enough: a
+wrong or missing author list passes any title comparison.
 
 It is also the pass that depends on third-party APIs being reachable. Gating a push on that
 would buy drift detection at the cost of a bibliography check that fails for reasons having

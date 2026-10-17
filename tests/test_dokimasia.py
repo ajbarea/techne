@@ -990,7 +990,7 @@ def test_a_title_exemption_skips_the_title_and_prints_its_reason(dk, tmp_path, m
 
 
 # =========================================================================================
-# Review round: every test below was run against the previous engine and failed there.
+# Regressions: citation scope, include forms, cache safety, roots and parsing edge cases.
 # =========================================================================================
 
 DOC = "\\documentclass{article}\n"
@@ -1519,7 +1519,7 @@ def test_an_unparseable_pyproject_with_our_table_is_an_error(dk, tmp_path, capsy
 
 
 # =========================================================================================
-# Second review round.
+# Regressions: braces, empty scopes, nocite, cache writes, outdirs, exclude and Unicode titles.
 # =========================================================================================
 
 # --- S1. escaped braces are not structural ------------------------------------------------
@@ -1795,7 +1795,7 @@ def test_a_starred_import_is_followed(dk, tmp_path):
     assert dk.document_cites(tmp_path / "m.tex") == {"right"}
 
 
-# --- hand-written thebibliography (#113) -------------------------------------------------
+# --- hand-written thebibliography --------------------------------------------------------
 
 #: An IEEE-style hand-written list: one arXiv preprint, one journal article with a DOI, and
 #: one with neither, which is how most printed styles look.
@@ -2085,7 +2085,7 @@ def test_a_bib_and_a_hand_written_list_are_verified_together(dk, tmp_path, monke
     )
 
 
-# --- #113 review round: every test below failed against the first cut of #114 -----------
+# --- hand-written lists: templates, inputs and empty blocks -----------------------------
 
 
 def test_an_empty_block_in_a_bib_project_changes_nothing(dk, tmp_path):
@@ -2309,7 +2309,7 @@ def test_a_broken_symlink_does_not_crash_verify(dk, tmp_path, monkeypatch):
     assert dk.verify(dk.load_config(tmp_path), delay=0) == 0
 
 
-# --- #113 later review rounds ------------------------------------------------------------
+# --- quoted titles in hand-written entries -----------------------------------------------
 
 VASWANI = {
     "title": "Attention is all you need",
@@ -2498,7 +2498,7 @@ def test_a_key_only_in_a_pasted_bbl_is_still_dangling(dk, tmp_path, capsys):
     assert "dangling citation: \\cite{x}" in _err(capsys)
 
 
-# --- #113 fourth review round -------------------------------------------------------------
+# --- quoted books, chapters and author separators -----------------------------------------
 
 HANDBOOK = {"title": "Handbook of machine learning systems", "authors": [], "source": "crossref"}
 
@@ -2611,7 +2611,7 @@ def test_an_xparse_environment_with_a_braced_argument_spec_is_stripped(dk, tmp_p
     assert dk.lint(dk.load_config(tmp_path)) == 0
 
 
-# --- #113 fifth review round --------------------------------------------------------------
+# --- first authors, initials and an 'In' before the title ---------------------------------
 
 
 @pytest.mark.parametrize(
@@ -2657,7 +2657,7 @@ def test_text_after_a_conditional_is_never_dropped(dk, tmp_path, parked):
     assert dk.lint(dk.load_config(tmp_path)) == 0
 
 
-# --- #113 sixth review round --------------------------------------------------------------
+# --- conditionals, and given names printed as surnames ------------------------------------
 
 
 def test_conditionals_are_not_evaluated_so_nothing_is_hidden(dk, tmp_path, capsys):
@@ -2710,7 +2710,7 @@ def test_a_double_surname_or_swapped_source_name_reads_as_drift(dk, printed, fir
     assert _compare(dk, printed, record) == ["first author"]
 
 
-# --- #113 seventh review round ------------------------------------------------------------
+# --- pasted .bbl files, and first authors joined by a conjunction -------------------------
 
 
 def test_a_pasted_biber_bbl_does_not_pass_an_unbuilt_biblatex_document(dk, tmp_path):
@@ -2784,7 +2784,7 @@ def test_verify_names_a_document_it_cannot_read(dk, tmp_path, monkeypatch, capsy
     assert "cannot read locked.tex" in _err(capsys)
 
 
-# --- #113 eighth review round -------------------------------------------------------------
+# --- accent macros and unsplit author lists -----------------------------------------------
 
 REN = {"title": "Faster R-CNN", "authors": ["Shaoqing Ren", "Kaiming He"], "source": "arxiv"}
 
@@ -2881,7 +2881,7 @@ def test_a_bibliography_command_in_a_definition_keeps_a_document_bibtex(dk, tmp_
     assert not info.hand_written and info.bibitems == ()
 
 
-# --- #113 ninth review round: a first author is read only when it has a name's shape ------
+# --- a first author is read only when it has a name's shape -------------------------------
 
 
 @pytest.mark.parametrize(
@@ -2959,7 +2959,7 @@ def test_an_unreadable_include_is_not_also_reported_unreached(dk, tmp_path, caps
     assert "reached by no document" not in out + err
 
 
-# --- #113 tenth review round ---------------------------------------------------------------
+# --- short surnames, nameless source authors and name markup -------------------------------
 
 
 @pytest.mark.parametrize(
