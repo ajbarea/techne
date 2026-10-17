@@ -1049,7 +1049,9 @@ _SMALLEST_TEXT = """([i, per]) => {
   return {px, sample};
 }"""
 
-_SIDEWAYS = "document.documentElement.scrollWidth > innerWidth + 1"
+# What the reader sees is the visual viewport: innerWidth grows to the content width on a
+# phone, and a page with no viewport tag is zoomed out to fit, so neither scrolls sideways.
+_SIDEWAYS = "document.documentElement.scrollWidth > visualViewport.width + 1"
 _VIEWPORT_META = "!!document.querySelector('meta[name=viewport]')"
 # Chromium logs this for every failed load, which the asset gate already reports by URL.
 _LOAD_FAILED = "Failed to load resource"
@@ -1455,8 +1457,9 @@ def _phone_pass(browser, path: pathlib.Path, found: list[Finding]) -> _Watch:
         browser, path, PHONE, during=" on a phone", seen=True, is_mobile=True, has_touch=True
     )
     phone.add_style_tag(content=_ALL_FRAGMENTS)
-    # Without a viewport meta tag a phone lays the page out 980px wide and shrinks it.
-    per = phone.evaluate("innerWidth") / PHONE["width"]
+    # Without a viewport meta tag a phone lays the page out 980px wide and shrinks it; content
+    # wider than the phone widens innerWidth without shrinking the page, so read the zoom itself.
+    per = 1 / phone.evaluate("visualViewport.scale")
     spilled: list[int] = []
     panned: list[int] = []
     least: dict = {"px": float("inf"), "sample": ""}

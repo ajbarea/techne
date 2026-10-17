@@ -1,4 +1,4 @@
-"""Where AJ's projects and research sources live. Paths only; nothing is copied."""
+"""Where the user's projects and research sources live. Paths only; nothing is copied."""
 
 from __future__ import annotations
 

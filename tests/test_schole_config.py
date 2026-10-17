@@ -297,3 +297,36 @@ def test_save_tightens_an_existing_config(tmp_path):
     file.chmod(0o644)
     config.save(tmp_path, config.Config(SITE, "2261", None))
     assert stat.S_IMODE(file.stat().st_mode) == 0o600
+
+
+def test_needs_login_says_when_the_site_last_accepted_the_session(home, monkeypatch, capsys):
+    monkeypatch.setattr(cli, "browser", fake_browser(FakeCtx()))
+    monkeypatch.setattr(cli, "signed_in", lambda ctx, site: False)
+    assert cli.main(["login", "--status"]) == 3
+    assert "last accepted" not in capsys.readouterr().out
+    saved_file(home).write_text("[]")
+    assert cli.main(["login", "--status"]) == 3
+    assert "the site last accepted the session" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("cmd", ["login", "sweep"])
+def test_help_names_the_command_and_its_exit_codes(cmd, capsys):
+    with pytest.raises(SystemExit):
+        cli.main([cmd, "--help"])
+    out = capsys.readouterr().out
+    assert out.startswith(f"usage: schole-{cmd}")
+    assert "exit codes:" in out
+    assert all(f"\n  {code} " in out for code in ("0", "1", "2", "3", "4", "127"))
+
+
+def test_sweep_needs_login_says_when_the_site_last_accepted_the_session(home, monkeypatch, capsys):
+    def ended(*args):
+        raise cli.d2l.NoSession("enrollments returned HTTP 403")
+
+    monkeypatch.setattr(cli, "browser", fake_browser(FakeCtx()))
+    monkeypatch.setattr(cli, "getter", lambda ctx, site: None)
+    monkeypatch.setattr(cli.d2l, "sweep", ended)
+    saved_file(home).write_text("[]")
+    assert cli.main(["sweep"]) == 3
+    err = capsys.readouterr().err
+    assert "needs login" in err and "the site last accepted the session" in err

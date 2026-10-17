@@ -37,6 +37,8 @@ areas:
   - "src/"
   - "tests/"
   - "docs/"
+pattern_sources:  # files that quote slop on purpose; deslop's glossary grep skips them
+  - "tests/fixtures/"
 
 ## docs_site
 config: "zensical.toml"

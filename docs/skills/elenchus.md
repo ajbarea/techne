@@ -39,7 +39,7 @@ The review is held to a nine-cell rubric, so the classes that are invisible in a
 3. Migration tolerance: whether state saved by the old code loads under the new code.
 4. Reachability to the real surface: whether the change landed on the registered wrapper or shipped path, not an inner copy.
 5. Boundary and empty inputs: null, empty string, zero rows, unset environment variable, missing file.
-6. Looks-done is not is-done: whether the value path was checked end to end, beyond green tests and lint.
+6. Looks-done is not is-done: whether the value path was checked end to end, beyond green tests and lint; whether a test mocks the very seam it claims to cover; and whether each gate has been seen to fire.
 7. Flake versus real red: whether a failing check belongs to the change.
 8. Claim and code drift: whether the PR description, comments and `Closes #N` match what the code does.
 9. DRY and right altitude: whether the fix is the deep one or a special-case band-aid.

@@ -32,7 +32,7 @@ The injected `## docs_site` section (if present) supplies this repo's CSS file l
 
 Run as many in parallel as the scope calls for:
 
-1. **Nav vs filesystem.** Parse `zensical.toml` `nav` (sections may be nested); `Glob` `docs/**/*.md`. Every nav entry must exist as a file; every `.md` under `docs/` must appear in nav, because Zensical publishes every file there and cannot exclude one. Working notes (plans, specs, handoffs) belong outside `docs/`. Report missing-in-nav and missing-on-disk separately.
+1. **Nav vs filesystem.** Parse `zensical.toml` `nav` (sections may be nested); `Glob` `docs/**/*.md`. Every nav entry must exist as a file; every `.md` under `docs/` must appear in nav, since a page left out of nav is still deployed, unreachable. Zensical can hold pages back (`exclude_docs` and `not_in_nav` from 0.0.70, the `exclude` plugin from 0.0.67), but the shared `test_docs_nav.py` does not read those settings, so working notes (plans, specs, handoffs) belong outside `docs/`. Report missing-in-nav and missing-on-disk separately.
 
 2. **Internal links.** `Grep` markdown link targets (`](foo.md)`, `](foo.md#bar)`) across `docs/**/*.md`. For each: check the file exists, and if an anchor is specified, `Grep` the target file for a heading that would produce that slug (lowercase, spaces → `-`, strip punctuation).
 
@@ -41,7 +41,9 @@ Run as many in parallel as the scope calls for:
 4. **`zensical.toml` sanity.**
    - `extra_css` and `extra_javascript` paths exist on disk (relative to `docs/`).
    - `site_url` matches the repo's expected GitHub Pages URL (per injected `docs_site.site_url`).
-   - Palette entries are valid theme colors (warn on typos).
+   - Palette entries are valid theme colors (warn on typos), and each carries a `media` query (`(prefers-color-scheme: dark)` / `light`); without one the first entry always wins and the reader's system setting is ignored.
+   - Agent access (Zensical 0.0.67+, discovery links 0.0.70+): the `llmstxt` plugin is on, so the build writes `llms.txt`, `llms-full.txt` and a `.md` beside each page, and `features` includes `content.action.copy` (a Copy as Markdown button). Each `llms.txt` entry has a one-line description, and the file stays under 50,000 characters. `site_url` is set, which the plugin requires.
+   - With the `social` plugin on, it writes the Open Graph and Twitter tags; the shared `overrides/main.html` writes them only when the plugin is off. visual_qa reports a page that carries them twice.
    - `nav` has no duplicate labels.
 
 5. **Workflow sanity (`docs.yml`).**
@@ -85,7 +87,7 @@ A site is done when it looks right, not when it builds. Hold it to
 [references/polish.md](references/polish.md), the checklist learned across the fleet, and run:
 
 ```bash
-uv run --quiet --no-project --with playwright==1.63.0 --with pillow \
+uv run --quiet --no-project --with playwright==1.63.0 --with axe-playwright-python==0.1.8 --with pillow \
     python ${CLAUDE_SKILL_DIR}/scripts/visual_qa.py http://127.0.0.1:8000/<repo>/ --out qa/
 ```
 

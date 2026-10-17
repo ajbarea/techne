@@ -23,7 +23,7 @@ Default scope is `README.md` plus every tracked file under `docs/**/*.md`. Narro
 /techne:docsync docs/getting-started.md
 ```
 
-The skill extracts checkable claims (commands, paths, signatures, config keys, version numbers, env vars), verifies each against the source, and outputs a drift report grouped by file. Single-token swaps are safe to batch-apply on confirmation; prose rewrites are shown as full before/after diffs first.
+The skill extracts checkable claims (commands, paths, signatures, config keys, version numbers, env vars), verifies each against the source, and outputs a drift report grouped by file. It also lists user-visible surface no doc mentions: commands, flags, exit codes, config keys, env vars, files written on your machine, and a plugin's skills, MCP tools and hooks. A page that links the file holding the detail, such as a skill's `SKILL.md`, covers it. Single-token swaps are safe to batch-apply on confirmation; prose rewrites are shown as full before/after diffs first.
 
 ## See also
 

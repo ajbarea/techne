@@ -31,6 +31,16 @@ The output is headed by the repo root it read. Its `## repo` section names the C
 - **Exit codes and error messages** — Verify against the source that produces them.
 - **Performance / comparative claims** — `45× faster`, `under 10 ms`, `scales to 100 clients`, `sub-millisecond aggregation`. Verify against the `slop_ground_truth` sources from the target repo's skill-context. If the claim is not traceable to a measurement there, it is drift — propose one of: cite the specific test, replace with the measured number, or delete. Use the "Unsupported quantitative / comparative claims" section of `${CLAUDE_PLUGIN_ROOT}/_shared/hate-words.md` as the grep-seed pattern list.
 
+## Silence
+
+A user-visible surface no doc mentions is drift too: the claim is missing, not wrong. Inventory the surface from the code, then look for each item in the docs in scope:
+
+- commands and their flags (`bin/` scripts, `--help`, Makefile targets meant for users), exit codes and the error lines a user acts on
+- config files and keys, environment variables the code reads, files the tool writes on the user's machine (privacy-relevant ones first)
+- for a Claude Code plugin: every skill, MCP tool, hook or mod behavior, and `userConfig` key
+
+A doc that links a file holding the detail covers that detail: a skill page that links its `SKILL.md` covers the skill's internal steps, and a page that quotes `--help` covers the flags it lists. Propose the link, not a paraphrase, since a second copy drifts. Report each gap with the surface's source `file:line` and the doc where it belongs. Test-only knobs and internal helpers are not user surface.
+
 ## Ignore
 
 - Prose / marketing copy that makes **no quantitative claim** ("X orchestrates federated learning runs"). Not a checkable claim.
@@ -48,6 +58,8 @@ The output is headed by the repo root it read. Its `## repo` section names the C
    Out of scope — hand off to `/techne:docs-site` instead: `zensical.toml` config drift, `.github/workflows/docs.yml` deploy wiring, `docs/stylesheets/` / `docs/javascripts/` asset maintenance, rendered-site link checks. `/techne:docsync` is claim verification inside markdown prose; docs-site infrastructure is a different skill.
 
 2. **Extract claims.** For the doc in scope, list every checkable claim with its exact string and line number. Categorize by the list above.
+
+   Then take the user-visible surface inventory from the code (see [Silence](#silence)) and mark each item the docs in scope never mention.
 
 3. **Verify.** For each claim, run the appropriate check:
    - Command → `Grep` the Makefile / CLI entrypoint module / workflow for the target.

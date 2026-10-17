@@ -57,6 +57,8 @@ User-specific calibration — patterns the user flags most often from their own 
 
 1. **Scope.** Default to the whole repo minus vendored/generated paths. Use the skip-path list from the injected `scan_scope.skip` (fall back to: `.venv/`, `node_modules/`, `dist/`, `build/`, `site/`, `out/`, `__pycache__/`, `.ruff_cache/`, `.pytest_cache/`, `.hypothesis/`, `target/`, `uv.lock`, `Cargo.lock`, `docs/assets/`, `logs/`). If the user passed a path (e.g. `/techne:deslop scripts/`), restrict to that.
 
+   **Pattern sources** quote slop on purpose: every `hate-words.md` and `plain-prose.md` copy, plus the paths in the injected `scan_scope.pattern_sources` (skills that teach slop detection, tests that feed it slop, eval fixtures). Leave them out of the glossary grep, where they are nearly every hit, and still read them in the passes that judge context. Say how many files were left out, so a quiet sweep is not read as a clean one.
+
 2. **Fan out with Explore subagents in parallel** when the scope spans several areas; a single file or a small directory is faster inline, with no subagents. One subagent per area, all dispatched in a single message. Use the split from the injected `scan_scope.areas`; typical shape:
    - Core package (e.g. `<package>/**/*.py`)
    - Scripts (`scripts/**/*.py`)
