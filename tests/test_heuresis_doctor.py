@@ -22,6 +22,33 @@ def test_missing_ideas_repo_is_missing_and_keys_are_optional(tmp_path):
     assert found["LENS_API_TOKEN"] == "optional"
 
 
+def test_unset_key_points_at_plugin_configure(tmp_path):
+    values = {"IDEAS_REPO": str(tmp_path), "REPOS_ROOT": str(tmp_path)}
+    lines = {c.name: c.detail for c in d.checks(values, environ={})}
+    for env in ("S2_API_KEY", "EPO_OPS"):
+        assert "/plugin configure heuresis@techne" in lines[env]
+        assert "restart" in lines[env]
+    assert "EPO_OPS_KEY and EPO_OPS_SECRET" in lines["EPO_OPS"]
+
+
+def test_epo_needs_both_halves(tmp_path):
+    values = {"IDEAS_REPO": str(tmp_path), "REPOS_ROOT": str(tmp_path)}
+    assert names(d.checks(values, environ={"EPO_OPS_KEY": "k"}))["EPO_OPS"] == "optional"
+
+
+def test_every_group_gets_a_line_needing_all_members(tmp_path, monkeypatch):
+    base = d.KEYS[0]
+    extra = tuple(base._replace(env=f"ZZ_{n}", group="ZZ", why="adds zz") for n in (1, 2, 3))
+    monkeypatch.setattr(d, "KEYS", (*d.KEYS, *extra))
+    values = {"IDEAS_REPO": str(tmp_path), "REPOS_ROOT": str(tmp_path)}
+    lines = {c.name: c for c in d.checks(values, environ={"ZZ_1": "x", "ZZ_2": "x"})}
+    assert lines["ZZ"].status == "optional"
+    assert "needs all of ZZ_1 and ZZ_2 and ZZ_3" in lines["ZZ"].detail
+    assert "needs both EPO_OPS_KEY and EPO_OPS_SECRET" in lines["EPO_OPS"].detail
+    every = dict.fromkeys(["ZZ_1", "ZZ_2", "ZZ_3"], "x")
+    assert {c.name: c.status for c in d.checks(values, environ=every)}["ZZ"] == "ok"
+
+
 def test_ready_ideas_repo_and_keys(tmp_path):
     repo = tmp_path / "ideas"
     (repo / "ideas").mkdir(parents=True)

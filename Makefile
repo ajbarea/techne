@@ -86,7 +86,7 @@ test-unit:              ## pytest over skill-shipped Python
 # The hooks and the setup doctors run on the user's system python3, not the project venv.
 # 3.9 is macOS's.
 HOOKS_OLDEST_PYTHON := 3.9
-HOOK_TESTS := tests/test_git_guards.py tests/test_stale_restart.py $(wildcard tests/test_*doctor*.py)
+HOOK_TESTS := tests/test_git_guards.py tests/test_stale_restart.py tests/test_heuresis_keys.py $(wildcard tests/test_*doctor*.py)
 
 test-hooks-oldest:      ## Hook and doctor tests with the code under test run on the oldest python3
 	@py="$$(uv python find --no-project $(HOOKS_OLDEST_PYTHON) 2>/dev/null || { uv python install -q $(HOOKS_OLDEST_PYTHON) && uv python find --no-project $(HOOKS_OLDEST_PYTHON); })"; \

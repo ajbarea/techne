@@ -16,6 +16,41 @@
       "type": "directory",
       "title": "Repositories folder",
       "description": "Folder holding your repo clones (papers, talks, your projects). heuresis reads your bibliography, notes, decks and ROADMAPs from here."
+    },
+    "openalex_api_key": {
+      "type": "string",
+      "title": "OpenAlex API key",
+      "description": "Raises OpenAlex's search budget; free at openalex.org/settings/api.",
+      "required": false,
+      "sensitive": true
+    },
+    "s2_api_key": {
+      "type": "string",
+      "title": "Semantic Scholar API key",
+      "description": "Adds Semantic Scholar; request one at semanticscholar.org/product/api.",
+      "required": false,
+      "sensitive": true
+    },
+    "lens_api_token": {
+      "type": "string",
+      "title": "Lens API token",
+      "description": "Adds worldwide patents; request API access in your lens.org profile.",
+      "required": false,
+      "sensitive": true
+    },
+    "epo_ops_key": {
+      "type": "string",
+      "title": "EPO OPS key",
+      "description": "Adds European patents; register at developers.epo.org. Needs both the key and the secret.",
+      "required": false,
+      "sensitive": true
+    },
+    "epo_ops_secret": {
+      "type": "string",
+      "title": "EPO OPS secret",
+      "description": "Adds European patents; register at developers.epo.org. Needs both the key and the secret.",
+      "required": false,
+      "sensitive": true
     }
   }
 }

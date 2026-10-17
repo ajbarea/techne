@@ -166,6 +166,7 @@ that drift class recurs.
 
 Detail lives in git history (`git log`) and the live skill code. This log is pruned once work is durably shipped.
 
+- 2026-10-17: **heuresis search keys in secure storage.** The five keys are sensitive plugin options set with `/plugin configure heuresis@techne`; a SessionStart hook passes them to Bash commands, and a store script imports a `.env` file. A key exported in the shell still wins.
 - 2026-10-16: **heuresis phase 1, and v1.4.0.** An eighth plugin: `/heuresis:idea` captures an idea in a private ideas repository and triages it with four scouts (papers, patents, products, your own work), a judge that names the closest rival, and scripts that verify every quote and enforce the verdict rules. Search sources share `_shared/scholarly.py` with graphe. The Lens and EPO adapters follow the documented response shapes and are not yet confirmed with live keys.
 - 2026-10-12: **Onboarding pass, and v1.3.0.** techne, graphe and phylax gain a setup skill on the epistole pattern: an AGENTS.md runbook and a read-only doctor on the system python3 that prints each missing tool with its install command. A missing latexmk, poppler, strings, gh, tmux or uv now names its fix instead of a traceback. Each plugin has a README and a docs page under a new Plugins section, the README has a Cite section, and the release is the first with a tag since 1.1.0.
 - 2026-10-11: **epistole, and v1.2.0.** A sixth plugin: a local Gmail MCP server that searches,

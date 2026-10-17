@@ -15,14 +15,11 @@ from pathlib import Path
 sys.dont_write_bytecode = True  # a doctor leaves no file behind, not even in the plugin cache
 PLUGIN = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PLUGIN / "_shared"))
+sys.path.insert(0, str(PLUGIN / "hooks"))
 import doctor_lib as d  # noqa: E402  # ty: ignore[unresolved-import]
+from search_keys import KEYS  # noqa: E402  # ty: ignore[unresolved-import]
 
-KEYS = (
-    ("OPENALEX_API_KEY", "raises OpenAlex's search budget; free at openalex.org/settings/api"),
-    ("S2_API_KEY", "adds Semantic Scholar; request one at semanticscholar.org/product/api"),
-    ("LENS_API_TOKEN", "adds worldwide patents; request API access in your lens.org profile"),
-)
-EPO_WHY = "adds European patents; register at developers.epo.org"
+STORE = "store it with /plugin configure heuresis@techne, then restart"
 
 
 def parse(argv: Sequence[str]) -> dict[str, str]:
@@ -47,7 +44,8 @@ def folder(name: str, value: str, *, is_ideas_repo: bool) -> d.Check:
 
 
 def key(name: str, why: str, present: bool) -> d.Check:
-    return d.Check(d.OK if present else d.OPTIONAL, name, "set" if present else f"not set; {why}")
+    detail = "set" if present else f"not set; {why}; {STORE}"
+    return d.Check(d.OK if present else d.OPTIONAL, name, detail)
 
 
 def checks(values: Mapping[str, str], environ: Mapping[str, str]) -> list[d.Check]:
@@ -59,9 +57,17 @@ def checks(values: Mapping[str, str], environ: Mapping[str, str]) -> list[d.Chec
         folder("ideas_repo", values.get("IDEAS_REPO", ""), is_ideas_repo=True),
         folder("repos_root", values.get("REPOS_ROOT", ""), is_ideas_repo=False),
     ]
-    found += [key(name, why, bool(environ.get(name))) for name, why in KEYS]
-    epo = bool(environ.get("EPO_OPS_KEY") and environ.get("EPO_OPS_SECRET"))
-    found.append(key("EPO_OPS", f"{EPO_WHY}; set EPO_OPS_KEY and EPO_OPS_SECRET", epo))
+    found += [key(k.env, k.why, bool(environ.get(k.env))) for k in KEYS if not k.group]
+    for group in dict.fromkeys(k.group for k in KEYS if k.group):
+        members = [k for k in KEYS if k.group == group]
+        envs = [k.env for k in members]
+        need = "both" if len(envs) == 2 else "all of"
+        why = (
+            f"{members[0].why}; needs {need} {' and '.join(envs)}"
+            if len(envs) > 1
+            else members[0].why
+        )
+        found.append(key(group, why, all(environ.get(env) for env in envs)))
     return found
 
 

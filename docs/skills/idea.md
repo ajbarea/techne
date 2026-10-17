@@ -70,17 +70,18 @@ All inside your ideas repository.
 
 ## Keys
 
-Keys come from environment variables. Set them in the shell profile Claude Code starts from and restart Claude Code. Never put a key in a plugin option.
+Save keys in Claude Code's secure storage: run `/plugin configure heuresis@techne`, paste each key into its masked field, and restart Claude Code. Or run `/heuresis:setup` and choose the file route: it prints a `.env` template, you fill it in at a private path outside any repository, and its store script saves the keys and prints only their names. Claude Code keeps the keys in its secure storage. At session start heuresis writes them to a private (0600) per-process file in its plugin data folder that Bash commands load, and deletes the file when the session ends. A key already in the Bash environment, such as one exported in your shell profile, wins.
 
 OpenAlex, arXiv and Hacker News run without a key. `OPENALEX_API_KEY` raises OpenAlex's daily search budget, and `OPENALEX_MAILTO` identifies you to OpenAlex. Semantic Scholar, Lens, EPO and GitHub show `skipped` in the verdict's coverage line without their keys, and the rest still run.
 
-| Variable | Source |
+| Option (variable) | Source |
 |---|---|
-| `S2_API_KEY` | Semantic Scholar |
-| `LENS_API_TOKEN` | Lens patents |
-| `EPO_OPS_KEY`, `EPO_OPS_SECRET` | EPO patents |
+| `s2_api_key` (`S2_API_KEY`) | Semantic Scholar |
+| `lens_api_token` (`LENS_API_TOKEN`) | Lens patents |
+| `epo_ops_key`, `epo_ops_secret` (`EPO_OPS_KEY`, `EPO_OPS_SECRET`) | EPO patents |
+| `openalex_api_key` (`OPENALEX_API_KEY`) | Optional for OpenAlex |
 | `gh` signed in, or `GITHUB_TOKEN` | GitHub |
-| `OPENALEX_API_KEY`, `OPENALEX_MAILTO` | Optional for OpenAlex |
+| `OPENALEX_MAILTO` (shell only) | Identifies you to OpenAlex |
 
 The Lens and EPO adapters are written against the providers' documented response shapes. They have not yet been confirmed with live keys.
 
