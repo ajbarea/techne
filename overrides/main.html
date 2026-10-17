@@ -16,6 +16,9 @@
 {% set social = config.plugins and config.plugins.social and config.plugins.social.config %}
 {% set instances = [social] if social is mapping else (social or []) | map(attribute='config') | list %}
 {% set social_on = instances | selectattr('enabled') | selectattr('cards') | list | length > 0 %}
+{#- A page can turn its card off in front matter (social: cards: false). -#}
+{% set page_social = page.meta and page.meta.social %}
+{% set social_on = social_on and not (page_social and page_social.cards is sameas false) %}
 
 {% block htmltitle %}
   {% if is_home %}

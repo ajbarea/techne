@@ -23,8 +23,8 @@ SESSION = "session-cookies.json"  # in the profile; Chromium drops session cooki
 # (its restore-last-session preference would keep them but reopen the last tab on every run)
 EXIT_CODES = """exit codes:
   0    done
-  1    no or bad schole.toml, or sign-in not finished
-  2    a bad option
+  1    a missing or bad setting (schole.toml, --site, --timezone), or sign-in not finished
+  2    an unknown option or a --since that is not a number
   3    needs login: run !schole-login
   4    the site or the browser failed; the line names the fix
   127  uv is not on PATH"""
@@ -170,10 +170,9 @@ def login(args: argparse.Namespace) -> int:
     update_config(base, args)
     cfg = config.load(base)
     if args.status:
-        last = last_confirmed(base, cfg)
         with browser(base, cfg.site, headless=True) as ctx:
             ok = signed_in(ctx, cfg.site)
-        state = "signed in" if ok else NEEDS_LOGIN + last
+        state = "signed in" if ok else NEEDS_LOGIN + last_confirmed(base, cfg)
         print(f"{cfg.site}  term {cfg.term or '(all)'}  {state}")
         return 0 if ok else 3
     print(f"Sign in to {cfg.site} in the browser window that opens. schole never types into it.")
@@ -210,7 +209,6 @@ def last_confirmed(base: Path, cfg: config.Config) -> str:
 def sweep(args: argparse.Namespace) -> int:
     base = config.home()
     cfg = config.load(base)
-    last = last_confirmed(base, cfg)
     tz = config.zone(cfg)
     now = datetime.now(tz)
     since = datetime.fromtimestamp(args.since, tz) if args.since else now - timedelta(days=1)
@@ -218,7 +216,7 @@ def sweep(args: argparse.Namespace) -> int:
         try:
             lines = d2l.sweep(getter(ctx, cfg.site), cfg.term, since, now, tz)
         except d2l.NoSession:
-            print(NEEDS_LOGIN + last, file=sys.stderr)
+            print(NEEDS_LOGIN + last_confirmed(base, cfg), file=sys.stderr)
             return 3
         except d2l.SiteError as exc:
             print(f"schole: the course site failed ({exc}); try again later.", file=sys.stderr)

@@ -44,6 +44,7 @@ def site(tmp_path):
     threading.Thread(target=server.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{server.server_address[1]}/"
     server.shutdown()
+    server.server_close()
 
 
 @needs_browser
@@ -55,6 +56,7 @@ def test_visual_qa_flags_the_broken_page_only(site, tmp_path):
         text=True,
         timeout=300,
     )
+    assert (out / "report.json").exists(), run.stderr
     assert run.returncode == 1, run.stdout + run.stderr
     report = json.loads((out / "report.json").read_text())
     for device in ("wide", "desktop", "phone"):

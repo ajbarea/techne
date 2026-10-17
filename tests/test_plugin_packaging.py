@@ -7,6 +7,7 @@ import json
 import re
 import subprocess
 import tomllib
+from pathlib import Path
 
 import pytest
 from conftest import DOCTOR_LIB, EMAIL, MACHINE_PATH, ROOT, _load
@@ -127,15 +128,26 @@ def test_no_personal_addresses_or_machine_paths_in_published_markdown():
         assert not MACHINE_PATH.search(text), f
 
 
-def test_skills_and_agents_address_whoever_installed_them():
-    """Shipped instructions and the CLI help they run say "the user", never the maintainer."""
+def test_shipped_text_addresses_whoever_installed_it():
+    """Skills, agents, runbooks, references, scripts and CLI help say "the user", never the
+    maintainer. The manifests' author field is the one place the name belongs."""
+    listed = subprocess.run(
+        ["git", "ls-files", "-co", "--exclude-standard", "--", "plugins"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()
+    text = (".md", ".py", ".sh", ".ts", ".toml", ".yaml", ".json")
     shipped = [
-        *ROOT.glob("plugins/*/skills/*/SKILL.md"),
-        *ROOT.glob("plugins/*/agents/*.md"),
-        *ROOT.glob("plugins/*/**/*.py"),
-        *ROOT.glob("plugins/*/bin/*"),
+        ROOT / f
+        for f in listed
+        if (f.endswith(text) or "/bin/" in f)
+        and not f.endswith("/.claude-plugin/plugin.json")
+        and not {"tests", "fixtures"} & set(Path(f).parts)
+        and (ROOT / f).is_file()
     ]
-    assert shipped
+    assert len(shipped) > 50
     named = [f.relative_to(ROOT) for f in shipped if re.search(r"\bAJ\b", f.read_text())]
     assert named == []
 
