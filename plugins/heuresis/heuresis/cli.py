@@ -12,7 +12,7 @@ from typing import Any
 
 import heuresis
 from heuresis import board, context, pool, render, rules, similar, sources, store, sync, verify
-from heuresis.model import STATES, TYPES, Coverage, Idea, Record, Verdict
+from heuresis.model import FACETS, STATES, TYPES, Coverage, Idea, Record, Verdict
 
 EXIT_CLOSEST_DROPPED = 3
 
@@ -203,15 +203,42 @@ def _need(ok: bool, name: str, what: str) -> None:
         raise ValueError(f"{name}: {what}")
 
 
+def _strings(value: object) -> bool:
+    return isinstance(value, list) and all(isinstance(v, str) for v in value)
+
+
+def _check_product(name: str, evidence: object) -> None:
+    if evidence is None:
+        return
+    if not isinstance(evidence, dict):
+        raise ValueError(f"{name}: product_evidence must be an object")
+    for key in ("rivals", "demand"):
+        ok = key not in evidence or _strings(evidence[key])
+        _need(ok, name, f"product_evidence.{key} must be a list of strings")
+    for key in ("riskiest_assumption", "cheapest_test"):
+        ok = evidence.get(key) is None or isinstance(evidence[key], str)
+        _need(ok, name, f"product_evidence.{key} must be a string")
+
+
 def _load_judge(run: Path) -> dict:
     judge = _load_json(run / "judge.json", dict)
     name = "judge.json"
     closest = judge.get("closest")
     _need(closest is None or isinstance(closest, dict), name, "closest must be an object or null")
+    if closest is not None:
+        _need(isinstance(closest.get("ref"), str), name, "closest.ref must be a string like r3")
+        differs = closest.get("differs")
+        ok = isinstance(differs, dict) and all(isinstance(differs.get(f), str) for f in FACETS)
+        _need(ok, name, f"closest.differs must be an object with string {', '.join(FACETS)}")
     others = judge.get("others") or []
     ok = isinstance(others, list) and all(isinstance(o, dict) for o in others)
     _need(ok, name, "others must be a list of objects")
     _need(all("ref" in o for o in others), name, "every item in others needs a ref")
+    _need(all(isinstance(o["ref"], str) for o in others), name, "ref in others must be a string")
+    ok = all(isinstance(o.get("differs", ""), str) for o in others)
+    _need(ok, name, "others[].differs must be a string")
+    _need(isinstance(judge.get("fit", ""), str), name, "fit must be a string")
+    _check_product(name, judge.get("product_evidence"))
     verdict = judge.get("verdict")
     _need(isinstance(verdict, dict), name, "verdict missing")
     state = verdict.get("state")
@@ -223,6 +250,9 @@ def _load_judge(run: Path) -> dict:
         isinstance(revisit_on, list) and all(isinstance(v, str) for v in revisit_on)
     )
     _need(ok, name, "verdict.revisit_on must be a list of strings")
+    duplicate = verdict.get("duplicate_of")
+    ok = duplicate is None or isinstance(duplicate, str)
+    _need(ok, name, "verdict.duplicate_of must be a string or null")
     return judge
 
 

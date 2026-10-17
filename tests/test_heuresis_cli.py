@@ -210,8 +210,9 @@ def test_verify_exits_3_when_the_closest_rival_fails(tmp_path: Path, capsys):
             }
         )
     )
+    differs = dict.fromkeys(("domain", "purpose", "mechanism", "evaluation"), "x")
     judge = {
-        "closest": {"ref": "r1", "quote": "a quoted passage long enough"},
+        "closest": {"ref": "r1", "quote": "a quoted passage long enough", "differs": differs},
         "others": [],
         "verdict": {"state": "trash", "reason": "r"},
     }
@@ -679,3 +680,35 @@ def test_capture_refuses_text_both_as_arguments_and_on_stdin(tmp_path: Path, cap
     assert cli.main(["capture", "--ideas", str(ideas), "--text", "-", "also", "args"]) == 2
     assert capsys.readouterr().err.startswith("heuresis: ")
     assert not list((ideas / "ideas").glob("*.md"))
+
+
+@pytest.mark.parametrize(
+    ("edit", "message"),
+    [
+        (lambda j: j["closest"].update(differs="different"), "closest.differs"),
+        (lambda j: j["closest"]["differs"].pop("evaluation"), "closest.differs"),
+        (lambda j: j["closest"]["differs"].update(domain=3), "closest.differs"),
+        (lambda j: j["closest"].update(ref=1), "closest.ref"),
+        (lambda j: j.update(others=[{"ref": "r1", "quote": "q", "differs": {"a": 1}}]), "others"),
+        (lambda j: j.update(others=[{"ref": 2, "quote": "q", "differs": "x"}]), "ref"),
+        (lambda j: j.update(fit=["a"]), "fit"),
+        (lambda j: j.update(product_evidence=["a"]), "product_evidence"),
+        (lambda j: j.update(product_evidence={"rivals": "a"}), "product_evidence.rivals"),
+        (lambda j: j.update(product_evidence={"demand": [1]}), "product_evidence.demand"),
+        (lambda j: j.update(product_evidence={"cheapest_test": 5}), "product_evidence.cheapest"),
+        (lambda j: j["verdict"].update(duplicate_of=["x"]), "verdict.duplicate_of"),
+    ],
+)
+def test_judge_shape_errors_are_a_message_and_write_nothing(tmp_path: Path, capsys, edit, message):
+    ideas = init_ideas(tmp_path)
+    idea_id, run = _triaged(ideas, capsys)
+    judge = json.loads((run / "judge.json").read_text())
+    edit(judge)
+    (run / "judge.json").write_text(json.dumps(judge))
+    path = ideas / "ideas" / f"{idea_id}.md"
+    before = path.read_text()
+    capsys.readouterr()
+    assert _apply(ideas, idea_id) == 1
+    err = capsys.readouterr().err
+    assert err.startswith(f"heuresis: judge.json: {message}"), err
+    assert path.read_text() == before
