@@ -9,7 +9,7 @@ This is the setup guide for heuresis, written for an agent guiding a user. The s
 - The user runs every fix line that contains `sudo`, `xcode-select --install` or a Homebrew cask. In Claude Code they type it after `!`.
 - You may run any other fix line after the user approves.
 - Every path you pass to the doctor or the heuresis command is absolute. The heuresis command runs with its working directory set to the plugin, so a relative path points inside the plugin.
-- Never ask for an API key in chat and never write one into a file.
+- Never ask for an API key in chat. The user writes any file that holds a key; you never read, cat or write it.
 
 ## 1. Run the doctor
 
@@ -30,7 +30,12 @@ If `ideas_repo` is missing:
 
 ## 4. Search keys
 
-Each `optional` key line names what the key adds and where to get it. The user exports each key in the shell profile Claude Code starts from (`~/.bashrc` or `~/.zshrc`) and restarts Claude Code. A source without its key shows `skipped` in a verdict's coverage line; the rest still run.
+Each `optional` key line names what the key adds and where to get it. A source without its key shows `skipped` in a verdict's coverage line; the rest still run. Claude Code keeps the keys in its secure storage, and heuresis hands them to Bash commands at session start. Pick one route:
+
+- **Route A (recommended).** The user runs `/plugin configure heuresis@techne` and pastes each key into its masked field.
+- **Route B, from a file.** Print the template with the store command, then have the user save it at a private path outside any repository (for example `~/heuresis-keys.env`), fill in the keys and run `chmod 600` on it. Run the store command with that absolute path. It saves the keys to secure storage and prints only their names. Afterwards the user deletes the file or keeps it somewhere private.
+
+Either way the user restarts Claude Code, then you run the doctor again. A key exported in the shell profile still works and takes precedence over a saved one.
 
 ## 5. Check the result
 

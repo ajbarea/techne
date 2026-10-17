@@ -22,6 +22,20 @@ def test_missing_ideas_repo_is_missing_and_keys_are_optional(tmp_path):
     assert found["LENS_API_TOKEN"] == "optional"
 
 
+def test_unset_key_points_at_plugin_configure(tmp_path):
+    values = {"IDEAS_REPO": str(tmp_path), "REPOS_ROOT": str(tmp_path)}
+    lines = {c.name: c.detail for c in d.checks(values, environ={})}
+    for env in ("S2_API_KEY", "EPO_OPS"):
+        assert "/plugin configure heuresis@techne" in lines[env]
+        assert "restart" in lines[env]
+    assert "EPO_OPS_KEY and EPO_OPS_SECRET" in lines["EPO_OPS"]
+
+
+def test_epo_needs_both_halves(tmp_path):
+    values = {"IDEAS_REPO": str(tmp_path), "REPOS_ROOT": str(tmp_path)}
+    assert names(d.checks(values, environ={"EPO_OPS_KEY": "k"}))["EPO_OPS"] == "optional"
+
+
 def test_ready_ideas_repo_and_keys(tmp_path):
     repo = tmp_path / "ideas"
     (repo / "ideas").mkdir(parents=True)

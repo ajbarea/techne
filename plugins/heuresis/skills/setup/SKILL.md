@@ -18,3 +18,11 @@ The runbook's "heuresis command" is:
 ```bash
 env UV_PROJECT_ENVIRONMENT=${CLAUDE_PLUGIN_DATA}/venv uv run --quiet --directory ${CLAUDE_PLUGIN_ROOT} python -m heuresis
 ```
+
+The runbook's "store command" is:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/setup/scripts/store_keys.py"
+```
+
+It takes `--template` or the path of a filled-in file.

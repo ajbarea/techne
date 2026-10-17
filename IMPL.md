@@ -11,6 +11,15 @@ has crept in; extract it back to ROADMAP.
 
 ## In flight
 
+### In review: heuresis search keys in secure storage
+
+The five search keys are `sensitive` plugin options (`/plugin configure heuresis@techne`), kept in
+Claude Code's secure storage. A SessionStart hook (`hooks/export_keys.py`) appends `export` lines to
+`CLAUDE_ENV_FILE` so every Bash command sees them, unless the shell already exports the key.
+`skills/setup/scripts/store_keys.py` imports a `.env` file through `claude plugin configure
+--values-stdin`. One table, `hooks/search_keys.py`, feeds the manifest test, the hook, the store
+script and the doctor. Not in `_shared/`: that folder holds copies `make guards` syncs from techne.
+
 ### Landed: heuresis phase 1 (v1.4.0)
 
 `/heuresis:idea` captures an idea in the private ideas repository and triages it (four scouts, a
