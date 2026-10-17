@@ -31,8 +31,9 @@ def by_name(name: str) -> Source | None:
 
 def run_queries(
     sources: list[Source], queries: list[str], limit: int
-) -> tuple[list[Record], list[Coverage]]:
-    records: list[Record] = []
+) -> tuple[list[tuple[str, Record]], list[Coverage]]:
+    """Each record paired with the query that found it, and one coverage line per source."""
+    records: list[tuple[str, Record]] = []
     coverage: list[Coverage] = []
     for source in sources:
         try:
@@ -53,9 +54,13 @@ def run_queries(
                 error = str(exc) if known else f"{type(exc).__name__}: {exc}"
                 break
             hits += len(found)
-            records.extend(found)
-        status = "failed" if error else ("ok" if hits else "empty")
-        coverage.append(Coverage(source.name, status, attempted, hits, error))
+            records.extend((query, r) for r in found)
+        if error and hits:
+            # The records already found are in the pool, so the source counts as answering.
+            status, note = "ok", f"partial: {error}"
+        else:
+            status, note = ("failed" if error else ("ok" if hits else "empty")), error
+        coverage.append(Coverage(source.name, status, attempted, hits, note))
     return records, coverage
 
 

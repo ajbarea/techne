@@ -418,8 +418,14 @@ def test_search_twice_keeps_both_record_sets_and_combines_coverage(
     idea_id = _capture(ideas, capsys)
     batches = iter(
         [
-            ([Record("A", "https://a.example", "s", "paper")], [Coverage("s", "empty", 2, 0)]),
-            ([Record("B", "https://b.example", "s", "paper")], [Coverage("s", "ok", 1, 1, "n")]),
+            (
+                [("one", Record("A", "https://a.example", "s", "paper"))],
+                [Coverage("s", "empty", 2)],
+            ),
+            (
+                [("two", Record("B", "https://b.example", "s", "paper"))],
+                [Coverage("s", "ok", 1, 1, "n")],
+            ),
         ]
     )
     monkeypatch.setattr(cli.sources, "run_queries", lambda *a: next(batches))
@@ -429,7 +435,7 @@ def test_search_twice_keeps_both_record_sets_and_combines_coverage(
     assert cli.main([*args, "--query", "two"]) == 0
     assert capsys.readouterr().out.strip() == "s: ok, 3 queries, 1 hits (n)"
     scout = json.loads((ideas / "runs" / idea_id / "scout-papers.json").read_text())
-    assert [r["title"] for r in scout["records"]] == ["A", "B"]
+    assert [(r["title"], r["query"]) for r in scout["records"]] == [("A", "one"), ("B", "two")]
     assert scout["queries"] == ["one", "two"]
 
 

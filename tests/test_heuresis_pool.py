@@ -64,3 +64,18 @@ def test_build_accumulates_queries_for_a_repeated_group(tmp_path: Path):
     a = scout(tmp_path / "a.json", "papers", [], [], ["q1"])
     b = scout(tmp_path / "b.json", "papers", [], [], ["q2"])
     assert pool.build([a, b])["queries"] == {"papers": ["q1", "q2"]}
+
+
+def test_cap_takes_records_round_robin_across_a_sources_queries(tmp_path: Path):
+    records = [
+        {**rec(f"https://{q}.example/{i}"), "query": q}
+        for q in ("q1", "q2", "q3", "q4")
+        for i in range(8)
+    ]
+    path = scout(tmp_path / "scout-papers.json", "papers", records, [], ["q1", "q2", "q3", "q4"])
+    out = pool.build([path])
+    hosts = [r["url"].split("/")[2] for r in out["records"]]
+    assert len(hosts) == pool.PER_SOURCE_CAP
+    counts = {q: hosts.count(f"{q}.example") for q in ("q1", "q2", "q3", "q4")}
+    assert counts == {"q1": 3, "q2": 3, "q3": 2, "q4": 2}
+    assert "query" not in out["records"][0]

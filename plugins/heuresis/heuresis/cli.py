@@ -156,7 +156,7 @@ def _search(args) -> int:
     payload = {
         "group": args.group,
         "queries": [*data.get("queries", []), *args.query],
-        "records": [*data.get("records", []), *(r.to_dict() for r in records)],
+        "records": [*data.get("records", []), *({**r.to_dict(), "query": q} for q, r in records)],
         "coverage": [c.to_dict() for c in merged.values()],
     }
     out.write_text(json.dumps(payload, indent=2, ensure_ascii=False))

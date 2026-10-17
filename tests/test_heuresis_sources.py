@@ -41,7 +41,7 @@ def test_run_queries_collects_records_and_coverage():
     )
     off = Fake("lens", available=(False, "no LENS_API_TOKEN"))
     records, coverage = sources.run_queries([ok, empty, broken, off], ["q1", "q2"], limit=5)
-    assert records == [R, R]
+    assert records == [("q1", R), ("q2", R)]
     lines = {c.source: (c.status, c.queries, c.hits, c.note) for c in coverage}
     assert lines["openalex"] == ("ok", 2, 2, "")
     assert lines["arxiv"] == ("empty", 2, 0, "")
@@ -109,18 +109,28 @@ def test_available_raising_is_a_failed_line_and_the_run_continues():
 
     good = Fake("openalex", [R])
     records, coverage = sources.run_queries([Boom("github"), good], ["q"], limit=5)
-    assert records == [R]
+    assert records == [("q", R)]
     assert coverage[0].source == "github" and coverage[0].status == "failed"
     assert coverage[0].note == "RuntimeError: gh exploded"
     assert coverage[1].status == "ok"
 
 
-def test_coverage_counts_queries_actually_attempted():
-    class FailsSecond(Fake):
-        def search(self, query, limit):
-            if query == "q2":
-                raise http.SourceError("http 500 from x")
-            return self._results
+class FailsSecond(Fake):
+    def search(self, query, limit):
+        if query == "q2":
+            raise http.SourceError("http 500 from x")
+        return self._results
 
-    _, coverage = sources.run_queries([FailsSecond("openalex", [R])], ["q1", "q2", "q3"], limit=5)
-    assert (coverage[0].status, coverage[0].queries, coverage[0].hits) == ("failed", 2, 1)
+
+def test_a_source_failing_after_hits_is_ok_and_partial():
+    records, coverage = sources.run_queries(
+        [FailsSecond("openalex", [R])], ["q1", "q2", "q3"], limit=5
+    )
+    assert records == [("q1", R)]
+    c = coverage[0]
+    assert (c.status, c.queries, c.hits, c.note) == ("ok", 2, 1, "partial: http 500 from x")
+
+
+def test_a_source_failing_before_any_hit_is_failed():
+    _, coverage = sources.run_queries([FailsSecond("openalex")], ["q1", "q2", "q3"], limit=5)
+    assert (coverage[0].status, coverage[0].queries, coverage[0].hits) == ("failed", 2, 0)
