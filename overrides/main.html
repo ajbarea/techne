@@ -28,7 +28,20 @@
   {% endif %}
 {% endblock %}
 
+{#- Shared table and layout rules, before the site's extra_css so a site can override them. -#}
+{% block fonts %}
+  {{ super() }}
+  <link rel="stylesheet" href="{{ 'stylesheets/shared.css' | url }}">
+{% endblock %}
+
+{% block scripts %}
+  {{ super() }}
+  <script src="{{ 'javascripts/shared.js' | url }}"></script>
+{% endblock %}
+
 {% block extrahead %}
+  {#- Before first paint, so hidden side panels do not flash in. -#}
+  <script>try{if(localStorage.getItem("zensical-sidebars")==="hidden")document.documentElement.setAttribute("data-sidebars","hidden")}catch(e){}</script>
   {% if not social_on %}
   {% set raw_title = (page.meta and page.meta.title) or page.title %}
   {% set page_title = (is_home or not raw_title) and config.site_name or (raw_title ~ ' | ' ~ config.site_name) %}

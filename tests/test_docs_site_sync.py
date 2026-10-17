@@ -37,6 +37,8 @@ def test_sync_writes_every_shared_file_where_the_site_expects_it(tmp_path: Path)
         "overrides/main.html",
         "overrides/partials/copyright.html",
         "docs/javascripts/reveal.js",
+        "docs/javascripts/shared.js",
+        "docs/stylesheets/shared.css",
     ):
         assert (repo / rel).read_bytes() == (SHARED / rel).read_bytes()
     assert (repo / "tests/unit/test_docs_nav.py").read_bytes() == (
@@ -158,3 +160,9 @@ def test_nav_test_ignores_generated_pages_in_the_nav(tmp_path: Path) -> None:
     )
     assert stray.returncode == 1
     assert "notes.md" in stray.stdout
+
+
+def test_this_repos_own_site_matches_the_shared_files() -> None:
+    """techne's docs site is a sister too: an edit to the canonical copy needs a sync here."""
+    result = run("--check", SKILL.parents[3])
+    assert result.returncode == 0, result.stdout

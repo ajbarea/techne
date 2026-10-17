@@ -109,7 +109,7 @@ def test_every_install_list_has_the_epistole_line():
         ).stdout.splitlines()
         if len(re.findall(r"/plugin install \w+@techne", (ROOT / f).read_text())) >= 3
     ]
-    assert {"README.md", "docs/index.md", "docs/getting-started.md"} <= set(listed)
+    assert {"README.md", "docs/index.md"} <= set(listed)
     for name in listed:
         assert "/plugin install epistole@techne" in (ROOT / name).read_text(), name
 
@@ -224,3 +224,11 @@ def test_agents_step_one_handles_a_missing_accounts_tool():
 def test_setup_description_names_uv():
     head = (PLUGIN / "skills" / "setup" / "SKILL.md").read_text().split("---")[1]
     assert "uv is missing" in head
+
+
+def test_getting_started_links_every_plugin_page():
+    """Getting Started states the install command once and links each plugin's page."""
+    text = (ROOT / "docs" / "getting-started.md").read_text()
+    pages = sorted(p.stem for p in (ROOT / "docs" / "plugins").glob("*.md"))
+    assert "epistole" in pages
+    assert [p for p in pages if f"(plugins/{p}.md)" not in text] == []
