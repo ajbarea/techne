@@ -159,7 +159,7 @@ def test_add_verdict_prepends_newest_first_and_sets_fields():
     assert log.index("2026-10-20 · override · do") < log.index("2026-10-15 · triage · later")
     assert "openalex: ok, 3 queries, 8 hits" in log
     assert "quote not found" in log
-    assert "**Patents:** partial" in log
+    assert "**Patents:** not searched (no keys)" in log
     assert (target.state, target.type, target.project) == ("do", "tool", "techne")
     assert [m.group(3) for m in store.VERDICT_HEADING.finditer(log)] == ["do", "later"]
 
@@ -238,3 +238,31 @@ def test_parse_keeps_hand_edited_text_in_notes_through_round_trips(tmp_path: Pat
     store.save(tmp_path, loaded)
     for s in STRAYS:
         assert s in path.read_text()
+
+
+@pytest.mark.parametrize(
+    ("statuses", "line"),
+    [
+        (("skipped", "skipped"), "- **Patents:** not searched (no keys)."),
+        (("ok", "skipped"), "- **Patents:** partial; only what Lens and EPO index was searched."),
+        (
+            ("failed", "skipped"),
+            "- **Patents:** partial; only what Lens and EPO index was searched.",
+        ),
+    ],
+)
+def test_patents_line_says_whether_a_patent_source_ran(statuses, line):
+    pairs = zip(("lens", "epo"), statuses, strict=True)
+    coverage = [Coverage(name, status) for name, status in pairs]
+    text = store.render_verdict(
+        Verdict(date="2026-10-15", origin="triage", state="later", reason="r", coverage=coverage)
+    )
+    patents = [x for x in text.splitlines() if x.startswith("- **Patents:**")]
+    assert patents == [line]
+
+
+def test_no_patents_line_without_patent_coverage():
+    v = Verdict(
+        date="d", origin="triage", state="later", reason="r", coverage=[Coverage("x", "ok")]
+    )
+    assert "Patents" not in store.render_verdict(v)

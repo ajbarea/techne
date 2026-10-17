@@ -249,8 +249,11 @@ def render_verdict(v: Verdict) -> str:
         lines.append(f"- **Revisit:** {v.revisit}")
     if v.coverage:
         lines.append("- **Coverage:** " + "; ".join(c.line() for c in v.coverage))
-    if any(c.source in PATENT_SOURCES for c in v.coverage):
+    patents = [c for c in v.coverage if c.source in PATENT_SOURCES]
+    if any(c.status != "skipped" for c in patents):
         lines.append("- **Patents:** partial; only what Lens and EPO index was searched.")
+    elif patents:
+        lines.append("- **Patents:** not searched (no keys).")
     if v.dropped:
         lines.append("- **Dropped:** " + "; ".join(v.dropped))
     return "\n".join(lines)
