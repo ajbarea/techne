@@ -738,3 +738,42 @@ def test_retriage_clears_what_the_new_verdict_omits_and_override_keeps_it(tmp_pa
     assert cli.main([*override, "later", "wait"]) == 0
     third = cli.store.load(path)
     assert (third.state, third.type, third.project) == ("later", "tool", "techne")
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        ({"title": "T", "source": "web", "kind": "web"}, "record rejected: missing url"),
+        ({"url": "https://t.example"}, "record rejected: missing title, source, kind"),
+        (["not", "a", "record"], "record rejected: not a JSON object"),
+    ],
+)
+def test_add_record_reports_a_malformed_record(tmp_path: Path, capsys, payload, message):
+    ideas = init_ideas(tmp_path)
+    idea_id = _capture(ideas, capsys)
+    args = ["add-record", "--ideas", str(ideas), "--id", idea_id, "--group", "context"]
+    capsys.readouterr()
+    assert cli.main([*args, "--json", json.dumps(payload)]) == 2
+    err = capsys.readouterr().err
+    assert err == f"heuresis: {message}\n"
+
+
+@pytest.mark.parametrize(
+    ("scout", "message"),
+    [
+        ({"group": "papers", "records": [{"url": "https://x.example"}]}, "record rejected"),
+        ({"group": "papers", "records": ["x"]}, "record rejected: not a JSON object"),
+        (["x"], "scout-papers.json: not a scout file"),
+        ({"records": []}, "scout-papers.json: not a scout file"),
+    ],
+)
+def test_pool_reports_a_malformed_scout_file(tmp_path: Path, capsys, scout, message):
+    ideas = init_ideas(tmp_path)
+    idea_id = _capture(ideas, capsys)
+    run = ideas / "runs" / idea_id
+    run.mkdir(parents=True)
+    (run / "scout-papers.json").write_text(json.dumps(scout))
+    capsys.readouterr()
+    assert cli.main(["pool", "--ideas", str(ideas), "--id", idea_id]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith(f"heuresis: {message}") and "Traceback" not in err

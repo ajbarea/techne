@@ -51,9 +51,14 @@ def build(scout_files: list[Path]) -> dict:
     queries: dict[str, list[str]] = {}
     for path in scout_files:
         data = json.loads(path.read_text())
+        if not isinstance(data, dict) or "group" not in data:
+            raise ValueError(f"{path.name}: not a scout file")
+        raws = data.get("records", [])
+        if not isinstance(raws, list) or not all(isinstance(r, dict) for r in raws):
+            raise ValueError("record rejected: not a JSON object")
         queries.setdefault(data["group"], []).extend(data.get("queries", []))
         coverage += [Coverage.from_dict(c).to_dict() for c in data.get("coverage", [])]
-        for raw in _round_robin(data.get("records", [])):
+        for raw in _round_robin(raws):
             record = Record.from_dict(raw)
             keys = {normalize_url(record.url)} | (
                 {f"doi:{record.doi.lower()}"} if record.doi else set()

@@ -166,7 +166,11 @@ def _search(args) -> int:
 
 
 def _add_record(args) -> int:
-    record = Record.from_dict(_json_arg(args.json))
+    try:
+        record = Record.from_dict(_json_arg(args.json))
+    except ValueError as exc:
+        print(f"heuresis: {exc}", file=sys.stderr)
+        return 2
     problem = verify.record_problem(record)
     if problem:
         print(f"heuresis: record rejected: {problem}", file=sys.stderr)

@@ -22,6 +22,7 @@ KINDS = ("paper", "patent", "product", "repo", "web", "idea", "context")
 PAPER_SOURCES = ("openalex", "semantic_scholar", "arxiv")
 PATENT_SOURCES = ("lens", "epo")
 FACETS = ("domain", "purpose", "mechanism", "evaluation")
+RECORD_REQUIRED = ("title", "url", "source", "kind")
 
 
 @dataclass
@@ -55,8 +56,13 @@ class Record:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict) -> Record:
+    def from_dict(cls, data: object) -> Record:
+        if not isinstance(data, dict):
+            raise ValueError("record rejected: not a JSON object")
         known = {k: data[k] for k in cls.__dataclass_fields__ if k in data and data[k] is not None}
+        missing = [k for k in RECORD_REQUIRED if k not in known]
+        if missing:
+            raise ValueError(f"record rejected: missing {', '.join(missing)}")
         return cls(**{k: str(v) for k, v in known.items()})
 
 
