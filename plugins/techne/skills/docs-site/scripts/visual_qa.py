@@ -90,14 +90,25 @@ MEASURE = r"""
     raw,
     brokenImages: [...document.images].filter((i) => i.complete && i.naturalWidth === 0)
       .map((i) => i.getAttribute("src")),
-    // Inline code with no space that renders on two lines was split inside a token.
-    splitTokens: [...document.querySelectorAll("table code")]
-      .filter((c) => !/\s/.test(c.textContent) && c.getClientRects().length > 1)
-      .map((c) => c.textContent).slice(0, 6),
+    // A word of inline code in a table that renders on two lines was split inside it.
+    splitTokens: [...document.querySelectorAll("table code")].flatMap((c) => {
+      const split = [];
+      const walker = document.createTreeWalker(c, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        for (const m of node.data.matchAll(/\S+/g)) {
+          const range = document.createRange();
+          range.setStart(node, m.index);
+          range.setEnd(node, m.index + m[0].length);
+          const tops = new Set([...range.getClientRects()].map((r) => Math.round(r.top)));
+          if (tops.size > 1) split.push(m[0]);
+        }
+      }
+      return split;
+    }).slice(0, 6),
     // A table box that scrolls sideways (Zensical wraps tables in .md-typeset__scrollwrap).
     tableScroll: [...document.querySelectorAll(".md-typeset__scrollwrap, table")]
       .filter((e) => e.scrollWidth > e.clientWidth + 1)
-      .filter((e) => getComputedStyle(e).overflowX !== "visible")
+      .filter((e) => ["auto", "scroll"].includes(getComputedStyle(e).overflowX))
       .length,
     duplicateMeta: ["og:title", "og:description", "og:url", "twitter:card"].filter((k) =>
       document.querySelectorAll(`meta[property="${k}"], meta[name="${k}"]`).length > 1),

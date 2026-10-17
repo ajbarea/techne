@@ -31,15 +31,27 @@ SPLIT = (
     "a_long_identifier_name</code></td>"
     "<td>a cell with enough words to take the width</td></tr></table>"
 )
+# A long flag in a multi-word command, split inside the flag.
+SPLIT_WORD = (
+    "<table style='width:12rem'><tr><td><code style='word-break:break-word'>"
+    "run --with-a-very-long-flag-name</code></td>"
+    "<td>a cell with enough words to take the width</td></tr></table>"
+)
+# A box that clips a wide table without scrolling it.
+CLIPPED = (
+    "<div style='overflow-x:hidden;width:10rem'><table><tr>"
+    "<td style='white-space:nowrap'>" + "clipped " * 80 + "</td></tr></table></div>"
+)
 WIDE = (
     "<div class='md-typeset__scrollwrap' style='overflow-x:auto'><table><tr>"
     "<td style='white-space:nowrap'>" + "wide " * 600 + "</td></tr></table></div>"
 )
-CLEAN = PAGE.format("", "<p style='color:#000;background:#fff'>Readable</p>" + FITS)
+CLEAN = PAGE.format("", "<p style='color:#000;background:#fff'>Readable</p>" + FITS + CLIPPED)
 BROKEN = PAGE.format(
     "<meta property='og:title' content='a'><meta name='og:title' content='b'>",
     "<p style='color:#ccc;background:#fff'>Faint</p><div style='width:1000px;height:30px'></div>"
     + SPLIT
+    + SPLIT_WORD
     + WIDE,
 )
 
@@ -79,7 +91,7 @@ def test_visual_qa_flags_the_broken_page_only(site, tmp_path):
         assert broken["contrastCount"] >= 1
         assert clean["duplicateMeta"] == [] and broken["duplicateMeta"] == ["og:title"]
         assert clean["splitTokens"] == [] and clean["tableScroll"] == 0
-        assert broken["splitTokens"] == ["a_long_identifier_name"]
+        assert broken["splitTokens"] == ["a_long_identifier_name", "--with-a-very-long-flag-name"]
         assert broken["tableScroll"] >= 1
     assert "scroll sideways at desktop width" in run.stdout
     assert report["broken.html light phone"]["overflow"] > 1

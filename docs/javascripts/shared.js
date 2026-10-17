@@ -26,11 +26,11 @@
     }
   }
 
+  // A fixed label, with aria-pressed carrying the state (ARIA toggle button pattern).
   function label(button) {
-    var on = hidden();
-    button.setAttribute("aria-pressed", on ? "true" : "false");
-    button.setAttribute("aria-label", on ? "Show side panels" : "Hide side panels");
-    button.title = on ? "Show side panels" : "Hide side panels";
+    button.setAttribute("aria-pressed", hidden() ? "true" : "false");
+    button.setAttribute("aria-label", "Hide side panels");
+    button.title = hidden() ? "Show side panels" : "Hide side panels";
   }
 
   function mount() {
@@ -58,34 +58,72 @@
   }
 
   // Zensical's script wraps each table in .md-typeset__scrollwrap, the box that scrolls.
-  function focusableTables() {
-    var boxes = document.querySelectorAll(".md-typeset__scrollwrap");
-    for (var i = 0; i < boxes.length; i++) {
-      var box = boxes[i];
-      if (box.scrollWidth > box.clientWidth + 1) {
-        box.setAttribute("tabindex", "0");
-        box.setAttribute("role", "region");
-        box.setAttribute("aria-label", tableName(box));
-      } else {
-        box.removeAttribute("tabindex");
-        box.removeAttribute("role");
-        box.removeAttribute("aria-label");
-      }
+  // A ResizeObserver re-checks a box whenever its width changes: a window resize, or
+  // the side panels hiding or showing.
+  var observer =
+    "ResizeObserver" in window
+      ? new ResizeObserver(function (entries) {
+          for (var i = 0; i < entries.length; i++) region(entries[i].target);
+        })
+      : null;
+
+  function region(box) {
+    if (box.scrollWidth > box.clientWidth + 1) {
+      box.setAttribute("tabindex", "0");
+      box.setAttribute("role", "region");
+      box.setAttribute("aria-label", tableName(box));
+    } else {
+      box.removeAttribute("tabindex");
+      box.removeAttribute("role");
+      box.removeAttribute("aria-label");
     }
   }
 
+  function focusableTables() {
+    if (observer) observer.disconnect();
+    var boxes = document.querySelectorAll(".md-typeset__scrollwrap");
+    for (var i = 0; i < boxes.length; i++) {
+      region(boxes[i]);
+      if (observer) observer.observe(boxes[i]);
+    }
+  }
+
+  // The table's caption, else the nearest heading before it in the article (inside an
+  // admonition or tab too), numbered when one heading holds several tables.
   function tableName(box) {
     var caption = box.querySelector("caption");
     if (caption) return caption.textContent.trim();
-    for (var e = box.previousElementSibling; e; e = e.previousElementSibling) {
-      if (/^H[1-6]$/.test(e.tagName)) {
-        var heading = e.cloneNode(true);
-        var link = heading.querySelector(".headerlink");
-        if (link) link.remove();
-        return heading.textContent.trim() + " table";
+    var article = box.closest("article") || document.body;
+    var heading = null;
+    var headings = article.querySelectorAll("h1, h2, h3, h4, h5, h6");
+    for (var i = 0; i < headings.length; i++) {
+      if (headings[i].compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING) {
+        heading = headings[i];
       }
     }
-    return "Table";
+    if (!heading) return "Table";
+    var copy = heading.cloneNode(true);
+    var link = copy.querySelector(".headerlink");
+    if (link) link.remove();
+    var name = copy.textContent.trim() + " table";
+    var boxes = article.querySelectorAll(".md-typeset__scrollwrap");
+    var count = 0;
+    var index = 0;
+    for (var j = 0; j < boxes.length; j++) {
+      var before = boxes[j] === box || (heading.compareDocumentPosition(boxes[j]) & Node.DOCUMENT_POSITION_FOLLOWING);
+      var next = nextHeading(headings, heading);
+      var inside = !next || (boxes[j].compareDocumentPosition(next) & Node.DOCUMENT_POSITION_FOLLOWING);
+      if (before && inside) {
+        count++;
+        if (boxes[j] === box) index = count;
+      }
+    }
+    return count > 1 ? name + " " + index : name;
+  }
+
+  function nextHeading(headings, heading) {
+    for (var i = 0; i < headings.length - 1; i++) if (headings[i] === heading) return headings[i + 1];
+    return null;
   }
 
   function init() {
@@ -93,7 +131,7 @@
     focusableTables();
   }
 
-  window.addEventListener("resize", focusableTables);
+  if (!observer) window.addEventListener("resize", focusableTables);
   if (window.document$ && typeof window.document$.subscribe === "function") {
     window.document$.subscribe(init);
   } else if (document.readyState === "loading") {

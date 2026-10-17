@@ -38,7 +38,8 @@ uv run --quiet --no-project --with playwright==1.63.0 --with axe-playwright-pyth
 
 Serve the build under its repo path, as GitHub Pages does. The script captures every sitemap page in light and dark at 1920, 1280 and 390 pixels wide in Playwright's Chromium and writes one contact sheet per page. It reports wrong-scheme surfaces, sideways scroll, AA contrast failures, broken images, page errors, unrendered markup, hidden sections, social tags written twice, code split inside a token in a table, and a table that scrolls at desktop width. It cannot see a cramped hero or a page that does not say what the project is, so open the sheets and look.
 
-It also checks agent access and theme basics in `zensical.toml`: the `llmstxt` plugin and Copy as Markdown, a description per `llms.txt` entry, and a `media` query on each palette. 
+It also checks agent access and theme basics in `zensical.toml`: the `llmstxt` plugin and Copy as Markdown, a description per `llms.txt` entry, and a `media` query on each palette.
+
 ## Shared files
 
 The files every sister site carries identically live once, in the skill's `templates/shared/`. Edit them there, then copy them into a site:

@@ -33,21 +33,23 @@
 }
 
 /* Zensical caps the layout at 61rem so prose stays near 80-100 characters a line;
-   on a wide screen its documented widening, 1440px, gives tables room. */
+   on a wide screen its documented widening, 1440px, gives tables room. From 125em
+   the root font is 150% and 61rem is already wider, so the larger value wins. */
 @media screen and (min-width: 100em) {
   .md-grid {
-    max-width: 1440px;
+    max-width: max(61rem, 1440px);
   }
 }
 
 /* Side panels toggle (javascripts/shared.js): hides the navigation and the
    table of contents on screens wide enough to show them, so the page takes the
-   full width. Phones use the drawer and never see the button. */
+   full width. Below 76.25em Zensical turns the navigation into its drawer, so the
+   button and the hiding apply only above that. */
 .md-header__button.sidebars-toggle {
   display: none;
 }
 
-@media screen and (min-width: 60em) {
+@media screen and (min-width: 76.25em) {
   .md-header__button.sidebars-toggle {
     display: inline-flex;
     align-items: center;
