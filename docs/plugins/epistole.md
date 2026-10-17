@@ -22,6 +22,8 @@ epistole gives Claude access to your Gmail accounts. It can search and read mail
 
 [uv](https://docs.astral.sh/uv/), and a Google OAuth client you create once. The first start downloads about 30 MB of Python packages. If `/mcp` shows epistole failed on that first start, reconnect it from `/mcp` once the download finishes.
 
+Claude Code in the terminal or the desktop app. The plugin ships commands in `bin/`, and claude.ai and Cowork do not install a plugin that has one ([plugin reference](https://code.claude.com/docs/en/plugins-reference#standard-layout)).
+
 ## Set up
 
 Ask Claude to run `/epistole:setup`. It guides you through creating the OAuth client, importing it, and signing each account in:

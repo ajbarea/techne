@@ -130,7 +130,11 @@ body.hero-page .md-content__inner {
 }
 
 .md-typeset .hero-install pre > code {
-  font-size: 0.8rem;
+  /* Room on the right for the select and copy buttons, and the longest line fits a 390px phone. */
+  font-size: clamp(0.62rem, 2.9vw, 0.8rem);
+  padding-right: 4.6em;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .hero-buttons {

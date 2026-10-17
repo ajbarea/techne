@@ -106,4 +106,4 @@ If `epistole-login` says uv is not on PATH, install uv the same way, open a new 
 
 ## Privacy
 
-See the [privacy policy](https://ajbarea.github.io/techne/epistole/#privacy).
+See the [epistole page](https://ajbarea.github.io/techne/plugins/epistole/) and the [privacy policy](https://ajbarea.github.io/techne/epistole/#privacy).

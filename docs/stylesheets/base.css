@@ -58,3 +58,9 @@ a:hover {
   opacity: 1;
   color: var(--muted-text-color);
 }
+
+/* The theme draws the repository facts at 75% opacity, which takes the light scheme's
+   #8b5a2b under 4.5:1 on the header; at full opacity it is 5.5:1. */
+[data-md-color-scheme="default"] .md-source__facts {
+  opacity: 1;
+}

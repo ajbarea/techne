@@ -26,6 +26,8 @@ From inside Claude Code:
 /plugin install <plugin>@techne
 ```
 
+epistole and schole ship commands in `bin/`, so they install in Claude Code's terminal and desktop app but not on claude.ai or in Cowork ([plugin reference](https://code.claude.com/docs/en/plugins-reference#standard-layout)).
+
 Then run the plugin's setup skill. Each setup guide is the plugin's `AGENTS.md`: `plugins/<plugin>/AGENTS.md` (dokimasia has one too, and keryx's is in its own repository). The doctors only read; a `fix:` line that contains `sudo`, and every sign-in, is the user's to run, after `!` in Claude Code. Never ask for a password, token or API key in chat.
 
 ## Changing the repository

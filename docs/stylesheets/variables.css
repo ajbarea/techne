@@ -70,7 +70,7 @@
   --md-default-fg-color--light: #4a3b28;
   --md-default-fg-color--lighter: #73614c;
   --md-primary-fg-color: #8b5a2b;
-  --md-accent-fg-color: #a76f38;
+  --md-accent-fg-color: #7a4e24;  /* 6.5:1 on #f7f3ed; #a76f38 was 3.8:1 */
   --md-accent-fg-color--transparent: color-mix(in srgb, var(--bronze-metallic) 16%, transparent);
 
   --surface-bg: #f7f3ed;

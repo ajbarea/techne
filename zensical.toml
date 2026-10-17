@@ -25,9 +25,6 @@ nav = [
       { "heuresis" = "plugins/heuresis.md" },
       { "phylax" = "plugins/phylax.md" },
       { "epistole" = "plugins/epistole.md" },
-      # docs/epistole.md stays at /epistole/: that URL is registered with Google as the
-      # epistole OAuth app's privacy policy, so it cannot move.
-      { "epistole privacy" = "epistole.md" },
       { "schole" = "plugins/schole.md" },
       { "keryx" = "plugins/keryx.md" },
   ]},
@@ -82,6 +79,9 @@ nav = [
   { "Reference" = [
       { "Configuration" = "configuration.md" },
       { "Conventions" = "conventions.md" },
+      # docs/epistole.md stays at /epistole/: that URL is registered with Google as the
+      # epistole OAuth app's privacy policy, so it cannot move.
+      { "epistole privacy policy" = "epistole.md" },
   ]},
   { "Explanation" = [
       { "Architecture" = "architecture.md" },

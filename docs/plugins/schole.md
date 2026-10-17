@@ -24,6 +24,8 @@ It only reads. Every request is a GET on a fixed allowlist (enrollments, announc
 
 [uv](https://docs.astral.sh/uv/) and Playwright's Chromium. On WSL the sign-in window needs WSLg (Windows 11).
 
+Claude Code in the terminal or the desktop app. The plugin ships commands in `bin/`, and claude.ai and Cowork do not install a plugin that has one ([plugin reference](https://code.claude.com/docs/en/plugins-reference#standard-layout)).
+
 ## Set up
 
 Ask Claude to run `/schole:setup`. It follows the [setup runbook](https://github.com/ajbarea/techne/blob/main/plugins/schole/AGENTS.md): it installs the browser and has you sign in once:
