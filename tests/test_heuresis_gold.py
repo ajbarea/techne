@@ -363,5 +363,5 @@ def test_run_grade_round_trips():
 def test_seed_set_is_valid_and_mostly_existing_things():
     cases = gold.load_cases(ROOT / "plugins" / "heuresis" / "gold" / "cases.yaml")
     assert len(cases) >= 20
-    assert sum(c.expected_state in gold.EXISTING for c in cases) >= 16
+    assert sum(c.kind == "exists" for c in cases) >= 16
     assert all(p.url.startswith("https://") for c in cases for p in c.prior_art)

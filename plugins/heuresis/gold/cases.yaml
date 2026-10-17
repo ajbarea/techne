@@ -45,7 +45,7 @@ cases:
     kind: exists
     idea: "A Claude Code plugin that sends my uncommitted diff to Codex or Gemini for an independent review and brings the findings back."
     expected_state: trash
-    match_terms: [trailofbits.com/skills, trailofbits/skills, pal mcp, pal-mcp-server, zen mcp, zen-mcp-server, beehiveinnovations]
+    match_terms: [second-opinion, codex-plugin-cc, pal mcp, pal-mcp-server, zen mcp, zen-mcp-server, beehiveinnovations]
     prior_art:
       - name: Trail of Bits second-opinion
         url: https://trailofbits.com/skills/second-opinion/
@@ -53,12 +53,15 @@ cases:
       - name: PAL MCP Server (formerly Zen MCP)
         url: https://github.com/BeehiveInnovations/zen-mcp-server
         why: "MCP server that gives Claude Code second opinions and multi-model code review through Gemini, OpenAI and others."
+      - name: Codex plugin for Claude Code
+        url: https://github.com/openai/codex-plugin-cc
+        why: "OpenAI's plugin for using Codex from Claude Code to review code or delegate tasks; /codex:review runs a Codex review on current work."
 
   - id: fl-simulation-framework
     kind: exists
     idea: "A Python framework to run federated learning experiments with hundreds of simulated clients on one machine, any ML library, swappable aggregation strategies."
     expected_state: trash
-    match_terms: [flwrlabs, flwr, flower.ai, "2007.14390", nvflare, nvidia flare]
+    match_terms: [flwrlabs, flwr, flower.ai, "2007.14390", friendly federated learning, nvflare, nvidia flare, fedml, openfl]
     prior_art:
       - name: Flower (flwr)
         url: https://github.com/flwrlabs/flower
@@ -69,6 +72,12 @@ cases:
       - name: NVIDIA FLARE
         url: https://github.com/NVIDIA/NVFlare
         why: "Open-source Python SDK for moving existing ML/DL workflows to federated learning; includes a simulator mode."
+      - name: FedML
+        url: https://github.com/FedML-AI/FedML
+        why: "Unified, scalable ML library for large-scale distributed training, model serving and federated learning (page does not mention simulation)."
+      - name: OpenFL
+        url: https://github.com/securefederatedai/openfl
+        why: "Python federated learning framework supporting NumPy-based ML frameworks (TensorFlow, PyTorch, Jax); its Workflow API can simulate an experiment locally."
     notes: "Flower repo page does not mention simulation; the arXiv abstract carries that claim."
 
   - id: fl-backdoor-benchmark-lora
@@ -95,7 +104,7 @@ cases:
     kind: exists
     idea: "Scan downloaded model checkpoints (.pt, .pkl) for hidden code execution before I load them."
     expected_state: trash
-    match_terms: [modelscan, picklescan, fickling, protectai/modelscan, mmaitre314]
+    match_terms: [modelscan, picklescan, fickling, mmaitre314, modelaudit]
     prior_art:
       - name: ModelScan (Protect AI)
         url: https://github.com/protectai/modelscan
@@ -106,12 +115,15 @@ cases:
       - name: Fickling (Trail of Bits)
         url: https://github.com/trailofbits/fickling
         why: "Decompiler and static analyzer for pickle files; can raise an error before an unsafe file is loaded."
+      - name: ModelAudit (promptfoo)
+        url: https://github.com/promptfoo/modelaudit
+        why: "Security scanner for AI/ML model files (pickle and PyTorch among them) that never loads or executes the model."
 
   - id: hallucinated-citation-checker
     kind: exists
     idea: "Check every entry in my bibliography against Crossref, OpenAlex and arXiv and flag references that do not exist or whose authors and year do not match, for LLM-written drafts."
     expected_state: trash
-    match_terms: [refchecker, markrussinovich, hallucitechecker, "2604.26835"]
+    match_terms: [markrussinovich/refchecker, academic-refchecker, hallucitechecker, "2604.26835", dokimasia, ajbarea/techne]
     prior_art:
       - name: RefChecker
         url: https://github.com/markrussinovich/refchecker
@@ -119,6 +131,9 @@ cases:
       - name: "HalluCiteChecker (arXiv 2604.26835)"
         url: https://arxiv.org/abs/2604.26835
         why: "Open-source, CPU-friendly toolkit for detecting hallucinated citations that match no existing work."
+      - name: dokimasia
+        url: https://github.com/ajbarea/techne/tree/main/plugins/dokimasia
+        why: "Bibliography verification for LaTeX projects: offline .bib lint, online verify against arXiv and Crossref that tells a failed lookup from a wrong entry."
 
   - id: seed-paper-map
     kind: exists
@@ -138,7 +153,7 @@ cases:
     kind: exists
     idea: "Ask questions across a folder of PDFs and get answers with in-text citations pointing back to the exact passages."
     expected_state: trash
-    match_terms: [paper-qa, paperqa, future-house/paper-qa, elicit.com]
+    match_terms: [paper-qa, paperqa, future-house/paper-qa, elicit.com, chatpdf, privategpt, private-gpt, anythingllm, anything-llm]
     prior_art:
       - name: PaperQA2
         url: https://github.com/Future-House/paper-qa
@@ -146,12 +161,21 @@ cases:
       - name: Elicit
         url: https://elicit.com/
         why: "Research assistant whose AI claims carry sentence-level citations from the underlying papers (page does not mention querying your own PDFs)."
+      - name: ChatPDF
+        url: https://www.chatpdf.com/
+        why: "Ask questions of PDFs; built-in citations anchor responses to PDF references."
+      - name: PrivateGPT
+        url: https://github.com/zylon-ai/private-gpt
+        why: "Local retrieval over your own files with citations, running on local models."
+      - name: AnythingLLM
+        url: https://github.com/Mintplex-Labs/anything-llm
+        why: "Chat with your documents (PDF, TXT, DOCX) with a drag-and-drop UI and source citations."
 
   - id: citation-support-checker
     kind: exists
     idea: "For each paper I cite, show whether later papers support or contradict it, quoting the citing sentence."
     expected_state: trash
-    match_terms: [scite, scite.ai]
+    match_terms: [scite]
     prior_art:
       - name: scite
         url: https://scite.ai/
@@ -164,7 +188,7 @@ cases:
     kind: exists
     idea: "A voice-memo idea inbox that transcribes, auto-tags, and surfaces older related ideas so I notice when I'm repeating myself."
     expected_state: later
-    match_terms: [smart connections, obsidian-smart-connections, brianpetro, reflect.app]
+    match_terms: [smart connections, obsidian-smart-connections, brianpetro, reflect.app, voicenotes, audiopen, mem.ai]
     prior_art:
       - name: Smart Connections (Obsidian)
         url: https://github.com/brianpetro/obsidian-smart-connections
@@ -172,6 +196,15 @@ cases:
       - name: Reflect
         url: https://reflect.app/
         why: "Notes app with audio memos, backlinks and optional AI over your notes (bring your own API key)."
+      - name: Voicenotes
+        url: https://www.voicenotes.com/
+        why: "Voice notes app: recording, transcript and key points in one place, with AI answers over past recordings (page does not mention auto-tagging)."
+      - name: AudioPen
+        url: https://audiopen.ai/
+        why: "Transcribes voice recordings and rewrites them into structured text; built for individual thinking."
+      - name: Mem
+        url: https://get.mem.ai/
+        why: "AI notes app with voice capture and search by meaning across notes and meetings."
     notes: "Pieces exist; a single dedupe-focused voice inbox is the plausible gap."
 
   - id: trip-itinerary-from-email
@@ -191,7 +224,7 @@ cases:
     kind: exists
     idea: "Unit-test-style assertions for my pandas tables (not null, value ranges, unique ids) that produce a readable report."
     expected_state: trash
-    match_terms: [great expectations, great_expectations, pandera, soda-core, sodadata, gx core]
+    match_terms: [great expectations, great_expectations, pandera, soda-core, sodadata, gx core, pointblank]
     prior_art:
       - name: Great Expectations (GX Core)
         url: https://github.com/great-expectations/great_expectations
@@ -202,6 +235,9 @@ cases:
       - name: Soda Core
         url: https://github.com/sodadata/soda-core
         why: "Open-source data quality and data contract verification engine with contracts defined in YAML."
+      - name: Pointblank
+        url: https://github.com/posit-dev/pointblank
+        why: "Python data validation toolkit for Polars and Pandas DataFrames with customizable validation reports."
 
   - id: label-error-finder
     kind: exists
@@ -220,7 +256,7 @@ cases:
     kind: exists
     idea: "Run a battery of plausibility, completeness and conformance checks on a hospital EHR extract and show pass/fail per check in a dashboard."
     expected_state: later
-    match_terms: [dataqualitydashboard, ohdsi/dataqualitydashboard, harmonized data quality, pmc5051581]
+    match_terms: [dataqualitydashboard, harmonized data quality, pmc5051581]
     prior_art:
       - name: OHDSI DataQualityDashboard
         url: https://github.com/OHDSI/DataQualityDashboard
@@ -231,12 +267,18 @@ cases:
     notes: "Exists for OMOP-mapped data; differs only if the extract is not OMOP."
 
   - id: claude-md-rule-adherence-from-transcripts
-    kind: candidate
+    kind: exists
     idea: "Read my Claude Code session transcripts, take each rule in CLAUDE.md, and report per rule how often it was followed or ignored, so I can prune rules or turn them into hooks."
-    expected_state: do_or_later
-    match_terms: []
-    prior_art: []
-    notes: "Closest: claude-doctor (github.com/millionco/claude-doctor) mines transcripts for new rules but does not score existing ones; Future AGI blog argues for per-rule scoring with a vendor eval."
+    expected_state: later
+    match_terms: [dead-rules-audit, claude-code-hooks, eval-agent-md, karanb192, ravnhq]
+    prior_art:
+      - name: dead-rules-audit (claude-code-hooks)
+        url: https://github.com/karanb192/claude-code-hooks
+        why: "Plugin that tallies which rules Claude follows or ignores as you edit and flags chronically ignored rules to promote into a deterministic hook (it works from edit hooks, not transcripts)."
+      - name: eval-agent-md (ravnhq ai-toolkit)
+        url: https://github.com/ravnhq/ai-toolkit/tree/main/skills/assistant/eval-agent-md
+        why: "Skill that generates test scenarios from each CLAUDE.md rule, runs them through claude -p with LLM-as-judge scoring, and prints a per-rule pass/fail report."
+    notes: "Per-rule scoring exists from edit hooks and from synthetic scenarios; mining past session transcripts as the evidence source is the plausible gap. claude-doctor (github.com/millionco/claude-doctor) mines transcripts for new rules but does not score existing ones."
 
   - id: pytest-skip-ratchet
     kind: candidate
