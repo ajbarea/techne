@@ -1,14 +1,14 @@
 ---
 name: idea
 description: Capture an idea and triage it against prior work. Saves the idea to the user's ideas repository, then searches papers, patents, products and the user's own research for anything like it, names the closest existing work, and files the idea as trash, later, do or merged with the evidence. Use when the user shares an idea for an app, tool, product, research direction or improvement and wants it saved or checked, such as "I have an idea", "save this idea", "has anyone built", "is this worth building", "triage my idea", or "/heuresis:idea". Not for reviewing a written paper's novelty (graphe:paper-review).
-argument-hint: "[--now] <idea text> | --triage <id> | --retriage <id> | --override <id> <state> <reason>"
+argument-hint: "[--ideas <path>] [--repos <path>] [--now] <idea text> | --triage <id> | --retriage <id> | --override <id> <state> <reason>"
 disable-model-invocation: false
 allowed-tools: Bash Read Agent
 ---
 
 # Capture and triage an idea
 
-`IDEAS` is `${user_config.ideas_repo}` and `REPOS` is `${user_config.repos_root}`. If either is empty, stop and tell the user to run `/heuresis:setup`; do not run it yourself.
+`IDEAS` is `${user_config.ideas_repo}` and `REPOS` is `${user_config.repos_root}`. When the arguments include `--ideas <path>` or `--repos <path>`, those values take precedence for this run: use them as `IDEAS` and `REPOS`, resolve them to absolute paths with `realpath`, and never touch the configured folders. This is how a second ideas repository or the gold-set runner points a run elsewhere. If `IDEAS` or `REPOS` is still empty, stop and tell the user to run `/heuresis:setup`; do not run it yourself.
 
 Every command below starts with:
 `env UV_PROJECT_ENVIRONMENT=${CLAUDE_PLUGIN_DATA}/venv uv run --quiet --directory ${CLAUDE_PLUGIN_ROOT} python -m heuresis`

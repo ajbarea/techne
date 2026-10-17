@@ -20,7 +20,7 @@ Run `/heuresis:setup` once first. It creates the ideas repository and checks the
 ## Usage
 
 ```
-/heuresis:idea [--now] <idea text>
+/heuresis:idea [--ideas <path>] [--repos <path>] [--now] <idea text>
 /heuresis:idea --triage <id>
 /heuresis:idea --retriage <id>
 /heuresis:idea --override <id> <state> [--type T] [--project P] [--duplicate-of X] <reason>
@@ -33,6 +33,7 @@ Run `/heuresis:setup` once first. It creates the ideas repository and checks the
 | `--triage <id>` | Triages an idea already in the inbox. |
 | `--retriage <id>` | Triages again and adds a new verdict. Earlier verdicts stay in the idea file. |
 | `--override <id> <state> <reason>` | Records your own decision without a search. Optional `--type`, `--project` and `--duplicate-of`. |
+| `--ideas <path>` and `--repos <path>` | Point one run at another ideas repository and repos folder instead of the configured ones. Combine with any mode above. |
 
 ## How a triage runs
 

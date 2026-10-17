@@ -66,3 +66,11 @@ def test_every_cli_call_in_agents_and_skill_exists_in_the_parser():
             assert flags <= commands[command], (path.name, command, flags - commands[command])
             seen += 1
     assert seen >= 10
+
+
+def test_idea_skill_documents_folder_overrides():
+    meta, text = front(PLUGIN / "skills" / "idea" / "SKILL.md")
+    assert "--ideas" in meta["argument-hint"] and "--repos" in meta["argument-hint"]
+    assert "take precedence" in text
+    docs = (ROOT / "docs" / "skills" / "idea.md").read_text()
+    assert "--ideas" in docs and "--repos" in docs
