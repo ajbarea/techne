@@ -1,0 +1,263 @@
+# The heuresis seed gold set: ideas with known answers, used to measure whether a triage run
+# files an idea correctly and finds its closest prior art. Each case's prior art was checked by
+# fetching its URL and reading that it describes the product or paper the case names.
+cases:
+  - id: claude-usage-cost-cli
+    kind: exists
+    idea: "A CLI that reads the local Claude Code logs and tells me how many tokens and dollars I burned per day and per session."
+    expected_state: trash
+    match_terms: [ccusage, claude-code-usage-monitor, ryoppippi, maciek-roboblog]
+    prior_art:
+      - name: ccusage
+        url: https://github.com/ryoppippi/ccusage
+        why: "CLI that reads local coding-agent usage data (Claude Code included) and reports daily, weekly, monthly and session usage with costs in USD."
+      - name: Claude Code Usage Monitor
+        url: https://github.com/Maciek-roboblog/Claude-Code-Usage-Monitor
+        why: "Real-time terminal monitor of Claude Code usage with predictions and warnings."
+
+  - id: parallel-claude-worktrees
+    kind: exists
+    idea: "Run several Claude Code sessions at once, each in its own git worktree and tmux pane, with one dashboard to check on them and merge the results."
+    expected_state: trash
+    match_terms: [claude-squad, claude squad, smtg-ai, conductor.build]
+    prior_art:
+      - name: Claude Squad
+        url: https://github.com/smtg-ai/claude-squad
+        why: "Terminal app managing multiple agents, each in its own tmux session and git worktree."
+      - name: Conductor
+        url: https://www.conductor.build/
+        why: "Mac app that runs parallel Claude Code agents in isolated workspaces and lets you review and merge their changes (page does not name worktrees)."
+
+  - id: claude-md-linter
+    kind: exists
+    idea: "Lint my CLAUDE.md: flag rules that contradict each other, point at files that no longer exist, or just repeat what eslint and tsconfig already enforce."
+    expected_state: trash
+    match_terms: [instrlint, cclint, jed1978, pthm]
+    prior_art:
+      - name: instrlint
+        url: https://github.com/jed1978/instrlint
+        why: "Linter for CLAUDE.md and AGENTS.md: contradicting rules, stale file references, near-duplicates, and rules already enforced by ESLint, Prettier or TypeScript config."
+      - name: cclint
+        url: https://pkg.go.dev/github.com/pthm/cclint
+        why: "Go linter for Claude Code configuration (CLAUDE.md, skills, subagents): broken file references and, with --deep, contradictory instructions."
+
+  - id: cross-model-diff-review
+    kind: exists
+    idea: "A Claude Code plugin that sends my uncommitted diff to Codex or Gemini for an independent review and brings the findings back."
+    expected_state: trash
+    match_terms: [trailofbits.com/skills, trailofbits/skills, pal mcp, pal-mcp-server, zen mcp, zen-mcp-server, beehiveinnovations]
+    prior_art:
+      - name: Trail of Bits second-opinion
+        url: https://trailofbits.com/skills/second-opinion/
+        why: "Claude Code skill that sends uncommitted changes, a branch diff or a commit to Codex (or Gemini CLI on request) for review."
+      - name: PAL MCP Server (formerly Zen MCP)
+        url: https://github.com/BeehiveInnovations/zen-mcp-server
+        why: "MCP server that gives Claude Code second opinions and multi-model code review through Gemini, OpenAI and others."
+
+  - id: fl-simulation-framework
+    kind: exists
+    idea: "A Python framework to run federated learning experiments with hundreds of simulated clients on one machine, any ML library, swappable aggregation strategies."
+    expected_state: trash
+    match_terms: [flwrlabs, flwr, flower.ai, "2007.14390", nvflare, nvidia flare]
+    prior_art:
+      - name: Flower (flwr)
+        url: https://github.com/flwrlabs/flower
+        why: "Open-source federated learning framework usable with any ML framework (PyTorch, TensorFlow, scikit-learn) with customizable strategies."
+      - name: "Flower: A Friendly Federated Learning Research Framework (arXiv 2007.14390)"
+        url: https://arxiv.org/abs/2007.14390
+        why: "Abstract reports FL experiments up to 15M clients using a pair of high-end GPUs."
+      - name: NVIDIA FLARE
+        url: https://github.com/NVIDIA/NVFlare
+        why: "Open-source Python SDK for moving existing ML/DL workflows to federated learning; includes a simulator mode."
+    notes: "Flower repo page does not mention simulation; the arXiv abstract carries that claim."
+
+  - id: fl-backdoor-benchmark-lora
+    kind: exists
+    idea: "A standard benchmark that runs backdoor attacks against robust-aggregation defenses in federated learning so results are comparable, extended to LoRA-adapter fine-tuning of LLMs."
+    expected_state: later
+    match_terms: [backfed, "2507.04903", fedmlsecurity, backdoors101, backdoors 101]
+    prior_art:
+      - name: "BackFed (arXiv 2507.04903)"
+        url: https://arxiv.org/abs/2507.04903
+        why: "Benchmark designed to standardize and stress-test federated learning backdoor evaluation across attacks and defenses."
+      - name: BackFed code
+        url: https://github.com/thinh-dao/BackFed
+        why: "Repo with backdoor attacks, robust-aggregation and anomaly-detection defenses, vision and text datasets (CIFAR, EMNIST, Reddit, Sentiment140), Ray and Hydra infrastructure."
+      - name: FedMLSecurity (KDD 2024)
+        url: https://www.isi.edu/results/publications/15045/fedmlsecurity-a-benchmark-for-attacks-and-defenses-in-federated-learning-and-federated-llms
+        why: "KDD 2024 benchmark of attacks and defenses in federated learning (FedAttacker and FedDefender, part of FedML); title extends to federated LLMs."
+      - name: Backdoors 101
+        url: https://github.com/ebagdasa/backdoors101
+        why: "PyTorch framework for backdoor attacks and defenses with a federated learning regime (CIFAR-10 only)."
+    notes: "The benchmark exists; LoRA-adapter federated fine-tuning is the plausible gap."
+
+  - id: pickle-model-scanner
+    kind: exists
+    idea: "Scan downloaded model checkpoints (.pt, .pkl) for hidden code execution before I load them."
+    expected_state: trash
+    match_terms: [modelscan, picklescan, fickling, protectai/modelscan, mmaitre314]
+    prior_art:
+      - name: ModelScan (Protect AI)
+        url: https://github.com/protectai/modelscan
+        why: "Scans H5, Pickle and SavedModel files for unsafe code signatures without loading the model."
+      - name: picklescan
+        url: https://github.com/mmaitre314/picklescan
+        why: "Scans pickle files, directories, URLs and Hugging Face models for suspicious operations."
+      - name: Fickling (Trail of Bits)
+        url: https://github.com/trailofbits/fickling
+        why: "Decompiler and static analyzer for pickle files; can raise an error before an unsafe file is loaded."
+
+  - id: hallucinated-citation-checker
+    kind: exists
+    idea: "Check every entry in my bibliography against Crossref, OpenAlex and arXiv and flag references that do not exist or whose authors and year do not match, for LLM-written drafts."
+    expected_state: trash
+    match_terms: [refchecker, markrussinovich, hallucitechecker, "2604.26835"]
+    prior_art:
+      - name: RefChecker
+        url: https://github.com/markrussinovich/refchecker
+        why: "Verifies citations against Semantic Scholar, OpenAlex, Crossref, DBLP and ACL Anthology; flags metadata mismatches and likely hallucinated references."
+      - name: "HalluCiteChecker (arXiv 2604.26835)"
+        url: https://arxiv.org/abs/2604.26835
+        why: "Open-source, CPU-friendly toolkit for detecting hallucinated citations that match no existing work."
+
+  - id: seed-paper-map
+    kind: exists
+    idea: "Paste one paper and get a visual map of related papers and their citation neighbours, so I know what to read next."
+    expected_state: trash
+    match_terms: [researchrabbit, litmaps, connected papers, connectedpapers]
+    prior_art:
+      - name: ResearchRabbit
+        url: https://www.researchrabbit.ai/
+        why: "Page says to use a paper as a seed to see how papers connect, turning one paper into a map of ideas."
+      - name: Litmaps
+        url: https://www.litmaps.com/
+        why: "Seed Maps for discovering related papers, plus monitoring for new papers on a topic."
+    notes: "Connected Papers is also known prior art; its page rendered only a title, so it is a match term only."
+
+  - id: paper-corpus-qa
+    kind: exists
+    idea: "Ask questions across a folder of PDFs and get answers with in-text citations pointing back to the exact passages."
+    expected_state: trash
+    match_terms: [paper-qa, paperqa, future-house/paper-qa, elicit.com]
+    prior_art:
+      - name: PaperQA2
+        url: https://github.com/Future-House/paper-qa
+        why: "Python package that answers questions over PDFs, text, Office files and source code with grounded in-text citations."
+      - name: Elicit
+        url: https://elicit.com/
+        why: "Research assistant whose AI claims carry sentence-level citations from the underlying papers (page does not mention querying your own PDFs)."
+
+  - id: citation-support-checker
+    kind: exists
+    idea: "For each paper I cite, show whether later papers support or contradict it, quoting the citing sentence."
+    expected_state: trash
+    match_terms: [scite, scite.ai]
+    prior_art:
+      - name: scite
+        url: https://scite.ai/
+        why: "Smart Citations show whether later research has supported, challenged or discussed a paper."
+      - name: "scite: a smart citation index that displays the context of citations and classifies their intent using deep learning (bioRxiv 2021.03.15.435418)"
+        url: https://www.biorxiv.org/content/10.1101/2021.03.15.435418v1
+        why: "Preprint describing the index that shows the text around each citation and labels it as supporting, disputing or only mentioning."
+
+  - id: voice-idea-inbox
+    kind: exists
+    idea: "A voice-memo idea inbox that transcribes, auto-tags, and surfaces older related ideas so I notice when I'm repeating myself."
+    expected_state: later
+    match_terms: [smart connections, obsidian-smart-connections, brianpetro, reflect.app]
+    prior_art:
+      - name: Smart Connections (Obsidian)
+        url: https://github.com/brianpetro/obsidian-smart-connections
+        why: "Uses local embeddings to surface notes semantically related to what you are working on."
+      - name: Reflect
+        url: https://reflect.app/
+        why: "Notes app with audio memos, backlinks and optional AI over your notes (bring your own API key)."
+    notes: "Pieces exist; a single dedupe-focused voice inbox is the plausible gap."
+
+  - id: trip-itinerary-from-email
+    kind: exists
+    idea: "Forward flight and hotel confirmation emails to one address and get a single combined itinerary per trip."
+    expected_state: trash
+    match_terms: [tripit, wanderlog]
+    prior_art:
+      - name: TripIt
+        url: https://www.tripit.com/
+        why: "Forward confirmation emails to plans@tripit.com and it builds an itinerary for every trip."
+      - name: Wanderlog
+        url: https://wanderlog.com/
+        why: "Trip planner that adds reservations to your plan from connected or forwarded email."
+
+  - id: dataframe-assertions
+    kind: exists
+    idea: "Unit-test-style assertions for my pandas tables (not null, value ranges, unique ids) that produce a readable report."
+    expected_state: trash
+    match_terms: [great expectations, great_expectations, pandera, soda-core, sodadata, gx core]
+    prior_art:
+      - name: Great Expectations (GX Core)
+        url: https://github.com/great-expectations/great_expectations
+        why: "Expectations are described as unit tests for your data; documentation is generated from validation results."
+      - name: pandera
+        url: https://github.com/unionai-oss/pandera
+        why: "Schema-based validation API for pandas DataFrames and other dataframe-like objects."
+      - name: Soda Core
+        url: https://github.com/sodadata/soda-core
+        why: "Open-source data quality and data contract verification engine with contracts defined in YAML."
+
+  - id: label-error-finder
+    kind: exists
+    idea: "Automatically find mislabeled examples in my training set using a model's out-of-sample predictions."
+    expected_state: trash
+    match_terms: [cleanlab, confident learning, "1911.00068"]
+    prior_art:
+      - name: cleanlab
+        url: https://github.com/cleanlab/cleanlab
+        why: "Library for finding label issues in datasets using confident learning."
+      - name: "Confident Learning: Estimating Uncertainty in Dataset Labels (arXiv 1911.00068)"
+        url: https://arxiv.org/abs/1911.00068
+        why: "Paper introducing the method for estimating label noise and finding label errors."
+
+  - id: ehr-data-quality-dashboard
+    kind: exists
+    idea: "Run a battery of plausibility, completeness and conformance checks on a hospital EHR extract and show pass/fail per check in a dashboard."
+    expected_state: later
+    match_terms: [dataqualitydashboard, ohdsi/dataqualitydashboard, harmonized data quality, pmc5051581]
+    prior_art:
+      - name: OHDSI DataQualityDashboard
+        url: https://github.com/OHDSI/DataQualityDashboard
+        why: "R package running about 4,000 data quality checks on OMOP CDM data against thresholds, with a Shiny results dashboard."
+      - name: "Kahn et al. 2016, Harmonized Data Quality Assessment Terminology and Framework for the Secondary Use of EHR Data (eGEMs)"
+        url: https://pmc.ncbi.nlm.nih.gov/articles/PMC5051581
+        why: "Defines the conformance, completeness and plausibility categories the checks are built around."
+    notes: "Exists for OMOP-mapped data; differs only if the extract is not OMOP."
+
+  - id: claude-md-rule-adherence-from-transcripts
+    kind: candidate
+    idea: "Read my Claude Code session transcripts, take each rule in CLAUDE.md, and report per rule how often it was followed or ignored, so I can prune rules or turn them into hooks."
+    expected_state: do_or_later
+    match_terms: []
+    prior_art: []
+    notes: "Closest: claude-doctor (github.com/millionco/claude-doctor) mines transcripts for new rules but does not score existing ones; Future AGI blog argues for per-rule scoring with a vendor eval."
+
+  - id: pytest-skip-ratchet
+    kind: candidate
+    idea: "A pytest plugin that stores the skipped/xfailed test count in a committed baseline file and fails CI only when the count rises, so tests cannot quietly go green by not running."
+    expected_state: do_or_later
+    match_terms: []
+    prior_art: []
+    notes: "Closest: pytest-error-for-skips (pypi.org/project/pytest-error-for-skips) fails on every skip, no baseline or budget."
+
+  - id: always-shrink-compression
+    kind: infeasible
+    idea: "A lossless compressor that shrinks every file by at least 30%, even files that are already compressed or random."
+    expected_state: trash
+    match_terms: []
+    prior_art: []
+    notes: "Impossible by the pigeonhole counting argument; no lossless scheme shrinks all inputs."
+
+  - id: read-anyones-e2ee-messages
+    kind: infeasible
+    idea: "An app where I type someone's phone number and it shows me their end-to-end encrypted WhatsApp and iMessage conversations."
+    expected_state: trash
+    match_terms: []
+    prior_art: []
+    notes: "End-to-end keys live only on participants' devices, and reading another person's messages without consent is illegal."

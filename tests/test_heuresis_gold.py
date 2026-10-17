@@ -358,3 +358,10 @@ def test_summarize_ignores_runs_of_unknown_cases_and_render_marks_missing_number
 def test_run_grade_round_trips():
     g = gold.RunGrade("a", 1, "trash", True, None, None, True, False, error="", cost_usd=None)
     assert gold.RunGrade.from_dict(json.loads(json.dumps(g.to_dict()))) == g
+
+
+def test_seed_set_is_valid_and_mostly_existing_things():
+    cases = gold.load_cases(ROOT / "plugins" / "heuresis" / "gold" / "cases.yaml")
+    assert len(cases) >= 20
+    assert sum(c.expected_state in gold.EXISTING for c in cases) >= 16
+    assert all(p.url.startswith("https://") for c in cases for p in c.prior_art)
