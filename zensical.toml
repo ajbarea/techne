@@ -53,6 +53,9 @@ nav = [
       { "dokimasia" = [
         { "check" = "skills/check.md" },
       ]},
+      { "heuresis" = [
+        { "idea" = "skills/idea.md" },
+      ]},
   ]},
   { "Architecture" = "architecture.md" },
   { "Examples" = "examples.md" },

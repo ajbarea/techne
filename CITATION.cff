@@ -7,11 +7,12 @@ abstract: >-
   markdown, and slide documents and gates them on their output. phylax adds git guard
   hooks and restarts idle sessions onto an updated Claude Code. keryx speaks a short summary of each reply. dokimasia
   verifies a bibliography against arXiv and Crossref and checks that every cited
-  key rendered. epistole gives Claude your Gmail accounts, with every send gated on
+  key rendered. heuresis triages an idea against papers, patents, products and
+  your own work. epistole gives Claude your Gmail accounts, with every send gated on
   your approval.
 type: software
-version: 1.3.0
-date-released: "2026-10-13"
+version: 1.4.0
+date-released: "2026-10-19"
 doi: 10.5281/zenodo.23330765
 identifiers:
   - type: doi

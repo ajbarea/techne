@@ -11,13 +11,26 @@ has crept in — extract it back to ROADMAP.
 
 ## In flight
 
-### Next: commit guards on Git 2.54 hooks (#96)
+### Landed: heuresis phase 1 (v1.4.0)
+
+`heuresis` is the seventh plugin. `/heuresis:idea` captures an idea in the private ideas repository
+and triages it: four scouts, a judge, `verify` and `apply`, with `BOARD.md` and `LOG.md`
+regenerated and the repository committed and pushed. `/heuresis:setup` checks the tools and creates
+the repository. The Lens and EPO adapters are built against documented response shapes and are not
+yet confirmed with live keys.
+
+### Next: heuresis phase 2, the gold set
+
+Build a gold set of ideas with known verdicts and the harness that scores the pipeline against it,
+and run it before trusting any verdict. Later phases are in ROADMAP.
+
+### Then: commit guards on Git 2.54 hooks (#96)
 
 Back the commit guards with Git 2.54 config-based `commit-msg` and `pre-commit` hooks set through
-`CLAUDE_ENV_FILE`, so commits the Bash parser cannot see are still checked. Blocked on Git 2.54
-being available to test against.
+`CLAUDE_ENV_FILE`. Blocked on Git 2.54 being available to test against.
 
-Open from the onboarding pass: the Zenodo concept DOI into `CITATION.cff` and a README badge once Zenodo mints it (keryx v0.7.0 already has its DOI, 10.5281/zenodo.23327640); epistole's day-8 token check (2026-10-19) from #123.
+Open: the Zenodo concept DOI into `CITATION.cff` and a README badge once Zenodo mints it; epistole's
+day-8 token check (2026-10-19) from #123.
 
 ## Skill collection state
 
@@ -30,9 +43,10 @@ Shipped plugins and skills by catalog dimension (the directory listing of `plugi
 | `techne` | **Hygiene** | `auto-commit`, `deslop`, `reslop` |
 | `techne` | **Review** | `catchup`, `elenchus` |
 | `techne` | **Observation** | `theoros` |
-| `techne`, `graphe`, `phylax` | **Setup** | `setup` (a read-only doctor per plugin) |
+| `techne`, `graphe`, `heuresis`, `phylax` | **Setup** | `setup` (a read-only doctor per plugin) |
 | `graphe` | **Document build** | `latex`, `pdf`, `paper`, `paper-review`, `slides` |
 | `dokimasia` | **Bibliography** | `check` |
+| `heuresis` | **Ideas** | `idea`, `setup` |
 | `epistole` | **Mail** | MCP server, setup |
 | `phylax` | **Hooks** | git guards (a mod, `hooks/register.ts`), `restart_on_update` (command hooks) |
 

@@ -1,6 +1,6 @@
 # Skills
 
-The skills ship in five plugins: `techne` for work in a code repo, `graphe` for documents, `dokimasia` for bibliographies, `phylax` for git guards, and `epistole` for Gmail. keryx, from `ajbarea/keryx`, adds `keryx:pronounce`. Grouped by what they do.
+The skills ship in six plugins: `techne` for work in a code repo, `graphe` for documents, `dokimasia` for bibliographies, `heuresis` for ideas, `phylax` for git guards, and `epistole` for Gmail. keryx, from `ajbarea/keryx`, adds `keryx:pronounce`. Grouped by what they do.
 
 ## Build hygiene
 
@@ -55,6 +55,12 @@ The skills ship in five plugins: `techne` for work in a code repo, `graphe` for 
 |---|---|
 | [`dokimasia:check`](check.md) | Lints any `.bib` or hand-written `thebibliography` offline, verifies it against arXiv and Crossref telling a failed lookup from a wrong entry, and checks every cited key rendered. |
 
+## Ideas (heuresis)
+
+| Skill | Purpose |
+|---|---|
+| [`heuresis:idea`](idea.md) | Captures an idea and triages it against papers, patents, products and your own work, naming the closest existing work and filing it as trash, later, do or merged with checked evidence. |
+
 ## Mail (epistole)
 
 | Skill | Purpose |
@@ -67,5 +73,6 @@ The skills ship in five plugins: `techne` for work in a code repo, `graphe` for 
 |---|---|
 | [`techne:setup`](../plugins/techne.md) | Checks what the techne skills need on this machine and prints each fix. |
 | [`graphe:setup`](../plugins/graphe.md) | Checks TeX Live, poppler, Chromium and the other document tools. |
+| [`heuresis:setup`](../plugins/heuresis.md) | Checks uv, git and gh, creates the ideas repository, and lists the search keys that are set. |
 | [`phylax:setup`](../plugins/phylax.md) | Shows which phylax options are on and checks what they need. |
 | [`epistole:setup`](../epistole.md) | Creates the Google OAuth client and signs each Gmail account in. |
