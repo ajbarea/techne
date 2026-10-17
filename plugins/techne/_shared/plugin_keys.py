@@ -68,16 +68,18 @@ class Key(NamedTuple):
     option: str  # the plugin.json userConfig name
     env: str  # the variable the plugin's scripts read
     title: str
-    description: str  # what the key adds and where to get it
-    group: str = ""  # keys with the same group only work together
+    description: str  # what the key adds and where to get it; the title when the manifest has none
+    group: int = -1  # index into metadata.keyGroups; keys with the same index work together
 
     @property
     def why(self) -> str:
-        """The description as a clause: no final period, and a lower-case first letter."""
-        text = self.description.strip().rstrip(".")
-        if text[1:2].islower():
-            text = text[:1].lower() + text[1:]
-        return text
+        """The description as a clause: no final period."""
+        return self.description.strip().rstrip(".").rstrip() or self.title
+
+
+class Plugin(NamedTuple):
+    name: str
+    keys: list[Key]
 
 
 def read_manifest(plugin_root: Path) -> dict:
@@ -88,23 +90,22 @@ def read_manifest(plugin_root: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def plugin_name(plugin_root: Path) -> str:
-    name = read_manifest(plugin_root).get("name")
-    return name if isinstance(name, str) else plugin_root.name
+def one_line(value: object) -> str:
+    return " ".join(str(value or "").split())
 
 
-def group_name(envs: Sequence[str]) -> str:
-    """The shared prefix of the members' variable names, or all of them joined."""
-    prefix = os.path.commonprefix(list(envs)).rstrip("_")
-    return prefix if len(prefix) > 1 else "_".join(envs)
+def load_plugin(plugin_root: Path | None = None) -> Plugin:
+    """Read plugin.json once: the plugin's name and its keys in manifest order.
 
-
-def load_keys(plugin_root: Path | None = None) -> list[Key]:
-    """The plugin's keys, in manifest order. A missing or unreadable manifest gives none."""
-    manifest = read_manifest(plugin_root or ROOT)
+    A missing or unreadable manifest gives the folder name and no keys.
+    """
+    root = plugin_root or ROOT
+    manifest = read_manifest(root)
+    name = manifest.get("name")
+    name = name if isinstance(name, str) and name else root.name
     options = manifest.get("userConfig")
     if not isinstance(options, dict):
-        return []
+        return Plugin(name, [])
     keyed = {}
     for option, spec in options.items():
         env = option.upper() if isinstance(option, str) else ""
@@ -115,51 +116,89 @@ def load_keys(plugin_root: Path | None = None) -> list[Key]:
             and ENV_NAME.fullmatch(env)
         ):
             keyed[option] = (env, spec)
-    group_of: dict[str, str] = {}
+    group_of: dict[str, int] = {}
     meta = manifest.get("metadata")
     groups = meta.get("keyGroups") if isinstance(meta, dict) else None
-    for members in groups if isinstance(groups, list) else []:
+    for index, members in enumerate(groups if isinstance(groups, list) else []):
         names = [m for m in members if m in keyed] if isinstance(members, list) else []
-        if len(names) > 1:
-            label = group_name([keyed[m][0] for m in names])
+        if len(set(names)) > 1:
             for member in names:
-                group_of.setdefault(member, label)
-    return [
-        Key(
-            option,
-            env,
-            str(spec.get("title") or option),
-            str(spec.get("description") or ""),
-            group_of.get(option, ""),
+                group_of.setdefault(member, index)
+    keys = []
+    for option, (env, spec) in keyed.items():
+        title = one_line(spec.get("title")) or option
+        keys.append(
+            Key(
+                option,
+                env,
+                title,
+                one_line(spec.get("description")) or title,
+                group_of.get(option, -1),
+            )
         )
-        for option, (env, spec) in keyed.items()
-    ]
+    return Plugin(name, keys)
 
 
-def group_names(keys: Sequence[Key]) -> list[str]:
-    return list(dict.fromkeys(k.group for k in keys if k.group))
+def load_keys(plugin_root: Path | None = None) -> list[Key]:
+    return load_plugin(plugin_root).keys
 
 
-def configure_hint(plugin_root: Path | None = None) -> str:
-    return f"/plugin configure {plugin_name(plugin_root or ROOT)}@{MARKETPLACE}"
+def group_ids(keys: Sequence[Key]) -> list[int]:
+    """The keyGroups indexes in use, in key order. A group is its index, never its label."""
+    return list(dict.fromkeys(k.group for k in keys if k.group >= 0))
 
 
-def doctor_entries(
-    keys: Sequence[Key], environ: Mapping[str, str], hint: str
-) -> list[tuple[str, bool, str]]:
+def members_of(keys: Sequence[Key], group: int) -> list[Key]:
+    return [k for k in keys if k.group == group]
+
+
+def shared_prefix(envs: Sequence[str]) -> str:
+    """The leading `_`-separated words every name has, or "" when that is one letter or none."""
+    split = [env.split("_") for env in envs]
+    words = []
+    for i in range(min(len(w) for w in split)):
+        if len({w[i] for w in split}) > 1:
+            break
+        words.append(split[0][i])
+    prefix = "_".join(words)
+    return prefix if len(prefix) > 1 else ""
+
+
+def group_labels(keys: Sequence[Key]) -> dict[int, str]:
+    """A display label per group: the shared prefix when it is unique and is no key's name,
+    else the members joined with `+`. A label is for people; code compares indexes."""
+    ids = group_ids(keys)
+    envs = {g: [k.env for k in members_of(keys, g)] for g in ids}
+    prefixes = {g: shared_prefix(envs[g]) for g in ids}
+    taken = {k.env for k in keys}
+    labels = {}
+    for g in ids:
+        prefix = prefixes[g]
+        unique = sum(1 for p in prefixes.values() if p == prefix) == 1
+        labels[g] = prefix if prefix and unique and prefix not in taken else "+".join(envs[g])
+    return labels
+
+
+def configure_hint(name: str) -> str:
+    return f"/plugin configure {name}@{MARKETPLACE}"
+
+
+def doctor_entries(plugin: Plugin, environ: Mapping[str, str]) -> list[tuple[str, bool, str]]:
     """(name, present, detail) for a setup doctor: one per ungrouped key, one per group."""
-    store = f"store it with {hint}, then restart"
+    store = f"store it with {configure_hint(plugin.name)}, then restart"
+    keys = plugin.keys
 
     def entry(name: str, why: str, present: bool) -> tuple[str, bool, str]:
         return name, present, "set" if present else f"not set; {why}; {store}"
 
-    found = [entry(k.env, k.why, bool(environ.get(k.env))) for k in keys if not k.group]
-    for group in group_names(keys):
-        members = [k for k in keys if k.group == group]
+    found = [entry(k.env, k.why, bool(environ.get(k.env))) for k in keys if k.group < 0]
+    labels = group_labels(keys)
+    for group in group_ids(keys):
+        members = members_of(keys, group)
         envs = [k.env for k in members]
         need = "both" if len(envs) == 2 else "all of"
         why = f"{members[0].why}; needs {need} {' and '.join(envs)}"
-        found.append(entry(group, why, all(environ.get(env) for env in envs)))
+        found.append(entry(labels[group], why, all(environ.get(env) for env in envs)))
     return found
 
 
@@ -303,11 +342,11 @@ class StoreError(Exception):
 def template(keys: Sequence[Key]) -> str:
     blocks = []
     for k in keys:
-        head, _, tail = k.why.partition("; ")
-        partners = [o.env for o in keys if o.group == k.group and o is not k] if k.group else []
-        head += f", with {' and '.join(partners)}" if partners else ""
-        comment = f"{head}; {tail}" if tail else head
-        blocks.append(f"# {comment[0].upper()}{comment[1:]}\n{k.env}=\n\n")
+        lines = [k.description]
+        partners = [o.env for o in members_of(keys, k.group) if o is not k] if k.group >= 0 else []
+        if partners:
+            lines.append(f"Save it together with {' and '.join(partners)}.")
+        blocks.append("".join(f"# {line}\n" for line in lines) + f"{k.env}=\n\n")
     return "".join(blocks)
 
 
@@ -348,26 +387,50 @@ def parse(text: str, keys: Sequence[Key]) -> dict[str, str]:
 
 def half_groups(
     keys: Sequence[Key], found: Mapping[str, str]
-) -> dict[str, tuple[list[str], list[str]]]:
-    """Group name to (given, missing) env names, for each group given without all its members."""
+) -> dict[int, tuple[list[str], list[str]]]:
+    """Group index to (given, missing) env names, for each group given without all its members."""
     out = {}
-    for group in group_names(keys):
-        members = [k.env for k in keys if k.group == group]
+    for group in group_ids(keys):
+        members = [k.env for k in members_of(keys, group)]
         given = [env for env in members if env in found]
         if given and len(given) < len(members):
             out[group] = (given, [env for env in members if env not in found])
     return out
 
 
-def find_plugin_id(listing: str, wanted: str | None, name: str) -> str:
+def real(path: object) -> str:
+    try:
+        return str(Path(str(path)).resolve())
+    except (OSError, RuntimeError, ValueError):
+        return ""
+
+
+def find_plugin_id(listing: str, wanted: str | None, name: str, plugin_root: Path) -> str:
+    """The id to configure: --plugin, else the entry installed at this script's own plugin root,
+    else the one enabled install of this plugin name that has an install path (a synced entry
+    has an empty one)."""
     if wanted:
         return wanted
     try:
         entries = json.loads(listing)
     except ValueError:
         raise StoreError("could not read `claude plugin list --json`; pass --plugin <id>") from None
+    entries = [e for e in entries if isinstance(e, dict)] if isinstance(entries, list) else []
+    here = real(plugin_root)
+    own = sorted(
+        {
+            str(e.get("id"))
+            for e in entries
+            if e.get("installPath") and real(e["installPath"]) == here
+        }
+    )
+    if len(own) == 1:
+        return own[0]
     installs = [
-        e for e in entries if isinstance(e, dict) and str(e.get("id", "")).startswith(name + "@")
+        e
+        for e in entries
+        if str(e.get("id", "")).startswith(name + "@")
+        and ("installPath" not in e or e["installPath"])
     ]
     enabled = sorted({e["id"] for e in installs if e.get("enabled", True)})
     every = sorted({e["id"] for e in installs})
@@ -402,8 +465,7 @@ def warn_if_shared(path: Path) -> None:
 
 
 def store(path: Path, plugin: str | None, plugin_root: Path) -> int:
-    keys = load_keys(plugin_root)
-    name = plugin_name(plugin_root)
+    name, keys = load_plugin(plugin_root)
     try:
         text = path.read_text(encoding="utf-8-sig")
     except (OSError, UnicodeDecodeError) as exc:
@@ -419,6 +481,7 @@ def store(path: Path, plugin: str | None, plugin_root: Path) -> int:
         print(f"No values in {path}; nothing stored.")
         return 1
     partial = half_groups(keys, found)
+    labels = group_labels(keys)
     for given, missing in partial.values():
         print(
             f"warning: {' and '.join(given)} given without {' and '.join(missing)}", file=sys.stderr
@@ -428,7 +491,7 @@ def store(path: Path, plugin: str | None, plugin_root: Path) -> int:
         return 2
     try:
         listing = run_claude(["claude", "plugin", "list", "--json"]) if not plugin else None
-        plugin_id = find_plugin_id(listing.stdout if listing else "", plugin, name)
+        plugin_id = find_plugin_id(listing.stdout if listing else "", plugin, name, plugin_root)
     except StoreError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -447,7 +510,7 @@ def store(path: Path, plugin: str | None, plugin_root: Path) -> int:
         return 2
     print(f"Stored in Claude Code's secure storage for {plugin_id}: {', '.join(found)}")
     for group, (_, missing) in partial.items():
-        print(f"{group} stays skipped until {' and '.join(missing)} is saved too.")
+        print(f"{labels[group]} stays skipped until {' and '.join(missing)} is saved too.")
     print("Restart Claude Code to apply it.")
     print(f"Delete {path} now, or keep it somewhere private; it holds the keys in plain text.")
     return 0
@@ -464,7 +527,9 @@ def main(argv: Sequence[str], stdin_text: str | None, environ: Mapping[str, str]
     if mode == "store":
         ap = argparse.ArgumentParser(prog="plugin_keys.py store")
         ap.add_argument("file", help=".env file holding the keys")
-        ap.add_argument("--plugin", help=f"plugin id, such as {plugin_name(ROOT)}@{MARKETPLACE}")
+        ap.add_argument(
+            "--plugin", help=f"plugin id, such as {load_plugin(ROOT).name}@{MARKETPLACE}"
+        )
         args = ap.parse_args(list(argv[2:]))
         return store(Path(args.file).expanduser(), args.plugin, ROOT)
     print(__doc__.split("\n\n")[1], file=sys.stderr)

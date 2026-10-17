@@ -10,6 +10,7 @@ import os
 import shutil
 import subprocess
 import time
+from pathlib import Path
 
 import pytest
 from conftest import HOOK_PYTHON, ROOT, _load, stub_dir
@@ -147,26 +148,69 @@ def test_load_keys_skips_non_secret_non_string_and_unusable_names(keys):
 
 def test_key_groups_come_from_metadata(keys):
     assert {k.env: k.group for k in keys} == {
-        "OPENALEX_API_KEY": "",
-        "S2_API_KEY": "",
-        "LENS_API_TOKEN": "",
-        "EPO_OPS_KEY": "EPO_OPS",
-        "EPO_OPS_SECRET": "EPO_OPS",
+        "OPENALEX_API_KEY": -1,
+        "S2_API_KEY": -1,
+        "LENS_API_TOKEN": -1,
+        "EPO_OPS_KEY": 0,
+        "EPO_OPS_SECRET": 0,
     }
-    assert pk.group_names(keys) == ["EPO_OPS"]
+    assert pk.group_ids(keys) == [0]
+    assert pk.group_labels(keys) == {0: "EPO_OPS"}
 
 
 def test_group_without_a_shared_prefix_joins_the_names(tmp_path):
     manifest = json.loads(json.dumps(MANIFEST))
     manifest["metadata"] = {"keyGroups": [["s2_api_key", "lens_api_token"], ["s2_api_key", "x"]]}
-    found = {k.env: k.group for k in pk.load_keys(make_root(tmp_path, manifest))}
-    assert found["S2_API_KEY"] == found["LENS_API_TOKEN"] == "S2_API_KEY_LENS_API_TOKEN"
+    loaded = pk.load_keys(make_root(tmp_path, manifest))
+    found = {k.env: k.group for k in loaded}
+    assert found["S2_API_KEY"] == found["LENS_API_TOKEN"] == 0
+    assert pk.group_labels(loaded) == {0: "S2_API_KEY+LENS_API_TOKEN"}
+
+
+AWS = {
+    "name": "aws",
+    "userConfig": {
+        name: {"type": "string", "title": name, "description": f"{name}.", "sensitive": True}
+        for name in ("aws_id", "aws_secret", "aws_token", "aws_region_key")
+    },
+    "metadata": {"keyGroups": [["aws_id", "aws_secret"], ["aws_token", "aws_region_key"]]},
+}
+
+
+def test_groups_with_the_same_prefix_stay_separate_groups(tmp_path):
+    plugin = pk.load_plugin(make_root(tmp_path, AWS))
+    assert {k.env: k.group for k in plugin.keys} == {
+        "AWS_ID": 0,
+        "AWS_SECRET": 0,
+        "AWS_TOKEN": 1,
+        "AWS_REGION_KEY": 1,
+    }
+    assert pk.group_labels(plugin.keys) == {0: "AWS_ID+AWS_SECRET", 1: "AWS_TOKEN+AWS_REGION_KEY"}
+    lines = pk.doctor_entries(plugin, {"AWS_ID": "a", "AWS_TOKEN": "t", "AWS_REGION_KEY": "r"})
+    assert [(n, p) for n, p, _ in lines] == [
+        ("AWS_ID+AWS_SECRET", False),
+        ("AWS_TOKEN+AWS_REGION_KEY", True),
+    ]
+    assert pk.half_groups(plugin.keys, {"AWS_ID": "a", "AWS_TOKEN": "t"}) == {
+        0: (["AWS_ID"], ["AWS_SECRET"]),
+        1: (["AWS_TOKEN"], ["AWS_REGION_KEY"]),
+    }
+    assert "Save it together with AWS_SECRET." in pk.template(plugin.keys)
+
+
+def test_a_label_equal_to_a_key_name_falls_back_to_the_joined_names():
+    keys = [
+        pk.Key("a", "A_B", "t", "d", 0),
+        pk.Key("a_b_c", "A_B_C", "t", "d", 0),
+        pk.Key("a_b_d", "A_B_D", "t", "d", 0),
+    ]
+    assert pk.group_labels(keys) == {0: "A_B+A_B_C+A_B_D"}
 
 
 @pytest.mark.parametrize("meta", [None, {}, {"keyGroups": "x"}, {"keyGroups": [["nope"], 5]}])
 def test_malformed_or_missing_key_groups_mean_no_groups(tmp_path, meta):
     manifest = dict(MANIFEST, metadata=meta)
-    assert {k.group for k in pk.load_keys(make_root(tmp_path, manifest))} == {""}
+    assert {k.group for k in pk.load_keys(make_root(tmp_path, manifest))} == {-1}
 
 
 @pytest.mark.parametrize("manifest", [None, [], {"userConfig": []}, {"name": "x"}])
@@ -180,32 +224,57 @@ def test_missing_or_odd_manifest_gives_no_keys(tmp_path, manifest):
 def test_unparsable_manifest_gives_no_keys(tmp_path):
     root = make_root(tmp_path, None)
     (root / ".claude-plugin" / "plugin.json").write_text("{not json")
-    assert pk.load_keys(root) == [] and pk.plugin_name(root) == "plug"
+    assert pk.load_plugin(root) == ("plug", [])
 
 
 def test_plugin_name_and_hint_come_from_the_manifest(root):
-    assert pk.plugin_name(root) == "synth"
-    assert pk.configure_hint(root) == "/plugin configure synth@techne"
+    plugin = pk.load_plugin(root)
+    assert plugin.name == "synth" and plugin.keys == pk.load_keys(root)
+    assert pk.configure_hint(plugin.name) == "/plugin configure synth@techne"
 
 
-def test_why_is_the_description_as_a_clause(keys):
-    assert keys[0].why == "raises OpenAlex's search budget; free at openalex.org/settings/api"
-    acronym = pk.Key("x_key", "X_KEY", "t", "EPO adds this.")
-    assert acronym.why == "EPO adds this"
+def test_why_is_the_description_without_its_final_period(keys):
+    assert keys[0].why == "Raises OpenAlex's search budget; free at openalex.org/settings/api"
+    assert pk.Key("x_key", "X_KEY", "t", "EPO adds this.").why == "EPO adds this"
+    assert pk.Key("x_key", "X_KEY", "Title", "").why == "Title"
+
+
+def test_a_missing_description_falls_back_to_the_title(tmp_path):
+    manifest = {
+        "name": "bare",
+        "userConfig": {
+            "a_key": {"type": "string", "title": "A key", "sensitive": True},
+            "b_key": {"type": "string", "title": "B key", "description": "  ", "sensitive": True},
+            "c_key": {"type": "string", "sensitive": True},
+            "d_key": {"type": "string", "description": "Line one\n# line two.", "sensitive": True},
+        },
+    }
+    plugin = pk.load_plugin(make_root(tmp_path, manifest))
+    assert [k.description for k in plugin.keys] == [
+        "A key",
+        "B key",
+        "c_key",
+        "Line one # line two.",
+    ]
+    out = pk.template(plugin.keys)
+    assert out.startswith("# A key\nA_KEY=\n") and "# c_key\nC_KEY=\n" in out
+    assert "# Line one # line two.\nD_KEY=\n" in out
+    detail = {n: d for n, _, d in pk.doctor_entries(plugin, {})}
+    assert detail["A_KEY"].startswith("not set; A key; store it with")
 
 
 def test_doctor_entries_one_line_per_key_and_group(keys):
-    hint = "/plugin configure synth@techne"
-    lines = {n: (p, d) for n, p, d in pk.doctor_entries(keys, {"S2_API_KEY": "x"}, hint)}
+    plugin = pk.Plugin("synth", keys)
+    lines = {n: (p, d) for n, p, d in pk.doctor_entries(plugin, {"S2_API_KEY": "x"})}
     assert list(lines) == ["OPENALEX_API_KEY", "S2_API_KEY", "LENS_API_TOKEN", "EPO_OPS"]
     assert lines["S2_API_KEY"] == (True, "set")
     assert lines["OPENALEX_API_KEY"] == (
         False,
-        "not set; raises OpenAlex's search budget; free at openalex.org/settings/api; "
+        "not set; Raises OpenAlex's search budget; free at openalex.org/settings/api; "
         "store it with /plugin configure synth@techne, then restart",
     )
     assert lines["EPO_OPS"][1] == (
-        "not set; adds European patents; register at developers.epo.org; "
+        "not set; Adds European patents; register at developers.epo.org; "
         "needs both EPO_OPS_KEY and EPO_OPS_SECRET; "
         "store it with /plugin configure synth@techne, then restart"
     )
@@ -213,7 +282,7 @@ def test_doctor_entries_one_line_per_key_and_group(keys):
 
 def test_doctor_group_needs_every_member(keys):
     def present(env):
-        return {n: p for n, p, _ in pk.doctor_entries(keys, env, "h")}["EPO_OPS"]
+        return {n: p for n, p, _ in pk.doctor_entries(pk.Plugin("h", keys), env)}["EPO_OPS"]
 
     assert not present({"EPO_OPS_KEY": "k"}) and not present({"EPO_OPS_SECRET": "s"})
     assert present({"EPO_OPS_KEY": "k", "EPO_OPS_SECRET": "s"})
@@ -222,8 +291,8 @@ def test_doctor_group_needs_every_member(keys):
 def test_doctor_group_of_three_says_all_of(tmp_path):
     manifest = json.loads(json.dumps(MANIFEST))
     manifest["metadata"] = {"keyGroups": [["s2_api_key", "lens_api_token", "openalex_api_key"]]}
-    three = pk.load_keys(make_root(tmp_path, manifest))
-    detail = pk.doctor_entries(three, {}, "h")[-1][2]
+    three = pk.load_plugin(make_root(tmp_path, manifest))
+    detail = pk.doctor_entries(three, {})[-1][2]
     assert "needs all of OPENALEX_API_KEY and S2_API_KEY and LENS_API_TOKEN" in detail
 
 
@@ -437,16 +506,15 @@ def test_template_lists_every_name_with_its_comment(root, keys):
     lines = out.stdout.splitlines()
     for key in keys:
         assert f"{key.env}=" in lines
-        head = key.why.split("; ")[0]
-        assert any(x.startswith("# ") and head[1:] in x for x in lines)
+        assert f"# {key.description}" in lines
     assert pk.parse(out.stdout, keys) == {}
 
 
 def test_template_grouped_keys_name_their_partner(keys):
     lines = pk.template(keys).splitlines()
-    assert "# Adds European patents, with EPO_OPS_SECRET; register at developers.epo.org" in lines
-    assert "# Adds European patents, with EPO_OPS_KEY; register at developers.epo.org" in lines
-    assert len({x for x in lines if x.startswith("#")}) == len(keys)
+    assert "# Save it together with EPO_OPS_SECRET." in lines
+    assert "# Save it together with EPO_OPS_KEY." in lines
+    assert "# Adds European patents; register at developers.epo.org." in lines
 
 
 def test_parse_handles_comments_export_quotes_and_empties(keys):
@@ -579,8 +647,8 @@ def test_store_prefers_the_enabled_install(tmp_path):
 
 
 def test_pick_plugin_id_cases():
-    def pick(listing, wanted):
-        return pk.find_plugin_id(listing, wanted, "synth")
+    def pick(listing, wanted, root=Path("/nowhere")):
+        return pk.find_plugin_id(listing, wanted, "synth", root)
 
     one_disabled = json.dumps([{"id": "synth@a", "enabled": False}])
     assert pick(one_disabled, None) == "synth@a"
@@ -591,6 +659,44 @@ def test_pick_plugin_id_cases():
     for listing in (both_off, json.dumps([{"id": "synth@a"}, {"id": "synth@b"}])):
         with pytest.raises(pk.StoreError, match="synth@a, synth@b"):
             pick(listing, None)
+
+
+def test_the_entry_installed_at_this_plugin_root_wins(tmp_path):
+    here = tmp_path / "cache" / "synth" / "abc"
+    here.mkdir(parents=True)
+    link = tmp_path / "link"
+    link.symlink_to(here)
+    listing = json.dumps(
+        [
+            {"id": "synth@techne", "enabled": True, "installPath": str(link)},
+            {"id": "synth@other", "enabled": True, "installPath": str(tmp_path / "elsewhere")},
+            {"id": "synth@third", "enabled": True, "installPath": str(tmp_path / "x")},
+            {"id": "synth@synced", "enabled": True, "installPath": ""},
+        ]
+    )
+    assert pk.find_plugin_id(listing, None, "synth", here) == "synth@techne"
+    assert pk.find_plugin_id(listing, "synth@mine", "synth", here) == "synth@mine"
+
+
+def test_a_synced_entry_without_an_install_path_is_ignored(tmp_path):
+    listing = json.dumps(
+        [
+            {"id": "synth@techne", "enabled": True, "installPath": str(tmp_path / "a")},
+            {"id": "synth@synced", "enabled": True, "installPath": ""},
+        ]
+    )
+    assert pk.find_plugin_id(listing, None, "synth", tmp_path / "b") == "synth@techne"
+    two = json.dumps(
+        [
+            {"id": "synth@a", "enabled": True, "installPath": str(tmp_path / "a")},
+            {"id": "synth@b", "enabled": True, "installPath": str(tmp_path / "c")},
+        ]
+    )
+    with pytest.raises(pk.StoreError, match="synth@a, synth@b"):
+        pk.find_plugin_id(two, None, "synth", tmp_path / "b")
+    only_synced = json.dumps([{"id": "synth@synced", "installPath": ""}])
+    with pytest.raises(pk.StoreError, match="not installed"):
+        pk.find_plugin_id(only_synced, None, "synth", tmp_path / "b")
 
 
 def test_redact_hides_raw_and_json_escaped_values():
@@ -667,7 +773,7 @@ def test_store_half_pair_warns_by_name_and_still_stores(tmp_path):
 def test_half_groups_derive_from_the_table(keys):
     assert pk.half_groups(keys, {"S2_API_KEY": "x"}) == {}
     assert pk.half_groups(keys, {"EPO_OPS_SECRET": "x"}) == {
-        "EPO_OPS": (["EPO_OPS_SECRET"], ["EPO_OPS_KEY"])
+        0: (["EPO_OPS_SECRET"], ["EPO_OPS_KEY"])
     }
 
 

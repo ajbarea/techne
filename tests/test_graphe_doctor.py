@@ -254,12 +254,12 @@ def test_search_keys_are_optional_lines_that_never_block_ready(tmp_path, home):
     assert proc.returncode == 0 and proc.stdout.splitlines()[-1] == "result: ready"
     assert found["OPENALEX_API_KEY"] == (
         "optional",
-        "not set; raises the daily search budget of paper-review's OpenAlex retrieval; "
+        "not set; Raises the daily search budget of paper-review's OpenAlex retrieval; "
         f"free at openalex.org/settings/api; {STORE}",
     )
     assert found["S2_API_KEY"] == (
         "optional",
-        "not set; adds Semantic Scholar to paper-review's retrieval; "
+        "not set; Adds Semantic Scholar to paper-review's retrieval; "
         f"request one at semanticscholar.org/product/api; {STORE}",
     )
     assert [k for k in found if k.endswith("_KEY")] == ["OPENALEX_API_KEY", "S2_API_KEY"]

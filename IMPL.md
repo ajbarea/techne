@@ -15,9 +15,12 @@ has crept in; extract it back to ROADMAP.
 
 A plugin's own `plugin.json` is its key table: every `sensitive` string option is a key (variable =
 option name in capitals, text = its `description`), and `metadata.keyGroups` lists keys that only
-work together. One module, `plugins/techne/_shared/plugin_keys.py` (copied to heuresis and graphe
-by `make guards`), runs the SessionStart and SessionEnd hooks (`start` / `end`), the `.env` import
-(`store`, `template`) and `load_keys` for the doctors. At session start it writes the keys to a
+work together. One module, `plugins/techne/_shared/plugin_keys.py` (its copies in heuresis's and graphe's
+`_shared/` must stay byte-identical; `make guards` compares them and does not copy, so after an edit run
+`cp plugins/techne/_shared/plugin_keys.py plugins/<plugin>/_shared/` for each), runs the SessionStart and SessionEnd hooks (`start` / `end`), the `.env` import
+(`store`, `template`) and `load_plugin` (name and keys from one manifest read) for the doctors. `store` configures the
+plugin id whose `installPath` is this script's own plugin root, else the one enabled install with an
+install path. At session start it writes the keys to a
 private (0600) per-process file `<session_id>.<claude pid>.sh` in `CLAUDE_PLUGIN_DATA/session-keys`
 and appends only a line that sources it to `CLAUDE_ENV_FILE` (Claude Code leaves those files at
 0644 and never deletes them, so no value goes in one). SessionEnd deletes its own process's file,
