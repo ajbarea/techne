@@ -106,7 +106,8 @@ def _capture(args) -> int:
     if not text:
         print("heuresis: the idea text is empty", file=sys.stderr)
         return 2
-    taken = [p.stem for p in (args.ideas / "ideas").glob("*.md")]
+    local = [p.stem for p in (args.ideas / "ideas").glob("*.md")]
+    taken = [*local, *sync.remote_ideas(args.ideas)]
     title = store.title_from(text)
     idea = Idea(
         id=store.new_id(dt.date.today(), title, taken),

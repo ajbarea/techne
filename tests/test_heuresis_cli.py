@@ -600,3 +600,56 @@ def test_publish_command_pushes_an_idea_a_failed_capture_left_behind(tmp_path: P
     ).stdout
     assert any(line.endswith("left-behind.md") for line in tree.splitlines())
     assert _status(ideas) == ""
+
+
+def _two_clones(tmp_path: Path) -> tuple[Path, Path]:
+    """Two clones of one ideas repository sharing a local bare remote."""
+    a = init_ideas(tmp_path)
+    remote = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True)
+    for step in (
+        ["add", "-A"],
+        ["commit", "-qm", "init: ideas repository"],
+        ["remote", "add", "origin", str(remote)],
+        ["push", "-q", "-u", "origin", "main"],
+    ):
+        subprocess.run(["git", "-C", str(a), *step], check=True)
+    b = tmp_path / "phone"
+    subprocess.run(["git", "clone", "-q", str(remote), str(b)], check=True, capture_output=True)
+    for key, value in (("user.email", "t@example.com"), ("user.name", "t")):
+        subprocess.run(["git", "-C", str(b), "config", key, value], check=True)
+    subprocess.run(["git", "-C", str(b), "config", "commit.gpgsign", "false"], check=True)
+    return a, b
+
+
+def _capture_in(ideas: Path, capsys, text: str) -> tuple[int, str, str]:
+    capsys.readouterr()
+    code = cli.main(["capture", "--ideas", str(ideas), text])
+    out = capsys.readouterr()
+    return code, out.out.strip(), out.err
+
+
+def test_same_title_captured_on_two_clones_gets_two_ids(tmp_path: Path, capsys):
+    a, b = _two_clones(tmp_path)
+    code_a, id_a, _ = _capture_in(a, capsys, "Same title on both\nfrom the terminal")
+    code_b, id_b, err = _capture_in(b, capsys, "Same title on both\nfrom the phone")
+    assert (code_a, code_b) == (0, 0), err
+    assert id_b == f"{id_a}-2"
+    tree = subprocess.run(
+        ["git", "-C", str(tmp_path / "remote.git"), "ls-tree", "-r", "--name-only", "main"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert f"ideas/{id_a}.md" in tree and f"ideas/{id_b}.md" in tree
+
+
+def test_an_id_collision_the_fetch_missed_names_the_idea(tmp_path: Path, capsys, monkeypatch):
+    a, b = _two_clones(tmp_path)
+    _, id_a, _ = _capture_in(a, capsys, "Same title on both\nfrom the terminal")
+    monkeypatch.setattr(cli.sync, "remote_ideas", lambda root: [], raising=False)  # offline
+    code, id_b, err = _capture_in(b, capsys, "Same title on both\nfrom the phone")
+    assert code == 1 and id_b == ""
+    assert f"idea {id_a}" in err and "local copy is kept" in err
+    assert (b / "ideas" / f"{id_a}.md").is_file()
+    assert not (b / ".git" / "rebase-merge").exists()

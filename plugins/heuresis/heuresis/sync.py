@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import os
 import subprocess
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from heuresis import board
 
@@ -56,6 +56,13 @@ def _resolve_generated_conflicts(
         if not conflicted:
             detail = done.stderr.strip() or done.stdout.strip()
             raise SyncError(f"rebase onto origin/{branch} failed: {detail}")
+        added_twice = _added_on_both_sides(root) & set(conflicted)
+        ideas = sorted(PurePosixPath(n).stem for n in added_twice if n.startswith("ideas/"))
+        if ideas:
+            raise SyncError(
+                f"idea {', '.join(ideas)} was also captured on another clone under the same id; "
+                "the local copy is kept in your unpushed commit; resolve by hand"
+            )
         if set(conflicted) - set(board.GENERATED):
             raise SyncError(
                 f"rebase onto origin/{branch} conflicts in {', '.join(conflicted)}; resolve by hand"
@@ -63,6 +70,23 @@ def _resolve_generated_conflicts(
         _git(root, "checkout", "--ours", "--", *conflicted)
         _git(root, "add", "--", *conflicted)
         done = _git(root, "rebase", "--continue", check=False)
+
+
+def _added_on_both_sides(root: Path) -> set[str]:
+    out = _git(root, "status", "--porcelain", "-z").stdout
+    return {entry[3:] for entry in out.split("\0") if entry.startswith("AA ")}
+
+
+def remote_ideas(root: Path) -> list[str]:
+    """Idea ids already on origin/main, fetched first so another clone's captures count.
+
+    A failed fetch is ignored: capture then picks from the ids it already knows.
+    """
+    if _git(root, "remote", "get-url", "origin", check=False).returncode:
+        return []
+    _git(root, "fetch", "-q", "origin", check=False)
+    names = _git(root, "ls-tree", "--name-only", "origin/main", "ideas/", check=False).stdout
+    return [PurePosixPath(n).stem for n in names.splitlines() if n.endswith(".md")]
 
 
 def _rebase(root: Path, branch: str) -> None:
