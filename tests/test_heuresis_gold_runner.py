@@ -366,6 +366,102 @@ def test_report_regenerates_the_summary(fake, monkeypatch):
     assert (res / "summary.md").is_file()
 
 
+def run_once(fake, monkeypatch, name: str, mode: str, **kw) -> Path:
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", mode)
+    out = fake / name
+    assert go(out, "--no-guard", **kw) == 0
+    return results(out)
+
+
+def graded(path: Path) -> list[dict]:
+    return [json.loads(x) for x in (path / "grades.jsonl").read_text().splitlines()]
+
+
+def test_regrade_prefers_the_later_folder_only_when_it_did_not_fail(fake, monkeypatch, capsys):
+    both = ("bib-checker", "teleport")
+    failed = run_once(fake, monkeypatch, "o1", "crash", case=both, runs=2)
+    good = run_once(fake, monkeypatch, "o2", "trash", case=("bib-checker",), runs=2)
+    into = fake / "merged"
+    capsys.readouterr()
+    assert r.main(["regrade", str(failed), str(good), "--into", str(into)]) == 0
+    assert capsys.readouterr().out.strip() == str(into / "summary.md")
+    rows = graded(into)
+    assert [(g["case"], g["run"], g["state"], g["error"]) for g in rows] == [
+        ("bib-checker", 1, "trash", ""),
+        ("bib-checker", 2, "trash", ""),
+        ("teleport", 1, None, "claude exited 3"),
+        ("teleport", 2, None, "claude exited 3"),
+    ]
+    assert rows[0]["accepted"] and rows[0]["cost_usd"] == 0.25
+    assert rows[0]["plugin_path"] == "/plugins/heuresis"
+    assert json.loads((into / "cases.json").read_text())["ids"] == ["bib-checker", "teleport"]
+    md = (into / "summary.md").read_text()
+    assert "- bib-checker run 1: [dokimasia: bibliography checks]" in md
+    assert "(https://github.com/ajbarea/techne) (verified)" in md
+    assert "- teleport run 1: error: claude exited 3" in md
+    assert json.loads((into / "summary.json").read_text())["runs"] == 4
+    # Argument order decides: a later folder that failed does not displace the earlier success.
+    again = fake / "again"
+    assert r.main(["regrade", str(good), str(failed), "--into", str(again)]) == 0
+    assert [(g["case"], g["run"], g["error"]) for g in graded(again)][:2] == [
+        ("bib-checker", 1, ""),
+        ("bib-checker", 2, ""),
+    ]
+
+
+def test_regrade_reads_the_files_not_the_original_grade(fake, monkeypatch):
+    res = run_once(fake, monkeypatch, "o1", "trash")
+    (res / "grades.jsonl").write_text("")
+    into = fake / "merged"
+    assert r.main(["regrade", str(res), "--into", str(into)]) == 0
+    (g,) = graded(into)
+    assert (g["state"], g["accepted"], g["closest_hit"], g["closest_verified"]) == (
+        "trash",
+        True,
+        True,
+        True,
+    )
+    assert g["plugin_path"] is None
+
+
+def test_regrade_needs_exactly_one_idea_file(fake, monkeypatch):
+    res = run_once(fake, monkeypatch, "o1", "trash")
+    ideas = res / "work" / "bib-checker-1" / "ideas" / "ideas"
+    (ideas / "second.md").write_text((next(ideas.glob("2*.md"))).read_text())
+    into = fake / "merged"
+    assert r.main(["regrade", str(res), "--into", str(into)]) == 0
+    (g,) = graded(into)
+    assert g["state"] is None and "found 2" in g["error"]
+    for f in ideas.glob("*.md"):
+        f.unlink()
+    assert r.main(["regrade", str(res), "--into", str(into)]) == 0
+    assert "found 0" in graded(into)[0]["error"]
+
+
+def test_regrade_with_a_cases_file_when_the_recorded_one_is_gone(fake, monkeypatch):
+    res = run_once(fake, monkeypatch, "o1", "trash")
+    twin = fake / "twin.yaml"
+    twin.write_text(CASES.read_text())
+    meta = json.loads((res / "cases.json").read_text())
+    (res / "cases.json").write_text(json.dumps({**meta, "files": [str(fake / "gone.yaml")]}))
+    into = fake / "merged"
+    assert r.main(["regrade", str(res), "--into", str(into)]) == 2
+    assert r.main(["regrade", str(res), "--into", str(into), "--cases", str(twin)]) == 0
+    assert graded(into)[0]["state"] == "trash"
+
+
+def test_regrade_refuses_a_missing_folder_and_an_input_as_output(fake, monkeypatch, capsys):
+    res = run_once(fake, monkeypatch, "o1", "trash")
+    assert r.main(["regrade", str(fake / "nope"), "--into", str(fake / "m")]) == 2
+    assert "results folder not found" in capsys.readouterr().err
+    assert r.main(["regrade", str(res), str(fake / "nope"), "--into", str(fake / "m")]) == 2
+    before = (res / "grades.jsonl").read_text()
+    assert r.main(["regrade", str(res), "--into", str(res)]) == 2
+    assert "one of the results folders" in capsys.readouterr().err
+    assert (res / "grades.jsonl").read_text() == before
+    assert not (fake / "m").exists()
+
+
 def test_missing_claude_is_a_clear_error(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("PATH", str(tmp_path))
     assert r.main(["run", "--cases", str(CASES), "--no-guard", "--out", str(tmp_path / "o")]) == 2

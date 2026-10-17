@@ -124,6 +124,9 @@ class RunGrade:
     cost_usd: float | None = None
     duration_s: float | None = None
     turns: int | None = None
+    closest_title: str | None = None
+    closest_url: str | None = None
+    closest_verified: bool | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -143,6 +146,11 @@ def _meta(meta: dict | None) -> dict:
     }
 
 
+def _text(record: dict | None, key: str) -> str | None:
+    value = (record or {}).get(key)
+    return value if isinstance(value, str) else None
+
+
 def _word(term: str, text: str) -> bool:
     return re.search(r"(?<![a-z0-9])" + re.escape(term) + r"(?![a-z0-9])", text) is not None
 
@@ -154,12 +162,13 @@ def _read_json(path: Path) -> dict:
     return data
 
 
-def _rivals(run_dir: Path) -> tuple[bool, str | None, list[str]]:
-    """Whether the closest rival verified, plus the lowercased identities of the verified rivals.
+def _rivals(run_dir: Path) -> tuple[dict | None, bool, str | None, list[str]]:
+    """What the judge named in one run: the closest rival's pool record (verified or not),
+    whether the closest rival verified, its lowercased identity (None unless it verified) and
+    the identities of the verified others.
 
     Verified means what apply counts: cli.verified_refs. An identity is a pool record's title and
-    url. The closest rival's identity is None when it did not verify; the verified others follow.
-    Unreadable run files give no rivals.
+    url. Unreadable run files name no rivals.
     """
     try:
         records = {r["ref"]: r for r in _read_json(run_dir / "pool.json")["records"]}
@@ -173,9 +182,15 @@ def _rivals(run_dir: Path) -> tuple[bool, str | None, list[str]]:
 
         closest_ref = (judge.get("closest") or {}).get("ref")
         others = [i for i in map(identity, [o["ref"] for o in judge.get("others") or []]) if i]
-        return closest_ref is None or str(closest_ref) in kept, identity(closest_ref), others
+        named = records.get(str(closest_ref)) if closest_ref is not None else None
+        return (
+            named,
+            closest_ref is None or str(closest_ref) in kept,
+            identity(closest_ref),
+            others,
+        )
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
-        return False, None, []
+        return None, False, None, []
 
 
 def grade_run(
@@ -209,7 +224,9 @@ def grade_run(
         )
     run_dir = ideas_root / "runs" / idea_id
     files_ok = all((run_dir / f"{name}.json").is_file() for name in RUN_FILES)
-    verified, closest, others = _rivals(run_dir) if files_ok else (False, None, [])
+    closest_rec, verified, closest, others = (
+        _rivals(run_dir) if files_ok else (None, False, None, [])
+    )
     finished = idea.state != "inbox" and files_ok
     prior_hit, closest_hit = miss, miss
     if finished and case.match_terms:
@@ -227,6 +244,9 @@ def grade_run(
         verified,
         "" if finished else "triage did not finish",
         **extra,
+        closest_title=_text(closest_rec, "title"),
+        closest_url=_text(closest_rec, "url"),
+        closest_verified=None if closest_rec is None else verified,
     )
 
 
@@ -270,6 +290,18 @@ def summarize(grades: list[RunGrade], cases: list[Case]) -> dict:
             [bool(g.prior_art_hit) for g in grades if g.prior_art_hit is not None]
         ),
         "closest_recall": _rate([bool(g.closest_hit) for g in grades if g.closest_hit is not None]),
+        "closest_by_run": [
+            {
+                "case": g.case,
+                "run": g.run,
+                "title": g.closest_title,
+                "url": g.closest_url,
+                "verified": g.closest_verified,
+                "error": g.error,
+            }
+            for c in cases
+            for g in sorted((g for g in grades if g.case == c.id), key=lambda g: g.run)
+        ],
         "do_on_existing": sum(
             1 for g in grades if g.state == "do" and by_case[g.case].expected_state in EXISTING
         ),
@@ -287,6 +319,26 @@ def _num(value: float | None, template: str) -> str:
     return "n/a" if value is None else template.format(value)
 
 
+def _link_text(text: str) -> str:
+    return re.sub(r"([\\\[\]])", r"\\\1", " ".join(text.split()))
+
+
+def _link_url(url: str) -> str:
+    return re.sub(r"\s+", "", url).replace("(", "%28").replace(")", "%29")
+
+
+def _named_line(row: dict) -> str:
+    head = f"- {row['case']} run {row['run']}: "
+    if row["error"]:
+        return f"{head}error: {row['error']}"
+    if row["title"] is None:
+        return f"{head}none"
+    link = f"[{_link_text(row['title'])}]({_link_url(row['url'] or '')})"
+    if row["verified"] is None:
+        return head + link
+    return f"{head}{link} ({'verified' if row['verified'] else 'not verified'})"
+
+
 def render_markdown(summary: dict) -> str:
     lines = [
         "# heuresis gold-set results",
@@ -296,7 +348,7 @@ def render_markdown(summary: dict) -> str:
         f"- Runs: {summary['runs']} ({summary['errors']} errors)",
         f"- Verdict agreement: {_pct(summary['agreement'])}",
         f"- Prior-art recall (a verified cited rival named): {_pct(summary['prior_art_recall'])}",
-        f"- Closest-rival recall (named as the closest): {_pct(summary['closest_recall'])}",
+        f"- Closest rival on the case's list: {_pct(summary['closest_recall'])}",
         f"- Existing things filed as do: {summary['do_on_existing']}",
         f"- Total cost (client estimate): {_num(summary['cost_usd_total'], '${:.2f}')}",
         f"- Median run time (s): {_num(summary['duration_s_median'], '{:g}')}",
@@ -306,7 +358,7 @@ def render_markdown(summary: dict) -> str:
             else []
         ),
         "",
-        "| Case | Expected | States by run | Agreement | Prior-art recall | Closest recall |"
+        "| Case | Expected | States by run | Agreement | Prior-art recall | Closest on list |"
         " Errors |",
         "|---|---|---|---|---|---|---|",
     ]
@@ -316,4 +368,6 @@ def render_markdown(summary: dict) -> str:
             f"{_pct(row['agreement'])} | {_pct(row['prior_art_recall'])} | "
             f"{_pct(row['closest_recall'])} | {row['errors']} |"
         )
+    lines += ["", "## Closest rival named, by run", ""]
+    lines += [_named_line(row) for row in summary["closest_by_run"]]
     return "\n".join(lines) + "\n"

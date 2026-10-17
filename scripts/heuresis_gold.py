@@ -10,7 +10,8 @@ Usage:
   heuresis_gold.py run (--guard-repo DIR | --no-guard) [--cases FILE]... [--runs N]
                        [--case GLOB]... [--out DIR] [--plugin-dir DIR] [--timeout SECONDS]
                        [--model NAME]
-  heuresis_gold.py report RESULTS_DIR
+  heuresis_gold.py report RESULTS_DIR [--cases FILE]...
+  heuresis_gold.py regrade RESULTS_DIR... --into OUT_DIR [--cases FILE]...
 """
 
 from __future__ import annotations
@@ -303,15 +304,25 @@ def selected(cases: list[gold.Case], globs: list[str]) -> list[gold.Case]:
     return [c for c in cases if not globs or any(fnmatch.fnmatch(c.id, g) for g in globs)]
 
 
+def read_grades(path: Path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
 def write_report(res: Path, cases: list[gold.Case]) -> None:
-    grades = [
-        gold.RunGrade.from_dict(json.loads(line))
-        for line in (res / "grades.jsonl").read_text().splitlines()
-        if line.strip()
-    ]
+    grades = [gold.RunGrade.from_dict(d) for d in read_grades(res / "grades.jsonl")]
     summary = gold.summarize(grades, [c for c in cases if any(g.case == c.id for g in grades)])
     (res / "summary.json").write_text(json.dumps(summary, indent=2))
     (res / "summary.md").write_text(gold.render_markdown(summary))
+
+
+def read_meta(res: Path) -> tuple[list[str], list[str]]:
+    """The case ids and case files a results folder recorded."""
+    meta = json.loads((res / "cases.json").read_text())
+    return list(meta["ids"]), list(meta["files"])
+
+
+def case_pool(files: list[Path]) -> dict[str, gold.Case]:
+    return {c.id: c for f in files if f.is_file() for c in gold.load_cases(f)}
 
 
 def run(args) -> int:
@@ -391,11 +402,86 @@ def run(args) -> int:
 
 
 def report(args) -> int:
-    meta = json.loads((args.results / "cases.json").read_text())
-    files = [Path(f) for f in meta["files"]] + list(args.cases)
-    pool = {c.id: c for f in files if f.is_file() for c in gold.load_cases(f)}
-    write_report(args.results, [pool[i] for i in meta["ids"] if i in pool])
+    ids, recorded = read_meta(args.results)
+    pool = case_pool([Path(f) for f in recorded] + list(args.cases))
+    write_report(args.results, [pool[i] for i in ids if i in pool])
     print(args.results / "summary.md")
+    return 0
+
+
+def regrade_folder(
+    res: Path, name: str, case: gold.Case, n: int, original: dict | None
+) -> tuple[gold.RunGrade, str | None]:
+    """Grade one work folder again from the files in it; returns the grade and its plugin path.
+
+    A run that never triaged keeps the error the original run recorded, which names the cause.
+    """
+    work = res / "work" / name
+    ideas = work / "ideas"
+    log = res / "logs" / f"{name}.jsonl"
+    meta = parse_stream(log.read_text(errors="replace"))[1] if log.is_file() else None
+    kept = (original or {}).get("error") or ""
+    found = sorted((ideas / "ideas").glob("*.md")) if (ideas / "ideas").is_dir() else []
+    plugin_path = (original or {}).get("plugin_path")
+    problem = f"expected one idea file, found {len(found)}"
+    if len(found) == 1:
+        grade = gold.grade_run(case, n, ideas, found[0].stem, meta=meta)
+        if not grade.error:
+            return grade, plugin_path
+        problem = grade.error
+    return gold.grade_run(case, n, ideas, "", error=kept or problem, meta=meta), plugin_path
+
+
+def regrade(args) -> int:
+    missing = [d for d in args.results if not d.is_dir()]
+    if missing:
+        print(f"heuresis_gold: results folder not found: {missing[0]}", file=sys.stderr)
+        return 2
+    out = args.into.resolve()
+    if any(d.resolve() == out for d in args.results):
+        print(f"heuresis_gold: --into {args.into} is one of the results folders", file=sys.stderr)
+        return 2
+    order: list[str] = []
+    files: list[str] = []
+    for res in args.results:
+        try:
+            ids, recorded = read_meta(res)
+        except (OSError, ValueError, KeyError):
+            continue
+        order += [i for i in ids if i not in order]
+        files += [f for f in recorded if f not in files]
+    pool = case_pool([Path(f) for f in files] + list(args.cases))
+    merged: dict[tuple[str, int], dict] = {}
+    for res in args.results:
+        try:
+            originals = {(d["case"], d["run"]): d for d in read_grades(res / "grades.jsonl")}
+        except (OSError, ValueError, KeyError):
+            originals = {}
+        for work in sorted(p for p in (res / "work").glob("*") if p.is_dir()):
+            case_id, _, run_no = work.name.rpartition("-")
+            if case_id not in pool or not run_no.isdigit():
+                print(f"heuresis_gold: skipping {work}: not a run of a known case", file=sys.stderr)
+                continue
+            n = int(run_no)
+            grade, plugin_path = regrade_folder(
+                res, work.name, pool[case_id], n, originals.get((case_id, n))
+            )
+            key = (case_id, n)
+            # A later folder replaces an earlier grade only with a run that did not fail.
+            if key not in merged or not grade.error:
+                merged[key] = {**grade.to_dict(), "plugin_path": plugin_path}
+    if not merged:
+        print("heuresis_gold: no run folders to grade", file=sys.stderr)
+        return 2
+    order += [c for c in dict.fromkeys(c for c, _ in merged) if c not in order]
+    rows = sorted(merged.values(), key=lambda d: (order.index(d["case"]), d["run"]))
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "grades.jsonl").write_text("".join(json.dumps(d) + "\n" for d in rows))
+    ids = [i for i in order if i in pool]
+    case_files = dict.fromkeys(str(Path(f).resolve()) for f in [*files, *args.cases])
+    (out / "cases.json").write_text(json.dumps({"ids": ids, "files": list(case_files)}))
+    write_report(out, [pool[i] for i in ids])
+    print(out / "summary.md")
     return 0
 
 
@@ -418,7 +504,13 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("report")
     p.add_argument("results", type=Path)
     p.add_argument("--cases", type=Path, action="append", default=[])
+    p = sub.add_parser("regrade")
+    p.add_argument("results", type=Path, nargs="+")
+    p.add_argument("--into", type=Path, required=True)
+    p.add_argument("--cases", type=Path, action="append", default=[])
     args = parser.parse_args(argv)
+    if args.command == "regrade":
+        return regrade(args)
     if args.command == "run":
         args.cases = args.cases or [DEFAULT_CASES]
         return run(args)

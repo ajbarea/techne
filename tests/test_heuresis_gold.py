@@ -355,6 +355,80 @@ def test_summarize_ignores_runs_of_unknown_cases_and_render_marks_missing_number
     assert "- Total cost (client estimate): $0.50" in gold.render_markdown(priced)
 
 
+def test_grade_run_records_the_closest_rival_named_and_whether_it_verified(tmp_path):
+    case = gold.load_cases(FIX)[0]
+    records = [rec("r1", "Zotero Connector", "https://zotero.org"), rec("r2", "Other")]
+    for name, ok, want in (("ok", ("r1",), True), ("unchecked", ("r2",), False)):
+        files = run_files(records, "r1", ok=ok)
+        root, idea_id = idea_repo(tmp_path / name, "trash", section(files), files)
+        g = gold.grade_run(case, 1, root, idea_id)
+        assert (g.closest_title, g.closest_url, g.closest_verified) == (
+            "Zotero Connector",
+            "https://zotero.org",
+            want,
+        )
+    files = run_files(records, None)
+    root, idea_id = idea_repo(tmp_path / "none", "trash", "", files)
+    g = gold.grade_run(case, 1, root, idea_id)
+    assert (g.closest_title, g.closest_url, g.closest_verified) == (None, None, None)
+    failed = gold.grade_run(case, 2, tmp_path / "x", "2026-10-17-x", error="boom")
+    assert (failed.closest_title, failed.closest_url, failed.closest_verified) == (None,) * 3
+
+
+def test_a_grade_line_from_before_the_closest_fields_still_loads():
+    old = gold.RunGrade("a", 1, "trash", True, None, None, True, True).to_dict()
+    for key in ("closest_title", "closest_url", "closest_verified"):
+        del old[key]
+    g = gold.RunGrade.from_dict({**old, "plugin_path": "/p"})
+    assert (g.closest_title, g.closest_url, g.closest_verified) == (None, None, None)
+
+
+def test_render_lists_the_closest_rival_each_run_named():
+    cases = gold.load_cases(FIX)
+    grades = [
+        gold.RunGrade(
+            "bib-checker",
+            1,
+            "trash",
+            True,
+            True,
+            True,
+            True,
+            True,
+            closest_title="Zotero [Connector]\nv2",
+            closest_url="https://zotero.org/a (b)",
+            closest_verified=True,
+        ),
+        gold.RunGrade(
+            "bib-checker",
+            2,
+            "trash",
+            True,
+            False,
+            False,
+            True,
+            False,
+            closest_title="Mendeley",
+            closest_url="https://mendeley.com",
+            closest_verified=False,
+        ),
+        gold.RunGrade("bib-checker", 3, "trash", True, False, False, True, True),
+        gold.RunGrade(
+            "new-thing", 1, None, False, None, None, False, False, error="claude exited 1"
+        ),
+    ]
+    md = gold.render_markdown(gold.summarize(grades, cases))
+    assert "- Closest rival on the case's list: 33%" in md
+    assert "Closest-rival recall" not in md
+    assert md.split("## Closest rival named, by run\n\n")[1].splitlines() == [
+        "- bib-checker run 1: [Zotero \\[Connector\\] v2](https://zotero.org/a%28b%29) (verified)",
+        "- bib-checker run 2: [Mendeley](https://mendeley.com) (not verified)",
+        "- bib-checker run 3: none",
+        "- new-thing run 1: error: claude exited 1",
+    ]
+    assert "—" not in md
+
+
 def test_run_grade_round_trips():
     g = gold.RunGrade("a", 1, "trash", True, None, None, True, False, error="", cost_usd=None)
     assert gold.RunGrade.from_dict(json.loads(json.dumps(g.to_dict()))) == g
