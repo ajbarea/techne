@@ -97,6 +97,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("reason", nargs="+")
 
     ideas(sub.add_parser("board", help="regenerate BOARD.md and LOG.md"))
+    ideas(sub.add_parser("publish", help="commit and push pending idea changes"))
     return parser
 
 
@@ -303,7 +304,10 @@ def _publish(root: Path, idea_path: Path, paths: list[Path], message: str, today
     try:
         sync.publish(root, paths, message, today)
     except sync.SyncError as exc:
-        raise sync.SyncError(f"saved locally as {idea_path}, but publishing failed: {exc}") from exc
+        hint = "" if sync.PUBLISH_HINT in str(exc) else f"; once that is fixed, {sync.PUBLISH_HINT}"
+        raise sync.SyncError(
+            f"saved locally as {idea_path}, but publishing failed: {exc}{hint}"
+        ) from exc
 
 
 def _apply(args) -> int:
@@ -353,6 +357,11 @@ def _apply(args) -> int:
         known_ids=known,
         today=today,
     )
+    restate = run / "restate.json"
+    if restate.is_file():
+        restated = _load_json(restate, dict).get("restated")
+        _need(isinstance(restated, str), "restate.json", "restated must be a string")
+        idea.sections["Restated"] = restated
     idea.sections["Closest work"] = render.closest_section(judge, records, dropped)
     idea.sections["Fit with your work"] = judge.get("fit", "")
     product = render.product_section(judge)
@@ -418,7 +427,7 @@ def _dispatch(args: argparse.Namespace) -> int:
             print(json.dumps(similar.similar(" ".join(args.text), ideas, args.k)))
             return 0
         case "restate":
-            idea = _load_idea(args.ideas, args.id)
+            _load_idea(args.ideas, args.id)
             data = _json_arg(args.json)
             if not isinstance(data, dict) or not isinstance(data.get("restated"), str):
                 print('heuresis: --json needs {"restated": str, "queries": [str]}', file=sys.stderr)
@@ -426,9 +435,9 @@ def _dispatch(args: argparse.Namespace) -> int:
             run = _run_dir(args.ideas, args.id)
             for stale in (*run.glob("scout-*.json"), *(run / n for n in RUN_FILES)):
                 stale.unlink(missing_ok=True)
+            # The idea file changes only at apply, which commits it; an uncommitted edit here
+            # would block every later publish once the remote moves.
             (run / "restate.json").write_text(json.dumps(data, indent=2, ensure_ascii=False))
-            idea.sections["Restated"] = data["restated"]
-            store.save(args.ideas, idea)
             return 0
         case "search":
             return _search(args)
@@ -444,6 +453,9 @@ def _dispatch(args: argparse.Namespace) -> int:
             return _override(args)
         case "board":
             board.write(args.ideas, dt.date.today())
+            return 0
+        case "publish":
+            print(sync.publish(args.ideas, [], "publish: pending idea changes", dt.date.today()))
             return 0
     raise AssertionError(f"unhandled command {args.command}")
 

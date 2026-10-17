@@ -551,3 +551,52 @@ def test_apply_refuses_a_pool_json_edited_after_pool_ran(tmp_path: Path, capsys)
     assert _apply(ideas, idea_id) == 1
     assert "pool.json changed since pool ran; run pool again" in capsys.readouterr().err
     assert path.read_text() == before
+
+
+def _status(ideas: Path, *paths: str) -> str:
+    cmd = ["git", "-C", str(ideas), "status", "--porcelain", "--", *paths]
+    return subprocess.run(cmd, capture_output=True, text=True, check=True).stdout
+
+
+def test_restate_writes_only_the_run_file_and_apply_copies_the_restatement(
+    tmp_path: Path, capsys, monkeypatch
+):
+    ideas = init_ideas(tmp_path)
+    idea_id, run = _triaged(ideas, capsys)
+    before = (ideas / "ideas" / f"{idea_id}.md").read_text()
+    _stdin(monkeypatch, json.dumps({"restated": "A neutral restatement.", "queries": []}))
+    assert cli.main(["restate", "--ideas", str(ideas), "--id", idea_id, "--json", "-"]) == 0
+    assert _status(ideas, f"ideas/{idea_id}.md") == ""
+    assert (ideas / "ideas" / f"{idea_id}.md").read_text() == before
+    _scout(run, "papers", [])
+    assert cli.main(["pool", "--ideas", str(ideas), "--id", idea_id]) == 0
+    (run / "judge.json").write_text(json.dumps({"closest": None, "verdict": {"state": "later"}}))
+    (run / "verify.json").write_text("{}")
+    assert _apply(ideas, idea_id) == 0
+    assert (
+        "## Restated\n\nA neutral restatement." in (ideas / "ideas" / f"{idea_id}.md").read_text()
+    )
+
+
+def test_publish_command_pushes_an_idea_a_failed_capture_left_behind(tmp_path: Path, capsys):
+    ideas = init_ideas(tmp_path)
+    for step in (["add", "-A"], ["commit", "-qm", "init: ideas repository"]):  # setup's runbook
+        subprocess.run(["git", "-C", str(ideas), *step], check=True)
+    remote = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True)
+    subprocess.run(["git", "-C", str(ideas), "remote", "add", "origin", str(remote)], check=True)
+    _capture(ideas, capsys)
+    subprocess.run(["git", "-C", str(ideas), "checkout", "-q", "-b", "side"], check=True)
+    capsys.readouterr()
+    assert cli.main(["capture", "--ideas", str(ideas), "Left behind"]) == 1
+    assert "heuresis publish" in capsys.readouterr().err
+    subprocess.run(["git", "-C", str(ideas), "checkout", "-q", "main"], check=True)
+    assert cli.main(["publish", "--ideas", str(ideas)]) == 0
+    tree = subprocess.run(
+        ["git", "-C", str(remote), "ls-tree", "-r", "--name-only", "main"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert any(line.endswith("left-behind.md") for line in tree.splitlines())
+    assert _status(ideas) == ""

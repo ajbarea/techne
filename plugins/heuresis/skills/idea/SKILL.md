@@ -14,7 +14,7 @@ Every command below starts with:
 `env UV_PROJECT_ENVIRONMENT=${CLAUDE_PLUGIN_DATA}/venv uv run --quiet --directory ${CLAUDE_PLUGIN_ROOT} python -m heuresis`
 (written `heuresis` below). Pass `IDEAS` and `REPOS` as absolute paths.
 
-A failing command prints `heuresis: <message>` on stderr and exits 1 (exit 2 for a rejected argument). Report the message to AJ and stop; do not retry the same command blindly. If the message says the idea was saved locally but publishing failed, tell AJ the idea is safe on disk and what the publish error was.
+A failing command prints `heuresis: <message>` on stderr and exits 1 (exit 2 for a rejected argument). Report the message to AJ and stop; do not retry the same command blindly. If the message says the idea was saved locally but publishing failed, tell AJ the idea is safe on disk and what the publish error was. Once AJ has fixed the cause, `heuresis publish --ideas IDEAS` commits and pushes every pending change under `ideas/` and `runs/`.
 
 ## Pick the mode
 
@@ -31,7 +31,7 @@ heuresis restate --ideas IDEAS --id <id> --json - <<'JSON'
 {"restated": "...", "queries": ["...", "..."]}
 JSON
 ```
-   Restate starts a fresh run: it deletes the previous run's scout, pool, judge and verify files.
+   Restate starts a fresh run: it deletes the previous run's scout, pool, judge and verify files. It writes only `runs/<id>/restate.json`; apply copies the restatement into the idea file.
 2. **Scout in parallel.** In one message, dispatch four Agent calls with `subagent_type` `heuresis:scout-papers`, `heuresis:scout-patents`, `heuresis:scout-products` and `heuresis:scout-context`. Give each `IDEAS`, `REPOS`, the id, the restatement and queries. Do not pass AJ's original wording or any opinion about the idea.
 3. **Pool.** `heuresis pool --ideas IDEAS --id <id> > /dev/null`. Pool numbers the records afresh and deletes any earlier judge.json and verify.json, so the judge and verify always run after it.
 4. **Judge.** Dispatch `heuresis:judge` with `IDEAS`, the id and the context scout's reply.

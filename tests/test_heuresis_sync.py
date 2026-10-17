@@ -122,17 +122,31 @@ def test_unstaged_edit_with_unmoved_origin_pushes(tmp_path: Path):
     assert "wip" in y.read_text()
 
 
-def test_unstaged_edit_with_moved_origin_names_the_path_and_keeps_commit(tmp_path: Path):
+def test_unstaged_edit_outside_ideas_with_moved_origin_names_the_path_and_keeps_commit(
+    tmp_path: Path,
+):
     a, b = clone_pair(tmp_path)
-    sync.publish(a, add(a, "y"), "capture y", TODAY)
-    git(b, "pull", "-q", "origin", "main")
+    notes = a / "projects.toml"
     sync.publish(b, add(b, "z"), "capture z", TODAY)
-    y = a / "ideas" / "y.md"
-    y.write_text(y.read_text() + "\nwip\n")
-    with pytest.raises(sync.SyncError, match=r"uncommitted changes in ideas/y\.md"):
+    notes.write_text("# wip\n")
+    with pytest.raises(sync.SyncError, match=r"uncommitted changes in projects\.toml") as err:
         sync.publish(a, add(a, "x"), "capture x", TODAY)
+    assert "commit or discard them, then run `heuresis publish`" in str(err.value)
+    assert "stash" not in str(err.value)
     assert "capture x" in git(a, "log", "--oneline", "-1")
-    assert "wip" in y.read_text()
+    assert "wip" in notes.read_text()
+
+
+def test_publish_picks_up_an_idea_file_an_earlier_publish_left_behind(tmp_path: Path):
+    a, b = clone_pair(tmp_path)
+    sync.publish(b, add(b, "z"), "capture z", TODAY)
+    add(a, "left-behind")
+    (a / "runs" / "left-behind").mkdir(parents=True)
+    (a / "runs" / "left-behind" / "restate.json").write_text("{}")
+    assert sync.publish(a, [], "publish", TODAY) == "pushed"
+    tree = git(tmp_path / "remote.git", "ls-tree", "-r", "--name-only", "main")
+    assert "ideas/left-behind.md" in tree and "runs/left-behind/restate.json" in tree
+    assert not git(a, "status", "--porcelain")
 
 
 def test_rejected_push_that_is_not_a_race_fails_at_once(tmp_path: Path):

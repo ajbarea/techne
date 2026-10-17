@@ -42,6 +42,8 @@ Run `/heuresis:setup` once first. It creates the ideas repository and checks the
 5. **Verify.** A script checks that every quote appears in its record, and fetches the source again where it can. A record whose quote fails is dropped. If the closest rival's quote fails, the judge runs again once without it.
 6. **Apply.** A script enforces the rules, writes the verdict into the idea file, regenerates `BOARD.md` and `LOG.md`, and commits and pushes the ideas repository.
 
+If a capture or apply cannot push, the idea stays saved on disk and the message names the cause. Fix it; the next capture or triage publishes every pending change under `ideas/` and `runs/`, and the `heuresis publish` command does the same on its own.
+
 The skill reports four lines: the state, type and project; the closest rival with its link; the reason; the next step.
 
 ## The rules

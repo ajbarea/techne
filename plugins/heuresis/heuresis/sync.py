@@ -11,6 +11,9 @@ from heuresis import board
 
 # A push that loses a race refetches and rebases; three races in a row is a real problem.
 PUSH_ATTEMPTS = 3
+# Always committed whole, so an idea a failed publish left behind goes out with the next one.
+OWNED = ("ideas", "runs")
+PUBLISH_HINT = "run `heuresis publish`"
 
 
 class SyncError(Exception):
@@ -30,8 +33,15 @@ def _git(root: Path, *args: str, check: bool = True) -> subprocess.CompletedProc
     return done
 
 
+def _known(root: Path, rel: str) -> bool:
+    """git can add the path: something tracked or untracked-and-not-ignored is under it."""
+    listed = _git(root, "ls-files", "-co", "--exclude-standard", "--", rel).stdout
+    return bool(listed.strip())
+
+
 def _commit(root: Path, paths: list[Path], message: str) -> None:
     rel = [str(p.relative_to(root)) for p in paths]
+    rel += [name for name in OWNED if name not in rel and _known(root, name)]
     _git(root, "add", "--", *rel)
     if _git(root, "diff", "--cached", "--quiet", "--", *rel, check=False).returncode:
         _git(root, "commit", "-q", "-m", message, "--only", "--", *rel)
@@ -66,7 +76,9 @@ def _rebase(root: Path, branch: str) -> None:
     dirty = _git(root, "status", "--porcelain", "--untracked-files=no").stdout.splitlines()
     if dirty:
         paths = ", ".join(line[3:] for line in dirty)
-        raise SyncError(f"uncommitted changes in {paths}; commit or stash them, then publish again")
+        raise SyncError(
+            f"uncommitted changes in {paths}; commit or discard them, then {PUBLISH_HINT}"
+        )
     done = _git(root, "rebase", f"origin/{branch}", check=False)
     try:
         _resolve_generated_conflicts(root, branch, done)
