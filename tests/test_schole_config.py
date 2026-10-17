@@ -1,3 +1,4 @@
+import contextlib
 import json
 import stat
 
@@ -192,12 +193,18 @@ def saved_file(base):
     return config.profile(base) / cli.SESSION
 
 
-def test_only_the_sites_session_cookies_are_kept_privately(tmp_path):
+@pytest.fixture
+def accepted(monkeypatch):
+    """The site accepts the session; reading cookies off a closed browser still raises."""
+    monkeypatch.setattr(cli, "signed_in", lambda ctx, site: ctx.cookies() is not None)
+
+
+def test_only_the_sites_session_cookies_are_kept_privately(tmp_path, accepted):
     saved = tmp_path / cli.SESSION
     cli.keep_session(CookieJar([SESSION, PARENT, SSO, LASTING]), saved, SITE)
     assert stat.S_IMODE(saved.stat().st_mode) == 0o600
     fresh = CookieJar()
-    assert cli.restore_session(fresh, saved, SITE)
+    cli.restore_session(fresh, saved, SITE)
     assert fresh.jar == [SESSION, PARENT]
 
 
@@ -207,11 +214,11 @@ def test_missing_or_bad_session_file_adds_nothing(tmp_path, body):
     if body is not None:
         saved.write_text(body)
     fresh = CookieJar()
-    assert cli.restore_session(fresh, saved, SITE)
+    cli.restore_session(fresh, saved, SITE)
     assert fresh.jar == []
 
 
-def test_browser_restores_before_use_and_keeps_on_close(tmp_path, monkeypatch):
+def test_browser_restores_before_use_and_keeps_on_close(tmp_path, monkeypatch, accepted):
     saved_file(tmp_path).write_text(json.dumps([SESSION]))
     ctx = CookieJar()
     fake_playwright(monkeypatch, ctx)
@@ -223,29 +230,55 @@ def test_browser_restores_before_use_and_keeps_on_close(tmp_path, monkeypatch):
     assert json.loads(saved_file(tmp_path).read_text()) == [SESSION, rotated]
 
 
-def test_refused_restore_keeps_the_saved_file(tmp_path, monkeypatch, capsys):
-    body = json.dumps([SESSION])
-    saved_file(tmp_path).write_text(body)
-    fake_playwright(monkeypatch, CookieJar(refuse=True))
-    with cli.browser(tmp_path, SITE, headless=True):
-        pass
-    assert saved_file(tmp_path).read_text() == body
+def test_fresh_sign_in_replaces_a_refused_file(tmp_path, monkeypatch, capsys, accepted):
+    saved_file(tmp_path).write_text(json.dumps([SESSION]))
+    fresh = cookie("d2lSessionVal", "lms.example.edu")
+    fresh["value"] = "new"
+    ctx = CookieJar(refuse=True)
+    fake_playwright(monkeypatch, ctx)
+    with cli.browser(tmp_path, SITE, headless=False):
+        ctx.jar.append(fresh)
     assert "could not restore the saved sign-in" in capsys.readouterr().err
+    assert json.loads(saved_file(tmp_path).read_text()) == [fresh]
 
 
-def test_closed_browser_keeps_the_saved_file(tmp_path, monkeypatch):
+@pytest.mark.parametrize("outcome", ["ended", "site down", "window closed", "run failed"])
+def test_unconfirmed_session_keeps_the_saved_file(tmp_path, monkeypatch, outcome):
     body = json.dumps([SESSION])
     saved_file(tmp_path).write_text(body)
     ctx = CookieJar()
     fake_playwright(monkeypatch, ctx)
-    with cli.browser(tmp_path, SITE, headless=False):
-        ctx.closed = True
+
+    def signed_in(c, site):
+        if outcome == "site down":
+            raise cli.d2l.SiteError("enrollments returned HTTP 503")
+        c.cookies()
+        return outcome != "ended"
+
+    monkeypatch.setattr(cli, "signed_in", signed_in)
+    with contextlib.suppress(KeyboardInterrupt), cli.browser(tmp_path, SITE, headless=True):
+        ctx.jar.append(cookie("other", "lms.example.edu"))
+        if outcome == "window closed":
+            ctx.closed = True
+        if outcome == "run failed":
+            raise KeyboardInterrupt
+    assert ctx.closed
     assert saved_file(tmp_path).read_text() == body
 
 
-def test_unwritable_profile_warns_instead_of_raising(tmp_path, capsys):
+def test_unwritable_profile_warns_instead_of_raising(tmp_path, capsys, accepted):
     cli.keep_session(CookieJar([SESSION]), tmp_path / "gone" / cli.SESSION, SITE)
     assert "could not save the sign-in" in capsys.readouterr().err
+
+
+def test_private_write_follows_a_symlink(tmp_path):
+    target = tmp_path / "dotfiles.toml"
+    target.write_text("old")
+    link = tmp_path / "schole.toml"
+    link.symlink_to(target)
+    config.write_private(link, "new")
+    assert link.is_symlink()
+    assert target.read_text() == "new"
 
 
 def test_interrupted_private_write_leaves_no_partial_file(tmp_path, monkeypatch):

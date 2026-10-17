@@ -106,12 +106,15 @@ def save(base: Path, cfg: Config) -> None:
 
 
 def write_private(path: Path, data: str) -> None:
-    """Write data atomically at 0600; an interrupted write leaves no partial file."""
+    """Write data atomically at 0600 (mkstemp's mode), through a symlink to its target; an
+    interrupted write leaves no partial file."""
+    path = Path(os.path.realpath(path))
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
     try:
-        os.chmod(tmp, 0o600)
         with os.fdopen(fd, "w") as fh:
             fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
         os.replace(tmp, path)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)

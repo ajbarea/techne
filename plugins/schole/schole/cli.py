@@ -50,14 +50,11 @@ def browser(base: Path, site: str, headless: bool) -> Iterator[Any]:
             str(profile), headless=headless, channel="chromium", args=ARGS
         )
         try:
-            restored = restore_session(ctx, saved, site)
+            restore_session(ctx, saved, site)
             yield ctx
+            keep_session(ctx, saved, site)
         finally:
-            try:
-                if restored:
-                    keep_session(ctx, saved, site)
-            finally:
-                ctx.close()
+            ctx.close()
 
 
 def site_session(cookies: Any, site: str) -> list[dict]:
@@ -73,15 +70,14 @@ def site_session(cookies: Any, site: str) -> list[dict]:
     return out
 
 
-def restore_session(ctx: Any, path: Path, site: str) -> bool:
-    """Add back the site's session cookies the last run kept. False when the browser refused
-    them, so the caller keeps the file rather than overwrite it with an empty session."""
+def restore_session(ctx: Any, path: Path, site: str) -> None:
+    """Add back the site's session cookies the last run kept; a missing or bad file adds none."""
     try:
         cookies = site_session(json.loads(path.read_text()), site)
     except (OSError, ValueError):
-        return True
+        return
     if not cookies:
-        return True
+        return
     try:
         ctx.add_cookies(cookies)
     except Exception as exc:
@@ -90,14 +86,17 @@ def restore_session(ctx: Any, path: Path, site: str) -> bool:
         print(
             f"schole: could not restore the saved sign-in: {browser_failure(exc)}", file=sys.stderr
         )
-        return False
-    return True
 
 
 def keep_session(ctx: Any, path: Path, site: str) -> None:
-    """Save the site's session cookies, readable by the user only. A closed browser saves none."""
+    """Save the site's session cookies, readable by the user only, once the site accepts them.
+    An ended session, a failing site or a closed browser leaves the saved file as it was."""
     try:
+        if not signed_in(ctx, site):
+            return
         cookies = site_session(ctx.cookies(), site)
+    except d2l.SiteError:
+        return
     except Exception as exc:
         if not is_browser_error(exc):
             raise
