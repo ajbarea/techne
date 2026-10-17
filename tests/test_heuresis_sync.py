@@ -25,6 +25,12 @@ def configure(repo: Path) -> None:
     git(repo, "config", "commit.gpgsign", "false")
 
 
+def layout(repo: Path) -> None:
+    """The files that mark a folder as a heuresis ideas repository."""
+    (repo / "ideas").mkdir(parents=True, exist_ok=True)
+    (repo / "projects.toml").write_text("")
+
+
 def clone_pair(tmp_path: Path) -> tuple[Path, Path]:
     remote = tmp_path / "remote.git"
     subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True)
@@ -34,7 +40,7 @@ def clone_pair(tmp_path: Path) -> tuple[Path, Path]:
             ["git", "clone", "-q", str(remote), str(repo)], check=True, capture_output=True
         )
         configure(repo)
-    (a / "ideas").mkdir()
+    layout(a)
     board.write(a, TODAY)
     git(a, "add", "-A")
     git(a, "commit", "-qm", "init")
@@ -58,6 +64,7 @@ def test_publish_without_remote_commits_locally(tmp_path: Path):
     repo = tmp_path / "solo"
     subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
     configure(repo)
+    layout(repo)
     assert sync.publish(repo, add(repo, "a"), "capture a", TODAY) == "local"
     assert "capture a" in git(repo, "log", "--oneline")
 
@@ -68,6 +75,7 @@ def test_publish_to_an_empty_remote_pushes_and_sets_upstream(tmp_path: Path):
     repo = tmp_path / "repo"
     subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
     configure(repo)
+    layout(repo)
     git(repo, "remote", "add", "origin", str(remote))
     assert sync.publish(repo, add(repo, "a"), "capture a", TODAY) == "pushed"
     assert "capture a" in git(remote, "log", "--oneline", "main")
@@ -198,3 +206,27 @@ def test_non_main_branch_is_refused(tmp_path: Path):
     git(a, "checkout", "-q", "-b", "topic")
     with pytest.raises(sync.SyncError, match="publishes from main; current branch is topic"):
         sync.publish(a, add(a, "x"), "capture x", TODAY)
+
+
+def test_an_ideas_folder_inside_another_repo_is_refused(tmp_path: Path):
+    a, _ = clone_pair(tmp_path)
+    nested = a / "private"
+    layout(nested)
+    before = git(tmp_path / "remote.git", "rev-parse", "main")
+    paths = add(nested, "secret")
+    with pytest.raises(sync.SyncError, match=r"private is not a heuresis ideas repository"):
+        sync.publish(nested, paths, "capture secret", TODAY)
+    assert git(tmp_path / "remote.git", "rev-parse", "main") == before
+    assert not (nested / "BOARD.md").exists()
+    assert "secret" not in git(a, "log", "--all", "--name-only")
+
+
+def test_a_repo_without_the_ideas_layout_is_refused(tmp_path: Path, monkeypatch):
+    a, _ = clone_pair(tmp_path)
+    (a / "projects.toml").unlink()
+    with pytest.raises(sync.SyncError, match="is not a heuresis ideas repository"):
+        sync.publish(a, add(a, "x"), "capture x", TODAY)
+    assert not git(a, "status", "--porcelain", "--", "BOARD.md")
+    layout(a)
+    monkeypatch.setenv("GIT_DIR", str(tmp_path / "remote.git"))
+    assert sync.publish(a, [], "capture x", TODAY) == "pushed"

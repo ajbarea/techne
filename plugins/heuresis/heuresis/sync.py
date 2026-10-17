@@ -17,8 +17,13 @@ class SyncError(Exception):
     """Publishing stopped and needs AJ: the local commit is kept, the rebase is aborted."""
 
 
+# Either one would point git at another repository than the ideas folder it is run in.
+_REPO_OVERRIDES = ("GIT_DIR", "GIT_WORK_TREE")
+
+
 def _git(root: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
-    env = {**os.environ, "GIT_EDITOR": "true", "LC_ALL": "C", "LANG": "C"}
+    env = {k: v for k, v in os.environ.items() if k not in _REPO_OVERRIDES}
+    env.update(GIT_EDITOR="true", LC_ALL="C", LANG="C")
     done = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, env=env)
     if check and done.returncode:
         raise SyncError(f"git {' '.join(args)} failed: {done.stderr.strip()}")
@@ -77,6 +82,11 @@ _IN_PROGRESS = (
 
 
 def _preflight(root: Path) -> str:
+    # A folder nested in another repo would commit and push private ideas to that repo's origin.
+    top = _git(root, "rev-parse", "--show-toplevel", check=False)
+    own = not top.returncode and Path(top.stdout.strip()).resolve() == root.resolve()
+    if not (own and (root / "ideas").is_dir() and (root / "projects.toml").is_file()):
+        raise SyncError(f"{root} is not a heuresis ideas repository")
     for names, what in _IN_PROGRESS:
         for name in names:
             marker = _git(root, "rev-parse", "--git-path", name).stdout.strip()
