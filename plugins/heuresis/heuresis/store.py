@@ -46,7 +46,7 @@ _HEADING = re.compile(r"^## (.+?)[ \t]*$", re.MULTILINE)
 VERDICT_HEADING = re.compile(r"^### (\d{4}-\d{2}-\d{2}) · (triage|override) · (\w+)$", re.MULTILINE)
 _CLOSING_FENCE = re.compile(r"\n---[ \t]*\n")
 NEEDS_TYPE = ("do", "building", "shipped")
-# The idea text is AJ's, verbatim, so it may hold any heading; markers fence it off from the
+# The idea text is the user's, verbatim, so it may hold any heading; markers fence it off from the
 # section split. GitHub hides HTML comments when rendering.
 IDEA_START, IDEA_END = "<!-- idea:start -->", "<!-- idea:end -->"
 
@@ -160,12 +160,12 @@ def _sections(body: str, title: str) -> dict[str, str]:
         end = matches[i + 1].start() if i + 1 < len(matches) else len(body)
         name, text = match.group(1), body[match.end() : end].strip("\n")
         if in_notes:
-            # Notes renders last, so a heading below it is AJ's, even one named like a section
+            # Notes renders last, so a heading below it is the user's, even one named like a section
             # heuresis rewrites or deletes.
             notes.append(body[match.start() : end])
         elif name == NOTES or (name == "Idea" and marked):
             in_notes = in_notes or name == NOTES
-            notes.append(text)  # the heading is rendered; the text under it is AJ's
+            notes.append(text)  # the heading is rendered; the text under it is the user's
         elif name in SECTIONS and name not in sections:
             sections[name] = text
         else:
@@ -286,7 +286,7 @@ def add_verdict(idea: Idea, v: Verdict) -> None:
     idea.state = v.state
     if v.origin == "triage":  # a triage judges the idea afresh, so what it leaves out is cleared
         idea.type, idea.project = v.type, v.project
-    else:  # an override changes only what AJ passed
+    else:  # an override changes only what the user passed
         idea.type = v.type or idea.type
         idea.project = v.project or idea.project
     idea.duplicate_of = v.duplicate_of

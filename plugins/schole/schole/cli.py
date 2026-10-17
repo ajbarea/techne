@@ -22,10 +22,12 @@ NEEDS_LOGIN = "needs login: run !schole-login in Claude Code, or schole-login in
 SESSION = "session-cookies.json"  # in the profile; Chromium drops session cookies on close
 # (its restore-last-session preference would keep them but reopen the last tab on every run)
 EXIT_CODES = """exit codes:
-  0  done
-  1  no or bad schole.toml, or sign-in not finished
-  3  needs login: run !schole-login
-  4  the site or the browser failed; the line names the fix"""
+  0    done
+  1    no or bad schole.toml, or sign-in not finished
+  2    a bad option
+  3    needs login: run !schole-login
+  4    the site or the browser failed; the line names the fix
+  127  uv is not on PATH"""
 LOGIN_EPILOG = f"""examples:
   schole-login --site https://mycourses.example.edu --term 2261 --timezone America/New_York
   schole-login               sign in again with the saved settings
@@ -34,7 +36,7 @@ LOGIN_EPILOG = f"""examples:
 {EXIT_CODES}"""
 SWEEP_EPILOG = f"""examples:
   schole-sweep                              the last 24 hours
-  schole-sweep --since "$(date -d monday +%s)"
+  schole-sweep --since "$(date -d '7 days ago' +%s)"   (macOS: date -v-7d +%s)
 
 output lines: OK, APIFAIL, ANNOUNCE, CONTENT, DUE, PASTDUE (see /schole:courses)
 
@@ -198,7 +200,7 @@ def login(args: argparse.Namespace) -> int:
 def last_confirmed(base: Path, cfg: config.Config) -> str:
     """When the site last accepted the saved session, as a suffix for the needs-login line."""
     try:
-        when = (base / "profile" / SESSION).stat().st_mtime
+        when = (config.profile(base) / SESSION).stat().st_mtime
     except OSError:
         return ""
     stamp = datetime.fromtimestamp(when, config.zone(cfg)).strftime("%a %b %d %H:%M %Z")

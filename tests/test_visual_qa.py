@@ -60,7 +60,8 @@ def test_visual_qa_flags_the_broken_page_only(site, tmp_path):
     for device in ("wide", "desktop", "phone"):
         clean, broken = report[f"clean.html light {device}"], report[f"broken.html light {device}"]
         assert clean["contrastCount"] == 0 and clean["overflow"] <= 1
-        assert broken["contrastCount"] >= 1, "the bundled axe-core did not run"
+        assert "axeError" not in clean and "axeError" not in broken, "axe-core did not load"
+        assert broken["contrastCount"] >= 1
         assert clean["duplicateMeta"] == [] and broken["duplicateMeta"] == ["og:title"]
     assert report["broken.html light phone"]["overflow"] > 1
     assert (out / "broken.html-sheet.png").exists()

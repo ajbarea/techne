@@ -838,3 +838,24 @@ def test_alt_text_is_cut_at_a_word(sl):
     alt = sl._alt_text("Title", "word " * 1000, 1)
     assert len(alt) <= sl.ALT_MAX and alt.endswith("word\u2026")
     assert sl._alt_text("", "", 3) == "Slide 3"
+
+
+@needs_browser
+@pytest.mark.parametrize(
+    ("viewport_tag", "width", "sideways"),
+    [(True, 1000, True), (True, 300, False), (False, 300, False), (False, 1500, False)],
+)
+def test_the_sideways_check_fires_only_when_a_phone_pans(sl, viewport_tag, width, sideways):
+    """A page with a viewport tag and content wider than the phone pans; a page without one is
+    zoomed out to fit, so it does not."""
+    from playwright.sync_api import sync_playwright  # ty: ignore[unresolved-import]
+
+    meta = "<meta name=viewport content='width=device-width,initial-scale=1'>" * viewport_tag
+    page_html = f"<!doctype html><head>{meta}</head><body><div style='width:{width}px'>x</div>"
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        ctx = browser.new_context(viewport=sl.PHONE, is_mobile=True, has_touch=True)
+        page = ctx.new_page()
+        page.set_content(page_html)
+        assert page.evaluate(sl._SIDEWAYS) is sideways
+        browser.close()

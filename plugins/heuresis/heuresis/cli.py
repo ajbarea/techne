@@ -63,7 +63,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--text", help="the idea text, or - to read it from stdin")
     p.add_argument("words", nargs="*", metavar="text")
 
-    p = ideas(sub.add_parser("context", help="list AJ's research sources that exist"))
+    p = ideas(sub.add_parser("context", help="list the user's research sources that exist"))
     p.add_argument("--repos-root", type=Path, required=True)
 
     p = ideas(sub.add_parser("similar", help="earlier ideas sharing words with TEXT"))
@@ -91,7 +91,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = ideas(sub.add_parser("apply", help="enforce the rules and record the verdict"), True)
     p.add_argument("--today", type=dt.date.fromisoformat, default=None)
 
-    p = ideas(sub.add_parser("override", help="record AJ's own decision"))
+    p = ideas(sub.add_parser("override", help="record the user's own decision"))
     p.add_argument("idea_id")
     p.add_argument("state", choices=STATES)
     p.add_argument("--type", choices=TYPES)

@@ -24,7 +24,7 @@ BATCH_SSH = "ssh -o BatchMode=yes -o ConnectTimeout=5"
 
 
 class SyncError(Exception):
-    """Publishing stopped and needs AJ: the local commit is kept, the rebase is aborted."""
+    """Publishing stopped and needs the user: the local commit is kept, the rebase is aborted."""
 
 
 # Either one would point git at another repository than the ideas folder it is run in.

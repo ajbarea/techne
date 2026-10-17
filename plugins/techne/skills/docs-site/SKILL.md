@@ -32,7 +32,7 @@ The injected `## docs_site` section (if present) supplies this repo's CSS file l
 
 Run as many in parallel as the scope calls for:
 
-1. **Nav vs filesystem.** Parse `zensical.toml` `nav` (sections may be nested); `Glob` `docs/**/*.md`. Every nav entry must exist as a file; every `.md` under `docs/` must appear in nav. Zensical publishes every file there unless `exclude_docs` or `not_in_nav` (0.0.70+) or the `exclude` plugin (0.0.67+) says otherwise, and a page left out of nav is still deployed, unreachable. Working notes (plans, specs, handoffs) belong outside `docs/`. Report missing-in-nav and missing-on-disk separately.
+1. **Nav vs filesystem.** Parse `zensical.toml` `nav` (sections may be nested); `Glob` `docs/**/*.md`. Every nav entry must exist as a file; every `.md` under `docs/` must appear in nav, since a page left out of nav is still deployed, unreachable. Zensical can hold pages back (`exclude_docs` and `not_in_nav` from 0.0.70, the `exclude` plugin from 0.0.67), but the shared `test_docs_nav.py` does not read those settings, so working notes (plans, specs, handoffs) belong outside `docs/`. Report missing-in-nav and missing-on-disk separately.
 
 2. **Internal links.** `Grep` markdown link targets (`](foo.md)`, `](foo.md#bar)`) across `docs/**/*.md`. For each: check the file exists, and if an anchor is specified, `Grep` the target file for a heading that would produce that slug (lowercase, spaces → `-`, strip punctuation).
 

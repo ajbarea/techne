@@ -1049,8 +1049,9 @@ _SMALLEST_TEXT = """([i, per]) => {
   return {px, sample};
 }"""
 
-# innerWidth grows to the content width on a phone, so it can never show the overflow.
-_SIDEWAYS = "document.documentElement.scrollWidth > document.documentElement.clientWidth + 1"
+# What the reader sees is the visual viewport: innerWidth grows to the content width on a
+# phone, and a page with no viewport tag is zoomed out to fit, so neither scrolls sideways.
+_SIDEWAYS = "document.documentElement.scrollWidth > visualViewport.width + 1"
 _VIEWPORT_META = "!!document.querySelector('meta[name=viewport]')"
 # Chromium logs this for every failed load, which the asset gate already reports by URL.
 _LOAD_FAILED = "Failed to load resource"

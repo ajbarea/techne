@@ -113,7 +113,7 @@ Pattern sources (quote slop on purpose; deslop's glossary grep skips them):
 
 - `plugins/*/_shared/hate-words.md`, `plugins/*/_shared/plain-prose.md`
 - `plugins/techne/skills/{deslop,reslop,docsync,research-grounded}/SKILL.md`
-- `plugins/techne/evals/behavior-deslop/`
+- `plugins/techne/evals/behavior-deslop*/`
 - `tests/test_prose_check.py`
 
 Subagent scan-area split:

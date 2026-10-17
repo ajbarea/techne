@@ -24,6 +24,7 @@ and the axe-core that axe-playwright-python bundles, so a run needs no network.
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import re
 import sys
@@ -80,8 +81,9 @@ MEASURE = r"""
   if (math) raw.push(`${math} unrendered math`);
   return {
     scheme,
-    // innerWidth grows to the content width on a phone; clientWidth stays the viewport's.
-    overflow: document.scrollingElement.scrollWidth - document.documentElement.clientWidth,
+    // innerWidth grows to the content width on a phone. The visual viewport is what the
+    // reader sees: as wide as the content when a page with no viewport tag is zoomed to fit.
+    overflow: document.scrollingElement.scrollWidth - Math.round(visualViewport.width),
     surfaces: [...new Set(surfaces)].slice(0, 6),
     raw,
     brokenImages: [...document.images].filter((i) => i.complete && i.naturalWidth === 0)
@@ -120,6 +122,7 @@ def schemes_offered(page: Page) -> list[str]:
     return names or ["light"]
 
 
+@functools.cache
 def axe_source() -> str:
     from importlib import resources
 
@@ -147,7 +150,8 @@ def capture(page: Page, url: str, scheme: str, errors: list[str]) -> dict:
               .violations.flatMap((v) => v.nodes.map((n) => n.target.join(" ")))"""
         )
     except Exception as exc:  # a CSP or a missing axe package still gets the rest
-        axe = [f"axe unavailable: {exc.__class__.__name__}"]
+        axe = []
+        found["axeError"] = f"axe unavailable, contrast not checked: {exc.__class__.__name__}"
     found["contrast"] = axe[:8]
     found["contrastCount"] = len(axe)
     found["errors"] = sorted(set(errors))[:6]
@@ -253,6 +257,8 @@ def main() -> int:
             issues.append(f"wrong-scheme surfaces {f['surfaces']}")
         if f.get("contrastCount"):
             issues.append(f"{f['contrastCount']} low-contrast {f['contrast'][:3]}")
+        if f.get("axeError"):
+            issues.append(f["axeError"])
         for name in ("raw", "brokenImages", "duplicateMeta", "errors"):
             if f.get(name):
                 issues.append(f"{name} {f[name]}")
