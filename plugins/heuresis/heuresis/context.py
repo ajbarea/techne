@@ -84,6 +84,12 @@ def resolve_sources(context_toml: Path, projects: list[Project], repos_root: Pat
                 f"context.toml source {source['kind']!r} has path {source['path']!r}; "
                 "paths must be relative to the repo and contain no '..'"
             )
+        repo = str(source["repo"])
+        if repo != "*" and (repo in ("", ".", "..") or "/" in repo or "\\" in repo):
+            raise ValueError(
+                f"context.toml source {source['kind']!r} has repo {repo!r}; "
+                "a repo is one folder name under the repos root, or *"
+            )
     repo_names = sorted({p.repo for p in projects if p.kind == "repo" and p.repo})
     found = []
     for source in sources:

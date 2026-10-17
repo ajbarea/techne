@@ -106,3 +106,11 @@ def test_resolve_sources_rejects_absolute_and_parent_paths(tmp_path: Path, bad: 
     ctx.write_text(f'[[source]]\nkind = "notes"\nrepo = "papers"\npath = "{bad}"\n')
     with pytest.raises(ValueError, match="notes"):
         context.resolve_sources(ctx, [], tmp_path)
+
+
+@pytest.mark.parametrize("bad", ["/etc", "..", ".", "", "a/b", "a\\\\b", "../papers"])
+def test_resolve_sources_rejects_a_repo_that_is_not_one_name(tmp_path: Path, bad: str):
+    ctx = tmp_path / "context.toml"
+    ctx.write_text(f'[[source]]\nkind = "notes"\nrepo = "{bad}"\npath = "x.md"\n')
+    with pytest.raises(ValueError, match=r"context.toml source 'notes' has repo"):
+        context.resolve_sources(ctx, [], tmp_path)
