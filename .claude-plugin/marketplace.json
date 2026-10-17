@@ -1,7 +1,7 @@
 {
   "name": "techne",
-  "version": "1.3.0",
-  "description": "AJ's Claude Code plugins: code-repo skills, document builds, git guards, Gmail across accounts, Brightspace course sites, and a spoken Claude Code.",
+  "version": "1.4.0",
+  "description": "AJ's Claude Code plugins: code-repo skills (techne), document builds (graphe), bibliography verification (dokimasia), idea triage (heuresis), git guards (phylax), Gmail across accounts (epistole), Brightspace course sites (schole), and a spoken Claude Code (keryx).",
   "owner": {
     "name": "AJ",
     "email": "ajbareaa@gmail.com"
@@ -35,6 +35,12 @@
       "name": "epistole",
       "description": "Gmail across accounts for Claude Code: search, read and draft in every configured account, and send a draft only after you approve it.",
       "source": "./plugins/epistole",
+      "category": "productivity"
+    },
+    {
+      "name": "heuresis",
+      "description": "Idea triage: capture an idea, search papers, patents, products and your own work, and file it with a verdict grounded in checked records.",
+      "source": "./plugins/heuresis",
       "category": "productivity"
     },
     {

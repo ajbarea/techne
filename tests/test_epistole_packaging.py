@@ -6,7 +6,7 @@ import tomllib
 from pathlib import Path
 
 import pytest
-from conftest import DOCTOR_LIB, EMAIL, MACHINE_PATH, _load
+from conftest import DOCTOR_LIB, EMAIL, MACHINE_PATH, _load, locked_versions
 
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "epistole"
@@ -143,15 +143,8 @@ def test_no_personal_addresses_or_machine_paths_in_published_files():
 RUNTIME = ("mcp", "google-api-python-client", "google-auth", "google-auth-oauthlib")
 
 
-def _locked(path: Path) -> dict[str, set[str]]:
-    out: dict[str, set[str]] = {}
-    for pkg in tomllib.loads(path.read_text())["package"]:
-        out.setdefault(pkg["name"], set()).add(pkg.get("version", ""))
-    return out
-
-
 def test_root_and_plugin_locks_pin_the_same_runtime_versions():
-    root, plugin = _locked(ROOT / "uv.lock"), _locked(PLUGIN / "uv.lock")
+    root, plugin = locked_versions(ROOT / "uv.lock"), locked_versions(PLUGIN / "uv.lock")
     assert set(RUNTIME) <= set(plugin) and set(RUNTIME) <= set(root)
     shared = sorted((set(plugin) & set(root)) - {"epistole", "techne"})
     differ = {n: (plugin[n], root[n]) for n in shared if plugin[n] != root[n]}

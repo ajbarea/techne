@@ -20,6 +20,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tomllib
 import types
 from collections.abc import Iterable, Mapping
 
@@ -36,6 +37,7 @@ HYGIENE_SCRIPT = SKILLS / "sisters" / "scripts" / "hygiene.py"
 PROSE_SCRIPT = ROOT / "plugins" / "graphe" / "_shared" / "prose_check.py"
 DOKIMASIA_SCRIPT = ROOT / "plugins" / "dokimasia" / "skills" / "check" / "scripts" / "dokimasia.py"
 DOCTOR_LIB = ROOT / "plugins" / "techne" / "_shared" / "doctor_lib.py"
+SCHOLARLY_SCRIPT = ROOT / "plugins" / "techne" / "_shared" / "scholarly.py"
 
 # The doctors and hooks run on the user's system python3; `make test-hooks-oldest` sets this
 # to python3 3.9.
@@ -173,6 +175,14 @@ def _no_inherited_git_repo():
         for var in GIT_REPO_VARS:
             mp.delenv(var, raising=False)
         yield
+
+
+def locked_versions(lock: pathlib.Path) -> dict[str, set[str]]:
+    """Package name -> the versions a uv.lock pins for it."""
+    out: dict[str, set[str]] = {}
+    for pkg in tomllib.loads(lock.read_text())["package"]:
+        out.setdefault(pkg["name"], set()).add(pkg.get("version", ""))
+    return out
 
 
 def _load(name: str, path: pathlib.Path) -> types.ModuleType:

@@ -14,11 +14,13 @@ Techne is a collection of independent, composable skills that share conventions 
 
 **Review and collaboration.** `techne:catchup` reads every comment, review and state change on a repo since you last participated and reports who is blocked on whom; read-only. `techne:elenchus` is adversarial pre-merge review: it drives `/code-review`, then reproduces the load-bearing claim, traces every consumer across the repo, and walks a bug-class rubric.
 
-**Setup.** `techne:setup`, `graphe:setup` and `phylax:setup` each run a read-only doctor for their plugin and print the install command for anything missing; `epistole:setup` does the same for the Google sign-in.
+**Setup.** `techne:setup`, `graphe:setup`, `heuresis:setup` and `phylax:setup` each run a read-only doctor for their plugin and print the install command for anything missing; `epistole:setup` does the same for the Google sign-in.
 
 **Mail.** `epistole` runs a local Gmail MCP server that searches, reads and drafts in each configured account and sends a draft only after you approve it; `epistole:setup` guides the one-time Google sign-in. See [epistole](epistole.md).
 
 **Bibliographies.** `dokimasia:check` lints any `.bib` or hand-written `thebibliography`, resolves its identifiers against arXiv and Crossref, and checks that every cited key rendered in the built document; a failed lookup is reported apart from a wrong entry.
+
+**Ideas.** `heuresis` is a Python package with a command-line interface that the skills call. `heuresis:idea` dispatches four scout agents (papers, patents, products, your own work) and a judge agent, and the package pools their records, verifies every quote and enforces the verdict rules in code. Its search code is the shared `_shared/scholarly.py`, copied from techne and kept identical by `make guards`; `heuresis:setup` checks the tools and creates the ideas repository. See [`heuresis:idea`](skills/idea.md).
 
 **Documents and research.** `graphe:latex` builds a LaTeX document and gates it on its log, its PDF and the assignment it answers. `graphe:pdf` renders markdown to print-quality PDFs through Typst and verifies the words survived. `graphe:slides` starts a talk from an animated reveal.js web deck, gates it on titles, contrast, alt text, missing files and phone fit in a real browser, renders it, and publishes it on GitHub Pages; existing `.pptx` and PDF decks get the same text gates. `graphe:paper` scaffolds a paper directory in a papers-style monorepo, and `graphe:paper-review` runs a novelty and reviewer pass grounded in retrieved prior work.
 

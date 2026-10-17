@@ -1,0 +1,221 @@
+"""Commit idea changes and share them. BOARD.md and LOG.md are regenerated, never merged."""
+
+from __future__ import annotations
+
+import datetime as dt
+import os
+import signal
+import subprocess
+from pathlib import Path, PurePosixPath
+
+from heuresis import board
+
+# A push that loses a race refetches and rebases; three races in a row is a real problem.
+PUSH_ATTEMPTS = 3
+# Always committed whole, so an idea a failed publish left behind goes out with the next one.
+OWNED = ("ideas", "runs")
+PUBLISH_HINT = "run `heuresis publish`"
+# Capture's look at origin is a convenience: past this it gives up and uses the local ids.
+FETCH_TIMEOUT = 10
+# A fetch or push still running after a minute is a stalled network, not a slow one.
+NETWORK_TIMEOUT = 60
+# Without a prompt or a key passphrase to answer, ssh fails at once instead of waiting.
+BATCH_SSH = "ssh -o BatchMode=yes -o ConnectTimeout=5"
+
+
+class SyncError(Exception):
+    """Publishing stopped and needs AJ: the local commit is kept, the rebase is aborted."""
+
+
+# Either one would point git at another repository than the ideas folder it is run in.
+_REPO_OVERRIDES = ("GIT_DIR", "GIT_WORK_TREE")
+
+
+def _env(root: Path | None = None) -> dict[str, str]:
+    """git's environment; with root, also batch-mode ssh unless the user chose an ssh command."""
+    env = {k: v for k, v in os.environ.items() if k not in _REPO_OVERRIDES}
+    env.update(GIT_EDITOR="true", GIT_TERMINAL_PROMPT="0", LC_ALL="C", LANG="C")
+    if root is not None and not ({"GIT_SSH_COMMAND", "GIT_SSH"} & env.keys()):
+        chosen = subprocess.run(
+            ["git", "-C", str(root), "config", "--get", "core.sshCommand"],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        if not chosen.stdout.strip():
+            env["GIT_SSH_COMMAND"] = BATCH_SSH
+    return env
+
+
+def _git(
+    root: Path, *args: str, check: bool = True, timeout: float | None = None
+) -> subprocess.CompletedProcess:
+    # Its own process group, so a timeout also ends the ssh or credential helper git started.
+    proc = subprocess.Popen(
+        ["git", "-C", str(root), *args],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=_env(root if timeout is not None else None),
+        start_new_session=True,
+    )
+    try:
+        out, err = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        if hasattr(os, "killpg"):
+            os.killpg(proc.pid, signal.SIGKILL)
+        else:
+            proc.kill()
+        proc.communicate()
+        raise SyncError(f"git {args[0]} timed out after {timeout}s") from None
+    done = subprocess.CompletedProcess(proc.args, proc.returncode, out, err)
+    if check and done.returncode:
+        raise SyncError(f"git {' '.join(args)} failed: {done.stderr.strip()}")
+    return done
+
+
+def _known(root: Path, rel: str) -> bool:
+    """git can add the path: something tracked or untracked-and-not-ignored is under it."""
+    listed = _git(root, "ls-files", "-co", "--exclude-standard", "--", rel).stdout
+    return bool(listed.strip())
+
+
+def _commit(root: Path, paths: list[Path], message: str) -> None:
+    rel = [str(p.relative_to(root)) for p in paths]
+    rel += [name for name in OWNED if name not in rel and _known(root, name)]
+    _git(root, "add", "--", *rel)
+    if _git(root, "diff", "--cached", "--quiet", "--", *rel, check=False).returncode:
+        _git(root, "commit", "-q", "-m", message, "--only", "--", *rel)
+
+
+def _resolve_generated_conflicts(
+    root: Path, branch: str, done: subprocess.CompletedProcess
+) -> None:
+    while done.returncode:
+        out = _git(root, "diff", "--name-only", "-z", "--diff-filter=U").stdout
+        conflicted = [name for name in out.split("\0") if name]
+        if not conflicted:
+            detail = done.stderr.strip() or done.stdout.strip()
+            raise SyncError(f"rebase onto origin/{branch} failed: {detail}")
+        added_twice = _added_on_both_sides(root) & set(conflicted)
+        ideas = sorted(PurePosixPath(n).stem for n in added_twice if n.startswith("ideas/"))
+        if ideas:
+            raise SyncError(
+                f"idea {', '.join(ideas)} was also captured on another clone under the same id; "
+                "the local copy is kept in your unpushed commit; resolve by hand"
+            )
+        if set(conflicted) - set(board.GENERATED):
+            raise SyncError(
+                f"rebase onto origin/{branch} conflicts in {', '.join(conflicted)}; resolve by hand"
+            )
+        _git(root, "checkout", "--ours", "--", *conflicted)
+        _git(root, "add", "--", *conflicted)
+        done = _git(root, "rebase", "--continue", check=False)
+
+
+def _added_on_both_sides(root: Path) -> set[str]:
+    out = _git(root, "status", "--porcelain", "-z").stdout
+    return {entry[3:] for entry in out.split("\0") if entry.startswith("AA ")}
+
+
+def remote_ideas(root: Path) -> list[str]:
+    """Idea ids already on origin/main, fetched first so another clone's captures count.
+
+    A fetch that fails or outlasts FETCH_TIMEOUT returns nothing, so capture uses local ids.
+    """
+    if (
+        not _is_ideas_repo(root)
+        or _git(root, "remote", "get-url", "origin", check=False).returncode
+    ):
+        return []
+    try:
+        fetched = _git(root, "fetch", "-q", "origin", check=False, timeout=FETCH_TIMEOUT)
+    except SyncError:
+        return []
+    if fetched.returncode:
+        return []
+    names = _git(root, "ls-tree", "--name-only", "origin/main", "ideas/", check=False).stdout
+    return [PurePosixPath(n).stem for n in names.splitlines() if n.endswith(".md")]
+
+
+def _rebase(root: Path, branch: str) -> None:
+    if (
+        _git(
+            root, "merge-base", "--is-ancestor", f"origin/{branch}", "HEAD", check=False
+        ).returncode
+        == 0
+    ):
+        return
+    dirty = _git(root, "status", "--porcelain", "--untracked-files=no").stdout.splitlines()
+    if dirty:
+        paths = ", ".join(line[3:] for line in dirty)
+        raise SyncError(
+            f"uncommitted changes in {paths}; commit or discard them, then {PUBLISH_HINT}"
+        )
+    done = _git(root, "rebase", f"origin/{branch}", check=False)
+    try:
+        _resolve_generated_conflicts(root, branch, done)
+    except SyncError:
+        _git(root, "rebase", "--abort", check=False)
+        raise
+
+
+_IN_PROGRESS = (
+    (("rebase-merge", "rebase-apply", "MERGE_HEAD"), "a rebase or merge"),
+    (("CHERRY_PICK_HEAD", "REVERT_HEAD"), "a cherry-pick or revert"),
+)
+
+
+def _is_ideas_repo(root: Path) -> bool:
+    # A folder nested in another repo would commit and push private ideas to that repo's origin.
+    top = _git(root, "rev-parse", "--show-toplevel", check=False)
+    own = not top.returncode and Path(top.stdout.strip()).resolve() == root.resolve()
+    return own and (root / "ideas").is_dir() and (root / "projects.toml").is_file()
+
+
+def _preflight(root: Path) -> str:
+    if not _is_ideas_repo(root):
+        raise SyncError(f"{root} is not a heuresis ideas repository")
+    for names, what in _IN_PROGRESS:
+        for name in names:
+            marker = _git(root, "rev-parse", "--git-path", name).stdout.strip()
+            if (root / marker).exists():
+                raise SyncError(f"{what} is in progress in {root}; finish it first")
+    head = _git(root, "symbolic-ref", "-q", "--short", "HEAD", check=False)
+    if head.returncode:
+        raise SyncError("HEAD is detached; check out main first")
+    branch = head.stdout.strip()
+    if branch != "main":
+        raise SyncError(f"heuresis publishes from main; current branch is {branch}")
+    return branch
+
+
+def _push(root: Path, branch: str, *args: str) -> bool:
+    """True when pushed, False when the remote moved first; any other rejection raises."""
+    done = _git(root, "push", "-q", *args, "origin", branch, check=False, timeout=NETWORK_TIMEOUT)
+    if done.returncode == 0:
+        return True
+    err = done.stderr.strip()
+    if "non-fast-forward" in err or "fetch first" in err:
+        return False
+    raise SyncError(f"git push to origin/{branch} failed: {err}")
+
+
+def publish(root: Path, paths: list[Path], message: str, today: dt.date) -> str:
+    branch = _preflight(root)
+    generated = board.write(root, today)
+    _commit(root, [*paths, *generated], message)
+    if _git(root, "remote", "get-url", "origin", check=False).returncode:
+        return "local"
+    heads = _git(root, "ls-remote", "--heads", "origin", branch, timeout=NETWORK_TIMEOUT)
+    if not heads.stdout.strip():
+        if _push(root, branch, "-u"):
+            return "pushed"
+    for _ in range(PUSH_ATTEMPTS):
+        _git(root, "fetch", "-q", "origin", branch, timeout=NETWORK_TIMEOUT)
+        _rebase(root, branch)
+        _commit(root, board.write(root, today), "chore: regenerate board")
+        if _push(root, branch, "-u"):
+            return "pushed"
+    raise SyncError(f"push to origin/{branch} lost {PUSH_ATTEMPTS} races in a row")

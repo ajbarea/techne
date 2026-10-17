@@ -25,6 +25,7 @@
 | `techne` | Work in a code repo: audits, CI review, pre-merge review, commit plans, GitHub catch-up, cross-repo drift, slop and doc drift | Claude Code |
 | `graphe` | Documents: LaTeX papers, markdown-to-PDF, talk decks, paper scaffolds and novelty review | Claude Code |
 | `dokimasia` | Bibliography verification for LaTeX projects: lint a `.bib` or hand-written reference list, verify it against arXiv and Crossref, check every cited key rendered | Claude Code, or one standalone Python file |
+| `heuresis` | Idea triage: capture an idea, search papers, patents, products and your own work for anything like it, and file it with a verdict grounded in checked records | Claude Code (needs `uv` and git; `gh` for GitHub search and the private remote) |
 | `phylax` | Opt-in git and PR guards (a mod), restart onto an updated Claude Code | Claude Code |
 | `epistole` | Gmail across accounts: search, read and draft in each configured account, and send a draft only after you approve it ([docs](https://ajbarea.github.io/techne/epistole/)) | Claude Code (MCP server, needs `uv`) |
 | `schole` | Brightspace (D2L) course sites, read-only: new announcements and content, what is due, what came due unsubmitted ([docs](https://ajbarea.github.io/techne/plugins/schole/)) | Claude Code (needs `uv` and Chromium) |
@@ -67,6 +68,13 @@ Install only the ones you use: every enabled plugin's skill list sits in Claude'
 | --- | --- |
 | `dokimasia:check` | Lints any `.bib` or hand-written `thebibliography` offline, resolves its arXiv ids and DOIs against arXiv and Crossref and tells a failed lookup from a wrong entry, and checks that every cited key rendered in the built document. Configured per project, standard library only. |
 
+### heuresis
+
+| Skill | What it does |
+| --- | --- |
+| `heuresis:idea` | Captures an idea in your private ideas repository, searches papers, patents, products and your own work, names the closest existing work, and files the idea as trash, later, do or merged with checked evidence. |
+| `heuresis:setup` | Checks uv, git and gh, creates the ideas repository, and lists the search API keys that are set. |
+
 ### epistole
 
 A local Gmail MCP server and two skills: `epistole:catch-me-up` sweeps every account for mail since the last sweep (and runs schole's course sweep when schole is installed), and `epistole:setup` walks through creating a Google OAuth client and signing each account in. The MCP tools search, read and draft mail in every configured account, new drafts carry the account's Gmail signature, and `send_draft` always asks you first. See the [epistole README](plugins/epistole/README.md) and its [privacy policy](https://ajbarea.github.io/techne/epistole/#privacy).
@@ -88,15 +96,16 @@ From inside Claude Code:
 /plugin install techne@techne
 /plugin install graphe@techne
 /plugin install dokimasia@techne
+/plugin install heuresis@techne
 /plugin install phylax@techne
 /plugin install epistole@techne  # needs uv
 /plugin install schole@techne    # needs uv and Chromium
 /plugin install keryx@techne    # WSL2 on Windows only
 ```
 
-Invoke a skill as `/techne:<name>`, `/graphe:<name>`, `/dokimasia:check` or `/<plugin>:setup`, or describe the task and Claude picks the matching skill. Run `/skills` to confirm they loaded. On claude.ai, add `ajbarea/techne` under **Customize > Plugins > Add > Add marketplace**, then add `graphe`.
+Invoke a skill as `/techne:<name>`, `/graphe:<name>`, `/dokimasia:check`, `/heuresis:idea` or `/<plugin>:setup`, or describe the task and Claude picks the matching skill. Run `/skills` to confirm they loaded. On claude.ai, add `ajbarea/techne` under **Customize > Plugins > Add > Add marketplace**, then add `graphe`.
 
-After installing, run each plugin's setup skill: `/techne:setup`, `/graphe:setup`, `/phylax:setup`, `/epistole:setup`, `/schole:setup`. Each checks what the plugin needs and prints the install command for anything missing. The techne skills follow a few conventions (Makefile pattern, dev-runner archive, `.claude/skill-context.md`); [Conventions](docs/conventions.md) lists the minimum each skill needs.
+After installing, run each plugin's setup skill: `/techne:setup`, `/graphe:setup`, `/heuresis:setup`, `/phylax:setup`, `/epistole:setup`, `/schole:setup`. Each checks what the plugin needs and prints the install command for anything missing. The techne skills follow a few conventions (Makefile pattern, dev-runner archive, `.claude/skill-context.md`); [Conventions](docs/conventions.md) lists the minimum each skill needs.
 
 ## Configuration
 
@@ -152,6 +161,9 @@ techne (marketplace: ajbarea/techne)
 │   └── setup             ── checks prerequisites, prints each fix
 ├── dokimasia (plugin, plugins/dokimasia)
 │   └── check             ── lints, verifies and render-checks a .bib
+├── heuresis (plugin, plugins/heuresis)
+│   ├── idea              ── captures an idea, triages it against prior work
+│   └── setup             ── checks prerequisites, creates the ideas repo
 ├── epistole (plugin, plugins/epistole)
 │   ├── catch-me-up       ── sweeps every inbox since the last sweep
 │   └── setup             ── guides Google OAuth client and account sign-in (plus the Gmail MCP server)
@@ -167,7 +179,7 @@ Each skill is self-contained. Invoke one without pulling in the others. They sha
 
 ## Why "techne"
 
-Greek τέχνη: craft, the practical knowledge of how to make a thing well. The plugins keep the Greek: γραφή (graphe) is writing, φύλαξ (phylax) a guard, κῆρυξ (keryx) a herald, ἐπιστολή (epistole) a letter, σχολή (schole) school, δοκιμασία (dokimasia) the scrutiny of a candidate's credentials before office.
+Greek τέχνη: craft, the practical knowledge of how to make a thing well. The plugins keep the Greek: γραφή (graphe) is writing, φύλαξ (phylax) a guard, κῆρυξ (keryx) a herald, ἐπιστολή (epistole) a letter, σχολή (schole) school, δοκιμασία (dokimasia) the scrutiny of a candidate's credentials before office, εὕρεσις (heuresis) discovery.
 
 ## Cite
 
@@ -180,7 +192,7 @@ If you use techne in your research, cite it with the metadata in [CITATION.cff](
   url     = {https://github.com/ajbarea/techne},
   doi     = {10.5281/zenodo.23330765},
   license = {MIT},
-  version = {1.3.0},
+  version = {1.4.0},
   year    = {2026}
 }
 ```

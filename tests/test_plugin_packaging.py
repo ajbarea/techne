@@ -125,3 +125,18 @@ def test_no_personal_addresses_or_machine_paths_in_published_markdown():
         text = f.read_text()
         assert not EMAIL.search(text), f
         assert not MACHINE_PATH.search(text), f
+
+
+@pytest.mark.parametrize(
+    ("prefix", "form"),
+    [
+        ("- package_root:", "`{}`"),
+        ("- cli_entrypoint:", "`{}@techne`"),
+        ("- **Marketplace metadata:**", r"\b{}\b"),
+    ],
+)
+def test_skill_context_plugin_lists_name_every_plugin(prefix, form):
+    lines = (ROOT / ".claude" / "skill-context.md").read_text().splitlines()
+    (line,) = [x for x in lines if x.startswith(prefix)]
+    for name in LOCAL:
+        assert re.search(form.format(re.escape(name)), line), (prefix, name)
