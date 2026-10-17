@@ -20,6 +20,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tomllib
 import types
 from collections.abc import Iterable, Mapping
 
@@ -174,6 +175,14 @@ def _no_inherited_git_repo():
         for var in GIT_REPO_VARS:
             mp.delenv(var, raising=False)
         yield
+
+
+def locked_versions(lock: pathlib.Path) -> dict[str, set[str]]:
+    """Package name -> the versions a uv.lock pins for it."""
+    out: dict[str, set[str]] = {}
+    for pkg in tomllib.loads(lock.read_text())["package"]:
+        out.setdefault(pkg["name"], set()).add(pkg.get("version", ""))
+    return out
 
 
 def _load(name: str, path: pathlib.Path) -> types.ModuleType:

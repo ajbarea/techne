@@ -4,10 +4,12 @@ version: 2
 
 updates:
   - package-ecosystem: "uv"
-    # The epistole server runs from its own lock; a test requires it to match the root lock.
+    # The epistole server and heuresis run from their own locks; tests require each to match
+    # the root lock.
     directories:
       - "/"
       - "/plugins/epistole"
+      - "/plugins/heuresis"
     schedule:
       interval: "weekly"
       day: "monday"
