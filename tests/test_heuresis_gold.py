@@ -8,9 +8,10 @@ from pathlib import Path
 
 import pytest
 from conftest import ROOT
-from heuresis import gold, store
-from heuresis.model import Idea
+from heuresis import gold, render, store
+from heuresis.model import FACETS, Idea
 
+PRIOR = "cases:\n  - {id: a, idea: x, expected_state: trash, match_terms: [t], "
 FIX = ROOT / "tests" / "fixtures" / "heuresis" / "gold_cases.yaml"
 
 
@@ -50,6 +51,41 @@ def test_load_cases_reads_the_fixture():
         ),
         ("nothing: here\n", "cases"),
         ("cases:\n  - just a string\n", "not a mapping"),
+        (
+            "cases:\n  - {id: a, idea: x, expected_state: trash, match_terms: crossref}\n",
+            "match_terms",
+        ),
+        ("cases:\n  - {id: a, idea: x, expected_state: trash, match_terms: ''}\n", "match_terms"),
+        ("cases:\n  - {id: a, idea: x, expected_state: trash, match_terms: ['']}\n", "match_terms"),
+        (
+            "cases:\n  - {id: a, idea: x, expected_state: trash, match_terms: [' t']}\n",
+            "match_terms",
+        ),
+        ("cases:\n  - {id: a, idea: x, expected_state: trash, match_terms: [3]}\n", "match_terms"),
+        (
+            PRIOR + "prior_art: p}\n",
+            "prior_art",
+        ),
+        (
+            PRIOR + "prior_art: [p]}\n",
+            "prior_art",
+        ),
+        (
+            PRIOR + "prior_art: [{name: n}]}\n",
+            "prior_art",
+        ),
+        (
+            PRIOR + "prior_art: [{name: '', url: u}]}\n",
+            "prior_art",
+        ),
+        (
+            "cases:\n  - {id: a, kind: exist, idea: x, expected_state: trash, match_terms: [t]}\n",
+            "kind",
+        ),
+        (
+            "cases:\n  - {id: a, kind: '', idea: x, expected_state: trash, match_terms: [t]}\n",
+            "kind",
+        ),
     ],
 )
 def test_load_cases_rejects_malformed_files(tmp_path, body, problem):
@@ -81,22 +117,47 @@ def idea_repo(
     return root, i.id
 
 
-FULL_RUNS = {
-    "restate": {"restated": "x", "queries": ["q"]},
-    "pool": {"records": [], "coverage": [], "queries": {}},
-    "judge": {"closest": {"ref": "r1"}},
-    "verify": {"r1": {"ok": True, "reason": ""}},
-}
+def rec(ref: str, title: str, url: str = "https://u.example") -> dict:
+    return {"ref": ref, "title": title, "url": url, "source": "github", "kind": "repo"}
+
+
+def run_files(
+    records: list[dict],
+    closest: str | None,
+    others: tuple[str, ...] = (),
+    ok: tuple[str, ...] = (),
+    differs: str = "",
+) -> dict:
+    """The four run files; ok lists the refs that verified."""
+    judge = {
+        "closest": {"ref": closest, "quote": "q", "differs": dict.fromkeys(FACETS, differs)},
+        "others": [{"ref": o, "differs": differs} for o in others],
+    }
+    return {
+        "restate": {"restated": "x", "queries": ["q"]},
+        "pool": {"records": records, "coverage": [], "queries": {}},
+        "judge": judge,
+        "verify": {r["ref"]: {"ok": r["ref"] in ok, "reason": ""} for r in records},
+    }
+
+
+def section(files: dict, dropped: frozenset[str] = frozenset()) -> str:
+    records = {r["ref"]: r for r in files["pool"]["records"]}
+    return render.closest_section(files["judge"], records, set(dropped))
+
+
+FULL_RUNS = run_files([rec("r1", "Zotero Connector", "https://zotero.org")], "r1", ok=("r1",))
 
 
 def test_grade_run_accepts_trash_with_prior_art_in_closest(tmp_path):
     case = gold.load_cases(FIX)[0]
-    root, idea_id = idea_repo(
-        tmp_path,
-        "trash",
-        "**Closest:** [dokimasia](https://x) (github)\n\n**Also:**\n\n- [bib-verify](u)",
-        FULL_RUNS,
+    files = run_files(
+        [rec("r1", "dokimasia", "https://github.com/ajbarea/techne"), rec("r2", "bib-verify")],
+        "r1",
+        ("r2",),
+        ok=("r1", "r2"),
     )
+    root, idea_id = idea_repo(tmp_path, "trash", section(files), files)
     g = gold.grade_run(
         case, 1, root, idea_id, meta={"total_cost_usd": 0.5, "duration_ms": 61000, "num_turns": 9}
     )
@@ -111,9 +172,62 @@ def test_grade_run_accepts_trash_with_prior_art_in_closest(tmp_path):
     assert (g.cost_usd, g.duration_s, g.turns) == (0.5, 61.0, 9)
 
 
+def test_a_term_in_an_other_rival_is_a_prior_art_hit_but_not_a_closest_hit(tmp_path):
+    case = gold.load_cases(FIX)[0]
+    files = run_files(
+        [rec("r1", "Zotero Connector"), rec("r2", "Crossref REST API")],
+        "r1",
+        ("r2",),
+        ok=("r1", "r2"),
+    )
+    root, idea_id = idea_repo(tmp_path, "trash", section(files), files)
+    g = gold.grade_run(case, 1, root, idea_id)
+    assert (g.prior_art_hit, g.closest_hit) == (True, False)
+
+
+def test_the_term_in_a_judges_prose_about_an_unrelated_rival_is_no_hit(tmp_path):
+    case = gold.load_cases(FIX)[0]
+    files = run_files(
+        [rec("r1", "Zotero Connector"), rec("r2", "Unrelated Thing")],
+        "r1",
+        ("r2",),
+        ok=("r1", "r2"),
+        differs="it never checks entries against Crossref",
+    )
+    text = section(files)
+    assert "Crossref" in text
+    root, idea_id = idea_repo(tmp_path, "trash", text, files)
+    g = gold.grade_run(case, 1, root, idea_id)
+    assert (g.prior_art_hit, g.closest_hit) == (False, False)
+
+
+def test_a_term_matches_whole_words_only(tmp_path):
+    case = gold.Case("flowers", "x", "trash", ("flower",))
+    files = run_files([rec("r1", "cauliflower recipes")], "r1", ok=("r1",))
+    root, idea_id = idea_repo(tmp_path, "trash", section(files), files)
+    assert gold.grade_run(case, 1, root, idea_id).closest_hit is False
+    files = run_files([rec("r1", "Flower: a plant app")], "r1", ok=("r1",))
+    root, idea_id = idea_repo(tmp_path / "b", "trash", section(files), files)
+    assert gold.grade_run(case, 1, root, idea_id).closest_hit is True
+
+
+def test_a_rival_that_did_not_verify_is_no_hit(tmp_path):
+    case = gold.load_cases(FIX)[0]
+    files = run_files(
+        [rec("r1", "dokimasia"), rec("r2", "Crossref API")], "r1", ("r2",), ok=("r2",)
+    )
+    root, idea_id = idea_repo(tmp_path, "trash", section(files, frozenset({"r1"})), files)
+    g = gold.grade_run(case, 1, root, idea_id)
+    assert (g.closest_hit, g.prior_art_hit, g.verified_ok) == (False, True, False)
+    files = run_files([rec("r1", "dokimasia"), rec("r2", "Crossref API")], "r1", ("r2",))
+    root, idea_id = idea_repo(tmp_path / "b", "trash", "", files)
+    g = gold.grade_run(case, 1, root, idea_id)
+    assert (g.closest_hit, g.prior_art_hit) == (False, False)
+
+
 def test_grade_run_do_on_an_existing_thing_is_not_accepted(tmp_path):
     case = gold.load_cases(FIX)[0]
-    root, idea_id = idea_repo(tmp_path, "do", "**Closest:** none verified.", FULL_RUNS)
+    root, idea_id = idea_repo(tmp_path, "do", section(FULL_RUNS), FULL_RUNS)
     g = gold.grade_run(case, 1, root, idea_id)
     assert (g.accepted, g.prior_art_hit, g.closest_hit) == (False, False, False)
 
@@ -131,9 +245,37 @@ def test_grade_run_records_a_runner_error_without_reading_files(tmp_path):
     assert (g.state, g.accepted, g.error) == (None, False, "timed out after 5s")
 
 
+def failed_runs(tmp: Path, case: gold.Case) -> list[gold.RunGrade]:
+    """One grade for each way a run can fail."""
+    inbox, inbox_id = idea_repo(tmp / "inbox", "inbox", "", None)
+    partial, partial_id = idea_repo(tmp / "partial", "trash", "", {"restate": {}})
+    return [
+        gold.grade_run(case, 1, tmp / "none", "2026-10-17-x", error="timed out after 5s"),
+        gold.grade_run(case, 2, tmp / "none", "2026-10-17-x"),
+        gold.grade_run(case, 3, inbox, inbox_id),
+        gold.grade_run(case, 4, partial, partial_id),
+    ]
+
+
+def test_every_failed_run_on_a_measured_case_counts_as_a_recall_miss(tmp_path):
+    case = gold.load_cases(FIX)[0]
+    grades = failed_runs(tmp_path, case)
+    assert [(g.prior_art_hit, g.closest_hit) for g in grades] == [(False, False)] * 4
+    assert all(g.error and not g.accepted for g in grades)
+    s = gold.summarize(grades, [case])
+    assert (s["prior_art_recall"], s["closest_recall"]) == (0.0, 0.0)
+
+
+def test_failed_runs_on_an_unmeasured_case_stay_unmeasured(tmp_path):
+    case = gold.load_cases(FIX)[1]
+    grades = failed_runs(tmp_path, case)
+    assert [(g.prior_art_hit, g.closest_hit) for g in grades] == [(None, None)] * 4
+    assert gold.summarize(grades, [case])["prior_art_recall"] is None
+
+
 def test_cases_without_match_terms_have_no_prior_art_measure(tmp_path):
     case = gold.load_cases(FIX)[1]
-    root, idea_id = idea_repo(tmp_path, "trash", "**Closest:** none verified.", FULL_RUNS)
+    root, idea_id = idea_repo(tmp_path, "trash", section(FULL_RUNS), FULL_RUNS)
     g = gold.grade_run(case, 1, root, idea_id)
     assert g.accepted and g.prior_art_hit is None and g.closest_hit is None
 
@@ -162,6 +304,24 @@ def test_summarize_and_render(tmp_path):
     md = gold.render_markdown(s)
     assert "| bib-checker |" in md and "Prior-art recall" in md
     assert "—" not in md
+
+
+def test_summarize_ignores_runs_of_unknown_cases_and_render_marks_missing_numbers():
+    cases = gold.load_cases(FIX)
+    grades = [
+        gold.RunGrade("teleport", 1, "trash", True, None, None, True, True),
+        gold.RunGrade("renamed", 1, "do", False, None, None, True, True),
+    ]
+    s = gold.summarize(grades, cases)
+    assert (s["runs"], s["unknown_case_runs"], s["do_on_existing"]) == (1, 1, 0)
+    md = gold.render_markdown(s)
+    assert "- Total cost (client estimate): n/a" in md
+    assert "- Median run time (s): n/a" in md
+    assert "not in the cases file (ignored): 1" in md
+    priced = gold.summarize(
+        [gold.RunGrade("teleport", 1, "trash", True, None, None, True, True, cost_usd=0.5)], cases
+    )
+    assert "- Total cost (client estimate): $0.50" in gold.render_markdown(priced)
 
 
 def test_run_grade_round_trips():

@@ -24,6 +24,7 @@ ACCEPTED: dict[str, frozenset[str]] = {
 EXISTING = frozenset({"trash", "later"})
 CASE_ID = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 RUN_FILES = ("restate", "pool", "judge", "verify")
+KINDS = ("exists", "candidate", "infeasible")
 
 
 class GoldError(Exception):
@@ -46,6 +47,29 @@ class Case:
     prior_art: tuple[PriorArt, ...] = ()
     kind: str = "exists"
     notes: str = ""
+
+
+def _terms(path: Path, cid: str, raw: object) -> tuple[str, ...]:
+    if isinstance(raw, list) and all(isinstance(t, str) and t and t == t.strip() for t in raw):
+        return tuple(str(t).lower() for t in raw)
+    raise GoldError(
+        f"{path}: case {cid} match_terms must be a list of non-empty strings "
+        "without surrounding whitespace"
+    )
+
+
+def _named(item: object) -> bool:
+    return isinstance(item, dict) and all(
+        isinstance(item.get(k), str) and item[k].strip() for k in ("name", "url")
+    )
+
+
+def _prior_art(path: Path, cid: str, raw: object) -> tuple[PriorArt, ...]:
+    if isinstance(raw, list) and all(_named(p) for p in raw):
+        return tuple(PriorArt(p["name"], p["url"], str(p.get("why", ""))) for p in raw)
+    raise GoldError(
+        f"{path}: case {cid} prior_art must be a list of mappings with a name and a url"
+    )
 
 
 def load_cases(path: Path) -> list[Case]:
@@ -73,16 +97,15 @@ def load_cases(path: Path) -> list[Case]:
                 f"{path}: case {cid} expected_state {expected!r} is not one of "
                 + ", ".join(ACCEPTED)
             )
-        kind = str(row.get("kind") or "exists")
-        terms = tuple(str(t).lower() for t in row.get("match_terms") or [])
+        kind = row.get("kind", "exists")
+        if kind not in KINDS:
+            raise GoldError(f"{path}: case {cid} kind {kind!r} is not one of " + ", ".join(KINDS))
+        terms = _terms(path, cid, row.get("match_terms", []))
         if kind == "exists" and not terms:
             raise GoldError(
                 f"{path}: case {cid} describes an existing thing but has no match_terms"
             )
-        prior = tuple(
-            PriorArt(str(p["name"]), str(p["url"]), str(p.get("why", "")))
-            for p in row.get("prior_art") or []
-        )
+        prior = _prior_art(path, cid, row.get("prior_art", []))
         cases.append(Case(cid, idea, expected, terms, prior, kind, str(row.get("notes", ""))))
     return cases
 
@@ -120,6 +143,47 @@ def _meta(meta: dict | None) -> dict:
     }
 
 
+def _word(term: str, text: str) -> bool:
+    return re.search(r"(?<![a-z0-9])" + re.escape(term) + r"(?![a-z0-9])", text) is not None
+
+
+def _read_json(path: Path) -> dict:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"{path.name} is not a JSON object")
+    return data
+
+
+def _rivals(run_dir: Path) -> tuple[bool, str | None, list[str]]:
+    """Whether the closest rival verified, plus the lowercased identities of the verified rivals.
+
+    An identity is a pool record's title and url. The closest rival's identity comes first when
+    it verified; the verified others follow. Unreadable run files give no rivals.
+    """
+    try:
+        records = {r["ref"]: r for r in _read_json(run_dir / "pool.json")["records"]}
+        judge = _read_json(run_dir / "judge.json")
+        checks = _read_json(run_dir / "verify.json")
+        closest_ref = (judge.get("closest") or {}).get("ref")
+        refs = [o["ref"] for o in judge.get("others") or []]
+
+        def identity(ref: object) -> str | None:
+            ok = isinstance(ref, str) and (checks.get(ref) or {}).get("ok") is True
+            if not ok or ref not in records:
+                return None
+            return f"{records[ref]['title']} {records[ref]['url']}".lower()
+
+        closest = identity(closest_ref)
+        others = [i for i in map(identity, refs) if i is not None]
+        return (
+            closest_ref is None or (checks.get(closest_ref) or {}).get("ok") is True,
+            closest,
+            others,
+        )
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return False, None, []
+
+
 def grade_run(
     case: Case,
     run: int,
@@ -130,8 +194,10 @@ def grade_run(
     meta: dict | None = None,
 ) -> RunGrade:
     extra = _meta(meta)
+    # A failed run on a measured case is a miss, so all failure paths share one recall denominator.
+    miss: bool | None = False if case.match_terms else None
     if error:
-        return RunGrade(case.id, run, None, False, None, None, False, False, error, **extra)
+        return RunGrade(case.id, run, None, False, miss, miss, False, False, error, **extra)
     try:
         idea = store.load(store.idea_path(ideas_root, idea_id))
     except (OSError, store.StoreError) as exc:
@@ -140,8 +206,8 @@ def grade_run(
             run,
             None,
             False,
-            None,
-            None,
+            miss,
+            miss,
             False,
             False,
             f"idea file unreadable: {exc}",
@@ -149,28 +215,20 @@ def grade_run(
         )
     run_dir = ideas_root / "runs" / idea_id
     files_ok = all((run_dir / f"{name}.json").is_file() for name in RUN_FILES)
-    closest = idea.sections.get("Closest work", "").lower()
-    first = closest.split("**also:**", 1)[0]
-    measured = bool(case.match_terms)
-    prior_hit = any(t in closest for t in case.match_terms) if measured else None
-    closest_hit = any(t in first for t in case.match_terms) if measured else None
-    verified = False
-    if files_ok:
-        try:
-            judge = json.loads((run_dir / "judge.json").read_text())
-            checks = json.loads((run_dir / "verify.json").read_text())
-            ref = (judge.get("closest") or {}).get("ref")
-            verified = ref is None or (checks.get(ref) or {}).get("ok") is True
-        except (OSError, ValueError, AttributeError):
-            verified = False
+    verified, closest, others = _rivals(run_dir) if files_ok else (False, None, [])
     finished = idea.state != "inbox" and files_ok
+    prior_hit, closest_hit = miss, miss
+    if finished and case.match_terms:
+        closest_hit = closest is not None and any(_word(t, closest) for t in case.match_terms)
+        named = ([closest] if closest is not None else []) + others
+        prior_hit = any(_word(t, i) for t in case.match_terms for i in named)
     return RunGrade(
         case.id,
         run,
         idea.state,
         finished and idea.state in ACCEPTED[case.expected_state],
-        prior_hit if finished else (False if measured else None),
-        closest_hit if finished else (False if measured else None),
+        prior_hit,
+        closest_hit,
         files_ok,
         verified,
         "" if finished else "triage did not finish",
@@ -184,6 +242,8 @@ def _rate(values: list[bool]) -> float | None:
 
 def summarize(grades: list[RunGrade], cases: list[Case]) -> dict:
     by_case = {c.id: c for c in cases}
+    unknown = sum(1 for g in grades if g.case not in by_case)
+    grades = [g for g in grades if g.case in by_case]
     rows = []
     for case in cases:
         mine = [g for g in grades if g.case == case.id]
@@ -210,6 +270,7 @@ def summarize(grades: list[RunGrade], cases: list[Case]) -> dict:
     return {
         "runs": len(grades),
         "errors": sum(1 for g in grades if g.error),
+        "unknown_case_runs": unknown,
         "agreement": _rate([g.accepted for g in grades]),
         "prior_art_recall": _rate(
             [bool(g.prior_art_hit) for g in grades if g.prior_art_hit is not None]
@@ -228,6 +289,10 @@ def _pct(value: float | None) -> str:
     return "n/a" if value is None else f"{value:.0%}"
 
 
+def _num(value: float | None, template: str) -> str:
+    return "n/a" if value is None else template.format(value)
+
+
 def render_markdown(summary: dict) -> str:
     lines = [
         "# heuresis gold-set results",
@@ -239,8 +304,13 @@ def render_markdown(summary: dict) -> str:
         f"- Prior-art recall (named anywhere in Closest work): {_pct(summary['prior_art_recall'])}",
         f"- Closest-rival recall (named as the closest): {_pct(summary['closest_recall'])}",
         f"- Existing things filed as do: {summary['do_on_existing']}",
-        f"- Total cost (client estimate): {summary['cost_usd_total']}",
-        f"- Median run time (s): {summary['duration_s_median']}",
+        f"- Total cost (client estimate): {_num(summary['cost_usd_total'], '${:.2f}')}",
+        f"- Median run time (s): {_num(summary['duration_s_median'], '{:g}')}",
+        *(
+            [f"- Runs for cases not in the cases file (ignored): {summary['unknown_case_runs']}"]
+            if summary["unknown_case_runs"]
+            else []
+        ),
         "",
         "| Case | Expected | States by run | Agreement | Prior-art recall | Closest recall |"
         " Errors |",
