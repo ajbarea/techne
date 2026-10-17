@@ -19,6 +19,14 @@ hook = _load("heuresis_session_keys", HOOK)
 SECRET = "s3cr3t value 'with' \"quotes\" $HOME `x` \\ end"
 OPTION_VARS = [f"CLAUDE_PLUGIN_OPTION_{k.option.upper()}" for k in TABLE.KEYS]
 S2 = "CLAUDE_PLUGIN_OPTION_S2_API_KEY"
+OWN = f"sess-1.{os.getpid()}.sh"  # the hook's parent is this pytest process
+
+
+def dead_pid():
+    """A pid that is not running: a child that has exited and been reaped."""
+    child = subprocess.Popen([HOOK_PYTHON, "-c", "pass"])
+    child.wait()
+    return child.pid
 
 
 def run_hook(tmp_path, env, mode="start", sid="sess-1", stdin=None, with_file=True, with_data=True):
@@ -82,7 +90,7 @@ def hook_commands():
 @pytest.mark.parametrize("event,mode", [("SessionStart", "start"), ("SessionEnd", "end")])
 def test_hook_commands_run_the_script_and_exit_0_without_python3(tmp_path, event, mode):
     command = hook_commands()[event]
-    assert f'session_keys.py" {mode}' in command and "exec" not in command
+    assert f'exec python3 "${{CLAUDE_PLUGIN_ROOT}}/hooks/session_keys.py" {mode}' in command
     marker = tmp_path / "ran"
     bindir = stub_dir(tmp_path, {"python3": f'echo "$@" > {marker}'}, links=["sh"])
     env = {"PATH": bindir, "CLAUDE_PLUGIN_ROOT": str(PLUGIN)}
@@ -104,15 +112,15 @@ def test_session_file_is_0600_in_a_0700_dir(tmp_path):
     done, _, directory = run_hook(tmp_path, {S2: SECRET})
     assert done.returncode == 0
     assert directory.stat().st_mode & 0o777 == 0o700
-    assert (directory / "sess-1.sh").stat().st_mode & 0o777 == 0o600
-    assert tree(directory) == ["sess-1.sh"]  # no temp file left
+    assert (directory / OWN).stat().st_mode & 0o777 == 0o600
+    assert tree(directory) == [OWN]  # no temp file left
 
 
 def test_env_file_holds_only_a_source_line_never_a_value(tmp_path):
     env = {var: f"value-{i}-{SECRET}" for i, var in enumerate(OPTION_VARS)}
     done, target, directory = run_hook(tmp_path, env)
     text = target.read_text()
-    path = str(directory / "sess-1.sh")
+    path = str(directory / OWN)
     assert text == f"if [ -f {path} ]; then . {path}; fi\n"
     assert "value-" not in text and SECRET not in text
     assert "value-" not in done.stdout + done.stderr and not (done.stdout + done.stderr)
@@ -138,16 +146,38 @@ def test_hook_appends_to_an_existing_env_file(tmp_path):
     assert target.read_text().startswith("export OTHER=1\nif [ -f ")
 
 
-def test_end_deletes_the_session_file_and_missing_is_fine(tmp_path):
+def test_end_deletes_only_its_own_process_file_and_missing_is_fine(tmp_path):
     _, _, directory = run_hook(tmp_path, {S2: "x"})
-    assert (directory / "sess-1.sh").exists()
+    other = directory / f"sess-1.{os.getpid() + 1}.sh"
+    other.write_text("x")
+    assert (directory / OWN).exists()
     done, _, _ = run_hook(tmp_path, {}, mode="end")
-    assert done.returncode == 0 and not (directory / "sess-1.sh").exists()
+    assert done.returncode == 0 and not (directory / OWN).exists()
+    assert other.exists()  # the same conversation in a second process
     done, _, _ = run_hook(tmp_path, {}, mode="end")
-    assert done.returncode == 0
+    assert done.returncode == 0 and other.exists()
 
 
-def test_prune_removes_an_old_file_and_keeps_a_fresh_one(tmp_path):
+def test_file_name_carries_the_hook_parent_pid(tmp_path):
+    _, _, directory = run_hook(tmp_path, {S2: "x"})
+    assert tree(directory) == [OWN]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pid probe")
+def test_prune_removes_a_dead_pid_file_and_keeps_a_live_one(tmp_path):
+    directory = tmp_path / "data" / "session-keys"
+    directory.mkdir(parents=True)
+    dead = directory / f"gone.{dead_pid()}.sh"
+    live = directory / f"idle.{os.getpid()}.sh"
+    dead.write_text("x")
+    live.write_text("x")
+    age = time.time() - hook.MAX_AGE_SECONDS - 60
+    os.utime(live, (age, age))  # idling past the age limit does not matter on POSIX
+    run_hook(tmp_path, {S2: "x"})
+    assert not dead.exists() and live.exists() and (directory / OWN).exists()
+
+
+def test_unparsable_names_are_pruned_by_age_only(tmp_path):
     directory = tmp_path / "data" / "session-keys"
     directory.mkdir(parents=True)
     old, fresh = directory / "old.sh", directory / "fresh.sh"
@@ -156,7 +186,50 @@ def test_prune_removes_an_old_file_and_keeps_a_fresh_one(tmp_path):
     age = time.time() - hook.MAX_AGE_SECONDS - 60
     os.utime(old, (age, age))
     run_hook(tmp_path, {S2: "x"})
-    assert not old.exists() and fresh.exists() and (directory / "sess-1.sh").exists()
+    assert not old.exists() and fresh.exists()
+
+
+def test_windows_never_probes_a_pid_with_os_kill(tmp_path, monkeypatch):
+    stale_old = tmp_path / "a.4242.sh"
+    recent = tmp_path / "b.4243.sh"
+    stale_old.write_text("x")
+    recent.write_text("x")
+    age = time.time() - hook.MAX_AGE_SECONDS - 60
+    os.utime(stale_old, (age, age))
+
+    def boom(*_):
+        raise AssertionError("os.kill called")
+
+    monkeypatch.setattr(hook.os, "name", "nt")
+    monkeypatch.setattr(hook.os, "kill", boom)
+    hook.prune(str(tmp_path), time.time())
+    assert not stale_old.exists() and recent.exists()
+
+
+def test_pid_alive_cases():
+    assert hook.pid_alive(os.getpid())
+    assert not hook.pid_alive(0) and not hook.pid_alive(-1) and not hook.pid_alive(10**12)
+
+
+def test_temp_name_symlink_is_not_followed(tmp_path, monkeypatch):
+    victim = tmp_path / "victim"
+    victim.write_text("keep")
+    target = str(tmp_path / "f.sh")
+    monkeypatch.setattr(hook.secrets, "token_hex", lambda n: "fixed")
+    try:
+        os.symlink(victim, f"{target}.fixed.tmp")
+    except (OSError, NotImplementedError):
+        pytest.skip("no symlinks")
+    with pytest.raises(OSError):
+        hook.write_private(target, "export S2_API_KEY=topsecret\n")
+    assert victim.read_text() == "keep" and not os.path.exists(target)
+
+
+def test_second_start_does_not_duplicate_the_env_line(tmp_path):
+    _, target, _ = run_hook(tmp_path, {S2: "x"})
+    once = target.read_text()
+    done, _, _ = run_hook(tmp_path, {S2: "x"})
+    assert done.returncode == 0 and target.read_text() == once
 
 
 @pytest.mark.parametrize("sid", ["../x", "a/b", "", "a b", "x\n", "a" * 200, "..", "a.sh"])
@@ -171,13 +244,13 @@ def test_no_options_writes_nothing_and_removes_a_stale_session_file(tmp_path):
     target.unlink()
     done, target, _ = run_hook(tmp_path, {S2: ""})
     assert done.returncode == 0 and not target.exists()
-    assert not (directory / "sess-1.sh").exists()
+    assert not (directory / OWN).exists()
 
 
 @pytest.mark.parametrize("value", ["a\nb", "a\rb"])
 def test_hook_skips_a_multiline_value(tmp_path, value):
     _, target, directory = run_hook(tmp_path, {S2: value})
-    assert not target.exists() and not (directory / "sess-1.sh").exists()
+    assert not target.exists() and not (directory / OWN).exists()
 
 
 def test_hook_skips_a_nul_value():
@@ -187,7 +260,7 @@ def test_hook_skips_a_nul_value():
 
 def test_hook_without_env_file_writes_nothing(tmp_path):
     done, _, directory = run_hook(tmp_path, {S2: "x"}, with_file=False)
-    assert done.returncode == 0 and not (directory / "sess-1.sh").exists()
+    assert done.returncode == 0 and not (directory / OWN).exists()
 
 
 @pytest.mark.parametrize("stdin", ["", "not json", "[]", "{}", '{"session_id": 5}'])
@@ -385,7 +458,7 @@ def test_store_failure_redacts_values(tmp_path):
         'v=$(cat); echo "bad input: $v and topsecret and k2" >&2; exit 7'
     )
     done, _ = run_store(tmp_path, body)
-    assert done.returncode == 1
+    assert done.returncode == 2
     assert "exited 7" in done.stderr and "***" in done.stderr
     assert "topsecret" not in done.stdout + done.stderr
     assert "k2" not in (done.stdout + done.stderr).replace("EPO_OPS_K", "")
@@ -425,3 +498,43 @@ def test_store_does_not_warn_about_an_executable_private_file(tmp_path):
     assert "by others" not in done.stderr
     warned, _ = run_store(tmp_path, CLAUDE_OK, mode=0o620)
     assert "by others" in warned.stderr
+
+
+def test_store_half_pair_warns_by_name_and_still_stores(tmp_path):
+    done, rec = run_store(tmp_path, CLAUDE_OK)  # EPO_OPS_KEY without EPO_OPS_SECRET
+    assert done.returncode == 0, done.stderr
+    assert "EPO_OPS_KEY given without EPO_OPS_SECRET" in done.stderr
+    assert "EPO_OPS stays skipped until EPO_OPS_SECRET is saved too." in done.stdout
+    sent = json.loads((rec / "stdin").read_text())
+    assert sent == {"s2_api_key": "topsecret", "epo_ops_key": "k2"}
+    assert "k2" not in (done.stdout + done.stderr).replace("EPO_OPS_K", "")
+    full, _ = run_store(tmp_path, CLAUDE_OK, content="EPO_OPS_KEY=k2\nEPO_OPS_SECRET=s2\n")
+    assert "given without" not in full.stderr and "stays skipped" not in full.stdout
+
+
+def test_half_groups_derive_from_the_table():
+    assert store.half_groups({"S2_API_KEY": "x"}) == {}
+    assert store.half_groups({"EPO_OPS_SECRET": "x"}) == {
+        "EPO_OPS": (["EPO_OPS_SECRET"], ["EPO_OPS_KEY"])
+    }
+
+
+def test_store_exit_codes_per_path(tmp_path):
+    ok, _ = run_store(tmp_path, CLAUDE_OK)
+    assert ok.returncode == 0
+    empty, _ = run_store(tmp_path, CLAUDE_OK, content="\n")
+    assert empty.returncode == 1
+    bad, _ = run_store(tmp_path, CLAUDE_OK, content="garbage\n")
+    assert bad.returncode == 2
+    absent = tmp_path / "absent.env"
+    nofile = subprocess.run([HOOK_PYTHON, str(STORE), str(absent)], capture_output=True, text=True)
+    assert nofile.returncode == 2
+    usage = subprocess.run([HOOK_PYTHON, str(STORE)], capture_output=True, text=True)
+    assert usage.returncode == 2
+    noclaude, _ = run_store(tmp_path, None)
+    assert noclaude.returncode == 2
+    listing = 'if [ "$2" = list ]; then echo \'[{"id":"heuresis@t"}]\'; exit 0; fi\n'
+    crash, _ = run_store(tmp_path, listing + "exit 5")
+    assert crash.returncode == 2
+    none_installed, _ = run_store(tmp_path, "echo '[]'")
+    assert none_installed.returncode == 2

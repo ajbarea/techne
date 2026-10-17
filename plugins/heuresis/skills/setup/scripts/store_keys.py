@@ -5,6 +5,8 @@ Runs on the system python3 (3.9 or newer, standard library only).
 Usage: python3 store_keys.py --template
        python3 store_keys.py <file> [--plugin heuresis@techne]
 Values go to `claude plugin configure --values-stdin` on stdin and are never printed.
+Exit codes: 0 stored, 1 nothing stored (the file holds no values), 2 any error (usage, unreadable
+or unparsable file, `claude` missing or failing, configure failure).
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ import shutil
 import stat
 import subprocess
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 sys.dont_write_bytecode = True
@@ -76,6 +78,17 @@ def parse(text: str) -> dict[str, str]:
         if value:
             found[name] = value
     return found
+
+
+def half_groups(found: Mapping[str, str]) -> dict[str, tuple[list[str], list[str]]]:
+    """Group name to (given, missing) env names, for each group given without all its members."""
+    out = {}
+    for group in dict.fromkeys(k.group for k in KEYS if k.group):
+        members = [k.env for k in KEYS if k.group == group]
+        given = [env for env in members if env in found]
+        if given and len(given) < len(members):
+            out[group] = (given, [env for env in members if env not in found])
+    return out
 
 
 def find_plugin_id(listing: str, wanted: str | None) -> str:
@@ -137,6 +150,11 @@ def store(path: Path, plugin: str | None) -> int:
     if not found:
         print(f"No values in {path}; nothing stored.")
         return 1
+    partial = half_groups(found)
+    for given, missing in partial.values():
+        print(
+            f"warning: {' and '.join(given)} given without {' and '.join(missing)}", file=sys.stderr
+        )
     if not shutil.which("claude"):
         print("error: `claude` is not on PATH; install Claude Code first", file=sys.stderr)
         return 2
@@ -153,13 +171,15 @@ def store(path: Path, plugin: str | None) -> int:
         )
     except StoreError as exc:
         print(f"error: {exc}", file=sys.stderr)
-        return 1
+        return 2
     if done.returncode != 0:
         secrets = list(values.values())
         print(f"error: claude plugin configure exited {done.returncode}", file=sys.stderr)
         print(redact(done.stderr or "", secrets).strip(), file=sys.stderr)
-        return 1
+        return 2
     print(f"Stored in Claude Code's secure storage for {plugin_id}: {', '.join(found)}")
+    for group, (_, missing) in partial.items():
+        print(f"{group} stays skipped until {' and '.join(missing)} is saved too.")
     print("Restart Claude Code to apply it.")
     print(f"Delete {path} now, or keep it somewhere private; it holds the keys in plain text.")
     return 0

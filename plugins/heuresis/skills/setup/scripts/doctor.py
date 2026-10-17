@@ -17,7 +17,7 @@ PLUGIN = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PLUGIN / "_shared"))
 sys.path.insert(0, str(PLUGIN / "hooks"))
 import doctor_lib as d  # noqa: E402  # ty: ignore[unresolved-import]
-from search_keys import EPO, EPO_WHY, KEYS  # noqa: E402  # ty: ignore[unresolved-import]
+from search_keys import KEYS  # noqa: E402  # ty: ignore[unresolved-import]
 
 STORE = "store it with /plugin configure heuresis@techne, then restart"
 
@@ -58,9 +58,16 @@ def checks(values: Mapping[str, str], environ: Mapping[str, str]) -> list[d.Chec
         folder("repos_root", values.get("REPOS_ROOT", ""), is_ideas_repo=False),
     ]
     found += [key(k.env, k.why, bool(environ.get(k.env))) for k in KEYS if not k.group]
-    pair = [k.env for k in KEYS if k.group == EPO]
-    epo = all(environ.get(env) for env in pair)
-    found.append(key(EPO, f"{EPO_WHY}; needs both {' and '.join(pair)}", epo))
+    for group in dict.fromkeys(k.group for k in KEYS if k.group):
+        members = [k for k in KEYS if k.group == group]
+        envs = [k.env for k in members]
+        need = "both" if len(envs) == 2 else "all of"
+        why = (
+            f"{members[0].why}; needs {need} {' and '.join(envs)}"
+            if len(envs) > 1
+            else members[0].why
+        )
+        found.append(key(group, why, all(environ.get(env) for env in envs)))
     return found
 
 

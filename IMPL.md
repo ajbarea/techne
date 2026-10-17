@@ -14,10 +14,10 @@ has crept in; extract it back to ROADMAP.
 ### In review: heuresis search keys in secure storage
 
 The five search keys are `sensitive` plugin options (`/plugin configure heuresis@techne`), kept in
-Claude Code's secure storage. At session start `hooks/session_keys.py` writes them to a private (0600) per-session file in
-`CLAUDE_PLUGIN_DATA/session-keys` and appends only a line that sources it to `CLAUDE_ENV_FILE`
+Claude Code's secure storage. At session start `hooks/session_keys.py` writes them to a private (0600) per-process file
+`<session_id>.<claude pid>.sh` in `CLAUDE_PLUGIN_DATA/session-keys` and appends only a line that sources it to `CLAUDE_ENV_FILE`
 (Claude Code leaves those files at 0644 and never deletes them, so no value goes in one). SessionEnd
-deletes the file, and files older than seven days are pruned. A key already in the Bash
+deletes its own process's file, and start prunes files whose process is gone (by age, 30 days, on Windows). A key already in the Bash
 environment wins.
 `skills/setup/scripts/store_keys.py` imports a `.env` file through `claude plugin configure
 --values-stdin`. One table, `hooks/search_keys.py`, feeds the manifest test, the hook, the store

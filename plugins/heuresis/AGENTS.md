@@ -30,7 +30,7 @@ If `ideas_repo` is missing:
 
 ## 4. Search keys
 
-Each `optional` key line names what the key adds and where to get it. A source without its key shows `skipped` in a verdict's coverage line; the rest still run. Claude Code keeps the keys in its secure storage. At session start heuresis writes them to a private (0600) per-session file in its plugin data folder that Bash commands load, and deletes the file when the session ends. Pick one route:
+Each `optional` key line names what the key adds and where to get it. A source without its key shows `skipped` in a verdict's coverage line; the rest still run. Claude Code keeps the keys in its secure storage. At session start heuresis writes them to a private (0600) per-process file in its plugin data folder that Bash commands load, and deletes the file when the session ends. Pick one route:
 
 - **Route A (recommended).** The user runs `/plugin configure heuresis@techne` and pastes each key into its masked field.
 - **Route B, from a file.** Print the template with the store command, then have the user save it at a private path outside any repository (for example `~/heuresis-keys.env`), fill in the keys and run `chmod 600` on it. Run the store command with that absolute path. It saves the keys to secure storage and prints only their names. Afterwards the user deletes the file or keeps it somewhere private.
