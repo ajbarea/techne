@@ -155,10 +155,16 @@ def _sections(body: str, title: str) -> dict[str, str]:
     if first is not None and preamble[first].rstrip() == f"# {title}":
         del preamble[first]  # render writes the title heading from the front matter
     notes.append("\n".join(preamble))
+    in_notes = False
     for i, match in enumerate(matches):
         end = matches[i + 1].start() if i + 1 < len(matches) else len(body)
         name, text = match.group(1), body[match.end() : end].strip("\n")
-        if name == NOTES or (name == "Idea" and marked):
+        if in_notes:
+            # Notes renders last, so a heading below it is AJ's, even one named like a section
+            # heuresis rewrites or deletes.
+            notes.append(body[match.start() : end])
+        elif name == NOTES or (name == "Idea" and marked):
+            in_notes = in_notes or name == NOTES
             notes.append(text)  # the heading is rendered; the text under it is AJ's
         elif name in SECTIONS and name not in sections:
             sections[name] = text

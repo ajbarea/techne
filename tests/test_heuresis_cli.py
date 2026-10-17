@@ -837,3 +837,23 @@ def test_capture_with_a_stalled_remote_returns_within_the_bound_and_keeps_the_id
     assert [p.name for p in (ideas / "ideas").glob("*.md")] == [
         next(p.name for p in (ideas / "ideas").glob("*captured-while-offline.md"))
     ]
+
+
+def test_hand_written_product_evidence_in_notes_survives_retriages(tmp_path: Path, capsys):
+    ideas = init_ideas(tmp_path)
+    verdict = {"state": "later", "type": "product", "reason": "r"}
+    idea_id, run = _triaged(ideas, capsys, verdict=verdict)
+    judge = json.loads((run / "judge.json").read_text())
+    path = ideas / "ideas" / f"{idea_id}.md"
+    hand = "## Product evidence\n\nAJ's own pricing notes."
+    for evidence in ({"rivals": ["PE1"]}, None, {"rivals": ["PE3"]}, None):
+        if evidence is None:
+            judge.pop("product_evidence", None)
+        else:
+            judge["product_evidence"] = evidence
+        (run / "judge.json").write_text(json.dumps(judge))
+        assert _apply(ideas, idea_id) == 0
+        if evidence == {"rivals": ["PE1"]}:
+            path.write_text(path.read_text() + f"\n## Notes\n\n{hand}\n")
+        assert "AJ's own pricing notes." in path.read_text()
+    assert cli.store.load(path).sections["Notes"] == hand

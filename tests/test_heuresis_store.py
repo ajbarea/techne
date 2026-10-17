@@ -266,3 +266,10 @@ def test_no_patents_line_without_patent_coverage():
         date="d", origin="triage", state="later", reason="r", coverage=[Coverage("x", "ok")]
     )
     assert "Patents" not in store.render_verdict(v)
+
+
+def test_headings_after_notes_stay_in_notes():
+    notes = "mine\n\n## Product evidence\n\nhand"
+    parsed = store.parse(store.render(idea(sections={"Idea": "x", "Notes": notes})))
+    assert "Product evidence" not in parsed.sections
+    assert parsed.sections["Notes"] == notes
