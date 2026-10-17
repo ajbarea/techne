@@ -127,13 +127,18 @@ class RunGrade:
     closest_title: str | None = None
     closest_url: str | None = None
     closest_verified: bool | None = None
+    # False only for a grade line written before the closest fields existed.
+    closest_recorded: bool = True
 
     def to_dict(self) -> dict:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, data: dict) -> RunGrade:
-        return cls(**{k: data[k] for k in cls.__dataclass_fields__ if k in data})
+        known = {k: data[k] for k in cls.__dataclass_fields__ if k in data}
+        if "closest_title" not in data:
+            known["closest_recorded"] = False
+        return cls(**known)
 
 
 def _meta(meta: dict | None) -> dict:
@@ -183,6 +188,8 @@ def _rivals(run_dir: Path) -> tuple[dict | None, bool, str | None, list[str]]:
         closest_ref = (judge.get("closest") or {}).get("ref")
         others = [i for i in map(identity, [o["ref"] for o in judge.get("others") or []]) if i]
         named = records.get(str(closest_ref)) if closest_ref is not None else None
+        if closest_ref is not None and named is None:
+            named = {"title": f"(ref {closest_ref} not in pool)"}
         return (
             named,
             closest_ref is None or str(closest_ref) in kept,
@@ -298,6 +305,7 @@ def summarize(grades: list[RunGrade], cases: list[Case]) -> dict:
                 "url": g.closest_url,
                 "verified": g.closest_verified,
                 "error": g.error,
+                "recorded": g.closest_recorded,
             }
             for c in cases
             for g in sorted((g for g in grades if g.case == c.id), key=lambda g: g.run)
@@ -319,24 +327,40 @@ def _num(value: float | None, template: str) -> str:
     return "n/a" if value is None else template.format(value)
 
 
-def _link_text(text: str) -> str:
-    return re.sub(r"([\\\[\]])", r"\\\1", " ".join(text.split()))
+DASHES = str.maketrans({"\u2014": "-", "\u2013": "-"})
 
 
-def _link_url(url: str) -> str:
-    return re.sub(r"\s+", "", url).replace("(", "%28").replace(")", "%29")
+def _plain(text: str) -> str:
+    """One line with the long dashes the house style bans replaced by hyphens."""
+    return " ".join(text.split()).translate(DASHES)
+
+
+def _title_text(text: str) -> str:
+    escaped = re.sub(r"([\\\[\]*_`])", r"\\\1", _plain(text))
+    return escaped.replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _url_text(url: str) -> str:
+    chars = {"(": "%28", ")": "%29", "<": "%3C", ">": "%3E", "`": "%60"}
+    return "".join(chars.get(ch, ch) for ch in re.sub(r"\s+", "", url))
 
 
 def _named_line(row: dict) -> str:
     head = f"- {row['case']} run {row['run']}: "
     if row["error"]:
-        return f"{head}error: {row['error']}"
+        return f"{head}error: {_plain(row['error'])}"
     if row["title"] is None:
         return f"{head}none"
-    link = f"[{_link_text(row['title'])}]({_link_url(row['url'] or '')})"
+    title, url = _title_text(row["title"]), _url_text(row["url"] or "")
+    if not url:
+        text = title
+    elif re.match(r"https?://", url, re.IGNORECASE):
+        text = f"[{title}]({url})"
+    else:
+        text = f"{title} `{url}`"
     if row["verified"] is None:
-        return head + link
-    return f"{head}{link} ({'verified' if row['verified'] else 'not verified'})"
+        return head + text
+    return f"{head}{text} ({'verified' if row['verified'] else 'not verified'})"
 
 
 def render_markdown(summary: dict) -> str:
@@ -370,4 +394,9 @@ def render_markdown(summary: dict) -> str:
         )
     lines += ["", "## Closest rival named, by run", ""]
     lines += [_named_line(row) for row in summary["closest_by_run"]]
+    if any(not row["recorded"] and not row["error"] for row in summary["closest_by_run"]):
+        lines += [
+            "",
+            "Runs graded before rival names were recorded show none; run regrade to fill them.",
+        ]
     return "\n".join(lines) + "\n"

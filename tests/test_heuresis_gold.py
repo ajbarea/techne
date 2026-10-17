@@ -381,6 +381,20 @@ def test_a_grade_line_from_before_the_closest_fields_still_loads():
         del old[key]
     g = gold.RunGrade.from_dict({**old, "plugin_path": "/p"})
     assert (g.closest_title, g.closest_url, g.closest_verified) == (None, None, None)
+    assert g.closest_recorded is False
+    assert gold.RunGrade.from_dict(g.to_dict()).closest_recorded is False
+
+
+def test_a_closest_ref_missing_from_the_pool_is_named_not_dropped(tmp_path):
+    case = gold.load_cases(FIX)[0]
+    files = run_files([rec("r1", "Zotero")], "r9")
+    root, idea_id = idea_repo(tmp_path, "trash", "", files)
+    g = gold.grade_run(case, 1, root, idea_id)
+    assert (g.closest_title, g.closest_url, g.closest_verified) == (
+        "(ref r9 not in pool)",
+        None,
+        False,
+    )
 
 
 def test_render_lists_the_closest_rival_each_run_named():
@@ -427,6 +441,59 @@ def test_render_lists_the_closest_rival_each_run_named():
         "- new-thing run 1: error: claude exited 1",
     ]
     assert "—" not in md
+
+
+def named_row(title, url, verified=True, error="", recorded=True) -> str:
+    g = gold.RunGrade(
+        "bib-checker",
+        1,
+        "trash",
+        True,
+        None,
+        None,
+        True,
+        True,
+        error=error,
+        closest_title=title,
+        closest_url=url,
+        closest_verified=verified,
+        closest_recorded=recorded,
+    )
+    md = gold.render_markdown(gold.summarize([g], gold.load_cases(FIX)))
+    return md.split("## Closest rival named, by run\n\n")[1].rstrip("\n")
+
+
+def test_closest_lines_carry_no_long_dashes_and_stay_on_one_line():
+    line = named_row("A \u2014 B \u2013 C", "https://x.example")
+    assert line == "- bib-checker run 1: [A - B - C](https://x.example) (verified)"
+    err = named_row(None, None, None, error="boom \u2014 bad\n  \u2013 worse\nlast")
+    assert err == "- bib-checker run 1: error: boom - bad - worse last"
+
+
+def test_closest_titles_cannot_inject_markdown_or_html():
+    line = named_row("*a* _b_ `c` <i>d</i> \\e", "https://x.example/<p>`")
+    assert line == (
+        "- bib-checker run 1: [\\*a\\* \\_b\\_ \\`c\\` &lt;i&gt;d&lt;/i&gt; \\\\e]"
+        "(https://x.example/%3Cp%3E%60) (verified)"
+    )
+
+
+def test_only_http_urls_become_links():
+    assert named_row("T", "") == "- bib-checker run 1: T (verified)"
+    assert named_row("T", "javascript:alert(1)") == (
+        "- bib-checker run 1: T `javascript:alert%281%29` (verified)"
+    )
+    assert (
+        named_row("T", "HTTP://x.example")
+        == "- bib-checker run 1: [T](HTTP://x.example) (verified)"
+    )
+
+
+def test_the_by_run_list_says_when_grades_predate_the_rival_names():
+    note = "Runs graded before rival names were recorded show none; run regrade to fill them."
+    assert note in named_row(None, None, None, recorded=False)
+    assert note not in named_row(None, None, None)
+    assert note not in named_row(None, None, None, error="x", recorded=False)
 
 
 def test_run_grade_round_trips():
