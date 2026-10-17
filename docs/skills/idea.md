@@ -38,8 +38,8 @@ Run `/heuresis:setup` once first. It creates the ideas repository and checks the
     - `scout-products`: GitHub, Hacker News and web search, including pricing pages.
     - `scout-context`: your bibliography, related-work notes, decks, ROADMAPs, marketplace and earlier ideas.
 3. **Pool.** A script merges the scout files into numbered records with a coverage line per source.
-4. **Judge.** The judge reads only the pooled records. It picks the closest rival, argues first that the idea is not new, then compares the two on domain, purpose, mechanism and evaluation, and proposes a verdict. It copies a verbatim quote for each record it relies on.
-5. **Verify.** A script checks that every quote appears in its record, and fetches the source again where it can. A record whose quote fails is dropped, and the judge runs again once without it.
+4. **Judge.** The judge reads the restatement, the pooled records and the context scout's facts, and has no web access. It picks the closest rival, argues first that the idea is not new, then compares the two on domain, purpose, mechanism and evaluation, and proposes a verdict. It copies a verbatim quote for each record it relies on.
+5. **Verify.** A script checks that every quote appears in its record, and fetches the source again where it can. A record whose quote fails is dropped. If the closest rival's quote fails, the judge runs again once without it.
 6. **Apply.** A script enforces the rules, writes the verdict into the idea file, regenerates `BOARD.md` and `LOG.md`, and commits and pushes the ideas repository.
 
 The skill reports four lines: the state, type and project; the closest rival with its link; the reason; the next step.
@@ -63,21 +63,22 @@ All inside your ideas repository.
 |---|---|
 | `ideas/<id>.md` | The idea, its state and every verdict with its evidence. |
 | `runs/<id>/` | The latest run's working files: restatement, scout records, pool, judge output, verification. A retriage replaces them. |
-| `BOARD.md` | Ideas grouped by state, with those due for revisit first. Regenerated. |
-| `LOG.md` | One line per event. Regenerated. |
+| `BOARD.md` | Needs triage (inbox and invalid files), Due for revisit, Do (by project, then type), Later, and Closed (counts with links). Regenerated. |
+| `LOG.md` | One line per verdict, triage or override, newest first. Regenerated. |
 
 ## Keys
 
-Keys come from environment variables. Set them in the shell profile Claude Code starts from and restart Claude Code. A source without its key shows `skipped` in the verdict's coverage line, and the rest still run. Never put a key in a plugin option.
+Keys come from environment variables. Set them in the shell profile Claude Code starts from and restart Claude Code. Never put a key in a plugin option.
+
+OpenAlex, arXiv and Hacker News run without a key. `OPENALEX_API_KEY` raises OpenAlex's daily search budget, and `OPENALEX_MAILTO` identifies you to OpenAlex. Semantic Scholar, Lens, EPO and GitHub show `skipped` in the verdict's coverage line without their keys, and the rest still run.
 
 | Variable | Source |
 |---|---|
-| `OPENALEX_API_KEY` | OpenAlex |
 | `S2_API_KEY` | Semantic Scholar |
 | `LENS_API_TOKEN` | Lens patents |
 | `EPO_OPS_KEY`, `EPO_OPS_SECRET` | EPO patents |
-| none | arXiv, Hacker News |
 | `gh` signed in, or `GITHUB_TOKEN` | GitHub |
+| `OPENALEX_API_KEY`, `OPENALEX_MAILTO` | Optional for OpenAlex |
 
 The Lens and EPO adapters are written against the providers' documented response shapes. They have not yet been confirmed with live keys.
 

@@ -12,7 +12,7 @@ abstract: >-
   your approval.
 type: software
 version: 1.4.0
-date-released: "2026-10-19"
+date-released: "2026-10-16"
 doi: 10.5281/zenodo.23330765
 identifiers:
   - type: doi

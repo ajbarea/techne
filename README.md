@@ -25,7 +25,7 @@
 | `techne` | Work in a code repo: audits, CI review, pre-merge review, commit plans, GitHub catch-up, cross-repo drift, slop and doc drift | Claude Code |
 | `graphe` | Documents: LaTeX papers, markdown-to-PDF, talk decks, paper scaffolds and novelty review | Claude Code |
 | `dokimasia` | Bibliography verification for LaTeX projects: lint a `.bib` or hand-written reference list, verify it against arXiv and Crossref, check every cited key rendered | Claude Code, or one standalone Python file |
-| `heuresis` | Idea triage: capture an idea, search papers, patents, products and your own work for anything like it, and file it with a verdict grounded in checked records | Claude Code (needs `uv`, git and `gh`) |
+| `heuresis` | Idea triage: capture an idea, search papers, patents, products and your own work for anything like it, and file it with a verdict grounded in checked records | Claude Code (needs `uv` and git; `gh` for GitHub search and the private remote) |
 | `phylax` | Opt-in git and PR guards (a mod), restart onto an updated Claude Code | Claude Code |
 | `epistole` | Gmail across accounts: search, read and draft in each configured account, and send a draft only after you approve it ([docs](https://ajbarea.github.io/techne/epistole/)) | Claude Code (MCP server, needs `uv`) |
 | [`keryx`](https://github.com/ajbarea/keryx) | Speaks a short gist of each reply in a local voice (WSL2) | Claude Code |

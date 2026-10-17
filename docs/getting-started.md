@@ -18,12 +18,13 @@ From inside Claude Code:
 /plugin install techne@techne
 /plugin install graphe@techne
 /plugin install dokimasia@techne
+/plugin install heuresis@techne
 /plugin install phylax@techne
 /plugin install epistole@techne
 /plugin install keryx@techne   # WSL2 only
 ```
 
-Then run the setup skill for each plugin you installed: `/techne:setup`, `/graphe:setup`, `/phylax:setup`, `/epistole:setup`. dokimasia needs only uv. Each plugin's page under **Plugins** covers first use and troubleshooting.
+Then run the setup skill for each plugin you installed: `/techne:setup`, `/graphe:setup`, `/heuresis:setup`, `/phylax:setup`, `/epistole:setup`. dokimasia needs only uv. Each plugin's page under **Plugins** covers first use and troubleshooting.
 
 Verify the install:
 
@@ -31,9 +32,9 @@ Verify the install:
 /skills
 ```
 
-The `techne:*`, `graphe:*`, `dokimasia:*`, `phylax:setup` and `epistole:setup` skills should be listed (for the plugins you installed). If they are not, run `/reload-plugins` and check again.
+The `techne:*`, `graphe:*`, `dokimasia:*`, `heuresis:*`, `phylax:setup` and `epistole:setup` skills should be listed (for the plugins you installed). If they are not, run `/reload-plugins` and check again.
 
-Install only the plugins you use: `techne` holds the code-repo skills, `graphe` the document skills (LaTeX, PDF, slides, papers), `dokimasia` the bibliography checker, `phylax` the opt-in git guards, `epistole` Gmail across accounts (see [epistole](epistole.md)), and `keryx` speaks a gist of each reply (WSL2 only).
+Install only the plugins you use: `techne` holds the code-repo skills, `graphe` the document skills (LaTeX, PDF, slides, papers), `dokimasia` the bibliography checker, `heuresis` idea triage, `phylax` the opt-in git guards, `epistole` Gmail across accounts (see [epistole](epistole.md)), and `keryx` speaks a gist of each reply (WSL2 only).
 
 ## First Workflow
 
@@ -60,6 +61,7 @@ Choose based on what you're trying to do:
 | Ground plan decisions in current best practice | [`techne:research-grounded`](skills/research-grounded.md) |
 | Audit sister repos for consistency | [`techne:sisters`](skills/sisters.md) |
 | Verify a bibliography against arXiv and Crossref | [`dokimasia:check`](skills/check.md) |
+| Capture an idea and check it against prior work | [`heuresis:idea`](skills/idea.md) |
 | Get a talk deck ready to present | [`graphe:slides`](skills/slides.md) |
 | Drive a REPL while someone watches | [`techne:theoros`](skills/theoros.md) |
 

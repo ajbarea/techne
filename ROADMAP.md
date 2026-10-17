@@ -5,7 +5,7 @@ lives in [IMPL.md](./IMPL.md). When a milestone ships, it collapses to a
 dated one-liner under [Shipped](#shipped). Git history is the
 permanent record of how each skill was designed.
 
-Last reviewed: 2026-10-19 (v1.4.0 release pass).
+Last reviewed: 2026-10-16 (v1.4.0 release pass).
 
 ---
 
@@ -54,8 +54,8 @@ gating. Open coverage gaps:
 
 Skills are added when a pattern proves itself across multiple sisters
 (n≥2). Skills are deleted or merged when their domain collapses into a
-larger sibling. The current set spans eight catalog dimensions (audit,
-drift, hygiene, review, observation, document build, bibliography, hooks); IMPL.md maps
+larger sibling. The current set spans eleven catalog dimensions (audit,
+drift, hygiene, review, observation, setup, document build, bibliography, ideas, mail, hooks); IMPL.md maps
 each skill or hook to one. `research-grounded`
 (from the 2026-05-21 audit-of-audit) shipped 2026-05-29 on direct
 request; `narrative-coherence` and `positioning` remain queued for when
@@ -166,7 +166,7 @@ that drift class recurs.
 
 Detail lives in git history (`git log`) and the live skill code. This log is pruned once work is durably shipped.
 
-- 2026-10-19: **heuresis phase 1, and v1.4.0.** A seventh plugin: `/heuresis:idea` captures an idea in a private ideas repository and triages it with four scouts (papers, patents, products, your own work), a judge that names the closest rival, and scripts that verify every quote and enforce the verdict rules. Search sources share `_shared/scholarly.py` with graphe. The Lens and EPO adapters follow the documented response shapes and are not yet confirmed with live keys.
+- 2026-10-16: **heuresis phase 1, and v1.4.0.** A seventh plugin: `/heuresis:idea` captures an idea in a private ideas repository and triages it with four scouts (papers, patents, products, your own work), a judge that names the closest rival, and scripts that verify every quote and enforce the verdict rules. Search sources share `_shared/scholarly.py` with graphe. The Lens and EPO adapters follow the documented response shapes and are not yet confirmed with live keys.
 - 2026-10-12: **Onboarding pass, and v1.3.0.** techne, graphe and phylax gain a setup skill on the epistole pattern: an AGENTS.md runbook and a read-only doctor on the system python3 that prints each missing tool with its install command. A missing latexmk, poppler, strings, gh, tmux or uv now names its fix instead of a traceback. Each plugin has a README and a docs page under a new Plugins section, the README has a Cite section, and the release is the first with a tag since 1.1.0.
 - 2026-10-11: **epistole, and v1.2.0.** A sixth plugin: a local Gmail MCP server that searches,
   reads and drafts across accounts and sends a draft only after the user approves it, with a
