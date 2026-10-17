@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -25,6 +26,7 @@ sys.path.insert(0, str(PLUGIN / "hooks"))
 from search_keys import BY_ENV, KEYS  # noqa: E402  # ty: ignore[unresolved-import]
 
 PLUGIN_NAME = "heuresis"
+SHARED_BITS = stat.S_IRGRP | stat.S_IWGRP | stat.S_IROTH | stat.S_IWOTH
 
 
 class StoreError(Exception):
@@ -32,14 +34,28 @@ class StoreError(Exception):
 
 
 def template() -> str:
-    return "".join(f"# {k.why[0].upper()}{k.why[1:]}\n{k.env}=\n\n" for k in KEYS)
+    blocks = []
+    for k in KEYS:
+        head, _, tail = k.why.partition("; ")
+        partners = [o.env for o in KEYS if o.group == k.group and o is not k] if k.group else []
+        head += f", with {' and '.join(partners)}" if partners else ""
+        comment = f"{head}; {tail}" if tail else head
+        blocks.append(f"# {comment[0].upper()}{comment[1:]}\n{k.env}=\n\n")
+    return "".join(blocks)
 
 
-def unquote(value: str) -> str:
-    value = value.strip()
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
-        return value[1:-1]
-    return value
+def unquote(raw: str, number: int, name: str) -> str:
+    """The value after `=`: quoted text, or unquoted text up to an inline ` #` comment."""
+    text = raw.lstrip()
+    if text[:1] in ("'", '"'):
+        end = text.find(text[0], 1)
+        if end < 0:
+            raise StoreError(f"line {number}: unterminated quote for {name}")
+        rest = text[end + 1 :]
+        if rest.strip() and not (rest[0] in " \t" and rest.strip().startswith("#")):
+            raise StoreError(f"line {number}: text after the closing quote for {name}")
+        return text[1:end]
+    return re.split(r"[ \t]#", raw, maxsplit=1)[0].strip()
 
 
 def parse(text: str) -> dict[str, str]:
@@ -56,7 +72,7 @@ def parse(text: str) -> dict[str, str]:
         if not sep or name not in BY_ENV:
             what = f"unknown name {name!r}" if sep else "not a NAME=value line"
             raise StoreError(f"line {number}: {what}")
-        value = unquote(value)
+        value = unquote(value, number, name)
         if value:
             found[name] = value
     return found
@@ -69,23 +85,28 @@ def find_plugin_id(listing: str, wanted: str | None) -> str:
         entries = json.loads(listing)
     except ValueError:
         raise StoreError("could not read `claude plugin list --json`; pass --plugin <id>") from None
-    ids = sorted(
-        {
-            e["id"]
-            for e in entries
-            if isinstance(e, dict) and str(e.get("id", "")).startswith(f"{PLUGIN_NAME}@")
-        }
-    )
-    if len(ids) == 1:
-        return ids[0]
-    if not ids:
+    installs = [
+        e
+        for e in entries
+        if isinstance(e, dict) and str(e.get("id", "")).startswith(PLUGIN_NAME + "@")
+    ]
+    enabled = sorted({e["id"] for e in installs if e.get("enabled", True)})
+    every = sorted({e["id"] for e in installs})
+    for ids in (enabled, every):
+        if len(ids) == 1:
+            return ids[0]
+        if len(ids) > 1:
+            break
+    if not every:
         raise StoreError(f"{PLUGIN_NAME} is not installed; install it or pass --plugin <id>")
-    raise StoreError(f"several {PLUGIN_NAME} installs ({', '.join(ids)}); pass --plugin <id>")
+    listed = ", ".join(enabled or every)
+    raise StoreError(f"several {PLUGIN_NAME} installs ({listed}); pass --plugin <id>")
 
 
 def redact(text: str, values: Sequence[str]) -> str:
-    for value in sorted(values, key=len, reverse=True):
-        text = text.replace(value, "***")
+    forms = {form for v in values for form in (v, json.dumps(v)[1:-1])}
+    for form in sorted(forms, key=len, reverse=True):
+        text = text.replace(form, "***")
     return text
 
 
@@ -97,13 +118,13 @@ def run_claude(argv: Sequence[str], stdin: str | None = None) -> subprocess.Comp
 
 
 def warn_if_shared(path: Path) -> None:
-    if os.name == "posix" and path.stat().st_mode & (stat.S_IRWXG | stat.S_IRWXO):
-        print(f"warning: {path} is readable by others; run chmod 600 on it", file=sys.stderr)
+    if os.name == "posix" and path.stat().st_mode & SHARED_BITS:
+        print(f"warning: {path} can be read or changed by others; run chmod 600", file=sys.stderr)
 
 
 def store(path: Path, plugin: str | None) -> int:
     try:
-        text = path.read_text(encoding="utf-8")
+        text = path.read_text(encoding="utf-8-sig")
     except (OSError, UnicodeDecodeError) as exc:
         print(f"error: cannot read {path}: {type(exc).__name__}", file=sys.stderr)
         return 2

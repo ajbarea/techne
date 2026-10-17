@@ -1,12 +1,23 @@
 {
-  "description": "Hands the search keys saved with /plugin configure to Claude Code's Bash commands for the session, since Bash does not see plugin options. A key already exported in the shell wins. With no key saved, python3 does not start.",
+  "description": "Hands the search keys saved with /plugin configure to Claude Code's Bash commands through a private per-session file in the plugin data folder, deleted when the session ends. A key already in the Bash environment wins.",
   "hooks": {
     "SessionStart": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "case \"$CLAUDE_PLUGIN_OPTION_OPENALEX_API_KEY$CLAUDE_PLUGIN_OPTION_S2_API_KEY$CLAUDE_PLUGIN_OPTION_LENS_API_TOKEN$CLAUDE_PLUGIN_OPTION_EPO_OPS_KEY$CLAUDE_PLUGIN_OPTION_EPO_OPS_SECRET\" in ?*) exec python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/export_keys.py\" ;; esac",
+            "command": "command -v python3 >/dev/null 2>&1 && python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/session_keys.py\" start; exit 0",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v python3 >/dev/null 2>&1 && python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/session_keys.py\" end; exit 0",
             "timeout": 10
           }
         ]

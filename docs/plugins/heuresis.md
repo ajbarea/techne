@@ -13,7 +13,7 @@ heuresis needs [uv](https://docs.astral.sh/uv/), git and the GitHub CLI. Run `/h
 
 ## Search keys
 
-Optional keys add Semantic Scholar, Lens, EPO and a larger OpenAlex budget. Run `/plugin configure heuresis@techne`, paste each key into its masked field, and restart Claude Code. The keys sit in Claude Code's secure storage, and a session-start hook passes them to Bash commands. To import them from a `.env` file instead, `/heuresis:setup` prints a template and saves the filled-in file with a store script; the file is yours to delete afterwards. A key exported in your shell profile still works and wins. [Keys](../skills/idea.md#keys) lists what each one adds.
+Optional keys add Semantic Scholar, Lens, EPO and a larger OpenAlex budget. Run `/plugin configure heuresis@techne`, paste each key into its masked field, and restart Claude Code. The keys sit in Claude Code's secure storage. At session start heuresis writes them to a private (0600) per-session file in its plugin data folder that Bash commands load, and deletes the file when the session ends. To import them from a `.env` file instead, `/heuresis:setup` prints a template and saves the filled-in file with a store script; the file is yours to delete afterwards. A key already in the Bash environment, such as one exported in your shell profile, wins. [Keys](../skills/idea.md#keys) lists what each one adds.
 
 ## First use
 
