@@ -58,7 +58,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = ideas(sub.add_parser("capture", help="save an idea to the inbox"))
     p.add_argument("--via", choices=["terminal", "phone", "form", "import"], default="terminal")
-    p.add_argument("text", nargs="+")
+    # Shell arguments lose $5 and backticks inside double quotes; stdin from a quoted heredoc
+    # keeps the text verbatim.
+    p.add_argument("--text", help="the idea text, or - to read it from stdin")
+    p.add_argument("words", nargs="*", metavar="text")
 
     p = ideas(sub.add_parser("context", help="list AJ's research sources that exist"))
     p.add_argument("--repos-root", type=Path, required=True)
@@ -102,7 +105,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _capture(args) -> int:
-    text = " ".join(args.text).strip()
+    if args.text is not None and args.words:
+        print("heuresis: give the idea text as arguments or with --text, not both", file=sys.stderr)
+        return 2
+    if args.text is None:
+        text = " ".join(args.words).strip()
+    else:
+        text = (sys.stdin.read() if args.text == "-" else args.text).strip()
     if not text:
         print("heuresis: the idea text is empty", file=sys.stderr)
         return 2

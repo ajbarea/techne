@@ -653,3 +653,23 @@ def test_an_id_collision_the_fetch_missed_names_the_idea(tmp_path: Path, capsys,
     assert f"idea {id_a}" in err and "local copy is kept" in err
     assert (b / "ideas" / f"{id_a}.md").is_file()
     assert not (b / ".git" / "rebase-merge").exists()
+
+
+def test_capture_reads_the_idea_text_from_stdin_verbatim(tmp_path: Path, capsys, monkeypatch):
+    ideas = init_ideas(tmp_path)
+    text = "Pricing at $5/mo with `backticks`, \"double\" and 'single' quotes\nsecond line $HOME"
+    _stdin(monkeypatch, text + "\n")
+    capsys.readouterr()
+    assert cli.main(["capture", "--ideas", str(ideas), "--text", "-"]) == 0
+    idea_id = capsys.readouterr().out.strip()
+    saved = cli.store.load(ideas / "ideas" / f"{idea_id}.md")
+    assert saved.sections["Idea"] == text
+
+
+def test_capture_refuses_text_both_as_arguments_and_on_stdin(tmp_path: Path, capsys, monkeypatch):
+    ideas = init_ideas(tmp_path)
+    _stdin(monkeypatch, "from stdin")
+    capsys.readouterr()
+    assert cli.main(["capture", "--ideas", str(ideas), "--text", "-", "also", "args"]) == 2
+    assert capsys.readouterr().err.startswith("heuresis: ")
+    assert not list((ideas / "ideas").glob("*.md"))

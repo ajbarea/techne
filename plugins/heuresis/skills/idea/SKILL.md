@@ -18,7 +18,13 @@ A failing command prints `heuresis: <message>` on stderr and exits 1 (exit 2 for
 
 ## Pick the mode
 
-- `<idea text>` without `--now`: capture only. Run `heuresis capture --ideas IDEAS <text>`. It prints the final id on stdout, which can differ from the id you expect when the date and title are already taken, so use the printed id. Say the idea is in the inbox and can be triaged with `--triage <id>`. Stop.
+- `<idea text>` without `--now`: capture only. Pass AJ's text unchanged on stdin through a quoted heredoc, so the shell leaves `$`, backticks and quotes alone:
+```
+heuresis capture --ideas IDEAS --text - <<'HEURESIS_IDEA'
+<idea text>
+HEURESIS_IDEA
+```
+  It prints the final id on stdout, which can differ from the id you expect when the date and title are already taken, so use the printed id. Say the idea is in the inbox and can be triaged with `--triage <id>`. Stop.
 - `--now <idea text>`: capture, then triage the printed id.
 - `--triage <id>` or `--retriage <id>`: triage an existing idea. A retriage adds a new verdict and keeps the old ones.
 - `--override <id> <state> [--type T] [--project P] [--duplicate-of X] <reason>`: run `heuresis override --ideas IDEAS <id> <state> ... <reason>` and stop. This records AJ's own decision.
