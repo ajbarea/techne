@@ -25,7 +25,7 @@ class SourceError(Exception):
 
 
 WEB_SCHEMES = ("http", "https")
-# Keys and tokens are meant for the host they were sent to, never one it redirects to.
+# Keys and tokens are meant for the host and scheme they were sent to, never a redirect elsewhere.
 CREDENTIAL_HEADERS = frozenset({"x-api-key", "authorization"})
 
 
@@ -35,7 +35,10 @@ class _Redirect(urllib.request.HTTPRedirectHandler):
         if target.scheme not in WEB_SCHEMES:
             raise SourceError(f"redirect to unsupported scheme: {target.scheme or 'none'}")
         new = super().redirect_request(req, fp, code, msg, headers, newurl)
-        if new is not None and target.hostname != urllib.parse.urlsplit(req.full_url).hostname:
+        source = urllib.parse.urlsplit(req.full_url)
+        # A downgrade to http would send the key in clear text, even to the same host.
+        moved = (target.scheme, target.hostname) != (source.scheme, source.hostname)
+        if new is not None and moved:
             for name in [n for n in new.headers if n.lower() in CREDENTIAL_HEADERS]:
                 del new.headers[name]
         return new

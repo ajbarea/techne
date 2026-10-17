@@ -193,3 +193,9 @@ def test_get_follows_a_cross_host_redirect_without_sending_the_key():
         server.server_close()
     assert body == b"done"
     assert seen == [(f"localhost:{port}", "K"), (f"127.0.0.1:{port}", None)]
+
+
+def test_a_redirect_from_https_to_http_on_the_same_host_drops_the_credentials():
+    handler = http._Redirect()
+    moved = handler.redirect_request(_request(), None, 302, "Found", {}, "http://api.example/z")
+    assert _keys(moved) == {"user-agent"}
