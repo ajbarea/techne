@@ -11,6 +11,11 @@ has crept in; extract it back to ROADMAP.
 
 ## In flight
 
+### In review: sisters auto clean
+
+`hygiene.py --auto` and the opt-in `clean_finished_work` SessionStart hook. Open: a live run on
+the fleet with removals on, once the PR is reviewed.
+
 ### In review: shared plugin key hook, graphe keys
 
 A plugin's own `plugin.json` is its key table: every `sensitive` string option is a key (variable =
