@@ -325,7 +325,11 @@ def test_doctor_group_of_three_says_all_of(tmp_path):
 
 
 def hook_command(event, mode):
-    guard = '[ -d "${CLAUDE_PLUGIN_DATA}/session-keys" ] && ' if mode == "end" else ""
+    guard = (
+        '[ -d "${CLAUDE_PLUGIN_DATA}/session-keys" ] && '
+        if mode == "end"
+        else '[ -n "${CLAUDE_PLUGIN_ROOT}" ] && '
+    )
     return (
         f'{guard}command -v python3 >/dev/null 2>&1 && exec python3 "${{CLAUDE_PLUGIN_ROOT}}'
         f'/_shared/plugin_keys.py" {mode}; exit 0'
@@ -349,6 +353,14 @@ def test_hook_commands_run_the_script_and_exit_0_without_python3(tmp_path, root,
         env={"PATH": bare, "CLAUDE_PLUGIN_ROOT": str(root), "CLAUDE_PLUGIN_DATA": data},
     )
     assert done.returncode == 0
+
+
+def test_the_start_command_exits_0_when_the_host_sets_no_plugin_root(tmp_path):
+    """A CLI that converts Claude hooks may leave CLAUDE_PLUGIN_ROOT unset."""
+    marker = tmp_path / "ran"
+    bindir = stub_dir(tmp_path, {"python3": f"echo ran > {marker}"}, links=["sh"])
+    done = subprocess.run(["sh", "-c", hook_command("SessionStart", "start")], env={"PATH": bindir})
+    assert done.returncode == 0 and not marker.exists()
 
 
 def test_the_end_command_does_not_start_python_without_a_key_folder(tmp_path, root):

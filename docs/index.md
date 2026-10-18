@@ -1,6 +1,6 @@
 ---
 title: techne
-description: A Claude Code plugin marketplace for code repos, documents, bibliographies, ideas, Gmail and course sites. Pick the plugin for your job, install it, run its setup skill.
+description: A plugin marketplace for AI coding agents, for code repos, documents, bibliographies, ideas, Gmail and course sites. Pick the plugin for your job, install it, run its setup skill.
 hide:
   - navigation
   - toc
@@ -11,7 +11,7 @@ hide:
 
 # τέχνη · techne
 
-**Claude Code plugins for code repos, documents, bibliographies, ideas, Gmail and course sites. Install the ones you use.**
+**Plugins for AI coding agents, for code repos, documents, bibliographies, ideas, Gmail and course sites. Install the ones you use.**
 { .hero-subtitle }
 
 <div class="hero-install" markdown>
@@ -35,7 +35,7 @@ hide:
 <section class="landing-section landing-section--intro" id="plugins">
   <div class="section-inner">
     <h2 class="section-title">Which plugin do you need?</h2>
-    <p class="section-lead">techne is a Claude Code plugin marketplace. Each plugin is installed on its own, so only the ones you pick put their skill list in Claude's context. After installing, run the plugin's setup skill, <code>/&lt;plugin&gt;:setup</code>: it checks what the plugin needs and prints the install command for anything missing. dokimasia needs only uv and has none; keryx checks itself with <code>keryx status</code>.</p>
+    <p class="section-lead">techne is a plugin marketplace for AI coding agents. Each plugin is installed on its own, so only the ones you pick put their skill list in the agent's context. Every plugin runs in Claude Code; techne, graphe and dokimasia also run in Codex, Copilot CLI and Antigravity CLI (see <a href="getting-started/#other-agent-clis">Getting Started</a>). After installing, run the plugin's setup skill, <code>/&lt;plugin&gt;:setup</code>: it checks what the plugin needs and prints the install command for anything missing. dokimasia needs only uv and has none; keryx checks itself with <code>keryx status</code>.</p>
     <div class="skill-grid">
       <div class="skill-card">
         <div class="skill-name"><a href="plugins/techne/">techne</a></div>

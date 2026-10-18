@@ -7,12 +7,14 @@ allowed-tools: Bash Glob Grep Read Edit
 
 # PDF
 
+`<skill-dir>` is the directory holding this SKILL.md, and `<plugin-root>` is the plugin's root directory, two levels above it.
+
 Markdown in, print-quality PDF out. Do not go looking for a converter: the
 decision is made and the generator is in this skill.
 
 ## Write it plain first
 
-When writing or revising the markdown, read `${CLAUDE_PLUGIN_ROOT}/_shared/plain-prose.md` and
+When writing or revising the markdown, read `<plugin-root>/_shared/plain-prose.md` and
 write to it. Each render prints `REVIEW prose` lines for the patterns that
 file lists and for sentences over 40 words; they never change the exit code.
 `--no-prose` skips them.
@@ -31,7 +33,7 @@ first, report what changed, and promote only when the user says so. Overwriting
 a document someone is about to send is not yours to decide.
 
 ```
-uv run --no-project --quiet --with 'typst>=0.15,<0.16' python ${CLAUDE_SKILL_DIR}/scripts/render.py <src> <out-dir>
+uv run --no-project --quiet --with 'typst>=0.15,<0.16' python <skill-dir>/scripts/render.py <src> <out-dir>
 ```
 
 Nothing needs installing: the `typst` wheel bundles the compiler, and `cmarker`

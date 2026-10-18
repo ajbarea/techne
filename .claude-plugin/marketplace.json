@@ -1,7 +1,7 @@
 {
   "name": "techne",
   "version": "1.4.0",
-  "description": "AJ's Claude Code plugins: code-repo skills (techne), document builds (graphe), bibliography verification (dokimasia), idea triage (heuresis), git guards (phylax), Gmail across accounts (epistole), Brightspace course sites (schole), and a spoken Claude Code (keryx).",
+  "description": "AJ's plugins for AI coding agents: code-repo skills (techne), document builds (graphe), bibliography verification (dokimasia), idea triage (heuresis), git guards (phylax), Gmail across accounts (epistole), Brightspace course sites (schole), and a spoken Claude Code (keryx).",
   "owner": {
     "name": "AJ",
     "email": "ajbareaa@gmail.com"

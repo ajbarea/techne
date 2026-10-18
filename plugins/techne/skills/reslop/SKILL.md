@@ -7,6 +7,8 @@ allowed-tools: Bash Glob Grep Read Edit Agent
 
 # Reslop
 
+`<plugin-root>` is the plugin's root directory, two levels above the directory holding this SKILL.md.
+
 Generative sibling of `/techne:deslop`. Where `/techne:deslop` deletes low-value prose, `/techne:reslop` *rewrites* it — grounded in the code, not in marketing instincts. On a path-scoped `/techne:deslop <path>` run, deslop auto-routes claim-bearing docstrings here; on a bare whole-repo sweep it lists them for you to run this directly.
 
 ## Repo context
@@ -15,15 +17,17 @@ Generative sibling of `/techne:deslop`. Where `/techne:deslop` deletes low-value
 echo "<!-- skill-context: $(git rev-parse --show-toplevel 2>/dev/null || pwd) -->"; cat "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/skill-context.md" 2>/dev/null || echo "(no .claude/skill-context.md in this repo)"
 ```
 
-No context file: use conservative defaults for grounding numeric claims. The header names the repo it came from, which is the current directory's. When the target is a path in another repo, run `bash "${CLAUDE_PLUGIN_ROOT}/_shared/skill_context.sh" <target-path>` and use that output instead.
+If the block above appears as a command rather than its output, run it and use what it prints.
+
+No context file: use conservative defaults for grounding numeric claims. The header names the repo it came from, which is the current directory's. When the target is a path in another repo, run `bash "<plugin-root>/_shared/skill_context.sh" <target-path>` and use that output instead.
 
 The injected `## slop_ground_truth` section (if present) names the files or docs that ground quantitative claims for this repo. Never introduce a numeric claim that can't trace to one of those sources.
 
 ## Hard rules
 
 1. **Never invent behavior.** If the code doesn't show it, don't claim it. No "thread-safe" unless the code actually synchronizes. No "idempotent" unless it demonstrably is. No "future-proof" ever.
-2. **Never invent performance claims.** Rewrites must not introduce numeric speedups, throughput figures, latency bounds, or scale claims unless they are cited in the repo's `slop_ground_truth` (per injected context). If the original prose said "10× faster" and you can't find a measurement that supports it, strike the claim — don't rephrase it. The "Unsupported quantitative / comparative claims" section of `${CLAUDE_PLUGIN_ROOT}/_shared/hate-words.md` is the pattern list.
-3. **No hate-words.** See `${CLAUDE_PLUGIN_ROOT}/_shared/hate-words.md` — the rewrite must not reintroduce slop you came to fix.
+2. **Never invent performance claims.** Rewrites must not introduce numeric speedups, throughput figures, latency bounds, or scale claims unless they are cited in the repo's `slop_ground_truth` (per injected context). If the original prose said "10× faster" and you can't find a measurement that supports it, strike the claim — don't rephrase it. The "Unsupported quantitative / comparative claims" section of `<plugin-root>/_shared/hate-words.md` is the pattern list.
+3. **No hate-words.** See `<plugin-root>/_shared/hate-words.md` — the rewrite must not reintroduce slop you came to fix.
 4. **Don't restate the signature.** Type annotations already tell the reader the types. Docstring prose is for purpose and non-obvious constraints.
 5. **Prefer shorter.** One sentence beats three. If nothing needs saying, say nothing — hand the target back to `/techne:deslop` to delete outright.
 6. **Match surrounding style.** If the module's other docstrings are one-liners, yours is too. If they use Google-style `Args:` / `Returns:`, match that — only if the arguments genuinely need explanation beyond their types.

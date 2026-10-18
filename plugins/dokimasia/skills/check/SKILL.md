@@ -7,13 +7,15 @@ allowed-tools: Bash Glob Grep Read
 
 # Check a bibliography
 
+`<skill-dir>` is the directory holding this SKILL.md.
+
 Three passes over any LaTeX project's `.bib`, or over a reference list written by hand in
 `thebibliography`. Run the one that answers the question; do not judge a reference by memory.
 
 ## Run it
 
 ```
-uv run --no-project --quiet python ${CLAUDE_SKILL_DIR}/scripts/dokimasia.py [--root DIR] [--require-built] {lint,verify,rendered} [DOC.tex ...]
+uv run --no-project --quiet python <skill-dir>/scripts/dokimasia.py [--root DIR] [--require-built] {lint,verify,rendered} [DOC.tex ...]
 ```
 
 The script is one file with no dependencies and needs Python 3.11 or later. Invoke it through

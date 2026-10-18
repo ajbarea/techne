@@ -7,6 +7,8 @@ allowed-tools: Bash Glob Grep Read Edit WebSearch WebFetch Agent
 
 # Research-grounded
 
+`<plugin-root>` is the plugin's root directory, two levels above the directory holding this SKILL.md.
+
 Catch design decisions that were made without checking current best practice — *before* they become code. A planning doc that says "we'll use X" with no provenance is a bet on training-cutoff recall; the convention `# research(YYYY-MM): <tradeoff> <source>` records that the bet was checked against reality. This skill finds the bets that weren't.
 
 ## Repo context
@@ -14,7 +16,7 @@ Catch design decisions that were made without checking current best practice —
 `/techne:research-grounded` audits docs in the CWD repo by default, or a path you name (which may live in another repo). Read that repo's skill-context:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/_shared/skill_context.sh" <target-doc>   # no path arg → CWD repo
+bash "<plugin-root>/_shared/skill_context.sh" <target-doc>   # no path arg → CWD repo
 ```
 
 It isn't required, but its `## repo` section helps you tell a genuine technology choice from incidental prose.

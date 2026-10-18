@@ -7,6 +7,8 @@ allowed-tools: Bash(git status) Bash(git diff *) Bash(git log *) Bash(git rev-pa
 
 # Auto-Commit Generator
 
+`<skill-dir>` is the directory holding this SKILL.md.
+
 Analyze pending git changes and group them into a structured commit plan written to `COMMITS.md` at the repo root. Default mode is plan-only — the user reads the file and either stages commits themselves or says the word for Claude to execute. On an explicit okay (see [Execution](#execution)), Claude runs the full branch → commits → push → PR chain against the plan, with no `Co-Authored-By:` trailer and without hardcoded side effects.
 
 ## Workflow
@@ -23,7 +25,7 @@ Analyze pending git changes and group them into a structured commit plan written
    - `git diff --cached` (staged changes — don't skip this; staged work must be included in the plan)
    - `git log -20 --oneline` (to match the repo's existing commit style, e.g. scope names already in use)
    - `git rev-parse HEAD` (for the staleness header)
-   - `bash ${CLAUDE_SKILL_DIR}/scripts/fingerprint.sh` (fingerprint of the working tree for the staleness header)
+   - `bash <skill-dir>/scripts/fingerprint.sh` (fingerprint of the working tree for the staleness header)
 
 3. **Trust `.gitignore`, with one exception: always exclude `COMMITS.md` itself.** Do not hardcode directory filters (no "skip `.claude/`", "skip `designs/`"). `git status` already respects `.gitignore`; if a file shows up, the user wants it tracked. The sole baked-in filter is `COMMITS.md` at the repo root; it is the regeneratable output of this skill, and including it in its own plan is circular (and ends with the plan committed to `main`). Drop it from every group; if `COMMITS.md` is the *only* pending change, treat the tree as clean and don't rewrite the file. Beyond that, if `git status` reports nothing worth committing, say so in one sentence and don't write the file.
 

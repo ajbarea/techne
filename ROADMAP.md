@@ -65,6 +65,17 @@ that drift class recurs.
 
 ## Queued / unprioritized
 
+- **Portability, next phases** (phase 1 shipped 2026-10-18).
+  2. **Plugin settings and data outside Claude Code.** `${user_config.*}` and
+     `${CLAUDE_PLUGIN_DATA}` hold heuresis's and phylax's setup and heuresis's runtime; give them a
+     neutral config file and data folder that Claude Code's settings still fill, then drop the
+     guard's exemption.
+  3. **Hooks and subagents per CLI.** phylax's guards, keryx, the key hooks, techne's session-start
+     cleanup and heuresis's four scouts. Codex sets `PLUGIN_ROOT` and `CLAUDE_PLUGIN_ROOT` for hooks;
+     Antigravity CLI converts Claude hooks on install. Measure each before claiming it.
+  4. **OpenCode and other skill-folder agents.** They read `~/.agents/skills/` and have no plugin
+     marketplace. A flat bundle needs unique names (six plugins each have `setup`) and each skill's
+     `_shared` files beside it.
 - **epistole: reach drafts it did not create.** `search in:drafts` returns message ids, but
   `update_draft` and `send_draft` take the Gmail draft id (`r…`), and no tool lists drafts, so a
   draft made in Gmail or by another session cannot be edited or sent. Fix: a read-only
@@ -172,6 +183,20 @@ that drift class recurs.
 ## Shipped
 
 Detail lives in git history (`git log`) and the live skill code. This log is pruned once work is durably shipped.
+
+- 2026-10-18: **Skill plugins run in Codex, Copilot CLI and Antigravity CLI.** Skill bodies name
+  their files as `<skill-dir>/…` and `<plugin-root>/…`, which all four tested CLIs resolve, in place of
+  `${CLAUDE_SKILL_DIR}` and `${CLAUDE_PLUGIN_ROOT}`, which only Claude Code substitutes. Measured
+  on the sisters config step: the old form failed 3 of 3 runs in Codex and in Antigravity CLI and
+  Copilot recovered in 2 of 3 by guessing the path; the placeholders resolved 3 of 3 in all four
+  CLIs, and both paths resolved in 12 of 12 runs
+  on graphe:pdf, which uses both. On the final tree, the sisters step, audit's inline context
+  block and graphe:pdf's paths passed 24 of 24 runs across the four CLIs, and dokimasia's
+  offline lint ran its shipped script in 8 of 8. `check_plugin_refs.sh`
+  resolves every placeholder path, requires its exact definition line before first
+  use, refuses placeholders outside SKILL.md and the Claude variables in skill bodies, and keeps
+  techne, graphe and dokimasia free of plugin options. The README and Getting Started give each
+  CLI's install command.
 
 - 2026-10-18: **`sisters` cleans finished work automatically.** `hygiene.py --auto` removes worktrees and branches whose PR merged and reports what a merge left behind; an opt-in SessionStart hook (`clean_finished_work`) runs it. Report-only `issue` and landed `pr` kinds join the survey, and a compiled PDF beside its `.tex` counts as build output.
 
