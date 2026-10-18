@@ -45,8 +45,11 @@ export const register: Register = (on, options) => {
     // $.session.cwd() is the main thread's.
     if (e.agentId !== undefined || !GIT_OR_GH.test(e.command)) return next(e)
     const cwd = await $.session.cwd()
+    // A deleted session folder (a removed worktree) fails the spawn as if python3 were
+    // missing. The guard reads the folder from stdin, so it starts from the plugin's own.
+    const spawnCwd = (await $.fs.exists(cwd)) ? cwd : $.plugin.root
     const run = await $.process.run(['python3', `${$.plugin.root}/hooks/git_guards.py`], {
-      cwd,
+      cwd: spawnCwd,
       stdin: JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: e.command }, cwd }),
       env: Object.fromEntries(GUARDS.map(key => [`CLAUDE_PLUGIN_OPTION_${key.toUpperCase()}`, String(isOn(options, key))])),
       timeoutMs: GUARD_TIMEOUT_MS,

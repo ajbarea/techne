@@ -22,7 +22,7 @@ type Guard = Partial<ProcessRunResult> | Error
 
 // Stands in for the engine: the session's directory, python3 running git_guards.py, and Bash.
 // `held` makes the engine hold the stamp's write, as an organization's settings can.
-function engine(on: On, guard: Guard, held?: string) {
+function engine(on: On, guard: Guard, held?: string, cwdExists = true) {
   const runs: { argv: readonly string[]; init?: ProcessRunInit }[] = []
   const bash: string[] = []
   // Every write of the stamp, and what it held when Bash ran (where the fallback reads it).
@@ -31,6 +31,7 @@ function engine(on: On, guard: Guard, held?: string) {
   const stampAtRun: (string | undefined)[] = []
   const logs: string[] = []
   on('session.cwd', () => ({ value: CWD }))
+  on('fs.exists', ($, e) => ({ value: e.path === CWD ? cwdExists : true }))
   on('ui.log', ($, e) => {
     logs.push(e.text)
     return { value: undefined }
@@ -98,6 +99,15 @@ describe('git guard', () => {
       CLAUDE_PLUGIN_OPTION_BLOCK_COMMITS_MD: 'true',
       CLAUDE_PLUGIN_OPTION_WARN_MAIN_CHECKOUT_COMMIT: 'false',
     })
+  })
+
+  test('a deleted session folder still gets the guard, started from the plugin', { options: COMMITS_MD }, async ($, on) => {
+    const { runs, bash } = engine(on, {}, undefined, false)
+    await $.tool.call({ tool: 'Bash', command: 'git -C /work/other add .' })
+    const { init } = runs[0]!
+    expect(init?.cwd).not.toBe(CWD)
+    expect(JSON.parse(init?.stdin ?? '{}').cwd).toBe(CWD)
+    expect(bash).toEqual(['git -C /work/other add .'])
   })
 
   test('a command with no git or gh never starts python3', { options: ATTRIBUTION }, async ($, on) => {
