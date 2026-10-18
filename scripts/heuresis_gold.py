@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Run the heuresis gold set: one headless Claude Code triage per case and run, graded from the
 files it writes. Uses your Claude plan; never touches your real ideas repository, which
---guard-repo watches (the run stops if its refs or any file content change).
+--guard-repo watches: after each run the guard is compared with its snapshot from before, and
+the set stops if its refs, any file's content, its local git config, hooks or info changed. The
+guard detects a change after the fact; it does not prevent one.
 With --plugin-dir, the installed heuresis plugins are switched off for the sessions (--settings)
 and a run whose session did not load heuresis from that folder is an error.
 Results default to $XDG_STATE_HOME/heuresis-gold (~/.local/state/heuresis-gold).
@@ -20,6 +22,7 @@ import argparse
 import dataclasses
 import datetime as dt
 import fnmatch
+import hashlib
 import json
 import os
 import shutil
@@ -96,15 +99,41 @@ def check_guard(path: Path) -> Path:
     return resolved
 
 
+def git_dir_digest(common: Path) -> str:
+    """Path, mode and content hash of everything under .git/hooks and .git/info."""
+    lines = []
+    for sub in ("hooks", "info"):
+        base = common / sub
+        for path in sorted(base.rglob("*")) if base.is_dir() else []:
+            mode = path.lstat().st_mode & 0o7777
+            if path.is_symlink():
+                body = f"link {os.readlink(path)}"
+            elif path.is_file():
+                body = hashlib.sha256(path.read_bytes()).hexdigest()
+            else:
+                body = "dir"
+            lines.append(f"{path.relative_to(common)} {mode:o} {body}")
+    return "\n".join(lines)
+
+
 def snapshot(repo: Path) -> str:
-    """Everything a run could change in repo: refs, the staged index, and every file's content.
+    """Everything a run could change in repo: refs, the staged index, every file's content, the
+    repository's local config, and its hooks and info folders.
 
     The content tree comes from a throwaway index (`add -A -f` then `write-tree`), so edits to
-    files that were already modified, untracked or ignored still change it, and the repository's
-    own index is never touched.
+    files that were already modified, untracked or ignored still change it. The tree's objects go
+    to a temporary object directory with the real one as an alternate, so taking a snapshot
+    writes nothing into the guarded repository, its index included.
     """
+    common = (repo / git(repo, "rev-parse", "--git-common-dir").strip()).resolve()
     with tempfile.TemporaryDirectory() as tmp:
-        env = {**os.environ, "GIT_INDEX_FILE": str(Path(tmp) / "index")}
+        (Path(tmp) / "objects").mkdir()
+        env = {
+            **os.environ,
+            "GIT_INDEX_FILE": str(Path(tmp) / "index"),
+            "GIT_OBJECT_DIRECTORY": str(Path(tmp) / "objects"),
+            "GIT_ALTERNATE_OBJECT_DIRECTORIES": str(common / "objects"),
+        }
         has_head = (
             subprocess.run(
                 ["git", "-C", str(repo), "rev-parse", "--verify", "-q", "HEAD"],
@@ -118,7 +147,16 @@ def snapshot(repo: Path) -> str:
         git(repo, "add", "-A", "-f", ".", env=env)
         tree = git(repo, "write-tree", env=env).strip()
     head = git(repo, "rev-parse", "HEAD").strip() if has_head else ""
-    return "\n".join([head, tree, git(repo, "for-each-ref"), git(repo, "ls-files", "-s")])
+    return "\n".join(
+        [
+            head,
+            tree,
+            git(repo, "for-each-ref"),
+            git(repo, "ls-files", "-s"),
+            git(repo, "config", "--local", "--list"),
+            git_dir_digest(common),
+        ]
+    )
 
 
 def code_identity(folder: Path | None) -> dict:
@@ -162,7 +200,7 @@ def parse_stream(text: str) -> tuple[dict | None, dict | None]:
 def watch(guard: Path) -> str:
     try:
         return snapshot(guard)
-    except RuntimeError as exc:
+    except (RuntimeError, OSError) as exc:
         raise GuardTripped(f"cannot snapshot the guard repository {guard}: {exc}") from exc
 
 

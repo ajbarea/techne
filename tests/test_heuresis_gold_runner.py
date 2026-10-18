@@ -393,6 +393,55 @@ def test_snapshot_sees_content_ref_and_ignored_changes_but_leaves_the_index_alon
     assert r.snapshot(repo) != base
 
 
+def tree_listing(root: Path) -> list[tuple[str, int]]:
+    return sorted(
+        (str(f.relative_to(root)), f.stat().st_size) for f in root.rglob("*") if f.is_file()
+    )
+
+
+def test_snapshot_writes_nothing_into_the_guarded_repository(tmp_path):
+    repo = dirty_guard_repo(tmp_path)
+    (repo / "fresh.md").write_text("content no object holds yet\n")
+    before = tree_listing(repo / ".git")
+    r.snapshot(repo)
+    assert tree_listing(repo / ".git") == before
+
+
+def test_snapshot_sees_local_config_hooks_and_info_changes(tmp_path):
+    repo = dirty_guard_repo(tmp_path)
+    base = r.snapshot(repo)
+    git(repo, "config", "--local", "core.hooksPath", "/elsewhere")
+    assert r.snapshot(repo) != base
+    base = r.snapshot(repo)
+    hook = repo / ".git" / "hooks" / "pre-commit"
+    hook.write_text("#!/bin/sh\nexit 0\n")
+    assert r.snapshot(repo) != base
+    base = r.snapshot(repo)
+    hook.chmod(0o755)
+    assert r.snapshot(repo) != base
+    base = r.snapshot(repo)
+    hook.write_text("#!/bin/sh\nexit 1\n")
+    assert r.snapshot(repo) != base
+    base = r.snapshot(repo)
+    (repo / ".git" / "info" / "exclude").write_text("# a different note\n")
+    assert r.snapshot(repo) != base
+    base = r.snapshot(repo)
+    (repo / ".git" / "info" / "attributes").write_text("*.md text\n")
+    assert r.snapshot(repo) != base
+    assert r.snapshot(repo) == r.snapshot(repo)
+
+
+def test_snapshot_of_a_linked_worktree_reads_the_shared_git_dir(tmp_path):
+    repo = dirty_guard_repo(tmp_path)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "two")
+    linked = tmp_path / "linked"
+    git(repo, "worktree", "add", "-q", str(linked), "-b", "side")
+    base = r.snapshot(linked)
+    (repo / ".git" / "hooks" / "post-merge").write_text("#!/bin/sh\n")
+    assert r.snapshot(linked) != base
+
+
 def test_guard_is_required_unless_declined(fake, capsys):
     with pytest.raises(SystemExit) as exc:
         go(fake / "out")
