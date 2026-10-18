@@ -414,7 +414,15 @@ def selected(cases: list[gold.Case], globs: list[str]) -> list[gold.Case]:
 
 
 def read_grades(path: Path) -> list[dict]:
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    grades = []
+    for number, line in enumerate(path.read_text().splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            grades.append(json.loads(line))
+        except ValueError as exc:
+            raise gold.GoldError(f"{path}:{number} is not a grade line: {exc}") from exc
+    return grades
 
 
 def write_report(res: Path, cases: list[gold.Case]) -> None:
@@ -502,6 +510,7 @@ def run(args) -> int:
             flush=True,
         )
 
+    before = None
     try:
         before = watch(guard) if guard else ""
         for case in cases:
@@ -528,6 +537,12 @@ def run(args) -> int:
     except GuardTripped as exc:
         print(f"heuresis_gold: {exc}", file=sys.stderr)
         return 1
+    except KeyboardInterrupt:
+        if guard and before is not None and watch(guard) != before:
+            print(f"heuresis_gold: interrupted, and {guard} changed; inspect it", file=sys.stderr)
+            return 1
+        print("heuresis_gold: interrupted; the guard repository is unchanged", file=sys.stderr)
+        return 130
     write_report(res, cases)
     print(res / "summary.md")
     return 0

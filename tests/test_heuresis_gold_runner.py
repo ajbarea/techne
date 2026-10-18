@@ -881,3 +881,27 @@ def test_regrade_help_and_docs_say_a_repeat_is_replaced_not_pooled(capsys):
     assert command in docs
     assert "Regrade replaces repeats; it does not pool them." in docs
     assert "python3 scripts/heuresis_gold.py" not in docs
+
+
+def test_regrade_refuses_a_grades_file_with_a_broken_line(fake, monkeypatch, capsys):
+    res = run_once(fake, monkeypatch, "o1", "trash")
+    with (res / "grades.jsonl").open("a") as f:
+        f.write('{"case": "bib-checker", "run": 2, "st\n')
+    assert r.main(["regrade", str(res), "--into", str(fake / "merged")]) == 2
+    assert "grades.jsonl:2 is not a grade line" in capsys.readouterr().err
+    assert not (fake / "merged").exists()
+
+
+@pytest.mark.parametrize(("touch", "code"), [(False, 130), (True, 1)])
+def test_an_interrupted_run_still_compares_the_guard(fake, monkeypatch, capsys, touch, code):
+    guard = guard_repo(fake)
+
+    def interrupted(*args, **kwargs):
+        if touch:
+            (guard / "stray.txt").write_text("x")
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(r, "triage", interrupted)
+    assert go(fake / "out", "--guard-repo", str(guard)) == code
+    err = capsys.readouterr().err
+    assert ("guard repository is unchanged" in err) is not touch and "interrupted" in err
