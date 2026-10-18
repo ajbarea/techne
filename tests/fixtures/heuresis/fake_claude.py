@@ -62,18 +62,21 @@ if mode in ("guard-modified", "guard-untracked"):
         "tracked.md" if mode == "guard-modified" else "untracked.md"
     )
     target.write_text("B" * len(target.read_text()))
-if mode in ("trash", "guard", "two-plugins", "wrong-dir"):
+if mode in ("trash", "guard", "two-plugins", "wrong-dir", "decline"):
     sys.path.insert(0, os.environ["HEURESIS_SRC"])
     from heuresis import cli, store
-    from heuresis.model import FACETS
+    from heuresis.model import FACETS, Verdict
 
     path = store.idea_path(ideas, idea_id)
     idea = store.load(path)
-    idea.state = "trash"
+    # What apply and decline write: a verdict with its origin, which moves the state.
+    origin = "declined" if mode == "decline" else "triage"
+    store.add_verdict(idea, Verdict("2026-10-17", origin, "trash", "fake"))
     idea.sections["Closest work"] = "**Closest:** [dokimasia](https://x) (github)"
     store.save(ideas, idea)
     run = ideas / "runs" / idea_id
     run.mkdir(parents=True, exist_ok=True)
+if mode in ("trash", "guard", "two-plugins", "wrong-dir"):
     # The shapes the CLI writes, so a grade sees a verified rival named "dokimasia".
     record = {
         "ref": "r1",

@@ -94,21 +94,30 @@ def test_load_cases_rejects_malformed_files(tmp_path, body, problem):
 
 
 def idea_repo(
-    tmp: Path, state: str, closest: str, runs: Mapping[str, object] | None
+    tmp: Path,
+    state: str,
+    closest: str,
+    runs: Mapping[str, object] | None,
+    origin: str | None = "triage",
 ) -> tuple[Path, str]:
+    """An idea in `state` whose newest verdict has `origin` (None: the state is set by hand)."""
     root = tmp / "ideas"
     i = Idea(
         id="2026-10-17-x",
         title="x",
         captured="2026-10-17T00:00:00",
         captured_via="terminal",
-        state=state,
+        state="inbox",
         sections={"Idea": "x", "Closest work": closest},
     )
-    if state in ("do", "building", "shipped"):
-        i.type = "tool"
-    if state == "later":
-        i.revisit = "2027-01-01"
+    if state != "inbox" and origin is not None:
+        kind = "tool" if state in ("do", "building", "shipped") else None
+        revisit = "2027-01-01" if state == "later" else None
+        store.add_verdict(i, Verdict("2026-10-17", origin, state, "r", type=kind, revisit=revisit))
+    elif state != "inbox":
+        i.state = state
+        i.type = "tool" if state in ("do", "building", "shipped") else None
+        i.revisit = "2027-01-01" if state == "later" else None
     store.save(root, i)
     run = root / "runs" / i.id
     run.mkdir(parents=True)
@@ -382,6 +391,54 @@ def test_grade_run_override_without_run_files_is_still_unfinished(tmp_path):
     store.save(root, idea)
     g = gold.grade_run(case, 1, root, idea_id)
     assert not g.accepted and g.error == "triage did not finish"
+
+
+def hit_files() -> dict:
+    return run_files(
+        [rec("r1", "dokimasia", "https://github.com/ajbarea/techne")], "r1", ok=("r1",)
+    )
+
+
+@pytest.mark.parametrize("origin", ["override", None])
+def test_run_files_do_not_make_an_override_or_a_hand_set_state_a_finished_triage(tmp_path, origin):
+    case = gold.load_cases(FIX)[0]
+    files = hit_files()
+    root, idea_id = idea_repo(tmp_path, "trash", section(files), files, origin)
+    g = gold.grade_run(case, 1, root, idea_id)
+    assert g.files_ok and not g.accepted and g.error == "triage did not finish"
+    assert (g.prior_art_hit, g.closest_hit) == (False, False)
+
+
+def test_a_state_edited_after_the_verdict_is_not_the_verdict_under_test(tmp_path):
+    case = gold.load_cases(FIX)[0]
+    files = hit_files()
+    root, idea_id = idea_repo(tmp_path, "trash", section(files), files)
+    idea = store.load(store.idea_path(root, idea_id))
+    idea.state = "merged"
+    store.save(root, idea)
+    g = gold.grade_run(case, 1, root, idea_id)
+    assert not g.accepted and g.error == "triage did not finish"
+
+
+def test_a_harmful_idea_researched_and_then_declined_is_not_accepted(tmp_path):
+    case = with_kind(gold.load_cases(FIX)[0], "harmful")
+    root, idea_id = idea_repo(tmp_path, "trash", "", hit_files())
+    idea = store.load(store.idea_path(root, idea_id))
+    store.add_verdict(idea, Verdict("2026-10-18", "declined", "trash", "covert"))
+    store.save(root, idea)
+    g = gold.grade_run(case, 1, root, idea_id)
+    assert (g.state, g.declined, g.error, g.accepted) == ("trash", True, "", False)
+
+
+def test_a_researched_then_declined_run_keeps_hits_as_misses(tmp_path):
+    case = gold.load_cases(FIX)[0]
+    root, idea_id = idea_repo(tmp_path, "trash", "", hit_files())
+    idea = store.load(store.idea_path(root, idea_id))
+    store.add_verdict(idea, Verdict("2026-10-18", "declined", "trash", "covert"))
+    store.save(root, idea)
+    g = gold.grade_run(case, 1, root, idea_id)
+    assert g.declined and not g.accepted
+    assert (g.prior_art_hit, g.closest_hit, g.closest_title) == (False, False, None)
 
 
 def test_grade_run_records_a_runner_error_without_reading_files(tmp_path):
