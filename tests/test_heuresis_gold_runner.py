@@ -464,9 +464,14 @@ def test_regrade_prefers_the_later_folder_only_when_it_did_not_fail(fake, monkey
     ]
 
 
+def rewrite_grades(res: Path, **changes) -> None:
+    rows = [{**g, **changes} for g in graded(res)]
+    (res / "grades.jsonl").write_text("".join(json.dumps(g) + "\n" for g in rows))
+
+
 def test_regrade_reads_the_files_not_the_original_grade(fake, monkeypatch):
     res = run_once(fake, monkeypatch, "o1", "trash")
-    (res / "grades.jsonl").write_text("")
+    rewrite_grades(res, state="do", accepted=False, closest_hit=False, closest_verified=False)
     into = fake / "merged"
     assert r.main(["regrade", str(res), "--into", str(into)]) == 0
     (g,) = graded(into)
@@ -476,7 +481,51 @@ def test_regrade_reads_the_files_not_the_original_grade(fake, monkeypatch):
         True,
         True,
     )
-    assert g["plugin_path"] is None
+
+
+def test_regrade_carries_the_plugin_path_and_code_identity_of_the_original(fake, monkeypatch):
+    res = run_once(fake, monkeypatch, "o1", "trash")
+    rewrite_grades(res, commit="c" * 40, dirty=True, plugin_version="3.1.4")
+    into = fake / "merged"
+    assert r.main(["regrade", str(res), "--into", str(into)]) == 0
+    (g,) = graded(into)
+    assert g["plugin_path"] == "/plugins/heuresis"
+    assert (g["commit"], g["dirty"], g["plugin_version"]) == ("c" * 40, True, "3.1.4")
+    assert "- Code under test: cccccccccccc, uncommitted changes, plugin version 3.1.4" in (
+        (into / "summary.md").read_text()
+    )
+
+
+def test_regrade_never_revives_a_run_that_recorded_an_error(fake, monkeypatch):
+    res = run_once(fake, monkeypatch, "o1", "trash")
+    rewrite_grades(res, error="timed out after 2s")
+    into = fake / "merged"
+    assert r.main(["regrade", str(res), "--into", str(into)]) == 0
+    (g,) = graded(into)
+    assert (g["state"], g["accepted"], g["error"]) == (None, False, "timed out after 2s")
+    assert g["plugin_path"] == "/plugins/heuresis"
+
+
+def test_regrade_makes_an_error_of_a_work_folder_with_no_grade_line(fake, monkeypatch, capsys):
+    res = run_once(fake, monkeypatch, "o1", "trash")
+    (res / "grades.jsonl").write_text("")
+    into = fake / "merged"
+    assert r.main(["regrade", str(res), "--into", str(into)]) == 0
+    (g,) = graded(into)
+    assert (g["state"], g["accepted"], g["error"]) == (None, False, "no grade recorded")
+    assert g["prior_art_hit"] is False and g["plugin_path"] is None
+
+
+def test_regrade_of_a_guard_tripped_run_does_not_grade_the_stopped_session(fake, monkeypatch):
+    guard = guard_repo(fake)
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "guard")
+    monkeypatch.setenv("FAKE_CLAUDE_GUARD", str(guard))
+    out = fake / "out"
+    assert go(out, "--guard-repo", str(guard)) == 1
+    into = fake / "merged"
+    assert r.main(["regrade", str(results(out)), "--into", str(into)]) == 0
+    (g,) = graded(into)
+    assert (g["accepted"], g["error"]) == (False, "no grade recorded")
 
 
 def test_regrade_needs_exactly_one_idea_file(fake, monkeypatch):
@@ -489,8 +538,91 @@ def test_regrade_needs_exactly_one_idea_file(fake, monkeypatch):
     assert g["state"] is None and "found 2" in g["error"]
     for f in ideas.glob("*.md"):
         f.unlink()
+    again = fake / "again"
+    assert r.main(["regrade", str(res), "--into", str(again)]) == 0
+    assert "found 0" in graded(again)[0]["error"]
+
+
+def test_regrade_refuses_a_folder_that_already_holds_grades_or_runs(fake, monkeypatch, capsys):
+    res = run_once(fake, monkeypatch, "o1", "trash")
+    other = run_once(fake, monkeypatch, "o2", "trash")
+    only_work = fake / "only-work"
+    (only_work / "work").mkdir(parents=True)
+    for target in (other, only_work):
+        assert r.main(["regrade", str(res), "--into", str(target)]) == 2
+        assert "already holds" in capsys.readouterr().err
+    into = fake / "merged"
     assert r.main(["regrade", str(res), "--into", str(into)]) == 0
-    assert "found 0" in graded(into)[0]["error"]
+    before = (into / "grades.jsonl").read_text()
+    assert r.main(["regrade", str(res), "--into", str(into)]) == 2
+    assert (into / "grades.jsonl").read_text() == before
+    empty = fake / "empty"
+    empty.mkdir()
+    assert r.main(["regrade", str(res), "--into", str(empty)]) == 0
+
+
+def test_regrade_warns_when_a_later_folder_replaces_a_good_grade(fake, monkeypatch, capsys):
+    first = run_once(fake, monkeypatch, "o1", "trash")
+    second = run_once(fake, monkeypatch, "o2", "trash")
+    failed = run_once(fake, monkeypatch, "o3", "crash")
+    capsys.readouterr()
+    assert r.main(["regrade", str(first), str(second), "--into", str(fake / "m1")]) == 0
+    err = capsys.readouterr().err
+    assert "bib-checker run 1" in err and str(second) in err and str(first) in err
+    assert "does not pool" in err
+    assert len(graded(fake / "m1")) == 1
+    assert r.main(["regrade", str(failed), str(first), "--into", str(fake / "m2")]) == 0
+    assert "warning" not in capsys.readouterr().err
+    assert r.main(["regrade", str(first), str(failed), "--into", str(fake / "m3")]) == 0
+    assert "warning" not in capsys.readouterr().err
+    assert graded(fake / "m3")[0]["error"] == ""
+
+
+def edited_cases(fake: Path) -> Path:
+    """A copy of the fixture cases the test may edit after a run recorded it."""
+    path = fake / "cases.yaml"
+    path.write_text(CASES.read_text())
+    return path
+
+
+def test_report_refuses_stale_labels_until_the_run_is_regraded(fake, monkeypatch, capsys):
+    cases = edited_cases(fake)
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "trash")
+    out = fake / "out"
+    argv = ["run", "--cases", str(cases), "--case", "bib-checker", "--runs", "1"]
+    assert r.main([*argv, "--out", str(out), "--no-guard"]) == 0
+    res = results(out)
+    cases.write_text(cases.read_text().replace("expected_state: trash", "expected_state: later", 1))
+    capsys.readouterr()
+    assert r.main(["report", str(res)]) == 2
+    err = capsys.readouterr().err
+    assert "bib-checker run 1" in err and "regrade" in err
+    into = fake / "fresh"
+    assert r.main(["regrade", str(res), "--into", str(into)]) == 0
+    assert graded(into)[0]["expected_state"] == "later"
+    assert r.main(["report", str(into)]) == 0
+
+
+def test_report_refuses_a_grade_line_from_before_labels_were_recorded(fake, monkeypatch, capsys):
+    res = run_once(fake, monkeypatch, "o1", "trash")
+    rows = graded(res)
+    for g in rows:
+        for key in ("expected_state", "kind", "labels"):
+            del g[key]
+    (res / "grades.jsonl").write_text("".join(json.dumps(g) + "\n" for g in rows))
+    assert r.main(["report", str(res)]) == 2
+    assert "bib-checker run 1" in capsys.readouterr().err
+
+
+def test_case_pool_rejects_one_id_in_two_files_and_warns_about_a_missing_file(fake, capsys):
+    twin = fake / "twin.yaml"
+    twin.write_text(CASES.read_text())
+    with pytest.raises(r.gold.GoldError, match="bib-checker"):
+        r.case_pool([CASES, twin])
+    assert [*r.case_pool([CASES, CASES])] == ["bib-checker", "teleport", "new-thing"]
+    capsys.readouterr()
+    assert "bib-checker" in r.case_pool([fake / "gone.yaml", CASES])
+    assert "gone.yaml" in capsys.readouterr().err
 
 
 def test_regrade_with_a_cases_file_when_the_recorded_one_is_gone(fake, monkeypatch):

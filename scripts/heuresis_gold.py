@@ -345,7 +345,14 @@ def read_meta(res: Path) -> tuple[list[str], list[str]]:
 
 
 def case_pool(files: list[Path]) -> dict[str, gold.Case]:
-    return {c.id: c for f in files if f.is_file() for c in gold.load_cases(f)}
+    """The cases of every file that exists; a missing file warns, a repeated id is an error."""
+    present: list[Path] = []
+    for f in dict.fromkeys(Path(f).resolve() for f in files):
+        if f.is_file():
+            present.append(f)
+        else:
+            print(f"heuresis_gold: warning: cases file {f} not found; skipped", file=sys.stderr)
+    return {c.id: c for c in load_all(present)}
 
 
 def run(args) -> int:
@@ -381,7 +388,7 @@ def run(args) -> int:
     res = args.out / stamp
     (res / "logs").mkdir(parents=True)
     (res / "grades.jsonl").write_text("")
-    files = [str(Path(f).resolve()) for f in args.cases]
+    files = [str(f) for f in args.cases]
     (res / "cases.json").write_text(json.dumps({"ids": [c.id for c in cases], "files": files}))
 
     def record(grade: gold.RunGrade, plugin_path: str | None = None) -> None:
@@ -440,22 +447,25 @@ def regrade_folder(
 ) -> tuple[gold.RunGrade, str | None]:
     """Grade one work folder again from the files in it; returns the grade and its plugin path.
 
-    A run that never triaged keeps the error the original run recorded, which names the cause.
+    Files never revive a run: an error the original run recorded stays, and a folder with no
+    grade line (the run was stopped or crashed before it was recorded) is an error. The plugin
+    path and the code identity are facts about the original session, so they carry over.
     """
     work = res / "work" / name
     ideas = work / "ideas"
     log = res / "logs" / f"{name}.jsonl"
     meta = parse_stream(log.read_text(errors="replace"))[1] if log.is_file() else None
-    kept = (original or {}).get("error") or ""
+    kept = "no grade recorded" if original is None else original.get("error") or ""
     found = sorted((ideas / "ideas").glob("*.md")) if (ideas / "ideas").is_dir() else []
-    plugin_path = (original or {}).get("plugin_path")
-    problem = f"expected one idea file, found {len(found)}"
-    if len(found) == 1:
+    if kept:
+        grade = gold.grade_run(case, n, ideas, "", error=kept, meta=meta)
+    elif len(found) == 1:
         grade = gold.grade_run(case, n, ideas, found[0].stem, meta=meta)
-        if not grade.error:
-            return grade, plugin_path
-        problem = grade.error
-    return gold.grade_run(case, n, ideas, "", error=kept or problem, meta=meta), plugin_path
+    else:
+        error = f"expected one idea file, found {len(found)}"
+        grade = gold.grade_run(case, n, ideas, "", error=error, meta=meta)
+    carried = {k: (original or {}).get(k) for k in ("commit", "dirty", "plugin_version")}
+    return dataclasses.replace(grade, **carried), (original or {}).get("plugin_path")
 
 
 def regrade(args) -> int:
@@ -463,9 +473,15 @@ def regrade(args) -> int:
     if missing:
         print(f"heuresis_gold: results folder not found: {missing[0]}", file=sys.stderr)
         return 2
-    out = args.into.resolve()
-    if any(d.resolve() == out for d in args.results):
+    out = args.into
+    if any(d == out for d in args.results):
         print(f"heuresis_gold: --into {args.into} is one of the results folders", file=sys.stderr)
+        return 2
+    if (out / "grades.jsonl").exists() or (out / "work").exists():
+        print(
+            f"heuresis_gold: --into {args.into} already holds grades or runs; name a new folder",
+            file=sys.stderr,
+        )
         return 2
     order: list[str] = []
     files: list[str] = []
@@ -477,7 +493,7 @@ def regrade(args) -> int:
         order += [i for i in ids if i not in order]
         files += [f for f in recorded if f not in files]
     pool = case_pool([Path(f) for f in files] + list(args.cases))
-    merged: dict[tuple[str, int], dict] = {}
+    merged: dict[tuple[str, int], tuple[dict, Path]] = {}
     for res in args.results:
         try:
             originals = {(d["case"], d["run"]): d for d in read_grades(res / "grades.jsonl")}
@@ -494,13 +510,20 @@ def regrade(args) -> int:
             )
             key = (case_id, n)
             # A later folder replaces an earlier grade only with a run that did not fail.
-            if key not in merged or not grade.error:
-                merged[key] = {**grade.to_dict(), "plugin_path": plugin_path}
+            if key in merged and grade.error:
+                continue
+            if key in merged and not merged[key][0]["error"]:
+                print(
+                    f"heuresis_gold: warning: {case_id} run {n} in {res} replaces the grade from "
+                    f"{merged[key][1]}; regrade replaces a repeat, it does not pool it",
+                    file=sys.stderr,
+                )
+            merged[key] = ({**grade.to_dict(), "plugin_path": plugin_path}, res)
     if not merged:
         print("heuresis_gold: no run folders to grade", file=sys.stderr)
         return 2
     order += [c for c in dict.fromkeys(c for c, _ in merged) if c not in order]
-    rows = sorted(merged.values(), key=lambda d: (order.index(d["case"]), d["run"]))
+    rows = sorted((m[0] for m in merged.values()), key=lambda d: (order.index(d["case"]), d["run"]))
     out.mkdir(parents=True, exist_ok=True)
     (out / "grades.jsonl").write_text("".join(json.dumps(d) + "\n" for d in rows))
     ids = [i for i in order if i in pool]
@@ -530,17 +553,35 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("report")
     p.add_argument("results", type=Path)
     p.add_argument("--cases", type=Path, action="append", default=[])
-    p = sub.add_parser("regrade")
+    p = sub.add_parser(
+        "regrade",
+        help="grade finished runs again from their files",
+        description="Grade the runs in RESULTS again from the files in their work folders. "
+        "Where one case and run is in several folders, a later folder replaces an earlier "
+        "one only if its run did not fail (with a warning); repeats are replaced, never pooled.",
+    )
     p.add_argument("results", type=Path, nargs="+")
-    p.add_argument("--into", type=Path, required=True)
+    p.add_argument("--into", type=Path, required=True, help="a new folder for the combined grades")
     p.add_argument("--cases", type=Path, action="append", default=[])
     args = parser.parse_args(argv)
-    if args.command == "regrade":
-        return regrade(args)
     if args.command == "run":
         args.cases = args.cases or [DEFAULT_CASES]
-        return run(args)
-    return report(args)
+    # Resolved once here, so no later step depends on the working directory.
+    for name in ("out", "plugin_dir", "guard_repo", "into", "results", "cases"):
+        value = getattr(args, name, None)
+        if isinstance(value, list):
+            setattr(args, name, [v.resolve() for v in value])
+        elif value is not None:
+            setattr(args, name, value.resolve())
+    try:
+        if args.command == "regrade":
+            return regrade(args)
+        if args.command == "run":
+            return run(args)
+        return report(args)
+    except gold.GoldError as exc:
+        print(f"heuresis_gold: {exc}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":
