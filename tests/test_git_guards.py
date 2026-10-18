@@ -900,3 +900,43 @@ def test_commits_md_created_in_the_same_call(repo, command):
 def test_created_file_with_an_explicit_add_passes(repo):
     (repo / "b.txt").write_text("b\n")
     assert run_hook("echo x > COMMITS.md && git add b.txt", repo, on=[COMMITS_MD]) is None
+
+
+# --- a session folder that is gone (a removed worktree) --------------------------
+
+
+def test_a_guarded_command_in_a_gone_folder_is_refused_with_the_reason(tmp_path):
+    gone = tmp_path / "removed-worktree"
+    reason = denied(run_hook("git commit -m x", gone))
+    assert reason and f"runs in {gone}, which no longer exists" in reason
+    assert "cd to an existing folder" in reason
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cd {repo} && git commit -m 'feat: x'",
+        "git -C {repo} add a.txt",
+        "cd {tmp}/git-mirror",
+        "git log --oneline -1",
+        "gh pr view 1",
+    ],
+)
+def test_a_gone_session_folder_still_checks_where_the_command_runs(tmp_path, repo, command):
+    gone = tmp_path / "removed-worktree"
+    (tmp_path / "git-mirror").mkdir()
+    out = run_hook(command.format(repo=repo, tmp=tmp_path), gone)
+    assert denied(out) is None
+
+
+def test_a_gone_folder_with_only_the_warning_on_runs_and_says_why(tmp_path):
+    env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE_PLUGIN_OPTION_")}
+    env[f"CLAUDE_PLUGIN_OPTION_{MAIN_CHECKOUT.upper()}"] = "true"
+    payload = json.dumps(
+        {"cwd": str(tmp_path / "gone"), "tool_input": {"command": "git commit -m x"}}
+    )
+    proc = subprocess.run(
+        [HOOK_PYTHON, str(GUARDS)], input=payload, capture_output=True, text=True, env=env
+    )
+    assert proc.returncode == 1 and not proc.stdout.strip()
+    assert "no longer exists" in proc.stderr

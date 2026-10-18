@@ -606,6 +606,24 @@ class Guards:
                     )
                     return
 
+    def folder_exists(self, cwd: Path) -> bool:
+        """Whether a guarded command's folder is there; a removed worktree leaves every
+        lookup in it empty, so a missing one refuses while a blocking guard is on."""
+        try:
+            cwd.stat()
+            return True
+        except FileNotFoundError:
+            pass  # any other error is a broken check, reported as one
+        why = (
+            f"phylax: this command runs in {cwd}, which no longer exists (a removed "
+            "worktree?), so the git guard cannot check it. Run cd to an existing folder first."
+        )
+        if any(option_on(k) for k in BLOCKING):
+            self.verdict.denies.append(why)
+        else:
+            self.errors.append(why)
+        return False
+
     def deny_scratch(self, how: str) -> None:
         self.verdict.denies.append(
             f"phylax: {how}. COMMITS.md is a local scratchpad and never goes in a commit. "
@@ -758,6 +776,9 @@ class Guards:
         cmd = parse_git(argv, cwd, env)
         if cmd is None:
             return
+        guarded = cmd.sub in ADD_SUBCOMMANDS or cmd.sub == "commit"
+        if guarded and not self.folder_exists(cmd.cwd):
+            return
         if cmd.sub in ADD_SUBCOMMANDS:
             self.check_add(cmd)
         elif cmd.sub == "commit":
@@ -786,12 +807,10 @@ class Guards:
             if not tok.startswith("-"):
                 words.append(tok)
             i += 1
-        if (
-            len(words) == 2
-            and words[0] == "pr"
-            and words[1] in GH_PR_WRITERS
-            and self.enabled(ATTRIBUTION, Command(cwd))
-        ):
+        writer = len(words) == 2 and words[0] == "pr" and words[1] in GH_PR_WRITERS
+        if writer and option_on(ATTRIBUTION) and not self.folder_exists(cwd):
+            return
+        if writer and self.enabled(ATTRIBUTION, Command(cwd)):
             texts, files = parse_gh_pr(argv[1:])
             self.check_attribution(f"`gh pr {words[1]}`", texts, files, cwd, "pr", argv, env)
 
