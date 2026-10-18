@@ -290,49 +290,43 @@ def _locked(host: str) -> Generator[_Store]:
         os.close(fd)
 
 
-def _reserve(host: str, gap: float, started: float, budget: float) -> None:
-    """Take the next free slot for `host`, wait for it, and return. Holds the lock only briefly.
+@contextlib.contextmanager
+def _slot(host: str, gap: float, started: float, budget: float) -> Generator[_Store]:
+    """Wait for `host`'s next free slot, then hold its lock until the request has finished.
 
-    The slot orders callers. The send time is then confirmed under the lock: if the previous
-    send (by any process) was less than `gap` ago, because a sender ran late, wait out the rest.
+    Holding the lock through the send keeps one request in flight per host across processes,
+    which arXiv's terms and Crossref's public pool require. Waits happen outside the lock.
     """
-    with _locked(host) as store:
-        state = store.load()
-        now = _now()
-        if state.stopped_until > now:
-            raise HostStopped(host, state.stopped_until)
-        slot = max(now, state.next)
-        if slot - started > budget:
-            raise TooSlow(host, slot - now)
-        state.next = slot + gap
-        store.save(state)
-    if slot > now:
-        _sleep(slot - now)
     while True:
         with _locked(host) as store:
             state = store.load()
             now = _now()
             if state.stopped_until > now:
                 raise HostStopped(host, state.stopped_until)
-            wait = state.last_send + gap - now
+            wait = max(state.next, state.last_send + gap) - now
             if wait <= 0:
                 state.last_send = now
                 store.save(state)
+                yield store
                 return
             if now + wait - started > budget:
                 raise TooSlow(host, wait)
         _sleep(wait)
 
 
-def _settle(host: str, gap: float, *, wait: float = 0.0, stop_for: float = 0.0) -> None:
-    """Record the outcome: the next send is at least `gap` (or `wait`) after now."""
+def _settle(store: _Store, gap: float, *, wait: float = 0.0, stop_for: float = 0.0) -> None:
+    """Record the outcome under the held lock: the next send is at least `gap` (or `wait`) away."""
+    state = store.load()
+    now = _now()
+    state.next = max(state.next, now + max(gap, wait))
+    if stop_for:
+        state.stopped_until = max(state.stopped_until, now + stop_for)
+    store.save(state)
+
+
+def _stop(host: str, stop_for: float) -> None:
     with _locked(host) as store:
-        state = store.load()
-        now = _now()
-        state.next = max(state.next, now + max(gap, wait))
-        if stop_for:
-            state.stopped_until = max(state.stopped_until, now + stop_for)
-        store.save(state)
+        _settle(store, 0.0, stop_for=stop_for)
 
 
 # --- retries -----------------------------------------------------------------------------
@@ -412,42 +406,42 @@ def _hop(
 ) -> bytes | _Redirect:
     url = req.full_url
     for attempt in range(MAX_RETRIES + 1):
-        _reserve(host, gap, started, budget)
-        try:
-            body = _send(req, timeout, max_bytes)
-        except urllib.error.HTTPError as exc:
-            status = exc.code
-            headers = _lowered(exc.headers or {})
-            now = _now()
-            if status in REDIRECT_STATUSES and headers.get("location"):
-                _settle(host, gap)
-                return _Redirect(status, headers["location"])
-            reset = _github_reset(host, status, headers, now)
-            if reset is not None:
-                _settle(host, gap, stop_for=reset)
-                raise HttpStatus(status, host) from exc
-            if status == 403:
-                _settle(host, gap, stop_for=FORBIDDEN_STOP)
-                raise HttpStatus(status, host) from exc
-            if not _is_throttle(host, url, status):
-                _settle(host, gap)
-                raise HttpStatus(status, host) from exc
-            given = _parse_retry_after(headers.get("retry-after", ""), now)
-            wait = BACKOFF[min(attempt, len(BACKOFF) - 1)] if given is None else given
-            if given is not None and given > MAX_WAIT:
-                _settle(host, gap, stop_for=given)
-                raise HttpStatus(status, host) from exc
-            if attempt == MAX_RETRIES:
-                _settle(host, gap, stop_for=max(wait, EXHAUSTED_STOP))
-                raise HttpStatus(status, host) from exc
-            _settle(host, gap, wait=wait)
-            continue
-        except (OSError, http.client.HTTPException) as exc:
-            # URLError, timeouts, connection resets, SSL errors and IncompleteRead while reading.
-            _settle(host, gap)
-            raise Unreachable(host) from exc
-        _settle(host, gap)
-        return body
+        with _slot(host, gap, started, budget) as store:
+            try:
+                body = _send(req, timeout, max_bytes)
+            except urllib.error.HTTPError as exc:
+                status = exc.code
+                headers = _lowered(exc.headers or {})
+                now = _now()
+                if status in REDIRECT_STATUSES and headers.get("location"):
+                    _settle(store, gap)
+                    return _Redirect(status, headers["location"])
+                reset = _github_reset(host, status, headers, now)
+                if reset is not None:
+                    _settle(store, gap, stop_for=reset)
+                    raise HttpStatus(status, host) from exc
+                if status == 403:
+                    _settle(store, gap, stop_for=FORBIDDEN_STOP)
+                    raise HttpStatus(status, host) from exc
+                if not _is_throttle(host, url, status):
+                    _settle(store, gap)
+                    raise HttpStatus(status, host) from exc
+                given = _parse_retry_after(headers.get("retry-after", ""), now)
+                wait = BACKOFF[min(attempt, len(BACKOFF) - 1)] if given is None else given
+                if given is not None and given > MAX_WAIT:
+                    _settle(store, gap, stop_for=given)
+                    raise HttpStatus(status, host) from exc
+                if attempt == MAX_RETRIES:
+                    _settle(store, gap, stop_for=max(wait, EXHAUSTED_STOP))
+                    raise HttpStatus(status, host) from exc
+                _settle(store, gap, wait=wait)
+                continue  # the backoff wait happens in the next _slot, outside the lock
+            except (OSError, http.client.HTTPException) as exc:
+                # URLError, timeouts, connection resets, SSL errors, IncompleteRead on read.
+                _settle(store, gap)
+                raise Unreachable(host) from exc
+            _settle(store, gap)
+            return body
     raise AssertionError("unreachable")
 
 
@@ -532,7 +526,7 @@ def _robots_for(scheme: str, netloc: str, *, tool: str, timeout: float) -> _Robo
     except HttpStatus as exc:
         if exc.status in (401, 403):
             if exc.status == 401:
-                _settle(hostname(url), 0.0, stop_for=FORBIDDEN_STOP)
+                _stop(hostname(url), FORBIDDEN_STOP)
             # Not cached: the next call reaches the stop marker and raises HostStopped.
             return _Robots(None, 0.0, "refused us for")
         elif exc.status < 500 and exc.status != 429:  # 404, 410 and the other 4xx: no rules

@@ -105,8 +105,47 @@ def test_two_processes_are_spaced_by_the_host_interval(tmp_path):
     times = sorted(float(t) for p in procs for t in p.communicate()[0].split())
     assert len(times) == 6
     gaps = [b - a for a, b in itertools.pairwise(times)]
-    # Slots are reserved on the clock, so one late send can eat into the next gap.
-    assert times[-1] - times[0] >= 5 * 0.45 and min(gaps) >= 0.2, gaps
+    assert min(gaps) >= 0.45, gaps
+
+
+def test_two_processes_never_have_a_request_in_flight_at_once(tmp_path):
+    """arXiv allows one connection at a time across all of a user's machines."""
+    code = textwrap.dedent(
+        f"""
+        import sys, time
+        sys.path.insert(0, {str(SHARED)!r})
+        import polite_http as ph
+        ph.INTERVALS["fake.test"] = 0.2
+        ph.API_ENDPOINTS["fake.test"] = ("/",)
+        spans = []
+        class R:
+            def read(self, *a):
+                begun = time.time()
+                time.sleep(0.6)  # a response slower than the interval
+                spans.append((begun, time.time()))
+                return b"ok"
+        ph._open = lambda req, timeout=0: R()
+        while time.time() < float(sys.argv[1]):
+            pass
+        for _ in range(2):
+            ph.fetch("https://fake.test/x", tool="t")
+        print(" ".join(f"{{a!r}},{{b!r}}" for a, b in spans))
+        """
+    )
+    env = {"TECHNE_POLITE_DIR": str(tmp_path), "PATH": "/usr/bin:/bin"}
+    start = repr(time.time() + 1.0)
+    procs = [
+        subprocess.Popen(
+            [sys.executable, "-c", code, start], env=env, stdout=subprocess.PIPE, text=True
+        )
+        for _ in range(2)
+    ]
+    spans = sorted(
+        tuple(map(float, s.split(","))) for p in procs for s in p.communicate()[0].split()
+    )
+    assert len(spans) == 4
+    overlaps = [(a, b) for a, b in itertools.pairwise(spans) if b[0] < a[1]]
+    assert not overlaps, spans
 
 
 def test_the_host_lock_excludes_another_process(tmp_path):
@@ -656,8 +695,8 @@ def test_crawl_delay_raises_the_page_interval(monkeypatch, slept):
     site(monkeypatch, {"https://slow.test/robots.txt": "User-agent: *\nCrawl-delay: 12\n"})
     ph.fetch("https://slow.test/a", tool="t")
     ph.fetch("https://slow.test/b", tool="t")
-    # Sends are at least the Crawl-delay apart: 1 s after robots.txt, 11 s more, then 12 s.
-    assert slept == [pytest.approx(1.0), pytest.approx(11.0), pytest.approx(12.0)]
+    # Sends are at least the Crawl-delay apart: 12 s after robots.txt, then 12 s more.
+    assert slept == [pytest.approx(12.0), pytest.approx(12.0)]
 
 
 def test_api_urls_skip_robots(monkeypatch):
