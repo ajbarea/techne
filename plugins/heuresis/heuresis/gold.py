@@ -8,6 +8,7 @@ import re
 import statistics
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -260,7 +261,7 @@ def grade_run(
     error: str = "",
     meta: dict | None = None,
 ) -> RunGrade:
-    extra = {
+    extra: dict[str, Any] = {
         **_meta(meta),
         "expected_state": case.expected_state,
         "kind": case.kind,
