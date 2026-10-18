@@ -8,19 +8,21 @@
    `word-break: normal` still breaks after a hyphen (techne:research-|grounded).
    javascripts/shared.js wraps each word in .nobr; without it, the code stays on one
    line. A table wider than its column scrolls inside its own box, which WCAG 1.4.10
-   allows for data tables. */
+   allows for data tables. These rules are !important because a site's own CSS loads
+   after this file: three sites had their own table-code wrapping, and one undid this
+   rule on phones. */
 .md-typeset table:not([class]) :not(pre) > code {
-  white-space: nowrap;
+  white-space: nowrap !important;
 }
 
 .md-typeset table:not([class]) :not(pre) > code.words {
-  white-space: normal;
-  word-break: normal;
-  overflow-wrap: normal;
+  white-space: normal !important;
+  word-break: normal !important;
+  overflow-wrap: normal !important;
 }
 
 .md-typeset code .nobr {
-  white-space: nowrap;
+  white-space: nowrap !important;
 }
 
 /* Zensical's script wraps each table in .md-typeset__scrollwrap, the box that scrolls.

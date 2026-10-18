@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import argparse
 import filecmp
-import re
 import shutil
 import sys
 from pathlib import Path
@@ -56,31 +55,6 @@ def plan(repo: Path) -> list[tuple[Path, Path]]:
         if dest is not None:
             pairs.append((SHARED / rel, dest))
     return pairs
-
-
-# A site rule on table code that sets wrapping undoes the shared one: keryx's phone rule
-# (white-space: normal) brought back Zensical's word-break and split setting names.
-WRAP = re.compile(r"\b(white-space|word-break|overflow-wrap|word-wrap)\s*:")
-RULE = re.compile(r"([^{}]+)\{([^{}]*)\}")
-
-
-def wrap_overrides(repo: Path) -> list[str]:
-    """Site stylesheet rules that set wrapping on table code, as file:line findings."""
-    found = []
-    for css in sorted((repo / "docs").glob("**/*.css")):
-        if css.name == "shared.css" or is_synced_copy(css):
-            continue
-        text = re.sub(
-            r"/\*.*?\*/", lambda m: re.sub(r"[^\n]", " ", m.group()), css.read_text(), flags=re.S
-        )
-        for m in RULE.finditer(text):
-            selector = m.group(1).split(";")[-1]
-            if "table" in selector and re.search(r"\bcode\b", selector) and WRAP.search(m.group(2)):
-                line = (
-                    text.count("\n", 0, m.start(1) + len(m.group(1)) - len(m.group(1).lstrip())) + 1
-                )
-                found.append(f"{css.relative_to(repo)}:{line}")
-    return found
 
 
 def is_synced_copy(path: Path) -> bool:
@@ -122,10 +96,6 @@ def main() -> int:
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(src, dest)
                 print(f"{repo.name}: {rel} {'updated' if state == 'differs' else 'added'}")
-        if args.check:
-            for where in wrap_overrides(repo):
-                drift += 1
-                print(f"{repo.name}: {where} sets wrapping on table code, overriding shared.css")
     if args.check and not drift:
         print("shared docs-site files match")
     return 1 if drift else 0

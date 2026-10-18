@@ -166,23 +166,3 @@ def test_this_repos_own_site_matches_the_shared_files() -> None:
     """techne's docs site is a sister too: an edit to the canonical copy needs a sync here."""
     result = run("--check", SKILL.parents[3])
     assert result.returncode == 0, result.stdout
-
-
-def test_check_flags_a_site_rule_that_sets_wrapping_on_table_code(tmp_path: Path) -> None:
-    repo = site(tmp_path)
-    assert run(repo).returncode == 0
-    css = repo / "docs" / "stylesheets" / "extra.css"
-    css.write_text(
-        "/* a { white-space: nowrap } in a comment is not a rule */\n"
-        ".md-typeset table td { padding: 0; }\n"
-        "@media (max-width: 600px) {\n"
-        "  .md-typeset table:not([class]) td:first-child code {\n"
-        "    white-space: normal;\n"
-        "  }\n"
-        "}\n"
-    )
-    result = run("--check", repo)
-    assert result.returncode == 1
-    assert "docs/stylesheets/extra.css:4 sets wrapping on table code" in result.stdout
-    css.write_text(".md-typeset table td code { color: red; }\n")
-    assert run("--check", repo).returncode == 0

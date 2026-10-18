@@ -67,7 +67,9 @@ These files are the same on every sister docs site, and techne holds the canonic
   `word-break: break-word` on code lets a table squeeze a column until identifiers split, and
   `word-break: normal` still breaks at a hyphen), an overflowing table scrolls inside its box
   with edge shadows, the layout widens to 1440px on wide screens, and the side panels toggle's
-  styles. It loads before the site's own CSS, so a site can override it.
+  styles. It loads before the site's own CSS, so a site can override it, except the
+  table-code wrapping rules, which are `!important` so one site rule cannot split
+  identifiers again; delete a site's own table-code wrapping rule as redundant.
 - `docs/javascripts/shared.js`: the header button that hides the navigation and table of
   contents (remembered per reader), and an overflowing table box becomes a labelled,
   keyboard-focusable region.
@@ -85,7 +87,7 @@ python3 ${CLAUDE_SKILL_DIR}/scripts/sync_shared.py <repo>          # write
 python3 ${CLAUDE_SKILL_DIR}/scripts/sync_shared.py --check <repo>  # drift only
 ```
 
-`/techne:sisters` check 14 runs `--check` across the fleet. `--check` also flags a site stylesheet rule that sets `white-space`, `word-break` or `overflow-wrap` on table code, since it overrides `shared.css`: delete it. Several sites carried their own first-column `nowrap` for the split-identifier bug before `shared.css` fixed it once.
+`/techne:sisters` check 14 runs `--check` across the fleet.
 
 research(2026-09): Zensical cannot install a shared theme or module yet (both are on its
 roadmap, undated), and `custom_dir` takes a local path, so the copies are vendored and kept

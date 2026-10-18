@@ -49,7 +49,7 @@ python3 plugins/techne/skills/docs-site/scripts/sync_shared.py <repo>
 python3 plugins/techne/skills/docs-site/scripts/sync_shared.py --check <repo>
 ```
 
-`--check` writes nothing and exits 1 on drift, or on a site stylesheet rule that sets wrapping on table code and so overrides the shared one; [`techne:sisters`](sisters.md) runs it across the fleet. A site's own hand-written copy of a shared file is refused unless you pass `--force`. A site sets `extra.og_image` and `extra.brand_mark` in `zensical.toml` for its card artwork and footer mark. The shared stylesheet and script give every site the same table rules (code in a table never splits; a wide table scrolls inside its box), a 1440px layout on wide screens, and a header button that hides the side panels.
+`--check` writes nothing and exits 1 on drift; [`techne:sisters`](sisters.md) runs it across the fleet. A site's own hand-written copy of a shared file is refused unless you pass `--force`. A site sets `extra.og_image` and `extra.brand_mark` in `zensical.toml` for its card artwork and footer mark. The shared stylesheet and script give every site the same table rules (code in a table never splits; a wide table scrolls inside its box), a 1440px layout on wide screens, and a header button that hides the side panels.
 
 ## Prerequisites
 
