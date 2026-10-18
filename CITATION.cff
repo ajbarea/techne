@@ -20,7 +20,7 @@ identifiers:
     value: 10.5281/zenodo.23330765
     description: Concept DOI, all versions
 authors:
-  - given-names: Arnaldo
+  - given-names: AJ
     family-names: Barea
     orcid: "https://orcid.org/0009-0001-7938-2376"
 repository-code: "https://github.com/ajbarea/techne"

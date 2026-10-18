@@ -205,7 +205,7 @@ If you use techne in your research, cite it with the metadata in [CITATION.cff](
 
 ```bibtex
 @software{barea_techne,
-  author  = {Barea, Arnaldo},
+  author  = {Barea, AJ},
   title   = {techne: a Claude Code plugin marketplace for repositories, documents, and bibliographies},
   url     = {https://github.com/ajbarea/techne},
   doi     = {10.5281/zenodo.23330765},
