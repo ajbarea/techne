@@ -908,7 +908,7 @@ def test_created_file_with_an_explicit_add_passes(repo):
 def test_a_guarded_command_in_a_gone_folder_is_refused_with_the_reason(tmp_path):
     gone = tmp_path / "removed-worktree"
     reason = denied(run_hook("git commit -m x", gone))
-    assert reason and f"runs in {gone}, which no longer exists" in reason
+    assert reason and f"runs in {gone}, which is not an existing folder" in reason
     assert "cd to an existing folder" in reason
 
 
@@ -916,10 +916,12 @@ def test_a_guarded_command_in_a_gone_folder_is_refused_with_the_reason(tmp_path)
     "command",
     [
         "cd {repo} && git commit -m 'feat: x'",
+        "cd ../repo && git commit -m 'feat: x'",
         "git -C {repo} add a.txt",
         "cd {tmp}/git-mirror",
         "git log --oneline -1",
         "gh pr view 1",
+        "gh pr create -R o/r -t 'feat: x' -b 'body'",
     ],
 )
 def test_a_gone_session_folder_still_checks_where_the_command_runs(tmp_path, repo, command):
@@ -927,6 +929,34 @@ def test_a_gone_session_folder_still_checks_where_the_command_runs(tmp_path, rep
     (tmp_path / "git-mirror").mkdir()
     out = run_hook(command.format(repo=repo, tmp=tmp_path), gone)
     assert denied(out) is None
+
+
+def test_a_gh_pr_body_is_still_scanned_in_a_gone_folder(tmp_path):
+    gone = tmp_path / "removed-worktree"
+    out = run_hook(f"gh pr create -R o/r -t x -b 'body\n\n{TRAILER}'", gone)
+    reason = denied(out)
+    assert reason and "attribution" in reason.lower()
+
+
+def test_a_guard_that_does_not_check_the_command_ignores_a_gone_folder(tmp_path):
+    out = run_hook("git add a.txt", tmp_path / "removed-worktree", on=[ATTRIBUTION])
+    assert out is None
+
+
+def test_a_folder_path_through_a_file_is_named(tmp_path):
+    (tmp_path / "f").write_text("")
+    reason = denied(run_hook(f"git -C {tmp_path}/f/sub commit -m x", tmp_path))
+    assert reason and "is not an existing folder" in reason
+
+
+def test_input_with_no_folder_fails_closed():
+    env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE_PLUGIN_OPTION_")}
+    env[f"CLAUDE_PLUGIN_OPTION_{COMMITS_MD.upper()}"] = "true"
+    payload = json.dumps({"tool_input": {"command": "git commit -m x"}})
+    proc = subprocess.run(
+        [HOOK_PYTHON, str(GUARDS)], input=payload, capture_output=True, text=True, env=env
+    )
+    assert proc.returncode == 2 and "names no folder" in proc.stderr
 
 
 def test_a_gone_folder_with_only_the_warning_on_runs_and_says_why(tmp_path):
@@ -939,4 +969,4 @@ def test_a_gone_folder_with_only_the_warning_on_runs_and_says_why(tmp_path):
         [HOOK_PYTHON, str(GUARDS)], input=payload, capture_output=True, text=True, env=env
     )
     assert proc.returncode == 1 and not proc.stdout.strip()
-    assert "no longer exists" in proc.stderr
+    assert "not an existing folder" in proc.stderr

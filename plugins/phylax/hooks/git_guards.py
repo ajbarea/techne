@@ -339,7 +339,8 @@ def resolve_dir(cwd: Path, target: str, env: dict[str, str]) -> Path:
     expanded = os.path.expanduser(expand(target, env, unknown=None))
     if "$" in expanded or "`" in expanded:
         return cwd
-    return cwd / expanded
+    # Logical, as bash's cd: `cd ..` out of a removed folder still lands in its parent.
+    return Path(os.path.normpath(cwd / expanded))
 
 
 def read_message_file(path: str, cwd: Path) -> str | None:
@@ -545,8 +546,26 @@ class Guards:
         self.verdict = Verdict()
         self._repo_off: dict[tuple[str, tuple[str, ...]], set[str]] = {}
 
-    def enabled(self, key: str, cmd: Command) -> bool:
+    def enabled(self, key: str, cmd: Command, local: bool = True) -> bool:
+        """Whether guard `key` checks this command. A folder that is not there (a removed
+        worktree) leaves every lookup in it empty: a blocking guard refuses, the warning
+        reports. `gh` (local=False) scans its own text, so it reads no repo there."""
         if not option_on(key):
+            return False
+        if "\0" in str(cmd.cwd):
+            raise ValueError(f"a NUL byte in the folder {cmd.cwd!r}")
+        if not cmd.cwd.is_dir():
+            if not local:
+                return True
+            why = (
+                f"phylax: this command runs in {cmd.cwd}, which is not an existing folder (a "
+                "removed worktree?), so the git guard cannot check it. Run cd to an existing "
+                "folder first."
+            )
+            if key in BLOCKING:
+                self.verdict.denies.append(why)
+            elif why not in self.errors:
+                self.errors.append(why)
             return False
         cache_key = (str(cmd.cwd), tuple(cmd.repo_args))
         if cache_key not in self._repo_off:
@@ -605,24 +624,6 @@ class Guards:
                         f"`git config {repo_key(ATTRIBUTION)} false`."
                     )
                     return
-
-    def folder_exists(self, cwd: Path) -> bool:
-        """Whether a guarded command's folder is there; a removed worktree leaves every
-        lookup in it empty, so a missing one refuses while a blocking guard is on."""
-        try:
-            cwd.stat()
-            return True
-        except FileNotFoundError:
-            pass  # any other error is a broken check, reported as one
-        why = (
-            f"phylax: this command runs in {cwd}, which no longer exists (a removed "
-            "worktree?), so the git guard cannot check it. Run cd to an existing folder first."
-        )
-        if any(option_on(k) for k in BLOCKING):
-            self.verdict.denies.append(why)
-        else:
-            self.errors.append(why)
-        return False
 
     def deny_scratch(self, how: str) -> None:
         self.verdict.denies.append(
@@ -776,9 +777,6 @@ class Guards:
         cmd = parse_git(argv, cwd, env)
         if cmd is None:
             return
-        guarded = cmd.sub in ADD_SUBCOMMANDS or cmd.sub == "commit"
-        if guarded and not self.folder_exists(cmd.cwd):
-            return
         if cmd.sub in ADD_SUBCOMMANDS:
             self.check_add(cmd)
         elif cmd.sub == "commit":
@@ -808,9 +806,7 @@ class Guards:
                 words.append(tok)
             i += 1
         writer = len(words) == 2 and words[0] == "pr" and words[1] in GH_PR_WRITERS
-        if writer and option_on(ATTRIBUTION) and not self.folder_exists(cwd):
-            return
-        if writer and self.enabled(ATTRIBUTION, Command(cwd)):
+        if writer and self.enabled(ATTRIBUTION, Command(cwd), local=False):
             texts, files = parse_gh_pr(argv[1:])
             self.check_attribution(f"`gh pr {words[1]}`", texts, files, cwd, "pr", argv, env)
 
@@ -836,7 +832,17 @@ def main() -> int:
     raw = (data.get("tool_input") or {}).get("command") or ""
     if not re.search(r"\b(git|gh)\b", raw):
         return 0
-    cwd = Path(data.get("cwd") or os.getcwd())
+    if not data.get("cwd"):
+        # python3 starts in the plugin's folder, so its own cwd says nothing about the repo.
+        print("phylax git guard error: the hook input names no folder", file=sys.stderr)
+        if any(option_on(k) for k in BLOCKING):
+            print(
+                "phylax: the git guard could not finish its check, so this command was not run.",
+                file=sys.stderr,
+            )
+            return 2
+        return 1
+    cwd = Path(data["cwd"])
     stripped, bodies = strip_heredocs(raw)
     tokens = tokenize(stripped)
     guards = Guards(bodies)
