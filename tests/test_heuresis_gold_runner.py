@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -747,17 +748,115 @@ def test_regrade_refuses_a_missing_folder_and_an_input_as_output(fake, monkeypat
     assert not (fake / "m").exists()
 
 
+def test_main_resolves_every_path_once(fake, monkeypatch):
+    monkeypatch.chdir(fake)
+    (fake / "plug").mkdir()
+    seen = []
+    monkeypatch.setattr(r, "run", lambda args: seen.append(args) or 0)
+    monkeypatch.setattr(r, "report", lambda args: seen.append(args) or 0)
+    monkeypatch.setattr(r, "regrade", lambda args: seen.append(args) or 0)
+    relative = ["--cases", "c.yaml"]
+    r.main(["run", "--guard-repo", "g", "--out", "o", "--plugin-dir", "plug", *relative])
+    r.main(["report", "res", *relative])
+    r.main(["regrade", "a", "b", "--into", "m", *relative])
+    run_args, report_args, regrade_args = seen
+    here = fake.resolve()
+    assert run_args.out == here / "o" and run_args.guard_repo == here / "g"
+    assert run_args.plugin_dir == here / "plug" and run_args.cases == [here / "c.yaml"]
+    assert report_args.results == here / "res" and report_args.cases == [here / "c.yaml"]
+    assert regrade_args.results == [here / "a", here / "b"] and regrade_args.into == here / "m"
+    r.main(["run", "--no-guard"])
+    assert seen[-1].cases == [r.DEFAULT_CASES] and seen[-1].plugin_dir is None
+
+
+def test_out_inside_the_guard_repo_is_refused(fake, capsys):
+    guard = guard_repo(fake)
+    for out in (guard, guard / "ideas", guard / "new" / "deeper"):
+        assert go(out, "--guard-repo", str(guard)) == 2
+        assert "inside the guard repository" in capsys.readouterr().err
+    assert not (guard / "new").exists()
+    assert not any(guard.glob("2*"))
+
+
+def test_out_inside_any_git_work_tree_is_refused(fake, capsys):
+    repo = fake / "elsewhere"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    for out in (repo, repo / "sub" / "results"):
+        assert go(out, "--no-guard") == 2
+        err = capsys.readouterr().err
+        assert "git work tree" in err and str(repo) in err
+    assert not (repo / "sub").exists()
+
+
+def test_out_beside_a_repository_is_allowed(fake, monkeypatch):
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "trash")
+    guard = guard_repo(fake)
+    assert go(fake / "out" / "nested", "--guard-repo", str(guard)) == 0
+
+
+def test_two_runs_in_one_second_get_separate_results_folders(fake, monkeypatch):
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "trash")
+    monkeypatch.setattr(r, "results_stamp", lambda: "20260101T000000Z")
+    out = fake / "out"
+    assert go(out, "--no-guard") == 0
+    assert go(out, "--no-guard") == 0
+    first, second = sorted(p.name for p in out.iterdir())
+    assert first != second and first.startswith("20260101T000000Z-")
+    assert second.startswith("20260101T000000Z-")
+
+
+def test_a_case_glob_that_matches_nothing_is_a_usage_error(fake, capsys):
+    out = fake / "out"
+    assert go(out, "--no-guard", case=("claude-*",)) == 2
+    assert "no case matches --case claude-*" in capsys.readouterr().err
+    assert not out.exists()
+
+
+def test_a_cases_file_with_no_cases_is_a_usage_error(fake, capsys):
+    empty = fake / "empty.yaml"
+    empty.write_text("cases: []\n")
+    argv = ["run", "--cases", str(empty), "--no-guard", "--out", str(fake / "out")]
+    assert r.main(argv) == 2
+    assert "no case is in the cases files" in capsys.readouterr().err
+
+
 def test_missing_claude_is_a_clear_error(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("PATH", str(tmp_path))
     assert r.main(["run", "--cases", str(CASES), "--no-guard", "--out", str(tmp_path / "o")]) == 2
     assert "claude is not on PATH" in capsys.readouterr().err
 
 
-def test_make_target_and_ignore_rule_exist():
+def make_dry_run(*args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["make", "-n", "heuresis-gold", *args],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_make_target_requires_a_guard_and_loads_this_checkouts_plugin():
     makefile = (ROOT / "Makefile").read_text()
-    assert "heuresis-gold:" in makefile and "scripts/heuresis_gold.py run" in makefile
-    assert '-n "$(GUARD)"' in makefile and '--guard-repo "$(GUARD)"' in makefile
-    assert ".heuresis-gold/" in (ROOT / ".gitignore").read_text()
+    assert "heuresis-gold:" in makefile and '-n "$(GUARD)"' in makefile
+    done = make_dry_run("GUARD=/some/ideas")
+    assert done.returncode == 0
+    assert 'scripts/heuresis_gold.py run --guard-repo "/some/ideas"' in done.stdout
+    assert f'--plugin-dir "{ROOT}/plugins/heuresis"' in done.stdout
+    args = make_dry_run("GUARD=/g", "GOLD_ARGS=--plugin-dir /else --case 'claude-*'").stdout
+    assert args.index('--plugin-dir "') < args.index("--plugin-dir /else")
+
+
+def test_the_make_example_glob_matches_a_real_case():
+    makefile = (ROOT / "Makefile").read_text()
+    (glob,) = re.findall(r"--case '([^']+)'", makefile)
+    cases = r.load_all([r.DEFAULT_CASES])
+    assert r.selected(cases, [glob])
+
+
+def test_results_are_kept_out_of_the_repository_not_ignored_inside_it():
+    assert ".heuresis-gold" not in (ROOT / ".gitignore").read_text()
 
 
 def test_duplicate_case_id_across_files_is_rejected(fake, capsys):

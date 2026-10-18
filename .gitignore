@@ -24,9 +24,6 @@ logs/
 plugins/*/eval-fixtures/with-rivals/
 plugins/*/evals/results/
 
-# heuresis gold-set runs, when --out points inside the repository
-.heuresis-gold/
-
 # Claude Code session worktrees
 .claude/worktrees/
 

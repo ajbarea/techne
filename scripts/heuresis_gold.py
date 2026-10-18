@@ -25,6 +25,7 @@ import fnmatch
 import hashlib
 import json
 import os
+import secrets
 import shutil
 import signal
 import subprocess
@@ -114,6 +115,36 @@ def git_dir_digest(common: Path) -> str:
                 body = "dir"
             lines.append(f"{path.relative_to(common)} {mode:o} {body}")
     return "\n".join(lines)
+
+
+def work_tree_of(path: Path) -> Path | None:
+    """The top of the git work tree that holds path (which need not exist yet), or None."""
+    near = path
+    while not near.exists():
+        near = near.parent
+    done = subprocess.run(
+        ["git", "-C", str(near), "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return Path(done.stdout.strip()) if done.returncode == 0 and done.stdout.strip() else None
+
+
+def results_stamp() -> str:
+    return dt.datetime.now(dt.UTC).strftime("%Y%m%dT%H%M%SZ")
+
+
+def new_results_dir(out: Path) -> Path:
+    """A fresh <out>/<UTC time>-<random> folder with logs/ in it; two runs never share one."""
+    while True:
+        res = out / f"{results_stamp()}-{secrets.token_hex(3)}"
+        try:
+            res.mkdir(parents=True)
+        except FileExistsError:
+            continue
+        (res / "logs").mkdir()
+        return res
 
 
 def snapshot(repo: Path) -> str:
@@ -421,10 +452,25 @@ def run(args) -> int:
         except ValueError as exc:
             print(f"heuresis_gold: {exc}", file=sys.stderr)
             return 2
+    if guard and (args.out == guard or guard in args.out.parents):
+        print(f"heuresis_gold: --out {args.out} is inside the guard repository", file=sys.stderr)
+        return 2
+    top = work_tree_of(args.out)
+    if top:
+        print(
+            f"heuresis_gold: --out {args.out} is inside the git work tree {top}; a session started "
+            "there would load its CLAUDE.md and settings. Use a folder outside any repository.",
+            file=sys.stderr,
+        )
+        return 2
     try:
         cases = selected(load_all(args.cases), args.case)
     except (gold.GoldError, OSError) as exc:
         print(f"heuresis_gold: {exc}", file=sys.stderr)
+        return 2
+    if not cases:
+        what = f"matches --case {' '.join(args.case)}" if args.case else "is in the cases files"
+        print(f"heuresis_gold: no case {what}", file=sys.stderr)
         return 2
     settings = None
     if args.plugin_dir:
@@ -439,9 +485,7 @@ def run(args) -> int:
             )
         else:
             settings = disable_settings(ids)
-    stamp = dt.datetime.now(dt.UTC).strftime("%Y%m%dT%H%M%SZ")
-    res = args.out / stamp
-    (res / "logs").mkdir(parents=True)
+    res = new_results_dir(args.out)
     (res / "grades.jsonl").write_text("")
     files = [str(f) for f in args.cases]
     (res / "cases.json").write_text(json.dumps({"ids": [c.id for c in cases], "files": files}))
