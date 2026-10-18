@@ -33,8 +33,8 @@ Run `/heuresis:setup` once first. It creates the ideas repository and checks the
 | `--triage <id>` | Triages an idea already in the inbox. |
 | `--retriage <id>` | Triages again and adds a new verdict. Earlier verdicts stay in the idea file. |
 | `--override <id> <state> <reason>` | Records your own decision without a search. Optional `--type`, `--project` and `--duplicate-of`. |
-| `decline` (automatic) | When an idea asks for something illegal or that would harm people who have not consented, such as covert surveillance, the skill runs `heuresis decline <id> <reason>` instead of searching. The idea is filed as `trash` with a `declined` verdict. |
-| `--ideas <path>` and `--repos <path>` | Point one run at another ideas repository and repos folder instead of the configured ones. Combine with any mode above. |
+| `decline` (automatic) | When triaging an idea that asks for something illegal or that would harm people who have not consented, such as covert surveillance, the skill runs `heuresis decline <id> <reason>` instead of searching. The idea is filed as `trash` with a `declined` verdict. Capture-only and `--override` never decline. |
+| `--ideas <path>` and `--repos <path>` | Point one run at another ideas repository and repos folder instead of the configured ones. Put them first, before the mode or the idea text; after that, the words are idea text. |
 
 ## How a triage runs
 

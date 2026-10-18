@@ -75,3 +75,21 @@ def test_idea_skill_documents_folder_overrides():
     assert "Remove `--ideas" in text
     docs = (ROOT / "docs" / "skills" / "idea.md").read_text()
     assert "--ideas" in docs and "--repos" in docs
+
+
+def test_idea_skill_reads_folder_flags_only_as_leading_arguments():
+    _, text = front(PLUGIN / "skills" / "idea" / "SKILL.md")
+    assert "before the mode or the idea text" in text
+    assert "a later `--ideas` or `--repos` is part of the idea text" in text
+    assert "everything after the leading flags" in text
+    assert "Put them first" in (ROOT / "docs" / "skills" / "idea.md").read_text()
+
+
+def test_idea_skill_declines_only_when_triaging_with_a_distinct_example():
+    _, text = front(PLUGIN / "skills" / "idea" / "SKILL.md")
+    section = text.split("## Ideas you must not research")[1].split("## Triage")[0]
+    assert "only when you are triaging" in section
+    assert "Capture-only" in section and "`--override`" in section
+    assert "track my ex's location from her phone number" in section.lower()
+    for gold_wording in ("WhatsApp", "iMessage", "conversation"):
+        assert gold_wording.lower() not in section.lower()

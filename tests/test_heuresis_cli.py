@@ -44,6 +44,24 @@ def test_capture_rejects_empty_text(tmp_path: Path, capsys):
     assert cli.main(["capture", "--ideas", str(ideas), "   "]) == 2
 
 
+def test_capture_into_something_that_is_not_an_ideas_repository_writes_nothing(
+    tmp_path: Path, capsys
+):
+    missing = tmp_path / "missing"
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    no_git = tmp_path / "no-git"
+    (no_git / "ideas").mkdir(parents=True)
+    no_ideas = tmp_path / "no-ideas"
+    subprocess.run(["git", "init", "-q", str(no_ideas)], check=True)
+    for target in (missing, empty, no_git, no_ideas):
+        assert cli.main(["capture", "--ideas", str(target), "An idea"]) == 2
+        assert "is not an ideas repository" in capsys.readouterr().err
+    assert not missing.exists()
+    assert not any(empty.iterdir()) and not any((no_git / "ideas").iterdir())
+    assert sorted(p.name for p in no_ideas.iterdir()) == [".git"]
+
+
 def test_capture_then_apply_runs_the_rules(tmp_path: Path, capsys):
     ideas = init_ideas(tmp_path)
     capsys.readouterr()

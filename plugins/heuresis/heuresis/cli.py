@@ -109,6 +109,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _capture(args) -> int:
+    if not context.is_ideas_repo(args.ideas):
+        print(
+            f"heuresis: {args.ideas} is not an ideas repository; run /heuresis:setup",
+            file=sys.stderr,
+        )
+        return 2
     if args.text is not None and args.words:
         print("heuresis: give the idea text as arguments or with --text, not both", file=sys.stderr)
         return 2

@@ -103,6 +103,11 @@ def resolve_sources(context_toml: Path, projects: list[Project], repos_root: Pat
     return found
 
 
+def is_ideas_repo(path: Path) -> bool:
+    """An ideas repository has an ideas folder and a git repository; init_repo lays out both."""
+    return (path / "ideas").is_dir() and (path / ".git").exists()
+
+
 def init_repo(root: Path, techne_toml: Path | None, repos_root: Path) -> None:
     (root / "ideas").mkdir(parents=True, exist_ok=True)
     (root / "runs").mkdir(exist_ok=True)
