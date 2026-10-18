@@ -8,3 +8,7 @@ Code-repo skills: toolchain audits, CI log review, adversarial pre-merge review,
 ```
 
 Then run `/techne:setup`. Install, first use and troubleshooting: [https://ajbarea.github.io/techne/plugins/techne/](https://ajbarea.github.io/techne/plugins/techne/). Setup runbook: [AGENTS.md](AGENTS.md).
+
+## Options
+
+`clean_finished_work` (off by default, set in `/config`): at session start, remove worktrees and branches whose PR merged and that nothing is using, and report what a merge left behind. Details: [auto mode](https://ajbarea.github.io/techne/skills/sisters/#auto-mode).

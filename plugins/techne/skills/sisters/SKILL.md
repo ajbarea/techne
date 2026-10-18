@@ -1,13 +1,13 @@
 ---
 name: sisters
-description: Cross-repo drift audit across the linked repos listed in `~/.claude/techne.toml`. Read-only inspection of CI action and toolchain pins, skill-context parity, GitHub merge settings and branch protection, open PRs, branch/worktree/stash hygiene, and fleet conventions (Codecov, Dependabot, log retention, README header, shared docs-site files). A clean mode removes finished branches and worktrees after the user approves the list. Use for "audit the sisters", "are the sisters in sync", "check cross-repo drift", "comb the sisters", "clean up branches and worktrees across the repos", or when several sister repos are named together for a consistency check. Not for auditing one repo's own build (techne:audit) or its CI logs (techne:ci-audit).
+description: Cross-repo drift audit across the linked repos listed in `~/.claude/techne.toml`. Read-only inspection of CI action and toolchain pins, skill-context parity, GitHub merge settings and branch protection, open PRs, branch/worktree/stash hygiene, and fleet conventions (Codecov, Dependabot, log retention, README header, shared docs-site files). A clean mode removes finished branches and worktrees after the user approves the list, and an auto mode does it unasked for work that is provably finished. Use for "audit the sisters", "are the sisters in sync", "check cross-repo drift", "comb the sisters", "clean up branches and worktrees across the repos", or when several sister repos are named together for a consistency check. Not for auditing one repo's own build (techne:audit) or its CI logs (techne:ci-audit).
 disable-model-invocation: false
 allowed-tools: Bash(gh api repos/*) Bash(gh pr list*) Bash(gh auth status) Bash(git fetch *) Bash(git for-each-ref *) Bash(git rev-list *) Bash(git branch *) Bash(grep *) Bash(awk *) Bash(sed *) Bash(sort *) Bash(uniq *) Bash(wc *) Bash(ls *) Bash(python3 *) Bash(git -C *) Bash(head *) Bash(cut *) Bash(tr *) Bash(printf *) Glob Grep Read
 ---
 
 # Sisters Audit
 
-Audit the active sister repos for cross-repo drift. Report every finding, grouped by category. Leave fixing to follow-up work or the developer: the audit observes, it does not edit. The one exception is [clean mode](#clean-mode), which removes finished branches and worktrees the user has approved.
+Audit the active sister repos for cross-repo drift. Report every finding, grouped by category. Leave fixing to follow-up work or the developer: the audit observes, it does not edit. The exceptions are [clean mode](#clean-mode), which removes finished branches and worktrees the user has approved, and [auto mode](#auto-mode), which removes only what clean mode would list as safe.
 
 ## Config (load first)
 
@@ -137,9 +137,29 @@ What the script counts as safe, and what it never touches:
 - The default branch comes from GitHub, not the clone's `origin/HEAD`, which goes stale.
 - `--apply` surveys again and removes only items still safe at the same tip, deleting with compare-and-delete (`update-ref -d <sha>`, `--force-with-lease`), and removes worktrees without `--force`. Anything that moved is kept and named.
 
+## Auto mode
+
+`hygiene.py --auto` is clean mode without the plan. It surveys the active roster plus each `--path DIR` (repeatable; DIR resolves to its repo's main worktree, and counts when its owner is the configured `github_user` or the repo is in the roster; a non-git directory is skipped). It removes every item in the remove group straight away, after the same last-moment re-check `--apply` makes, then prints one line per removal and two lists of what a merge left behind that will not clear on its own:
+
+- **Held after merge**: a worktree or branch whose PR merged (or that is detached inside the default branch), held by uncommitted changes, ignored files that are not build output, commits added after the merge, a tip that differs from the PR head, a nested worktree, a lock, or a checkout in the main checkout.
+- **Closed without merging**: a branch or worktree whose PR closed unmerged.
+
+Holds that clear by themselves (a live process, activity within two hours, no way to tell if it is busy) are left out; a later run handles them. It prints nothing when it removed nothing and nothing is held.
+
+It never fails. A missing or logged-out `gh`, no network, a python3 older than 3.11 or one broken repo ends it quietly. It takes a non-blocking lock in `~/.cache/techne` (a second run exits at once) and runs at most once per 30 minutes; `--min-interval SECONDS` changes that.
+
+Two kinds are reported and never acted on, in this list and in the normal report's **Needs a look**:
+
+- `issue`: an open issue that a merged PR in the same repo said it would close (a closing keyword, or a manual link), where the merge is at least 24 hours old and nobody has commented since. Close it, or comment what is left. A PR that only mentions an issue does not count.
+- `pr`: an open PR in the same repo whose changes are already in the default branch (`git merge-tree --write-tree` gives the default branch's own tree). Needs git 2.38 or newer; older git skips it.
+
+### Session-start hook
+
+The techne plugin ships an off-by-default SessionStart hook, switched on with the `clean_finished_work` option in `/config`. On startup and resume it runs `hygiene.py --auto --hook` in the background (`async`, 300 second timeout) with the session's working directory added as a `--path`. When there is something to say, Claude Code shows the report and hands it to Claude, who answers each held item: remove it, or say why it stays.
+
 ## Rules
 
-- Read-only, except clean mode's `--apply` after the user approves the list. Never edit files, push branches, or modify GitHub settings. If the audit surfaces something that needs fixing, say so and stop.
+- Read-only, except clean mode's `--apply` after the user approves the list, and `--auto`, which removes only the safe-to-remove group. Never edit files, push branches, or modify GitHub settings. If the audit surfaces something that needs fixing, say so and stop.
 - If one repo is in a broken state (e.g., `.claude/skill-context.md` missing), report it and continue the other checks — don't abort.
 - `gh` calls go through the user's authenticated CLI; if auth fails, surface the error and stop that check (don't retry).
 - Do not invoke `techne:ci-audit` recursively. If a PR has failing checks, *name* it and tell the user to run `techne:ci-audit` separately.

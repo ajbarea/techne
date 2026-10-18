@@ -9,16 +9,21 @@ and only the GitHub PR lookup is faked.
 
 from __future__ import annotations
 
+import io
 import json
+import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from conftest import HYGIENE_SCRIPT, ROOT
 
 ME = "ajbarea"
+NO_ISSUES = {"data": {"repository": {"issues": {"nodes": []}}}}
 
 
 def sh(cwd: Path, *args: str) -> str:
@@ -102,6 +107,7 @@ def fleet(tmp_path, monkeypatch, hy):
 
     f = Fleet()
     monkeypatch.setattr(hy, "fetch_prs", lambda slug: f.prs)
+    monkeypatch.setattr(hy, "fetch_issue_links", lambda slug: NO_ISSUES)
     return f
 
 
@@ -541,3 +547,435 @@ def test_hygiene_leaves_no_bytecode_in_the_plugin(tmp_path):
     proc = run_env(tmp_path, GOOD, plugin / "skills" / "sisters" / "scripts" / "hygiene.py")
     assert proc.returncode == 0, proc.stderr
     assert not list(plugin.rglob("__pycache__"))
+
+
+# ------------------------------------------------------------------ pdf --
+
+
+def test_a_pdf_beside_its_tex_is_build_output_and_a_lone_pdf_is_not(hy, tmp_path):
+    (tmp_path / "paper").mkdir()
+    (tmp_path / "paper" / "main.tex").write_text("x")
+    root = str(tmp_path)
+    assert hy.regenerable("paper/main.pdf", root) is True
+    assert hy.regenerable("paper/other.pdf", root) is False  # no other.tex
+    assert hy.regenerable("main.pdf", root) is False  # main.tex is in paper/, not here
+    assert hy.regenerable("paper/main.pdf") is False  # no root, no evidence
+    assert hy.regenerable("paper/main.docx", root) is False
+
+
+def test_a_worktree_is_held_by_a_lone_pdf_but_not_by_one_beside_its_tex(fleet):
+    ignore(fleet, "*.pdf")
+    fleet.prs["feat/a"] = pr(1, "MERGED", fleet.branch("feat/a", "a1", "main.tex"))
+    fleet.prs["feat/b"] = pr(2, "MERGED", fleet.branch("feat/b", "b1"))
+    a, b = add_worktree(fleet, "a", "feat/a"), add_worktree(fleet, "b", "feat/b")
+    (a / "main.pdf").write_text("pdf")  # main.tex is tracked in a
+    (b / "main.pdf").write_text("pdf")  # no main.tex in b
+    items = fleet.survey()
+    assert items[("worktree", ".claude/worktrees/a")].group == "remove"
+    held = items[("worktree", ".claude/worktrees/b")]
+    assert "ignored files that are not build output: main.pdf" in held.reason
+
+
+# --------------------------------------------------------------- issues --
+
+
+def issue_payload(*issues: dict) -> dict:
+    return {"data": {"repository": {"issues": {"nodes": list(issues)}}}}
+
+
+def issue(number: int, events: list[dict], comment: str | None = None) -> dict:
+    return {
+        "number": number,
+        "comments": {"nodes": [{"createdAt": comment}] if comment else []},
+        "timelineItems": {"nodes": events},
+    }
+
+
+def cross(
+    num: int,
+    merged: str | None,
+    repo: str = "o/r",
+    typename: str = "PullRequest",
+    closes: bool = True,
+) -> dict:
+    src = {
+        "__typename": typename,
+        "number": num,
+        "merged": bool(merged),
+        "mergedAt": merged,
+        "baseRepository": {"nameWithOwner": repo},
+    }
+    return {"__typename": "CrossReferencedEvent", "willCloseTarget": closes, "source": src}
+
+
+NOW = "2026-10-18T00:00:00Z"
+
+
+def test_an_open_issue_a_day_after_its_closing_pr_merged_is_reported(hy):
+    payload = issue_payload(issue(118, [cross(114, "2026-10-09T10:00:00Z")]))
+    (item,) = hy.stale_issues(payload, "o/r", hy.parse_time(NOW))
+    assert (item.kind, item.name, item.group) == ("issue", "#118", "review")
+    assert item.reason == "PR #114 merged 2026-10-09; close it, or comment what is left"
+
+
+def test_a_manually_linked_merged_pr_counts_like_a_closing_keyword(hy):
+    subject = cross(97, "2026-10-01T00:00:00Z")["source"]
+    payload = issue_payload(issue(96, [{"__typename": "ConnectedEvent", "subject": subject}]))
+    assert len(hy.stale_issues(payload, "o/r", hy.parse_time(NOW))) == 1
+
+
+@pytest.mark.parametrize(
+    ("event", "comment"),
+    [
+        (cross(5, "2026-10-17T12:00:00Z"), None),  # merged 12 h ago
+        (cross(5, "2026-10-09T10:00:00Z"), "2026-10-10T00:00:00Z"),  # someone commented since
+        (cross(5, None), None),  # the PR is still open
+        (cross(5, "2026-10-09T10:00:00Z", closes=False), None),  # a mention, not a closer
+        (cross(5, "2026-10-09T10:00:00Z", repo="other/r"), None),
+        (cross(5, "2026-10-09T10:00:00Z", typename="Issue"), None),
+    ],
+    ids=["too-recent", "commented-since", "open-pr", "mention-only", "other-repo", "not-a-pr"],
+)
+def test_issues_that_need_no_nudge_are_not_reported(hy, event, comment):
+    payload = issue_payload(issue(7, [event], comment))
+    assert hy.stale_issues(payload, "o/r", hy.parse_time(NOW)) == []
+
+
+def test_a_comment_before_the_merge_does_not_silence_the_issue(hy):
+    payload = issue_payload(issue(7, [cross(5, "2026-10-09T10:00:00Z")], "2026-10-08T00:00:00Z"))
+    assert len(hy.stale_issues(payload, "o/r", hy.parse_time(NOW))) == 1
+
+
+def test_the_newest_merge_decides_when_several_prs_mention_an_issue(hy):
+    events = [cross(5, "2026-10-01T00:00:00Z"), cross(6, "2026-10-09T00:00:00Z")]
+    payload = issue_payload(issue(7, events, "2026-10-05T00:00:00Z"))
+    (item,) = hy.stale_issues(payload, "o/r", hy.parse_time(NOW))
+    assert "PR #6" in item.reason
+
+
+def test_issues_reach_the_survey_and_a_graphql_failure_does_not_stop_it(fleet, hy, monkeypatch):
+    payload = issue_payload(issue(7, [cross(5, "2026-01-01T00:00:00Z", repo=f"{ME}/repo")]))
+    monkeypatch.setattr(hy, "fetch_issue_links", lambda slug: payload)
+    assert fleet.survey()[("issue", "#7")].group == "review"
+
+    def boom(slug):
+        raise RuntimeError("graphql down")
+
+    fleet.branch("feat/a")
+    monkeypatch.setattr(hy, "fetch_issue_links", boom)
+    survey = fleet.survey()
+    assert ("issue", "#7") not in survey
+    assert ("local-branch", "feat/a") in survey
+
+
+# ---------------------------------------------------------- landed PRs --
+
+
+def land(fleet, name: str, *files: str) -> str:
+    """Branch `name` on origin; returns its tip."""
+    tip = fleet.branch(name, *files)
+    sh(fleet.path, "push", "-q", "origin", name)
+    return tip
+
+
+def test_an_open_pr_whose_changes_main_already_has_is_reported(fleet):
+    fleet.prs["feat/x"] = pr(3, "OPEN", land(fleet, "feat/x", "x1"))
+    assert ("pr", "#3") not in fleet.survey()  # not in main yet
+    commit(fleet.path, "x1")  # the same change reaches main as a different commit
+    sh(fleet.path, "push", "-q", "origin", "main")
+    item = fleet.survey()[("pr", "#3")]
+    assert item.group == "review"
+    assert "already in main" in item.reason
+
+
+def test_a_pr_with_a_change_main_lacks_is_not_reported(fleet):
+    fleet.prs["feat/x"] = pr(3, "OPEN", land(fleet, "feat/x", "x1", "x2"))
+    commit(fleet.path, "x1")  # main has half of it
+    sh(fleet.path, "push", "-q", "origin", "main")
+    assert ("pr", "#3") not in fleet.survey()
+
+
+def test_a_merged_pr_is_never_reported_as_landed(fleet):
+    fleet.prs["feat/x"] = pr(3, "MERGED", land(fleet, "feat/x", "x1"))
+    commit(fleet.path, "x1")
+    sh(fleet.path, "push", "-q", "origin", "main")
+    assert ("pr", "#3") not in fleet.survey()
+
+
+def test_the_landed_check_is_skipped_on_a_git_without_merge_tree_write(fleet, hy, monkeypatch):
+    fleet.prs["feat/x"] = pr(3, "OPEN", land(fleet, "feat/x", "x1"))
+    commit(fleet.path, "x1")
+    sh(fleet.path, "push", "-q", "origin", "main")
+    monkeypatch.setattr(hy, "git_version", lambda: (2, 37))
+    assert ("pr", "#3") not in fleet.survey()
+
+
+# ----------------------------------------------------------------- auto --
+
+
+@pytest.fixture
+def auto(fleet, hy, monkeypatch, tmp_path):
+    cache = tmp_path / "cache"
+    monkeypatch.setenv("XDG_CACHE_HOME", str(cache))
+    monkeypatch.setattr(hy.shutil, "which", lambda name: f"/usr/bin/{name}")
+
+    class Auto:
+        cache = tmp_path / "cache" / "techne"
+
+        def __call__(self, interval: int = 0, paths: list[str] | None = None) -> str:
+            return hy.run_auto(paths or [], [], interval)
+
+    return Auto()
+
+
+def test_auto_removes_a_finished_worktree_and_branch_and_holds_a_dirty_one(fleet, auto):
+    fleet.prs["feat/a"] = pr(1, "MERGED", fleet.branch("feat/a", "a1"))
+    fleet.prs["feat/b"] = pr(2, "MERGED", fleet.branch("feat/b", "b1"))
+    a, b = add_worktree(fleet, "a", "feat/a"), add_worktree(fleet, "b", "feat/b")
+    (b / "b1").write_text("edited")
+    text = auto()
+    assert not a.exists()
+    assert "feat/a" not in local_branches(fleet.path)
+    assert b.exists()
+    assert "feat/b" in local_branches(fleet.path)
+    assert "Removed (1):" in text
+    assert "- repo: worktree `.claude/worktrees/a`: PR #1 merged" in text
+    assert "Held after merge (1):" in text
+    assert "worktree `.claude/worktrees/b`" in text
+    assert "1 uncommitted change(s)" in text
+
+
+def test_auto_lists_what_a_merge_left_behind_that_will_not_clear(fleet, auto):
+    fleet.prs["feat/a"] = pr(1, "MERGED", fleet.branch("feat/a", "a1"))
+    sh(fleet.path, "checkout", "-q", "feat/a")
+    commit(fleet.path, "later")
+    sh(fleet.path, "checkout", "-q", "main")
+    fleet.prs["feat/c"] = pr(3, "CLOSED", fleet.branch("feat/c", "c1"))
+    fleet.branch("feat/wip", "w1")  # no PR: not a merge leftover
+    text = auto()
+    assert "Held after merge (1):" in text
+    assert "local-branch `feat/a`: 1 commit(s) added after PR #1 merged" in text
+    assert "Closed without merging (1):" in text
+    assert "local-branch `feat/c`" in text
+    assert "feat/wip" not in text
+
+
+def test_auto_reports_issues_and_landed_prs_without_acting_on_them(fleet, auto, hy, monkeypatch):
+    payload = issue_payload(issue(7, [cross(5, "2026-01-01T00:00:00Z", repo=f"{ME}/repo")]))
+    monkeypatch.setattr(hy, "fetch_issue_links", lambda slug: payload)
+    fleet.prs["feat/x"] = pr(3, "OPEN", land(fleet, "feat/x", "x1"))
+    commit(fleet.path, "x1")
+    sh(fleet.path, "push", "-q", "origin", "main")
+    text = auto()
+    assert "issue `#7`: PR #5 merged 2026-01-01" in text
+    assert "pr `#3`" in text
+    assert "feat/x" in local_branches(fleet.path)
+    assert "Removed" not in text
+
+
+def test_auto_leaves_out_holds_that_clear_by_themselves(fleet, auto, hy, monkeypatch):
+    fleet.prs["feat/a"] = pr(1, "MERGED", fleet.branch("feat/a", "a1"))
+    path = add_worktree(fleet, "a", "feat/a")
+    (path / "a1").write_text("edited")  # a persistent hold ...
+    monkeypatch.setattr(hy, "busy_paths", lambda: [str(path)])  # ... with a session inside
+    assert auto() == ""
+    monkeypatch.setattr(hy, "busy_paths", lambda: [])
+    monkeypatch.setattr(hy, "IDLE_SECONDS", 3600)  # recently active
+    assert auto() == ""
+    monkeypatch.setattr(hy, "busy_paths", lambda: None)  # cannot tell
+    monkeypatch.setattr(hy, "IDLE_SECONDS", 0)
+    assert auto() == ""
+    monkeypatch.setattr(hy, "busy_paths", lambda: [])
+    assert "1 uncommitted change(s)" in auto()  # once nothing transient remains
+
+
+def test_auto_prints_nothing_when_there_is_nothing_to_say(fleet, auto):
+    fleet.prs["feat/open"] = pr(9, "OPEN", fleet.branch("feat/open", "o1"))
+    assert auto() == ""
+
+
+def test_auto_skips_quietly_while_another_run_holds_the_lock(fleet, auto):
+    import fcntl
+
+    fleet.prs["feat/a"] = pr(1, "MERGED", fleet.branch("feat/a", "a1"))
+    path = add_worktree(fleet, "a", "feat/a")
+    auto.cache.mkdir(parents=True)
+    with open(auto.cache / "hygiene-auto.lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        assert auto() == ""
+        assert path.exists()
+    assert "Removed (1):" in auto()  # the lock was the only thing in the way
+    assert not path.exists()
+
+
+def test_auto_runs_at_most_once_per_interval(fleet, auto):
+    fleet.prs["feat/a"] = pr(1, "MERGED", fleet.branch("feat/a", "a1"))
+    first = add_worktree(fleet, "a", "feat/a")
+    assert "Removed (1):" in auto(1800)
+    fleet.prs["feat/b"] = pr(2, "MERGED", fleet.branch("feat/b", "b1"))
+    second = add_worktree(fleet, "b", "feat/b")
+    assert auto(1800) == ""
+    assert second.exists()
+    old = time.time() - 3600
+    os.utime(auto.cache / "hygiene-auto.stamp", (old, old))
+    assert "Removed (1):" in auto(1800)
+    assert not first.exists()
+    assert not second.exists()
+
+
+def test_one_broken_repo_does_not_stop_the_others(fleet, auto, hy, monkeypatch, tmp_path):
+    fleet.prs["feat/a"] = pr(1, "MERGED", fleet.branch("feat/a", "a1"))
+    path = add_worktree(fleet, "a", "feat/a")
+    targets = [
+        ("gone", f"{ME}/gone", str(tmp_path / "nowhere")),
+        ("repo", f"{ME}/repo", str(fleet.path)),
+    ]
+    monkeypatch.setattr(hy, "load_sisters", lambda names: (targets, ME))
+    assert "Removed (1):" in auto()
+    assert not path.exists()
+
+
+def test_a_worktree_a_session_entered_after_the_survey_is_kept(fleet, auto, hy, monkeypatch):
+    fleet.prs["feat/a"] = pr(1, "MERGED", fleet.branch("feat/a", "a1"))
+    path = add_worktree(fleet, "a", "feat/a")
+    real = hy.execute
+
+    def late(repo, item):
+        (path / "scratch").write_text("work")
+        return real(repo, item)
+
+    monkeypatch.setattr(hy, "execute", late)
+    assert "Removed" not in auto()
+    assert path.exists()
+
+
+# --------------------------------------------------------------- --path --
+
+
+def make_repo(tmp_path: Path, name: str, url: str) -> Path:
+    repo = tmp_path / name
+    repo.mkdir()
+    sh(repo, "init", "-q", "-b", "main")
+    commit(repo, "base")
+    sh(repo, "remote", "add", "origin", url)
+    return repo
+
+
+def test_a_path_resolves_to_its_repos_main_worktree_when_the_owner_is_mine(hy, fleet, tmp_path):
+    mine = make_repo(tmp_path, "mine", f"git@github.com:{ME}/mine.git")
+    sh(mine, "worktree", "add", "-q", str(mine / "wt"), "-b", "feat")
+    found = hy.repo_for_path(str(mine / "wt"), ME, {})
+    assert found == ("mine", f"{ME}/mine", str(mine.resolve()))
+    assert hy.repo_for_path(str(mine), ME, {}) == found
+
+
+def test_a_path_in_someone_elses_repo_counts_only_when_it_is_in_the_roster(hy, fleet, tmp_path):
+    theirs = make_repo(tmp_path, "theirs", "https://github.com/other/theirs")
+    assert hy.repo_for_path(str(theirs), ME, {}) is None
+    found = hy.repo_for_path(str(theirs), ME, {str(theirs.resolve()): "theirs"})
+    assert found == ("theirs", "other/theirs", str(theirs.resolve()))
+
+
+def test_paths_that_are_not_a_github_repo_are_skipped_silently(hy, fleet, tmp_path):
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    local = make_repo(tmp_path, "local", "/srv/git/local.git")
+    assert hy.repo_for_path(str(plain), ME, {}) is None
+    assert hy.repo_for_path(str(tmp_path / "missing"), ME, {}) is None
+    assert hy.repo_for_path(str(local), ME, {}) is None
+
+
+def test_auto_cleans_a_path_repo_that_is_not_in_the_roster(fleet, auto, hy, monkeypatch):
+    fleet.prs["feat/a"] = pr(1, "MERGED", fleet.branch("feat/a", "a1"))
+    path = add_worktree(fleet, "a", "feat/a")
+    monkeypatch.setattr(hy, "load_sisters", lambda names: ([], ME))
+    monkeypatch.setattr(
+        hy, "repo_for_path", lambda d, me, roster: ("repo", f"{ME}/repo", str(fleet.path))
+    )
+    assert "Removed (1):" in auto(paths=[str(fleet.path)])
+    assert not path.exists()
+
+
+# ----------------------------------------------------------------- hook --
+
+
+def hook_args(**kw) -> SimpleNamespace:
+    return SimpleNamespace(**{"path": [], "repo": [], "min_interval": 0, "hook": True} | kw)
+
+
+REPORT = "Held after merge (1):\n- repo: worktree `w`: PR #1 merged; locked"
+
+
+def test_hook_prints_the_session_start_shape_and_adds_the_sessions_cwd(hy, monkeypatch, capsys):
+    seen = {}
+
+    def fake(paths, names, interval):
+        seen["paths"] = paths
+        return REPORT
+
+    monkeypatch.setattr(hy, "run_auto", fake)
+    monkeypatch.setattr(hy.sys, "stdin", io.StringIO('{"cwd": "/work/repo", "source": "startup"}'))
+    assert hy.auto_main(hook_args(path=["/extra"])) == 0
+    assert seen["paths"] == ["/extra", "/work/repo"]
+    out = json.loads(capsys.readouterr().out)
+    assert out["systemMessage"] == REPORT
+    context = out["hookSpecificOutput"]
+    assert context["hookEventName"] == "SessionStart"
+    assert context["additionalContext"].startswith(REPORT)
+    assert "remove it, or say why it stays" in context["additionalContext"]
+
+
+def test_hook_prints_nothing_without_a_report_and_survives_bad_stdin(hy, monkeypatch, capsys):
+    monkeypatch.setattr(hy, "run_auto", lambda paths, names, interval: "")
+    monkeypatch.setattr(hy.sys, "stdin", io.StringIO("not json"))
+    assert hy.auto_main(hook_args()) == 0
+    assert capsys.readouterr().out == ""
+
+
+def test_a_failing_run_never_reaches_the_hook(hy, monkeypatch, capsys):
+    def boom(paths, names, interval):
+        raise SystemExit("techne.toml not found")
+
+    monkeypatch.setattr(hy, "run_auto", boom)
+    monkeypatch.setattr(hy.sys, "stdin", io.StringIO("{}"))
+    assert hy.auto_main(hook_args()) == 0
+    captured = capsys.readouterr()
+    assert (captured.out, captured.err) == ("", "")
+
+
+def test_plain_auto_prints_the_report_as_text(hy, monkeypatch, capsys):
+    monkeypatch.setattr(hy, "run_auto", lambda paths, names, interval: REPORT)
+    assert hy.auto_main(hook_args(hook=False)) == 0
+    assert capsys.readouterr().out == REPORT + "\n"
+
+
+@pytest.mark.parametrize("flags", [["--auto"], ["--auto", "--hook"]])
+def test_auto_without_gh_exits_zero_and_says_nothing(tmp_path, flags):
+    home = tmp_path / "home"
+    (home / ".claude").mkdir(parents=True)
+    (home / ".claude" / "techne.toml").write_text(GOOD)
+    proc = subprocess.run(
+        [sys.executable, str(HYGIENE_SCRIPT), *flags, "--min-interval", "0"],
+        env={"HOME": str(home), "PATH": str(tmp_path / "empty"), "XDG_CACHE_HOME": str(tmp_path)},
+        input="{}",
+        capture_output=True,
+        text=True,
+    )
+    assert (proc.returncode, proc.stdout, proc.stderr) == (0, "", "")
+
+
+def test_auto_on_a_python_too_old_for_tomllib_exits_zero_and_says_nothing():
+    def run(flag: str):
+        code = (
+            "import sys, runpy\n"
+            "sys.version_info = (3, 9, 0)\n"
+            f"sys.argv = [{str(HYGIENE_SCRIPT)!r}, {flag!r}]\n"
+            f"runpy.run_path({str(HYGIENE_SCRIPT)!r}, run_name='__main__')\n"
+        )
+        return subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+
+    quiet = run("--auto")
+    assert (quiet.returncode, quiet.stdout, quiet.stderr) == (0, "", "")
+    told = run("--env")  # a person at a terminal still gets the fix
+    assert told.returncode != 0
+    assert "older than 3.11" in told.stderr

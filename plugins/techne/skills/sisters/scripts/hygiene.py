@@ -4,6 +4,7 @@
 Usage:
     hygiene.py [--repo NAME ...] [--json] [--plan-out FILE]
     hygiene.py --apply FILE
+    hygiene.py --auto [--path DIR ...] [--min-interval SECONDS] [--hook]
     hygiene.py --env
 
 Report mode (the default) reads every active sister in ~/.claude/techne.toml, or
@@ -28,6 +29,17 @@ every repo in it afresh, and runs only the actions that are still in the remove
 group with the same tip. Every deletion is compare-and-delete on that tip, so a
 branch that moved after the plan was shown is left alone.
 
+--auto skips the plan: it surveys the roster plus each --path repo, removes the
+remove group straight away (execute() checks again at the last moment), and prints
+what a merge left behind that will not clear on its own. It prints nothing when
+there is nothing to say, and never fails: a missing gh, no network or an old
+python3 ends it quietly. --hook is the SessionStart form: it reads the hook JSON
+on stdin, adds its cwd, and prints the report as hook output.
+
+Two kinds are report-only, never removed: `issue` (an open issue that a merged PR
+mentions or connects to, with no comment since the merge) and `pr` (an open PR
+whose changes are already in the default branch).
+
 Writes the report to stdout; diagnostics to stderr. Needs git and an
 authenticated gh.
 """
@@ -37,11 +49,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shlex
+import shutil
 import subprocess
 import sys
 import time
 from dataclasses import asdict, dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 sys.dont_write_bytecode = True  # the plugin cache stays as installed
@@ -49,6 +64,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "_shared"))
 import doctor_lib  # noqa: E402  # ty: ignore[unresolved-import]
 
 # Stock macOS python3 is 3.9; stop with the fix before the 3.11-only import below.
+# A hook run has nobody to read the fix, so it ends quietly instead.
+if sys.version_info < (3, 11) and {"--auto", "--hook"} & set(sys.argv):
+    sys.exit(0)
 doctor_lib.require_python((3, 11), "sisters", "/techne:setup")
 
 import tomllib  # noqa: E402
@@ -77,9 +95,12 @@ REGENERABLE_SUFFIXES = (
 )  # fmt: skip
 
 
-def regenerable(ignored: str) -> bool:
+def regenerable(ignored: str, root: str | None = None) -> bool:
     path = ignored.rstrip("/")
     parts = path.split("/")
+    # LaTeX output: x.pdf beside x.tex in the same worktree is rebuilt by latexmk.
+    if root and path.endswith(".pdf") and Path(root, path[:-4] + ".tex").is_file():
+        return True
     return bool(
         REGENERABLE & set(parts)
         or any(path == p or path.startswith(p + "/") for p in REGENERABLE_PATHS)
@@ -102,6 +123,9 @@ class Item:
     sha: str = ""
     path: str = ""
     branch: str = ""
+    # What a merge left behind, for --auto: "held" (a merged branch something blocks),
+    # "closed" (its PR closed unmerged), "" (nothing, or a hold that clears by itself).
+    left: str = ""
 
 
 @dataclass
@@ -242,6 +266,11 @@ def last_activity(wt: str) -> float:
     return max(stamps, default=0.0)
 
 
+BUSY_UNKNOWN = "cannot tell whether a process is using it"
+BUSY_LIVE = "a live process is using it"
+ACTIVE_PREFIX = "active "
+
+
 def worktree_blockers(wpath: str, others: list[str], busy: list[str] | None) -> list[str]:
     """Why a worktree must not be removed now; empty when nothing holds it."""
     # Explicit flags: a user's status.showUntrackedFiles=no must not hide work.
@@ -252,7 +281,7 @@ def worktree_blockers(wpath: str, others: list[str], busy: list[str] | None) -> 
     kept = []
     for ln in lines:
         if ln.startswith("!!"):
-            if not regenerable(ln[3:].strip()):
+            if not regenerable(ln[3:].strip(), wpath):
                 kept.append(ln[3:].strip())
     nested = [o for o in others if o.startswith(wpath + os.sep)]
     idle = time.time() - last_activity(wpath)
@@ -260,13 +289,26 @@ def worktree_blockers(wpath: str, others: list[str], busy: list[str] | None) -> 
         f"{len(changes)} uncommitted change(s)" if changes else "",
         f"ignored files that are not build output: {', '.join(kept[:3])}" if kept else "",
         f"{len(nested)} worktree(s) inside it" if nested else "",
-        "cannot tell whether a process is using it" if busy is None else "",
-        "a live process is using it"
-        if busy and any(c == wpath or c.startswith(wpath + os.sep) for c in busy)
-        else "",
-        f"active {int(idle // 60)} min ago" if idle < IDLE_SECONDS else "",
+        BUSY_UNKNOWN if busy is None else "",
+        BUSY_LIVE if busy and any(c == wpath or c.startswith(wpath + os.sep) for c in busy) else "",
+        f"{ACTIVE_PREFIX}{int(idle // 60)} min ago" if idle < IDLE_SECONDS else "",
     ]
     return [b for b in blockers if b]
+
+
+def transient(blockers: list[str]) -> bool:
+    """True when a hold clears by itself: a session working in it, or no way to tell."""
+    return any(b in (BUSY_UNKNOWN, BUSY_LIVE) or b.startswith(ACTIVE_PREFIX) for b in blockers)
+
+
+def leftover(before: str, after: str, pr: dict | None, hold: list[str]) -> str:
+    """Item.left for a branch or worktree: `before`/`after` are its group without and with holds."""
+    if transient(hold):
+        return ""
+    if pr and pr["state"] == "CLOSED":
+        return "closed"
+    finished = before == "remove" or bool(pr and pr["state"] == "MERGED")
+    return "held" if finished and after == "review" else ""
 
 
 def collect(name: str, path: str, slug: str, me: str, prs: dict[str, dict]) -> list[Item]:
@@ -312,16 +354,22 @@ def collect(name: str, path: str, slug: str, me: str, prs: dict[str, dict]) -> l
         others = [t["worktree"] for t in trees if t["worktree"] != wpath]
         blockers = ["locked"] if "locked" in wt else []
         blockers += worktree_blockers(wpath, others, busy)
+        before = group
         if blockers:
             group, reason = "review", reason + "; " + ", ".join(blockers)
-        items.append(Item("worktree", label, group, reason, sha=head, path=wpath, branch=branch))
+        left = leftover(before, group, prs.get(branch), blockers) if group == "review" else ""
+        items.append(
+            Item("worktree", label, group, reason, sha=head, path=wpath, branch=branch, left=left)
+        )
         if branch:
             judged.pop(branch, None)  # removed with its worktree, or held with it
 
     for branch, (group, reason) in judged.items():
+        before = group
         if branch in checked_out and checked_out[branch] == main_tree:
             group, reason = "review", reason + "; checked out in the main checkout"
-        items.append(Item("local-branch", branch, group, reason, sha=locals_[branch]))
+        left = leftover(before, group, prs.get(branch), []) if group == "review" else ""
+        items.append(Item("local-branch", branch, group, reason, sha=locals_[branch], left=left))
 
     for line in git(
         path, "for-each-ref", "--format=%(refname:lstrip=3) %(objectname)", "refs/remotes/origin/"
@@ -329,8 +377,11 @@ def collect(name: str, path: str, slug: str, me: str, prs: dict[str, dict]) -> l
         branch, sha = line.split()
         if branch in ("HEAD", default):
             continue
-        group, reason = judge_branch(path, sha, default, prs.get(branch), me, remote=True)
-        items.append(Item("remote-branch", branch, group, reason, sha=sha))
+        pr = prs.get(branch)
+        group, reason = judge_branch(path, sha, default, pr, me, remote=True)
+        mine = bool(pr and pr.get("author", {}).get("login") == me)
+        left = leftover(group, group, pr, []) if group == "review" and mine else ""
+        items.append(Item("remote-branch", branch, group, reason, sha=sha, left=left))
 
     for line in git(path, "stash", "list", "--format=%gd%x09%ct%x09%gs").splitlines():
         ref, ts, msg = line.split("\t", 2)
@@ -348,6 +399,118 @@ def collect(name: str, path: str, slug: str, me: str, prs: dict[str, dict]) -> l
                 f"{len(dirty.splitlines())} uncommitted change(s) in the main checkout",
             )
         )
+    items += landed_prs(path, default, prs)
+    try:
+        items += stale_issues(fetch_issue_links(slug), slug, time.time())
+    except (RuntimeError, OSError, ValueError, KeyError, TypeError):
+        pass  # issues are a courtesy; a GraphQL failure must not hide the branch survey
+    return items
+
+
+# git merge-tree --write-tree arrived in 2.38.
+MERGE_TREE_GIT = (2, 38)
+ISSUE_AGE_SECONDS = 24 * 60 * 60
+
+ISSUE_QUERY = """
+query($owner: String!, $name: String!) {
+  repository(owner: $owner, name: $name) {
+    issues(states: OPEN, first: 100, orderBy: {field: UPDATED_AT, direction: DESC}) {
+      nodes {
+        number
+        comments(last: 1) { nodes { createdAt } }
+        timelineItems(first: 100, itemTypes: [CROSS_REFERENCED_EVENT, CONNECTED_EVENT]) {
+          nodes {
+            __typename
+            ... on CrossReferencedEvent { willCloseTarget source { ...pr } }
+            ... on ConnectedEvent { subject { ...pr } }
+          }
+        }
+      }
+    }
+  }
+}
+fragment pr on PullRequest { __typename number merged mergedAt baseRepository { nameWithOwner } }
+"""
+
+
+def git_version() -> tuple[int, int]:
+    m = re.search(r"(\d+)\.(\d+)", run(["git", "--version"], check=False))
+    return (int(m.group(1)), int(m.group(2))) if m else (0, 0)
+
+
+def landed_prs(path: str, default: str, prs: dict[str, dict]) -> list[Item]:
+    """Open same-repo PRs whose changes the default branch already holds.
+
+    Merging the head into the default branch in memory yields the default branch's own
+    tree exactly when the head adds nothing: a squash or rebase merged elsewhere, or a
+    cherry-pick. Report-only.
+    """
+    if git_version() < MERGE_TREE_GIT:
+        return []
+    base = f"origin/{default}"
+    try:
+        base_tree = git(path, "rev-parse", f"{base}^{{tree}}").strip()
+    except RuntimeError:
+        return []
+    items = []
+    for branch, pr in sorted(prs.items()):
+        if pr["state"] != "OPEN" or pr.get("baseRefName") != default:
+            continue
+        proc = subprocess.run(
+            ["git", "-C", path, "merge-tree", "--write-tree", base, f"origin/{branch}"],
+            capture_output=True,
+            text=True,
+        )
+        lines = proc.stdout.splitlines()
+        if proc.returncode == 0 and lines and lines[0].strip() == base_tree:
+            reason = f"open, but its changes are already in {default}; close it"
+            items.append(Item("pr", f"#{pr['number']}", "review", reason, branch=branch))
+    return items
+
+
+def fetch_issue_links(slug: str) -> dict:
+    owner, name = slug.split("/", 1)
+    out = run(
+        ["gh", "api", "graphql", "-f", f"query={ISSUE_QUERY}", "-f", f"owner={owner}",
+         "-f", f"name={name}"]
+    )  # fmt: skip
+    return json.loads(out)
+
+
+def parse_time(stamp: str) -> float:
+    return datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp()
+
+
+def stale_issues(payload: dict, slug: str, now: float) -> list[Item]:
+    """Open issues a merged same-repo PR declared it would close, silent since the merge.
+
+    A closing keyword (willCloseTarget) or a manual link counts; a bare mention does not,
+    since a follow-up issue is often filed from the PR that spawned it.
+
+        The merge must be a day old, so a person closing the issue by hand has had time to;
+        any comment after the merge counts as someone having looked. Report-only.
+    """
+    nodes = payload["data"]["repository"]["issues"]["nodes"]
+    items = []
+    for issue in nodes:
+        merges = []
+        for event in issue["timelineItems"]["nodes"]:
+            if event["__typename"] == "CrossReferencedEvent" and not event.get("willCloseTarget"):
+                continue  # a mention is not a promise to close
+            pr = event.get("source") or event.get("subject") or {}
+            repo = (pr.get("baseRepository") or {}).get("nameWithOwner", "")
+            if pr.get("__typename") == "PullRequest" and pr.get("merged") and repo == slug:
+                merges.append((parse_time(pr["mergedAt"]), pr["number"], pr["mergedAt"]))
+        if not merges:
+            continue
+        merged_at, number, stamp = max(merges)
+        if now - merged_at < ISSUE_AGE_SECONDS:
+            continue
+        comments = issue["comments"]["nodes"]
+        if comments and parse_time(comments[-1]["createdAt"]) > merged_at:
+            continue
+        reason = f"PR #{number} merged {stamp[:10]}; close it, or comment what is left"
+        items.append(Item("issue", f"#{issue['number']}", "review", reason))
     return items
 
 
@@ -489,6 +652,158 @@ def apply(plan_file: Path) -> int:
     return 1 if failures else 0
 
 
+AUTO_INTERVAL = 30 * 60
+GITHUB_REMOTE = re.compile(r"github\.com[:/]([^/\s]+)/([^/\s]+?)(?:\.git)?/?$")
+
+
+def cache_dir() -> Path:
+    base = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
+    return Path(base) / "techne"
+
+
+def repo_for_path(directory: str, me: str, roster: dict[str, str]) -> tuple[str, str, str] | None:
+    """(name, slug, main worktree) for the repo holding DIRECTORY, or None to skip it.
+
+    A repo counts when its owner is the configured user or it is already in the roster.
+    """
+    try:
+        common = git(directory, "rev-parse", "--git-common-dir").strip()
+        common = os.path.realpath(os.path.join(directory, common))
+        if os.path.basename(common) != ".git":
+            return None
+        main = os.path.dirname(common)
+        remote = git(main, "remote", "get-url", "origin").strip()
+    except (RuntimeError, OSError):
+        return None
+    m = GITHUB_REMOTE.search(remote)
+    if not m:
+        return None
+    owner, repo = m.group(1), m.group(2)
+    if owner.lower() != me.lower() and main not in roster:
+        return None
+    return repo, f"{owner}/{repo}", main
+
+
+def auto_targets(paths: list[str], names: list[str]) -> tuple[list[tuple[str, str, str]], str]:
+    targets, me = load_sisters(names)
+    roster = {os.path.realpath(p): n for n, _, p in targets}
+    seen = set(roster)
+    for directory in paths:
+        found = repo_for_path(directory, me, roster)
+        if found and found[2] not in seen:
+            seen.add(found[2])
+            targets.append(found)
+    return targets, me
+
+
+def held_lines(repo: Repo) -> dict[str, list[str]]:
+    """Lines for the report's two lists: left behind by a merge, and closed unmerged."""
+    out: dict[str, list[str]] = {"held": [], "closed": []}
+    for i in repo.items:
+        if i.group != "review":
+            continue
+        line = f"- {repo.name}: {i.kind} `{i.name}`: {i.reason}"
+        if i.kind in ("issue", "pr"):
+            out["held"].append(line)
+        elif i.left in out:
+            out[i.left].append(line)
+    return out
+
+
+def auto_report(removed: list[str], held: list[str], closed: list[str]) -> str:
+    sections = []
+    for title, lines in (
+        ("Removed", removed),
+        ("Held after merge", held),
+        ("Closed without merging", closed),
+    ):
+        if lines:
+            sections.append(f"{title} ({len(lines)}):\n" + "\n".join(lines))
+    return "\n\n".join(sections)
+
+
+def run_auto(paths: list[str], names: list[str], min_interval: int) -> str:
+    """Clean what is provably finished and return the report; "" when there is nothing to say."""
+    try:
+        import fcntl
+    except ImportError:  # Windows: no lock, the stamp still limits the rate
+        fcntl = None
+    if not shutil.which("gh") or not shutil.which("git"):
+        return ""
+    cache = cache_dir()
+    cache.mkdir(parents=True, exist_ok=True)
+    with open(cache / "hygiene-auto.lock", "w") as lock:
+        if fcntl:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                return ""  # another run is cleaning
+        stamp = cache / "hygiene-auto.stamp"
+        if stamp.exists() and time.time() - stamp.stat().st_mtime < min_interval:
+            return ""
+        stamp.touch()
+        targets, me = auto_targets(paths, names)
+        removed: list[str] = []
+        held: list[str] = []
+        closed: list[str] = []
+        for target in targets:
+            for repo in survey([target], me):
+                if repo.error:
+                    continue  # offline, logged out or broken: a later run tries again
+                for item in repo.items:
+                    if item.group != "remove":
+                        continue
+                    try:
+                        execute(repo, item)
+                    except (RuntimeError, OSError, ValueError):
+                        continue  # held at the last moment: next run decides
+                    removed.append(f"- {repo.name}: {item.kind} `{item.name}`: {item.reason}")
+                lines = held_lines(repo)
+                held += lines["held"]
+                closed += lines["closed"]
+        return auto_report(removed, held, closed)
+
+
+HOOK_NOTE = "Answer each held item for the user: remove it, or say why it stays."
+
+
+def hook_output(report_text: str) -> str:
+    if not report_text:
+        return ""
+    return json.dumps(
+        {
+            "systemMessage": report_text,
+            "hookSpecificOutput": {
+                "hookEventName": "SessionStart",
+                "additionalContext": f"{report_text}\n\n{HOOK_NOTE}",
+            },
+        }
+    )
+
+
+def hook_cwd() -> list[str]:
+    if sys.stdin.isatty():
+        return []
+    try:
+        cwd = json.load(sys.stdin).get("cwd")
+    except (ValueError, OSError, AttributeError):
+        return []
+    return [cwd] if isinstance(cwd, str) and cwd else []
+
+
+def auto_main(args: argparse.Namespace) -> int:
+    """--auto and --hook never fail and never print an error: a hook that does is noise."""
+    try:
+        paths = list(args.path) + (hook_cwd() if args.hook else [])
+        text = run_auto(paths, args.repo, args.min_interval)
+    except (Exception, SystemExit):  # a bad config exits; a hook stays quiet either way
+        return 0
+    out = hook_output(text) if args.hook else text
+    if out:
+        print(out)
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo", action="append", default=[], help="sister name; repeatable")
@@ -496,7 +811,19 @@ def main() -> int:
     parser.add_argument("--plan-out", type=Path, help="write the safe-to-remove items here")
     parser.add_argument("--env", action="store_true", help="print the audit's shell variables")
     parser.add_argument("--apply", type=Path, metavar="PLAN", help="remove what PLAN approved")
+    parser.add_argument(
+        "--auto", action="store_true", help="remove what is finished, report the rest"
+    )
+    parser.add_argument(
+        "--path", action="append", default=[], help="also clean the repo holding DIR"
+    )
+    parser.add_argument(
+        "--min-interval", type=int, default=AUTO_INTERVAL, help="seconds between --auto runs"
+    )
+    parser.add_argument("--hook", action="store_true", help="--auto as a SessionStart hook")
     args = parser.parse_args()
+    if args.auto or args.hook:
+        return auto_main(args)
     if args.env:
         print_env()
         return 0

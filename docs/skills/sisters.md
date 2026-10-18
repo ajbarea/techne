@@ -4,7 +4,7 @@ description: Audit the linked repos listed in ~/.claude/techne.toml for drift in
 
 # `techne:sisters`
 
-Cross-repo drift audit across the sister repos listed in `~/.claude/techne.toml`. Read-only inspection: CI action pins, toolchain pins in `pyproject.toml`, skill-context structural parity, GitHub merge settings + branch protection, Codecov config, `make clean` log-retention, Dependabot config coverage, README header convention, worktree ignore, shared docs-site files and nav coverage, open PRs, and branch, worktree and stash hygiene. A clean mode removes finished branches and worktrees once you approve the list.
+Cross-repo drift audit across the sister repos listed in `~/.claude/techne.toml`. Read-only inspection: CI action pins, toolchain pins in `pyproject.toml`, skill-context structural parity, GitHub merge settings + branch protection, Codecov config, `make clean` log-retention, Dependabot config coverage, README header convention, worktree ignore, shared docs-site files and nav coverage, open PRs, and branch, worktree and stash hygiene. A clean mode removes finished branches and worktrees once you approve the list, and an auto mode does it for you.
 
 Part of [techne](../plugins/techne.md): `/plugin install techne@techne`, then `/techne:setup`.
 
@@ -46,6 +46,19 @@ python3 plugins/techne/skills/sisters/scripts/hygiene.py --apply PLAN
 ```
 
 Before removing anything it surveys again, and it keeps anything that changed since you approved.
+
+## Auto mode
+
+`hygiene.py --auto` removes what clean mode would list as safe, without asking, and reports what a merge left behind. Its survey covers the active sisters plus each `--path DIR` (repeatable) whose owner is your `github_user` or which is already a sister. It prints one line per removal, then:
+
+- **Held after merge**: a worktree or branch whose PR merged but which uncommitted changes, ignored files that are not build output, later commits, a different tip, a nested worktree or a lock keep in place.
+- **Closed without merging**: a branch or worktree whose PR closed unmerged.
+
+Holds that clear by themselves (a running process, activity in the last two hours) are left out, and it prints nothing when there is nothing to say. It never fails: no `gh`, no network, an old python3 or one broken repo ends it quietly. A lock stops two runs at once, and it runs at most once per 30 minutes (`--min-interval SECONDS`).
+
+Two kinds are reported and never acted on, here and under **Needs a look** in the normal report. An `issue` is an open issue that a merged PR in the same repo said it would close, where the merge is a day old and nobody has commented since. A `pr` is an open PR whose changes the default branch already has (git 2.38 or newer).
+
+To run it at the start of every session, turn on the `clean_finished_work` option of the techne plugin in `/config`. See [the techne plugin page](../plugins/techne.md#options).
 
 ## Prerequisites
 
