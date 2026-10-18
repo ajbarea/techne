@@ -34,7 +34,7 @@ Run `/techne:setup`. It checks each item above, the repo's `.claude/skill-contex
 
 | Option | What it does |
 |---|---|
-| `clean_finished_work` | Off by default. When a session starts or resumes, runs `techne:sisters` auto mode in the background: removes worktrees and branches whose PR merged and that nothing is using, and tells Claude what a merge left behind so it can remove each held item or say why it stays. The session's working directory is included when its repo is yours. Set it in `/config` under the techne plugin. See [auto mode](../skills/sisters.md#auto-mode). |
+| `clean_finished_work` | Off by default. When a session starts or resumes, runs `techne:sisters` auto mode in the background: removes worktrees and branches whose PR merged and that nothing is using, and gives Claude what a merge left behind with the instruction to investigate each held item and report it to you, removing one only when nothing would be lost or you say so. Claude sees the report on its next turn. The script ends itself after 240 seconds. The session's working directory is included when its repo is yours. Set it in `/config` under the techne plugin. See [auto mode](../skills/sisters.md#auto-mode). |
 
 ## Skills
 

@@ -49,14 +49,18 @@ Before removing anything it surveys again, and it keeps anything that changed si
 
 ## Auto mode
 
-`hygiene.py --auto` removes what clean mode would list as safe, without asking, and reports what a merge left behind. Its survey covers the active sisters plus each `--path DIR` (repeatable) whose owner is your `github_user` or which is already a sister. It prints one line per removal, then:
+`hygiene.py --auto` removes, without asking, only what a merged PR finished: its PR merged into the default branch at the branch's tip, or a worktree whose directory is gone. A branch that merely sits inside the default branch, such as a fresh `worktree add -b x origin/main`, is left for clean mode. The survey covers the active sisters plus each `--path DIR` (repeatable) whose GitHub owner is your `github_user` or which is a sister. Each removal is logged to `~/.cache/techne/hygiene-auto.log` first, and the report names that file.
+
+A worktree is held while a process has its working directory or an open file inside it, or while anything in it, ignored logs and caches included, changed in the last two hours.
+
+It prints one line per removal, then:
 
 - **Held after merge**: a worktree or branch whose PR merged but which uncommitted changes, ignored files that are not build output, later commits, a different tip, a nested worktree or a lock keep in place.
 - **Closed without merging**: a branch or worktree whose PR closed unmerged.
 
-Holds that clear by themselves (a running process, activity in the last two hours) are left out, and it prints nothing when there is nothing to say. It never fails: no `gh`, no network, an old python3 or one broken repo ends it quietly. A lock stops two runs at once, and it runs at most once per 30 minutes (`--min-interval SECONDS`).
+Holds that clear by themselves (a running process, recent activity) are left out, and it prints nothing when there is nothing to say. It never fails: no `gh`, no network, an old python3 or one broken repo ends it quietly. A lock stops two runs at once, it gives up after 240 seconds, and the roster is swept at most once per 30 minutes (`--min-interval SECONDS`); the session's own repo is always processed.
 
-Two kinds are reported and never acted on, here and under **Needs a look** in the normal report. An `issue` is an open issue that a merged PR in the same repo said it would close, where the merge is a day old and nobody has commented since. A `pr` is an open PR whose changes the default branch already has (git 2.38 or newer).
+Two kinds are reported and never acted on, here and under **Needs a look** in the normal report, for your own PRs only. An `issue` is an open issue that a merged PR in the same repo was linked to close, where the merge is a day old and nobody has commented or reopened it since; a PR that only mentions an issue does not count. A `pr` is an open PR whose changes the default branch already has (git 2.38 or newer).
 
 To run it at the start of every session, turn on the `clean_finished_work` option of the techne plugin in `/config`. See [the techne plugin page](../plugins/techne.md#options).
 

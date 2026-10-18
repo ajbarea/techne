@@ -139,23 +139,27 @@ What the script counts as safe, and what it never touches:
 
 ## Auto mode
 
-`hygiene.py --auto` is clean mode without the plan. It surveys the active roster plus each `--path DIR` (repeatable; DIR resolves to its repo's main worktree, and counts when its owner is the configured `github_user` or the repo is in the roster; a non-git directory is skipped). It removes every item in the remove group straight away, after the same last-moment re-check `--apply` makes, then prints one line per removal and two lists of what a merge left behind that will not clear on its own:
+`hygiene.py --auto` is clean mode without the plan, for one narrower set. It surveys the active roster plus each `--path DIR` (repeatable; DIR resolves to its repo's main worktree, and counts when its GitHub owner is the configured `github_user` or the repo is a roster repo, under either its old or its current name; a non-git directory is skipped). It removes only an item whose PR merged into the default branch with the tip equal to the merged head, or a worktree whose directory is gone, after the same last-moment re-check `--apply` makes. A branch merely inside the default branch (a fresh `worktree add -b x origin/main`) and a worktree detached there stay in the normal report's remove group, for `--apply` after you approve. Before each removal it appends a line (time, repo, kind, name, sha) to `hygiene-auto.log` in the cache directory, and the report names that file.
 
-- **Held after merge**: a worktree or branch whose PR merged (or that is detached inside the default branch), held by uncommitted changes, ignored files that are not build output, commits added after the merge, a tip that differs from the PR head, a nested worktree, a lock, or a checkout in the main checkout.
+A worktree is also held while any process has its working directory or any open file inside it, or while anything in it was written in the last two hours: HEAD, the index, and the ignored files and directories too (a log, a cache, a build tree; the walk stops at 5000 entries and counts the rest as idle).
+
+It prints one line per removal and two lists of what a merge left behind that will not clear on its own:
+
+- **Held after merge**: a worktree or branch whose PR merged (or that is detached inside the default branch), held by uncommitted changes, ignored files that are not build output, commits added after the merge, a tip that differs from the PR head, a nested worktree, a lock, or a checkout in the main checkout. A lasting hold is listed even while a session is also working in the worktree.
 - **Closed without merging**: a branch or worktree whose PR closed unmerged.
 
-Holds that clear by themselves (a live process, activity within two hours, no way to tell if it is busy) are left out; a later run handles them. It prints nothing when it removed nothing and nothing is held.
+A hold that clears by itself (only a live process, recent activity, or no way to tell if it is busy) is left out; a later run handles it. It prints nothing when it removed nothing and nothing is held.
 
-It never fails. A missing or logged-out `gh`, no network, a python3 older than 3.11 or one broken repo ends it quietly. It takes a non-blocking lock in `~/.cache/techne` (a second run exits at once) and runs at most once per 30 minutes; `--min-interval SECONDS` changes that.
+It never fails. A missing or logged-out `gh`, no network, a python3 older than 3.11 or one broken repo ends it quietly, and one repo's error does not lose the removals before it. It gives up after 240 seconds, limits each call, and runs git without prompts. It takes a non-blocking lock in `~/.cache/techne` (a second run exits at once; the lock frees on every exit). The roster sweep runs at most once per 30 minutes (`--min-interval SECONDS` changes that); the session's own `--path` repo is always processed.
 
-Two kinds are reported and never acted on, in this list and in the normal report's **Needs a look**:
+Two kinds are reported and never acted on, in this list and in the normal report's **Needs a look**, and only for `github_user`'s PRs:
 
-- `issue`: an open issue that a merged PR in the same repo said it would close (a closing keyword, or a manual link), where the merge is at least 24 hours old and nobody has commented since. Close it, or comment what is left. A PR that only mentions an issue does not count.
+- `issue`: an open issue that a merged PR in the same repo was linked to close (`closedByPullRequestsReferences`: a closing keyword or a manual link), where the merge is at least 24 hours old and nobody has commented or reopened it since. Close it, or comment what is left. A PR that only mentions an issue does not count.
 - `pr`: an open PR in the same repo whose changes are already in the default branch (`git merge-tree --write-tree` gives the default branch's own tree). Needs git 2.38 or newer; older git skips it.
 
 ### Session-start hook
 
-The techne plugin ships an off-by-default SessionStart hook, switched on with the `clean_finished_work` option in `/config`. On startup and resume it runs `hygiene.py --auto --hook` in the background (`async`, 300 second timeout) with the session's working directory added as a `--path`. When there is something to say, Claude Code shows the report and hands it to Claude, who answers each held item: remove it, or say why it stays.
+The techne plugin ships an off-by-default SessionStart hook, switched on with the `clean_finished_work` option in `/config`. On startup and resume it runs `hygiene.py --auto --hook` in the background (`async`) with the session's working directory added as a `--path`. Claude Code does not stop an async hook at its `timeout`, so the script enforces its own 240 second deadline. The report reaches Claude as context on its next turn; the user does not see it unless Claude relays it. When something is held, the context tells Claude to investigate each held item (what it holds that the default branch lacks: commits by patch-id, uncommitted changes, ignored files that are not build output), report that to the user, and remove an item only when nothing would be lost or the user says to.
 
 ## Rules
 
