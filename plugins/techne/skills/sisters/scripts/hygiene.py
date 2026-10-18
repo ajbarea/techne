@@ -66,10 +66,11 @@ REGENERABLE = {
     ".venv", "venv", "node_modules", "site", "build", "dist", "out", "target", "logs",
     "__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache", ".cache", ".coverage",
     "htmlcov", ".tox", ".nox", ".ipynb_checkpoints", ".DS_Store", "mutants",
-    ".astro", "test-results", "playwright-report", ".lighthouseci",
 }  # fmt: skip
-# Generated directories whose own name is too generic to match anywhere in a path.
-REGENERABLE_PATHS = (".husky/_",)  # husky writes it on `npm install`
+# Generated directories matched only at the repo root, where their tools write them;
+# deeper down the same name may be a folder a person made. Astro's types and content
+# store, husky's shims (rebuilt on `npm install`), Playwright and Lighthouse CI reports.
+REGENERABLE_PATHS = (".astro", ".husky/_", "test-results", "playwright-report", ".lighthouseci")
 REGENERABLE_SUFFIXES = (
     ".egg-info", ".pyc", ".aux", ".bbl", ".blg", ".log", ".out", ".toc", ".fls",
     ".fdb_latexmk", ".synctex.gz", ".bcf", ".run.xml",
