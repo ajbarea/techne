@@ -44,7 +44,7 @@ Content is verified by diffing normalized `pdftotext` output against the markdow
 
 ## Testing it
 
-`make test-unit` runs the suite. The markdown front end is covered by unit tests: what `_typst_str` escapes and in what order, what `split_front_matter` lifts out of a document and what it leaves in the body, and that the template has no placeholder the renderer forgot to fill. Four end-to-end cases compile real documents through Typst and check the words survive the round trip.
+`make test-unit` runs the suite. The markdown front end is covered by unit tests: what `_typst_str` escapes and in what order, what `split_front_matter` lifts out of a document and what it leaves in the body, and that the template has no placeholder the renderer forgot to fill. The end-to-end cases compile real documents through Typst, check the words survive the round trip, and check that a tight list sits on the line pitch while a loose one takes paragraph spacing.
 
 Those need the typst wheel, and the first compile fetches cmarker from Typst Universe. CI declines that network dependency and sets `TECHNE_NO_TYPST=1` to say so; without the declaration the suite fails rather than skipping the renders unnoticed.
 

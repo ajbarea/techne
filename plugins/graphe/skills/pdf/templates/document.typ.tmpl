@@ -23,9 +23,25 @@
 #set text(font: serif, size: 11.2pt, fill: ink)
 // Matched to a 1.55 line-height and a 0.7em paragraph margin at 11.2pt.
 #set par(leading: 0.8821em, spacing: 1.6187em, justify: false)
-#set list(spacing: 1.85em, indent: 0.6em)
-#set enum(spacing: 1.85em, indent: 0.6em)
+#set list(indent: 0.6em)
+#set enum(indent: 0.6em)
 #set line(stroke: 0.5pt + rule-light)
+
+// Tight lists sit on the leading, loose ones take paragraph spacing. cmarker
+// marks every list tight; a loose one shows only as a parbreak inside its
+// items, so re-emit those wide. `it.tight` is the recursion guard.
+#let is-loose(it) = it.children.any(c => (
+  c.body.func() == parbreak
+  or (c.body.func() == [].func() and c.body.children.any(x => x.func() == parbreak))
+))
+#let re-emit-wide(it, rebuild) = if it.tight and is-loose(it) {
+  let f = it.fields()
+  let _ = f.remove("children")
+  f.insert("tight", false)
+  rebuild(..f, ..it.children)
+} else { it }
+#show list: it => re-emit-wide(it, list)
+#show enum: it => re-emit-wide(it, enum)
 
 #show link: set text(fill: link-blue)
 #show strong: set text(weight: 700, fill: ink-strong)

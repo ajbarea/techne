@@ -78,6 +78,70 @@ def test_the_words_survive_the_round_trip(rn, tmp_path):
         assert word in text, f"{word!r} did not survive the render"
 
 
+WRAPPED = " ".join(["wrapword"] * 120)
+
+LISTS = f"""# Lists
+
+Paraone sits alone.
+
+Paratwo sits alone.
+
+- tightone
+- tighttwo
+
+Paramid sits alone.
+
+- looseone
+
+- loosetwo
+
+Paramid again.
+
+3. enumthree
+
+4. enumfour
+
+{WRAPPED}
+"""
+
+
+def _line_tops(pdf) -> dict[str, list[float]]:
+    """yMin of each word's line, by word, from poppler's per-word boxes."""
+    import re
+    import subprocess
+
+    boxes = subprocess.run(
+        ["pdftotext", "-bbox", str(pdf), "-"], capture_output=True, text=True, check=True
+    ).stdout
+    tops: dict[str, list[float]] = {}
+    for y, word in re.findall(r'yMin="([0-9.]+)"[^>]*>([^<]*)</word>', boxes):
+        tops.setdefault(word, []).append(float(y))
+    return tops
+
+
+@needs_typst
+@pytest.mark.skipif(not HAVE_POPPLER, reason="pdftotext not installed")
+def test_tight_lists_sit_on_the_leading_and_loose_ones_take_paragraph_spacing(rn, tmp_path):
+    """cmarker marks every list tight; the template has to tell a loose one apart."""
+    src = tmp_path / "lists.md"
+    src.write_text(LISTS)
+    out = tmp_path / "out"
+    out.mkdir()
+    dest, _ = rn.render(src, out)
+    tops = _line_tops(dest)
+
+    wrapped = sorted(set(tops["wrapword"]))
+    assert len(wrapped) >= 2, "the long paragraph did not wrap, so there is no line pitch"
+    line = wrapped[1] - wrapped[0]
+    paragraph = tops["Paratwo"][0] - tops["Paraone"][0]
+    assert paragraph > line + 1
+
+    assert tops["tighttwo"][0] - tops["tightone"][0] == pytest.approx(line, abs=0.05)
+    assert tops["loosetwo"][0] - tops["looseone"][0] == pytest.approx(paragraph, abs=0.05)
+    assert tops["enumfour"][0] - tops["enumthree"][0] == pytest.approx(paragraph, abs=0.05)
+    assert "3." in tops and "4." in tops, "re-emitting the loose enum lost its start number"
+
+
 @needs_typst
 def test_font_drift_is_caught_against_a_real_render(rn, tmp_path):
     """The gate that catches a machine where a requested family is missing."""
