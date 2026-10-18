@@ -877,6 +877,7 @@ def test_regrade_help_and_docs_say_a_repeat_is_replaced_not_pooled(capsys):
     assert exc.value.code == 0
     assert "never pooled" in " ".join(capsys.readouterr().out.split())
     docs = (ROOT / "docs" / "skills" / "idea.md").read_text()
-    assert "uv run --no-project --quiet --with pyyaml python scripts/heuresis_gold.py regrade" in docs
+    command = "uv run --no-project --quiet --with pyyaml python scripts/heuresis_gold.py regrade"
+    assert command in docs
     assert "Regrade replaces repeats; it does not pool them." in docs
     assert "python3 scripts/heuresis_gold.py" not in docs
