@@ -127,4 +127,4 @@ Three things there are load-bearing and will look like mistakes:
   `label` (the constructors reject it), so an enum keeps its start number.
   cmarker follows every blockquote with a `parbreak`, so the rule skips that
   one. A loose list whose items hold no paragraph (only code, nested lists or
-  blockquotes) therefore renders tight, as it does in GitHub's HTML.
+  blockquotes) renders tight, as it does in GitHub's HTML.
