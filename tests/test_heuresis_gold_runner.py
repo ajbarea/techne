@@ -350,6 +350,55 @@ def test_timeout_is_an_error_and_kills_the_session_children(fake, monkeypatch):
     assert not alive(child)
 
 
+SPAWN = (
+    "import subprocess, sys, time\n"
+    "c = subprocess.Popen(['sleep', '30'])\n"
+    "open(sys.argv[1], 'w').write(str(c.pid))\n"
+    "time.sleep(30)\n"
+)
+
+
+def interrupt_after_the_child_started(monkeypatch, pidfile: Path, exc: BaseException):
+    """Make communicate raise exc once the session has started its child."""
+
+    def interrupted(self, *args, **kwargs):
+        for _ in range(100):
+            if pidfile.exists() and pidfile.read_text():
+                break
+            time.sleep(0.05)
+        raise exc
+
+    monkeypatch.setattr(subprocess.Popen, "communicate", interrupted)
+
+
+@pytest.mark.parametrize("exc", [KeyboardInterrupt(), RuntimeError("boom")])
+def test_an_interrupted_session_is_killed_with_its_children(tmp_path, monkeypatch, exc):
+    pidfile = tmp_path / "child.pid"
+    interrupt_after_the_child_started(monkeypatch, pidfile, exc)
+    cmd = [sys.executable, "-c", SPAWN, str(pidfile)]
+    with pytest.raises(type(exc)):
+        r.run_session(cmd, tmp_path, 60)
+    monkeypatch.undo()  # alive() runs ps through subprocess.run, which calls communicate
+    child = int(pidfile.read_text())
+    for _ in range(50):
+        if not alive(child):
+            break
+        time.sleep(0.1)
+    assert not alive(child)
+
+
+def test_an_interrupt_after_the_session_ended_still_propagates(tmp_path, monkeypatch):
+    real = subprocess.Popen.communicate
+
+    def finish_then_interrupt(self, *args, **kwargs):
+        real(self, *args, **kwargs)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(subprocess.Popen, "communicate", finish_then_interrupt)
+    with pytest.raises(KeyboardInterrupt):
+        r.run_session([sys.executable, "-c", "pass"], tmp_path, 60)
+
+
 def test_a_write_to_the_guard_repo_stops_everything(fake, monkeypatch, capsys):
     guard = guard_repo(fake)
     monkeypatch.setenv("FAKE_CLAUDE_MODE", "guard")

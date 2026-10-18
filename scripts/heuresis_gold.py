@@ -245,17 +245,34 @@ def run_session(cmd: list[str], cwd: Path, timeout: int) -> tuple[str, str, int 
         start_new_session=True,
     )
     try:
-        out, err = proc.communicate(timeout=timeout)
-        return out, err, proc.returncode
-    except subprocess.TimeoutExpired:
-        pass
-    os.killpg(proc.pid, signal.SIGTERM)
+        try:
+            out, err = proc.communicate(timeout=timeout)
+            return out, err, proc.returncode
+        except subprocess.TimeoutExpired:
+            pass
+        kill_group(proc.pid, signal.SIGTERM)
+        try:
+            out, err = proc.communicate(timeout=TERM_GRACE)
+        except subprocess.TimeoutExpired:
+            kill_group(proc.pid, signal.SIGKILL)
+            out, err = proc.communicate()
+        return out or "", err or "", None
+    except BaseException:
+        # An interrupt or any other failure must not leave the session writing in the background.
+        kill_group(proc.pid, signal.SIGKILL)
+        proc.wait()
+        for pipe in (proc.stdout, proc.stderr):
+            if pipe:
+                pipe.close()
+        raise
+
+
+def kill_group(pid: int, sig: int) -> None:
+    """Signal the session's process group; one that has already gone is not an error."""
     try:
-        out, err = proc.communicate(timeout=TERM_GRACE)
-    except subprocess.TimeoutExpired:
-        os.killpg(proc.pid, signal.SIGKILL)
-        out, err = proc.communicate()
-    return out or "", err or "", None
+        os.killpg(pid, sig)
+    except ProcessLookupError:
+        pass
 
 
 def installed_heuresis() -> list[str] | None:
