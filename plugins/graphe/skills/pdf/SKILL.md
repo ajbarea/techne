@@ -123,5 +123,8 @@ Three things there are load-bearing and will look like mistakes:
   rule re-emits it with `tight: false` and it takes paragraph spacing, while a
   tight list sits on the leading. Do not set a fixed `spacing` on `list` or
   `enum`: it overrides both, so tight and loose lists render alike. `it.tight`
-  is the recursion guard, and the re-emit carries every other field so an enum
-  keeps its start number.
+  is the recursion guard, and the re-emit carries every other field but
+  `label` (the constructors reject it), so an enum keeps its start number.
+  cmarker follows every blockquote with a `parbreak`, so the rule skips that
+  one. A loose list whose items hold no paragraph (only code, nested lists or
+  blockquotes) therefore renders tight, as it does in GitHub's HTML.

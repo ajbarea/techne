@@ -29,14 +29,22 @@
 
 // Tight lists sit on the leading, loose ones take paragraph spacing. cmarker
 // marks every list tight; a loose one shows only as a parbreak inside its
-// items, so re-emit those wide. `it.tight` is the recursion guard.
-#let is-loose(it) = it.children.any(c => (
-  c.body.func() == parbreak
-  or (c.body.func() == [].func() and c.body.children.any(x => x.func() == parbreak))
-))
+// items, so re-emit those wide. cmarker follows every blockquote with a
+// parbreak, tight or not, so that one does not count. `it.tight` is the
+// recursion guard; a label stays on the original element.
+#let is-loose(it) = it.children.any(c => {
+  let b = c.body
+  if b.func() == parbreak { return true }
+  if b.func() != [].func() { return false }
+  let kids = b.children
+  range(kids.len()).any(i => (
+    kids.at(i).func() == parbreak and (i == 0 or kids.at(i - 1).func() != quote)
+  ))
+})
 #let re-emit-wide(it, rebuild) = if it.tight and is-loose(it) {
   let f = it.fields()
   let _ = f.remove("children")
+  let _ = f.remove("label", default: none)
   f.insert("tight", false)
   rebuild(..f, ..it.children)
 } else { it }

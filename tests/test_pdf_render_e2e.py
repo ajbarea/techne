@@ -101,6 +101,13 @@ Paramid again.
 
 4. enumfour
 
+Paramid once more.
+
+- quoteone
+  > aside
+- quotetwo
+- quotethree
+
 {WRAPPED}
 """
 
@@ -140,6 +147,19 @@ def test_tight_lists_sit_on_the_leading_and_loose_ones_take_paragraph_spacing(rn
     assert tops["loosetwo"][0] - tops["looseone"][0] == pytest.approx(paragraph, abs=0.05)
     assert tops["enumfour"][0] - tops["enumthree"][0] == pytest.approx(paragraph, abs=0.05)
     assert "3." in tops and "4." in tops, "re-emitting the loose enum lost its start number"
+    # cmarker follows a blockquote with a parbreak even in a tight list.
+    assert tops["quotethree"][0] - tops["quotetwo"][0] == pytest.approx(line, abs=0.05)
+
+
+@needs_typst
+def test_a_labeled_loose_list_still_compiles(rn, tmp_path):
+    """The re-emit cannot pass `label` back to the constructor."""
+    src = tmp_path / "labeled.md"
+    src.write_text("# Labeled\n\n<!--raw-typst #list([a\n\n], [b\n\n]) <lab> -->\n")
+    out = tmp_path / "out"
+    out.mkdir()
+    dest, _ = rn.render(src, out)
+    assert dest.exists()
 
 
 @needs_typst
