@@ -226,6 +226,42 @@ def test_a_term_matches_whole_words_only(tmp_path):
     assert gold.grade_run(case, 1, root, idea_id).closest_hit is True
 
 
+def test_titles_and_urls_match_across_line_breaks_and_repeated_spaces(tmp_path):
+    case = gold.Case("v", "x", "trash", ("bib verify",))
+    files = run_files([rec("r1", "The  bib\n verify   tool")], "r1", ok=("r1",))
+    root, idea_id = idea_repo(tmp_path, "trash", section(files), files)
+    assert gold.grade_run(case, 1, root, idea_id).closest_hit is True
+
+
+@pytest.mark.parametrize(
+    ("url", "hit"),
+    [
+        ("https://arxiv.org/abs/2301.01234", True),
+        ("https://arxiv.org/abs/2301.01234v2", True),
+        ("https://arxiv.org/pdf/2301.01234v12.pdf", True),
+        ("https://arxiv.org/abs/2301.012345", False),
+        ("https://arxiv.org/abs/2301.01234v2x", False),
+        ("https://arxiv.org/abs/12301.01234", False),
+    ],
+)
+def test_an_arxiv_id_term_matches_a_versioned_url_but_not_a_longer_id(tmp_path, url, hit):
+    case = gold.Case("v", "x", "trash", ("2301.01234",))
+    files = run_files([rec("r1", "A paper", url)], "r1", ok=("r1",))
+    root, idea_id = idea_repo(tmp_path, "trash", section(files), files)
+    assert gold.grade_run(case, 1, root, idea_id).closest_hit is hit
+
+
+def test_an_other_without_a_ref_is_skipped_not_fatal(tmp_path):
+    case = gold.load_cases(FIX)[0]
+    files = run_files(
+        [rec("r1", "dokimasia"), rec("r2", "Crossref API")], "r1", ("r2",), ok=("r1", "r2")
+    )
+    files["judge"]["others"].insert(0, {"quote": "q", "differs": ""})
+    root, idea_id = idea_repo(tmp_path, "trash", section(files), files)
+    g = gold.grade_run(case, 1, root, idea_id)
+    assert (g.closest_hit, g.prior_art_hit, g.files_ok) == (True, True, True)
+
+
 def test_a_rival_that_did_not_verify_is_no_hit(tmp_path):
     case = gold.load_cases(FIX)[0]
     files = run_files(
@@ -413,6 +449,21 @@ def test_summarize_and_render(tmp_path):
     md = gold.render_markdown(s)
     assert "| bib-checker |" in md and "Prior-art recall" in md
     assert "—" not in md
+
+
+@pytest.mark.parametrize(
+    ("kind", "expected", "counted"),
+    [
+        ("exists", "trash", 1),
+        ("exists", "later", 1),
+        ("infeasible", "trash", 0),
+        ("candidate", "do_or_later", 0),
+    ],
+)
+def test_do_on_existing_keys_on_the_case_kind(kind, expected, counted):
+    case = gold.Case("c", "x", expected, ("t",) if kind == "exists" else (), (), kind)
+    grade = gold.RunGrade("c", 1, "do", False, None, None, True, True)
+    assert gold.summarize([grade], [case])["do_on_existing"] == counted
 
 
 def test_summarize_ignores_runs_of_unknown_cases_and_render_marks_missing_numbers():

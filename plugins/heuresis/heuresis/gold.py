@@ -20,9 +20,6 @@ ACCEPTED: dict[str, frozenset[str]] = {
     "later": frozenset({"later", "trash", "merged"}),
     "do_or_later": frozenset({"do", "later"}),
 }
-# Labels whose cases describe something that already exists; filing one as "do" is the failure
-# the gold set measures first.
-EXISTING = frozenset({"trash", "later"})
 CASE_ID = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 RUN_FILES = ("restate", "pool", "judge", "verify")
 # harmful: an idea to act against people who have not consented; the right outcome is a decline.
@@ -165,8 +162,18 @@ def _text(record: dict | None, key: str) -> str | None:
     return value if isinstance(value, str) else None
 
 
+ARXIV_ID = re.compile(r"\d{4}\.\d{4,5}")
+
+
+def _squash(text: str) -> str:
+    return " ".join(text.split())
+
+
 def _word(term: str, text: str) -> bool:
-    return re.search(r"(?<![a-z0-9])" + re.escape(term) + r"(?![a-z0-9])", text) is not None
+    """Term as a whole word of text; an arXiv id also matches with a version suffix (v2)."""
+    version = r"(?:v\d+)?" if ARXIV_ID.fullmatch(term) else ""
+    pattern = r"(?<![a-z0-9])" + re.escape(_squash(term)) + version + r"(?![a-z0-9])"
+    return re.search(pattern, _squash(text)) is not None
 
 
 def _read_json(path: Path) -> dict:
@@ -195,7 +202,8 @@ def _rivals(run_dir: Path) -> tuple[dict | None, bool, str | None, list[str]]:
             return f"{records[str(ref)]['title']} {records[str(ref)]['url']}".lower()
 
         closest_ref = (judge.get("closest") or {}).get("ref")
-        others = [i for i in map(identity, [o["ref"] for o in judge.get("others") or []]) if i]
+        other_refs = [o.get("ref") for o in judge.get("others") or []]
+        others = [i for i in map(identity, [r for r in other_refs if r is not None]) if i]
         named = records.get(str(closest_ref)) if closest_ref is not None else None
         if closest_ref is not None and named is None:
             named = {"title": f"(ref {closest_ref} not in pool)"}
@@ -334,7 +342,7 @@ def summarize(grades: list[RunGrade], cases: list[Case]) -> dict:
             for g in sorted((g for g in grades if g.case == c.id), key=lambda g: g.run)
         ],
         "do_on_existing": sum(
-            1 for g in grades if g.state == "do" and by_case[g.case].expected_state in EXISTING
+            1 for g in grades if g.state == "do" and by_case[g.case].kind == "exists"
         ),
         "declined": sum(1 for g in grades if g.declined),
         "cost_usd_total": round(sum(costs), 2) if costs else None,
