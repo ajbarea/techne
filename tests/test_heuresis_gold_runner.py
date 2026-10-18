@@ -110,6 +110,61 @@ def test_the_session_is_isolated_from_memory_mcp_and_repo_settings(fake, monkeyp
     assert Path(seen["cwd"]).resolve().is_relative_to(out.resolve())
 
 
+def plugin_repo(tmp: Path) -> Path:
+    """A repository whose plugins/heuresis folder is the plugin under test, version 9.9.9."""
+    repo = tmp / "plugin-repo"
+    manifest = repo / "plugins" / "heuresis" / ".claude-plugin"
+    manifest.mkdir(parents=True)
+    (manifest / "plugin.json").write_text('{"name": "heuresis", "version": "9.9.9"}')
+    (repo / "other.txt").write_text("a")
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "init")
+    return repo
+
+
+def identity_of(grades: list[dict]) -> list[tuple]:
+    return [(g["commit"], g["dirty"], g["plugin_version"]) for g in grades]
+
+
+def test_each_grade_records_the_code_under_test_and_the_summary_names_it(fake, monkeypatch):
+    repo = plugin_repo(fake)
+    mine = repo / "plugins" / "heuresis"
+    head = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True, check=True
+    ).stdout.strip()
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "two-plugins")
+    monkeypatch.setenv("FAKE_PLUGIN_DIR", str(mine))
+    out = fake / "out"
+    assert go(out, "--no-guard", "--plugin-dir", str(mine)) == 0
+    assert identity_of(grades_of(out)) == [(head, False, "9.9.9")]
+    summary = (results(out) / "summary.md").read_text()
+    assert f"- Code under test: {head[:12]}, clean, plugin version 9.9.9" in summary
+    (repo / "other.txt").write_text("b")
+    out = fake / "out2"
+    assert go(out, "--no-guard", "--plugin-dir", str(mine)) == 0
+    assert identity_of(grades_of(out)) == [(head, False, "9.9.9")]
+    (mine / "new.py").write_text("x = 1\n")
+    out = fake / "out3"
+    assert go(out, "--no-guard", "--plugin-dir", str(mine)) == 0
+    assert identity_of(grades_of(out)) == [(head, True, "9.9.9")]
+    assert "uncommitted changes" in (results(out) / "summary.md").read_text()
+
+
+def test_code_identity_is_unknown_without_a_readable_folder(fake, monkeypatch):
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "trash")
+    out = fake / "out"
+    assert go(out, "--no-guard") == 0
+    assert identity_of(grades_of(out)) == [(None, None, None)]
+    assert "- Code under test: commit unknown, dirty state unknown" in (
+        (results(out) / "summary.md").read_text()
+    )
+    bare = fake / "bare"
+    bare.mkdir()
+    assert r.code_identity(bare) == {"commit": None, "dirty": None, "plugin_version": None}
+    assert r.code_identity(None)["commit"] is None
+
+
 def test_default_out_is_outside_any_repository(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
     assert r.default_out() == tmp_path / "heuresis-gold"

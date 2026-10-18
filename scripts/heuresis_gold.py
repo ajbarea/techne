@@ -17,6 +17,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import datetime as dt
 import fnmatch
 import json
@@ -118,6 +119,28 @@ def snapshot(repo: Path) -> str:
         tree = git(repo, "write-tree", env=env).strip()
     head = git(repo, "rev-parse", "HEAD").strip() if has_head else ""
     return "\n".join([head, tree, git(repo, "for-each-ref"), git(repo, "ls-files", "-s")])
+
+
+def code_identity(folder: Path | None) -> dict:
+    """The commit of the repository holding the plugin folder, whether anything under the folder
+    is uncommitted (git status --porcelain), and the version its manifest declares.
+
+    Each is None when it cannot be read: no folder, no repository, no version in plugin.json.
+    """
+    state: dict = {"commit": None, "dirty": None, "plugin_version": None}
+    if folder is None or not folder.is_dir():
+        return state
+    try:
+        version = json.loads((folder / ".claude-plugin" / "plugin.json").read_text())["version"]
+        state["plugin_version"] = version if isinstance(version, str) else None
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    try:
+        state["commit"] = git(folder, "rev-parse", "HEAD").strip()
+        state["dirty"] = bool(git(folder, "status", "--porcelain", "--", ".").strip())
+    except RuntimeError:
+        state["commit"] = state["dirty"] = None
+    return state
 
 
 def parse_stream(text: str) -> tuple[dict | None, dict | None]:
@@ -362,6 +385,9 @@ def run(args) -> int:
     (res / "cases.json").write_text(json.dumps({"ids": [c.id for c in cases], "files": files}))
 
     def record(grade: gold.RunGrade, plugin_path: str | None = None) -> None:
+        # The folder the session loaded is the code under test; --plugin-dir was checked to be it.
+        loaded = args.plugin_dir or (Path(plugin_path) if plugin_path else None)
+        grade = dataclasses.replace(grade, **code_identity(loaded))
         with (res / "grades.jsonl").open("a") as fh:
             fh.write(json.dumps({**grade.to_dict(), "plugin_path": plugin_path}) + "\n")
         print(
