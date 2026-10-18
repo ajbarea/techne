@@ -1111,19 +1111,50 @@ def test_a_recent_write_to_an_ignored_file_counts_as_activity(fleet, hy, monkeyp
     assert "active 0 min ago" in item.reason
 
 
-def test_the_activity_walk_stops_at_its_file_cap_and_calls_the_rest_idle(fleet, hy, monkeypatch):
+def test_a_capped_activity_walk_cannot_tell_and_holds_the_worktree(fleet, hy, monkeypatch):
     ignore(fleet, "logs/")
-    monkeypatch.setattr(hy, "IDLE_SECONDS", 3600)
     fleet.branch("feat/a")
     path = add_worktree(fleet, "a", "feat/a")
     (path / "logs").mkdir()
-    (path / "logs" / "run.log").write_text("x")
+    for n in range(3):
+        age_file = path / "logs" / f"old{n}.log"
+        age_file.write_text("x")
+        age(age_file)
     make_idle(path)
     age(path / "logs")
-    ignored = ["logs/"]
-    assert time.time() - hy.last_activity(str(path), ignored) < 3600
-    monkeypatch.setattr(hy, "ACTIVITY_FILE_CAP", 1)  # the directory itself is the one file
-    assert time.time() - hy.last_activity(str(path), ignored) > 3600  # known limit: idle
+    assert hy.last_activity(str(path), ["logs/"]) is not None
+    monkeypatch.setattr(hy, "ACTIVITY_FILE_CAP", 2)
+    assert hy.last_activity(str(path), ["logs/"]) is None
+    item = fleet.survey()[("worktree", ".claude/worktrees/a")]
+    assert item.group == "review"
+    assert "to tell whether it was used recently" in item.reason
+    assert not hy.transient([item.reason.split("; ", 1)[1]])  # reported, not silently retried
+
+
+def test_a_large_environment_does_not_hide_a_fresh_log(fleet, hy, monkeypatch):
+    """`.venv/` sorts before `logs/`; walking it first used to spend the whole file budget."""
+    ignore(fleet, ".venv/", "logs/")
+    monkeypatch.setattr(hy, "IDLE_SECONDS", 3600)
+    monkeypatch.setattr(hy, "ACTIVITY_FILE_CAP", 50)
+    fleet.branch("feat/a")
+    path = add_worktree(fleet, "a", "feat/a")
+    venv = path / ".venv" / "lib"
+    venv.mkdir(parents=True)
+    for n in range(200):
+        (venv / f"m{n}.py").write_text("x")
+    for p in [*venv.iterdir(), venv, venv.parent]:
+        age(p)
+    (path / "logs").mkdir()
+    log = path / "logs" / "run.log"
+    log.write_text("x")
+    make_idle(path)
+    age(path / "logs")
+    age(log)
+    assert fleet.survey()[("worktree", ".claude/worktrees/a")].group == "remove"
+    log.write_text("still writing")
+    item = fleet.survey()[("worktree", ".claude/worktrees/a")]
+    assert item.group == "review"
+    assert "active 0 min ago" in item.reason
 
 
 def test_a_branch_taken_by_a_worktree_since_the_survey_is_not_deleted(fleet, hy):

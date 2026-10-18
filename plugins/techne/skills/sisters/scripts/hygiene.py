@@ -302,14 +302,25 @@ def busy_paths() -> list[str] | None:
 
 
 # Files walked under ignored paths before the search for recent activity gives up. A cap hit
-# with nothing recent counts as idle.
-ACTIVITY_FILE_CAP = 5000
+# with nothing recent means the age cannot be told, which holds the worktree for a person.
+ACTIVITY_FILE_CAP = 20000
+
+# Installed environments and caches: only the entry itself is stat'ed, never walked. A write
+# inside one is an install, not work, and a uv .venv alone holds tens of thousands of files.
+ENVIRONMENTS = {".venv", "venv", "node_modules", ".tox", ".nox", "__pycache__"}
 
 
-def last_activity(wt: str, ignored: tuple[str, ...] | list[str] = ()) -> float:
-    """Newest mtime of HEAD, the index and anything ignored (a log, a cache, a build tree).
+def _environment(rel: str) -> bool:
+    parts = rel.rstrip("/").split("/")
+    return bool(ENVIRONMENTS & set(parts)) or any("cache" in p.lower() for p in parts)
+
+
+def last_activity(wt: str, ignored: tuple[str, ...] | list[str] = ()) -> float | None:
+    """Newest mtime of HEAD, the index and anything ignored (a log, a build tree), or None
+    when there are too many ignored files to tell.
 
     Stops at the first entry newer than the idle window: it only has to tell recent from not.
+    Environments and caches are stat'ed but not walked, and come last.
     """
     gitdir = git(wt, "rev-parse", "--absolute-git-dir").strip()
     newest = max(
@@ -320,7 +331,8 @@ def last_activity(wt: str, ignored: tuple[str, ...] | list[str] = ()) -> float:
     if newest > cutoff:
         return newest
     seen = 0
-    for rel in ignored:
+    for rel in sorted(ignored, key=_environment):
+        walk = not _environment(rel)
         stack = [os.path.join(wt, rel.rstrip("/"))]
         while stack:
             cur = stack.pop()
@@ -331,9 +343,11 @@ def last_activity(wt: str, ignored: tuple[str, ...] | list[str] = ()) -> float:
             newest = max(newest, st.st_mtime)
             if st.st_mtime > cutoff:
                 return newest
+            if not walk:
+                break
             seen += 1
             if seen >= ACTIVITY_FILE_CAP:
-                return newest
+                return None
             if stat.S_ISDIR(st.st_mode):
                 try:
                     stack.extend(e.path for e in os.scandir(cur))
@@ -361,8 +375,12 @@ def worktree_blockers(wpath: str, others: list[str], busy: list[str] | None) -> 
                 kept.append(ln[3:].strip())
     nested = [o for o in others if o.startswith(wpath + os.sep)]
     ignored = [ln[3:].strip() for ln in lines if ln.startswith("!!")]
-    idle = time.time() - last_activity(wpath, ignored)
+    last = last_activity(wpath, ignored)
+    idle = IDLE_SECONDS if last is None else time.time() - last
     blockers = [
+        f"too many ignored files (over {ACTIVITY_FILE_CAP}) to tell whether it was used recently"
+        if last is None
+        else "",
         f"{len(changes)} uncommitted change(s)" if changes else "",
         f"ignored files that are not build output: {', '.join(kept[:3])}" if kept else "",
         f"{len(nested)} worktree(s) inside it" if nested else "",
