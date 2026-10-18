@@ -5,16 +5,18 @@ description: Check and set up what the graphe document skills need on this machi
 
 # Set up graphe
 
-Read `${CLAUDE_PLUGIN_ROOT}/AGENTS.md` and follow it. It is the setup runbook, and it starts by running this doctor:
+Read `<plugin-root>/AGENTS.md` and follow it. It is the setup runbook, and it starts by running this doctor:
+
+`<plugin-root>` is the plugin's root directory, two levels above this SKILL.md.
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/setup/scripts/doctor.py"
+python3 "<plugin-root>/skills/setup/scripts/doctor.py"
 ```
 
 The runbook's "store command" is:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/_shared/plugin_keys.py"
+python3 "<plugin-root>/_shared/plugin_keys.py"
 ```
 
 It takes `template`, or `store` and the path of a filled-in file. `store` saves each key into every installed plugin that declares it; `--plugin <id>` limits it to one.

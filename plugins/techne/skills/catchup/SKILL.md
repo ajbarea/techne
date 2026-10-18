@@ -10,6 +10,8 @@ disallowed-tools: Write Edit NotebookEdit
 
 Catch up on one repo: read every comment, review, and state change since the user last participated, then say who is blocked on whom.
 
+`<skill-dir>` is the directory holding this SKILL.md.
+
 Read-only. This skill never merges, comments, labels, assigns, closes, or edits.
 
 ## Why this exists
@@ -27,7 +29,7 @@ The events that matter are frequently the ones nobody narrated. A teammate merge
 ### Step 1: Run the sweep
 
 ```bash
-python3 ${CLAUDE_SKILL_DIR}/scripts/sweep.py <repo> [--since ISO8601] [--window-days N] [--prs N] [--issues N]
+python3 <skill-dir>/scripts/sweep.py <repo> [--since ISO8601] [--window-days N] [--prs N] [--issues N]
 ```
 
 `<repo>` is a bare name (resolved against `workspace_root` in `~/.claude/techne.toml`), an explicit `owner/name`, or a path to a clone or to any directory inside one. With no argument it uses the current directory's clone.

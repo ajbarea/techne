@@ -11,6 +11,11 @@ has crept in; extract it back to ROADMAP.
 
 ## In flight
 
+### In review: portable skill plugins
+
+Placeholders `<skill-dir>` and `<plugin-root>` in skill bodies; guard and docs. Open: reinstall in
+Codex, Copilot CLI and Antigravity CLI from GitHub after merge and rerun one probe in each.
+
 ### In review: sisters auto clean
 
 `hygiene.py --auto` and the opt-in `clean_finished_work` SessionStart hook. Open: a live run on

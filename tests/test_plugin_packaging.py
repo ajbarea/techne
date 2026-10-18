@@ -65,7 +65,7 @@ def test_every_setup_skill_has_a_runbook_and_routing_evals(name):
     plugin = ROOT / "plugins" / name
     assert (plugin / "AGENTS.md").is_file()
     skill = (plugin / "skills" / "setup" / "SKILL.md").read_text()
-    assert "${CLAUDE_PLUGIN_ROOT}/AGENTS.md" in skill
+    assert "<plugin-root>/AGENTS.md" in skill or "${CLAUDE_PLUGIN_ROOT}/AGENTS.md" in skill
     fires = (plugin / "evals" / "fires-setup" / "graders").glob("*.md")
     assert any(f'"{name}:setup"' in g.read_text() for g in fires)
     never = list((plugin / "evals").glob("never-setup-*/graders/*.md"))

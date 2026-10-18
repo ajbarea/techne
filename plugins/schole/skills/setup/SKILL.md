@@ -5,4 +5,6 @@ description: Set up or fix schole, the read-only Brightspace (D2L) course-site r
 
 # Set up schole
 
-Read `${CLAUDE_PLUGIN_ROOT}/AGENTS.md` and follow it. It is the single setup runbook, and it starts with `schole-login --status`.
+Read `<plugin-root>/AGENTS.md` and follow it. It is the single setup runbook, and it starts with `schole-login --status`.
+
+`<plugin-root>` is the plugin's root directory, two levels above this SKILL.md.

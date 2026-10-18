@@ -8,7 +8,7 @@ Install the plugins you need, check each one's requirements, and run a first ski
 
 ## Prerequisites
 
-[Claude Code](https://code.claude.com/docs): the CLI, the desktop app, or an IDE extension. Each plugin's setup skill checks the rest and prints the install command for each tool that is missing.
+[Claude Code](https://code.claude.com/docs) (the CLI, the desktop app, or an IDE extension) runs every plugin. Codex, Copilot CLI and Antigravity CLI run techne, graphe and dokimasia; see [Other agent CLIs](#other-agent-clis). Each plugin's setup skill checks the rest and prints the install command for each tool that is missing.
 
 ## 1. Add the marketplace
 
@@ -20,7 +20,7 @@ From inside Claude Code:
 
 ## 2. Pick your plugin
 
-Install only the plugins you use. Every enabled plugin's skill list sits in Claude's context on every turn.
+Install only the plugins you use. Every enabled plugin's skill list sits in the agent's context on every turn.
 
 Install each with `/plugin install <plugin>@techne`, then run its setup.
 
@@ -36,6 +36,22 @@ Install each with `/plugin install <plugin>@techne`, then run its setup.
 | Hear a gist of each reply (WSL2 only) | [`keryx`](plugins/keryx.md) | `keryx status` | speaks the next reply |
 
 Each plugin's page under [Plugins](plugins/techne.md) lists what it needs, its commands, and its fixes.
+
+## Other agent CLIs
+
+techne, graphe and dokimasia also run in Codex, Copilot CLI and Antigravity CLI. Codex and Copilot CLI read this repo's marketplace; Antigravity CLI installs one plugin from its folder URL:
+
+```bash
+codex plugin marketplace add ajbarea/techne
+codex plugin add techne@techne
+
+copilot plugin marketplace add ajbarea/techne
+copilot plugin install techne@techne
+
+agy plugin install https://github.com/ajbarea/techne/tree/main/plugins/techne
+```
+
+Swap `techne` for `graphe` or `dokimasia` to add those, then ask for a skill by name ("use the techne audit skill") or describe the task. graphe's optional OpenAlex and Semantic Scholar keys come from Claude Code's plugin settings; in other CLIs, export `OPENALEX_API_KEY` and `S2_API_KEY` in your shell. techne's opt-in cleanup at session start is a Claude Code hook. The other plugins rely on Claude Code's hooks, plugin settings or subagents and run there alone for now.
 
 ## 3. Set up
 

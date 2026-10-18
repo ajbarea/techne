@@ -9,6 +9,8 @@ allowed-tools: Bash Read Grep
 
 θεωρός — the "state-appointed spectator who watches a divine spectacle on behalf of the polis and reports back." Etymological ancestor of *theater* and *theory*. In this skill, **you (Claude) are the driver; the human is the theoros.**
 
+`<skill-dir>` is the directory holding this SKILL.md.
+
 The pattern: a long-running tmux session where you exercise the repo's interactive REPL via `tmux send-keys`, and the human attaches read-only via `tmux attach -r` to spectate. The human's eyes/ears judge aesthetic concerns (does it feel right, does it sound right). Your queries against logs and panes judge operational concerns (did the request fire, did the log line emit). Never confuse the two.
 
 ## Repo context
@@ -38,9 +40,9 @@ Run everything from the target repo's root. The bundled script reads the `## the
 runs the prerequisites, lays out the panes, and writes a state file:
 
 ```bash
-bash ${CLAUDE_SKILL_DIR}/scripts/theoros.sh up       # start; refuses if the session exists
-bash ${CLAUDE_SKILL_DIR}/scripts/theoros.sh status   # the state file as JSON, or "not running"
-bash ${CLAUDE_SKILL_DIR}/scripts/theoros.sh down     # kill the session, remove the state file
+bash <skill-dir>/scripts/theoros.sh up       # start; refuses if the session exists
+bash <skill-dir>/scripts/theoros.sh status   # the state file as JSON, or "not running"
+bash <skill-dir>/scripts/theoros.sh down     # kill the session, remove the state file
 ```
 
 1. **Start it** with `up`. If the session already exists, the script refuses and prints the
@@ -133,6 +135,6 @@ No repo-side script or Makefile target is needed: the lifecycle script ships wit
 
 ## Teardown
 
-`bash ${CLAUDE_SKILL_DIR}/scripts/theoros.sh down` kills the session and removes
+`bash <skill-dir>/scripts/theoros.sh down` kills the session and removes
 `/tmp/<session_name>.state`. Tmux scrollback dies with the session; logs survive only if
 `tmux pipe-pane` was opted into.

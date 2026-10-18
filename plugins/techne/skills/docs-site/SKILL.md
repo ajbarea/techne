@@ -9,13 +9,15 @@ allowed-tools: Bash Glob Grep Read Edit Agent
 
 Audit and maintain the documentation site as a build/deploy artifact. `/techne:docsync` answers "does this claim match the code?"; `/techne:docs-site` answers "does this site build, deploy, render, and link correctly?"
 
+`<skill-dir>` is the directory holding this SKILL.md, and `<plugin-root>` is the plugin's root directory, two levels above it.
+
 ## Repo context
 
 ```!
 echo "<!-- skill-context: $(git rev-parse --show-toplevel 2>/dev/null || pwd) -->"; cat "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/skill-context.md" 2>/dev/null || echo "(no .claude/skill-context.md in this repo)"
 ```
 
-No context file: use generic defaults for the CSS/JS stack. The header names the repo it came from, which is the current directory's. When the target is a path in another repo, run `bash "${CLAUDE_PLUGIN_ROOT}/_shared/skill_context.sh" <target-path>` and use that output instead.
+No context file: use generic defaults for the CSS/JS stack. The header names the repo it came from, which is the current directory's. When the target is a path in another repo, run `bash "<plugin-root>/_shared/skill_context.sh" <target-path>` and use that output instead.
 
 The injected `## docs_site` section (if present) supplies this repo's CSS file list, JS file list, build command, site URL, and expected action pins. Use those over the generic defaults below when available.
 
@@ -57,7 +59,7 @@ Run as many in parallel as the scope calls for:
 ## Shared files
 
 These files are the same on every sister docs site, and techne holds the canonical copies in
-`${CLAUDE_SKILL_DIR}/templates/shared/`, laid out as they sit in a site:
+`<skill-dir>/templates/shared/`, laid out as they sit in a site:
 
 - `overrides/main.html`: the home tab reads the site name; Open Graph and Twitter card tags. A
   site with card artwork sets `extra.og_image` (a path under `docs/`) in `zensical.toml`. It
@@ -83,8 +85,8 @@ These files are the same on every sister docs site, and techne holds the canonic
 Change them here, never in a site, then sync each site and open its PR:
 
 ```bash
-python3 ${CLAUDE_SKILL_DIR}/scripts/sync_shared.py <repo>          # write
-python3 ${CLAUDE_SKILL_DIR}/scripts/sync_shared.py --check <repo>  # drift only
+python3 <skill-dir>/scripts/sync_shared.py <repo>          # write
+python3 <skill-dir>/scripts/sync_shared.py --check <repo>  # drift only
 ```
 
 `/techne:sisters` check 14 runs `--check` across the fleet.
@@ -100,7 +102,7 @@ A site is done when it looks right, not when it builds. Hold it to
 
 ```bash
 uv run --quiet --no-project --with playwright==1.63.0 --with axe-playwright-python==0.1.8 --with pillow \
-    python ${CLAUDE_SKILL_DIR}/scripts/visual_qa.py http://127.0.0.1:8000/<repo>/ --out qa/
+    python <skill-dir>/scripts/visual_qa.py http://127.0.0.1:8000/<repo>/ --out qa/
 ```
 
 Serve the build under its repo path (`/<repo>/`, as on GitHub Pages; see the checklist). It

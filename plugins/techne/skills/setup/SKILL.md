@@ -5,10 +5,12 @@ description: Check and set up what the techne code-repo skills need on this mach
 
 # Set up techne
 
-Read `${CLAUDE_PLUGIN_ROOT}/AGENTS.md` and follow it. It is the setup runbook, and it starts by running this doctor:
+Read `<plugin-root>/AGENTS.md` and follow it. It is the setup runbook, and it starts by running this doctor:
+
+`<plugin-root>` is the plugin's root directory, two levels above this SKILL.md.
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/setup/scripts/doctor.py"
+python3 "<plugin-root>/skills/setup/scripts/doctor.py"
 ```
 
-The plugin root is `${CLAUDE_PLUGIN_ROOT}`. The skill-context skeleton is `${CLAUDE_PLUGIN_ROOT}/skills/setup/skill-context.template.md`.
+The plugin root is `<plugin-root>`. The skill-context skeleton is `<plugin-root>/skills/setup/skill-context.template.md`.

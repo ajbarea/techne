@@ -7,6 +7,8 @@ allowed-tools: Bash Glob Grep Read Edit WebSearch WebFetch Agent
 
 # Paper Review
 
+`<plugin-root>` is the plugin's root directory, two levels above this SKILL.md.
+
 ## Overview
 
 A pre-submission **novelty + reviewer pass** that grounds every judgment in a *retrieved* paper.
@@ -34,7 +36,7 @@ verdict cites a record retrieved this run with a verbatim snippet, or it is mark
 
 ## Config
 
-Read `## paper-review` from `<repo>/.claude/skill-context.md` (`bash "${CLAUDE_PLUGIN_ROOT}/_shared/skill_context.sh" <target>` prints it): `lab_line` (overlap source of
+Read `## paper-review` from `<repo>/.claude/skill-context.md` (`bash "<plugin-root>/_shared/skill_context.sh" <target>` prints it): `lab_line` (overlap source of
 truth, default `LINEAGE.md`), `retrieval` (default OpenAlex + web; Semantic Scholar only if
 `S2_API_KEY` is set; save it with `/plugin configure graphe@techne`, or export it in the shell), `mailto` (OpenAlex polite pool, default `git config user.email`; the script reads it from `OPENALEX_MAILTO`), `report`
 (default `papers/<name>/novelty-review.md`, or `<stem>.novelty-review.md` beside a `.tex` path). Sensible defaults if absent.
@@ -65,7 +67,7 @@ mandatory citation-integrity gate, then OpenNovelty's four-phase pipeline (arXiv
 
 2. **Retrieve.** Per contribution, build a focused query from its noun phrases and search
    OpenAlex; collect {title, year, DOI, abstract}. Rank by relevance; web-search fills gaps. Log every query. See [retrieval recipes](references/retrieval.md).
-   Retrieval script: `${CLAUDE_PLUGIN_ROOT}/_shared/scholarly.py`. Run it as
+   Retrieval script: `<plugin-root>/_shared/scholarly.py`. Run it as
    `OPENALEX_MAILTO=<mailto> uv run --no-project --quiet python <script> ...` with the configured
    mailto (default `git config user.email`).
    **Only derived keyword queries leave the machine — never the paper text** (drafts are private,
@@ -88,12 +90,12 @@ mandatory citation-integrity gate, then OpenNovelty's four-phase pipeline (arXiv
    - **§3 Claim-support** — each flag-claim → supported / unsupported / overclaim. First-ness
      from retrieval; quantitative claims against the `--from` repo's harvest output (else flag
      "verify against source"). Then the checks in the *Claims* section of
-     `${CLAUDE_PLUGIN_ROOT}/_shared/plain-prose.md`: every number against the code or data
+     `<plugin-root>/_shared/plain-prose.md`: every number against the code or data
      that produced it, every method description against the code that runs it, every summary
      of a cited paper against its full text where it is open access (qualifiers are lost in
      abstracts), "consistent with X" only where the setups match, and a proposal's promises
      against what the time allows.
-   - **§3c Quality** per `${CLAUDE_PLUGIN_ROOT}/_shared/paper-quality.md`:
+   - **§3c Quality** per `<plugin-root>/_shared/paper-quality.md`:
      every-sentence test (list sentences that help no venue review criterion and no required
      element; propose cut or merge, never apply); comparison against `conventions.md` (titles,
      abstract length, RQ phrasing, section order, tense) or, if absent, against the venue's

@@ -22,10 +22,7 @@ def write(root: Path, rel: str, text: str) -> None:
     path.write_text(text)
 
 
-@pytest.mark.parametrize(
-    "rel",
-    ["plugins/p/skills/s/SKILL.md", "plugins/p/agents/a.md", "plugins/p/commands/c.md"],
-)
+@pytest.mark.parametrize("rel", ["plugins/p/agents/a.md", "plugins/p/commands/c.md"])
 def test_variables_allowed_in_substituted_bodies(tmp_path: Path, rel: str):
     write(tmp_path, "plugins/p/x.py", "")
     write(tmp_path, rel, "run ${CLAUDE_SKILL_DIR}/x.py and ${CLAUDE_PLUGIN_ROOT}/x.py\n")
@@ -49,3 +46,69 @@ def test_eval_fixtures_are_excluded(tmp_path: Path):
 def test_repo_is_clean():
     result = subprocess.run(["bash", str(SCRIPT)], capture_output=True, text=True, cwd=ROOT)
     assert result.returncode == 0, result.stdout
+
+
+SKILL = "plugins/p/skills/s/SKILL.md"
+SKILL_DEF = "`<skill-dir>` is the directory holding this SKILL.md.\n"
+ROOT_DEF = "`<plugin-root>` is the plugin's root directory, two levels above this SKILL.md.\n"
+
+
+@pytest.mark.parametrize("var", ["CLAUDE_SKILL_DIR", "CLAUDE_PLUGIN_ROOT"])
+def test_claude_variable_in_skill_body_fails(tmp_path: Path, var: str):
+    write(tmp_path, "plugins/p/skills/s/x.py", "")
+    write(tmp_path, "plugins/p/x.py", "")
+    write(tmp_path, SKILL, f"run ${{{var}}}/x.py\n")
+    result = run(tmp_path)
+    assert result.returncode == 1
+    assert f"FAIL: {SKILL} uses ${{{var}}}, which only Claude Code substitutes" in result.stdout
+
+
+@pytest.mark.parametrize("marker", ["${user_config.repo}", "${CLAUDE_PLUGIN_DATA}/venv"])
+def test_skill_reading_plugin_options_keeps_its_variables(tmp_path: Path, marker: str):
+    write(tmp_path, "plugins/p/x.py", "")
+    write(tmp_path, SKILL, f"run ${{CLAUDE_PLUGIN_ROOT}}/x.py {marker}\n")
+    assert run(tmp_path).returncode == 0
+
+
+def test_placeholders_resolve_against_skill_and_plugin(tmp_path: Path):
+    write(tmp_path, "plugins/p/skills/s/scripts/run.py", "")
+    write(tmp_path, "plugins/p/_shared/prose.md", "")
+    body = (
+        SKILL_DEF
+        + ROOT_DEF
+        + "python <skill-dir>/scripts/run.py; read <plugin-root>/_shared/prose.md.\n"
+    )
+    write(tmp_path, SKILL, body)
+    result = run(tmp_path)
+    assert result.returncode == 0, result.stdout
+
+
+@pytest.mark.parametrize(
+    ("ref", "missing"),
+    [
+        ("<skill-dir>/scripts/gone.py", "<skill-dir>/scripts/gone.py"),
+        ("<plugin-root>/_shared/gone.md", "<plugin-root>/_shared/gone.md"),
+    ],
+)
+def test_placeholder_path_must_ship(tmp_path: Path, ref: str, missing: str):
+    write(tmp_path, SKILL, SKILL_DEF + ROOT_DEF + f"run {ref}\n")
+    result = run(tmp_path)
+    assert result.returncode == 1
+    assert f"FAIL: {SKILL} names {missing}, which plugins/p does not ship" in result.stdout
+
+
+def test_skill_dir_resolves_from_its_own_skill(tmp_path: Path):
+    """A script in a sibling skill does not satisfy <skill-dir>."""
+    write(tmp_path, "plugins/p/skills/other/scripts/run.py", "")
+    write(tmp_path, SKILL, SKILL_DEF + "python <skill-dir>/scripts/run.py\n")
+    assert run(tmp_path).returncode == 1
+
+
+@pytest.mark.parametrize(
+    ("name", "definition"), [("skill-dir", ROOT_DEF), ("plugin-root", SKILL_DEF)]
+)
+def test_placeholder_needs_its_definition(tmp_path: Path, name: str, definition: str):
+    write(tmp_path, SKILL, definition + f"look in <{name}>\n")
+    result = run(tmp_path)
+    assert result.returncode == 1
+    assert f"FAIL: {SKILL} uses <{name}> without defining it" in result.stdout

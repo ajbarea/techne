@@ -15,15 +15,17 @@ handout. Start from the starter deck, write for the room, put a figure on every
 content slide, gate it, render it, look at every slide, publish it, then brief
 the presenter.
 
+`<skill-dir>` is the directory holding this SKILL.md, and `<plugin-root>` is the plugin's root directory, two levels above it.
+
 ## Run it
 
 ```
 B="uv run --no-project --quiet --with playwright==1.63.0 --with axe-playwright-python==0.1.8 --with pillow --with python-pptx==1.0.2"
-$B python ${CLAUDE_SKILL_DIR}/scripts/slides.py check  <deck/index.html> [--jargon "term,term"] [--backup-from N]
-$B python ${CLAUDE_SKILL_DIR}/scripts/slides.py render <deck/index.html> <out-dir>
-$B python ${CLAUDE_SKILL_DIR}/scripts/slides.py script <deck/index.html> > <deck>-script.md
-$B python ${CLAUDE_SKILL_DIR}/scripts/slides.py pptx   <deck/index.html> <deck>.pptx [--images <dir>]
-$B python ${CLAUDE_SKILL_DIR}/scripts/slides.py pdf    <deck/index.html> <deck>.pdf
+$B python <skill-dir>/scripts/slides.py check  <deck/index.html> [--jargon "term,term"] [--backup-from N]
+$B python <skill-dir>/scripts/slides.py render <deck/index.html> <out-dir>
+$B python <skill-dir>/scripts/slides.py script <deck/index.html> > <deck>-script.md
+$B python <skill-dir>/scripts/slides.py pptx   <deck/index.html> <deck>.pptx [--images <dir>]
+$B python <skill-dir>/scripts/slides.py pdf    <deck/index.html> <deck>.pdf
 ```
 
 A web deck is checked and rendered in Chromium through Playwright. Install the
@@ -108,9 +110,9 @@ change.
 `# research(2026-10)`
 
 The test for every slide: someone who has never heard the terms follows it.
-The slide text and the script follow `${CLAUDE_PLUGIN_ROOT}/_shared/plain-prose.md`; the
+The slide text and the script follow `<plugin-root>/_shared/plain-prose.md`; the
 guidance below is what a deck adds to it. To check a script, run
-`uv run --no-project --quiet python ${CLAUDE_PLUGIN_ROOT}/_shared/prose_check.py <deck>-script.md`.
+`uv run --no-project --quiet python <plugin-root>/_shared/prose_check.py <deck>-script.md`.
 
 - **The headline is the slide's claim**, a short full sentence ("Every query
   passes a code-only checkpoint first"), not a topic ("Architecture").
@@ -222,7 +224,7 @@ should not have to find the notes pane to see it.
 Copy it and replace every bracketed placeholder:
 
 ```
-cp -r ${CLAUDE_SKILL_DIR}/templates/web <talk-dir>
+cp -r <skill-dir>/templates/web <talk-dir>
 ```
 
 | File | Holds |
@@ -352,7 +354,7 @@ To add a talk there:
 **One deck in its own repo**, when a talk must stay apart from the rest:
 
 1. Commit the deck folder to the repo.
-2. Copy `${CLAUDE_SKILL_DIR}/templates/pages.yml` to `.github/workflows/deck.yml`
+2. Copy `<skill-dir>/templates/pages.yml` to `.github/workflows/deck.yml`
    and replace `DECK_DIR` with the deck folder's path.
 3. Set the Pages source to GitHub Actions:
    `gh api -X POST repos/<owner>/<repo>/pages -f build_type=workflow`

@@ -9,12 +9,14 @@ allowed-tools: Bash(gh api repos/*) Bash(gh pr list*) Bash(gh auth status) Bash(
 
 Audit the active sister repos for cross-repo drift. Report every finding, grouped by category. Leave fixing to follow-up work or the developer: the audit observes, it does not edit. The exceptions are [clean mode](#clean-mode), which removes finished branches and worktrees the user has approved, and [auto mode](#auto-mode), which removes only what clean mode would list as safe.
 
+`<skill-dir>` is the directory holding this SKILL.md.
+
 ## Config (load first)
 
 Active sister list, workspace root, and GitHub user are read from `~/.claude/techne.toml` at runtime. Run this preamble before any audit checks below; it sets `$SISTERS`, `$TEAM_SISTERS` (active sisters marked `kind = "team"`), `$WORKSPACE`, and `$GITHUB_USER`:
 
 ```
-env=$(python3 "${CLAUDE_SKILL_DIR}/scripts/hygiene.py" --env) && eval "$env"
+env=$(python3 "<skill-dir>/scripts/hygiene.py" --env) && eval "$env"
 ```
 
 The script prints one line and exits 1 when the file is missing, is not valid TOML, lacks a key, or lists no active sister. Report that line and stop.
@@ -124,9 +126,9 @@ A single block, no preamble (concrete repo names below are illustrative — subs
 
 For "comb the sisters", "clean up the branches", or a yes to the offer at the end of check 5.
 
-1. Survey and write the plan to a file of this run's own, since other sessions may be cleaning too: `PLAN=$(mktemp -t sisters-plan.XXXXXX) && python3 ${CLAUDE_SKILL_DIR}/scripts/hygiene.py --plan-out "$PLAN"` (add `--repo <name>` to narrow it).
+1. Survey and write the plan to a file of this run's own, since other sessions may be cleaning too: `PLAN=$(mktemp -t sisters-plan.XXXXXX) && python3 <skill-dir>/scripts/hygiene.py --plan-out "$PLAN"` (add `--repo <name>` to narrow it).
 2. Show the user the **Safe to remove** list exactly as printed, and ask for approval. Show **Needs a look** beside it, unchanged: those are the user's calls, never the script's.
-3. On approval, run `python3 ${CLAUDE_SKILL_DIR}/scripts/hygiene.py --apply "$PLAN"` and relay every line it prints.
+3. On approval, run `python3 <skill-dir>/scripts/hygiene.py --apply "$PLAN"` and relay every line it prints.
 
 What the script counts as safe, and what it never touches:
 
