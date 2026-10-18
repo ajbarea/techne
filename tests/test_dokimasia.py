@@ -18,6 +18,7 @@ import urllib.error
 from pathlib import Path
 
 import pytest
+from conftest import polite_http
 
 CLEAN = """\
 @article{good2024entry,
@@ -401,34 +402,43 @@ def _refuse(code, reason):
 def test_a_lookup_that_fails_says_why(dk, monkeypatch):
     """A throttled host and a missing record were the same event, so a blocked run read as a
     bibliography with 67 bad identifiers."""
-    monkeypatch.setattr(dk.time, "sleep", lambda *_: None)
-    monkeypatch.setattr(dk.urllib.request, "urlopen", _refuse(406, "Not Acceptable"))
-    body, reason = dk._get("https://example.invalid/x")
+    monkeypatch.setattr(polite_http, "_open", _refuse(406, "Not Acceptable"))
+    body, reason = dk._get("https://export.arxiv.org/api/query?id_list=1")
     assert body is None
     assert reason == "HTTP 406"
 
 
 def test_a_lookup_that_succeeds_reports_no_reason(dk, monkeypatch):
-    monkeypatch.setattr(dk.urllib.request, "urlopen", lambda *a, **k: _Response("<feed/>"))
-    assert dk._get("https://example.invalid/x") == ("<feed/>", "")
+    monkeypatch.setattr(polite_http, "_open", lambda *a, **k: _Response("<feed/>"))
+    assert dk._get("https://api.crossref.org/works/x") == ("<feed/>", "")
 
 
-def test_a_throttled_host_is_waited_out_rather_than_retried_at_once(dk, monkeypatch):
-    """Three retries two seconds apart all land inside the same block."""
-    slept: list[float] = []
-    monkeypatch.setattr(dk.time, "sleep", slept.append)
-    monkeypatch.setattr(dk.urllib.request, "urlopen", _refuse(429, "Too Many Requests"))
-    dk._get("https://example.invalid/x")
-    assert slept == [dk.BACKOFF[0], dk.BACKOFF[1]]
-    assert min(slept) >= 5, "a throttle needs longer than a blip"
+def test_a_throttled_host_is_waited_out_rather_than_retried_at_once(dk, monkeypatch, slept):
+    """Retries are spaced 5, 20 and 60 seconds apart, not two seconds."""
+    monkeypatch.setattr(polite_http, "_open", _refuse(429, "Too Many Requests"))
+    assert dk._get("https://api.crossref.org/works/x") == (None, "HTTP 429")
+    assert [w for w in slept if w > 2] == pytest.approx([5, 20, 60], abs=0.5)
 
 
-def test_a_missing_page_is_not_waited_out(dk, monkeypatch):
-    slept: list[float] = []
-    monkeypatch.setattr(dk.time, "sleep", slept.append)
-    monkeypatch.setattr(dk.urllib.request, "urlopen", _refuse(404, "Not Found"))
-    assert dk._get("https://example.invalid/x") == (None, "HTTP 404")
-    assert slept == [2, 4], "a 404 is not a throttle and must not cost a minute"
+def test_a_403_is_never_retried(dk, monkeypatch, slept):
+    """arXiv treats repeat requests after a 403 as an attack."""
+    calls: list[str] = []
+    refuse = _refuse(403, "Forbidden")
+
+    def counted(request, timeout=0):
+        calls.append(request.full_url)
+        return refuse(request, timeout)
+
+    monkeypatch.setattr(polite_http, "_open", counted)
+    assert dk._get("https://export.arxiv.org/api/query?id_list=1") == (None, "HTTP 403")
+    assert len(calls) == 1
+    assert not [w for w in slept if w > 0]
+
+
+def test_a_missing_page_is_not_waited_out(dk, monkeypatch, slept):
+    monkeypatch.setattr(polite_http, "_open", _refuse(404, "Not Found"))
+    assert dk._get("https://api.crossref.org/works/x") == (None, "HTTP 404")
+    assert not [w for w in slept if w > 2], "a 404 is not a throttle and must not be retried"
 
 
 def test_a_failed_arxiv_lookup_is_not_mistaken_for_a_record(dk, monkeypatch):
@@ -445,17 +455,15 @@ def test_a_failed_lookup_is_never_cached(dk):
     assert dk._cacheable({"title": "x"})
 
 
-def test_a_timeout_is_not_waited_out_like_a_throttle(dk, monkeypatch):
-    """A slow host is a blip; only the statuses that mean 'you, later' earn the long wait."""
-    slept: list[float] = []
+def test_a_timeout_is_not_waited_out_like_a_throttle(dk, monkeypatch, slept):
+    """A slow host is not a throttle: only the statuses that mean 'you, later' earn a wait."""
 
     def timeout(request, timeout=0):
         raise TimeoutError("timed out")
 
-    monkeypatch.setattr(dk.time, "sleep", slept.append)
-    monkeypatch.setattr(dk.urllib.request, "urlopen", timeout)
-    assert dk._get("https://example.invalid/x") == (None, "TimeoutError")
-    assert slept == [2, 4]
+    monkeypatch.setattr(polite_http, "_open", timeout)
+    assert dk._get("https://api.crossref.org/works/x") == (None, "unreachable: api.crossref.org")
+    assert not [w for w in slept if w > 2]
 
 
 # --- 1. field values in any BibTeX form --------------------------------------------------
@@ -765,7 +773,7 @@ def test_an_unparseable_response_is_unresolved_and_never_cached(dk, tmp_path, mo
     (tmp_path / "references.bib").write_text(CLEAN)
     monkeypatch.setattr(dk, "_get", lambda *a, **k: ("<html>proxy</html>", ""))
     monkeypatch.setattr(dk.time, "sleep", lambda *_: None)
-    assert dk.verify(dk.load_config(tmp_path), delay=0) == 0
+    assert dk.verify(dk.load_config(tmp_path)) == 0
     assert "unparseable response x1" in capsys.readouterr().out
     assert not (tmp_path / ".dokimasia-cache.json").read_text().strip("{}\n ")
 
@@ -773,18 +781,16 @@ def test_an_unparseable_response_is_unresolved_and_never_cached(dk, tmp_path, mo
 # --- 9. polite pool ----------------------------------------------------------------------
 
 
-def test_mailto_is_added_to_crossref_requests_and_the_user_agent(dk, monkeypatch):
+def test_mailto_is_added_to_crossref_requests_but_never_the_user_agent(dk, monkeypatch):
     monkeypatch.setenv("DOKIMASIA_MAILTO", "me@example.org")
     seen: list[str] = []
     monkeypatch.setattr(dk, "_get", lambda url, *a, **k: (seen.append(url), ("", "x"))[1])
     dk._crossref_record("10.1/x")
     assert seen == ["https://api.crossref.org/works/10.1/x?mailto=me%40example.org"]
-    assert dk.user_agent() == (
-        "dokimasia/1.0 (+https://github.com/ajbarea/techne; mailto:me@example.org)"
-    )
+    assert dk.user_agent() == "dokimasia/1.0 (+https://github.com/ajbarea/techne)"
 
 
-def test_the_request_carries_the_user_agent(dk, monkeypatch):
+def test_the_request_carries_the_user_agent_and_no_address(dk, monkeypatch):
     monkeypatch.setenv("DOKIMASIA_MAILTO", "me@example.org")
     headers: list[dict] = []
 
@@ -792,16 +798,43 @@ def test_the_request_carries_the_user_agent(dk, monkeypatch):
         headers.append(dict(request.header_items()))
         return _Response("ok")
 
-    monkeypatch.setattr(dk.urllib.request, "urlopen", capture)
-    dk._get("https://example.invalid/x")
-    assert "mailto:me@example.org" in headers[0]["User-agent"]
+    monkeypatch.setattr(polite_http, "_open", capture)
+    dk._get("https://api.crossref.org/works/x")
+    assert headers[0]["User-agent"] == "dokimasia/1.0 (+https://github.com/ajbarea/techne)"
+    assert "mailto" not in headers[0]["User-agent"]
 
 
 def test_without_mailto_nothing_is_added_and_no_address_is_hard_coded(dk, monkeypatch):
     monkeypatch.delenv("DOKIMASIA_MAILTO", raising=False)
     assert "mailto" not in dk._crossref_url("10.1/x")
-    assert dk.user_agent() == "dokimasia/1.0 (+https://github.com/ajbarea/techne)"
     assert "@" not in dk.user_agent()
+
+
+def test_lint_runs_from_a_lone_copy_of_the_script(tmp_path):
+    """Only verify needs polite_http.py; lint and rendered work without it."""
+    import shutil
+    import subprocess
+    import sys
+
+    from conftest import DOKIMASIA_SCRIPT
+
+    lone = tmp_path / "lone" / "dokimasia.py"
+    lone.parent.mkdir()
+    shutil.copy(DOKIMASIA_SCRIPT, lone)
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "refs.bib").write_text("@misc{a,\n  title={T},\n  eprint={1812.06127},\n}\n")
+    (proj / "main.tex").write_text("\\cite{a}\n")
+    run = lambda *args: subprocess.run(  # noqa: E731
+        [sys.executable, str(lone), "--root", str(proj), *args],
+        capture_output=True,
+        text=True,
+    )
+    lint = run("lint")
+    assert "polite_http" not in lint.stderr + lint.stdout
+    verify = run("verify")
+    assert verify.returncode != 0
+    assert "polite_http.py" in verify.stderr and "github.com/ajbarea/techne" in verify.stderr
 
 
 # --- 10. spans all configured bibliographies ---------------------------------------------
@@ -957,7 +990,7 @@ def test_the_cache_path_is_configurable_and_relative_to_the_root(dk, tmp_path, m
     (tmp_path / "dokimasia.toml").write_text('cache = "sub-cache.json"\n')
     monkeypatch.setattr(dk, "_get", lambda *a, **k: (None, "HTTP 500"))
     monkeypatch.setattr(dk.time, "sleep", lambda *_: None)
-    dk.verify(dk.load_config(tmp_path), delay=0)
+    dk.verify(dk.load_config(tmp_path))
     assert (tmp_path / "sub-cache.json").exists()
     assert not (tmp_path / ".dokimasia-cache.json").exists()
 
@@ -1458,8 +1491,9 @@ def test_the_skill_states_the_real_backoff_and_prefix_contract():
 
     skill = (DOKIMASIA_SCRIPT.parents[1] / "SKILL.md").read_text()
     assert "every summary and finding line" in skill
-    assert "5, 20 and 60" not in skill
-    assert "5 then 20" in skill
+    assert "5, 20 and 60" in skill
+    assert "5 then 20" not in skill
+    assert "Retry-After" in skill
 
 
 # --- R14. exclude: names anywhere, paths from the root -----------------------------------
@@ -1650,7 +1684,7 @@ def test_the_cache_parent_directory_is_created(dk, tmp_path, monkeypatch):
     (tmp_path / "dokimasia.toml").write_text('cache = "build/cache/dok.json"\n')
     monkeypatch.setattr(dk, "_get", lambda *a, **k: (None, "HTTP 500"))
     monkeypatch.setattr(dk.time, "sleep", lambda *_: None)
-    dk.verify(dk.load_config(tmp_path), delay=0)
+    dk.verify(dk.load_config(tmp_path))
     assert (tmp_path / "build" / "cache" / "dok.json").exists()
 
 
@@ -1660,7 +1694,7 @@ def test_a_cache_that_cannot_be_written_is_reported(dk, tmp_path, monkeypatch, c
     (tmp_path / "dokimasia.toml").write_text('cache = "blocker/dok.json"\n')
     monkeypatch.setattr(dk, "_get", lambda *a, **k: (None, "HTTP 500"))
     monkeypatch.setattr(dk.time, "sleep", lambda *_: None)
-    dk.verify(dk.load_config(tmp_path), delay=0)
+    dk.verify(dk.load_config(tmp_path))
     err = _err(capsys)
     assert "dokimasia: cache not written:" in err
     assert "blocker" in err
@@ -1990,7 +2024,7 @@ def test_rendered_reads_a_bbl_pasted_in_through_input(dk, tmp_path, capsys):
 def test_verify_resolves_printed_identifiers_and_names_the_rest(dk, tmp_path, monkeypatch, capsys):
     _hand(tmp_path)
     _answer(dk, monkeypatch)
-    assert dk.verify(dk.load_config(tmp_path), delay=0) == 0
+    assert dk.verify(dk.load_config(tmp_path)) == 0
     out = capsys.readouterr().out
     assert "verified 2, exempt 0, unresolved 0, unverifiable 1, uncompared 0, drift 0" in out
     assert "poe2015 (paper.tex)" in out
@@ -1999,7 +2033,7 @@ def test_verify_resolves_printed_identifiers_and_names_the_rest(dk, tmp_path, mo
 def test_a_printed_title_that_differs_from_the_source_is_drift(dk, tmp_path, monkeypatch, capsys):
     _hand(tmp_path, HAND.replace("A perfectly ordinary title", "A perfectly ordinary tale"))
     _answer(dk, monkeypatch)
-    assert dk.verify(dk.load_config(tmp_path), delay=0) == 1
+    assert dk.verify(dk.load_config(tmp_path)) == 1
     assert "title drift: doe2024 (paper.tex)" in _err(capsys)
 
 
@@ -2013,14 +2047,14 @@ def test_a_title_is_matched_as_whole_words_not_as_a_substring(dk, tmp_path):
 def test_the_first_author_must_be_printed_before_the_title(dk, tmp_path, monkeypatch, capsys):
     _hand(tmp_path, HAND.replace("J.~Doe,", "J.~Smith,"))
     _answer(dk, monkeypatch)
-    assert dk.verify(dk.load_config(tmp_path), delay=0) == 1
+    assert dk.verify(dk.load_config(tmp_path)) == 1
     assert "first author drift: doe2024 (paper.tex)" in _err(capsys)
 
 
 def test_a_preprint_year_that_differs_is_drift(dk, tmp_path, monkeypatch, capsys):
     _hand(tmp_path, HAND.replace("arXiv:2401.00001, 2024", "arXiv:2401.00001, 2023"))
     _answer(dk, monkeypatch)
-    assert dk.verify(dk.load_config(tmp_path), delay=0) == 1
+    assert dk.verify(dk.load_config(tmp_path)) == 1
     assert "year drift: doe2024 (paper.tex)" in _err(capsys)
 
 
@@ -2031,20 +2065,20 @@ def test_a_venue_paper_is_not_compared_with_its_arxiv_year(dk, tmp_path, monkeyp
     )
     _hand(tmp_path, venue)
     _answer(dk, monkeypatch)
-    assert dk.verify(dk.load_config(tmp_path), delay=0) == 0
+    assert dk.verify(dk.load_config(tmp_path)) == 0
 
 
 def test_a_print_year_or_an_issued_year_both_satisfy_crossref(dk, tmp_path, monkeypatch):
     for year in ("2018", "2019"):
         _hand(tmp_path, HAND.replace("pp.~1--9, 2019", f"pp.~1--9, {year}"))
         _answer(dk, monkeypatch)
-        assert dk.verify(dk.load_config(tmp_path), delay=0) == 0
+        assert dk.verify(dk.load_config(tmp_path)) == 0
 
 
 def test_a_crossref_year_printed_nowhere_is_drift(dk, tmp_path, monkeypatch, capsys):
     _hand(tmp_path, HAND.replace("pp.~1--9, 2019", "pp.~1--9, 2021"))
     _answer(dk, monkeypatch)
-    assert dk.verify(dk.load_config(tmp_path), delay=0) == 1
+    assert dk.verify(dk.load_config(tmp_path)) == 1
     assert "year drift: roe2019 (paper.tex)" in _err(capsys)
 
 
@@ -2054,7 +2088,7 @@ def test_a_record_exemption_skips_author_and_year_for_a_printed_entry(
     _hand(tmp_path, HAND.replace("J.~Doe,", "J.~Smith,"))
     (tmp_path / "dokimasia.toml").write_text('[exempt.record]\ndoe2024 = "renamed author"\n')
     _answer(dk, monkeypatch)
-    assert dk.verify(dk.load_config(tmp_path), delay=0) == 0
+    assert dk.verify(dk.load_config(tmp_path)) == 0
     assert "exempt: doe2024 (paper.tex) -- renamed author" in capsys.readouterr().out
 
 
@@ -2069,7 +2103,7 @@ def test_a_list_two_documents_share_is_verified_once(dk, tmp_path, monkeypatch, 
         },
     )
     _answer(dk, monkeypatch)
-    dk.verify(dk.load_config(tmp_path), delay=0)
+    dk.verify(dk.load_config(tmp_path))
     assert "verified 2, exempt 0, unresolved 0, unverifiable 1" in capsys.readouterr().out
 
 
@@ -2077,7 +2111,7 @@ def test_a_bib_and_a_hand_written_list_are_verified_together(dk, tmp_path, monke
     (tmp_path / "references.bib").write_text(CLEAN)
     _hand(tmp_path)
     _answer(dk, monkeypatch)
-    dk.verify(dk.load_config(tmp_path), delay=0)
+    dk.verify(dk.load_config(tmp_path))
     # good2024entry and doe2024 share one arXiv id; the second is a cache hit.
     assert (
         "verified 3, exempt 0, unresolved 0, unverifiable 1, uncompared 0, drift 0 (1 from cache)"
@@ -2194,7 +2228,7 @@ def test_a_bibtex_document_does_not_read_a_thebibliography_beside_it(dk, tmp_pat
 def test_a_bib_only_project_keeps_its_unverifiable_wording(dk, tmp_path, monkeypatch, capsys):
     (tmp_path / "references.bib").write_text(CLEAN.replace("eprint", "url"))
     _answer(dk, monkeypatch)
-    dk.verify(dk.load_config(tmp_path), delay=0)
+    dk.verify(dk.load_config(tmp_path))
     assert "unverifiable -- no eprint or doi, so verify can never check these:" in (
         capsys.readouterr().out
     )
@@ -2298,7 +2332,7 @@ def test_each_copy_of_a_duplicated_key_is_resolved(dk, tmp_path, monkeypatch, ca
 
     monkeypatch.setattr(dk, "_get", get)
     monkeypatch.setattr(dk.time, "sleep", lambda *_: None)
-    dk.verify(dk.load_config(tmp_path), delay=0)
+    dk.verify(dk.load_config(tmp_path))
     assert any("10.9999" in u for u in seen)
 
 
@@ -2306,7 +2340,7 @@ def test_a_broken_symlink_does_not_crash_verify(dk, tmp_path, monkeypatch):
     (tmp_path / "references.bib").write_text(CLEAN)
     (tmp_path / "gone.tex").symlink_to(tmp_path / "missing.tex")
     _answer(dk, monkeypatch)
-    assert dk.verify(dk.load_config(tmp_path), delay=0) == 0
+    assert dk.verify(dk.load_config(tmp_path)) == 0
 
 
 # --- quoted titles in hand-written entries -----------------------------------------------
@@ -2433,7 +2467,7 @@ def test_verify_names_uncompared_entries_and_exits_clean(dk, tmp_path, monkeypat
     )
     _hand(tmp_path, tex)
     _answer(dk, monkeypatch)
-    assert dk.verify(dk.load_config(tmp_path), delay=0) == 0
+    assert dk.verify(dk.load_config(tmp_path)) == 0
     out = capsys.readouterr().out
     assert "verified 1, exempt 0, unresolved 0, unverifiable 1, uncompared 1, drift 0" in out
     assert "uncompared -- the identifier resolved" in out
@@ -2778,7 +2812,7 @@ def test_verify_names_a_document_it_cannot_read(dk, tmp_path, monkeypatch, capsy
     secret.chmod(0)
     _answer(dk, monkeypatch)
     try:
-        dk.verify(dk.load_config(tmp_path), delay=0)
+        dk.verify(dk.load_config(tmp_path))
     finally:
         secret.chmod(0o644)
     assert "cannot read locked.tex" in _err(capsys)

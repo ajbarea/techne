@@ -68,9 +68,7 @@ import sys
 import time
 import tomllib
 import unicodedata
-import urllib.error
 import urllib.parse
-import urllib.request
 from dataclasses import dataclass
 from dataclasses import field as dc_field
 from pathlib import Path
@@ -89,7 +87,6 @@ _OLD_ARXIV = r"[a-z][a-z-]*(?:\.[A-Za-z]{2})?/\d{7}"
 ARXIV_ID = re.compile(rf"^(?:{_NEW_ARXIV}|{_OLD_ARXIV})(v\d+)?$")
 _PROSE_ARXIV = re.compile(rf"arxiv[:\s]*(?:{_NEW_ARXIV}|{_OLD_ARXIV})", re.I)
 
-HOMEPAGE = "https://github.com/ajbarea/techne"
 CONFIG_NAME = "dokimasia.toml"
 MAILTO_ENV = "DOKIMASIA_MAILTO"
 
@@ -1295,12 +1292,32 @@ def rendered(cfg: Config, docs: list[Path] | None = None, require_built: bool = 
 
 # --- verify ----------------------------------------------------------------------------
 
-#: How long to wait before retrying, by attempt. A throttled host needs longer than a blip:
-#: arXiv answers a burst of lookups with 406 for a while and then serves the same request
-#: unchanged, so three retries two seconds apart all land inside the same block.
-BACKOFF = (5, 20, 60)
 #: Statuses that mean "you, later" rather than "no such record". arXiv uses 406 for this.
 THROTTLED = (406, 429, 503)
+POLITE_URL = "https://github.com/ajbarea/techne/blob/main/plugins/techne/_shared/polite_http.py"
+
+
+def _polite():
+    """The shared pacing module, imported only when a lookup needs the network.
+
+    `lint` and `rendered` work from a lone copy of this file; `verify` needs polite_http.py,
+    which lives in the plugin's `_shared` folder (parents[3] is the plugin root).
+    """
+    try:
+        import polite_http  # ty: ignore[unresolved-import]
+
+        return polite_http
+    except ImportError:
+        pass
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "_shared"))
+    try:
+        import polite_http  # ty: ignore[unresolved-import]
+    except ImportError:
+        raise SystemExit(
+            "dokimasia: verify needs polite_http.py, which was not found. Fetch it from "
+            f"{POLITE_URL} and put it in {Path(__file__).resolve().parents[3] / '_shared'}"
+        ) from None
+    return polite_http
 
 
 def _mailto() -> str:
@@ -1308,32 +1325,29 @@ def _mailto() -> str:
 
 
 def user_agent() -> str:
-    mail = _mailto()
-    return f"dokimasia/1.0 (+{HOMEPAGE}" + (f"; mailto:{mail})" if mail else ")")
+    return _polite().user_agent("dokimasia", version="1.0")
 
 
-def _get(url: str, tries: int = 3) -> tuple[str | None, str]:
+def _get(url: str) -> tuple[str | None, str]:
     """The body, or None and a reason. The reason is the point.
 
     Returning a bare None made a throttled host and a missing record the same event, so a run
     that fetched nothing reported every entry as unverifiable and read as a bibliography
     problem. Callers pass the reason up so the summary can say which it was.
+
+    Pacing, Retry-After, the retries on 406, 429 and 503 and the refusal memory belong to
+    polite_http, which also paces across processes so a parallel run cannot exceed arXiv's one
+    request per three seconds. A 403 is never retried.
     """
-    reason = "no attempt"
-    for attempt in range(tries):
-        try:
-            request = urllib.request.Request(url, headers={"User-Agent": user_agent()})
-            return urllib.request.urlopen(request, timeout=30).read().decode(), ""
-        except urllib.error.HTTPError as error:
-            reason = f"HTTP {error.code}"
-            throttled = error.code in THROTTLED
-        except Exception as error:
-            reason = type(error).__name__
-            throttled = False
-        if attempt == tries - 1:
-            return None, reason
-        time.sleep(BACKOFF[min(attempt, len(BACKOFF) - 1)] if throttled else 2 * (attempt + 1))
-    return None, reason
+    polite = _polite()
+    try:
+        return polite.fetch(url, tool="dokimasia", timeout=30).decode(), ""
+    except polite.HttpStatus as error:
+        return None, f"HTTP {error.status}"
+    except polite.PoliteError as error:
+        return None, str(error)
+    except Exception as error:
+        return None, type(error).__name__
 
 
 def _loose(title: str | None) -> str:
@@ -1718,7 +1732,7 @@ def _printed_findings(
     return findings
 
 
-def verify(cfg: Config, delay: float = 3.0) -> int:
+def verify(cfg: Config) -> int:
     """Resolve identifiers and compare titles. Returns the number of mismatches.
 
     Unresolvable entries are counted separately and never reported as findings. An
@@ -1754,10 +1768,8 @@ def verify(cfg: Config, delay: float = 3.0) -> int:
         else:
             if eprint:
                 record = _arxiv_record(eprint.strip())
-                time.sleep(delay)
             if record is None and doi:
                 record = _crossref_record(doi.strip())
-                time.sleep(1)
             # A lookup that failed is not a record. Caching it would freeze a throttled
             # minute into the next fortnight of runs.
             if record is not None and _cacheable(record):
