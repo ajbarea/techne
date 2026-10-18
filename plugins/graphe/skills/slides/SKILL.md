@@ -7,6 +7,8 @@ allowed-tools: Bash Glob Grep Read Edit Write
 
 # Slides
 
+`<skill-dir>` is the directory holding this SKILL.md, and `<plugin-root>` is the plugin's root directory, two levels above it.
+
 A deck is done when someone who has never seen it can present it from the
 slides alone, and its owner can answer questions on it, not when the file
 opens. New talks are web decks: plain HTML on reveal.js, presented from a
@@ -14,8 +16,6 @@ browser, with diagrams that build step by step, and a link that serves as the
 handout. Start from the starter deck, write for the room, put a figure on every
 content slide, gate it, render it, look at every slide, publish it, then brief
 the presenter.
-
-`<skill-dir>` is the directory holding this SKILL.md, and `<plugin-root>` is the plugin's root directory, two levels above it.
 
 ## Run it
 

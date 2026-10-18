@@ -121,7 +121,11 @@ def test_hooks_json_is_identical_in_shape_across_plugins():
     for event, mode in (("SessionStart", "start"), ("SessionEnd", "end")):
         (entry,) = hooks[event]
         (hook,) = entry["hooks"]
-        guard = '[ -d "${CLAUDE_PLUGIN_DATA}/session-keys" ] && ' if mode == "end" else ""
+        guard = (
+            '[ -d "${CLAUDE_PLUGIN_DATA}/session-keys" ] && '
+            if mode == "end"
+            else '[ -n "${CLAUDE_PLUGIN_ROOT}" ] && '
+        )
         assert hook["command"] == (
             f"{guard}command -v python3 >/dev/null 2>&1 && exec python3 "
             f'"${{CLAUDE_PLUGIN_ROOT}}/_shared/plugin_keys.py" {mode}; exit 0'

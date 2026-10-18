@@ -7,10 +7,10 @@ allowed-tools: Bash Glob Grep Read
 
 # Check a bibliography
 
+`<skill-dir>` is the directory holding this SKILL.md.
+
 Three passes over any LaTeX project's `.bib`, or over a reference list written by hand in
 `thebibliography`. Run the one that answers the question; do not judge a reference by memory.
-
-`<skill-dir>` is the directory holding this SKILL.md.
 
 ## Run it
 

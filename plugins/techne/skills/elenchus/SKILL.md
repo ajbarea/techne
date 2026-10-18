@@ -7,9 +7,9 @@ allowed-tools: Bash Read Grep Glob Agent Skill
 
 # Elenchus
 
-ἔλεγχος — the Socratic cross-examination: you do not confirm what the author meant, you hunt the one input that **refutes the claim the change rests on**. A change is innocent of nothing until you have tried to break it and failed. You are the independent adversary in the chair, never the author defending the diff.
+`<plugin-root>` is the plugin's root directory, two levels above the directory holding this SKILL.md.
 
-`<plugin-root>` is the plugin's root directory, two levels above this SKILL.md.
+ἔλεγχος — the Socratic cross-examination: you do not confirm what the author meant, you hunt the one input that **refutes the claim the change rests on**. A change is innocent of nothing until you have tried to break it and failed. You are the independent adversary in the chair, never the author defending the diff.
 
 This skill exists because the same model that writes a change is a poor judge of it: the author reviews what they *intended*, under ship-it momentum, against a mental model that hides what the code actually does. The fix is not a smarter model — it is an **independent reader running a fixed adversarial protocol against the whole repo, reproducing as it goes**. That is the entire method. Everything below operationalizes it.
 
@@ -27,6 +27,8 @@ If you (or this session) authored the change under review, you are the wrong rev
 ```!
 echo "<!-- skill-context: $(git rev-parse --show-toplevel 2>/dev/null || pwd) -->"; cat "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/skill-context.md" 2>/dev/null || echo "(no .claude/skill-context.md in this repo)"
 ```
+
+If your agent shows the block above as a command instead of its output, run it and use what it prints.
 
 No context file: elenchus still runs tier-0; infer the test and run commands from the Makefile or ask. Add an optional `## elenchus` block for repo-specific hints; see Scaffolding below. The header names the repo it came from, which is the current directory's. When the target is a path in another repo, run `bash "<plugin-root>/_shared/skill_context.sh" <target-path>` and use that output instead.
 

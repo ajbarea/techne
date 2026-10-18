@@ -51,7 +51,7 @@ copilot plugin install techne@techne
 agy plugin install https://github.com/ajbarea/techne/tree/main/plugins/techne
 ```
 
-Swap `techne` for `graphe` or `dokimasia` to add those, then ask for a skill by name ("use the techne audit skill") or describe the task. graphe's optional OpenAlex and Semantic Scholar keys come from Claude Code's plugin settings; in other CLIs, export `OPENALEX_API_KEY` and `S2_API_KEY` in your shell. techne's opt-in cleanup at session start is a Claude Code hook. The other plugins rely on Claude Code's hooks, plugin settings or subagents and run there alone for now.
+Swap `techne` for `graphe` or `dokimasia` to add those, then ask for a skill by name ("use the techne audit skill") or describe the task. graphe's optional OpenAlex and Semantic Scholar keys come from Claude Code's plugin settings; in other CLIs, export `OPENALEX_API_KEY` and `S2_API_KEY` in your shell. techne's opt-in cleanup at session start is a Claude Code hook, and elenchus runs its independent review through Claude Code's `/code-review` when it is there. The other plugins rely on Claude Code's hooks, plugin settings or subagents and run there alone for now.
 
 ## 3. Set up
 

@@ -7,9 +7,9 @@ allowed-tools: Bash Glob Grep Read Edit WebSearch WebFetch Agent
 
 # Research-grounded
 
-Catch design decisions that were made without checking current best practice — *before* they become code. A planning doc that says "we'll use X" with no provenance is a bet on training-cutoff recall; the convention `# research(YYYY-MM): <tradeoff> <source>` records that the bet was checked against reality. This skill finds the bets that weren't.
+`<plugin-root>` is the plugin's root directory, two levels above the directory holding this SKILL.md.
 
-`<plugin-root>` is the plugin's root directory, two levels above this SKILL.md.
+Catch design decisions that were made without checking current best practice — *before* they become code. A planning doc that says "we'll use X" with no provenance is a bet on training-cutoff recall; the convention `# research(YYYY-MM): <tradeoff> <source>` records that the bet was checked against reality. This skill finds the bets that weren't.
 
 ## Repo context
 

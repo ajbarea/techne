@@ -7,10 +7,10 @@ allowed-tools: Bash Glob Grep Read Edit
 
 # PDF
 
+`<skill-dir>` is the directory holding this SKILL.md, and `<plugin-root>` is the plugin's root directory, two levels above it.
+
 Markdown in, print-quality PDF out. Do not go looking for a converter: the
 decision is made and the generator is in this skill.
-
-`<skill-dir>` is the directory holding this SKILL.md, and `<plugin-root>` is the plugin's root directory, two levels above it.
 
 ## Write it plain first
 

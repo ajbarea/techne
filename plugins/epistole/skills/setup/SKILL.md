@@ -5,6 +5,6 @@ description: Set up or fix epistole Gmail access. Use when the user wants to con
 
 # Set up epistole
 
-Read `<plugin-root>/AGENTS.md` and follow it. It is the single setup runbook, and it starts by calling the `accounts` tool to see what is already done.
+`<plugin-root>` is the plugin's root directory, two levels above the directory holding this SKILL.md.
 
-`<plugin-root>` is the plugin's root directory, two levels above this SKILL.md.
+Read `<plugin-root>/AGENTS.md` and follow it. It is the single setup runbook, and it starts by calling the `accounts` tool to see what is already done.

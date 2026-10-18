@@ -7,10 +7,10 @@ allowed-tools: Bash Glob Grep Read Edit
 
 # LaTeX
 
+`<skill-dir>` is the directory holding this SKILL.md, and `<plugin-root>` is the plugin's root directory, two levels above it.
+
 Build and gate in one command. Do not go looking for an engine: the decision is
 made below and the runner is in this skill.
-
-`<skill-dir>` is the directory holding this SKILL.md, and `<plugin-root>` is the plugin's root directory, two levels above it.
 
 ## Write it plain first
 

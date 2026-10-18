@@ -31,7 +31,7 @@
 | `schole` | Brightspace (D2L) course sites, read-only: new announcements and content, what is due, what came due unsubmitted ([docs](https://ajbarea.github.io/techne/plugins/schole/)) | Claude Code (needs `uv` and Chromium) |
 | [`keryx`](https://github.com/ajbarea/keryx) | Speaks a short gist of each reply in a local voice (WSL2) | Claude Code |
 
-Install only the ones you use: every enabled plugin's skill list sits in the agent's context on every turn. graphe holds skills only, so claude.ai and Cowork can install it too, but its build and check steps run shell commands (`uv`, TeX Live, Typst) that need Claude Code.
+Install only the ones you use: every enabled plugin's skill list sits in the agent's context on every turn. claude.ai and Cowork can install graphe too, but its build and check steps run shell commands (`uv`, TeX Live, Typst) that need an agent CLI on your machine.
 
 ### techne
 
@@ -123,7 +123,7 @@ copilot plugin install techne@techne
 agy plugin install https://github.com/ajbarea/techne/tree/main/plugins/techne
 ```
 
-Swap `techne` for `graphe` or `dokimasia` to add those. Ask for a skill by name ("use the techne audit skill") or describe the task. graphe's optional OpenAlex and Semantic Scholar keys come from Claude Code's plugin settings; in other CLIs, export `OPENALEX_API_KEY` and `S2_API_KEY` in your shell instead. techne's opt-in cleanup at session start is a Claude Code hook. The other plugins rely on Claude Code's hooks, plugin settings or subagents and run there alone for now.
+Swap `techne` for `graphe` or `dokimasia` to add those. Ask for a skill by name ("use the techne audit skill") or describe the task. graphe's optional OpenAlex and Semantic Scholar keys come from Claude Code's plugin settings; in other CLIs, export `OPENALEX_API_KEY` and `S2_API_KEY` in your shell instead. techne's opt-in cleanup at session start is a Claude Code hook, and elenchus runs its independent review through Claude Code's `/code-review` when it is there. The other plugins rely on Claude Code's hooks, plugin settings or subagents and run there alone for now.
 
 ## Configuration
 

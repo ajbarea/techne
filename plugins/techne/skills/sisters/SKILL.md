@@ -7,9 +7,9 @@ allowed-tools: Bash(gh api repos/*) Bash(gh pr list*) Bash(gh auth status) Bash(
 
 # Sisters Audit
 
-Audit the active sister repos for cross-repo drift. Report every finding, grouped by category. Leave fixing to follow-up work or the developer: the audit observes, it does not edit. The exceptions are [clean mode](#clean-mode), which removes finished branches and worktrees the user has approved, and [auto mode](#auto-mode), which removes only what clean mode would list as safe.
-
 `<skill-dir>` is the directory holding this SKILL.md.
+
+Audit the active sister repos for cross-repo drift. Report every finding, grouped by category. Leave fixing to follow-up work or the developer: the audit observes, it does not edit. The exceptions are [clean mode](#clean-mode), which removes finished branches and worktrees the user has approved, and [auto mode](#auto-mode), which removes only what clean mode would list as safe.
 
 ## Config (load first)
 

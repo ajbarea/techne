@@ -8,9 +8,9 @@ disallowed-tools: Write Edit NotebookEdit
 
 # Catchup
 
-Catch up on one repo: read every comment, review, and state change since the user last participated, then say who is blocked on whom.
-
 `<skill-dir>` is the directory holding this SKILL.md.
+
+Catch up on one repo: read every comment, review, and state change since the user last participated, then say who is blocked on whom.
 
 Read-only. This skill never merges, comments, labels, assigns, closes, or edits.
 

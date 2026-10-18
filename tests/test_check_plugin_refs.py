@@ -50,7 +50,10 @@ def test_repo_is_clean():
 
 SKILL = "plugins/p/skills/s/SKILL.md"
 SKILL_DEF = "`<skill-dir>` is the directory holding this SKILL.md.\n"
-ROOT_DEF = "`<plugin-root>` is the plugin's root directory, two levels above this SKILL.md.\n"
+ROOT_DEF = (
+    "`<plugin-root>` is the plugin's root directory, two levels above the directory holding"
+    " this SKILL.md.\n"
+)
 
 
 @pytest.mark.parametrize("var", ["CLAUDE_SKILL_DIR", "CLAUDE_PLUGIN_ROOT"])
@@ -112,3 +115,55 @@ def test_placeholder_needs_its_definition(tmp_path: Path, name: str, definition:
     result = run(tmp_path)
     assert result.returncode == 1
     assert f"FAIL: {SKILL} uses <{name}> without defining it" in result.stdout
+
+
+def test_placeholder_outside_skill_md_fails(tmp_path: Path):
+    write(tmp_path, "plugins/p/x.py", "")
+    write(tmp_path, "plugins/p/skills/s/references/r.md", "run <plugin-root>/x.py\n")
+    result = run(tmp_path)
+    assert result.returncode == 1
+    assert "references/r.md uses <skill-dir> or <plugin-root>, which only a SKILL.md defines" in (
+        result.stdout
+    )
+
+
+def test_definition_must_come_before_first_use(tmp_path: Path):
+    write(tmp_path, "plugins/p/x.py", "")
+    write(tmp_path, SKILL, "# S\n\nrun <plugin-root>/x.py\n\n" + ROOT_DEF)
+    result = run(tmp_path)
+    assert result.returncode == 1
+    assert "uses <plugin-root> on line 3, before its definition on line 5" in result.stdout
+
+
+def test_portable_plugin_may_not_read_plugin_options(tmp_path: Path):
+    skill = "plugins/graphe/skills/s/SKILL.md"
+    write(tmp_path, skill, "key ${user_config.key}\n")
+    result = run(tmp_path)
+    assert result.returncode == 1
+    assert f"FAIL: {skill} reads plugin options or plugin data, which graphe must not need" in (
+        result.stdout
+    )
+
+
+def test_unbraced_claude_variable_fails(tmp_path: Path):
+    write(tmp_path, "plugins/p/skills/s/x.py", "")
+    write(tmp_path, SKILL, "run $CLAUDE_SKILL_DIR/x.py\n")
+    result = run(tmp_path)
+    assert result.returncode == 1
+    assert "uses $CLAUDE_SKILL_DIR, which only Claude Code substitutes" in result.stdout
+
+
+def test_placeholder_path_may_not_climb_out(tmp_path: Path):
+    write(tmp_path, "plugins/other/x.py", "")
+    write(tmp_path, SKILL, ROOT_DEF + "run <plugin-root>/../other/x.py\n")
+    result = run(tmp_path)
+    assert result.returncode == 1
+    assert (
+        "names <plugin-root>/../other/x.py, which climbs out of the path it names" in result.stdout
+    )
+
+
+def test_trailing_dots_after_a_path_are_prose(tmp_path: Path):
+    write(tmp_path, "plugins/p/skills/s/x.py", "")
+    write(tmp_path, SKILL, SKILL_DEF + "Run <skill-dir>/x.py... then stop.\n")
+    assert run(tmp_path).returncode == 0

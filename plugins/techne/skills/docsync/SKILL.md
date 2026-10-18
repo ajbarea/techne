@@ -7,9 +7,9 @@ allowed-tools: Bash Glob Grep Read Edit Agent
 
 # Docsync
 
-Compare documentation against the code it describes. Find where the docs say one thing and the code says another. Propose fixes grounded in current code, not in what the docs *should* have said.
+`<plugin-root>` is the plugin's root directory, two levels above the directory holding this SKILL.md.
 
-`<plugin-root>` is the plugin's root directory, two levels above this SKILL.md.
+Compare documentation against the code it describes. Find where the docs say one thing and the code says another. Propose fixes grounded in current code, not in what the docs *should* have said.
 
 ## Repo context
 

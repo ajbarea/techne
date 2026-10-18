@@ -5,9 +5,9 @@ description: Check and set up what the techne code-repo skills need on this mach
 
 # Set up techne
 
-Read `<plugin-root>/AGENTS.md` and follow it. It is the setup runbook, and it starts by running this doctor:
+`<plugin-root>` is the plugin's root directory, two levels above the directory holding this SKILL.md.
 
-`<plugin-root>` is the plugin's root directory, two levels above this SKILL.md.
+Read `<plugin-root>/AGENTS.md` and follow it. It is the setup runbook, and it starts by running this doctor:
 
 ```bash
 python3 "<plugin-root>/skills/setup/scripts/doctor.py"

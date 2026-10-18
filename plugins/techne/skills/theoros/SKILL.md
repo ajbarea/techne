@@ -7,9 +7,9 @@ allowed-tools: Bash Read Grep
 
 # Theoros
 
-θεωρός — the "state-appointed spectator who watches a divine spectacle on behalf of the polis and reports back." Etymological ancestor of *theater* and *theory*. In this skill, **you (Claude) are the driver; the human is the theoros.**
-
 `<skill-dir>` is the directory holding this SKILL.md.
+
+θεωρός — the "state-appointed spectator who watches a divine spectacle on behalf of the polis and reports back." Etymological ancestor of *theater* and *theory*. In this skill, **you (Claude) are the driver; the human is the theoros.**
 
 The pattern: a long-running tmux session where you exercise the repo's interactive REPL via `tmux send-keys`, and the human attaches read-only via `tmux attach -r` to spectate. The human's eyes/ears judge aesthetic concerns (does it feel right, does it sound right). Your queries against logs and panes judge operational concerns (did the request fire, did the log line emit). Never confuse the two.
 
@@ -18,6 +18,8 @@ The pattern: a long-running tmux session where you exercise the repo's interacti
 ```!
 echo "<!-- skill-context: $(git rev-parse --show-toplevel 2>/dev/null || pwd) -->"; cat "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/skill-context.md" 2>/dev/null || echo "(no .claude/skill-context.md in this repo)"
 ```
+
+If your agent shows the block above as a command instead of its output, run it and use what it prints.
 
 No context file: this skill needs one. Tell the user to run /techne:setup, which offers to copy the skeleton, then fill in its `## theoros` section with a fenced YAML block holding at least `repl_command` and `session_name` (see the scaffolding section below). Run from the target repo's root; the bundled script reads the same file.
 

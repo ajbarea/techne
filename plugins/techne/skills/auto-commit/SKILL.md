@@ -7,9 +7,9 @@ allowed-tools: Bash(git status) Bash(git diff *) Bash(git log *) Bash(git rev-pa
 
 # Auto-Commit Generator
 
-Analyze pending git changes and group them into a structured commit plan written to `COMMITS.md` at the repo root. Default mode is plan-only — the user reads the file and either stages commits themselves or says the word for Claude to execute. On an explicit okay (see [Execution](#execution)), Claude runs the full branch → commits → push → PR chain against the plan, with no `Co-Authored-By:` trailer and without hardcoded side effects.
-
 `<skill-dir>` is the directory holding this SKILL.md.
+
+Analyze pending git changes and group them into a structured commit plan written to `COMMITS.md` at the repo root. Default mode is plan-only — the user reads the file and either stages commits themselves or says the word for Claude to execute. On an explicit okay (see [Execution](#execution)), Claude runs the full branch → commits → push → PR chain against the plan, with no `Co-Authored-By:` trailer and without hardcoded side effects.
 
 ## Workflow
 
