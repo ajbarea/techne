@@ -39,7 +39,7 @@ Run `/heuresis:setup` once first. It creates the ideas repository and checks the
 1. **Restate.** The idea is rewritten as one neutral paragraph with three to five short search queries. Praise and claims of novelty are dropped, so the scouts search for what the idea does.
 2. **Scout.** Four scouts run in parallel and each saves records with the passage that shows what the source says.
     - `scout-papers`: OpenAlex, Semantic Scholar and arXiv.
-    - `scout-patents`: Lens and EPO.
+    - `scout-patents`: EPO.
     - `scout-products`: GitHub, Hacker News and web search, including pricing pages.
     - `scout-context`: your bibliography, related-work notes, decks, ROADMAPs, marketplace and earlier ideas.
 3. **Pool.** A script merges the scout files into numbered records with a coverage line per source.
@@ -78,22 +78,21 @@ All inside your ideas repository.
 
 Save keys in Claude Code's secure storage: run `/plugin configure heuresis@techne`, paste each key into its masked field, and restart Claude Code. Or run `/heuresis:setup` and choose the file route: it prints a `.env` template, you fill it in at a private path outside any repository, and its store script saves the keys and prints only their names. Claude Code keeps the keys in its secure storage. At session start heuresis writes them to a private (0600) per-process file in its plugin data folder that Bash commands load, and deletes the file when the session ends. A key already in the Bash environment, such as one exported in your shell profile, wins.
 
-OpenAlex, arXiv and Hacker News run without a key. `OPENALEX_API_KEY` raises OpenAlex's daily search budget, and `OPENALEX_MAILTO` identifies you to OpenAlex. Semantic Scholar, Lens, EPO and GitHub show `skipped` in the verdict's coverage line without their keys, and the rest still run.
+OpenAlex, arXiv and Hacker News run without a key. `OPENALEX_API_KEY` raises OpenAlex's daily search budget, and `OPENALEX_MAILTO` identifies you to OpenAlex. Semantic Scholar, EPO and GitHub show `skipped` in the verdict's coverage line without their keys, and the rest still run.
 
 | Option (variable) | Source |
 |---|---|
 | `s2_api_key` (`S2_API_KEY`) | Semantic Scholar |
-| `lens_api_token` (`LENS_API_TOKEN`) | Lens patents |
 | `epo_ops_key`, `epo_ops_secret` (`EPO_OPS_KEY`, `EPO_OPS_SECRET`) | EPO patents |
 | `openalex_api_key` (`OPENALEX_API_KEY`) | Optional for OpenAlex |
 | `gh` signed in, or `GITHUB_TOKEN` | GitHub |
 | `OPENALEX_MAILTO` (shell only) | Identifies you to OpenAlex |
 
-The Lens and EPO adapters are written against the providers' documented response shapes. They have not yet been confirmed with live keys.
+The EPO adapter is written against the provider's documented response shape. It has not yet been confirmed with a live key.
 
 ## What it cannot tell you
 
-Patent search covers the granted and published patents these two sources index. A source's coverage line reads `ok` (with a `partial:` note when it returned only some results), `empty`, `failed` or `skipped`. A paper or product the sources do not index, or a page that renders its text with JavaScript, is invisible to it. A `later` verdict marked "insufficient evidence" means the search came back thin, not that the idea is new.
+Patent search covers the granted and published patents EPO indexes. A source's coverage line reads `ok` (with a `partial:` note when it returned only some results), `empty`, `failed` or `skipped`. A paper or product the sources do not index, or a page that renders its text with JavaScript, is invisible to it. A `later` verdict marked "insufficient evidence" means the search came back thin, not that the idea is new.
 
 ## Full instructions
 

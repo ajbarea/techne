@@ -36,9 +36,9 @@ uv run --quiet --no-project --with playwright==1.63.0 --with axe-playwright-pyth
     python plugins/techne/skills/docs-site/scripts/visual_qa.py http://127.0.0.1:8000/<repo>/ --out qa/
 ```
 
-Serve the build under its repo path, as GitHub Pages does. The script captures every sitemap page in light and dark at 1920, 1280 and 390 pixels wide in system Chrome and writes one contact sheet per page. It reports wrong-scheme surfaces, sideways scroll, AA contrast failures, broken images, page errors, unrendered markup and hidden sections. It cannot see a cramped hero or a page that does not say what the project is, so open the sheets and look.
+Serve the build under its repo path, as GitHub Pages does. The script captures every sitemap page in light and dark at 1920, 1280 and 390 pixels wide in Playwright's Chromium and writes one contact sheet per page. It reports wrong-scheme surfaces, sideways scroll, AA contrast failures, broken images, page errors, unrendered markup, hidden sections, social tags written twice, code split inside a token in a table, and a table that scrolls at desktop width. It cannot see a cramped hero or a page that does not say what the project is, so open the sheets and look.
 
-It also checks agent access and theme basics in `zensical.toml`: the `llmstxt` plugin and Copy as Markdown, a description per `llms.txt` entry, and a `media` query on each palette. visual_qa reports social tags written twice.
+It also checks agent access and theme basics in `zensical.toml`: the `llmstxt` plugin and Copy as Markdown, a description per `llms.txt` entry, and a `media` query on each palette.
 
 ## Shared files
 
@@ -49,7 +49,7 @@ python3 plugins/techne/skills/docs-site/scripts/sync_shared.py <repo>
 python3 plugins/techne/skills/docs-site/scripts/sync_shared.py --check <repo>
 ```
 
-`--check` writes nothing and exits 1 on drift; [`techne:sisters`](sisters.md) runs it across the fleet. A site's own hand-written copy of a shared file is refused unless you pass `--force`. A site sets `extra.og_image` and `extra.brand_mark` in `zensical.toml` for its card artwork and footer mark.
+`--check` writes nothing and exits 1 on drift; [`techne:sisters`](sisters.md) runs it across the fleet. A site's own hand-written copy of a shared file is refused unless you pass `--force`. A site sets `extra.og_image` and `extra.brand_mark` in `zensical.toml` for its card artwork and footer mark. The shared stylesheet and script give every site the same table rules (code in a table never splits; a wide table scrolls inside its box), a 1440px layout on wide screens, and a header button that hides the side panels.
 
 ## Prerequisites
 

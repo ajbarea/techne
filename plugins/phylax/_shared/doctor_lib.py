@@ -409,6 +409,11 @@ def guarded(name: str, required: bool, fn: Callable[[], Check]) -> Check:
         return Check(status, name, f"could not check: {type(exc).__name__}: {exc}")
 
 
+def key_checks(entries: Iterable[tuple[str, bool, str]]) -> list[Check]:
+    """Optional-key lines from plugin_keys.doctor_entries: a missing key is `optional`."""
+    return [Check(OK if present else OPTIONAL, name, detail) for name, present, detail in entries]
+
+
 def _one_line(text: str) -> str:
     """Join lines and drop control characters, so a field cannot forge another output line."""
     return "".join(c for c in " ".join(text.splitlines()) if c >= " " and c != "\x7f")

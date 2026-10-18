@@ -56,11 +56,23 @@ Run as many in parallel as the scope calls for:
 
 ## Shared files
 
-Four files are the same on every sister docs site, and techne holds the canonical copies in
+These files are the same on every sister docs site, and techne holds the canonical copies in
 `${CLAUDE_SKILL_DIR}/templates/shared/`, laid out as they sit in a site:
 
 - `overrides/main.html`: the home tab reads the site name; Open Graph and Twitter card tags. A
-  site with card artwork sets `extra.og_image` (a path under `docs/`) in `zensical.toml`.
+  site with card artwork sets `extra.og_image` (a path under `docs/`) in `zensical.toml`. It
+  also loads the two files below, so a synced site needs no `extra_css` or
+  `extra_javascript` entry for them.
+- `docs/stylesheets/shared.css`: inline code in a table never wraps (Zensical's
+  `word-break: break-word` on code lets a table squeeze a column until identifiers split, and
+  `word-break: normal` still breaks at a hyphen), an overflowing table scrolls inside its box
+  with edge shadows, the layout widens to 1440px on wide screens, and the side panels toggle's
+  styles. It loads before the site's own CSS, so a site can override it, except the
+  table-code wrapping rules, which are `!important` so one site rule cannot split
+  identifiers again; delete a site's own table-code wrapping rule as redundant.
+- `docs/javascripts/shared.js`: the header button that hides the navigation and table of
+  contents (remembered per reader), and an overflowing table box becomes a labelled,
+  keyboard-focusable region.
 - `overrides/partials/copyright.html`: the footer. A site with a footer mark sets
   `extra.brand_mark`.
 - `docs/javascripts/reveal.js`: the `hero-page` class and reveal-on-scroll for

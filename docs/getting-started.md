@@ -22,16 +22,18 @@ From inside Claude Code:
 
 Install only the plugins you use. Every enabled plugin's skill list sits in Claude's context on every turn.
 
-| You want to | Install | Then run | First run |
+Install each with `/plugin install <plugin>@techne`, then run its setup.
+
+| You want to | Plugin | Then run | First run |
 |---|---|---|---|
-| Audit a build, review CI or a change, plan commits, catch up on GitHub | `/plugin install techne@techne` | `/techne:setup` | `/techne:audit` in a repo with a Makefile, or `/techne:catchup` in any GitHub repo |
-| Build LaTeX, PDFs or talk decks, scaffold or review a paper | `/plugin install graphe@techne` | `/graphe:setup` | `/graphe:latex paper/main.tex` |
-| Check a bibliography | `/plugin install dokimasia@techne` | needs only uv | `/dokimasia:check` |
-| Triage an idea against prior work | `/plugin install heuresis@techne` | `/heuresis:setup` | `/heuresis:idea --now <your idea>` |
-| Read and draft Gmail across accounts | `/plugin install epistole@techne` | `/epistole:setup` | `/epistole:catch-me-up` |
-| Check a Brightspace course site | `/plugin install schole@techne` | `/schole:setup` | `/schole:courses` |
-| Block attribution lines, guard commits, restart on update | `/plugin install phylax@techne` | switch options on in `/config`, then `/phylax:setup` | `/phylax:setup` shows what is on |
-| Hear a gist of each reply (WSL2 only) | `/plugin install keryx@techne` | `keryx status` | speaks the next reply |
+| Audit a build, review CI or a change, plan commits, catch up on GitHub | [`techne`](plugins/techne.md) | `/techne:setup` | `/techne:audit` in a repo with a Makefile, or `/techne:catchup` in any GitHub repo |
+| Build LaTeX, PDFs or talk decks, scaffold or review a paper | [`graphe`](plugins/graphe.md) | `/graphe:setup` | `/graphe:latex paper/main.tex` |
+| Check a bibliography | [`dokimasia`](plugins/dokimasia.md) | needs only uv | `/dokimasia:check` |
+| Triage an idea against prior work | [`heuresis`](plugins/heuresis.md) | `/heuresis:setup` | `/heuresis:idea --now <your idea>` |
+| Read and draft Gmail across accounts | [`epistole`](plugins/epistole.md) | `/epistole:setup` | `/epistole:catch-me-up` |
+| Check a Brightspace course site | [`schole`](plugins/schole.md) | `/schole:setup` | `/schole:courses` |
+| Block attribution lines, guard commits, restart on update | [`phylax`](plugins/phylax.md) | switch options on in `/config`, then `/phylax:setup` | `/phylax:setup` shows what is on |
+| Hear a gist of each reply (WSL2 only) | [`keryx`](plugins/keryx.md) | `keryx status` | speaks the next reply |
 
 Each plugin's page under [Plugins](plugins/techne.md) lists what it needs, its commands, and its fixes.
 

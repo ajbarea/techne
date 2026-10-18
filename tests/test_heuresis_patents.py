@@ -1,4 +1,4 @@
-"""Lens and EPO adapters against hand-written responses in the documented shapes."""
+"""EPO adapter against hand-written responses in the documented shapes."""
 
 from __future__ import annotations
 
@@ -12,36 +12,6 @@ from heuresis.model import Record
 from heuresis.sources import http, patents
 
 FIX = ROOT / "tests" / "fixtures" / "heuresis"
-
-
-def test_lens_unavailable_without_token(monkeypatch):
-    monkeypatch.delenv("LENS_API_TOKEN", raising=False)
-    ok, why = patents.Lens().available()
-    assert not ok and "LENS_API_TOKEN" in why
-
-
-def test_lens_search_parses_recorded_response(monkeypatch):
-    seen = []
-    monkeypatch.setenv("LENS_API_TOKEN", "L")
-
-    def fake_post(url, body, headers=None):
-        seen.append((url, body, headers))
-        return (FIX / "lens_search.json").read_bytes()
-
-    monkeypatch.setattr(patents.http, "post_json", fake_post)
-    out = patents.Lens().search("idea triage", 2)
-    url, body, headers = seen[0]
-    assert url == "https://api.lens.org/patent/search"
-    assert body["query"]["query_string"]["query"] == "idea triage"
-    assert headers["Authorization"] == "Bearer L"
-    assert (
-        out
-        and out[0].kind == "patent"
-        and out[0].url.startswith("https://www.lens.org/lens/patent/")
-    )
-    assert out[0].evidence_url.startswith("lens:")
-    assert out[0].title == "Idea triage by prior art search" and out[0].text.startswith("A method")
-    assert out[0].date == "2012-07-04" and len(out) == 2
 
 
 def test_epo_unavailable_without_both_keys(monkeypatch):
@@ -187,49 +157,3 @@ def test_epo_evidence_bad_xml_is_source_error(monkeypatch):
     record = Record(title="t", url="u", source="epo", kind="patent", evidence_url="epo:EP.1.A1")
     with pytest.raises(http.SourceError):
         patents.Epo().evidence(record)
-
-
-def _lens(monkeypatch, payload):
-    monkeypatch.setenv("LENS_API_TOKEN", "L")
-    raw = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
-    monkeypatch.setattr(patents.http, "post_json", lambda url, body, headers=None: raw)
-
-
-def test_lens_malformed_bodies_are_source_errors(monkeypatch):
-    for payload in (b"<html>", b"[]", {"data": None}, {"data": {"a": 1}}, {}):
-        _lens(monkeypatch, payload)
-        with pytest.raises(http.SourceError):
-            patents.Lens().search("q", 2)
-
-
-def test_lens_skips_hits_without_id_and_null_date(monkeypatch):
-    _lens(
-        monkeypatch, {"data": [{"biblio": {}}, "junk", {"lens_id": "1-2", "date_published": None}]}
-    )
-    out = patents.Lens().search("q", 5)
-    assert [r.evidence_url for r in out] == ["lens:1-2"] and out[0].date == ""
-
-
-def test_english_tolerates_odd_shapes():
-    assert patents._english("plain") == "plain"
-    assert patents._english(None) == "" and patents._english({"text": "x"}) == ""
-    assert patents._english([{"text": "de", "lang": "de"}, {"text": "en", "lang": "en"}]) == "en"
-    assert patents._english(["x", {"text": "only"}]) == "only"
-
-
-def test_lens_evidence_combines_title_and_abstract(monkeypatch):
-    seen = []
-    monkeypatch.setenv("LENS_API_TOKEN", "L")
-    raw = (FIX / "lens_search.json").read_bytes()
-
-    def fake_post(url, body, headers=None):
-        seen.append(body)
-        return raw
-
-    monkeypatch.setattr(patents.http, "post_json", fake_post)
-    record = Record(title="t", url="u", source="lens", kind="patent", evidence_url="lens:031-156")
-    text = patents.Lens().evidence(record)
-    assert text and text.startswith("Idea triage by prior art search A method for triaging")
-    assert seen[0]["query"]["terms"]["lens_id"] == ["031-156"]
-    _lens(monkeypatch, {"data": []})
-    assert patents.Lens().evidence(record) == ""
