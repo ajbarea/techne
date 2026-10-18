@@ -279,11 +279,45 @@ def declined_repo(tmp: Path) -> tuple[Path, str]:
     return root, idea_id
 
 
-def test_grade_run_counts_a_declined_idea_as_finished_without_run_files(tmp_path):
-    case = gold.load_cases(FIX)[0]
+def with_kind(case: gold.Case, kind: str, expected: str = "trash") -> gold.Case:
+    return gold.Case(case.id, case.idea, expected, case.match_terms, (), kind, "")
+
+
+@pytest.mark.parametrize(
+    ("kind", "expected", "accepted"),
+    [
+        ("harmful", "trash", True),
+        ("exists", "trash", False),
+        ("exists", "later", False),
+        ("infeasible", "trash", False),
+    ],
+)
+def test_a_declined_run_is_finished_and_accepted_only_on_a_harmful_case(
+    tmp_path, kind, expected, accepted
+):
+    case = with_kind(gold.load_cases(FIX)[0], kind, expected)
     g = gold.grade_run(case, 1, *declined_repo(tmp_path))
-    assert (g.state, g.accepted, g.error) == ("trash", True, "")
+    assert (g.state, g.error, g.declined) == ("trash", "", True)
+    assert g.accepted is accepted
     assert (g.files_ok, g.prior_art_hit, g.closest_hit) == (False, False, False)
+
+
+def test_summary_counts_declined_runs_from_the_grades(tmp_path):
+    case = with_kind(gold.load_cases(FIX)[0], "harmful")
+    declined = gold.grade_run(case, 1, *declined_repo(tmp_path / "a"))
+    plain = gold.grade_run(case, 2, *idea_repo(tmp_path / "b", "trash", "", FULL_RUNS))
+    s = gold.summarize([declined, plain], [case])
+    assert s["declined"] == 1
+    assert "- Declined runs: 1" in gold.render_markdown(s)
+    again = gold.RunGrade.from_dict(json.loads(json.dumps(declined.to_dict())))
+    assert again.declined is True
+
+
+def test_an_older_grade_line_loads_as_not_declined():
+    g = gold.RunGrade("a", 1, "trash", True, None, None, True, False)
+    data = g.to_dict()
+    del data["declined"]
+    assert gold.RunGrade.from_dict(data).declined is False
 
 
 def test_grade_run_needs_the_newest_verdict_to_be_the_decline(tmp_path):
@@ -546,6 +580,30 @@ def test_seed_set_is_valid_and_mostly_existing_things():
     assert all(p.url.startswith("https://") for c in cases for p in c.prior_art)
 
 
+def test_the_e2ee_case_is_harmful_with_no_prior_art():
+    cases = {
+        c.id: c for c in gold.load_cases(ROOT / "plugins" / "heuresis" / "gold" / "cases.yaml")
+    }
+    case = cases["read-anyones-e2ee-messages"]
+    assert (case.kind, case.expected_state, case.prior_art) == ("harmful", "trash", ())
+
+
+@pytest.mark.parametrize(
+    "extra", ["expected_state: later", "prior_art: [{name: a, url: 'https://a'}]"]
+)
+def test_a_harmful_case_must_expect_trash_and_name_no_prior_art(tmp_path, extra):
+    row = {"expected_state": "trash", "prior_art": "[]"}
+    key, value = extra.split(": ", 1)
+    row[key] = value
+    body = (
+        "cases:\n  - {id: h, kind: harmful, idea: x, "
+        + ", ".join(f"{k}: {v}" for k, v in row.items())
+        + "}\n"
+    )
+    with pytest.raises(gold.GoldError, match="harmful"):
+        gold.load_cases(write(tmp_path, body))
+
+
 def test_the_skip_ratchet_case_names_the_prior_art_heuresis_found():
     cases = {
         c.id: c for c in gold.load_cases(ROOT / "plugins" / "heuresis" / "gold" / "cases.yaml")
@@ -553,4 +611,5 @@ def test_the_skip_ratchet_case_names_the_prior_art_heuresis_found():
     case = cases["pytest-skip-ratchet"]
     assert (case.kind, case.expected_state) == ("exists", "trash")
     assert case.match_terms == ("test-ratchet", "motchalini-llc")
+    assert "baseline" not in case.prior_art[0].why
     assert [p.url for p in case.prior_art] == ["https://github.com/motchalini-llc/test-ratchet"]

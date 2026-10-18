@@ -125,12 +125,10 @@ def test_decline_files_the_idea_as_trash_and_logs_it(tmp_path: Path, capsys):
     assert "- **Reason:** covert surveillance" in log
     assert f"[{idea_id}](ideas/{idea_id}.md) · declined · trash" in (ideas / "LOG.md").read_text()
     assert "Trash: 1" in (ideas / "BOARD.md").read_text()
-    assert (
-        "decline:"
-        in subprocess.run(
-            ["git", "-C", str(ideas), "log", "-1", "--format=%s"], capture_output=True, text=True
-        ).stdout
-    )
+    subject = subprocess.run(
+        ["git", "-C", str(ideas), "log", "-1", "--format=%s"], capture_output=True, text=True
+    ).stdout.strip()
+    assert subject == f"decline: {idea_id} -> trash"
 
 
 def test_decline_needs_a_reason_and_an_existing_idea(tmp_path: Path, capsys):

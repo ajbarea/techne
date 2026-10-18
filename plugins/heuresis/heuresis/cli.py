@@ -460,9 +460,9 @@ def _record_decision(args, origin: str, state: str, commit: str, **fields) -> in
 def _override(args) -> int:
     return _record_decision(
         args,
-        "override",
-        args.state,
-        "override",
+        origin="override",
+        state=args.state,
+        commit="override",
         type=args.type,
         project=args.project,
         duplicate_of=args.duplicate_of,
@@ -470,7 +470,8 @@ def _override(args) -> int:
 
 
 def _decline(args) -> int:
-    return _record_decision(args, "declined", "trash", "decline")
+    # Earlier runs/<id>/ files stay as the record of any earlier triage; history is kept.
+    return _record_decision(args, origin="declined", state="trash", commit="decline")
 
 
 def _dispatch(args: argparse.Namespace) -> int:

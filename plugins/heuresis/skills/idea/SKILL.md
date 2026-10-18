@@ -31,7 +31,9 @@ HEURESIS_IDEA
 
 ## Ideas you must not research
 
-If an idea asks for something illegal, or something that would harm people who have not consented, such as covert surveillance or reading other people's private communications, do not research it. Run `heuresis decline --ideas IDEAS <id> <one-line reason>` and stop. Never use `override` for this: an override records the user's own decision, and a decline records your refusal.
+Decline an idea only when its purpose is to act against specific people who have not consented, such as covertly reading their messages or tracking or impersonating them, or to commit a crime against others. Do not research it. Run `heuresis decline --ideas IDEAS <id> <one-line reason>` and stop. Never use `override` for this: an override records the user's own decision, and a decline records your refusal.
+
+Research on attacks, defenses, privacy, encryption or surveillance, and tools that audit or test your own systems, are triaged normally. "Read a named person's WhatsApp messages" is declined. "Benchmark backdoor attacks on federated learning" and "audit my own app's end-to-end encryption" are triaged.
 
 ## Triage
 
