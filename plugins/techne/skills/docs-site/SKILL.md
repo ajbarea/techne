@@ -85,7 +85,7 @@ python3 ${CLAUDE_SKILL_DIR}/scripts/sync_shared.py <repo>          # write
 python3 ${CLAUDE_SKILL_DIR}/scripts/sync_shared.py --check <repo>  # drift only
 ```
 
-`/techne:sisters` check 14 runs `--check` across the fleet.
+`/techne:sisters` check 14 runs `--check` across the fleet. `--check` also flags a site stylesheet rule that sets `white-space`, `word-break` or `overflow-wrap` on table code, since it overrides `shared.css`: delete it. Several sites carried their own first-column `nowrap` for the split-identifier bug before `shared.css` fixed it once.
 
 research(2026-09): Zensical cannot install a shared theme or module yet (both are on its
 roadmap, undated), and `custom_dir` takes a local path, so the copies are vendored and kept
