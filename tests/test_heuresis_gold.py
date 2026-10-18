@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from collections.abc import Mapping
 from pathlib import Path
@@ -13,6 +14,26 @@ from heuresis.model import FACETS, Idea, Verdict
 
 PRIOR = "cases:\n  - {id: a, idea: x, expected_state: trash, match_terms: [t], "
 FIX = ROOT / "tests" / "fixtures" / "heuresis" / "gold_cases.yaml"
+
+
+def stamped(grades: list[gold.RunGrade], cases: list[gold.Case]) -> list[gold.RunGrade]:
+    """Grades carrying the labels of their case, as grade_run writes them."""
+    by_id = {c.id: c for c in cases}
+    return [
+        dataclasses.replace(
+            g,
+            expected_state=by_id[g.case].expected_state,
+            kind=by_id[g.case].kind,
+            labels=gold.case_labels(by_id[g.case]),
+        )
+        if g.case in by_id
+        else g
+        for g in grades
+    ]
+
+
+def summarize(grades: list[gold.RunGrade], cases: list[gold.Case]) -> dict:
+    return gold.summarize(stamped(grades, cases), cases)
 
 
 def write(tmp: Path, text: str) -> Path:
@@ -357,7 +378,7 @@ def test_summary_counts_declined_runs_from_the_grades(tmp_path):
     case = with_kind(gold.load_cases(FIX)[0], "harmful")
     declined = gold.grade_run(case, 1, *declined_repo(tmp_path / "a"))
     plain = gold.grade_run(case, 2, *idea_repo(tmp_path / "b", "trash", "", FULL_RUNS))
-    s = gold.summarize([declined, plain], [case])
+    s = summarize([declined, plain], [case])
     assert s["declined"] == 1
     assert "- Declined runs: 1" in gold.render_markdown(s)
     again = gold.RunGrade.from_dict(json.loads(json.dumps(declined.to_dict())))
@@ -464,7 +485,7 @@ def test_every_failed_run_on_a_measured_case_counts_as_a_recall_miss(tmp_path):
     grades = failed_runs(tmp_path, case)
     assert [(g.prior_art_hit, g.closest_hit) for g in grades] == [(False, False)] * 4
     assert all(g.error and not g.accepted for g in grades)
-    s = gold.summarize(grades, [case])
+    s = summarize(grades, [case])
     assert (s["prior_art_recall"], s["closest_recall"]) == (0.0, 0.0)
 
 
@@ -472,7 +493,7 @@ def test_failed_runs_on_an_unmeasured_case_stay_unmeasured(tmp_path):
     case = gold.load_cases(FIX)[1]
     grades = failed_runs(tmp_path, case)
     assert [(g.prior_art_hit, g.closest_hit) for g in grades] == [(None, None)] * 4
-    assert gold.summarize(grades, [case])["prior_art_recall"] is None
+    assert summarize(grades, [case])["prior_art_recall"] is None
 
 
 def test_cases_without_match_terms_have_no_prior_art_measure(tmp_path):
@@ -496,7 +517,7 @@ def test_summarize_and_render(tmp_path):
             "new-thing", 1, None, False, None, None, False, False, error="timed out after 5s"
         ),
     ]
-    s = gold.summarize(grades, cases)
+    s = summarize(grades, cases)
     assert s["runs"] == 4 and s["errors"] == 1
     assert s["agreement"] == pytest.approx(2 / 4)
     assert s["prior_art_recall"] == pytest.approx(1 / 2)
@@ -520,7 +541,7 @@ def test_summarize_and_render(tmp_path):
 def test_do_on_existing_keys_on_the_case_kind(kind, expected, counted):
     case = gold.Case("c", "x", expected, ("t",) if kind == "exists" else (), (), kind)
     grade = gold.RunGrade("c", 1, "do", False, None, None, True, True)
-    assert gold.summarize([grade], [case])["do_on_existing"] == counted
+    assert summarize([grade], [case])["do_on_existing"] == counted
 
 
 def test_summarize_ignores_runs_of_unknown_cases_and_render_marks_missing_numbers():
@@ -529,13 +550,13 @@ def test_summarize_ignores_runs_of_unknown_cases_and_render_marks_missing_number
         gold.RunGrade("teleport", 1, "trash", True, None, None, True, True),
         gold.RunGrade("renamed", 1, "do", False, None, None, True, True),
     ]
-    s = gold.summarize(grades, cases)
+    s = summarize(grades, cases)
     assert (s["runs"], s["unknown_case_runs"], s["do_on_existing"]) == (1, 1, 0)
     md = gold.render_markdown(s)
     assert "- Total cost (client estimate): n/a" in md
     assert "- Median run time (s): n/a" in md
     assert "not in the cases file (ignored): 1" in md
-    priced = gold.summarize(
+    priced = summarize(
         [gold.RunGrade("teleport", 1, "trash", True, None, None, True, True, cost_usd=0.5)], cases
     )
     assert "- Total cost (client estimate): $0.50" in gold.render_markdown(priced)
@@ -617,7 +638,7 @@ def test_render_lists_the_closest_rival_each_run_named():
             "new-thing", 1, None, False, None, None, False, False, error="claude exited 1"
         ),
     ]
-    md = gold.render_markdown(gold.summarize(grades, cases))
+    md = gold.render_markdown(summarize(grades, cases))
     assert "- Closest rival on the case's list: 33%" in md
     assert "Closest-rival recall" not in md
     assert md.split("## Closest rival named, by run\n\n")[1].splitlines() == [
@@ -645,7 +666,7 @@ def named_row(title, url, verified=True, error="", recorded=True) -> str:
         closest_verified=verified,
         closest_recorded=recorded,
     )
-    md = gold.render_markdown(gold.summarize([g], gold.load_cases(FIX)))
+    md = gold.render_markdown(summarize([g], gold.load_cases(FIX)))
     return md.split("## Closest rival named, by run\n\n")[1].rstrip("\n")
 
 
@@ -728,3 +749,96 @@ def test_the_skip_ratchet_case_names_the_prior_art_heuresis_found():
     assert case.match_terms == ("test-ratchet", "motchalini-llc")
     assert "baseline" not in case.prior_art[0].why
     assert [p.url for p in case.prior_art] == ["https://github.com/motchalini-llc/test-ratchet"]
+
+
+def test_grade_run_records_the_labels_it_was_graded_against(tmp_path):
+    case = gold.load_cases(FIX)[0]
+    g = gold.grade_run(case, 1, tmp_path / "none", "2026-10-17-x", error="boom")
+    assert (g.expected_state, g.kind, g.labels) == ("trash", "exists", gold.case_labels(case))
+    root, idea_id = idea_repo(tmp_path, "trash", section(FULL_RUNS), FULL_RUNS)
+    ok = gold.grade_run(case, 1, root, idea_id)
+    assert ok.labels == gold.case_labels(case)
+    reordered = dataclasses.replace(case, match_terms=tuple(reversed(case.match_terms)))
+    assert gold.case_labels(reordered) == gold.case_labels(case)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"expected_state": "later"},
+        {"kind": "candidate"},
+        {"match_terms": ("dokimasia",)},
+    ],
+)
+def test_summarize_refuses_a_grade_whose_labels_changed_and_names_the_case(change):
+    case = gold.load_cases(FIX)[0]
+    grade = gold.RunGrade("bib-checker", 2, "trash", True, True, True, True, True)
+    (grade,) = stamped([grade], [case])
+    summarize([grade], [case])
+    edited = dataclasses.replace(case, **change)
+    with pytest.raises(gold.GoldError, match=r"bib-checker run 2.*regrade"):
+        gold.summarize([grade], [edited])
+
+
+def test_summarize_refuses_a_grade_line_that_recorded_no_labels():
+    case = gold.load_cases(FIX)[0]
+    old = gold.RunGrade("bib-checker", 1, "trash", True, True, True, True, True).to_dict()
+    for key in ("expected_state", "kind", "labels"):
+        del old[key]
+    with pytest.raises(gold.GoldError, match="bib-checker run 1"):
+        gold.summarize([gold.RunGrade.from_dict(old)], [case])
+
+
+def test_summarize_does_not_check_the_labels_of_a_case_it_ignores():
+    case = gold.load_cases(FIX)[1]
+    stray = gold.RunGrade("renamed", 1, "do", False, None, None, True, True)
+    assert gold.summarize([stray], [case])["unknown_case_runs"] == 1
+
+
+def coded(
+    commit: str | None, dirty: bool | None, version: str | None = None, run: int = 1
+) -> gold.RunGrade:
+    return gold.RunGrade(
+        "teleport",
+        run,
+        "trash",
+        True,
+        None,
+        None,
+        True,
+        True,
+        commit=commit,
+        dirty=dirty,
+        plugin_version=version,
+    )
+
+
+def code_line(*grades: gold.RunGrade) -> str:
+    md = gold.render_markdown(summarize(list(grades), gold.load_cases(FIX)))
+    (line,) = [x for x in md.splitlines() if x.startswith("- Code under test")]
+    return line
+
+
+def test_the_summary_names_the_code_under_test():
+    sha = "0123456789abcdef0123456789abcdef01234567"
+    assert code_line(coded(sha, False, "1.2.0"), coded(sha, False, "1.2.0", 2)) == (
+        "- Code under test: 0123456789ab, clean, plugin version 1.2.0"
+    )
+    assert code_line(coded(sha, True)) == "- Code under test: 0123456789ab, uncommitted changes"
+    s = summarize([coded(sha, False)], gold.load_cases(FIX))
+    assert s["code"] == [{"commit": sha, "dirty": False, "plugin_version": None, "runs": 1}]
+
+
+def test_a_summary_that_mixes_code_states_says_so_with_run_counts():
+    a, b = "a" * 40, "b" * 40
+    line = code_line(coded(a, False), coded(a, False, run=2), coded(b, True, run=3))
+    assert line == (
+        "- Code under test (mixed, 2 different states): "
+        f"{a[:12]}, clean (2 runs); {b[:12]}, uncommitted changes (1 run)"
+    )
+
+
+def test_runs_with_no_recorded_code_read_as_unknown():
+    assert code_line(coded(None, None)) == (
+        "- Code under test: commit unknown, dirty state unknown"
+    )
