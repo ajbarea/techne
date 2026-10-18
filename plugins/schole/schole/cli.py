@@ -7,7 +7,7 @@ import contextlib
 import json
 import sys
 import time
-from collections.abc import Iterator
+from collections.abc import Generator
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -61,7 +61,7 @@ def is_browser_error(exc: Exception) -> bool:
 
 
 @contextlib.contextmanager
-def browser(base: Path, site: str, headless: bool) -> Iterator[Any]:
+def browser(base: Path, site: str, headless: bool) -> Generator[Any, None, None]:
     from playwright.sync_api import sync_playwright  # ty: ignore[unresolved-import]
 
     profile = config.profile(base)
