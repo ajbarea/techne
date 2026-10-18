@@ -869,3 +869,14 @@ def test_duplicate_case_id_across_files_is_rejected(fake, capsys):
     err = capsys.readouterr().err
     assert code == 2 and str(CASES) in err and str(twin) in err and "bib-checker" in err
     assert not out.exists()
+
+
+def test_regrade_help_and_docs_say_a_repeat_is_replaced_not_pooled(capsys):
+    with pytest.raises(SystemExit) as exc:
+        r.main(["regrade", "--help"])
+    assert exc.value.code == 0
+    assert "never pooled" in " ".join(capsys.readouterr().out.split())
+    docs = (ROOT / "docs" / "skills" / "idea.md").read_text()
+    assert "uv run python scripts/heuresis_gold.py regrade" in docs
+    assert "Regrade replaces repeats; it does not pool them." in docs
+    assert "python3 scripts/heuresis_gold.py" not in docs
