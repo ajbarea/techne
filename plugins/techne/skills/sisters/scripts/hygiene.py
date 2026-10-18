@@ -90,13 +90,28 @@ REGENERABLE = {
 # deeper down the same name may be a folder a person made. Astro's types and content
 # store, husky's shims (rebuilt on `npm install`), Playwright and Lighthouse CI reports.
 REGENERABLE_PATHS = (".astro", ".husky/_", "test-results", "playwright-report", ".lighthouseci")
-# chrome-launcher's throwaway Chrome profile (Lighthouse CI). Under WSL its Windows temp
-# path lands in the repo as one folder name, which git quotes: "C:\Users\...\lighthouse.80415069/".
-LIGHTHOUSE_PROFILE = re.compile(r'^"?(?:[^/"]*\\)?lighthouse\.\d{6,}/?"?$')
+# chrome-launcher's throwaway Chrome profile (Lighthouse CI): a folder `lighthouse.` plus
+# exactly 8 digits. Under WSL its Windows temp path lands in the repo as one folder name,
+# which git quotes: "C:\\Users\\...\\lighthouse.80415069/".
+LIGHTHOUSE_PROFILE = re.compile(
+    r'^lighthouse\.\d{8}/$|^"[A-Za-z]:\\\\(?:[^"/\\]+\\\\)*lighthouse\.\d{8}/"$'
+)
 REGENERABLE_SUFFIXES = (
     ".egg-info", ".pyc", ".aux", ".bbl", ".blg", ".log", ".out", ".toc", ".fls",
     ".fdb_latexmk", ".synctex.gz", ".bcf", ".run.xml",
 )  # fmt: skip
+
+
+def unquote(entry: str) -> str:
+    """A path as `git status` prints it, without git's C quoting of unusual names."""
+    if len(entry) > 1 and entry[0] == entry[-1] == '"':
+        return entry[1:-1].encode("latin-1", "backslashreplace").decode("unicode_escape")
+    return entry
+
+
+def is_chrome_profile(folder: Path) -> bool:
+    """chrome-launcher's profile holds Chrome's own `Local State`; a reports folder does not."""
+    return (folder / "Local State").is_file()
 
 
 def is_latex_main(tex: Path) -> bool:
@@ -108,8 +123,8 @@ def is_latex_main(tex: Path) -> bool:
 
 
 def regenerable(ignored: str, root: str | None = None) -> bool:
-    if LIGHTHOUSE_PROFILE.match(ignored):
-        return True
+    if root and LIGHTHOUSE_PROFILE.match(ignored):
+        return is_chrome_profile(Path(root, unquote(ignored)))
     path = ignored.rstrip("/")
     parts = path.split("/")
     # LaTeX output: x.pdf beside a document x.tex in the same worktree is rebuilt by latexmk.
@@ -401,8 +416,8 @@ def transient(blockers: list[str]) -> bool:
     return any(b in (BUSY_UNKNOWN, BUSY_LIVE) or b.startswith(ACTIVE_PREFIX) for b in blockers)
 
 
-def leftover(before: str, after: str, pr: dict | None, hold: list[str]) -> str:
-    """Item.left for a branch or worktree: `before`/`after` are its group without and with holds.
+def leftover(after: str, pr: dict | None, hold: list[str]) -> str:
+    """Item.left for a branch or worktree: `after` is its group with its holds applied.
 
     A lasting hold (changes, kept ignored files) is reported even when a session is also at
     work in it; only holds that all clear by themselves are left out.
@@ -412,7 +427,7 @@ def leftover(before: str, after: str, pr: dict | None, hold: list[str]) -> str:
         return ""  # only a session at work: a later run decides
     if pr and pr["state"] == "CLOSED":
         return "closed"
-    finished = bool(pr and pr["state"] == "MERGED")  # a branch with no PR was never merged
+    finished = bool(pr and pr["state"] == "MERGED")  # only a merged PR leaves something behind
     return "held" if finished and after == "review" else ""
 
 
@@ -459,10 +474,9 @@ def collect(name: str, path: str, slug: str, me: str, prs: dict[str, dict]) -> l
         others = [t["worktree"] for t in trees if t["worktree"] != wpath]
         blockers = ["locked"] if "locked" in wt else []
         blockers += worktree_blockers(wpath, others, busy)
-        before = group
         if blockers:
             group, reason = "review", reason + "; " + ", ".join(blockers)
-        left = leftover(before, group, prs.get(branch), blockers) if group == "review" else ""
+        left = leftover(group, prs.get(branch), blockers) if group == "review" else ""
         merged = bool(prs.get(branch) and prs[branch]["state"] == "MERGED")
         items.append(
             Item(
@@ -474,10 +488,9 @@ def collect(name: str, path: str, slug: str, me: str, prs: dict[str, dict]) -> l
             judged.pop(branch, None)  # removed with its worktree, or held with it
 
     for branch, (group, reason) in judged.items():
-        before = group
         if branch in checked_out and checked_out[branch] == main_tree:
             group, reason = "review", reason + "; checked out in the main checkout"
-        left = leftover(before, group, prs.get(branch), []) if group == "review" else ""
+        left = leftover(group, prs.get(branch), []) if group == "review" else ""
         merged = bool(prs.get(branch) and prs[branch]["state"] == "MERGED")
         items.append(
             Item(
@@ -495,7 +508,7 @@ def collect(name: str, path: str, slug: str, me: str, prs: dict[str, dict]) -> l
         pr = prs.get(branch)
         group, reason = judge_branch(path, sha, default, pr, me, remote=True)
         mine = bool(pr and pr.get("author", {}).get("login") == me)
-        left = leftover(group, group, pr, []) if group == "review" and mine else ""
+        left = leftover(group, pr, []) if group == "review" and mine else ""
         items.append(
             Item("remote-branch", branch, group, reason, sha=sha, left=left, auto=group == "remove")
         )

@@ -438,11 +438,8 @@ def test_an_open_pr_outranks_a_newer_closed_one_on_the_same_branch(hy, monkeypat
         ("test-results/", True),
         ("playwright-report/", True),
         (".lighthouseci/", True),
-        # chrome-launcher profiles; under WSL git quotes a Windows temp path as one name.
-        ('"C:\\\\Users\\\\aj\\\\AppData\\\\Local\\\\lighthouse.80415069/"', True),
-        ("lighthouse.80415069/", True),
-        ("docs/lighthouse.80415069/", False),
-        ("lighthouse.2024/", False),
+        # A chrome-launcher profile needs the worktree to look inside: see the test below.
+        ("lighthouse.80415069/", False),
         # husky ignores its own files, so git lists each one rather than the directory.
         (".husky/_/h", True),
         (".husky/_/pre-commit", True),
@@ -463,6 +460,34 @@ def test_an_open_pr_outranks_a_newer_closed_one_on_the_same_branch(hy, monkeypat
 )
 def test_only_build_output_counts_as_regenerable(hy, path, expected):
     assert hy.regenerable(path) is expected
+
+
+@pytest.mark.parametrize(
+    ("entry", "folder", "profile", "expected"),
+    [
+        ("lighthouse.80415069/", "lighthouse.80415069", True, True),
+        # Under WSL, git quotes the Windows temp path chrome-launcher meant as one folder name.
+        (
+            '"C:\\\\Users\\\\aj\\\\AppData\\\\Local\\\\lighthouse.80415069/"',
+            "C:\\Users\\aj\\AppData\\Local\\lighthouse.80415069",
+            True,
+            True,
+        ),
+        ("lighthouse.20261018/", "lighthouse.20261018", False, False),  # dated reports folder
+        ("lighthouse.202610181/", "lighthouse.202610181", True, False),
+        ("lighthouse.2024/", "lighthouse.2024", True, False),
+        ("docs/lighthouse.80415069/", "docs/lighthouse.80415069", True, False),
+        ('"my thesis\\\\lighthouse.80415069/"', "my thesis\\lighthouse.80415069", True, False),
+    ],
+)
+def test_a_lighthouse_profile_is_build_output_only_when_chrome_made_it(
+    hy, tmp_path, entry, folder, profile, expected
+):
+    (tmp_path / folder).mkdir(parents=True)
+    if profile:
+        (tmp_path / folder / "Local State").write_text("{}")
+    assert hy.regenerable(entry, str(tmp_path)) is expected
+    assert hy.regenerable(entry) is False  # without the worktree there is nothing to check
 
 
 @pytest.mark.parametrize(
