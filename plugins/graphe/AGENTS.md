@@ -38,7 +38,7 @@ The `OPENALEX_API_KEY` and `S2_API_KEY` lines are `optional`. paper-review runs 
 - **Route A (recommended).** The user runs `/plugin configure graphe@techne` and pastes each key into its masked field.
 - **Route B, from a file.** Print the template with the store command and `template`, then have the user save it at a private path outside any repository (for example `~/graphe-keys.env`), fill in the keys and run `chmod 600` on it. Run the store command with `store` and that absolute path. It saves each key into every installed plugin that uses it, heuresis and graphe both for a shared key such as `S2_API_KEY`, and prints only the names. `/plugin configure` saves into one plugin only, so after changing a shared key there, change it in the other plugin too or use the store command. Afterwards the user deletes the file or keeps it somewhere private.
 
-Either way the user restarts Claude Code, then you run the doctor again. A key already in the Bash environment, such as one exported in the shell profile, wins over a saved one. If heuresis and graphe both use the same key, keep the two values the same: either plugin's value may be the one a session uses.
+Either way the user restarts Claude Code, then you run the doctor again. In another agent CLI, which has no plugin settings, the user exports `OPENALEX_API_KEY` and `S2_API_KEY` in the shell profile and starts a new session. A key already in the Bash environment, such as one exported in the shell profile, wins over a saved one. If heuresis and graphe both use the same key, keep the two values the same: either plugin's value may be the one a session uses.
 
 ## 4. Check the result
 

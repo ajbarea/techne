@@ -164,6 +164,18 @@ def test_every_skill_uses_the_canonical_load_line():
         assert lines == [LOAD_LINE], name
 
 
+FALLBACK = (
+    "If the block above appears as a command rather than its output, run it and use what it prints."
+)
+
+
+def test_every_inline_block_tells_other_agents_to_run_it():
+    for skill in sorted(PLUGINS.glob("*/skills/*/SKILL.md")):
+        for after in skill.read_text(encoding="utf-8").split("```!\n")[1:]:
+            tail = after.split("\n```\n", 1)[1]
+            assert tail.lstrip("\n").startswith(FALLBACK), skill
+
+
 def _load(cwd: pathlib.Path) -> str:
     return subprocess.run(
         ["bash", "-c", LOAD_LINE],

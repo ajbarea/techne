@@ -167,3 +167,21 @@ def test_trailing_dots_after_a_path_are_prose(tmp_path: Path):
     write(tmp_path, "plugins/p/skills/s/x.py", "")
     write(tmp_path, SKILL, SKILL_DEF + "Run <skill-dir>/x.py... then stop.\n")
     assert run(tmp_path).returncode == 0
+
+
+def test_definition_must_match_exactly(tmp_path: Path):
+    write(tmp_path, "plugins/p/skills/s/x.py", "")
+    wrong = "`<skill-dir>` is the directory holding this SKILL.md's parent plugin.\n"
+    write(tmp_path, SKILL, wrong + "run <skill-dir>/x.py\n")
+    result = run(tmp_path)
+    assert result.returncode == 1
+    assert f"FAIL: {SKILL} uses <skill-dir> without defining it" in result.stdout
+
+
+@pytest.mark.parametrize("marker", ["$CLAUDE_PLUGIN_DATA/venv", "${CLAUDE_PLUGIN_DATA:-/tmp}"])
+def test_portable_plugin_may_not_read_plugin_data_in_any_spelling(tmp_path: Path, marker: str):
+    skill = "plugins/graphe/skills/s/SKILL.md"
+    write(tmp_path, skill, f"venv {marker}\n")
+    result = run(tmp_path)
+    assert result.returncode == 1
+    assert "reads plugin options or plugin data, which graphe must not need" in result.stdout

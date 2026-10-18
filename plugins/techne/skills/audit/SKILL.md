@@ -15,7 +15,7 @@ Run the full `make` audit in phases. Each phase builds on the previous; the orde
 echo "<!-- skill-context: $(git rev-parse --show-toplevel 2>/dev/null || pwd) -->"; cat "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/skill-context.md" 2>/dev/null || echo "(no .claude/skill-context.md in this repo)"
 ```
 
-If your agent shows the block above as a command instead of its output, run it and use what it prints.
+If the block above appears as a command rather than its output, run it and use what it prints.
 
 No context file: abort and tell the user to run /techne:setup, which offers to copy the skeleton into the repo.
 

@@ -191,8 +191,9 @@ Detail lives in git history (`git log`) and the live skill code. This log is pru
   Copilot recovered in 2 of 3 by guessing the path; the placeholders resolved 3 of 3 in all four
   CLIs, and both paths resolved in 12 of 12 runs
   on graphe:pdf, which uses both. On the final tree, the sisters step, audit's inline context
-  block and graphe:pdf's paths passed 24 of 24 runs across the four CLIs. `check_plugin_refs.sh`
-  resolves every placeholder path, requires its definition under the skill's title before first
+  block and graphe:pdf's paths passed 24 of 24 runs across the four CLIs, and dokimasia's
+  offline lint ran its shipped script in 8 of 8. `check_plugin_refs.sh`
+  resolves every placeholder path, requires its exact definition line before first
   use, refuses placeholders outside SKILL.md and the Claude variables in skill bodies, and keeps
   techne, graphe and dokimasia free of plugin options. The README and Getting Started give each
   CLI's install command.

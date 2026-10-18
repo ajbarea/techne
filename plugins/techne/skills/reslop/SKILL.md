@@ -17,7 +17,7 @@ Generative sibling of `/techne:deslop`. Where `/techne:deslop` deletes low-value
 echo "<!-- skill-context: $(git rev-parse --show-toplevel 2>/dev/null || pwd) -->"; cat "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/skill-context.md" 2>/dev/null || echo "(no .claude/skill-context.md in this repo)"
 ```
 
-If your agent shows the block above as a command instead of its output, run it and use what it prints.
+If the block above appears as a command rather than its output, run it and use what it prints.
 
 No context file: use conservative defaults for grounding numeric claims. The header names the repo it came from, which is the current directory's. When the target is a path in another repo, run `bash "<plugin-root>/_shared/skill_context.sh" <target-path>` and use that output instead.
 

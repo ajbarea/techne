@@ -42,7 +42,8 @@ done
 # The plugins the docs say run in other agent CLIs. Elsewhere a skill that reads plugin options
 # or the plugin data directory runs on Claude Code alone for now, so its variables stay.
 PORTABLE=" techne graphe dokimasia "
-skill_def='`<skill-dir>` is the directory holding this SKILL.md'
+skill_defs=("\`<skill-dir>\` is the directory holding this SKILL.md."
+	"\`<skill-dir>\` is the directory holding this SKILL.md, and \`<plugin-root>\` is the plugin's root directory, two levels above it.")
 root_defs=("\`<plugin-root>\` is the plugin's root directory, two levels above the directory holding this SKILL.md."
 	"\`<skill-dir>\` is the directory holding this SKILL.md, and \`<plugin-root>\` is the plugin's root directory, two levels above it.")
 claude_var='\$\{?CLAUDE_(PLUGIN_ROOT|SKILL_DIR)\b\}?'
@@ -61,7 +62,7 @@ while IFS= read -r skill; do
 	plugin=$(dirname "$(dirname "$dir")")
 	name=$(basename "$plugin")
 	exempt=0
-	grep -qE '\$\{(user_config\.|CLAUDE_PLUGIN_DATA\})' "$skill" && exempt=1
+	grep -qE '\$\{?(user_config\.|CLAUDE_PLUGIN_DATA\b)' "$skill" && exempt=1
 	if [ "$exempt" -eq 1 ] && [[ $PORTABLE == *" $name "* ]]; then
 		echo "FAIL: $skill reads plugin options or plugin data, which $name must not need: the docs say it runs in other agent CLIs"
 		status=1
@@ -78,7 +79,7 @@ while IFS= read -r skill; do
 			| head -1 | cut -d: -f1) || true
 		[ -n "$first_use" ] || continue
 		if [ "$placeholder" = skill-dir ]; then
-			def_line=$(grep -nF -- "$skill_def" "$skill" | head -1 | cut -d: -f1) || true
+			def_line=$(grep -nxF -e "${skill_defs[0]}" -e "${skill_defs[1]}" "$skill" | head -1 | cut -d: -f1) || true
 			base=$dir
 		else
 			def_line=$(grep -nxF -e "${root_defs[0]}" -e "${root_defs[1]}" "$skill" | head -1 | cut -d: -f1) || true
