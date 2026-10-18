@@ -404,6 +404,73 @@ def test_the_timeout_still_ends_a_session_that_settles_never(fake, monkeypatch):
     assert g["error"] == "timed out after 3s" and g["stopped_after_result"] is False
 
 
+def test_an_exited_session_keeps_its_exit_code_when_a_child_holds_the_pipes(fake, monkeypatch):
+    pidfile = fake / "child.pid"
+    monkeypatch.setattr(r, "TERM_GRACE", 1)
+    elapsed, (g,) = settle_run(fake, monkeypatch, "exit-orphan", FAKE_CLAUDE_PIDFILE=str(pidfile))
+    assert elapsed < 20
+    assert g["error"] == "claude exited 1" and g["stopped_after_result"] is False
+    child = int(pidfile.read_text())
+    for _ in range(50):
+        if not alive(child):
+            break
+        time.sleep(0.1)
+    assert not alive(child)
+
+
+CLOSE_PIPES = "import os, sys, time\nos.close(1)\nos.close(2)\ntime.sleep(float(sys.argv[1]))\n"
+
+
+def test_a_session_that_closed_its_pipes_is_waited_for_until_it_exits(tmp_path):
+    cmd = [sys.executable, "-c", CLOSE_PIPES, "1.5"]
+    session = r.run_session(cmd, tmp_path, 30)
+    assert session.code == 0 and session.settled is False
+
+
+def test_a_session_that_closed_its_pipes_is_stopped_at_the_timeout(tmp_path, monkeypatch):
+    monkeypatch.setattr(r, "TERM_GRACE", 1)
+    started = time.monotonic()
+    session = r.run_session([sys.executable, "-c", CLOSE_PIPES, "60"], tmp_path, 1)
+    assert session.code is None and time.monotonic() - started < 15
+
+
+def test_an_unwritable_log_does_not_stall_the_session_and_is_reported(fake, monkeypatch):
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "trash")
+    real_open = Path.open
+
+    def refuse_logs(self, *args, **kwargs):
+        if self.parent.name == "logs" and self.suffix == ".jsonl":
+            raise PermissionError("log folder is read-only")
+        return real_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", refuse_logs)
+    out = fake / "out"
+    assert go(out, "--no-guard") == 0
+    (g,) = grades_of(out)
+    assert g["error"] == "log not written: log folder is read-only"
+
+
+def test_a_log_that_fails_midway_keeps_the_stream_and_is_reported(tmp_path, monkeypatch):
+    class Failing:
+        def write(self, line):
+            raise OSError("disk full")
+
+        def flush(self):
+            pass
+
+        def close(self):
+            raise OSError("disk full")
+
+    log = tmp_path / "log.jsonl"
+    real_open = Path.open
+    monkeypatch.setattr(
+        Path, "open", lambda self, *a, **k: Failing() if self == log else real_open(self, *a, **k)
+    )
+    session = r.run_session([sys.executable, "-c", "print('a'); print('b')"], tmp_path, 30, log)
+    assert session.stdout == "a\nb\n" and session.code == 0
+    assert session.log_error == "disk full"
+
+
 def test_regrade_carries_stopped_after_result_and_old_lines_default_to_false(fake, monkeypatch):
     monkeypatch.setattr(r, "SETTLE_SECONDS", 1)
     res = run_once(fake, monkeypatch, "o1", "settle")
@@ -455,6 +522,28 @@ def test_an_interrupted_session_is_killed_with_its_children(tmp_path, monkeypatc
             break
         time.sleep(0.1)
     assert not alive(child)
+
+
+ESCAPEE = (
+    "import subprocess, sys, time\n"
+    "c = subprocess.Popen(['sleep', '30'], start_new_session=True)\n"
+    "open(sys.argv[1], 'w').write(str(c.pid))\n"
+    "time.sleep(30)\n"
+)
+
+
+def test_an_interrupt_does_not_hang_on_a_descendant_outside_the_group(tmp_path, monkeypatch):
+    pidfile = tmp_path / "child.pid"
+    monkeypatch.setattr(r, "TERM_GRACE", 1)
+    interrupt_after_the_child_started(monkeypatch, pidfile, KeyboardInterrupt())
+    started = time.monotonic()
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            r.run_session([sys.executable, "-c", ESCAPEE, str(pidfile)], tmp_path, 60)
+        assert time.monotonic() - started < 15
+    finally:
+        monkeypatch.undo()
+        subprocess.run(["kill", pidfile.read_text()], check=False)
 
 
 def test_an_interrupt_after_the_session_ended_still_propagates(tmp_path, monkeypatch):

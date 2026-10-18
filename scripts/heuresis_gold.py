@@ -35,7 +35,7 @@ import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import IO, NamedTuple
+from typing import IO, NamedTuple, TextIO
 
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / "plugins" / "heuresis"
@@ -49,10 +49,9 @@ DEFAULT_TIMEOUT = 1200
 # Seconds a timed-out session gets to exit on SIGTERM before its process group is killed.
 TERM_GRACE = 5
 # Seconds the stream must stay silent after a `result` event, with the verdict applied, before the
-# session is ended. A headless session that used background subagents can print its final result
-# and then never exit (https://claudeissues.com/issue/30008, /35262); one such run idled to the
-# timeout and was graded "timed out" with its verdict already filed. A session still waiting for
-# scouts prints interim results too, but its verdict is not applied yet, and it keeps talking.
+# still-running session is ended; a session that used background subagents may never exit itself:
+# https://github.com/anthropics/claude-code/issues/30008 and
+# https://github.com/anthropics/claude-code/issues/35262
 SETTLE_SECONDS = 60
 # How often run_session looks at the clock, the stream and the process.
 POLL_SECONDS = 0.2
@@ -275,11 +274,17 @@ class Session(NamedTuple):
     # True when the session was ended because it settled (see SETTLE_SECONDS); code is then the
     # signal that ended it.
     settled: bool = False
+    # Why the log copy of stdout could not be written, or "".
+    log_error: str = ""
 
 
 class Pump(threading.Thread):
     """Reads one pipe line by line, keeping the lines, when the last arrived, whether the newest
-    stream event is a `result`, and optionally a copy in a file that grows as the lines arrive."""
+    stream event is a `result`, and optionally a copy in a file that grows as the lines arrive.
+
+    A copy that cannot be opened or written is dropped, the pipe is still drained, and the
+    failure is kept in log_error.
+    """
 
     def __init__(self, pipe: IO[str], copy: Path | None = None) -> None:
         super().__init__(daemon=True)
@@ -288,22 +293,39 @@ class Pump(threading.Thread):
         self.lines: list[str] = []
         self.last_line = time.monotonic()
         self.ended_on_result = False
+        self.log_error = ""
 
     def run(self) -> None:
-        sink = self.copy.open("w") if self.copy else None
+        sink: TextIO | None = None
         try:
+            try:
+                sink = self.copy.open("w") if self.copy else None
+            except OSError as exc:
+                self.log_error = str(exc)
             for line in iter(self.pipe.readline, ""):
                 self.lines.append(line)
                 self.last_line = time.monotonic()
                 self.ended_on_result = is_result(line)
                 if sink:
-                    sink.write(line)
-                    sink.flush()
+                    try:
+                        sink.write(line)
+                        sink.flush()
+                    except OSError as exc:
+                        self.log_error = str(exc)
+                        self.drop(sink)
+                        sink = None
         except (OSError, ValueError):
             pass  # the pipe was closed under the reader
         finally:
             if sink:
-                sink.close()
+                self.drop(sink)
+
+    @staticmethod
+    def drop(sink: TextIO) -> None:
+        try:
+            sink.close()
+        except OSError:
+            pass  # the failure that made us drop it is already recorded
 
 
 def is_result(line: str) -> bool:
@@ -312,6 +334,31 @@ def is_result(line: str) -> bool:
     except ValueError:
         return False
     return isinstance(event, dict) and event.get("type") == "result"
+
+
+def close_ended(pumps: tuple[Pump, ...]) -> None:
+    """Close the pipe of each pump that has finished. A pipe whose reader is still blocked on it
+    is left open: closing it would wait on the reader, which waits on a descendant holding it."""
+    for pump in pumps:
+        if not pump.is_alive():
+            pump.pipe.close()
+
+
+def end_group(proc: subprocess.Popen, pumps: tuple[Pump, ...]) -> None:
+    """SIGTERM the session's process group, SIGKILL it after TERM_GRACE, and let the pumps drain."""
+    kill_group(proc.pid, signal.SIGTERM)
+    try:
+        proc.wait(timeout=TERM_GRACE)
+    except subprocess.TimeoutExpired:
+        kill_group(proc.pid, signal.SIGKILL)
+        proc.wait()
+    for pump in pumps:
+        pump.join(TERM_GRACE)
+    if any(p.is_alive() for p in pumps):
+        # A child that ignored SIGTERM still holds a pipe open.
+        kill_group(proc.pid, signal.SIGKILL)
+        for pump in pumps:
+            pump.join(TERM_GRACE)
 
 
 def run_session(
@@ -324,10 +371,12 @@ def run_session(
     """Run cmd in its own process group; stop the whole group at the timeout, or earlier once the
     session has settled.
 
-    Stdout is read as it arrives and copied to log. A session has settled when its newest stream
-    event is a `result`, nothing has arrived for SETTLE_SECONDS and verdict_applied() is true;
-    it is then stopped like a timeout and the run counts as finished. Children the session
-    started die with it, so none keeps writing into the work folder or holds a pipe open.
+    Stdout is read as it arrives and copied to log. A session has settled when it is still
+    running, its newest stream event is a `result`, nothing has arrived for SETTLE_SECONDS and
+    verdict_applied() is true; it is then stopped like a timeout and the run counts as finished.
+    A session that exited keeps its exit code, even if a child of it kept a pipe open and the
+    group had to be stopped to release it. Children the session started die with it, so none
+    keeps writing into the work folder or holds a pipe open.
     """
     # research(2026-10): code.claude.com/docs/en/env-vars, CLAUDE_CODE_DISABLE_AUTO_MEMORY=1
     # stops the session creating or loading auto-memory files, so no memory leaks between runs.
@@ -345,20 +394,20 @@ def run_session(
     )
     assert proc.stdout is not None and proc.stderr is not None
     out, err = Pump(proc.stdout, log), Pump(proc.stderr)
+    pumps = (out, err)
     out.start()
     err.start()
     deadline = time.monotonic() + timeout
     try:
         stopped = None
+        # Ends when the session exits, however its pipes stand: one that closed both and runs on
+        # is still waited for, up to the deadline.
         while True:
             try:
                 proc.wait(timeout=POLL_SECONDS)
             except subprocess.TimeoutExpired:
                 pass
-            else:
-                for pump in (out, err):
-                    pump.join(POLL_SECONDS)  # an exited session's pipes drain
-            if not (out.is_alive() or err.is_alive()):
+            if proc.returncode is not None:
                 break
             if time.monotonic() >= deadline:
                 stopped = "timeout"
@@ -367,37 +416,30 @@ def run_session(
                 verdict_applied
                 and out.ended_on_result
                 and time.monotonic() - out.last_line >= SETTLE_SECONDS
+                and proc.poll() is None
                 and verdict_applied()
             ):
                 stopped = "settled"
                 break
         if stopped:
-            kill_group(proc.pid, signal.SIGTERM)
-            try:
-                proc.wait(timeout=TERM_GRACE)
-            except subprocess.TimeoutExpired:
-                kill_group(proc.pid, signal.SIGKILL)
-                proc.wait()
-        for pump in (out, err):
-            pump.join(TERM_GRACE)
-        if stopped and (out.is_alive() or err.is_alive()):
-            # A child that ignored SIGTERM still holds a pipe open.
-            kill_group(proc.pid, signal.SIGKILL)
-            for pump in (out, err):
-                pump.join(TERM_GRACE)
-        for pump in (out, err):
-            if not pump.is_alive():
-                pump.pipe.close()
+            end_group(proc, pumps)
+        else:
+            for pump in pumps:
+                pump.join(TERM_GRACE)  # an exited session's pipes drain
+            if any(p.is_alive() for p in pumps):
+                end_group(proc, pumps)  # a child of the session holds a pipe open
+        close_ended(pumps)
         code = None if stopped == "timeout" else proc.returncode
-        return Session("".join(out.lines), "".join(err.lines), code, stopped == "settled")
+        return Session(
+            "".join(out.lines), "".join(err.lines), code, stopped == "settled", out.log_error
+        )
     except BaseException:
         # An interrupt or any other failure must not leave the session writing in the background.
         kill_group(proc.pid, signal.SIGKILL)
         proc.wait()
-        for pump in (out, err):
+        for pump in pumps:
             pump.join(TERM_GRACE)
-        for pipe in (proc.stdout, proc.stderr):
-            pipe.close()
+        close_ended(pumps)
         raise
 
 
@@ -470,11 +512,19 @@ def triage(
     session = run_session(
         cmd, ideas.parent, args.timeout, log, lambda: gold.verdict_applied(ideas, idea_id)
     )
-    out, code, stopped = session.stdout, session.code, session.settled
     log.with_suffix(".stderr").write_text(session.stderr)
-    if code is None:
-        return f"timed out after {args.timeout}s", None, None, False
-    init, result = parse_stream(out)
+    error, result, plugin_path = session_outcome(session, args)
+    if session.log_error:
+        error = "; ".join(filter(None, [error, f"log not written: {session.log_error}"]))
+    return error, result, plugin_path, session.settled
+
+
+def session_outcome(session: Session, args) -> tuple[str, dict | None, str | None]:
+    """What a finished session amounts to: the error ("" if none), the result event and the path
+    of the heuresis plugin it loaded."""
+    if session.code is None:
+        return f"timed out after {args.timeout}s", None, None
+    init, result = parse_stream(session.stdout)
     paths = [
         str(p["path"])
         for p in (init or {}).get("plugins", [])
@@ -484,24 +534,23 @@ def triage(
         mine = str(Path(args.plugin_dir).resolve())
         plugin_path = next((p for p in paths if str(Path(p).resolve()) == mine), None)
         if plugin_path is None:
-            return "heuresis plugin from --plugin-dir did not load", result, None, stopped
+            return "heuresis plugin from --plugin-dir did not load", result, None
     else:
         plugin_path = paths[0] if paths else None
         if plugin_path is None:
-            return "heuresis plugin did not load", result, None, stopped
+            return "heuresis plugin did not load", result, None
     # A settled session was ended by the runner, so its exit code says nothing.
-    if code and not stopped:
-        return f"claude exited {code}", result, plugin_path, stopped
+    if session.code and not session.settled:
+        return f"claude exited {session.code}", result, plugin_path
     if result is None:
-        return "no result in the stream", None, plugin_path, stopped
+        return "no result in the stream", None, plugin_path
     if result.get("is_error"):
         return (
             f"claude reported an error: {str(result.get('result', ''))[:200]}",
             result,
             plugin_path,
-            stopped,
         )
-    return "", result, plugin_path, stopped
+    return "", result, plugin_path
 
 
 def load_all(files: list[Path]) -> list[gold.Case]:

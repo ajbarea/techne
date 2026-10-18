@@ -74,7 +74,16 @@ if mode in ("guard-modified", "guard-untracked"):
         "tracked.md" if mode == "guard-modified" else "untracked.md"
     )
     target.write_text("B" * len(target.read_text()))
-if mode in ("trash", "guard", "two-plugins", "wrong-dir", "decline", "settle", "interim"):
+if mode in (
+    "trash",
+    "guard",
+    "two-plugins",
+    "wrong-dir",
+    "decline",
+    "settle",
+    "interim",
+    "exit-orphan",
+):
     sys.path.insert(0, os.environ["HEURESIS_SRC"])
     from heuresis import cli, store
     from heuresis.model import FACETS, Verdict
@@ -88,7 +97,7 @@ if mode in ("trash", "guard", "two-plugins", "wrong-dir", "decline", "settle", "
     store.save(ideas, idea)
     run = ideas / "runs" / idea_id
     run.mkdir(parents=True, exist_ok=True)
-if mode in ("trash", "guard", "two-plugins", "wrong-dir", "settle", "interim"):
+if mode in ("trash", "guard", "two-plugins", "wrong-dir", "settle", "interim", "exit-orphan"):
     # The shapes the CLI writes, so a grade sees a verified rival named "dokimasia".
     record = {
         "ref": "r1",
@@ -123,3 +132,8 @@ print(json.dumps(RESULT), flush=True)
 if mode == "settle":
     # Never exits after its final result, as a session with background subagents can.
     time.sleep(300)
+if mode == "exit-orphan":
+    # Exits non-zero while a grandchild keeps the output pipes open.
+    child = subprocess.Popen(["sleep", "30"])
+    Path(os.environ["FAKE_CLAUDE_PIDFILE"]).write_text(str(child.pid))
+    sys.exit(1)
