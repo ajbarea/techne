@@ -65,6 +65,13 @@ that drift class recurs.
 
 ## Queued / unprioritized
 
+- **epistole: reach drafts it did not create.** `search in:drafts` returns message ids, but
+  `update_draft` and `send_draft` take the Gmail draft id (`r…`), and no tool lists drafts, so a
+  draft made in Gmail or by another session cannot be edited or sent. Fix: a read-only
+  `list_drafts` tool that returns each draft's id, message id, recipients, subject and
+  attachments, or let `update_draft`/`send_draft` accept a message id and resolve it through
+  `drafts.list`; a test for each path. Hit 2026-10-17; the workaround called
+  `users().drafts().list(q=…)` through epistole's own client.
 - **heuresis phases 2 to 6** (spec: `specs/2026-10-15-heuresis-design.md`, "Build order"). Each
   phase gets its own implementation plan.
   2. **Evaluation.** A gold set of ideas with known verdicts and a harness, run before verdicts
