@@ -351,6 +351,70 @@ def test_timeout_is_an_error_and_kills_the_session_children(fake, monkeypatch):
     assert not alive(child)
 
 
+def settle_run(fake, monkeypatch, mode: str, **env: str) -> tuple[float, list[dict]]:
+    """Run bib-checker once with a short settle grace; returns the seconds taken and the grades."""
+    monkeypatch.setattr(r, "SETTLE_SECONDS", 1)
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", mode)
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    out = fake / "out"
+    started = time.monotonic()
+    assert go(out, "--no-guard", "--timeout", "60") == 0
+    return time.monotonic() - started, grades_of(out)
+
+
+def test_a_session_that_never_exits_after_its_final_result_is_stopped_and_finished(
+    fake, monkeypatch
+):
+    pidfile = fake / "child.pid"
+    elapsed, (g,) = settle_run(fake, monkeypatch, "settle", FAKE_CLAUDE_PIDFILE=str(pidfile))
+    assert elapsed < 30
+    assert g["error"] == "" and g["state"] == "trash" and g["accepted"] is True
+    assert g["stopped_after_result"] is True
+    assert g["cost_usd"] == 0.25
+    res = results(fake / "out")
+    assert '"type": "result"' in (res / "logs" / "bib-checker-1.jsonl").read_text()
+    summary = (res / "summary.md").read_text()
+    assert "- Sessions stopped after their final result: 1" in summary
+    assert json.loads((res / "summary.json").read_text())["stopped_after_result"] == 1
+
+
+def test_an_interim_result_before_the_verdict_does_not_end_the_session(fake, monkeypatch):
+    elapsed, (g,) = settle_run(fake, monkeypatch, "interim", FAKE_INTERIM_WAIT="3")
+    assert elapsed >= 3
+    assert g["error"] == "" and g["state"] == "trash" and g["accepted"] is True
+    assert g["stopped_after_result"] is False
+    assert g["turns"] == 4  # the final result, not the interim one
+    summary = (results(fake / "out") / "summary.md").read_text()
+    assert "- Sessions stopped after their final result: 0" in summary
+
+
+def test_a_session_that_exits_by_itself_is_not_counted_as_stopped(fake, monkeypatch):
+    _, (g,) = settle_run(fake, monkeypatch, "trash")
+    assert g["stopped_after_result"] is False
+
+
+def test_the_timeout_still_ends_a_session_that_settles_never(fake, monkeypatch):
+    monkeypatch.setattr(r, "SETTLE_SECONDS", 1)
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "interim")
+    monkeypatch.setenv("FAKE_INTERIM_WAIT", "300")
+    out = fake / "out"
+    assert go(out, "--no-guard", "--timeout", "3") == 0
+    (g,) = grades_of(out)
+    assert g["error"] == "timed out after 3s" and g["stopped_after_result"] is False
+
+
+def test_regrade_carries_stopped_after_result_and_old_lines_default_to_false(fake, monkeypatch):
+    monkeypatch.setattr(r, "SETTLE_SECONDS", 1)
+    res = run_once(fake, monkeypatch, "o1", "settle")
+    assert graded(res)[0]["stopped_after_result"] is True
+    into = fake / "re"
+    assert r.main(["regrade", str(res), "--into", str(into), "--cases", str(CASES)]) == 0
+    assert graded(into)[0]["stopped_after_result"] is True
+    old = {k: v for k, v in graded(res)[0].items() if k != "stopped_after_result"}
+    assert r.gold.RunGrade.from_dict(old).stopped_after_result is False
+
+
 SPAWN = (
     "import subprocess, sys, time\n"
     "c = subprocess.Popen(['sleep', '30'])\n"
@@ -360,16 +424,21 @@ SPAWN = (
 
 
 def interrupt_after_the_child_started(monkeypatch, pidfile: Path, exc: BaseException):
-    """Make communicate raise exc once the session has started its child."""
+    """Make the first wait on the session raise exc once it has started its child."""
+    real = subprocess.Popen.wait
+    calls = []
 
     def interrupted(self, *args, **kwargs):
+        if calls:
+            return real(self, *args, **kwargs)
+        calls.append(1)
         for _ in range(100):
             if pidfile.exists() and pidfile.read_text():
                 break
             time.sleep(0.05)
         raise exc
 
-    monkeypatch.setattr(subprocess.Popen, "communicate", interrupted)
+    monkeypatch.setattr(subprocess.Popen, "wait", interrupted)
 
 
 @pytest.mark.parametrize("exc", [KeyboardInterrupt(), RuntimeError("boom")])
@@ -379,7 +448,7 @@ def test_an_interrupted_session_is_killed_with_its_children(tmp_path, monkeypatc
     cmd = [sys.executable, "-c", SPAWN, str(pidfile)]
     with pytest.raises(type(exc)):
         r.run_session(cmd, tmp_path, 60)
-    monkeypatch.undo()  # alive() runs ps through subprocess.run, which calls communicate
+    monkeypatch.undo()
     child = int(pidfile.read_text())
     for _ in range(50):
         if not alive(child):
@@ -389,13 +458,16 @@ def test_an_interrupted_session_is_killed_with_its_children(tmp_path, monkeypatc
 
 
 def test_an_interrupt_after_the_session_ended_still_propagates(tmp_path, monkeypatch):
-    real = subprocess.Popen.communicate
+    real = subprocess.Popen.wait
+    calls = []
 
     def finish_then_interrupt(self, *args, **kwargs):
         real(self, *args, **kwargs)
-        raise KeyboardInterrupt
+        if not calls:
+            calls.append(1)
+            raise KeyboardInterrupt
 
-    monkeypatch.setattr(subprocess.Popen, "communicate", finish_then_interrupt)
+    monkeypatch.setattr(subprocess.Popen, "wait", finish_then_interrupt)
     with pytest.raises(KeyboardInterrupt):
         r.run_session([sys.executable, "-c", "pass"], tmp_path, 60)
 

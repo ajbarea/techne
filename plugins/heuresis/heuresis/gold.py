@@ -146,6 +146,9 @@ class RunGrade:
     commit: str | None = None
     dirty: bool | None = None
     plugin_version: str | None = None
+    # True when the runner ended a session that had applied its verdict but never exited, so the
+    # grade reflects the files and not the session's exit.
+    stopped_after_result: bool = False
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -252,6 +255,23 @@ def _applied(idea: Idea, files_ok: bool) -> bool:
     return newest[0] == "declined" or (newest[0] == "triage" and files_ok)
 
 
+def run_files_present(run_dir: Path) -> bool:
+    return all((run_dir / f"{name}.json").is_file() for name in RUN_FILES)
+
+
+def verdict_applied(ideas_root: Path, idea_id: str) -> bool:
+    """True when the idea's newest verdict is applied now: grade_run's own test of a finished
+    triage, for a runner deciding whether a session that stopped talking has nothing left to do.
+
+    An idea file that is missing, being written or unreadable is not applied yet.
+    """
+    try:
+        idea = store.load(store.idea_path(ideas_root, idea_id))
+    except (OSError, ValueError, store.StoreError):
+        return False
+    return _applied(idea, run_files_present(ideas_root / "runs" / idea_id))
+
+
 def grade_run(
     case: Case,
     run: int,
@@ -287,7 +307,7 @@ def grade_run(
             **extra,
         )
     run_dir = ideas_root / "runs" / idea_id
-    files_ok = all((run_dir / f"{name}.json").is_file() for name in RUN_FILES)
+    files_ok = run_files_present(run_dir)
     newest = _newest_verdict(idea)
     declined = newest is not None and newest[0] == "declined"
     # A decline does no research, so files left by an earlier triage name no rival for it.
@@ -399,6 +419,7 @@ def summarize(grades: list[RunGrade], cases: list[Case]) -> dict:
             1 for g in grades if g.state == "do" and by_case[g.case].kind == "exists"
         ),
         "declined": sum(1 for g in grades if g.declined),
+        "stopped_after_result": sum(1 for g in grades if g.stopped_after_result),
         "code": _code_states(grades),
         "cost_usd_total": round(sum(costs), 2) if costs else None,
         "duration_s_median": statistics.median(durations) if durations else None,
@@ -482,6 +503,7 @@ def render_markdown(summary: dict) -> str:
         f"- Closest rival on the case's list: {_pct(summary['closest_recall'])}",
         f"- Existing things filed as do: {summary['do_on_existing']}",
         f"- Declined runs: {summary['declined']}",
+        f"- Sessions stopped after their final result: {summary['stopped_after_result']}",
         f"- Total cost (client estimate): {_num(summary['cost_usd_total'], '${:.2f}')}",
         f"- Median run time (s): {_num(summary['duration_s_median'], '{:g}')}",
         *(

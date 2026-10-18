@@ -53,6 +53,18 @@ if mode == "sleep":
     child = subprocess.Popen(["sleep", "30"])
     Path(os.environ["FAKE_CLAUDE_PIDFILE"]).write_text(str(child.pid))
     time.sleep(30)
+RESULT = {
+    "type": "result",
+    "subtype": "success",
+    "is_error": False,
+    "total_cost_usd": 0.25,
+    "duration_ms": 1000,
+    "num_turns": 4,
+}
+if mode == "interim":
+    # An orchestrator that reports as each background scout returns: a result before the verdict.
+    print(json.dumps({**RESULT, "num_turns": 2}), flush=True)
+    time.sleep(float(os.environ["FAKE_INTERIM_WAIT"]))
 if mode == "guard":
     guard = Path(os.environ["FAKE_CLAUDE_GUARD"])
     (guard / "ideas" / "stray.md").write_text("written by mistake")
@@ -62,7 +74,7 @@ if mode in ("guard-modified", "guard-untracked"):
         "tracked.md" if mode == "guard-modified" else "untracked.md"
     )
     target.write_text("B" * len(target.read_text()))
-if mode in ("trash", "guard", "two-plugins", "wrong-dir", "decline"):
+if mode in ("trash", "guard", "two-plugins", "wrong-dir", "decline", "settle", "interim"):
     sys.path.insert(0, os.environ["HEURESIS_SRC"])
     from heuresis import cli, store
     from heuresis.model import FACETS, Verdict
@@ -76,7 +88,7 @@ if mode in ("trash", "guard", "two-plugins", "wrong-dir", "decline"):
     store.save(ideas, idea)
     run = ideas / "runs" / idea_id
     run.mkdir(parents=True, exist_ok=True)
-if mode in ("trash", "guard", "two-plugins", "wrong-dir"):
+if mode in ("trash", "guard", "two-plugins", "wrong-dir", "settle", "interim"):
     # The shapes the CLI writes, so a grade sees a verified rival named "dokimasia".
     record = {
         "ref": "r1",
@@ -107,16 +119,7 @@ if mode in ("trash", "guard", "two-plugins", "wrong-dir"):
 if mode == "crash":
     print("fatal: session diagnostics", file=sys.stderr)
     sys.exit(3)
-print(
-    json.dumps(
-        {
-            "type": "result",
-            "subtype": "success",
-            "is_error": False,
-            "total_cost_usd": 0.25,
-            "duration_ms": 1000,
-            "num_turns": 4,
-        }
-    ),
-    flush=True,
-)
+print(json.dumps(RESULT), flush=True)
+if mode == "settle":
+    # Never exits after its final result, as a session with background subagents can.
+    time.sleep(300)

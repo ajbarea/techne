@@ -31,7 +31,11 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
+import time
+from collections.abc import Callable
 from pathlib import Path
+from typing import IO, NamedTuple
 
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / "plugins" / "heuresis"
@@ -44,6 +48,14 @@ DEFAULT_CASES = PLUGIN / "gold" / "cases.yaml"
 DEFAULT_TIMEOUT = 1200
 # Seconds a timed-out session gets to exit on SIGTERM before its process group is killed.
 TERM_GRACE = 5
+# Seconds the stream must stay silent after a `result` event, with the verdict applied, before the
+# session is ended. A headless session that used background subagents can print its final result
+# and then never exit (https://claudeissues.com/issue/30008, /35262); one such run idled to the
+# timeout and was graded "timed out" with its verdict already filed. A session still waiting for
+# scouts prints interim results too, but its verdict is not applied yet, and it keeps talking.
+SETTLE_SECONDS = 60
+# How often run_session looks at the clock, the stream and the process.
+POLL_SECONDS = 0.2
 # `claude plugin list` starts no session; a minute is far past a healthy listing.
 PLUGIN_LIST_TIMEOUT = 60
 
@@ -255,11 +267,67 @@ def prepare(work: Path, case: gold.Case) -> tuple[Path, Path, str]:
     return ideas, repos, printed.splitlines()[-1]
 
 
-def run_session(cmd: list[str], cwd: Path, timeout: int) -> tuple[str, str, int | None]:
-    """Run cmd in its own process group; on timeout stop the whole group.
+class Session(NamedTuple):
+    stdout: str
+    stderr: str
+    # The exit code; None for a session stopped at the timeout.
+    code: int | None
+    # True when the session was ended because it settled (see SETTLE_SECONDS); code is then the
+    # signal that ended it.
+    settled: bool = False
 
-    Returns stdout, stderr and the exit code, or None for a timeout. Children the session started
-    die with it, so none keeps writing into the work folder or holds the output pipe open.
+
+class Pump(threading.Thread):
+    """Reads one pipe line by line, keeping the lines, when the last arrived, whether the newest
+    stream event is a `result`, and optionally a copy in a file that grows as the lines arrive."""
+
+    def __init__(self, pipe: IO[str], copy: Path | None = None) -> None:
+        super().__init__(daemon=True)
+        self.pipe = pipe
+        self.copy = copy
+        self.lines: list[str] = []
+        self.last_line = time.monotonic()
+        self.ended_on_result = False
+
+    def run(self) -> None:
+        sink = self.copy.open("w") if self.copy else None
+        try:
+            for line in iter(self.pipe.readline, ""):
+                self.lines.append(line)
+                self.last_line = time.monotonic()
+                self.ended_on_result = is_result(line)
+                if sink:
+                    sink.write(line)
+                    sink.flush()
+        except (OSError, ValueError):
+            pass  # the pipe was closed under the reader
+        finally:
+            if sink:
+                sink.close()
+
+
+def is_result(line: str) -> bool:
+    try:
+        event = json.loads(line)
+    except ValueError:
+        return False
+    return isinstance(event, dict) and event.get("type") == "result"
+
+
+def run_session(
+    cmd: list[str],
+    cwd: Path,
+    timeout: int,
+    log: Path | None = None,
+    verdict_applied: Callable[[], bool] | None = None,
+) -> Session:
+    """Run cmd in its own process group; stop the whole group at the timeout, or earlier once the
+    session has settled.
+
+    Stdout is read as it arrives and copied to log. A session has settled when its newest stream
+    event is a `result`, nothing has arrived for SETTLE_SECONDS and verdict_applied() is true;
+    it is then stopped like a timeout and the run counts as finished. Children the session
+    started die with it, so none keeps writing into the work folder or holds a pipe open.
     """
     # research(2026-10): code.claude.com/docs/en/env-vars, CLAUDE_CODE_DISABLE_AUTO_MEMORY=1
     # stops the session creating or loading auto-memory files, so no memory leaks between runs.
@@ -275,26 +343,61 @@ def run_session(cmd: list[str], cwd: Path, timeout: int) -> tuple[str, str, int 
         errors="replace",
         start_new_session=True,
     )
+    assert proc.stdout is not None and proc.stderr is not None
+    out, err = Pump(proc.stdout, log), Pump(proc.stderr)
+    out.start()
+    err.start()
+    deadline = time.monotonic() + timeout
     try:
-        try:
-            out, err = proc.communicate(timeout=timeout)
-            return out, err, proc.returncode
-        except subprocess.TimeoutExpired:
-            pass
-        kill_group(proc.pid, signal.SIGTERM)
-        try:
-            out, err = proc.communicate(timeout=TERM_GRACE)
-        except subprocess.TimeoutExpired:
+        stopped = None
+        while True:
+            try:
+                proc.wait(timeout=POLL_SECONDS)
+            except subprocess.TimeoutExpired:
+                pass
+            else:
+                for pump in (out, err):
+                    pump.join(POLL_SECONDS)  # an exited session's pipes drain
+            if not (out.is_alive() or err.is_alive()):
+                break
+            if time.monotonic() >= deadline:
+                stopped = "timeout"
+                break
+            if (
+                verdict_applied
+                and out.ended_on_result
+                and time.monotonic() - out.last_line >= SETTLE_SECONDS
+                and verdict_applied()
+            ):
+                stopped = "settled"
+                break
+        if stopped:
+            kill_group(proc.pid, signal.SIGTERM)
+            try:
+                proc.wait(timeout=TERM_GRACE)
+            except subprocess.TimeoutExpired:
+                kill_group(proc.pid, signal.SIGKILL)
+                proc.wait()
+        for pump in (out, err):
+            pump.join(TERM_GRACE)
+        if stopped and (out.is_alive() or err.is_alive()):
+            # A child that ignored SIGTERM still holds a pipe open.
             kill_group(proc.pid, signal.SIGKILL)
-            out, err = proc.communicate()
-        return out or "", err or "", None
+            for pump in (out, err):
+                pump.join(TERM_GRACE)
+        for pump in (out, err):
+            if not pump.is_alive():
+                pump.pipe.close()
+        code = None if stopped == "timeout" else proc.returncode
+        return Session("".join(out.lines), "".join(err.lines), code, stopped == "settled")
     except BaseException:
         # An interrupt or any other failure must not leave the session writing in the background.
         kill_group(proc.pid, signal.SIGKILL)
         proc.wait()
+        for pump in (out, err):
+            pump.join(TERM_GRACE)
         for pipe in (proc.stdout, proc.stderr):
-            if pipe:
-                pipe.close()
+            pipe.close()
         raise
 
 
@@ -343,8 +446,9 @@ def disable_settings(ids: list[str]) -> str | None:
 
 def triage(
     ideas: Path, repos: Path, idea_id: str, log: Path, args, settings: str | None = None
-) -> tuple[str, dict | None, str | None]:
-    """Run one triage; returns the error ("" if none), the result event and the plugin path."""
+) -> tuple[str, dict | None, str | None, bool]:
+    """Run one triage; returns the error ("" if none), the result event, the plugin path and
+    whether the runner ended the session after its verdict was applied."""
     prompt = f"/heuresis:idea --ideas {ideas} --repos {repos} --triage {idea_id}"
     cmd = [
         "claude",
@@ -363,11 +467,13 @@ def triage(
         cmd += ["--settings", settings]
     if args.model:
         cmd += ["--model", args.model]
-    out, err, code = run_session(cmd, ideas.parent, args.timeout)
-    log.write_text(out)
-    log.with_suffix(".stderr").write_text(err)
+    session = run_session(
+        cmd, ideas.parent, args.timeout, log, lambda: gold.verdict_applied(ideas, idea_id)
+    )
+    out, code, stopped = session.stdout, session.code, session.settled
+    log.with_suffix(".stderr").write_text(session.stderr)
     if code is None:
-        return f"timed out after {args.timeout}s", None, None
+        return f"timed out after {args.timeout}s", None, None, False
     init, result = parse_stream(out)
     paths = [
         str(p["path"])
@@ -378,22 +484,24 @@ def triage(
         mine = str(Path(args.plugin_dir).resolve())
         plugin_path = next((p for p in paths if str(Path(p).resolve()) == mine), None)
         if plugin_path is None:
-            return "heuresis plugin from --plugin-dir did not load", result, None
+            return "heuresis plugin from --plugin-dir did not load", result, None, stopped
     else:
         plugin_path = paths[0] if paths else None
         if plugin_path is None:
-            return "heuresis plugin did not load", result, None
-    if code:
-        return f"claude exited {code}", result, plugin_path
+            return "heuresis plugin did not load", result, None, stopped
+    # A settled session was ended by the runner, so its exit code says nothing.
+    if code and not stopped:
+        return f"claude exited {code}", result, plugin_path, stopped
     if result is None:
-        return "no result in the stream", None, plugin_path
+        return "no result in the stream", None, plugin_path, stopped
     if result.get("is_error"):
         return (
             f"claude reported an error: {str(result.get('result', ''))[:200]}",
             result,
             plugin_path,
+            stopped,
         )
-    return "", result, plugin_path
+    return "", result, plugin_path, stopped
 
 
 def load_all(files: list[Path]) -> list[gold.Case]:
@@ -523,7 +631,7 @@ def run(args) -> int:
                         gold.grade_run(case, n, work / "ideas", "", error=f"setup failed: {exc}")
                     )
                     continue
-                error, result, plugin_path = triage(
+                error, result, plugin_path, stopped = triage(
                     ideas, repos, idea_id, res / "logs" / f"{case.id}-{n}.jsonl", args, settings
                 )
                 if guard and watch(guard) != before:
@@ -531,9 +639,8 @@ def run(args) -> int:
                         f"run {case.id}-{n} changed the guard repository {guard}; "
                         "stopping. Inspect it with git status before anything else."
                     )
-                record(
-                    gold.grade_run(case, n, ideas, idea_id, error=error, meta=result), plugin_path
-                )
+                grade = gold.grade_run(case, n, ideas, idea_id, error=error, meta=result)
+                record(dataclasses.replace(grade, stopped_after_result=stopped), plugin_path)
     except GuardTripped as exc:
         print(f"heuresis_gold: {exc}", file=sys.stderr)
         return 1
@@ -579,6 +686,7 @@ def regrade_folder(
         error = f"expected one idea file, found {len(found)}"
         grade = gold.grade_run(case, n, ideas, "", error=error, meta=meta)
     carried = {k: (original or {}).get(k) for k in ("commit", "dirty", "plugin_version")}
+    carried["stopped_after_result"] = bool((original or {}).get("stopped_after_result"))
     return dataclasses.replace(grade, **carried), (original or {}).get("plugin_path")
 
 
