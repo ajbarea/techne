@@ -281,12 +281,15 @@ cases:
     notes: "Per-rule scoring exists from edit hooks and from synthetic scenarios; mining past session transcripts as the evidence source is the plausible gap. claude-doctor (github.com/millionco/claude-doctor) mines transcripts for new rules but does not score existing ones."
 
   - id: pytest-skip-ratchet
-    kind: candidate
+    kind: exists
     idea: "A pytest plugin that stores the skipped/xfailed test count in a committed baseline file and fails CI only when the count rises, so tests cannot quietly go green by not running."
-    expected_state: do_or_later
-    match_terms: []
-    prior_art: []
-    notes: "Closest: pytest-error-for-skips (pypi.org/project/pytest-error-for-skips) fails on every skip, no baseline or budget."
+    expected_state: trash
+    match_terms: [test-ratchet, motchalini-llc]
+    prior_art:
+      - name: test-ratchet
+        url: https://github.com/motchalini-llc/test-ratchet
+        why: "GitHub Action that counts skipped tests (pytest skip, skipif, xfail) and fails the PR when the count rises above a baseline; the count can only go down."
+    notes: "Written as a candidate; heuresis's own triage found test-ratchet during the first baseline, and both research passes had missed it. Other neighbour: pytest-error-for-skips (pypi.org/project/pytest-error-for-skips) fails on every skip, with no baseline or budget."
 
   - id: always-shrink-compression
     kind: infeasible

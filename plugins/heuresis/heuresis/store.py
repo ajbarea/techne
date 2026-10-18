@@ -43,7 +43,9 @@ NEW_ATTEMPTS = 100
 IDEA_ID = re.compile(r"\d{4}-\d{2}-\d{2}-[a-z0-9-]+")
 # The idea text is cut out before this split, so a "## " line inside it stays idea text.
 _HEADING = re.compile(r"^## (.+?)[ \t]*$", re.MULTILINE)
-VERDICT_HEADING = re.compile(r"^### (\d{4}-\d{2}-\d{2}) · (triage|override) · (\w+)$", re.MULTILINE)
+VERDICT_HEADING = re.compile(
+    r"^### (\d{4}-\d{2}-\d{2}) · (triage|override|declined) · (\w+)$", re.MULTILINE
+)
 _CLOSING_FENCE = re.compile(r"\n---[ \t]*\n")
 NEEDS_TYPE = ("do", "building", "shipped")
 # The idea text is the user's, verbatim, so it may hold any heading; markers fence it off from the
@@ -286,7 +288,7 @@ def add_verdict(idea: Idea, v: Verdict) -> None:
     idea.state = v.state
     if v.origin == "triage":  # a triage judges the idea afresh, so what it leaves out is cleared
         idea.type, idea.project = v.type, v.project
-    else:  # an override changes only what the user passed
+    else:  # an override or a decline changes only what it passes
         idea.type = v.type or idea.type
         idea.project = v.project or idea.project
     idea.duplicate_of = v.duplicate_of

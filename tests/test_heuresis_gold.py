@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from conftest import ROOT
 from heuresis import cli, gold, render, store
-from heuresis.model import FACETS, Idea
+from heuresis.model import FACETS, Idea, Verdict
 
 PRIOR = "cases:\n  - {id: a, idea: x, expected_state: trash, match_terms: [t], "
 FIX = ROOT / "tests" / "fixtures" / "heuresis" / "gold_cases.yaml"
@@ -270,6 +270,44 @@ def test_grade_run_inbox_means_triage_did_not_finish(tmp_path):
     assert not g.accepted and not g.files_ok and g.error == "triage did not finish"
 
 
+def declined_repo(tmp: Path) -> tuple[Path, str]:
+    root, idea_id = idea_repo(tmp, "trash", "", None)
+    idea = store.load(store.idea_path(root, idea_id))
+    verdict = Verdict(date="2026-10-17", origin="declined", state="trash", reason="covert")
+    store.add_verdict(idea, verdict)
+    store.save(root, idea)
+    return root, idea_id
+
+
+def test_grade_run_counts_a_declined_idea_as_finished_without_run_files(tmp_path):
+    case = gold.load_cases(FIX)[0]
+    g = gold.grade_run(case, 1, *declined_repo(tmp_path))
+    assert (g.state, g.accepted, g.error) == ("trash", True, "")
+    assert (g.files_ok, g.prior_art_hit, g.closest_hit) == (False, False, False)
+
+
+def test_grade_run_needs_the_newest_verdict_to_be_the_decline(tmp_path):
+    case = gold.load_cases(FIX)[0]
+    root, idea_id = declined_repo(tmp_path)
+    idea = store.load(store.idea_path(root, idea_id))
+    store.add_verdict(idea, Verdict(date="2026-10-18", origin="triage", state="trash", reason="r"))
+    store.save(root, idea)
+    g = gold.grade_run(case, 1, root, idea_id)
+    assert not g.accepted and g.error == "triage did not finish"
+
+
+def test_grade_run_override_without_run_files_is_still_unfinished(tmp_path):
+    case = gold.load_cases(FIX)[0]
+    root, idea_id = idea_repo(tmp_path, "trash", "", None)
+    idea = store.load(store.idea_path(root, idea_id))
+    store.add_verdict(
+        idea, Verdict(date="2026-10-17", origin="override", state="trash", reason="r")
+    )
+    store.save(root, idea)
+    g = gold.grade_run(case, 1, root, idea_id)
+    assert not g.accepted and g.error == "triage did not finish"
+
+
 def test_grade_run_records_a_runner_error_without_reading_files(tmp_path):
     case = gold.load_cases(FIX)[0]
     g = gold.grade_run(case, 2, tmp_path / "missing", "2026-10-17-x", error="timed out after 5s")
@@ -506,3 +544,13 @@ def test_seed_set_is_valid_and_mostly_existing_things():
     assert len(cases) >= 20
     assert sum(c.kind == "exists" for c in cases) >= 16
     assert all(p.url.startswith("https://") for c in cases for p in c.prior_art)
+
+
+def test_the_skip_ratchet_case_names_the_prior_art_heuresis_found():
+    cases = {
+        c.id: c for c in gold.load_cases(ROOT / "plugins" / "heuresis" / "gold" / "cases.yaml")
+    }
+    case = cases["pytest-skip-ratchet"]
+    assert (case.kind, case.expected_state) == ("exists", "trash")
+    assert case.match_terms == ("test-ratchet", "motchalini-llc")
+    assert [p.url for p in case.prior_art] == ["https://github.com/motchalini-llc/test-ratchet"]

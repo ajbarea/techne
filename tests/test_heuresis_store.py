@@ -273,3 +273,16 @@ def test_headings_after_notes_stay_in_notes():
     parsed = store.parse(store.render(idea(sections={"Idea": "x", "Notes": notes})))
     assert "Product evidence" not in parsed.sections
     assert parsed.sections["Notes"] == notes
+
+
+def test_verdict_heading_accepts_each_origin_and_nothing_else():
+    entry = "### 2026-10-17 · {} · trash"
+    for origin in ("triage", "override", "declined"):
+        assert store.VERDICT_HEADING.search(entry.format(origin))
+    assert not store.VERDICT_HEADING.search(entry.format("forged"))
+
+
+def test_a_decline_keeps_the_type_and_project_it_does_not_name():
+    i = idea(type="tool", project="techne")
+    store.add_verdict(i, Verdict(date="2026-10-17", origin="declined", state="trash", reason="r"))
+    assert (i.state, i.type, i.project) == ("trash", "tool", "techne")

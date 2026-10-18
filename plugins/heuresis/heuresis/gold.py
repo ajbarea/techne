@@ -11,6 +11,7 @@ from pathlib import Path
 import yaml
 
 from heuresis import cli, store
+from heuresis.model import Idea
 
 # The states a run may file for each expected label. An existing thing filed as trash or merged
 # is right; "later" cases have close prior art with a plausible difference, so trash also agrees.
@@ -200,6 +201,12 @@ def _rivals(run_dir: Path) -> tuple[dict | None, bool, str | None, list[str]]:
         return None, False, None, []
 
 
+def _declined(idea: Idea) -> bool:
+    """True when the newest verdict is a refusal to research; such a run writes no run files."""
+    newest = store.VERDICT_HEADING.search(idea.sections.get("Verdict log", ""))
+    return newest is not None and newest.group(2) == "declined"
+
+
 def grade_run(
     case: Case,
     run: int,
@@ -234,7 +241,7 @@ def grade_run(
     closest_rec, verified, closest, others = (
         _rivals(run_dir) if files_ok else (None, False, None, [])
     )
-    finished = idea.state != "inbox" and files_ok
+    finished = idea.state != "inbox" and (files_ok or _declined(idea))
     prior_hit, closest_hit = miss, miss
     if finished and case.match_terms:
         closest_hit = closest is not None and any(_word(t, closest) for t in case.match_terms)

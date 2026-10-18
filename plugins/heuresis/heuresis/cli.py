@@ -99,6 +99,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--duplicate-of")
     p.add_argument("reason", nargs="+")
 
+    p = ideas(sub.add_parser("decline", help="refuse to research an idea and file it as trash"))
+    p.add_argument("idea_id")
+    p.add_argument("reason", nargs="+")
+
     ideas(sub.add_parser("board", help="regenerate BOARD.md and LOG.md"))
     ideas(sub.add_parser("publish", help="commit and push pending idea changes"))
     return parser
@@ -430,29 +434,43 @@ def _apply(args) -> int:
     return 0
 
 
-def _override(args) -> int:
+def _record_decision(args, origin: str, state: str, commit: str, **fields) -> int:
     today = dt.date.today()
     idea = _load_idea(args.ideas, args.idea_id)
     verdict = Verdict(
         date=today.isoformat(),
-        origin="override",
-        state=args.state,
+        origin=origin,
+        state=state,
         reason=" ".join(args.reason),
-        type=args.type,
-        project=args.project,
-        duplicate_of=args.duplicate_of,
+        **fields,
     )
     known = {p.stem for p in (args.ideas / "ideas").glob("*.md")} - {idea.id}
-    if args.state == "merged" and args.duplicate_of not in known:
+    if state == "merged" and verdict.duplicate_of not in known:
         print("heuresis: --duplicate-of must name an existing idea", file=sys.stderr)
         return 2
-    if args.state == "later":
+    if state == "later":
         verdict.revisit = (today + rules.REVISIT_AFTER_INSUFFICIENT).isoformat()
     store.add_verdict(idea, verdict)
     _checked_idea(idea)
     path = store.save(args.ideas, idea)
-    _publish(args.ideas, path, [path], f"override: {idea.id} -> {args.state}", today)
+    _publish(args.ideas, path, [path], f"{commit}: {idea.id} -> {state}", today)
     return 0
+
+
+def _override(args) -> int:
+    return _record_decision(
+        args,
+        "override",
+        args.state,
+        "override",
+        type=args.type,
+        project=args.project,
+        duplicate_of=args.duplicate_of,
+    )
+
+
+def _decline(args) -> int:
+    return _record_decision(args, "declined", "trash", "decline")
 
 
 def _dispatch(args: argparse.Namespace) -> int:
@@ -502,6 +520,8 @@ def _dispatch(args: argparse.Namespace) -> int:
             return _apply(args)
         case "override":
             return _override(args)
+        case "decline":
+            return _decline(args)
         case "board":
             board.write(args.ideas, dt.date.today())
             return 0

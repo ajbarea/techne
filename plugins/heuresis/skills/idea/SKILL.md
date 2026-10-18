@@ -29,6 +29,10 @@ HEURESIS_IDEA
 - `--triage <id>` or `--retriage <id>`: triage an existing idea. A retriage adds a new verdict and keeps the old ones.
 - `--override <id> <state> [--type T] [--project P] [--duplicate-of X] <reason>`: run `heuresis override --ideas IDEAS <id> <state> ... <reason>` and stop. This records the user's own decision.
 
+## Ideas you must not research
+
+If an idea asks for something illegal, or something that would harm people who have not consented, such as covert surveillance or reading other people's private communications, do not research it. Run `heuresis decline --ideas IDEAS <id> <one-line reason>` and stop. Never use `override` for this: an override records the user's own decision, and a decline records your refusal.
+
 ## Triage
 
 1. **Restate.** Read the idea file `IDEAS/ideas/<id>.md`. Write a neutral one-paragraph restatement: what it does, for whom, how. Drop praise, excitement and claims of novelty. Write 3 to 5 search queries of 3 or 4 words. Save both:

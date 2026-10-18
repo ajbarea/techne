@@ -66,6 +66,15 @@ def test_log_lists_verdicts_newest_first(tmp_path: Path):
     assert "[b](ideas/b.md) · override · do" in text
 
 
+def test_log_lists_a_declined_verdict(tmp_path: Path):
+    c = make(tmp_path, "c")
+    store.add_verdict(
+        c, Verdict(date="2026-10-06", origin="declined", state="trash", reason="covert")
+    )
+    store.save(tmp_path, c)
+    assert "[c](ideas/c.md) · declined · trash" in board.render_log(store.load_all(tmp_path))
+
+
 def test_write_creates_both_files(tmp_path: Path):
     make(tmp_path, "a")
     paths = board.write(tmp_path, TODAY)

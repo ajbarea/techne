@@ -33,6 +33,7 @@ Run `/heuresis:setup` once first. It creates the ideas repository and checks the
 | `--triage <id>` | Triages an idea already in the inbox. |
 | `--retriage <id>` | Triages again and adds a new verdict. Earlier verdicts stay in the idea file. |
 | `--override <id> <state> <reason>` | Records your own decision without a search. Optional `--type`, `--project` and `--duplicate-of`. |
+| `decline` (automatic) | When an idea asks for something illegal or that would harm people who have not consented, such as covert surveillance, the skill runs `heuresis decline <id> <reason>` instead of searching. The idea is filed as `trash` with a `declined` verdict. |
 | `--ideas <path>` and `--repos <path>` | Point one run at another ideas repository and repos folder instead of the configured ones. Combine with any mode above. |
 
 ## How a triage runs
@@ -72,7 +73,7 @@ All inside your ideas repository.
 | `ideas/<id>.md` | The idea, its state and every verdict with its evidence. Text you add by hand outside the sections heuresis writes is kept, in order, under Notes. |
 | `runs/<id>/` | The latest run's working files: restatement, scout records, pool, judge output, verification. A retriage replaces them. |
 | `BOARD.md` | Needs triage (inbox and invalid files), Due for revisit, Do (by project, then type), Later, and Closed (counts with links). Regenerated. |
-| `LOG.md` | One line per verdict, triage or override, newest first. Regenerated. |
+| `LOG.md` | One line per verdict (triage, override or declined), newest first. Regenerated. |
 | `projects.toml`, `context.toml` | Seeded by `heuresis init`. `heuresis context` reads them to find your research sources, and the `--project` names come from `projects.toml`. |
 
 ## Keys
@@ -102,7 +103,7 @@ From a clone of the techne repository, `make heuresis-gold GUARD=<your ideas rep
 
 Each run gets its own scratch ideas repository, kept under `<results>/work/`, in a folder outside any project. The sessions run with `--permission-mode bypassPermissions` in that scratch folder, with auto-memory off and without your MCP servers. The runner stops if any run changes the repository named by `GUARD`. Each run's full session stream is in `logs/<case>-<run>.jsonl` with its error output in `logs/<case>-<run>.stderr`, and `grades.jsonl` records the plugin path the session loaded, so you can check that the heuresis under test is the one you meant.
 
-Each case gives an idea, the state it should get, and terms that name its known prior art. A run agrees when its state is one the case accepts. It finds the prior art when a term names the title or URL of a rival the judge cited and the verify step confirmed, matched as a whole word. "Closest rival on the case's list" counts only runs whose closest rival a term names, so it reads low when the judge's closest rival is a real equivalent the case does not list. The summary's "Closest rival named, by run" section links what each run named and whether it verified. The summary also counts existing things filed as `do`, the failure the set is built to catch.
+Each case gives an idea, the state it should get, and terms that name its known prior art. A run agrees when its state is one the case accepts. It finds the prior art when a term names the title or URL of a rival the judge cited and the verify step confirmed, matched as a whole word. "Closest rival on the case's list" counts only runs whose closest rival a term names, so it reads low when the judge's closest rival is a real equivalent the case does not list. The summary's "Closest rival named, by run" section links what each run named and whether it verified. The summary also counts existing things filed as `do`, the failure the set is built to catch. A run whose newest verdict is `declined` counts as finished without run files, since a refusal does no research; its prior-art and closest-rival hits stay misses.
 
 To add your own labelled ideas, keep a second cases file in your ideas repository and pass it with `GOLD_ARGS="--cases <file>"`. A cases file you pass replaces the built-in one; pass `--cases` once per file to combine them. A case id may appear in only one file.
 
