@@ -1,13 +1,19 @@
-"""One HTTP helper for every source: identifying user agent, timeout, size cap, plain errors."""
+"""One HTTP helper for every source: size cap, plain errors, and polite_http underneath for the
+per-host pacing across processes, Retry-After, the identifying User-Agent and robots.txt."""
 
 from __future__ import annotations
 
 import json
-import urllib.error
+import os
+import sys
 import urllib.parse
 import urllib.request
+from pathlib import Path
 
-USER_AGENT = "heuresis (https://github.com/ajbarea/techne)"
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
+import polite_http  # ty: ignore[unresolved-import]
+
+TOOL = "heuresis"
 TIMEOUT = 20
 # Answers above 2 MB are not read whole; the quote check needs text, not media.
 MAX_BYTES = 2_000_000
@@ -47,28 +53,40 @@ class _Redirect(urllib.request.HTTPRedirectHandler):
 _OPENER = urllib.request.build_opener(_Redirect)
 
 
-def _open(req: urllib.request.Request) -> bytes:
-    parts = urllib.parse.urlsplit(req.full_url)
+RobotsDisallowed = polite_http.RobotsDisallowed
+
+
+def _open(url: str, *, data: bytes | None, headers: dict[str, str] | None, page: bool) -> bytes:
+    parts = urllib.parse.urlsplit(url)
     if parts.scheme not in WEB_SCHEMES:
         raise SourceError(f"unsupported scheme: {parts.scheme}")
-    host = parts.netloc
     try:
-        with _OPENER.open(req, timeout=TIMEOUT) as resp:
-            return resp.read(MAX_BYTES)
-    except urllib.error.HTTPError as exc:
-        raise SourceError(f"http {exc.code} from {host}", status=exc.code) from exc
-    except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
-        raise SourceError(f"unreachable: {host}") from exc
+        return polite_http.fetch(
+            url,
+            tool=TOOL,
+            headers=headers,
+            data=data,
+            method="POST" if data is not None else None,
+            mailto=os.environ.get("OPENALEX_MAILTO") or None,
+            timeout=TIMEOUT,
+            max_bytes=MAX_BYTES,
+            opener=_OPENER,
+            page=page,
+        )
+    except polite_http.HttpStatus as exc:
+        raise SourceError(str(exc), status=exc.status) from exc
+    except polite_http.Unreachable as exc:
+        raise SourceError(str(exc)) from exc
 
 
-def get(url: str, headers: dict[str, str] | None = None) -> bytes:
-    return _open(urllib.request.Request(url, headers={"User-Agent": USER_AGENT, **(headers or {})}))
+def get(url: str, headers: dict[str, str] | None = None, *, page: bool = False) -> bytes:
+    """GET `url`. `page=True` checks robots.txt first and may raise RobotsDisallowed."""
+    return _open(url, data=None, headers=headers, page=page)
 
 
 def post_form(url: str, fields: dict[str, str], headers: dict[str, str] | None = None) -> bytes:
     data = urllib.parse.urlencode(fields).encode()
-    merged = {"User-Agent": USER_AGENT, **(headers or {})}
-    return _open(urllib.request.Request(url, data=data, headers=merged, method="POST"))
+    return _open(url, data=data, headers=headers, page=False)
 
 
 def json_object(body: bytes) -> dict:

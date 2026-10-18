@@ -526,7 +526,9 @@ def test_a_verify_file_from_an_earlier_pool_does_not_approve_a_renumbered_ref(
     }
     (run / "judge.json").write_text(json.dumps(judge))
     pages = {"https://p1.example": first, "https://p2.example": second}
-    monkeypatch.setattr(cli.verify.http, "get", lambda url, headers=None: pages[url].encode())
+    monkeypatch.setattr(
+        cli.verify.http, "get", lambda url, headers=None, page=False: pages[url].encode()
+    )
     args = ["verify", "--ideas", str(ideas), "--id", idea_id, "--repos-root", str(tmp_path)]
     assert cli.main(args) == 0
     checked = json.loads((run / "verify.json").read_text())

@@ -15,7 +15,7 @@ Run the retrieval script that SKILL.md names (shown here as `<retrieval script>`
 uv run --no-project --quiet python <retrieval script> openalex 'federated learning Byzantine robust' --limit 8
 ```
 
-Each line is one JSON record: `title`, `url`, `date`, `text` (the abstract), `doi`. Quote snippets from `text`. Set `OPENALEX_MAILTO` to identify yourself; for a larger daily budget save an OpenAlex key with `/plugin configure graphe@techne` (it reaches this command as `OPENALEX_API_KEY`), or export it in the shell.
+Each line is one JSON record: `title`, `url`, `date`, `text` (the abstract), `doi`. Quote snippets from `text`. The script paces every host across processes, waits out `Retry-After` and sends a User-Agent that names techne. Set `OPENALEX_MAILTO` to add your address to it and to the OpenAlex query; for a larger daily budget save an OpenAlex key with `/plugin configure graphe@techne` (it reaches this command as `OPENALEX_API_KEY`), or export it in the shell.
 
 **Query construction.** One focused query per *contribution*, built from its noun phrases
 (C3 "Byzantine attack arena" → `federated learning Byzantine attack defense benchmark`). Keep it

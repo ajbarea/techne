@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 from conftest import ROOT, SCHOLARLY_SCRIPT, _load
@@ -52,24 +51,13 @@ def test_s2_search_sends_key_header():
     assert out[0]["source"] == "semantic_scholar"
 
 
-def test_arxiv_search_parses_atom(tmp_path: Path):
+def test_arxiv_search_parses_atom():
     seen: list = []
     body = (FIX / "arxiv_query.xml").read_bytes()
-    out = s.arxiv_search("federated learning", fetch=fake(body, seen), throttle=tmp_path / "t")
+    out = s.arxiv_search("federated learning", fetch=fake(body, seen))
     assert seen[0][0].startswith("https://export.arxiv.org/api/query?search_query=all:")
     assert out and out[0]["source"] == "arxiv"
     assert out[0]["evidence_url"].startswith("https://export.arxiv.org/api/query?id_list=")
-
-
-def test_arxiv_throttle_waits_three_seconds(tmp_path: Path, monkeypatch):
-    slept: list[float] = []
-    clock = iter([100.0, 100.5])
-    monkeypatch.setattr(s.time, "time", lambda: next(clock))
-    monkeypatch.setattr(s.time, "sleep", slept.append)
-    stamp = tmp_path / "t"
-    stamp.write_text("98.5")
-    s._throttle(stamp)
-    assert slept == [pytest.approx(1.5)]
 
 
 def test_malformed_json_raises_scholarly_error():

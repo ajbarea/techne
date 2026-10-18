@@ -4,6 +4,8 @@ heuresis. Standard library only, Python 3.11 or newer.
 
 Usage: scholarly.py {openalex,s2,arxiv} QUERY [--limit N] [--semantic]
 Keys: OPENALEX_API_KEY (optional, raises the daily budget), S2_API_KEY (required for s2).
+OPENALEX_MAILTO (optional) puts a contact address in the User-Agent and the OpenAlex query.
+Requests are paced per host across processes by polite_http.py, which sits beside this file.
 """
 
 from __future__ import annotations
@@ -12,20 +14,15 @@ import argparse
 import json
 import os
 import sys
-import tempfile
-import time
-import urllib.error
 import urllib.parse
-import urllib.request
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from pathlib import Path
 
-USER_AGENT = "techne-scholarly (https://github.com/ajbarea/techne)"
-TIMEOUT = 25
-# arXiv's terms: no more than one request every three seconds, across all of a user's machines.
-ARXIV_INTERVAL = 3.0
-DEFAULT_THROTTLE = Path(tempfile.gettempdir()) / "techne-scholarly-arxiv"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import polite_http
+
+TOOL = "techne-scholarly"
 ATOM = "{http://www.w3.org/2005/Atom}"
 OPENALEX_SELECT = "id,doi,title,publication_year,abstract_inverted_index,primary_location"
 
@@ -37,14 +34,13 @@ class ScholarlyError(Exception):
 
 
 def _get(url: str, headers: dict[str, str]) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, **headers})
+    """One paced GET: see polite_http for the per-host interval, retries and User-Agent."""
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
-            return resp.read()
-    except urllib.error.HTTPError as exc:
-        raise ScholarlyError(f"http {exc.code} from {urllib.parse.urlsplit(url).netloc}") from exc
-    except (urllib.error.URLError, TimeoutError) as exc:
-        raise ScholarlyError(f"unreachable: {urllib.parse.urlsplit(url).netloc}") from exc
+        return polite_http.fetch(
+            url, tool=TOOL, headers=headers, mailto=os.environ.get("OPENALEX_MAILTO") or None
+        )
+    except polite_http.PoliteError as exc:
+        raise ScholarlyError(str(exc)) from exc
 
 
 def _json(body: bytes) -> dict:
@@ -150,22 +146,7 @@ def s2_search(query: str, *, api_key: str, limit: int = 8, fetch: Fetch = _get) 
     return out
 
 
-def _throttle(stamp: Path) -> None:
-    try:
-        last = float(stamp.read_text())
-    except (OSError, ValueError):
-        last = 0.0
-    wait = ARXIV_INTERVAL - (time.time() - last)
-    if wait > 0:
-        time.sleep(wait)
-    stamp.write_text(str(time.time()))
-
-
-def arxiv_search(
-    query: str, *, limit: int = 8, fetch: Fetch = _get, throttle: Path | None = DEFAULT_THROTTLE
-) -> list[dict]:
-    if throttle is not None:
-        _throttle(throttle)
+def arxiv_search(query: str, *, limit: int = 8, fetch: Fetch = _get) -> list[dict]:
     terms = urllib.parse.quote(f'"{query}"')
     url = f"https://export.arxiv.org/api/query?search_query=all:{terms}&max_results={limit}"
     try:

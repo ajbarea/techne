@@ -194,6 +194,25 @@ def _load(name: str, path: pathlib.Path) -> types.ModuleType:
     return module
 
 
+# Registered in sys.modules, so every client that imports polite_http shares this one copy.
+polite_http = _load("polite_http", ROOT / "plugins" / "techne" / "_shared" / "polite_http.py")
+
+
+@pytest.fixture(autouse=True)
+def slept(monkeypatch, tmp_path):
+    """No test waits on a real host interval or touches the user's pacing stamps. The clock
+    is frozen, so a wait equals the interval or retry delay exactly.
+
+    Returns the list of seconds polite_http would have slept.
+    """
+    waits: list[float] = []
+    monkeypatch.setenv("TECHNE_POLITE_DIR", str(tmp_path / "polite-http"))
+    monkeypatch.setattr(polite_http, "_sleep", waits.append)
+    monkeypatch.setattr(polite_http, "_now", lambda: 1_000_000.0)
+    monkeypatch.setattr(polite_http, "_ROBOTS", {})
+    return waits
+
+
 @pytest.fixture(scope="session")
 def lx() -> types.ModuleType:
     return _load("techne_latex", LATEX_SCRIPT)

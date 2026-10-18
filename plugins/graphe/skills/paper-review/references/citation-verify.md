@@ -5,6 +5,14 @@ the right title / authors / year, and any claim *about* a cited work must match 
 abstract. A single fabricated or mischaracterized citation is a research-integrity failure that
 sinks the paper. Never trust a seed bib, a recalled citation, or a search snippet.
 
+## Pacing
+
+arXiv allows one request every 3 seconds on one connection, across everything you run. Batch ids
+into one call and wait 3 seconds between calls. Send a `mailto` to OpenAlex and Crossref. On a
+`429` or `503`, wait for the `Retry-After` time and try again at most three times. On a `403`,
+stop and record the source as not checked. Prefer the retrieval script that SKILL.md names,
+which does all of this for you.
+
 ## Extract what the draft cites
 
 ```bash

@@ -23,14 +23,14 @@ def test_normalize_folds_quotes_dashes_space_and_case():
 
 
 def test_quote_across_entities_and_line_breaks_matches(monkeypatch):
-    monkeypatch.setattr(verify.http, "get", lambda url, headers=None: PAGE.encode())
+    monkeypatch.setattr(verify.http, "get", lambda url, headers=None, page=False: PAGE.encode())
     quote = "“IdeaScout”—a tool that triages ideas against prior art"
     ok, why = verify.check(web(), quote, Path("."), Path("."))
     assert ok, why
 
 
 def test_script_text_does_not_count(monkeypatch):
-    monkeypatch.setattr(verify.http, "get", lambda url, headers=None: PAGE.encode())
+    monkeypatch.setattr(verify.http, "get", lambda url, headers=None, page=False: PAGE.encode())
     ok, why = verify.check(web(), "decoy quote that is long enough", Path("."), Path("."))
     assert (ok, why) == (False, "quote not found")
 
@@ -43,7 +43,7 @@ def test_short_quote_is_rejected_before_fetching(monkeypatch):
 
 
 def test_network_failure_is_a_reason_not_a_crash(monkeypatch):
-    def boom(url, headers=None):
+    def boom(url, headers=None, page=False):
         raise http.SourceError("http 404 from p.example")
 
     monkeypatch.setattr(verify.http, "get", boom)
@@ -57,7 +57,7 @@ def test_js_only_page_drops_the_record(monkeypatch):
     monkeypatch.setattr(
         verify.http,
         "get",
-        lambda url, headers=None: b"<html><body><div id=root></div></body></html>",
+        lambda url, headers=None, page=False: b"<html><body><div id=root></div></body></html>",
     )
     assert verify.check(web(), "a tool that triages ideas against", Path("."), Path(".")) == (
         False,
@@ -92,7 +92,7 @@ def test_json_evidence_joins_string_leaves(monkeypatch):
     monkeypatch.setattr(
         verify.http,
         "get",
-        lambda url, headers=None: (
+        lambda url, headers=None, page=False: (
             b'{"full_name": "a/b", "description": "Triage your ideas against prior art quickly"}'
         ),
     )
@@ -111,7 +111,7 @@ def test_json_evidence_joins_string_leaves(monkeypatch):
 
 def test_json_string_leaves_are_de_tagged(monkeypatch):
     body = b'{"text": "<p>Triage your ideas&#x2F;notes against prior art</p><p>second para</p>"}'
-    monkeypatch.setattr(verify.http, "get", lambda url, headers=None: body)
+    monkeypatch.setattr(verify.http, "get", lambda url, headers=None, page=False: body)
     rec = Record(
         title="hn",
         url="https://news.ycombinator.com/item?id=1",
@@ -137,7 +137,7 @@ def test_a_sources_own_evidence_error_is_contained(monkeypatch):
 
 
 def _page(monkeypatch, body: bytes):
-    monkeypatch.setattr(verify.http, "get", lambda url, headers=None: body)
+    monkeypatch.setattr(verify.http, "get", lambda url, headers=None, page=False: body)
 
 
 def test_inline_tags_do_not_split_words_or_punctuation(monkeypatch):
@@ -258,31 +258,32 @@ def test_a_repo_path_inside_the_ideas_repository_is_refused(tmp_path: Path):
         )
 
 
-def test_arxiv_evidence_waits_on_the_shared_throttle(tmp_path: Path, monkeypatch):
-    from heuresis.sources import papers
+def test_page_evidence_is_robots_checked_and_api_evidence_is_not(tmp_path: Path, monkeypatch):
+    pages: list = []
 
-    stamp = tmp_path / "arxiv-stamp"
-    stamp.write_text("1000.0")
-    events: list = []
-    monkeypatch.setattr(papers.S, "DEFAULT_THROTTLE", stamp)
-    monkeypatch.setattr(papers.S.time, "time", lambda: 1001.0)
-    monkeypatch.setattr(papers.S.time, "sleep", lambda s: events.append(("sleep", s)))
-
-    def get(url, headers=None):
-        events.append(("get", url))
-        return b'<?xml version="1.0"?><feed><summary>An arXiv abstract long enough</summary></feed>'
+    def get(url, headers=None, page=False):
+        pages.append((url, page))
+        return b"<p>An abstract long enough to quote</p>"
 
     monkeypatch.setattr(verify.http, "get", get)
-    rec = Record(
+    api = Record(
         title="t",
         url="http://arxiv.org/abs/2401.00001v1",
-        source="arxiv",
+        source="web",
         kind="paper",
         evidence_url="https://export.arxiv.org/api/query?id_list=2401.00001v1",
     )
-    assert verify.check(rec, "An arXiv abstract long enough", tmp_path, tmp_path) == (True, "")
-    assert events[0] == ("sleep", 2.0) and events[1][0] == "get"
-    assert stamp.read_text() == "1001.0"
-    events.clear()
-    assert verify.check(web(), "An arXiv abstract long enough", tmp_path, tmp_path)[0]
-    assert [e[0] for e in events] == ["get"]
+    assert verify.check(api, "An abstract long enough to quote", tmp_path, tmp_path)[0]
+    assert verify.check(web(), "An abstract long enough to quote", tmp_path, tmp_path)[0]
+    assert pages == [(api.evidence_url, False), ("https://p.example/x", True)]
+
+
+def test_a_robots_refusal_is_reported_as_not_fetched(tmp_path: Path, monkeypatch):
+    def get(url, headers=None, page=False):
+        raise http.RobotsDisallowed("p.example", "/x")
+
+    monkeypatch.setattr(verify.http, "get", get)
+    assert verify.check(web(), "a tool that triages ideas against", tmp_path, tmp_path) == (
+        False,
+        "not fetched: robots.txt disallows /x",
+    )

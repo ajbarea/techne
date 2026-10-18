@@ -50,7 +50,7 @@ Conflating them is how a blind spot goes quiet.
 
 - **Verified**: resolved and matched.
 - **Drift**: resolved, and the file differs from the source.
-- **Unresolved**: the entry has an identifier and the lookup did not answer. The reason is printed. This says nothing about the entry, and a throttled host is waited out rather than counted.
+- **Unresolved**: the entry has an identifier and the lookup did not answer. The reason is printed. This says nothing about the entry, and a throttled host is waited out rather than counted. Requests to each host are spaced across processes, and `Retry-After` is honored.
 - **Unverifiable**: no `eprint` and no `doi` (for a hand-written entry, none printed), so nothing can be resolved. Named on every run.
 - **Uncompared**: a hand-written entry whose identifier resolved but which does not quote its title, so nothing printed can be matched to the record. Named on every run, and never counted as verified.
 - **Exempt**: listed in the config with a reason. The reason is printed.
