@@ -67,7 +67,9 @@ These files are the same on every sister docs site, and techne holds the canonic
   `word-break: break-word` on code lets a table squeeze a column until identifiers split, and
   `word-break: normal` still breaks at a hyphen), an overflowing table scrolls inside its box
   with edge shadows, the layout widens to 1440px on wide screens, and the side panels toggle's
-  styles. It loads before the site's own CSS, so a site can override it.
+  styles. It loads before the site's own CSS, so a site can override it, except the
+  table-code wrapping rules, which are `!important` so one site rule cannot split
+  identifiers again; delete a site's own table-code wrapping rule as redundant.
 - `docs/javascripts/shared.js`: the header button that hides the navigation and table of
   contents (remembered per reader), and an overflowing table box becomes a labelled,
   keyboard-focusable region.
