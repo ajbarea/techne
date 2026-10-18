@@ -18,6 +18,7 @@ import urllib.error
 from pathlib import Path
 
 import pytest
+from conftest import polite_http
 
 CLEAN = """\
 @article{good2024entry,
@@ -401,21 +402,21 @@ def _refuse(code, reason):
 def test_a_lookup_that_fails_says_why(dk, monkeypatch):
     """A throttled host and a missing record were the same event, so a blocked run read as a
     bibliography with 67 bad identifiers."""
-    monkeypatch.setattr(dk.urllib.request, "urlopen", _refuse(406, "Not Acceptable"))
+    monkeypatch.setattr(polite_http, "_open", _refuse(406, "Not Acceptable"))
     body, reason = dk._get("https://export.arxiv.org/api/query?id_list=1")
     assert body is None
     assert reason == "HTTP 406"
 
 
 def test_a_lookup_that_succeeds_reports_no_reason(dk, monkeypatch):
-    monkeypatch.setattr(dk.urllib.request, "urlopen", lambda *a, **k: _Response("<feed/>"))
-    assert dk._get("https://example.invalid/x") == ("<feed/>", "")
+    monkeypatch.setattr(polite_http, "_open", lambda *a, **k: _Response("<feed/>"))
+    assert dk._get("https://api.crossref.org/works/x") == ("<feed/>", "")
 
 
 def test_a_throttled_host_is_waited_out_rather_than_retried_at_once(dk, monkeypatch, slept):
     """Retries are spaced 5, 20 and 60 seconds apart, not two seconds."""
-    monkeypatch.setattr(dk.urllib.request, "urlopen", _refuse(429, "Too Many Requests"))
-    assert dk._get("https://example.invalid/x") == (None, "HTTP 429")
+    monkeypatch.setattr(polite_http, "_open", _refuse(429, "Too Many Requests"))
+    assert dk._get("https://api.crossref.org/works/x") == (None, "HTTP 429")
     assert [w for w in slept if w > 2] == pytest.approx([5, 20, 60], abs=0.5)
 
 
@@ -428,15 +429,15 @@ def test_a_403_is_never_retried(dk, monkeypatch, slept):
         calls.append(request.full_url)
         return refuse(request, timeout)
 
-    monkeypatch.setattr(dk.urllib.request, "urlopen", counted)
+    monkeypatch.setattr(polite_http, "_open", counted)
     assert dk._get("https://export.arxiv.org/api/query?id_list=1") == (None, "HTTP 403")
     assert len(calls) == 1
     assert not [w for w in slept if w > 0]
 
 
 def test_a_missing_page_is_not_waited_out(dk, monkeypatch, slept):
-    monkeypatch.setattr(dk.urllib.request, "urlopen", _refuse(404, "Not Found"))
-    assert dk._get("https://example.invalid/x") == (None, "HTTP 404")
+    monkeypatch.setattr(polite_http, "_open", _refuse(404, "Not Found"))
+    assert dk._get("https://api.crossref.org/works/x") == (None, "HTTP 404")
     assert not [w for w in slept if w > 2], "a 404 is not a throttle and must not be retried"
 
 
@@ -460,8 +461,8 @@ def test_a_timeout_is_not_waited_out_like_a_throttle(dk, monkeypatch, slept):
     def timeout(request, timeout=0):
         raise TimeoutError("timed out")
 
-    monkeypatch.setattr(dk.urllib.request, "urlopen", timeout)
-    assert dk._get("https://example.invalid/x") == (None, "Unreachable")
+    monkeypatch.setattr(polite_http, "_open", timeout)
+    assert dk._get("https://api.crossref.org/works/x") == (None, "unreachable: api.crossref.org")
     assert not [w for w in slept if w > 2]
 
 
@@ -780,18 +781,16 @@ def test_an_unparseable_response_is_unresolved_and_never_cached(dk, tmp_path, mo
 # --- 9. polite pool ----------------------------------------------------------------------
 
 
-def test_mailto_is_added_to_crossref_requests_and_the_user_agent(dk, monkeypatch):
+def test_mailto_is_added_to_crossref_requests_but_never_the_user_agent(dk, monkeypatch):
     monkeypatch.setenv("DOKIMASIA_MAILTO", "me@example.org")
     seen: list[str] = []
     monkeypatch.setattr(dk, "_get", lambda url, *a, **k: (seen.append(url), ("", "x"))[1])
     dk._crossref_record("10.1/x")
     assert seen == ["https://api.crossref.org/works/10.1/x?mailto=me%40example.org"]
-    assert dk.user_agent() == (
-        "dokimasia/1.0 (+https://github.com/ajbarea/techne; mailto:me@example.org)"
-    )
+    assert dk.user_agent() == "dokimasia/1.0 (+https://github.com/ajbarea/techne)"
 
 
-def test_the_request_carries_the_user_agent(dk, monkeypatch):
+def test_the_request_carries_the_user_agent_and_no_address(dk, monkeypatch):
     monkeypatch.setenv("DOKIMASIA_MAILTO", "me@example.org")
     headers: list[dict] = []
 
@@ -799,16 +798,43 @@ def test_the_request_carries_the_user_agent(dk, monkeypatch):
         headers.append(dict(request.header_items()))
         return _Response("ok")
 
-    monkeypatch.setattr(dk.urllib.request, "urlopen", capture)
-    dk._get("https://example.invalid/x")
-    assert "mailto:me@example.org" in headers[0]["User-agent"]
+    monkeypatch.setattr(polite_http, "_open", capture)
+    dk._get("https://api.crossref.org/works/x")
+    assert headers[0]["User-agent"] == "dokimasia/1.0 (+https://github.com/ajbarea/techne)"
+    assert "mailto" not in headers[0]["User-agent"]
 
 
 def test_without_mailto_nothing_is_added_and_no_address_is_hard_coded(dk, monkeypatch):
     monkeypatch.delenv("DOKIMASIA_MAILTO", raising=False)
     assert "mailto" not in dk._crossref_url("10.1/x")
-    assert dk.user_agent() == "dokimasia/1.0 (+https://github.com/ajbarea/techne)"
     assert "@" not in dk.user_agent()
+
+
+def test_lint_runs_from_a_lone_copy_of_the_script(tmp_path):
+    """Only verify needs polite_http.py; lint and rendered work without it."""
+    import shutil
+    import subprocess
+    import sys
+
+    from conftest import DOKIMASIA_SCRIPT
+
+    lone = tmp_path / "lone" / "dokimasia.py"
+    lone.parent.mkdir()
+    shutil.copy(DOKIMASIA_SCRIPT, lone)
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "refs.bib").write_text("@misc{a,\n  title={T},\n  eprint={1812.06127},\n}\n")
+    (proj / "main.tex").write_text("\\cite{a}\n")
+    run = lambda *args: subprocess.run(  # noqa: E731
+        [sys.executable, str(lone), "--root", str(proj), *args],
+        capture_output=True,
+        text=True,
+    )
+    lint = run("lint")
+    assert "polite_http" not in lint.stderr + lint.stdout
+    verify = run("verify")
+    assert verify.returncode != 0
+    assert "polite_http.py" in verify.stderr and "github.com/ajbarea/techne" in verify.stderr
 
 
 # --- 10. spans all configured bibliographies ---------------------------------------------

@@ -136,32 +136,6 @@ def test_a_source_failing_before_any_hit_is_failed():
     assert (coverage[0].status, coverage[0].queries, coverage[0].hits) == ("failed", 2, 0)
 
 
-def _request(url="https://api.example/x"):
-    import urllib.request
-
-    headers = {"x-api-key": "K", "Authorization": "Bearer T", "User-Agent": "u"}
-    return urllib.request.Request(url, headers=headers)
-
-
-def _keys(req) -> set[str]:
-    return {k.lower() for k in req.headers}
-
-
-def test_a_redirect_to_another_host_drops_the_credentials():
-    handler = http._Redirect()
-    moved = handler.redirect_request(_request(), None, 302, "Found", {}, "https://other.example/y")
-    assert _keys(moved) == {"user-agent"}
-    same = handler.redirect_request(_request(), None, 302, "Found", {}, "https://api.example/z")
-    assert _keys(same) == {"x-api-key", "authorization", "user-agent"}
-
-
-def test_a_redirect_to_a_non_web_scheme_is_a_source_error():
-    import pytest
-
-    with pytest.raises(http.SourceError, match="ftp"):
-        http._Redirect().redirect_request(_request(), None, 302, "Found", {}, "ftp://x.example/a")
-
-
 def test_get_follows_a_cross_host_redirect_without_sending_the_key():
     import threading
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -170,6 +144,10 @@ def test_get_follows_a_cross_host_redirect_without_sending_the_key():
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
+            if self.path == "/robots.txt":
+                self.send_response(404)
+                self.end_headers()
+                return
             seen.append((self.headers["Host"], self.headers.get("x-api-key")))
             if self.path == "/start":
                 self.send_response(302)
@@ -193,9 +171,3 @@ def test_get_follows_a_cross_host_redirect_without_sending_the_key():
         server.server_close()
     assert body == b"done"
     assert seen == [(f"localhost:{port}", "K"), (f"127.0.0.1:{port}", None)]
-
-
-def test_a_redirect_from_https_to_http_on_the_same_host_drops_the_credentials():
-    handler = http._Redirect()
-    moved = handler.redirect_request(_request(), None, 302, "Found", {}, "http://api.example/z")
-    assert _keys(moved) == {"user-agent"}

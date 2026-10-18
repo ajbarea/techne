@@ -182,7 +182,7 @@ def evidence_text(record: Record, ideas_root: Path, repos_root: Path) -> str:
         if own is not None:
             return own
     url = record.evidence_url or record.url
-    return _decode(http.get(url, _headers(url), page=http.polite_http.needs_robots(url)))
+    return _decode(http.get(url, _headers(url)))
 
 
 def check(record: Record, quote: str, ideas_root: Path, repos_root: Path) -> tuple[bool, str]:

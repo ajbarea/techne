@@ -81,3 +81,47 @@ def test_openalex_search_strips_commas_from_the_query(semantic: bool):
     params = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(seen[0][0]).query))
     value = params["search.semantic"] if semantic else params["filter"]
     assert value.removeprefix("title_and_abstract.search:") == "agents federated audit"
+
+
+def test_arxiv_lookup_resolves_ids_in_one_request():
+    seen: list = []
+    body = (FIX / "arxiv_query.xml").read_bytes()
+    out = s.arxiv_lookup(["2401.00001", " 2402.00002 "], fetch=fake(body, seen))
+    assert len(seen) == 1
+    assert seen[0][0].startswith("https://export.arxiv.org/api/query?id_list=2401.00001,2402.00002")
+    assert set(out[0]) == {"id", "title", "authors", "year", "abstract"}
+    assert out[0]["authors"] and out[0]["year"].isdigit()
+
+
+def test_crossref_lookup_reads_title_authors_year_and_venue():
+    seen: list = []
+    body = json.dumps(
+        {
+            "message": {
+                "title": ["A  Title"],
+                "author": [{"given": "Ada", "family": "Lovelace"}],
+                "issued": {"date-parts": [[2021, 3]]},
+                "container-title": ["Journal"],
+            }
+        }
+    ).encode()
+    out = s.crossref_lookup(
+        "https://doi.org/10.1/x y", mailto="me@example.org", fetch=fake(body, seen)
+    )
+    assert seen[0][0] == "https://api.crossref.org/works/10.1/x%20y?mailto=me%40example.org"
+    assert out == {
+        "doi": "10.1/x y",
+        "title": "A Title",
+        "authors": ["Ada Lovelace"],
+        "year": "2021",
+        "venue": "Journal",
+    }
+    with pytest.raises(s.ScholarlyError):
+        s.crossref_lookup("10.1/x", fetch=fake(b"{}", []))
+
+
+def test_cli_arxiv_id_and_crossref(capsys, monkeypatch):
+    body = (FIX / "arxiv_query.xml").read_bytes()
+    monkeypatch.setattr(s, "_get", lambda url, headers: body)
+    assert s.main(["arxiv-id", "2401.00001"]) == 0
+    assert json.loads(capsys.readouterr().out.splitlines()[0])["id"]

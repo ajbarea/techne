@@ -7,11 +7,11 @@ sinks the paper. Never trust a seed bib, a recalled citation, or a search snippe
 
 ## Pacing
 
-arXiv allows one request every 3 seconds on one connection, across everything you run. Batch ids
-into one call and wait 3 seconds between calls. Send a `mailto` to OpenAlex and Crossref. On a
-`429` or `503`, wait for the `Retry-After` time and try again at most three times. On a `403`,
-stop and record the source as not checked. Prefer the retrieval script that SKILL.md names,
-which does all of this for you.
+Use the retrieval script that SKILL.md names (shown here as `<retrieval script>`) for every
+lookup below. It spaces requests per host across processes, waits out `Retry-After`, stops asking
+a host that refused it, and sends your `OPENALEX_MAILTO` to OpenAlex and Crossref. Do not call
+these hosts with `curl`. If the script prints `not checked: <host> refused until ...`, record
+that citation as not checked and move on; do not retry it another way.
 
 ## Extract what the draft cites
 
@@ -33,31 +33,30 @@ grep -oE '\\bibitem(\[[^]]*\])?\{[^}]+\}' draft.tex | grep -oE '\{[^}]+\}$' | tr
 
 ## arXiv ids → arXiv API (authoritative)
 
-Batch every arXiv id in one call (use **https**; `http` can return an empty body):
+Resolve every arXiv id in one call. Each line is one entry with `id`, `title`, `authors`, `year`
+and `abstract`:
 
 ```bash
 IDS=$(grep -oiE 'arxiv:[0-9]{4}\.[0-9]{4,5}' references.bib | sed -E 's/arxiv://I' | sort -u | paste -sd,)
-curl -s "https://export.arxiv.org/api/query?id_list=${IDS}&max_results=60"   # Atom: title, author, published, summary
+uv run --no-project --quiet python <retrieval script> arxiv-id "$IDS"
 ```
 
 - An id that returns **no entry** is fabricated — **stop-ship**.
 - A returned `<title>` that does not match the bib title means the id points to a **different
   paper** — stop-ship.
-- Compare `<author>` and the `<published>` year against the bib; fix mismatches.
-- Read `<summary>` (the abstract) to check any claim the draft makes about the paper.
+- Compare `authors` and `year` against the bib; fix mismatches.
+- Read `abstract` to check any claim the draft makes about the paper.
 
-Parse the feed with `python3 -c` + `xml.etree` (namespace `{http://www.w3.org/2005/Atom}`);
-the entries returned vs. the ids requested reveals which ids are missing (fabricated).
+Ids requested but missing from the output are the fabricated ones.
 
-## Published venues → OpenAlex or DOI
+## Published venues → OpenAlex or Crossref
 
 ```bash
-curl -s "https://api.openalex.org/works?search=<title>&per-page=1&mailto=<email>&select=title,publication_year,authorships,primary_location"
-curl -s "https://api.openalex.org/works/doi:<doi>?mailto=<email>&select=title,authorships,publication_year"
-curl -LsH "Accept: application/x-bibtex" "https://doi.org/<doi>"   # authoritative BibTeX, ready to paste
+uv run --no-project --quiet python <retrieval script> openalex '<title words>' --limit 1
+uv run --no-project --quiet python <retrieval script> crossref '<doi>'   # title, authors, year, venue
 ```
 
-Confirm the top hit's title matches; take authors / venue / year from the authoritative record.
+Confirm the top hit's title matches; take authors / venue / year from the Crossref record.
 
 ## Claims *about* a cited work
 

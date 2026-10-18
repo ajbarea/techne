@@ -258,26 +258,6 @@ def test_a_repo_path_inside_the_ideas_repository_is_refused(tmp_path: Path):
         )
 
 
-def test_page_evidence_is_robots_checked_and_api_evidence_is_not(tmp_path: Path, monkeypatch):
-    pages: list = []
-
-    def get(url, headers=None, page=False):
-        pages.append((url, page))
-        return b"<p>An abstract long enough to quote</p>"
-
-    monkeypatch.setattr(verify.http, "get", get)
-    api = Record(
-        title="t",
-        url="http://arxiv.org/abs/2401.00001v1",
-        source="web",
-        kind="paper",
-        evidence_url="https://export.arxiv.org/api/query?id_list=2401.00001v1",
-    )
-    assert verify.check(api, "An abstract long enough to quote", tmp_path, tmp_path)[0]
-    assert verify.check(web(), "An abstract long enough to quote", tmp_path, tmp_path)[0]
-    assert pages == [(api.evidence_url, False), ("https://p.example/x", True)]
-
-
 def test_a_robots_refusal_is_reported_as_not_fetched(tmp_path: Path, monkeypatch):
     def get(url, headers=None, page=False):
         raise http.RobotsDisallowed("p.example", "/x")

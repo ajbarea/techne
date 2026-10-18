@@ -7,7 +7,6 @@ import json
 import os
 import sys
 import urllib.parse
-import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
@@ -31,32 +30,10 @@ class SourceError(Exception):
 
 
 WEB_SCHEMES = ("http", "https")
-# Keys and tokens are meant for the host and scheme they were sent to, never a redirect elsewhere.
-CREDENTIAL_HEADERS = frozenset({"x-api-key", "authorization"})
-
-
-class _Redirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        target = urllib.parse.urlsplit(newurl)
-        if target.scheme not in WEB_SCHEMES:
-            raise SourceError(f"redirect to unsupported scheme: {target.scheme or 'none'}")
-        new = super().redirect_request(req, fp, code, msg, headers, newurl)
-        source = urllib.parse.urlsplit(req.full_url)
-        # A downgrade to http would send the key in clear text, even to the same host.
-        moved = (target.scheme, target.hostname) != (source.scheme, source.hostname)
-        if new is not None and moved:
-            for name in [n for n in new.headers if n.lower() in CREDENTIAL_HEADERS]:
-                del new.headers[name]
-        return new
-
-
-_OPENER = urllib.request.build_opener(_Redirect)
-
-
 RobotsDisallowed = polite_http.RobotsDisallowed
 
 
-def _open(url: str, *, data: bytes | None, headers: dict[str, str] | None, page: bool) -> bytes:
+def _open(url: str, *, data: bytes | None, headers: dict[str, str] | None) -> bytes:
     parts = urllib.parse.urlsplit(url)
     if parts.scheme not in WEB_SCHEMES:
         raise SourceError(f"unsupported scheme: {parts.scheme}")
@@ -70,23 +47,23 @@ def _open(url: str, *, data: bytes | None, headers: dict[str, str] | None, page:
             mailto=os.environ.get("OPENALEX_MAILTO") or None,
             timeout=TIMEOUT,
             max_bytes=MAX_BYTES,
-            opener=_OPENER,
-            page=page,
         )
+    except polite_http.RobotsDisallowed:
+        raise
     except polite_http.HttpStatus as exc:
         raise SourceError(str(exc), status=exc.status) from exc
-    except polite_http.Unreachable as exc:
+    except polite_http.PoliteError as exc:
         raise SourceError(str(exc)) from exc
 
 
-def get(url: str, headers: dict[str, str] | None = None, *, page: bool = False) -> bytes:
-    """GET `url`. `page=True` checks robots.txt first and may raise RobotsDisallowed."""
-    return _open(url, data=None, headers=headers, page=page)
+def get(url: str, headers: dict[str, str] | None = None) -> bytes:
+    """GET `url`. A page is checked against robots.txt first and may raise RobotsDisallowed."""
+    return _open(url, data=None, headers=headers)
 
 
 def post_form(url: str, fields: dict[str, str], headers: dict[str, str] | None = None) -> bytes:
     data = urllib.parse.urlencode(fields).encode()
-    return _open(url, data=data, headers=headers, page=False)
+    return _open(url, data=data, headers=headers)
 
 
 def json_object(body: bytes) -> dict:

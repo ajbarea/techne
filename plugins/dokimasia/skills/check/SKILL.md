@@ -52,7 +52,8 @@ Findings print on stderr and the summary on stdout, every summary and finding li
 
 A failed lookup is never cached and never a finding. A throttled host (406, 429, 503) is
 waited out: a lookup waits for `Retry-After` (else 5, 20 and 60 seconds) and retries up to three
-times. A 403 is never retried. Requests to one host are spaced across processes (arXiv 3 seconds,
+times. A 403 is never retried, and the host is not asked again for 24 hours (the line reads
+`not checked: <host> refused until ...`). Requests to one host are spaced across processes (arXiv 3 seconds,
 Crossref 1 second, or 0.34 with a mailto), so two runs at once do not add up.
 
 ## Hand-written reference lists
@@ -151,7 +152,7 @@ A configured `[intake] file` that does not exist is an error, as is a `cache` ou
 or a cache file that is not a JSON object. The root search stops at the git top-level.
 
 Set `DOKIMASIA_MAILTO` to your address to use Crossref's polite pool. It is added to Crossref
-requests and the User-Agent, and never stored. The pacing code is `_shared/polite_http.py`, which
+requests only, never to the User-Agent, and never stored. The pacing code is `_shared/polite_http.py`, which
 `make guards` keeps identical to techne's copy.
 
 ## Without Claude

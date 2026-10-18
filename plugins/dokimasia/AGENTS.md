@@ -32,7 +32,7 @@ Exit codes: `0` nothing failed, `1` findings, `2` usage or configuration error (
 | Outcome | What to do |
 | --- | --- |
 | `drift` | Check the source, then decide with the user which side is wrong. |
-| `unresolved` | The lookup did not answer. Rerun later. A 406 from arXiv, a 429 or a 503 waits for `Retry-After` (else 5, 20 and 60 seconds) and is retried up to three times. A 403 is never retried. |
+| `unresolved` | The lookup did not answer. Rerun later. A 406 from arXiv, a 429 or a 503 waits for `Retry-After` (else 5, 20 and 60 seconds) and is retried up to three times. A 403 is never retried and stops that host for 24 hours: report those entries as not checked. |
 | `unverifiable` | The entry has no `eprint` or `doi`. The user adds an identifier, or a human checks it. |
 | `uncompared` | A hand-written item that does not quote its title. Check it by hand. |
 | `exempt` | Listed in the config with a reason. Nothing to do. |

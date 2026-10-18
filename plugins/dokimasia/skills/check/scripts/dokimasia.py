@@ -74,10 +74,6 @@ from dataclasses import field as dc_field
 from pathlib import Path
 from typing import NoReturn
 
-# polite_http.py lives in the plugin's _shared folder: parents[3] is the plugin root.
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "_shared"))
-import polite_http  # ty: ignore[unresolved-import]
-
 #: A field whose presence means the entry can be resolved to a record somewhere.
 #: `howpublished` counts because @misc entries carry their URL there by convention.
 ID_FIELDS = ("eprint", "doi", "url", "howpublished")
@@ -1297,7 +1293,31 @@ def rendered(cfg: Config, docs: list[Path] | None = None, require_built: bool = 
 # --- verify ----------------------------------------------------------------------------
 
 #: Statuses that mean "you, later" rather than "no such record". arXiv uses 406 for this.
-THROTTLED = polite_http.THROTTLED_STATUSES
+THROTTLED = (406, 429, 503)
+POLITE_URL = "https://github.com/ajbarea/techne/blob/main/plugins/techne/_shared/polite_http.py"
+
+
+def _polite():
+    """The shared pacing module, imported only when a lookup needs the network.
+
+    `lint` and `rendered` work from a lone copy of this file; `verify` needs polite_http.py,
+    which lives in the plugin's `_shared` folder (parents[3] is the plugin root).
+    """
+    try:
+        import polite_http  # ty: ignore[unresolved-import]
+
+        return polite_http
+    except ImportError:
+        pass
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "_shared"))
+    try:
+        import polite_http  # ty: ignore[unresolved-import]
+    except ImportError:
+        raise SystemExit(
+            "dokimasia: verify needs polite_http.py, which was not found. Fetch it from "
+            f"{POLITE_URL} and put it in {Path(__file__).resolve().parents[3] / '_shared'}"
+        ) from None
+    return polite_http
 
 
 def _mailto() -> str:
@@ -1305,7 +1325,7 @@ def _mailto() -> str:
 
 
 def user_agent() -> str:
-    return polite_http.user_agent("dokimasia", _mailto() or None, version="1.0")
+    return _polite().user_agent("dokimasia", version="1.0")
 
 
 def _get(url: str) -> tuple[str | None, str]:
@@ -1315,14 +1335,17 @@ def _get(url: str) -> tuple[str | None, str]:
     that fetched nothing reported every entry as unverifiable and read as a bibliography
     problem. Callers pass the reason up so the summary can say which it was.
 
-    Pacing, Retry-After and the retries on 406, 429 and 503 belong to polite_http, which also
-    paces across processes so a parallel run cannot exceed arXiv's one request per three seconds.
+    Pacing, Retry-After, the retries on 406, 429 and 503 and the refusal memory belong to
+    polite_http, which also paces across processes so a parallel run cannot exceed arXiv's one
+    request per three seconds. A 403 is never retried.
     """
+    polite = _polite()
     try:
-        body = polite_http.fetch(url, tool="dokimasia", mailto=_mailto() or None, timeout=30)
-        return body.decode(), ""
-    except polite_http.HttpStatus as error:
+        return polite.fetch(url, tool="dokimasia", timeout=30).decode(), ""
+    except polite.HttpStatus as error:
         return None, f"HTTP {error.status}"
+    except polite.PoliteError as error:
+        return None, str(error)
     except Exception as error:
         return None, type(error).__name__
 

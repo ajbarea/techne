@@ -198,17 +198,24 @@ def _load(name: str, path: pathlib.Path) -> types.ModuleType:
 polite_http = _load("polite_http", ROOT / "plugins" / "techne" / "_shared" / "polite_http.py")
 
 
+class Sleeps(list):
+    """Seconds polite_http would have slept. `now` is its fake clock, advanced by each sleep."""
+
+    now = 1_000_000.0
+
+
 @pytest.fixture(autouse=True)
 def slept(monkeypatch, tmp_path):
-    """No test waits on a real host interval or touches the user's pacing stamps. The clock
-    is frozen, so a wait equals the interval or retry delay exactly.
+    """No test waits on a real host interval or touches the user's pacing stamps."""
+    waits = Sleeps()
 
-    Returns the list of seconds polite_http would have slept.
-    """
-    waits: list[float] = []
+    def sleep(seconds: float) -> None:
+        waits.append(seconds)
+        waits.now += seconds
+
     monkeypatch.setenv("TECHNE_POLITE_DIR", str(tmp_path / "polite-http"))
-    monkeypatch.setattr(polite_http, "_sleep", waits.append)
-    monkeypatch.setattr(polite_http, "_now", lambda: 1_000_000.0)
+    monkeypatch.setattr(polite_http, "_sleep", sleep)
+    monkeypatch.setattr(polite_http, "_now", lambda: waits.now)
     monkeypatch.setattr(polite_http, "_ROBOTS", {})
     return waits
 
