@@ -145,7 +145,7 @@ A worktree is also held while any process has its working directory or any open 
 
 It prints one line per removal and two lists of what a merge left behind that will not clear on its own:
 
-- **Held after merge**: a worktree or branch whose PR merged (or that is detached inside the default branch), held by uncommitted changes, ignored files that are not build output, commits added after the merge, a tip that differs from the PR head, a nested worktree, a lock, or a checkout in the main checkout. A lasting hold is listed even while a session is also working in the worktree.
+- **Held after merge**: a worktree or branch whose PR merged, held by uncommitted changes, ignored files that are not build output, commits added after the merge, a tip that differs from the PR head, a nested worktree, a lock, or a checkout in the main checkout. A lasting hold is listed even while a session is also working in the worktree.
 - **Closed without merging**: a branch or worktree whose PR closed unmerged.
 
 A hold that clears by itself (only a live process, recent activity, or no way to tell if it is busy) is left out; a later run handles it. It prints nothing when it removed nothing and nothing is held.

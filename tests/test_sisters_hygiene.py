@@ -438,6 +438,11 @@ def test_an_open_pr_outranks_a_newer_closed_one_on_the_same_branch(hy, monkeypat
         ("test-results/", True),
         ("playwright-report/", True),
         (".lighthouseci/", True),
+        # chrome-launcher profiles; under WSL git quotes a Windows temp path as one name.
+        ('"C:\\\\Users\\\\aj\\\\AppData\\\\Local\\\\lighthouse.80415069/"', True),
+        ("lighthouse.80415069/", True),
+        ("docs/lighthouse.80415069/", False),
+        ("lighthouse.2024/", False),
         # husky ignores its own files, so git lists each one rather than the directory.
         (".husky/_/h", True),
         (".husky/_/pre-commit", True),
@@ -782,12 +787,17 @@ def test_auto_lists_what_a_merge_left_behind_that_will_not_clear(fleet, auto):
     sh(fleet.path, "checkout", "-q", "main")
     fleet.prs["feat/c"] = pr(3, "CLOSED", fleet.branch("feat/c", "c1"))
     fleet.branch("feat/wip", "w1")  # no PR: not a merge leftover
+    fleet.branch("feat/fresh")  # no PR, already in main, a session's uncommitted work in it
+    fresh = add_worktree(fleet, "fresh", "feat/fresh")
+    (fresh / "draft.md").write_text("in progress")
     text = auto()
     assert "Held after merge (1):" in text
     assert "local-branch `feat/a`: 1 commit(s) added after PR #1 merged" in text
     assert "Closed without merging (1):" in text
     assert "local-branch `feat/c`" in text
     assert "feat/wip" not in text
+    assert "fresh" not in text
+    assert fresh.exists()
 
 
 def test_auto_reports_issues_and_landed_prs_without_acting_on_them(fleet, auto, hy, monkeypatch):

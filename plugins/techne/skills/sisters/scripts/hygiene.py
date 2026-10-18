@@ -90,6 +90,9 @@ REGENERABLE = {
 # deeper down the same name may be a folder a person made. Astro's types and content
 # store, husky's shims (rebuilt on `npm install`), Playwright and Lighthouse CI reports.
 REGENERABLE_PATHS = (".astro", ".husky/_", "test-results", "playwright-report", ".lighthouseci")
+# chrome-launcher's throwaway Chrome profile (Lighthouse CI). Under WSL its Windows temp
+# path lands in the repo as one folder name, which git quotes: "C:\Users\...\lighthouse.80415069/".
+LIGHTHOUSE_PROFILE = re.compile(r'^"?(?:[^/"]*\\)?lighthouse\.\d{6,}/?"?$')
 REGENERABLE_SUFFIXES = (
     ".egg-info", ".pyc", ".aux", ".bbl", ".blg", ".log", ".out", ".toc", ".fls",
     ".fdb_latexmk", ".synctex.gz", ".bcf", ".run.xml",
@@ -105,6 +108,8 @@ def is_latex_main(tex: Path) -> bool:
 
 
 def regenerable(ignored: str, root: str | None = None) -> bool:
+    if LIGHTHOUSE_PROFILE.match(ignored):
+        return True
     path = ignored.rstrip("/")
     parts = path.split("/")
     # LaTeX output: x.pdf beside a document x.tex in the same worktree is rebuilt by latexmk.
@@ -407,7 +412,7 @@ def leftover(before: str, after: str, pr: dict | None, hold: list[str]) -> str:
         return ""  # only a session at work: a later run decides
     if pr and pr["state"] == "CLOSED":
         return "closed"
-    finished = before == "remove" or bool(pr and pr["state"] == "MERGED")
+    finished = bool(pr and pr["state"] == "MERGED")  # a branch with no PR was never merged
     return "held" if finished and after == "review" else ""
 
 
