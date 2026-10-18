@@ -66,7 +66,10 @@ REGENERABLE = {
     ".venv", "venv", "node_modules", "site", "build", "dist", "out", "target", "logs",
     "__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache", ".cache", ".coverage",
     "htmlcov", ".tox", ".nox", ".ipynb_checkpoints", ".DS_Store", "mutants",
+    ".astro", "test-results", "playwright-report", ".lighthouseci",
 }  # fmt: skip
+# Generated directories whose own name is too generic to match anywhere in a path.
+REGENERABLE_PATHS = (".husky/_",)  # husky writes it on `npm install`
 REGENERABLE_SUFFIXES = (
     ".egg-info", ".pyc", ".aux", ".bbl", ".blg", ".log", ".out", ".toc", ".fls",
     ".fdb_latexmk", ".synctex.gz", ".bcf", ".run.xml",
@@ -74,9 +77,11 @@ REGENERABLE_SUFFIXES = (
 
 
 def regenerable(ignored: str) -> bool:
-    parts = ignored.rstrip("/").split("/")
+    path = ignored.rstrip("/")
+    parts = path.split("/")
     return bool(
         REGENERABLE & set(parts)
+        or any(path == p or path.startswith(p + "/") for p in REGENERABLE_PATHS)
         or parts[-1].endswith(REGENERABLE_SUFFIXES)
         or any("cache" in part.lower() for part in parts)
     )
