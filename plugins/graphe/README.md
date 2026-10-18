@@ -7,4 +7,4 @@ Document skills: build and gate LaTeX papers, markdown-to-PDF renders and talk d
 /plugin install graphe@techne
 ```
 
-Then run `/graphe:setup`. Install, first use and troubleshooting: [https://ajbarea.github.io/techne/plugins/graphe/](https://ajbarea.github.io/techne/plugins/graphe/). Setup runbook: [AGENTS.md](AGENTS.md).
+Then run `/graphe:setup`. Optional OpenAlex and Semantic Scholar keys for paper-review are saved with `/plugin configure graphe@techne` and kept in Claude Code's secure storage. Install, first use and troubleshooting: [https://ajbarea.github.io/techne/plugins/graphe/](https://ajbarea.github.io/techne/plugins/graphe/). Setup runbook: [AGENTS.md](AGENTS.md).

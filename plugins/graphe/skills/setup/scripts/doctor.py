@@ -7,13 +7,16 @@ Usage: python3 doctor.py
 
 from __future__ import annotations
 
+import os
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 
 sys.dont_write_bytecode = True  # a doctor leaves no file behind, not even in the plugin cache
 PLUGIN = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PLUGIN / "_shared"))
 import doctor_lib as d  # noqa: E402  # ty: ignore[unresolved-import]
+import plugin_keys as pk  # noqa: E402  # ty: ignore[unresolved-import]
 
 POPPLER = ("pdftotext", "pdfinfo", "pdffonts", "pdftoppm")
 PPTX_ONLY = "only for a deck that must be a .pptx"
@@ -55,7 +58,12 @@ def pptxgenjs(platform: d.Platform) -> d.Check:
     )
 
 
-def checks(platform: d.Platform) -> list[d.Check]:
+def key_checks(environ: Mapping[str, str]) -> list[d.Check]:
+    """The optional search keys: a missing one never makes the result `missing`."""
+    return d.key_checks(pk.doctor_entries_for(PLUGIN, environ))
+
+
+def checks(platform: d.Platform, environ: Mapping[str, str] | None = None) -> list[d.Check]:
     def program(name, fix, **options):
         return d.program(platform, name, fix, **options)
 
@@ -76,7 +84,7 @@ def checks(platform: d.Platform) -> list[d.Check]:
         program("node", "node", required=False, version_argv=version, why=PPTX_ONLY),
         d.guarded("pptxgenjs", False, lambda: pptxgenjs(platform)),
     ]
-    return found
+    return found + key_checks(os.environ if environ is None else environ)
 
 
 def main() -> int:

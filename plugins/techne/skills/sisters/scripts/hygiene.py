@@ -67,6 +67,10 @@ REGENERABLE = {
     "__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache", ".cache", ".coverage",
     "htmlcov", ".tox", ".nox", ".ipynb_checkpoints", ".DS_Store", "mutants",
 }  # fmt: skip
+# Generated directories matched only at the repo root, where their tools write them;
+# deeper down the same name may be a folder a person made. Astro's types and content
+# store, husky's shims (rebuilt on `npm install`), Playwright and Lighthouse CI reports.
+REGENERABLE_PATHS = (".astro", ".husky/_", "test-results", "playwright-report", ".lighthouseci")
 REGENERABLE_SUFFIXES = (
     ".egg-info", ".pyc", ".aux", ".bbl", ".blg", ".log", ".out", ".toc", ".fls",
     ".fdb_latexmk", ".synctex.gz", ".bcf", ".run.xml",
@@ -74,9 +78,11 @@ REGENERABLE_SUFFIXES = (
 
 
 def regenerable(ignored: str) -> bool:
-    parts = ignored.rstrip("/").split("/")
+    path = ignored.rstrip("/")
+    parts = path.split("/")
     return bool(
         REGENERABLE & set(parts)
+        or any(path == p or path.startswith(p + "/") for p in REGENERABLE_PATHS)
         or parts[-1].endswith(REGENERABLE_SUFFIXES)
         or any("cache" in part.lower() for part in parts)
     )

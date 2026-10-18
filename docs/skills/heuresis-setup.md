@@ -27,7 +27,7 @@ The skill runs a doctor script that only reads, then follows the [setup runbook]
 | `uv`, `git` | Required. |
 | `gh` | Optional. GitHub search and the ideas remote. |
 | `ideas_repo`, `repos_root` | The two folders set in `/config`. |
-| API keys | Optional. One line per key: `S2_API_KEY`, `LENS_API_TOKEN`, `EPO_OPS_KEY` with `EPO_OPS_SECRET`, `OPENALEX_API_KEY`, `OPENALEX_MAILTO` and the GitHub token. Saved in Claude Code's secure storage, or exported in your shell, which wins. A source without its key shows `skipped` in a verdict. |
+| API keys | Optional. One line per key: `S2_API_KEY`, `EPO_OPS_KEY` with `EPO_OPS_SECRET`, `OPENALEX_API_KEY`, `OPENALEX_MAILTO` and the GitHub token. Saved in Claude Code's secure storage, or exported in your shell, which wins. A source without its key shows `skipped` in a verdict. |
 
 ## Output
 

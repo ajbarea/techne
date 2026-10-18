@@ -9,6 +9,7 @@ This is the setup guide for graphe, written for an agent guiding a user. Run the
 - The Chromium library install needs `sudo` inside it, so the user runs that one too.
 - You may run any other fix line after the user approves, such as the uv installer, a Homebrew formula install without `sudo`, the Chromium install and the pptxgenjs install.
 - Report only what the doctor printed.
+- Never ask for an API key in chat. The user writes any file that holds a key; you never read, cat or write it.
 
 ## 1. Run the doctor
 
@@ -30,6 +31,15 @@ If the shell says `python3` is not found, the doctor cannot start. The user inst
 | `node` | building a `.pptx` deck | Optional. On Debian or Ubuntu the user runs the fix line with `!`. On macOS you may run it after the user approves. |
 | `pptxgenjs` | building a `.pptx` deck | Optional. Run the fix line in the folder that will hold the deck, after the user approves. It installs into that folder's `node_modules`, so it needs no `sudo`. |
 
-## 3. Check the result
+## 3. Search keys
 
-Run the doctor again. When it prints `result: ready`, suggest `/graphe:latex` on a `.tex` file or `/graphe:slides` to start a talk.
+The `OPENALEX_API_KEY` and `S2_API_KEY` lines are `optional`. paper-review runs on OpenAlex and the web without them; an OpenAlex key raises its daily budget and an S2 key adds Semantic Scholar. Each line names where to get the key. Claude Code keeps saved keys in its secure storage. At session start graphe writes them to a private (0600) per-process file in its plugin data folder that Bash commands load, and deletes the file when the session ends. Pick one route:
+
+- **Route A (recommended).** The user runs `/plugin configure graphe@techne` and pastes each key into its masked field.
+- **Route B, from a file.** Print the template with the store command and `template`, then have the user save it at a private path outside any repository (for example `~/graphe-keys.env`), fill in the keys and run `chmod 600` on it. Run the store command with `store` and that absolute path. It saves each key into every installed plugin that uses it, heuresis and graphe both for a shared key such as `S2_API_KEY`, and prints only the names. `/plugin configure` saves into one plugin only, so after changing a shared key there, change it in the other plugin too or use the store command. Afterwards the user deletes the file or keeps it somewhere private.
+
+Either way the user restarts Claude Code, then you run the doctor again. A key already in the Bash environment, such as one exported in the shell profile, wins over a saved one. If heuresis and graphe both use the same key, keep the two values the same: either plugin's value may be the one a session uses.
+
+## 4. Check the result
+
+Run the doctor again. The optional key lines never change the result. When it prints `result: ready`, suggest `/graphe:latex` on a `.tex` file or `/graphe:slides` to start a talk.

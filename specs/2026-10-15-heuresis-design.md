@@ -39,7 +39,7 @@ running arbitrary Claude jobs from the queue (heuresis jobs only).
 | Phone capture | iOS Shortcut posting to the GitHub Issues API | GitHub issue form alone; email or chat bots | One or two taps, works with dictation and the share sheet. The issue form stays as a fallback. |
 | Verdict grounding | Compare only against retrieved records, facet by facet, closest rival named | Ask the model whether the idea is novel | Ungrounded LLM novelty judgments are near chance and almost never say "not novel" ([RINoBench](https://arxiv.org/html/2603.10303)). Removing retrieval and facet reranking dropped "not novel" accuracy from 89.7% to 5-14% ([2506.22026](https://arxiv.org/html/2506.22026v1)). |
 | Link checking | A script resolves every link and checks every quote | A second LLM pass | Up to 39% hallucinated evidence in LLM novelty assessment ([NovGauge](https://arxiv.org/html/2609.11234v1)). Anthropic's research system uses a separate citation step ([multi-agent research system](https://www.anthropic.com/engineering/multi-agent-research-system)). |
-| Patents | Lens.org, EPO Open Patent Services, Google Patents BigQuery as fallback | PatentsView | PatentsView search and APIs paused 2026-03-20 during the move to the USPTO Open Data Portal ([USPTO notice](https://www.uspto.gov/subscription-center/2026/patentsview-migrating-uspto-open-data-portal-march-20)). |
+| Patents | EPO Open Patent Services, Google Patents BigQuery as fallback | Lens.org, PatentsView | Lens was dropped on 2026-10-17: it has no free ongoing tier: the API is available only through an institutional subscription or a trial ([Lens API](https://about.lens.org/lens-api/)). PatentsView search and APIs paused 2026-03-20 during the move to the USPTO Open Data Portal ([USPTO notice](https://www.uspto.gov/subscription-center/2026/patentsview-migrating-uspto-open-data-portal-march-20)). |
 | Papers | OpenAlex (free key), Semantic Scholar (with key), arXiv | Keyless Semantic Scholar | OpenAlex: 30 req/s with a free key, semantic search 1 req/s ([OpenAlex limits](https://help.openalex.org/how-to-use-the-api/rate-limits-and-authentication)). Keyless S2 returns 429. |
 | Products | GitHub search, Hacker News (Algolia), web search | Product Hunt API | Product Hunt's API "must not be used for commercial purposes" without permission ([PH API docs](https://api.producthunt.com/v2/docs)), and Product is a verdict type. |
 | Classification | `state` (lifecycle) + `type` (kind), two fields | One six-bin field | The six bins mixed verbs (trash, later, build) with kinds (product, research); one idea can be both a product and something to build. Linear's triage (accept, duplicate, decline, snooze) and GTD Someday/Maybe both treat the decision separately from the item ([Linear triage](https://linear.app/docs/triage)). |
@@ -92,7 +92,7 @@ plugins/heuresis/
   agents/
     scout-web.md           products, GitHub, HN, general web
     scout-papers.md        OpenAlex, Semantic Scholar, arXiv
-    scout-patents.md       Lens, EPO OPS, BigQuery fallback
+    scout-patents.md       EPO OPS, BigQuery fallback
     scout-context.md       AJ's own sources + earlier ideas
     digest.md              Haiku: split an imported source into candidate ideas, dedupe, propose project
     judge.md               verdict (Opus)
@@ -333,8 +333,6 @@ Each phase gets its own implementation plan.
 
 ## To verify during planning
 
-- Lens.org API terms and limits for an individual non-commercial user; Lens moved to a new
-  non-profit on 2026-06-01.
 - EPO OPS free-tier limits from its own terms page.
 - Whether `claude-code-action` can load a marketplace from a git URL, and the token it needs.
 - OpenAlex semantic-search parameter name and the free key's daily budget.

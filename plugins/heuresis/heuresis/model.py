@@ -20,7 +20,7 @@ SECTIONS = (
 NOTES = "Notes"
 KINDS = ("paper", "patent", "product", "repo", "web", "idea", "context")
 PAPER_SOURCES = ("openalex", "semantic_scholar", "arxiv")
-PATENT_SOURCES = ("lens", "epo")
+PATENT_SOURCES = ("epo",)
 FACETS = ("domain", "purpose", "mechanism", "evaluation")
 RECORD_REQUIRED = ("title", "url", "source", "kind")
 

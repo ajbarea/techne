@@ -150,7 +150,7 @@ def test_add_verdict_prepends_newest_first_and_sets_fields():
         reason="r2",
         type="tool",
         project="techne",
-        coverage=[Coverage("openalex", "ok", 3, 8), Coverage("lens", "skipped", note="no token")],
+        coverage=[Coverage("openalex", "ok", 3, 8), Coverage("epo", "skipped", note="no EPO key")],
         dropped=["https://x.example (quote not found)"],
     )
     store.add_verdict(target, first)
@@ -159,7 +159,7 @@ def test_add_verdict_prepends_newest_first_and_sets_fields():
     assert log.index("2026-10-20 · override · do") < log.index("2026-10-15 · triage · later")
     assert "openalex: ok, 3 queries, 8 hits" in log
     assert "quote not found" in log
-    assert "**Patents:** not searched (no keys)" in log
+    assert "**Patents:** not searched (no EPO key)" in log
     assert (target.state, target.type, target.project) == ("do", "tool", "techne")
     assert [m.group(3) for m in store.VERDICT_HEADING.finditer(log)] == ["do", "later"]
 
@@ -241,19 +241,15 @@ def test_parse_keeps_hand_edited_text_in_notes_through_round_trips(tmp_path: Pat
 
 
 @pytest.mark.parametrize(
-    ("statuses", "line"),
+    ("status", "line"),
     [
-        (("skipped", "skipped"), "- **Patents:** not searched (no keys)."),
-        (("ok", "skipped"), "- **Patents:** partial; only what Lens and EPO index was searched."),
-        (
-            ("failed", "skipped"),
-            "- **Patents:** partial; only what Lens and EPO index was searched.",
-        ),
+        ("skipped", "- **Patents:** not searched (no EPO key)."),
+        ("ok", "- **Patents:** partial; only what EPO indexes was searched."),
+        ("failed", "- **Patents:** partial; only what EPO indexes was searched."),
     ],
 )
-def test_patents_line_says_whether_a_patent_source_ran(statuses, line):
-    pairs = zip(("lens", "epo"), statuses, strict=True)
-    coverage = [Coverage(name, status) for name, status in pairs]
+def test_patents_line_says_whether_a_patent_source_ran(status, line):
+    coverage = [Coverage("epo", status)]
     text = store.render_verdict(
         Verdict(date="2026-10-15", origin="triage", state="later", reason="r", coverage=coverage)
     )
