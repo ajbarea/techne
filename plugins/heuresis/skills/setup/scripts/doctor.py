@@ -8,6 +8,7 @@ Usage: python3 doctor.py IDEAS_REPO=<path> REPOS_ROOT=<path>
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -28,13 +29,28 @@ def parse(argv: Sequence[str]) -> dict[str, str]:
     return values
 
 
+def ideas_repo(path: Path) -> bool:
+    """Mirrors heuresis.context.is_ideas_repo, which this standard-library script cannot import."""
+    if not ((path / "ideas").is_dir() and (path / "projects.toml").is_file()):
+        return False
+    env = {k: v for k, v in os.environ.items() if k not in ("GIT_DIR", "GIT_WORK_TREE")}
+    top = subprocess.run(
+        ["git", "-C", str(path), "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+    return not top.returncode and Path(top.stdout.strip()).resolve() == path.resolve()
+
+
 def folder(name: str, value: str, *, is_ideas_repo: bool) -> d.Check:
     if not value or value.startswith("${"):
         return d.Check(d.MISSING, name, "not set; set it in /config under the heuresis plugin")
     path = Path(value).expanduser()
     if not path.is_dir():
         return d.Check(d.MISSING, name, f"{path} does not exist")
-    if is_ideas_repo and not ((path / "ideas").is_dir() and (path / ".git").exists()):
+    if is_ideas_repo and not ideas_repo(path):
         detail = f"{path} is not an ideas repository; the runbook creates one"
         return d.Check(d.MISSING, name, detail)
     return d.Check(d.OK, name, str(path))

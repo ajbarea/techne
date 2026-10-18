@@ -8,7 +8,7 @@ import signal
 import subprocess
 from pathlib import Path, PurePosixPath
 
-from heuresis import board
+from heuresis import board, context
 
 # A push that loses a race refetches and rebases; three races in a row is a real problem.
 PUSH_ATTEMPTS = 3
@@ -125,7 +125,7 @@ def remote_ideas(root: Path) -> list[str]:
     A fetch that fails or outlasts FETCH_TIMEOUT returns nothing, so capture uses local ids.
     """
     if (
-        not _is_ideas_repo(root)
+        not context.is_ideas_repo(root)
         or _git(root, "remote", "get-url", "origin", check=False).returncode
     ):
         return []
@@ -167,15 +167,8 @@ _IN_PROGRESS = (
 )
 
 
-def _is_ideas_repo(root: Path) -> bool:
-    # A folder nested in another repo would commit and push private ideas to that repo's origin.
-    top = _git(root, "rev-parse", "--show-toplevel", check=False)
-    own = not top.returncode and Path(top.stdout.strip()).resolve() == root.resolve()
-    return own and (root / "ideas").is_dir() and (root / "projects.toml").is_file()
-
-
 def _preflight(root: Path) -> str:
-    if not _is_ideas_repo(root):
+    if not context.is_ideas_repo(root):
         raise SyncError(f"{root} is not a heuresis ideas repository")
     for names, what in _IN_PROGRESS:
         for name in names:
