@@ -22,7 +22,7 @@ type Guard = Partial<ProcessRunResult> | Error
 
 // Stands in for the engine: the session's directory, python3 running git_guards.py, and Bash.
 // `held` makes the engine hold the stamp's write, as an organization's settings can.
-function engine(on: On, guard: Guard, held?: string, cwdExists = true) {
+function engine(on: On, guard: Guard, held?: string, cwdExists: boolean | 'reject' = true) {
   const runs: { argv: readonly string[]; init?: ProcessRunInit }[] = []
   const bash: string[] = []
   // Every write of the stamp, and what it held when Bash ran (where the fallback reads it).
@@ -31,7 +31,11 @@ function engine(on: On, guard: Guard, held?: string, cwdExists = true) {
   const stampAtRun: (string | undefined)[] = []
   const logs: string[] = []
   on('session.cwd', () => ({ value: CWD }))
-  on('fs.exists', ($, e) => ({ value: e.path === CWD ? cwdExists : true }))
+  on('fs.exists', ($, e) => {
+    if (e.path !== CWD) return { value: true }
+    // A deny rejects the caller's $.fs.exists, as a network folder does.
+    return cwdExists === 'reject' ? { deny: 'network location' } : { value: cwdExists }
+  })
   on('ui.log', ($, e) => {
     logs.push(e.text)
     return { value: undefined }
@@ -101,13 +105,28 @@ describe('git guard', () => {
     })
   })
 
-  test('a deleted session folder still gets the guard, started from the plugin', { options: COMMITS_MD }, async ($, on) => {
+  test('a deleted session folder refuses with the reason while a blocking guard is on', { options: COMMITS_MD }, async ($, on) => {
     const { runs, bash } = engine(on, {}, undefined, false)
-    await $.tool.call({ tool: 'Bash', command: 'git -C /work/other add .' })
-    const { init } = runs[0]!
-    expect(init?.cwd).not.toBe(CWD)
-    expect(JSON.parse(init?.stdin ?? '{}').cwd).toBe(CWD)
-    expect(bash).toEqual(['git -C /work/other add .'])
+    const out = await $.tool.call({ tool: 'Bash', command: 'git commit -am x' })
+    expect(out.deny).toContain(`the session folder ${CWD} no longer exists`)
+    expect(out.deny).toContain('cd to an existing folder')
+    expect(runs).toEqual([])
+    expect(bash).toEqual([])
+  })
+
+  test('a deleted session folder runs the command, logged, when only the warning is on', { options: WARN_ONLY }, async ($, on) => {
+    const { runs, bash, logs } = engine(on, {}, undefined, false)
+    await $.tool.call({ tool: 'Bash', command: 'git commit -am x' })
+    expect(runs).toEqual([])
+    expect(bash).toEqual(['git commit -am x'])
+    expect(logs.some(l => l.includes('no longer exists') && l.includes('ran unchecked'))).toBe(true)
+  })
+
+  test('a folder fs.exists cannot answer for is checked as before', { options: COMMITS_MD }, async ($, on) => {
+    const { runs, bash } = engine(on, {}, undefined, 'reject')
+    await $.tool.call({ tool: 'Bash', command: 'git add .' })
+    expect(runs[0]?.init?.cwd).toBe(CWD)
+    expect(bash).toEqual(['git add .'])
   })
 
   test('a command with no git or gh never starts python3', { options: ATTRIBUTION }, async ($, on) => {

@@ -45,11 +45,23 @@ export const register: Register = (on, options) => {
     // $.session.cwd() is the main thread's.
     if (e.agentId !== undefined || !GIT_OR_GH.test(e.command)) return next(e)
     const cwd = await $.session.cwd()
-    // A deleted session folder (a removed worktree) fails the spawn as if python3 were
-    // missing. The guard reads the folder from stdin, so it starts from the plugin's own.
-    const spawnCwd = (await $.fs.exists(cwd)) ? cwd : $.plugin.root
+    // A removed worktree leaves the session in a folder that is gone: the spawn would fail
+    // as if python3 were missing, and the guard could not see the repo the command
+    // changes. Say so instead. fs.exists rejects a network folder; that one is checked.
+    let gone = false
+    try {
+      gone = !(await $.fs.exists(cwd))
+    } catch {
+      gone = false
+    }
+    if (gone) {
+      const why = `cannot check this command: the session folder ${cwd} no longer exists. Run cd to an existing folder first`
+      if (blocking) return { deny: `phylax: the git guard ${why}, then retry.` }
+      $.ui.log(`phylax: the git guard ${why}; the command ran unchecked.`)
+      return next(e)
+    }
     const run = await $.process.run(['python3', `${$.plugin.root}/hooks/git_guards.py`], {
-      cwd: spawnCwd,
+      cwd,
       stdin: JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: e.command }, cwd }),
       env: Object.fromEntries(GUARDS.map(key => [`CLAUDE_PLUGIN_OPTION_${key.toUpperCase()}`, String(isOn(options, key))])),
       timeoutMs: GUARD_TIMEOUT_MS,
