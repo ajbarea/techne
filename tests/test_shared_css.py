@@ -16,8 +16,10 @@ SHARED = (
 # selector and loads after it.
 SITE_CSS = """
 .md-typeset code { word-break: break-word; }
-.md-typeset table:not([class]) td:first-child code { white-space: normal; }
-.md-typeset table:not([class]) td code.words { word-break: break-all; }
+@media (max-width: 600px) {
+  .md-typeset table:not([class]) td:first-child code { white-space: normal; }
+}
+.md-typeset table:not([class]) td code { white-space: nowrap; }
 """
 PAGE = f"""<!doctype html><html><head>
 <meta name=viewport content="width=device-width,initial-scale=1">
@@ -52,10 +54,16 @@ def test_table_code_stays_whole_against_a_site_override(width):
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
-        page = browser.new_page(viewport={"width": width, "height": 800})
-        page.set_content(PAGE)
-        assert page.evaluate(WORDS_SPLIT) == []
-        command = page.locator("table code").nth(1)
-        assert command.evaluate("e => e.classList.contains('words')")
-        assert command.evaluate("e => e.getClientRects().length") > 1, "words should still wrap"
-        browser.close()
+        try:
+            page = browser.new_page(viewport={"width": width, "height": 800})
+            page.set_content(PAGE)
+            assert page.evaluate(WORDS_SPLIT) == []
+            command = page.locator("table code").nth(1)
+            assert command.evaluate("e => e.classList.contains('words')")
+            lines = command.evaluate(
+                "e => new Set([...e.querySelectorAll('.nobr')]"
+                ".map((s) => Math.round(s.getBoundingClientRect().top))).size"
+            )
+            assert lines > 1, "a command should still wrap between its words"
+        finally:
+            browser.close()
