@@ -315,6 +315,16 @@ def test_rendered_catches_a_citation_that_did_not_render(dk, paper):
     assert dk.rendered(cfg) == 1
 
 
+def test_a_built_bbl_with_no_entries_fails_every_cited_key(dk, paper, capsys):
+    """A build that produced an empty bibliography is not a pass: every cite is unrendered."""
+    cfg = paper(r"\cite{a2020,b2021}", "")
+    assert dk.rendered(cfg) == 2
+    captured = capsys.readouterr()
+    assert "0/2 cited keys rendered" in captured.out
+    assert "\\cite{a2020} did not render" in captured.err
+    assert "\\cite{b2021} did not render" in captured.err
+
+
 def test_rendered_ignores_nocite_expansion(dk, paper, capsys):
     """A skeleton using \\nocite{*} has nothing to assert, and must not score full marks."""
     cfg = paper(r"\nocite{*}", r"\bibitem{a2020}...\bibitem{b2021}...")
@@ -406,6 +416,17 @@ def test_a_lookup_that_fails_says_why(dk, monkeypatch):
     body, reason = dk._get("https://export.arxiv.org/api/query?id_list=1")
     assert body is None
     assert reason == "HTTP 406"
+
+
+def test_verify_says_when_a_host_was_throttling(dk, tmp_path, monkeypatch, capsys):
+    """Unresolved keys from a throttled host say nothing about the entries; the reader is told."""
+    (tmp_path / "references.bib").write_text(CLEAN)
+    monkeypatch.setattr(dk, "_get", lambda *a, **k: (None, "HTTP 429"))
+    monkeypatch.setattr(dk.time, "sleep", lambda *_: None)
+    assert dk.verify(dk.load_config(tmp_path)) == 0
+    out = capsys.readouterr().out
+    assert "HTTP 429 x1" in out
+    assert "at least one host was throttling this run" in out
 
 
 def test_a_lookup_that_succeeds_reports_no_reason(dk, monkeypatch):
