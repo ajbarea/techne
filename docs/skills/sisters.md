@@ -58,7 +58,7 @@ It prints one line per removal, then:
 - **Held after merge**: a worktree or branch whose PR merged but which uncommitted changes, ignored files that are not build output, later commits, a different tip, a nested worktree or a lock keep in place.
 - **Closed without merging**: a branch or worktree whose PR closed unmerged.
 
-Holds that clear by themselves (a running process, recent activity) are left out, and it prints nothing when there is nothing to say. It never fails: no `gh`, no network, an old python3 or one broken repo ends it quietly. A lock stops two runs at once, it gives up after 240 seconds, and the roster is swept at most once per 30 minutes (`--min-interval SECONDS`); the session's own repo is always processed.
+Holds that clear by themselves (a running process, recent activity) are left out, and it prints nothing when there is nothing to say. It never fails: no `gh`, no network, an old python3 or one broken repo ends it quietly. git runs without prompts, and ssh in batch mode unless you chose its command (`GIT_SSH_COMMAND`, `GIT_SSH` or the repo's `core.sshCommand`), which it uses as is. A lock stops two runs at once, it gives up after 240 seconds, and the roster is swept at most once per 30 minutes (`--min-interval SECONDS`); the session's own repo is always processed.
 
 Two kinds are reported and never acted on, here and under **Needs a look** in the normal report, for your own PRs only. An `issue` is an open issue that a merged PR in the same repo was linked to close, where the merge is a day old and nobody has commented or reopened it since; a PR that only mentions an issue does not count. A `pr` is an open PR whose changes the default branch already has (git 2.38 or newer).
 

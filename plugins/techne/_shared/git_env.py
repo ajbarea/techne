@@ -18,13 +18,16 @@ def batch_ssh(env: dict[str, str], repo: str | Path) -> dict[str, str]:
     """
     if {"GIT_SSH_COMMAND", "GIT_SSH"} & env.keys():
         return env
-    chosen = subprocess.run(
-        ["git", "-C", str(repo), "config", "--get", "core.sshCommand"],
-        capture_output=True,
-        text=True,
-        env=env,
-        timeout=CONFIG_TIMEOUT,
-    )
-    if chosen.stdout.strip():
+    try:
+        chosen = subprocess.run(
+            ["git", "-C", str(repo), "config", "--get", "core.sshCommand"],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=CONFIG_TIMEOUT,
+        ).stdout
+    except (subprocess.TimeoutExpired, OSError):
+        chosen = ""  # the git call that follows meets the same problem and reports it
+    if chosen.strip():
         return env
     return {**env, "GIT_SSH_COMMAND": BATCH_SSH}

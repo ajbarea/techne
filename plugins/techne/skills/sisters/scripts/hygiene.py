@@ -183,9 +183,7 @@ def over_deadline() -> bool:
     return _deadline is not None and time.time() >= _deadline
 
 
-def sp(
-    cmd: list[str], cwd: str | None = None, env: dict[str, str] | None = None
-) -> subprocess.CompletedProcess:
+def sp(cmd: list[str], cwd: str | None = None) -> subprocess.CompletedProcess:
     """subprocess.run with captured text; under --auto it times out and obeys the deadline."""
     timeout = None
     if _deadline is not None:
@@ -194,16 +192,14 @@ def sp(
             raise RuntimeError("deadline passed")
     try:
         return subprocess.run(
-            cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout, env=env or _env
+            cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout, env=_env
         )
     except subprocess.TimeoutExpired:
         raise RuntimeError(f"{' '.join(cmd[:4])}: timed out") from None
 
 
-def run(
-    cmd: list[str], cwd: str | None = None, check: bool = True, env: dict[str, str] | None = None
-) -> str:
-    proc = sp(cmd, cwd, env)
+def run(cmd: list[str], cwd: str | None = None, check: bool = True) -> str:
+    proc = sp(cmd, cwd)
     if check and proc.returncode != 0:
         raise RuntimeError(f"{' '.join(cmd)}: {proc.stderr.strip() or proc.returncode}")
     return proc.stdout
@@ -213,12 +209,6 @@ def git(path: str, *args: str, check: bool = True) -> str:
     # --no-optional-locks: `status` must not refresh the index, or reading a
     # worktree would reset the idle clock this script relies on.
     return run(["git", "--no-optional-locks", "-C", path, *args], check=check)
-
-
-def git_remote(path: str, *args: str) -> str:
-    """git that reaches origin; under --auto ssh cannot prompt unless the user chose its command."""
-    env = batch_ssh(_env, path) if _env is not None else None
-    return run(["git", "--no-optional-locks", "-C", path, *args], env=env)
 
 
 def is_ancestor(path: str, a: str, b: str) -> bool:
@@ -444,7 +434,7 @@ def leftover(after: str, pr: dict | None, hold: list[str]) -> str:
 
 def collect(name: str, path: str, slug: str, me: str, prs: dict[str, dict]) -> list[Item]:
     items: list[Item] = []
-    git_remote(path, "fetch", "--quiet", "--prune", "origin")
+    git(path, "fetch", "--quiet", "--prune", "origin")
     default = default_branch(slug)
     base = f"origin/{default}"
     now, busy = time.time(), busy_paths()
@@ -766,7 +756,7 @@ def execute(repo: Repo, item: Item) -> str:
     elif item.kind == "remote-branch":
         ref = f"refs/heads/{item.name}"
         # --no-verify: a pre-push hook has nothing to check on a delete.
-        git_remote(
+        git(
             repo.path,
             "push",
             "--quiet",
@@ -929,7 +919,9 @@ def run_auto(paths: list[str], names: list[str], min_interval: int) -> str:
 
 
 def clean_targets(paths: list[str], names: list[str], sweep: bool, log: Path) -> str:
+    global _env
     targets, me = auto_targets(paths, names, sweep)
+    base = _env if _env is not None else dict(os.environ)
     removed: list[str] = []
     held: list[str] = []
     closed: list[str] = []
@@ -937,6 +929,7 @@ def clean_targets(paths: list[str], names: list[str], sweep: bool, log: Path) ->
         if over_deadline():
             break
         try:  # one repo's surprise must not stop the next, or lose the report of earlier removals
+            _env = batch_ssh(base, target[2])  # every git call in the repo, lazy fetches included
             (repo,) = survey([target], me)
             if repo.error:
                 continue  # offline, logged out or broken: a later run tries again

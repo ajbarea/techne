@@ -1257,14 +1257,20 @@ def spy_runs(hy, monkeypatch) -> list:
     return calls
 
 
-def remote_calls(calls) -> list:
-    return [(c, kw) for c, kw in calls if c[:1] == ["git"] and {"fetch", "push"} & set(c)]
+def repo_git_calls(calls) -> list:
+    """git calls under --auto, less batch_ssh's own core.sshCommand lookup."""
+    return [
+        (c, kw)
+        for c, kw in calls
+        if c[:1] == ["git"] and kw.get("env") is not None and "core.sshCommand" not in c
+    ]
 
 
 def test_git_runs_with_a_timeout_and_without_prompts_under_auto(fleet, auto, hy, monkeypatch):
     monkeypatch.delenv("GIT_SSH_COMMAND", raising=False)
     monkeypatch.delenv("GIT_SSH", raising=False)
     fleet.prs["feat/a"] = pr(1, "MERGED", fleet.branch("feat/a", "a1"))
+    sh(fleet.path, "push", "-q", "origin", "feat/a")
     add_worktree(fleet, "a", "feat/a")
     calls = spy_runs(hy, monkeypatch)
     auto()
@@ -1272,9 +1278,10 @@ def test_git_runs_with_a_timeout_and_without_prompts_under_auto(fleet, auto, hy,
     assert ours
     assert all(kw["timeout"] for _, kw in ours)
     assert all(kw["env"]["GIT_TERMINAL_PROMPT"] == "0" for _, kw in ours)
-    remote = remote_calls(ours)
-    assert remote
-    assert all("BatchMode=yes" in kw["env"]["GIT_SSH_COMMAND"] for _, kw in remote)
+    # Every git call, not only fetch and push: a partial clone fetches objects on demand.
+    repo_calls = repo_git_calls(calls)
+    assert any("push" in c for c, _ in repo_calls)
+    assert all("BatchMode=yes" in kw["env"]["GIT_SSH_COMMAND"] for _, kw in repo_calls)
     calls.clear()
     hy.git(str(fleet.path), "status")  # outside --auto nothing changes for a person at a terminal
     assert calls[0][1]["timeout"] is None
@@ -1290,13 +1297,14 @@ def test_auto_keeps_the_users_ssh_command(fleet, auto, hy, monkeypatch, where):
     else:
         monkeypatch.setenv(where, "ssh -i work")
     fleet.prs["feat/a"] = pr(1, "MERGED", fleet.branch("feat/a", "a1"))
+    sh(fleet.path, "push", "-q", "origin", "feat/a")
     add_worktree(fleet, "a", "feat/a")
     calls = spy_runs(hy, monkeypatch)
     auto()
-    remote = remote_calls(calls)
-    assert remote
+    repo_calls = repo_git_calls(calls)
+    assert any("push" in c for c, _ in repo_calls)
     expected = "ssh -i work" if where == "GIT_SSH_COMMAND" else None
-    assert all(kw["env"].get("GIT_SSH_COMMAND") == expected for _, kw in remote)
+    assert all(kw["env"].get("GIT_SSH_COMMAND") == expected for _, kw in repo_calls)
 
 
 def test_auto_stops_at_its_deadline_and_still_releases_the_lock(fleet, auto, hy, monkeypatch):

@@ -44,3 +44,12 @@ def test_the_repos_core_sshcommand_is_kept(ge, repo):
     subprocess.run(["git", "-C", str(repo), "config", "core.sshCommand", "ssh -i work"], check=True)
     env = {"PATH": "/usr/bin:/bin"}
     assert "GIT_SSH_COMMAND" not in ge.batch_ssh(env, repo)
+
+
+@pytest.mark.parametrize("error", [subprocess.TimeoutExpired("git", 10), OSError("no git")])
+def test_a_failed_config_read_falls_back_to_batch_ssh(ge, repo, monkeypatch, error):
+    def fail(*a, **kw):
+        raise error
+
+    monkeypatch.setattr(ge.subprocess, "run", fail)
+    assert ge.batch_ssh({"PATH": "/usr/bin:/bin"}, repo)["GIT_SSH_COMMAND"] == ge.BATCH_SSH
