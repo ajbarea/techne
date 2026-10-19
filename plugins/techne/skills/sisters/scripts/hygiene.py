@@ -63,6 +63,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True  # the plugin cache stays as installed
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "_shared"))
 import doctor_lib  # noqa: E402  # ty: ignore[unresolved-import]
+from git_env import batch_ssh  # noqa: E402  # ty: ignore[unresolved-import]
 
 # Stock macOS python3 is 3.9; stop with the fix before the 3.11-only import below.
 # A hook run has nobody to read the fix, so it ends quietly instead.
@@ -182,7 +183,9 @@ def over_deadline() -> bool:
     return _deadline is not None and time.time() >= _deadline
 
 
-def sp(cmd: list[str], cwd: str | None = None) -> subprocess.CompletedProcess:
+def sp(
+    cmd: list[str], cwd: str | None = None, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess:
     """subprocess.run with captured text; under --auto it times out and obeys the deadline."""
     timeout = None
     if _deadline is not None:
@@ -191,14 +194,16 @@ def sp(cmd: list[str], cwd: str | None = None) -> subprocess.CompletedProcess:
             raise RuntimeError("deadline passed")
     try:
         return subprocess.run(
-            cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout, env=_env
+            cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout, env=env or _env
         )
     except subprocess.TimeoutExpired:
         raise RuntimeError(f"{' '.join(cmd[:4])}: timed out") from None
 
 
-def run(cmd: list[str], cwd: str | None = None, check: bool = True) -> str:
-    proc = sp(cmd, cwd)
+def run(
+    cmd: list[str], cwd: str | None = None, check: bool = True, env: dict[str, str] | None = None
+) -> str:
+    proc = sp(cmd, cwd, env)
     if check and proc.returncode != 0:
         raise RuntimeError(f"{' '.join(cmd)}: {proc.stderr.strip() or proc.returncode}")
     return proc.stdout
@@ -208,6 +213,12 @@ def git(path: str, *args: str, check: bool = True) -> str:
     # --no-optional-locks: `status` must not refresh the index, or reading a
     # worktree would reset the idle clock this script relies on.
     return run(["git", "--no-optional-locks", "-C", path, *args], check=check)
+
+
+def git_remote(path: str, *args: str) -> str:
+    """git that reaches origin; under --auto ssh cannot prompt unless the user chose its command."""
+    env = batch_ssh(_env, path) if _env is not None else None
+    return run(["git", "--no-optional-locks", "-C", path, *args], env=env)
 
 
 def is_ancestor(path: str, a: str, b: str) -> bool:
@@ -433,7 +444,7 @@ def leftover(after: str, pr: dict | None, hold: list[str]) -> str:
 
 def collect(name: str, path: str, slug: str, me: str, prs: dict[str, dict]) -> list[Item]:
     items: list[Item] = []
-    git(path, "fetch", "--quiet", "--prune", "origin")
+    git_remote(path, "fetch", "--quiet", "--prune", "origin")
     default = default_branch(slug)
     base = f"origin/{default}"
     now, busy = time.time(), busy_paths()
@@ -755,7 +766,7 @@ def execute(repo: Repo, item: Item) -> str:
     elif item.kind == "remote-branch":
         ref = f"refs/heads/{item.name}"
         # --no-verify: a pre-push hook has nothing to check on a delete.
-        git(
+        git_remote(
             repo.path,
             "push",
             "--quiet",
@@ -910,11 +921,7 @@ def run_auto(paths: list[str], names: list[str], min_interval: int) -> str:
         if sweep:
             stamp.touch()
         _deadline = time.time() + AUTO_DEADLINE
-        _env = {
-            **os.environ,
-            "GIT_TERMINAL_PROMPT": "0",
-            "GIT_SSH_COMMAND": os.environ.get("GIT_SSH_COMMAND", "ssh -o BatchMode=yes"),
-        }
+        _env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
         try:
             return clean_targets(paths, names, sweep, log)
         finally:
