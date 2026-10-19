@@ -83,10 +83,14 @@ that drift class recurs.
   attachments, or let `update_draft`/`send_draft` accept a message id and resolve it through
   `drafts.list`; a test for each path. Hit 2026-10-17; the workaround called
   `users().drafts().list(q=…)` through epistole's own client.
-- **heuresis phases 2 to 6** (spec: `specs/2026-10-15-heuresis-design.md`, "Build order"). Each
+- **heuresis phases 3 to 6** (spec: `specs/2026-10-15-heuresis-design.md`, "Build order"). Each
   phase gets its own implementation plan.
-  2. **Evaluation.** A gold set of ideas with known verdicts and a harness, run before verdicts
-     are trusted. This is next.
+  - **Evaluation follow-ups.** A verified-novel `candidate` case, so the set again checks that a
+    new idea can reach `do`; an LLM judge for verdict reasons and behaviour evals; refuse an
+    `--out` inside another repository's `.git`; count an edited idea text as a stale label; let
+    `--cases` override a recorded cases file that still exists; let the guard tell a real capture
+    from a leak (it stops the run on any change to the real ideas repository, so a capture made
+    during a run stops it too).
   3. **Queue.** `queue.jsonl`, checkpoints, budget reading from klepsydra, a systemd timer, and
      `/heuresis:queue`.
   4. **Phone path.** An Action workflow, secrets, an iOS Shortcut, an issue form and a weekly
@@ -184,6 +188,7 @@ that drift class recurs.
 
 Detail lives in git history (`git log`) and the live skill code. This log is pruned once work is durably shipped.
 
+- 2026-10-19: **heuresis phase 2, the gold set.** `make heuresis-gold GUARD=<ideas repo>` triages a fixed set of ideas with known verdicts in headless sessions, each in a scratch ideas repository, and scores verdict agreement and prior-art recall from the rivals the verify step confirmed. A required guard stops the run if the real ideas repository changes. `/heuresis:idea` gains `--ideas` and `--repos`, and `heuresis decline` records a refusal for an idea that acts against people who have not consented. Results: `plugins/heuresis/gold/RESULTS.md`.
 - 2026-10-18: **Skill plugins run in Codex, Copilot CLI and Antigravity CLI.** Skill bodies name
   their files as `<skill-dir>/…` and `<plugin-root>/…`, which all four tested CLIs resolve, in place of
   `${CLAUDE_SKILL_DIR}` and `${CLAUDE_PLUGIN_ROOT}`, which only Claude Code substitutes. Measured

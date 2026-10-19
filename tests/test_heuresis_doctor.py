@@ -22,6 +22,30 @@ def test_missing_ideas_repo_is_missing_and_keys_are_optional(tmp_path):
     assert found["OPENALEX_API_KEY"] == "optional"
 
 
+def test_the_doctor_and_the_package_recognise_the_same_ideas_repository(tmp_path):
+    from heuresis import context
+
+    ready = tmp_path / "ready"
+    context.init_repo(ready, None, tmp_path)
+    bare_ideas = tmp_path / "bare-ideas"
+    (bare_ideas / "ideas").mkdir(parents=True)
+    git_only = tmp_path / "git-only"
+    subprocess.run(["git", "init", "-q", str(git_only)], check=True)
+    no_projects = tmp_path / "no-projects"
+    subprocess.run(["git", "init", "-q", str(no_projects)], check=True)
+    (no_projects / "ideas").mkdir()
+    nested = git_only / "sub"
+    (nested / "ideas").mkdir(parents=True)
+    (nested / "projects.toml").touch()
+    cases = (ready, bare_ideas, git_only, no_projects, nested, tmp_path / "empty")
+    for path in cases:
+        path.mkdir(exist_ok=True)
+        values = {"IDEAS_REPO": str(path), "REPOS_ROOT": str(tmp_path)}
+        doctor_ok = names(d.checks(values, environ={}))["ideas_repo"] == "ok"
+        assert doctor_ok == context.is_ideas_repo(path), path
+    assert [context.is_ideas_repo(p) for p in cases] == [True] + [False] * 5
+
+
 def test_unset_key_points_at_plugin_configure(tmp_path):
     values = {"IDEAS_REPO": str(tmp_path), "REPOS_ROOT": str(tmp_path)}
     lines = {c.name: c.detail for c in d.checks(values, environ={})}
@@ -104,6 +128,7 @@ def test_exit_code_is_1_when_ideas_repo_missing_and_0_when_ready(tmp_path):
     assert missing.returncode == 1, missing.stdout
     repo = tmp_path / "ideas"
     (repo / "ideas").mkdir(parents=True)
+    (repo / "projects.toml").touch()
     subprocess.run(["git", "init", "-q", str(repo)], check=True)
     ready = run_doctor(f"IDEAS_REPO={repo}", f"REPOS_ROOT={tmp_path}")
     assert ready.returncode == 0, ready.stdout

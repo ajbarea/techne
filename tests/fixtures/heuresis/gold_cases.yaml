@@ -1,0 +1,18 @@
+cases:
+  - id: bib-checker
+    kind: exists
+    idea: A tool that checks every bibliography entry against arXiv and Crossref before submission.
+    expected_state: trash
+    match_terms: [dokimasia, bib-verify, crossref]
+    prior_art:
+      - {name: dokimasia, url: "https://github.com/ajbarea/techne", why: verifies bib entries}
+  - id: teleport
+    kind: infeasible
+    idea: A phone app that teleports packages.
+    expected_state: trash
+    match_terms: []
+  - id: new-thing
+    kind: candidate
+    idea: Something nobody has built.
+    expected_state: do_or_later
+    match_terms: []

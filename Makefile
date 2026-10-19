@@ -4,7 +4,7 @@
 ## that techne itself documents at docs/conventions.md.
 ##
 
-.PHONY: help check-env setup manifests citation plugin-validate plugin-test test-hooks-oldest frontmatter fix lint shellcheck guards test-unit zizmor test validate build ci clean docs evals evals-bash freshness mod-types
+.PHONY: help check-env setup manifests citation plugin-validate plugin-test test-hooks-oldest frontmatter fix lint shellcheck guards test-unit zizmor test validate build ci clean docs evals evals-bash heuresis-gold freshness mod-types
 .DEFAULT_GOAL := help
 
 check-env:              ## Verify required tools are on PATH
@@ -143,6 +143,15 @@ evals-bash:             ## Behavior evals that grant Bash (needs a symlink-free 
 	@cd plugins/techne && claude plugin eval . --tag behavior-bash --ablation none \
 		--trust-plugin --no-publish -j 2 --threshold 0.9 --scaffold \
 		--allow-tools Write 'Bash(git *)' 'Bash(bash *)'
+
+# The heuresis gold set runs real triages on your own login, so it draws on your plan's usage and
+# stays out of validate. GOLD_ARGS passes runner flags, e.g. GOLD_ARGS="--runs 1 --case 'claude-*'".
+# The sessions load this checkout's plugin (a later --plugin-dir in GOLD_ARGS overrides it).
+# GUARD names your real ideas repository; the runner stops if any run changes it.
+GUARD ?=
+heuresis-gold:          ## Run the heuresis gold set (real triages; uses your plan; GUARD=<your ideas repository>)
+	@test -n "$(GUARD)" || { echo "set GUARD=<your ideas repository> (the runner stops if a run changes it)"; exit 2; }
+	@uv run python scripts/heuresis_gold.py run --guard-repo "$(GUARD)" --plugin-dir "$(CURDIR)/plugins/heuresis" $(GOLD_ARGS)
 
 clean:                  ## Remove ruff + build caches
 	@rm -rf .ruff_cache .pytest_cache site/

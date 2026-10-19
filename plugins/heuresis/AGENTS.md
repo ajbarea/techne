@@ -40,3 +40,5 @@ Either way the user restarts Claude Code, then you run the doctor again. A key a
 ## 5. Check the result
 
 The skill's doctor command was filled in before the user set the paths in `/config`, so it may still show them empty. Run the doctor script the setup skill names, passing the chosen paths explicitly: `IDEAS_REPO=<ideas_repo> REPOS_ROOT=<repos_root>`, both absolute. Or have the user run `/reload-plugins` and invoke `/heuresis:setup` again. Repeat until it prints `result: ready`. Then `/heuresis:idea --now <idea>` works.
+
+To measure triage quality, see "Evaluating heuresis" on the idea skill's docs page.

@@ -95,7 +95,7 @@ class Coverage:
 @dataclass
 class Verdict:
     date: str
-    origin: str  # triage | override
+    origin: str  # triage | override | declined
     state: str
     reason: str
     type: str | None = None

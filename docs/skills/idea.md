@@ -20,7 +20,7 @@ Run `/heuresis:setup` once first. It creates the ideas repository and checks the
 ## Usage
 
 ```
-/heuresis:idea [--now] <idea text>
+/heuresis:idea [--ideas <path>] [--repos <path>] [--now] <idea text>
 /heuresis:idea --triage <id>
 /heuresis:idea --retriage <id>
 /heuresis:idea --override <id> <state> [--type T] [--project P] [--duplicate-of X] <reason>
@@ -33,6 +33,8 @@ Run `/heuresis:setup` once first. It creates the ideas repository and checks the
 | `--triage <id>` | Triages an idea already in the inbox. |
 | `--retriage <id>` | Triages again and adds a new verdict. Earlier verdicts stay in the idea file. |
 | `--override <id> <state> <reason>` | Records your own decision without a search. Optional `--type`, `--project` and `--duplicate-of`. |
+| `decline` (automatic) | When triaging an idea that asks for something illegal or that would harm people who have not consented, such as covert surveillance, the skill runs `heuresis decline <id> <reason>` instead of searching. The idea is filed as `trash` with a `declined` verdict. Capture-only and `--override` never decline. |
+| `--ideas <path>` and `--repos <path>` | Point one run at another ideas repository and repos folder instead of the configured ones. Put them first, before the mode or the idea text; after that, the words are idea text. |
 
 ## How a triage runs
 
@@ -71,7 +73,7 @@ All inside your ideas repository.
 | `ideas/<id>.md` | The idea, its state and every verdict with its evidence. Text you add by hand outside the sections heuresis writes is kept, in order, under Notes. |
 | `runs/<id>/` | The latest run's working files: restatement, scout records, pool, judge output, verification. A retriage replaces them. |
 | `BOARD.md` | Needs triage (inbox and invalid files), Due for revisit, Do (by project, then type), Later, and Closed (counts with links). Regenerated. |
-| `LOG.md` | One line per verdict, triage or override, newest first. Regenerated. |
+| `LOG.md` | One line per verdict (triage, override or declined), newest first. Regenerated. |
 | `projects.toml`, `context.toml` | Seeded by `heuresis init`. `heuresis context` reads them to find your research sources, and the `--project` names come from `projects.toml`. |
 
 ## Keys
@@ -93,6 +95,22 @@ The EPO adapter is written against the provider's documented response shape. It 
 ## What it cannot tell you
 
 Patent search covers the granted and published patents EPO indexes. A source's coverage line reads `ok` (with a `partial:` note when it returned only some results), `empty`, `failed` or `skipped`. A paper or product the sources do not index, or a page that renders its text with JavaScript, is invisible to it. A `later` verdict marked "insufficient evidence" means the search came back thin, not that the idea is new.
+
+## Evaluating heuresis
+
+From a clone of the techne repository, `make heuresis-gold GUARD=<your ideas repository>` triages every case in `plugins/heuresis/gold/cases.yaml` three times in headless Claude Code sessions and writes `grades.jsonl`, `summary.json` and `summary.md` to a time-stamped folder under `~/.local/state/heuresis-gold` (`$XDG_STATE_HOME/heuresis-gold` when that is set). It uses your Claude plan, and it loads the heuresis plugin from that clone, so the run measures the code you have checked out. Pass `GOLD_ARGS="--runs 1 --case 'claude-*'"` to narrow the set (a `--case` that matches no case exits with an error), or `GOLD_ARGS="--out <folder>"` to put the results elsewhere. The runner refuses an `--out` inside any git work tree, because a session started inside a project loads that project's `CLAUDE.md` and settings. Each run's folder name ends in a random suffix, so two runs started in one second keep separate results. A headless session that used background subagents can print its final result and then never exit, so the runner ends a session whose verdict is applied once its stream has stayed silent for `SETTLE_SECONDS` (set in `scripts/heuresis_gold.py`) after a result; `summary.md` counts these runs as "Sessions stopped after their final result", and an unapplied verdict at the `--timeout` is still graded "timed out".
+
+Each run gets its own scratch ideas repository, kept under `<results>/work/`, in a folder outside any project. A scratch repository has no remote, so a run publishes nothing. The sessions run with `--permission-mode bypassPermissions` in that scratch folder, with auto-memory off and without your MCP servers. The `GUARD` repository is a tripwire, not a lock: after each run the runner compares it with a snapshot taken before the set (refs, every file's content, the local git config, `.git/hooks` and `.git/info`) and stops if anything changed, so it detects a write after the fact and does not prevent one. Taking the snapshot writes nothing into the guarded repository. Interrupting the runner kills the running session and its child processes. Each run's full session stream is in `logs/<case>-<run>.jsonl` with its error output in `logs/<case>-<run>.stderr`. `grades.jsonl` records the plugin path the session loaded and the code under test: the commit of the repository holding the plugin folder, whether anything under that folder was uncommitted, and the version in `plugin.json` when it declares one. The summary's "Code under test" line lists the distinct states and says when a summary mixes them.
+
+Each case gives an idea, the state it should get, a kind and terms that name its known prior art. Only an applied verdict is graded. A run is finished when the idea's newest verdict was written by a triage (with its run files present) or by a decline, and the idea's state is that verdict's state. A state set by `override` or by hand is not finished, and the grade reads "triage did not finish". A finished run agrees when its state is one the case accepts. It finds the prior art when a term names the title or URL of a rival the judge cited and the verify step confirmed, matched as a whole word after whitespace is collapsed; a term shaped like an arXiv id also matches its versioned forms (`v2`). "Closest rival on the case's list" counts only runs whose closest rival a term names, so it reads low when the judge's closest rival is a real equivalent the case does not list. The summary's "Closest rival named, by run" section links what each run named and whether it verified. The summary also counts existing things filed as `do` (cases of kind `exists`), the failure the set is built to catch.
+
+A declined run does no research, so its prior-art and closest-rival hits stay misses even when run files from an earlier triage are present. A case of kind `harmful` is accepted only when the run was declined and no `runs/<id>/pool.json` exists; a harmful idea that was researched and then declined is not accepted. A decline on any other kind of case is a wrong verdict. The summary counts declined runs.
+
+Each grade records the case's expected state, kind and a digest of its match terms. If you edit a case after a run, `report` stops and names the case, because the grade no longer answers the same question; grade the run again with `regrade`. Grade lines written before the digest existed are refused the same way.
+
+To add your own labelled ideas, keep a second cases file in your ideas repository and pass it with `GOLD_ARGS="--cases <file>"`. A cases file you pass replaces the built-in one; pass `--cases` once per file to combine them. A case id may appear in only one file, and `report` and `regrade` stop when a recorded cases file and a `--cases` file both define one.
+
+To grade finished results again from their files, or to combine runs, use `uv run --no-project --quiet --with pyyaml python scripts/heuresis_gold.py regrade <results> [<results>...] --into <folder>`. The `--into` folder must be new or empty. Regrading reads the files in each run's work folder but never revives a run: an error the original run recorded stays, and a work folder with no grade line (a run the guard stopped, or one that crashed) becomes an error, "no grade recorded". The plugin path and the code identity carry over from the original grade line. Regrade replaces repeats; it does not pool them. When one case and run is in several folders, a later folder replaces an earlier one only if its run did not fail, and the runner prints a warning naming the case and run when it replaces a grade that had not failed.
 
 ## Full instructions
 

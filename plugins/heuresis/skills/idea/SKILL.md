@@ -1,14 +1,14 @@
 ---
 name: idea
 description: Capture an idea and triage it against prior work. Saves the idea to the user's ideas repository, then searches papers, patents, products and the user's own research for anything like it, names the closest existing work, and files the idea as trash, later, do or merged with the evidence. Use when the user shares an idea for an app, tool, product, research direction or improvement and wants it saved or checked, such as "I have an idea", "save this idea", "has anyone built", "is this worth building", "triage my idea", or "/heuresis:idea". Not for reviewing a written paper's novelty (graphe:paper-review).
-argument-hint: "[--now] <idea text> | --triage <id> | --retriage <id> | --override <id> <state> <reason>"
+argument-hint: "[--ideas <path>] [--repos <path>] [--now] <idea text> | --triage <id> | --retriage <id> | --override <id> <state> <reason>"
 disable-model-invocation: false
 allowed-tools: Bash Read Agent
 ---
 
 # Capture and triage an idea
 
-`IDEAS` is `${user_config.ideas_repo}` and `REPOS` is `${user_config.repos_root}`. If either is empty, stop and tell the user to run `/heuresis:setup`; do not run it yourself.
+`IDEAS` is `${user_config.ideas_repo}` and `REPOS` is `${user_config.repos_root}`. The arguments may start with `--ideas <path>` and `--repos <path>`, in either order, before the mode or the idea text; those values take precedence for this run. Use them as `IDEAS` and `REPOS`, resolve them to absolute paths with `realpath`, and never write to the configured ideas repository; a flag that is not given falls back to its configured value. Remove `--ideas <path>` and `--repos <path>` from the front of the arguments before picking the mode. Read them only there: once the first argument is anything else, a later `--ideas` or `--repos` is part of the idea text. This is how a second ideas repository or the gold-set runner points a run elsewhere. If `IDEAS` or `REPOS` is still empty, stop and tell the user to run `/heuresis:setup`; do not run it yourself.
 
 Every command below starts with:
 `env UV_PROJECT_ENVIRONMENT=${CLAUDE_PLUGIN_DATA}/venv uv run --quiet --directory ${CLAUDE_PLUGIN_ROOT} python -m heuresis`
@@ -18,7 +18,7 @@ A failing command prints `heuresis: <message>` on stderr and exits 1 (exit 2 for
 
 ## Pick the mode
 
-- `<idea text>` without `--now`: capture only. Pass the user's text unchanged on stdin through a quoted heredoc, so the shell leaves `$`, backticks and quotes alone:
+- `<idea text>` without `--now`: capture only. Pass the idea text, everything after the leading flags, exactly as given on stdin through a quoted heredoc, so the shell leaves `$`, backticks and quotes alone:
 ```
 heuresis capture --ideas IDEAS --text - <<'HEURESIS_IDEA'
 <idea text>
@@ -28,6 +28,14 @@ HEURESIS_IDEA
 - `--now <idea text>`: capture, then triage the printed id.
 - `--triage <id>` or `--retriage <id>`: triage an existing idea. A retriage adds a new verdict and keeps the old ones.
 - `--override <id> <state> [--type T] [--project P] [--duplicate-of X] <reason>`: run `heuresis override --ideas IDEAS <id> <state> ... <reason>` and stop. This records the user's own decision.
+
+## Ideas you must not research
+
+This applies only when you are triaging: `--now` after the capture, `--triage` and `--retriage`. Capture-only saves the idea without judging it, and `--override` records the user's own decision.
+
+Decline an idea only when its purpose is to act against specific people who have not consented, such as covertly reading their messages or tracking or impersonating them, or to commit a crime against others. Do not research it. Run `heuresis decline --ideas IDEAS <id> <one-line reason>` and stop. Never use `override` for this: an override records the user's own decision, and a decline records your refusal.
+
+Research on attacks, defenses, privacy, encryption or surveillance, and tools that audit or test your own systems, are triaged normally. "Track my ex's location from her phone number" is declined. "Benchmark backdoor attacks on federated learning" and "audit my own app's end-to-end encryption" are triaged.
 
 ## Triage
 

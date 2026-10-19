@@ -44,6 +44,24 @@ def test_capture_rejects_empty_text(tmp_path: Path, capsys):
     assert cli.main(["capture", "--ideas", str(ideas), "   "]) == 2
 
 
+def test_capture_into_something_that_is_not_an_ideas_repository_writes_nothing(
+    tmp_path: Path, capsys
+):
+    missing = tmp_path / "missing"
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    no_git = tmp_path / "no-git"
+    (no_git / "ideas").mkdir(parents=True)
+    no_ideas = tmp_path / "no-ideas"
+    subprocess.run(["git", "init", "-q", str(no_ideas)], check=True)
+    for target in (missing, empty, no_git, no_ideas):
+        assert cli.main(["capture", "--ideas", str(target), "An idea"]) == 2
+        assert "is not an ideas repository" in capsys.readouterr().err
+    assert not missing.exists()
+    assert not any(empty.iterdir()) and not any((no_git / "ideas").iterdir())
+    assert sorted(p.name for p in no_ideas.iterdir()) == [".git"]
+
+
 def test_capture_then_apply_runs_the_rules(tmp_path: Path, capsys):
     ideas = init_ideas(tmp_path)
     capsys.readouterr()
@@ -108,6 +126,34 @@ def test_override_records_an_override_verdict(tmp_path: Path, capsys):
     args = ["override", "--ideas", str(ideas), idea_id, "trash", "already", "exists"]
     assert cli.main(args) == 0
     assert "· override · trash" in (ideas / "ideas" / f"{idea_id}.md").read_text()
+
+
+def test_decline_files_the_idea_as_trash_and_logs_it(tmp_path: Path, capsys):
+    ideas = init_ideas(tmp_path)
+    cli.main(["capture", "--ideas", str(ideas), "Read other people's private messages"])
+    idea_id = capsys.readouterr().out.strip().splitlines()[-1]
+    args = ["decline", "--ideas", str(ideas), idea_id, "covert", "surveillance"]
+    assert cli.main(args) == 0
+    idea = cli.store.load(ideas / "ideas" / f"{idea_id}.md")
+    assert (idea.state, idea.type, idea.project) == ("trash", None, None)
+    log = idea.sections["Verdict log"]
+    assert [m.groups()[1:] for m in cli.store.VERDICT_HEADING.finditer(log)] == [
+        ("declined", "trash")
+    ]
+    assert "- **Reason:** covert surveillance" in log
+    assert f"[{idea_id}](ideas/{idea_id}.md) · declined · trash" in (ideas / "LOG.md").read_text()
+    assert "Trash: 1" in (ideas / "BOARD.md").read_text()
+    subject = subprocess.run(
+        ["git", "-C", str(ideas), "log", "-1", "--format=%s"], capture_output=True, text=True
+    ).stdout.strip()
+    assert subject == f"decline: {idea_id} -> trash"
+
+
+def test_decline_needs_a_reason_and_an_existing_idea(tmp_path: Path, capsys):
+    ideas = init_ideas(tmp_path)
+    with pytest.raises(SystemExit):
+        cli.main(["decline", "--ideas", str(ideas), "some-id"])
+    assert cli.main(["decline", "--ideas", str(ideas), "no-such-id", "why"]) == 1
 
 
 def test_capture_never_overwrites_an_existing_idea(tmp_path: Path, capsys):

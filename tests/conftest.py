@@ -38,6 +38,7 @@ PROSE_SCRIPT = ROOT / "plugins" / "graphe" / "_shared" / "prose_check.py"
 DOKIMASIA_SCRIPT = ROOT / "plugins" / "dokimasia" / "skills" / "check" / "scripts" / "dokimasia.py"
 DOCTOR_LIB = ROOT / "plugins" / "techne" / "_shared" / "doctor_lib.py"
 SCHOLARLY_SCRIPT = ROOT / "plugins" / "techne" / "_shared" / "scholarly.py"
+GOLD_RUNNER = ROOT / "scripts" / "heuresis_gold.py"
 
 # The doctors and hooks run on the user's system python3; `make test-hooks-oldest` sets this
 # to python3 3.9.

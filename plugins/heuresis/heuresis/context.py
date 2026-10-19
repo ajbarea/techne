@@ -103,6 +103,31 @@ def resolve_sources(context_toml: Path, projects: list[Project], repos_root: Pat
     return found
 
 
+def is_ideas_repo(path: Path) -> bool:
+    """An ideas repository is the top of its own git repository and holds what init_repo lays out.
+
+    A folder nested in another repo would commit and push private ideas to that repo's origin.
+    """
+    if not ((path / "ideas").is_dir() and (path / "projects.toml").is_file()):
+        return False
+    return _own_toplevel(path)
+
+
+def _git_env() -> dict[str, str]:
+    return {k: v for k, v in os.environ.items() if k not in ("GIT_DIR", "GIT_WORK_TREE")}
+
+
+def _own_toplevel(root: Path) -> bool:
+    top = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=_git_env(),
+    )
+    return not top.returncode and Path(top.stdout.strip()).resolve() == root.resolve()
+
+
 def init_repo(root: Path, techne_toml: Path | None, repos_root: Path) -> None:
     (root / "ideas").mkdir(parents=True, exist_ok=True)
     (root / "runs").mkdir(exist_ok=True)
@@ -115,13 +140,5 @@ def init_repo(root: Path, techne_toml: Path | None, repos_root: Path) -> None:
     if not (root / "README.md").exists():
         (root / "README.md").write_text(README, encoding="utf-8")
     board.write(root, dt.date.today())
-    env = {k: v for k, v in os.environ.items() if k not in ("GIT_DIR", "GIT_WORK_TREE")}
-    top = subprocess.run(
-        ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
-        capture_output=True,
-        text=True,
-        check=False,
-        env=env,
-    )
-    if top.returncode or top.stdout.strip() != str(root.resolve()):
-        subprocess.run(["git", "init", "-q", "-b", "main", str(root)], check=True, env=env)
+    if not _own_toplevel(root):
+        subprocess.run(["git", "init", "-q", "-b", "main", str(root)], check=True, env=_git_env())
