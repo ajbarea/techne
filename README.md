@@ -210,7 +210,7 @@ If you use techne in your research, cite it with the metadata in [CITATION.cff](
   url     = {https://github.com/ajbarea/techne},
   doi     = {10.5281/zenodo.23330765},
   license = {MIT},
-  version = {1.4.0},
+  version = {1.5.0},
   year    = {2026}
 }
 ```

@@ -188,7 +188,7 @@ that drift class recurs.
 
 Detail lives in git history (`git log`) and the live skill code. This log is pruned once work is durably shipped.
 
-- 2026-10-19: **heuresis phase 2, the gold set.** `make heuresis-gold GUARD=<ideas repo>` triages a fixed set of ideas with known verdicts in headless sessions, each in a scratch ideas repository, and scores verdict agreement and prior-art recall from the rivals the verify step confirmed. A required guard stops the run if the real ideas repository changes. `/heuresis:idea` gains `--ideas` and `--repos`, and `heuresis decline` records a refusal for an idea that acts against people who have not consented. Results: `plugins/heuresis/gold/RESULTS.md`.
+- 2026-10-19: **heuresis phase 2, the gold set, and v1.5.0.** `make heuresis-gold GUARD=<ideas repo>` triages a fixed set of ideas with known verdicts in headless sessions, each in a scratch ideas repository, and scores verdict agreement and prior-art recall from the rivals the verify step confirmed. A required guard stops the run if the real ideas repository changes. `/heuresis:idea` gains `--ideas` and `--repos`, and `heuresis decline` records a refusal for an idea that acts against people who have not consented. Results: `plugins/heuresis/gold/RESULTS.md`.
 - 2026-10-18: **Skill plugins run in Codex, Copilot CLI and Antigravity CLI.** Skill bodies name
   their files as `<skill-dir>/…` and `<plugin-root>/…`, which all four tested CLIs resolve, in place of
   `${CLAUDE_SKILL_DIR}` and `${CLAUDE_PLUGIN_ROOT}`, which only Claude Code substitutes. Measured
