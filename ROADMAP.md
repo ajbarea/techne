@@ -72,10 +72,14 @@ that drift class recurs.
   attachments, or let `update_draft`/`send_draft` accept a message id and resolve it through
   `drafts.list`; a test for each path. Hit 2026-10-17; the workaround called
   `users().drafts().list(q=…)` through epistole's own client.
-- **heuresis phases 2 to 6** (spec: `specs/2026-10-15-heuresis-design.md`, "Build order"). Each
+- **heuresis phases 3 to 6** (spec: `specs/2026-10-15-heuresis-design.md`, "Build order"). Each
   phase gets its own implementation plan.
-  2. **Evaluation.** A gold set of ideas with known verdicts and a harness, run before verdicts
-     are trusted. This is next.
+  - **Evaluation follow-ups.** A verified-novel `candidate` case, so the set again checks that a
+    new idea can reach `do`; an LLM judge for verdict reasons and behaviour evals; refuse an
+    `--out` inside another repository's `.git`; count an edited idea text as a stale label; let
+    `--cases` override a recorded cases file that still exists; let the guard tell a real capture
+    from a leak (it stops the run on any change to the real ideas repository, so a capture made
+    during a run stops it too).
   3. **Queue.** `queue.jsonl`, checkpoints, budget reading from klepsydra, a systemd timer, and
      `/heuresis:queue`.
   4. **Phone path.** An Action workflow, secrets, an iOS Shortcut, an issue form and a weekly
@@ -173,6 +177,7 @@ that drift class recurs.
 
 Detail lives in git history (`git log`) and the live skill code. This log is pruned once work is durably shipped.
 
+- 2026-10-19: **heuresis phase 2, the gold set.** `make heuresis-gold GUARD=<ideas repo>` triages a fixed set of ideas with known verdicts in headless sessions, each in a scratch ideas repository, and scores verdict agreement and prior-art recall from the rivals the verify step confirmed. A required guard stops the run if the real ideas repository changes. `/heuresis:idea` gains `--ideas` and `--repos`, and `heuresis decline` records a refusal for an idea that acts against people who have not consented. Results: `plugins/heuresis/gold/RESULTS.md`.
 - 2026-10-17: **heuresis drops Lens; patents come from EPO only.** Lens has no free ongoing tier (the Lens API is available only through an institutional subscription or a time-limited trial), so the Lens source, its `lens_api_token` option and its doctor line are removed and the patent scout searches EPO Open Patent Services alone.
 - 2026-10-17: **Shared key hook; graphe stores its search keys.** One `_shared/plugin_keys.py` reads each plugin's manifest for its sensitive options and passes them to Bash commands; heuresis and graphe both use it, and paper-review's OpenAlex and Semantic Scholar keys are saved with `/plugin configure graphe@techne`.
 - 2026-10-17: **heuresis search keys in secure storage.** The five keys are sensitive plugin options set with `/plugin configure heuresis@techne`; a SessionStart hook passes them to Bash commands, and a store script imports a `.env` file. A key exported in the shell still wins.

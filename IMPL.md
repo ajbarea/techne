@@ -11,33 +11,14 @@ has crept in; extract it back to ROADMAP.
 
 ## In flight
 
-### In review: shared plugin key hook, graphe keys
+### In review: heuresis phase 2, the gold set
 
-A plugin's own `plugin.json` is its key table: every `sensitive` string option is a key (variable =
-option name in capitals, text = its `description`), and `metadata.keyGroups` lists keys that only
-work together. One module, `plugins/techne/_shared/plugin_keys.py` (its copies in heuresis's and graphe's
-`_shared/` must stay byte-identical; `make guards` compares them and does not copy, so after an edit run
-`cp plugins/techne/_shared/plugin_keys.py plugins/<plugin>/_shared/` for each), runs the SessionStart and SessionEnd hooks (`start` / `end`), the `.env` import
-(`store`, `template`) and `load_plugin` (name and keys from one manifest read) for the doctors. `store` configures the
-plugin id whose `installPath` is this script's own plugin root, else the one enabled install with an
-install path, and also every other enabled install whose manifest declares a key in the file
-(`--plugin <id>` limits it to one). At session start it writes the keys to a
-private (0600) per-process file `<session_id>.<claude pid>.sh` in `CLAUDE_PLUGIN_DATA/session-keys`
-and appends only a line that sources it to `CLAUDE_ENV_FILE` (Claude Code leaves those files at
-0644 and never deletes them, so no value goes in one). SessionEnd deletes its own process's file,
-and start prunes files whose process is gone (by age, 30 days, on Windows). A key already in the
-Bash environment wins. graphe gains `openalex_api_key` and `s2_api_key` for paper-review.
-
-### Landed: heuresis phase 1 (v1.4.0)
-
-`/heuresis:idea` captures an idea in the private ideas repository and triages it (four scouts, a
-judge, `verify`, `apply`, regenerated `BOARD.md` and `LOG.md`). The EPO adapter is not
-yet confirmed with a live key.
-
-### Next: heuresis phase 2, the gold set
-
-A gold set of ideas with known verdicts and a harness that scores the pipeline, run before any
-verdict is trusted. Later phases are in ROADMAP.
+`scripts/heuresis_gold.py run` (or `make heuresis-gold GUARD=<ideas repo>`) triages each case in
+`plugins/heuresis/gold/cases.yaml` with this checkout's plugin, in a scratch ideas repository under
+`~/.local/state/heuresis-gold`, and `heuresis/gold.py` grades the runs. Each grade records the case
+labels and the commit under test; `report` refuses grades whose labels changed, and `regrade`
+re-scores kept work folders without reviving a failed run. `RESULTS.md` is the generated summary of
+the last full run; regenerate it rather than editing it.
 
 ### Then: commit guards on Git 2.54 hooks (#96)
 
