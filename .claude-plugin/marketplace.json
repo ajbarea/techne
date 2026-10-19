@@ -1,6 +1,6 @@
 {
   "name": "techne",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "AJ's plugins for AI coding agents: code-repo skills (techne), document builds (graphe), bibliography verification (dokimasia), idea triage (heuresis), git guards (phylax), Gmail across accounts (epistole), Brightspace course sites (schole), and a spoken Claude Code (keryx).",
   "owner": {
     "name": "AJ",
