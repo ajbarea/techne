@@ -1,0 +1,32 @@
+{
+  "network": {
+    "allowedDomains": [],
+    "deniedDomains": [],
+    "allowAllUnixSockets": true
+  },
+  "filesystem": {
+    "denyRead": [
+      "~/.ssh",
+      "~/.gnupg",
+      "~/.netrc",
+      "~/.git-credentials",
+      "~/.aws",
+      "~/.azure",
+      "~/.kube",
+      "~/.docker",
+      "~/.config/gcloud",
+      "~/.config/gh",
+      "~/.config/epistole",
+      "~/.config/schole",
+      "~/.claude",
+      "~/.claude.json",
+      "~/.codex",
+      "~/.copilot",
+      "/var/run/docker.sock",
+      "/run/docker.sock",
+      "/tmp/tmux-*"
+    ],
+    "allowWrite": [".", "~/.cache/uv", "/tmp/techne-test"],
+    "denyWrite": []
+  }
+}
