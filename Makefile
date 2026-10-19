@@ -4,7 +4,7 @@
 ## that techne itself documents at docs/conventions.md.
 ##
 
-.PHONY: help check-env setup manifests citation plugin-validate plugin-test test-hooks-oldest frontmatter fix lint shellcheck guards test-unit test-sandboxed zizmor test validate build ci clean docs evals evals-bash install-probe heuresis-gold freshness mod-types
+.PHONY: help check-env setup manifests citation plugin-validate plugin-test test-hooks-oldest frontmatter fix lint shellcheck guards test-unit test-sandboxed sandbox-warm zizmor test validate build ci clean docs evals evals-bash install-probe heuresis-gold freshness mod-types
 .DEFAULT_GOAL := help
 
 check-env:              ## Verify required tools are on PATH
@@ -84,16 +84,18 @@ TEST_WITH := --with 'typst>=0.15,<0.16' --with playwright==1.63.0 --with axe-pla
 test-unit:              ## pytest over skill-shipped Python
 	@uv run $(TEST_WITH) pytest
 
-# test-unit inside Anthropic's sandbox-runtime, settings in scripts/sandbox-test.json: no network;
-# writes only to the repo, uv's cache and $(SANDBOX_TMP); no reads of credentials, the Docker
-# socket or tmux servers. Unix sockets stay open because tmux and Chromium need them.
-SRT := npx --yes -p @anthropic-ai/sandbox-runtime@0.0.80 srt
-SANDBOX_TMP := /tmp/techne-test
-test-sandboxed:         ## test-unit with no network and a read-only home (Linux: bwrap, socat, ripgrep)
-	@for t in npx bwrap socat rg; do command -v $$t >/dev/null || { echo "$$t not on PATH (sudo apt install bubblewrap socat ripgrep; npx comes with Node)"; exit 1; }; done
+# test-unit inside Anthropic's sandbox-runtime (srt, pinned in scripts/srt), settings template in
+# scripts/sandbox-test.json, logic in scripts/sandbox-test.sh. Inside: no network; writes only to the
+# repo (minus .venv and the Claude config that loads code) and $(SANDBOX_TMP); reads of credentials,
+# /tmp, /run/user, /run/WSL, /run/dbus, /mnt and ~/.claude-science denied except $(SANDBOX_TMP);
+# a cleaned environment with no tokens; a uv cache and venv of its own. It still reads the rest of
+# $$HOME, and Unix sockets stay open because tmux and Chromium need them.
+SANDBOX_TMP := /tmp/techne-test-$(shell id -u)
+test-sandboxed:         ## test-unit with no network, no credential reads and a cleaned environment (Linux only)
+	@bash scripts/sandbox-test.sh $(SANDBOX_TMP)
+
+sandbox-warm:
 	@uv run $(TEST_WITH) python -c '' # fetch the wheels while the network is open
-	@mkdir -p $(SANDBOX_TMP)
-	@UV_OFFLINE=1 $(SRT) --settings scripts/sandbox-test.json env TMPDIR=$(SANDBOX_TMP) TMUX_TMPDIR=$(SANDBOX_TMP) $(MAKE) --no-print-directory test-unit
 
 # The hooks and the setup doctors run on the user's system python3, not the project venv.
 # 3.9 is macOS's.

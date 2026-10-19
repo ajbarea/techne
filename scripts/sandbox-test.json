@@ -24,9 +24,27 @@
       "~/.copilot",
       "/var/run/docker.sock",
       "/run/docker.sock",
-      "/tmp/tmux-*"
+      "/tmp",
+      "/run/user",
+      "/run/WSL",
+      "/run/dbus",
+      "/mnt",
+      "~/.claude-science"
     ],
-    "allowWrite": [".", "~/.cache/uv", "/tmp/techne-test"],
-    "denyWrite": []
+    "allowWrite": [
+      ".",
+      "@SANDBOX_TMP@"
+    ],
+    "denyWrite": [
+      "./.venv",
+      "./.claude/settings.json",
+      "./.claude/settings.local.json",
+      "./.claude/hooks",
+      "./.claude/skills"
+    ],
+    "allowRead": [
+      ".",
+      "@SANDBOX_TMP@"
+    ]
   }
 }
