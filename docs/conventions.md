@@ -102,7 +102,7 @@ Above the `SUMMARY` block, each output line is tagged `[<time>] [OUT  ] [<target
 
 Several skills read a single per-repo file at `.claude/skill-context.md`. They read it from the current directory's git root when they load, headed by that root's path. A skill pointed at a path in another repo re-reads it from that repo with `_shared/skill_context.sh <target>`. The skeleton ships with the techne plugin as [`skill-context.template.md`](https://github.com/ajbarea/techne/blob/main/plugins/techne/skills/setup/skill-context.template.md). `/techne:setup` offers to copy it into a repo that has none. Keep the sections for the skills you use and delete the rest.
 
-Each `##` section maps to one skill family. Adopt only the sections for the skills you intend to use. A skill whose section is absent either stops and points you to `/techne:setup` (`audit`, `theoros`) or falls back to generic defaults (`docs-site`, `deslop`, `reslop`, `elenchus`, `latex`, `paper-review`).
+Each `##` section maps to one skill family. Adopt only the sections for the skills you intend to use. A skill whose section is absent either stops and points you to `/techne:setup` (`audit`, `theoros`) or falls back to generic defaults (`docs-site`, `deslop`, `reslop`, `elenchus`, `research-grounded`, `latex`, `paper-review`).
 
 ### Section reference
 
@@ -120,6 +120,7 @@ The [template](https://github.com/ajbarea/techne/blob/main/plugins/techne/skills
 | `## paper` | `paper` | `author`, `affiliation`, `email`, `bib`, `portfolio`. |
 | `## paper-review` | `paper-review` | `lab_line`, `retrieval`, `mailto`, `report`. |
 | `## latex` | `latex` | `markers`, `overfull_pt`, `engine`. |
+| `## research_grounded` | `research-grounded` | `decision_docs`: files, directories or globs audited in addition to `IMPL.md` and `ROADMAP.md`. |
 | `## elenchus` | `elenchus` | `test_command`, `run_command`, `destructive_ops`, `load_bearing_surfaces`, `feature_works_means`; each is optional and sharpens one phase. |
 
 **Required for:** `techne:audit`, `techne:theoros`.
