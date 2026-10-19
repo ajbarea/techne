@@ -48,7 +48,7 @@ Run `/techne:setup`. It checks each item above, the repo's `.claude/skill-contex
 | [`techne:docs-site`](../skills/docs-site.md) | Audit the Zensical docs site. |
 | [`techne:docsync`](../skills/docsync.md) | Check documentation claims against the code. |
 | [`techne:elenchus`](../skills/elenchus.md) | Review a change adversarially before merge. |
-| [`techne:research-grounded`](../skills/research-grounded.md) | Ground design decisions in current sources. |
+| [`techne:research-grounded`](../skills/research-grounded.md) | Ground decisions in current sources. |
 | [`techne:reslop`](../skills/reslop.md) | Rewrite docstrings from the implementation. |
 | [`techne:setup`](../skills/techne-setup.md) | Check what techne needs on this machine. |
 | [`techne:sisters`](../skills/sisters.md) | Audit linked repos for drift. |

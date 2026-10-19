@@ -90,3 +90,9 @@ load_bearing_surfaces:
 feature_works_means:
   - <what "the feature works" looks like end-to-end, beyond green CI>
 ```
+
+## research_grounded
+```yaml
+decision_docs:
+  - <file, directory or glob audited in addition to IMPL.md and ROADMAP.md, e.g. docs/research-log.md>
+```

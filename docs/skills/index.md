@@ -21,7 +21,7 @@ Skills ship as plugins: `techne` for work in a code repo, `graphe` for documents
 | [`techne:deslop`](deslop.md) | Scans comments and docstrings for AI-generated slop and proposes tightened rewrites. |
 | [`techne:reslop`](reslop.md) | Rewrites docstrings grounded in the implementation rather than deleting them outright. |
 | [`techne:docsync`](docsync.md) | Verifies documentation claims (CLI commands, paths, config keys, signatures) against the actual code. |
-| [`techne:research-grounded`](research-grounded.md) | Flags design decisions in `IMPL.md` / `ROADMAP.md` that lack `# research(YYYY-MM):` provenance, then web-searches to ground them. |
+| [`techne:research-grounded`](research-grounded.md) | Flags decisions (technology, data release, study design, access rules, claim wording) in `IMPL.md`, `ROADMAP.md` and decision records that lack `# research(YYYY-MM):` provenance, then web-searches to ground them. |
 
 ## Review and collaboration
 
