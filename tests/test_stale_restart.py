@@ -1180,10 +1180,10 @@ def test_handoff_resets_signals_python_ignores_before_exec(env, old_claude):
 def test_handoff_window_killed_during_countdown_records_the_cancel(env, old_claude):
     put_real_session(env, old_claude)
     plan = write_plan(env, old_claude.pid)
-    server = f"phylax-test-{os.getpid()}"
     cmd = shlex.join([HOOK_PYTHON, str(SCRIPT), "handoff", str(plan)])
     tenv = {**env["env"], "PHYLAX_RESTART_PROC": "/proc", "PHYLAX_RESTART_COUNTDOWN": "30"}
-    run = ["tmux", "-L", server, "-f", "/dev/null"]
+    # Its own socket file, so the server never shares the user's tmux socket folder.
+    run = ["tmux", "-S", str(env["state"].parent / "tmux.sock"), "-f", "/dev/null"]
     subprocess.run([*run, "new-session", "-d", "-x", "80", "-y", "10", cmd], env=tenv, check=True)
     try:
         time.sleep(1.5)  # inside the countdown, with the terminal in cbreak mode

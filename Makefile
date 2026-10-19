@@ -93,7 +93,7 @@ test-sandboxed:         ## test-unit with no network and a read-only home (Linux
 	@for t in npx bwrap socat rg; do command -v $$t >/dev/null || { echo "$$t not on PATH (sudo apt install bubblewrap socat ripgrep; npx comes with Node)"; exit 1; }; done
 	@uv run $(TEST_WITH) python -c '' # fetch the wheels while the network is open
 	@mkdir -p $(SANDBOX_TMP)
-	@UV_OFFLINE=1 $(SRT) --settings scripts/sandbox-test.json env TMPDIR=$(SANDBOX_TMP) $(MAKE) --no-print-directory test-unit
+	@UV_OFFLINE=1 $(SRT) --settings scripts/sandbox-test.json env TMPDIR=$(SANDBOX_TMP) TMUX_TMPDIR=$(SANDBOX_TMP) $(MAKE) --no-print-directory test-unit
 
 # The hooks and the setup doctors run on the user's system python3, not the project venv.
 # 3.9 is macOS's.
