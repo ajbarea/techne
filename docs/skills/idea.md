@@ -80,7 +80,7 @@ All inside your ideas repository.
 
 Save keys in Claude Code's secure storage: run `/plugin configure heuresis@techne`, paste each key into its masked field, and restart Claude Code. Or run `/heuresis:setup` and choose the file route: it prints a `.env` template, you fill it in at a private path outside any repository, and its store script saves the keys and prints only their names. Claude Code keeps the keys in its secure storage. At session start heuresis writes them to a private (0600) per-process file in its plugin data folder that Bash commands load, and deletes the file when the session ends. A key already in the Bash environment, such as one exported in your shell profile, wins.
 
-OpenAlex, arXiv and Hacker News run without a key. `OPENALEX_API_KEY` raises OpenAlex's daily search budget, and `OPENALEX_MAILTO` identifies you to OpenAlex. Semantic Scholar, EPO and GitHub show `skipped` in the verdict's coverage line without their keys, and the rest still run.
+OpenAlex, arXiv and Hacker News run without a key. `OPENALEX_API_KEY` raises OpenAlex's daily search budget, and `OPENALEX_MAILTO` identifies you to OpenAlex and Crossref (sent as `mailto`, never in the User-Agent). Every host is paced across processes within its published limits and `Retry-After` is honored. A host that answers 403 is not asked again for 24 hours, and a page is fetched only where its robots.txt allows. Semantic Scholar, EPO and GitHub show `skipped` in the verdict's coverage line without their keys, and the rest still run.
 
 | Option (variable) | Source |
 |---|---|

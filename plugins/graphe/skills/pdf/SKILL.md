@@ -7,12 +7,14 @@ allowed-tools: Bash Glob Grep Read Edit
 
 # PDF
 
+`<skill-dir>` is the directory holding this SKILL.md, and `<plugin-root>` is the plugin's root directory, two levels above it.
+
 Markdown in, print-quality PDF out. Do not go looking for a converter: the
 decision is made and the generator is in this skill.
 
 ## Write it plain first
 
-When writing or revising the markdown, read `${CLAUDE_PLUGIN_ROOT}/_shared/plain-prose.md` and
+When writing or revising the markdown, read `<plugin-root>/_shared/plain-prose.md` and
 write to it. Each render prints `REVIEW prose` lines for the patterns that
 file lists and for sentences over 40 words; they never change the exit code.
 `--no-prose` skips them.
@@ -31,7 +33,7 @@ first, report what changed, and promote only when the user says so. Overwriting
 a document someone is about to send is not yours to decide.
 
 ```
-uv run --no-project --quiet --with 'typst>=0.15,<0.16' python ${CLAUDE_SKILL_DIR}/scripts/render.py <src> <out-dir>
+uv run --no-project --quiet --with 'typst>=0.15,<0.16' python <skill-dir>/scripts/render.py <src> <out-dir>
 ```
 
 Nothing needs installing: the `typst` wheel bundles the compiler, and `cmarker`
@@ -103,7 +105,7 @@ dictionary, not a defect in the file. Ignore it.
 `render.py`. Letter, 0.9in/0.95in margins, 11.2pt serif on a 17.25pt baseline,
 uppercase accent headings on hairline rules.
 
-Two things there are load-bearing and will look like mistakes:
+Three things there are load-bearing and will look like mistakes:
 
 - **The `{{TITLE}}` and `{{SUBTITLE}}` block.** The leading `# Heading` and an
   italic-only line after it are lifted out of the markdown by `render.py` so the
@@ -116,3 +118,13 @@ Two things there are load-bearing and will look like mistakes:
   rule reapplying, and `..t.fields()` is rejected because `children` is not a
   named argument. Keep cmarker's `auto` columns; forcing `(1fr,) * n` makes a
   two-column prose table wrap badly.
+- **The list re-emit.** cmarker marks every list `tight`. A loose one (items
+  separated by blank lines) shows only as a `parbreak` inside its items, so the
+  rule re-emits it with `tight: false` and it takes paragraph spacing, while a
+  tight list sits on the leading. Do not set a fixed `spacing` on `list` or
+  `enum`: it overrides both, so tight and loose lists render alike. `it.tight`
+  is the recursion guard, and the re-emit carries every other field but
+  `label` (the constructors reject it), so an enum keeps its start number.
+  cmarker follows every blockquote with a `parbreak`, so the rule skips that
+  one. A loose list whose items hold no paragraph (only code, nested lists or
+  blockquotes) renders tight, as it does in GitHub's HTML.

@@ -7,13 +7,15 @@ allowed-tools: Bash Glob Grep Read
 
 # Check a bibliography
 
+`<skill-dir>` is the directory holding this SKILL.md.
+
 Three passes over any LaTeX project's `.bib`, or over a reference list written by hand in
 `thebibliography`. Run the one that answers the question; do not judge a reference by memory.
 
 ## Run it
 
 ```
-uv run --no-project --quiet python ${CLAUDE_SKILL_DIR}/scripts/dokimasia.py [--root DIR] [--require-built] {lint,verify,rendered} [DOC.tex ...]
+uv run --no-project --quiet python <skill-dir>/scripts/dokimasia.py [--root DIR] [--require-built] {lint,verify,rendered} [DOC.tex ...]
 ```
 
 The script is one file with no dependencies and needs Python 3.11 or later. Invoke it through
@@ -51,7 +53,10 @@ Findings print on stderr and the summary on stdout, every summary and finding li
 | exempt | Listed in the config with a reason. The reason is printed. | None. |
 
 A failed lookup is never cached and never a finding. A throttled host (406, 429, 503) is
-waited out: a lookup tries three times, 5 then 20 seconds apart.
+waited out: a lookup waits for `Retry-After` (else 5, 20 and 60 seconds) and retries up to three
+times. A 403 is never retried, and the host is not asked again for 24 hours (the line reads
+`not checked: <host> refused until ...`). Requests to one host are spaced across processes (arXiv 3 seconds,
+Crossref 1 second, or 0.34 with a mailto), so two runs at once do not add up.
 
 ## Hand-written reference lists
 
@@ -149,7 +154,8 @@ A configured `[intake] file` that does not exist is an error, as is a `cache` ou
 or a cache file that is not a JSON object. The root search stops at the git top-level.
 
 Set `DOKIMASIA_MAILTO` to your address to use Crossref's polite pool. It is added to Crossref
-requests and the User-Agent, and never stored.
+requests only, never to the User-Agent, and never stored. The pacing code is `_shared/polite_http.py`, which
+`make guards` keeps identical to techne's copy.
 
 ## Without Claude
 

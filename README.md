@@ -4,7 +4,7 @@
 
 # techne
 
-*A Claude Code plugin marketplace: skills for code repos and for documents, opt-in git guards, and a spoken Claude Code.*
+*A plugin marketplace for AI coding agents: skills for code repos and for documents, opt-in git guards, and a spoken Claude Code.*
 
 [![Validate](https://github.com/ajbarea/techne/actions/workflows/validate.yml/badge.svg)](https://github.com/ajbarea/techne/actions/workflows/validate.yml)
 [![Docs](https://github.com/ajbarea/techne/actions/workflows/docs.yml/badge.svg)](https://github.com/ajbarea/techne/actions/workflows/docs.yml)
@@ -22,16 +22,16 @@
 
 | Plugin | For | Runs in |
 | --- | --- | --- |
-| `techne` | Work in a code repo: audits, CI review, pre-merge review, commit plans, GitHub catch-up, cross-repo drift, slop and doc drift | Claude Code |
-| `graphe` | Documents: LaTeX papers, markdown-to-PDF, talk decks, paper scaffolds and novelty review | Claude Code |
-| `dokimasia` | Bibliography verification for LaTeX projects: lint a `.bib` or hand-written reference list, verify it against arXiv and Crossref, check every cited key rendered | Claude Code, or one standalone Python file |
+| `techne` | Work in a code repo: audits, CI review, pre-merge review, commit plans, GitHub catch-up, cross-repo drift, slop and doc drift | Claude Code, Codex, Copilot CLI, Antigravity CLI |
+| `graphe` | Documents: LaTeX papers, markdown-to-PDF, talk decks, paper scaffolds and novelty review | Claude Code, Codex, Copilot CLI, Antigravity CLI |
+| `dokimasia` | Bibliography verification for LaTeX projects: lint a `.bib` or hand-written reference list, verify it against arXiv and Crossref, check every cited key rendered | Claude Code, Codex, Copilot CLI, Antigravity CLI, or one standalone Python file |
 | `heuresis` | Idea triage: capture an idea, search papers, patents, products and your own work for anything like it, and file it with a verdict grounded in checked records | Claude Code (needs `uv` and git; `gh` for GitHub search and the private remote) |
 | `phylax` | Opt-in git and PR guards (a mod), restart onto an updated Claude Code | Claude Code |
 | `epistole` | Gmail across accounts: search, read and draft in each configured account, and send a draft only after you approve it ([docs](https://ajbarea.github.io/techne/plugins/epistole/)) | Claude Code (MCP server, needs `uv`) |
 | `schole` | Brightspace (D2L) course sites, read-only: new announcements and content, what is due, what came due unsubmitted ([docs](https://ajbarea.github.io/techne/plugins/schole/)) | Claude Code (needs `uv` and Chromium) |
 | [`keryx`](https://github.com/ajbarea/keryx) | Speaks a short gist of each reply in a local voice (WSL2) | Claude Code |
 
-Install only the ones you use: every enabled plugin's skill list sits in Claude's context on every turn. graphe holds skills only, so claude.ai and Cowork can install it too, but its build and check steps run shell commands (`uv`, TeX Live, Typst) that need Claude Code.
+Install only the ones you use: every enabled plugin's skill list sits in the agent's context on every turn. claude.ai and Cowork can install graphe too, but its build and check steps run shell commands (`uv`, TeX Live, Typst) that need an agent CLI on your machine.
 
 ### techne
 
@@ -45,7 +45,7 @@ Install only the ones you use: every enabled plugin's skill list sits in Claude'
 | `techne:docs-site` | Maintains the Zensical-powered docs site: config, deploy pipeline, theming, link integrity. |
 | `techne:docsync` | Verifies documentation claims (CLI commands, paths, config keys, signatures) against the actual code. |
 | `techne:elenchus` | Adversarial pre-merge review: drives `/code-review`, then reproduces the load-bearing claim, traces every consumer across the whole repo, and walks a bug-class rubric for reachable destructive ops, unmirrored parallel-path guards, migration crashes, and dead-but-green features. |
-| `techne:research-grounded` | Flags design decisions in IMPL/ROADMAP that lack `# research(YYYY-MM):` provenance, then web-searches to ground them. |
+| `techne:research-grounded` | Flags decisions (technology, data release, study design, access rules, claim wording) in IMPL, ROADMAP and decision records that lack `# research(YYYY-MM):` provenance, then web-searches to ground them. |
 | `techne:reslop` | Rewrites docstrings grounded in the implementation rather than deleting them outright. |
 | `techne:sisters` | Cross-repo drift audit across the sister repos listed in `~/.claude/techne.toml`. |
 | `techne:theoros` | Starts an observed live dev session: Claude drives the REPL in a named `tmux` session; you spectate read-only via `tmux attach -r`. |
@@ -89,6 +89,8 @@ Three opt-in guards on `git commit`, `git add` and `gh pr`, run by a [mod](https
 
 ## Install
 
+### Claude Code
+
 From inside Claude Code:
 
 ```bash
@@ -106,6 +108,22 @@ From inside Claude Code:
 Invoke a skill as `/techne:<name>`, `/graphe:<name>`, `/dokimasia:check`, `/heuresis:idea` or `/<plugin>:setup`, or describe the task and Claude picks the matching skill. Run `/skills` to confirm they loaded. On claude.ai, add `ajbarea/techne` under **Customize > Plugins > Add > Add marketplace**, then add `graphe`.
 
 After installing, run each plugin's setup skill: `/techne:setup`, `/graphe:setup`, `/heuresis:setup`, `/phylax:setup`, `/epistole:setup`, `/schole:setup`. Each checks what the plugin needs and prints the install command for anything missing. The techne skills follow a few conventions (Makefile pattern, dev-runner archive, `.claude/skill-context.md`); [Conventions](docs/conventions.md) lists the minimum each skill needs.
+
+### Codex, Copilot CLI and Antigravity CLI
+
+techne, graphe and dokimasia run in these agent CLIs too. Codex and Copilot CLI read this repo's marketplace; Antigravity CLI installs one plugin from its folder URL:
+
+```bash
+codex plugin marketplace add ajbarea/techne
+codex plugin add techne@techne
+
+copilot plugin marketplace add ajbarea/techne
+copilot plugin install techne@techne
+
+agy plugin install https://github.com/ajbarea/techne/tree/main/plugins/techne
+```
+
+Swap `techne` for `graphe` or `dokimasia` to add those. Ask for a skill by name ("use the techne audit skill") or describe the task. graphe's optional OpenAlex and Semantic Scholar keys come from Claude Code's plugin settings; in other CLIs, export `OPENALEX_API_KEY` and `S2_API_KEY` in your shell instead. techne's opt-in cleanup at session start is a Claude Code hook, and several techne skills (elenchus, docs-site, deslop, reslop, docsync, research-grounded) hand part of their work to Claude Code subagents or `/code-review`; in other CLIs that step depends on what the agent offers. The other plugins rely on Claude Code's hooks, plugin settings or subagents and run there alone for now.
 
 ## Configuration
 
@@ -187,7 +205,7 @@ If you use techne in your research, cite it with the metadata in [CITATION.cff](
 
 ```bibtex
 @software{barea_techne,
-  author  = {Barea, Arnaldo},
+  author  = {Barea, AJ},
   title   = {techne: a Claude Code plugin marketplace for repositories, documents, and bibliographies},
   url     = {https://github.com/ajbarea/techne},
   doi     = {10.5281/zenodo.23330765},

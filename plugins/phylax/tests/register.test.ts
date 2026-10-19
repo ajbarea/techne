@@ -86,7 +86,9 @@ describe('git guard', () => {
     const { argv, init } = runs[0]!
     expect(argv[0]).toBe('python3')
     expect(argv[1]).toMatch(/hooks\/git_guards\.py$/)
-    expect(init?.cwd).toBe(CWD)
+    // python3 starts from the plugin (the script's folder's parent), never the session folder.
+    expect(init?.cwd).toBe(argv[1]!.replace(/\/hooks\/git_guards\.py$/, ''))
+    expect(init?.cwd).not.toBe(CWD)
     expect(JSON.parse(init?.stdin ?? '{}')).toEqual({
       hook_event_name: 'PreToolUse',
       tool_name: 'Bash',

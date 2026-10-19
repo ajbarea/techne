@@ -7,12 +7,14 @@ allowed-tools: Bash Glob Grep Read Edit
 
 # LaTeX
 
+`<skill-dir>` is the directory holding this SKILL.md, and `<plugin-root>` is the plugin's root directory, two levels above it.
+
 Build and gate in one command. Do not go looking for an engine: the decision is
 made below and the runner is in this skill.
 
 ## Write it plain first
 
-Before drafting or revising the document's prose, read `${CLAUDE_PLUGIN_ROOT}/_shared/plain-prose.md`
+Before drafting or revising the document's prose, read `<plugin-root>/_shared/plain-prose.md`
 and write to it: one claim per sentence, counts rather than qualities, no
 restating lines, and every number and summary checked against its source. A
 draft that needs a separate concision pass was written in the wrong register.
@@ -20,7 +22,7 @@ draft that needs a separate concision pass was written in the wrong register.
 ## Run it
 
 ```
-uv run --no-project --quiet python ${CLAUDE_SKILL_DIR}/scripts/latex.py <path>
+uv run --no-project --quiet python <skill-dir>/scripts/latex.py <path>
 ```
 
 `<path>` is a `.tex`, or a directory holding exactly one file with
@@ -59,7 +61,7 @@ skipped on the run where it mattered.
 | REVIEW | `prose` | Patterns from the `prose-patterns` block of `_shared/plain-prose.md`, plus sentences over 40 words. `--no-prose` skips it. |
 
 `--markers`, `--overfull-pt` and `--engine` move the thresholds. Read the
-`## latex` section of `<repo>/.claude/skill-context.md` (`bash "${CLAUDE_PLUGIN_ROOT}/_shared/skill_context.sh" <target>` prints it) for per-repo marker
+`## latex` section of `<repo>/.claude/skill-context.md` (`bash "<plugin-root>/_shared/skill_context.sh" <target>` prints it) for per-repo marker
 words before overriding them.
 
 ## Coverage and prose are heuristics and never fail the build

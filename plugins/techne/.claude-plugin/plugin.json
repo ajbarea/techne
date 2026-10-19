@@ -17,5 +17,13 @@
     "drift",
     "documentation",
     "slop"
-  ]
+  ],
+  "userConfig": {
+    "clean_finished_work": {
+      "type": "boolean",
+      "title": "Clean up finished work at session start",
+      "description": "When a session starts or resumes, remove worktrees and branches whose PR merged and that nothing is using, and list what a merge left behind.",
+      "default": false
+    }
+  }
 }

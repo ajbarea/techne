@@ -7,6 +7,8 @@ allowed-tools: Bash Glob Grep Read Edit Agent
 
 # Docsync
 
+`<plugin-root>` is the plugin's root directory, two levels above the directory holding this SKILL.md.
+
 Compare documentation against the code it describes. Find where the docs say one thing and the code says another. Propose fixes grounded in current code, not in what the docs *should* have said.
 
 ## Repo context
@@ -14,7 +16,7 @@ Compare documentation against the code it describes. Find where the docs say one
 `/techne:docsync` audits a doc that may live in a **different repo than your CWD** (e.g. `/techne:docsync ../velocity-fl/README.md`), so read skill-context from the target's repo:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/_shared/skill_context.sh" <target-doc>   # with no path arg this reads the CWD repo
+bash "<plugin-root>/_shared/skill_context.sh" <target-doc>   # with no path arg this reads the CWD repo
 ```
 
 The output is headed by the repo root it read. Its `## repo` section names the CLI entrypoint and runner module the repo exposes (so command and `make`-target claims verify against the right code); `## slop_ground_truth` names where quantitative claims must trace. No `.claude/skill-context.md` at the target root → fall back to generic verification defaults.
@@ -29,7 +31,7 @@ The output is headed by the repo root it read. Its `## repo` section names the C
 - **Version constraints** — Python / dependency pins. Verify against `pyproject.toml`, workflow files.
 - **Internal links / anchors** — `[see strategies](strategies.md#fedavg)`. Verify target exists.
 - **Exit codes and error messages** — Verify against the source that produces them.
-- **Performance / comparative claims** — `45× faster`, `under 10 ms`, `scales to 100 clients`, `sub-millisecond aggregation`. Verify against the `slop_ground_truth` sources from the target repo's skill-context. If the claim is not traceable to a measurement there, it is drift — propose one of: cite the specific test, replace with the measured number, or delete. Use the "Unsupported quantitative / comparative claims" section of `${CLAUDE_PLUGIN_ROOT}/_shared/hate-words.md` as the grep-seed pattern list.
+- **Performance / comparative claims** — `45× faster`, `under 10 ms`, `scales to 100 clients`, `sub-millisecond aggregation`. Verify against the `slop_ground_truth` sources from the target repo's skill-context. If the claim is not traceable to a measurement there, it is drift — propose one of: cite the specific test, replace with the measured number, or delete. Use the "Unsupported quantitative / comparative claims" section of `<plugin-root>/_shared/hate-words.md` as the grep-seed pattern list.
 
 ## Silence
 
@@ -95,7 +97,7 @@ For a whole `docs/` directory, spawn one `Explore` subagent per doc file. Each r
 
 ## While you're in there
 
-A doc update is also a chance to trim slop. If a fix requires rewriting a sentence, apply the `${CLAUDE_PLUGIN_ROOT}/_shared/hate-words.md` filter before you commit to the new wording — don't let the rewrite reintroduce "seamless", "effortlessly" and friends. If the file has heavy slop unrelated to the drift, mention it once and suggest running `/techne:deslop` after — don't quietly expand scope.
+A doc update is also a chance to trim slop. If a fix requires rewriting a sentence, apply the `<plugin-root>/_shared/hate-words.md` filter before you commit to the new wording — don't let the rewrite reintroduce "seamless", "effortlessly" and friends. If the file has heavy slop unrelated to the drift, mention it once and suggest running `/techne:deslop` after — don't quietly expand scope.
 
 ## Why this skill is quiet
 

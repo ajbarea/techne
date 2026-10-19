@@ -1,13 +1,18 @@
-"""One HTTP helper for every source: identifying user agent, timeout, size cap, plain errors."""
+"""One HTTP helper for every source: size cap, plain errors, and polite_http underneath for the
+per-host pacing across processes, Retry-After, the identifying User-Agent and robots.txt."""
 
 from __future__ import annotations
 
 import json
-import urllib.error
+import os
+import sys
 import urllib.parse
-import urllib.request
+from pathlib import Path
 
-USER_AGENT = "heuresis (https://github.com/ajbarea/techne)"
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
+import polite_http  # ty: ignore[unresolved-import]
+
+TOOL = "heuresis"
 TIMEOUT = 20
 # Answers above 2 MB are not read whole; the quote check needs text, not media.
 MAX_BYTES = 2_000_000
@@ -25,50 +30,40 @@ class SourceError(Exception):
 
 
 WEB_SCHEMES = ("http", "https")
-# Keys and tokens are meant for the host and scheme they were sent to, never a redirect elsewhere.
-CREDENTIAL_HEADERS = frozenset({"x-api-key", "authorization"})
+RobotsDisallowed = polite_http.RobotsDisallowed
 
 
-class _Redirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        target = urllib.parse.urlsplit(newurl)
-        if target.scheme not in WEB_SCHEMES:
-            raise SourceError(f"redirect to unsupported scheme: {target.scheme or 'none'}")
-        new = super().redirect_request(req, fp, code, msg, headers, newurl)
-        source = urllib.parse.urlsplit(req.full_url)
-        # A downgrade to http would send the key in clear text, even to the same host.
-        moved = (target.scheme, target.hostname) != (source.scheme, source.hostname)
-        if new is not None and moved:
-            for name in [n for n in new.headers if n.lower() in CREDENTIAL_HEADERS]:
-                del new.headers[name]
-        return new
-
-
-_OPENER = urllib.request.build_opener(_Redirect)
-
-
-def _open(req: urllib.request.Request) -> bytes:
-    parts = urllib.parse.urlsplit(req.full_url)
+def _open(url: str, *, data: bytes | None, headers: dict[str, str] | None) -> bytes:
+    parts = urllib.parse.urlsplit(url)
     if parts.scheme not in WEB_SCHEMES:
         raise SourceError(f"unsupported scheme: {parts.scheme}")
-    host = parts.netloc
     try:
-        with _OPENER.open(req, timeout=TIMEOUT) as resp:
-            return resp.read(MAX_BYTES)
-    except urllib.error.HTTPError as exc:
-        raise SourceError(f"http {exc.code} from {host}", status=exc.code) from exc
-    except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
-        raise SourceError(f"unreachable: {host}") from exc
+        return polite_http.fetch(
+            url,
+            tool=TOOL,
+            headers=headers,
+            data=data,
+            method="POST" if data is not None else None,
+            mailto=os.environ.get("OPENALEX_MAILTO") or None,
+            timeout=TIMEOUT,
+            max_bytes=MAX_BYTES,
+        )
+    except polite_http.RobotsDisallowed:
+        raise
+    except polite_http.HttpStatus as exc:
+        raise SourceError(str(exc), status=exc.status) from exc
+    except polite_http.PoliteError as exc:
+        raise SourceError(str(exc)) from exc
 
 
 def get(url: str, headers: dict[str, str] | None = None) -> bytes:
-    return _open(urllib.request.Request(url, headers={"User-Agent": USER_AGENT, **(headers or {})}))
+    """GET `url`. A page is checked against robots.txt first and may raise RobotsDisallowed."""
+    return _open(url, data=None, headers=headers)
 
 
 def post_form(url: str, fields: dict[str, str], headers: dict[str, str] | None = None) -> bytes:
     data = urllib.parse.urlencode(fields).encode()
-    merged = {"User-Agent": USER_AGENT, **(headers or {})}
-    return _open(urllib.request.Request(url, data=data, headers=merged, method="POST"))
+    return _open(url, data=data, headers=headers)
 
 
 def json_object(body: bytes) -> dict:

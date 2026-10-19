@@ -2,8 +2,12 @@
 """Paper search over OpenAlex, Semantic Scholar and arXiv, shared by graphe:paper-review and
 heuresis. Standard library only, Python 3.11 or newer.
 
-Usage: scholarly.py {openalex,s2,arxiv} QUERY [--limit N] [--semantic]
+Usage: scholarly.py {openalex,s2,arxiv,arxiv-id,crossref} QUERY [--limit N] [--semantic]
+arxiv-id takes comma-separated arXiv ids; crossref takes a DOI. Both print the title, authors
+and year to compare against a bibliography entry.
 Keys: OPENALEX_API_KEY (optional, raises the daily budget), S2_API_KEY (required for s2).
+OPENALEX_MAILTO (optional) is sent as `mailto` to OpenAlex and Crossref, never in the User-Agent.
+Requests are paced per host across processes by polite_http.py, which sits beside this file.
 """
 
 from __future__ import annotations
@@ -12,20 +16,15 @@ import argparse
 import json
 import os
 import sys
-import tempfile
-import time
-import urllib.error
 import urllib.parse
-import urllib.request
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from pathlib import Path
 
-USER_AGENT = "techne-scholarly (https://github.com/ajbarea/techne)"
-TIMEOUT = 25
-# arXiv's terms: no more than one request every three seconds, across all of a user's machines.
-ARXIV_INTERVAL = 3.0
-DEFAULT_THROTTLE = Path(tempfile.gettempdir()) / "techne-scholarly-arxiv"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import polite_http
+
+TOOL = "techne-scholarly"
 ATOM = "{http://www.w3.org/2005/Atom}"
 OPENALEX_SELECT = "id,doi,title,publication_year,abstract_inverted_index,primary_location"
 
@@ -37,14 +36,13 @@ class ScholarlyError(Exception):
 
 
 def _get(url: str, headers: dict[str, str]) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, **headers})
+    """One paced GET: see polite_http for the per-host interval, retries and User-Agent."""
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
-            return resp.read()
-    except urllib.error.HTTPError as exc:
-        raise ScholarlyError(f"http {exc.code} from {urllib.parse.urlsplit(url).netloc}") from exc
-    except (urllib.error.URLError, TimeoutError) as exc:
-        raise ScholarlyError(f"unreachable: {urllib.parse.urlsplit(url).netloc}") from exc
+        return polite_http.fetch(
+            url, tool=TOOL, headers=headers, mailto=os.environ.get("OPENALEX_MAILTO") or None
+        )
+    except polite_http.PoliteError as exc:
+        raise ScholarlyError(str(exc)) from exc
 
 
 def _json(body: bytes) -> dict:
@@ -62,6 +60,54 @@ def reconstruct_abstract(index: dict[str, list[int]] | None) -> str:
         return ""
     words = sorted((pos, word) for word, positions in index.items() for pos in positions)
     return " ".join(word for _, word in words)
+
+
+def arxiv_lookup(ids: list[str], *, fetch: Fetch = _get) -> list[dict]:
+    """Resolve arXiv ids in one request: id, title, authors, year, abstract per entry found."""
+    wanted = ",".join(urllib.parse.quote(i.strip()) for i in ids if i.strip())
+    url = f"https://export.arxiv.org/api/query?id_list={wanted}&max_results={max(len(ids), 1)}"
+    try:
+        root = ET.fromstring(fetch(url, {}))
+    except ET.ParseError as exc:
+        raise ScholarlyError("arXiv response was not Atom XML") from exc
+    out = []
+    for entry in root.findall(f"{ATOM}entry"):
+        link = entry.findtext(f"{ATOM}id", "")
+        out.append(
+            {
+                "id": link.rsplit("/abs/", 1)[-1],
+                "title": " ".join(entry.findtext(f"{ATOM}title", "").split()),
+                "authors": [
+                    " ".join(a.findtext(f"{ATOM}name", "").split())
+                    for a in entry.findall(f"{ATOM}author")
+                ],
+                "year": entry.findtext(f"{ATOM}published", "")[:4],
+                "abstract": " ".join(entry.findtext(f"{ATOM}summary", "").split()),
+            }
+        )
+    return out
+
+
+def crossref_lookup(doi: str, *, mailto: str | None = None, fetch: Fetch = _get) -> dict:
+    """Resolve a DOI at Crossref: title, authors, year, venue. No redirect to a publisher page."""
+    doi = doi.strip().removeprefix("https://doi.org/")
+    url = "https://api.crossref.org/works/" + urllib.parse.quote(doi)
+    if mailto:
+        url += "?" + urllib.parse.urlencode({"mailto": mailto})
+    message = _json(fetch(url, {})).get("message")
+    if not isinstance(message, dict):
+        raise ScholarlyError("Crossref response had no message")
+    issued = ((message.get("issued") or {}).get("date-parts") or [[None]])[0]
+    return {
+        "doi": doi,
+        "title": " ".join((message.get("title") or [""])[0].split()),
+        "authors": [
+            " ".join(filter(None, [a.get("given"), a.get("family")]))
+            for a in message.get("author") or []
+        ],
+        "year": str(issued[0] or "") if issued else "",
+        "venue": " ".join((message.get("container-title") or [""])[0].split()),
+    }
 
 
 def _record(title, url, source, date, text, evidence_url, doi) -> dict:
@@ -150,22 +196,7 @@ def s2_search(query: str, *, api_key: str, limit: int = 8, fetch: Fetch = _get) 
     return out
 
 
-def _throttle(stamp: Path) -> None:
-    try:
-        last = float(stamp.read_text())
-    except (OSError, ValueError):
-        last = 0.0
-    wait = ARXIV_INTERVAL - (time.time() - last)
-    if wait > 0:
-        time.sleep(wait)
-    stamp.write_text(str(time.time()))
-
-
-def arxiv_search(
-    query: str, *, limit: int = 8, fetch: Fetch = _get, throttle: Path | None = DEFAULT_THROTTLE
-) -> list[dict]:
-    if throttle is not None:
-        _throttle(throttle)
+def arxiv_search(query: str, *, limit: int = 8, fetch: Fetch = _get) -> list[dict]:
     terms = urllib.parse.quote(f'"{query}"')
     url = f"https://export.arxiv.org/api/query?search_query=all:{terms}&max_results={limit}"
     try:
@@ -192,8 +223,10 @@ def arxiv_search(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="scholarly.py")
-    parser.add_argument("source", choices=["openalex", "s2", "arxiv"])
-    parser.add_argument("query")
+    parser.add_argument("source", choices=["openalex", "s2", "arxiv", "arxiv-id", "crossref"])
+    parser.add_argument(
+        "query", help="a query; comma-separated arXiv ids for arxiv-id; a DOI for crossref"
+    )
     parser.add_argument("--limit", type=int, default=8)
     parser.add_argument("--semantic", action="store_true", help="OpenAlex semantic search")
     args = parser.parse_args(argv)
@@ -213,6 +246,10 @@ def main(argv: list[str] | None = None) -> int:
                 print("S2_API_KEY is not set; keyless S2 returns 429", file=sys.stderr)
                 return 2
             records = s2_search(args.query, api_key=key, limit=args.limit, fetch=_get)
+        elif args.source == "arxiv-id":
+            records = arxiv_lookup(args.query.split(","), fetch=_get)
+        elif args.source == "crossref":
+            records = [crossref_lookup(args.query, mailto=os.environ.get("OPENALEX_MAILTO"))]
         else:
             records = arxiv_search(args.query, limit=args.limit, fetch=_get)
     except ScholarlyError as exc:

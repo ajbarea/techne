@@ -11,7 +11,7 @@ has crept in; extract it back to ROADMAP.
 
 ## In flight
 
-### In review: heuresis phase 2, the gold set
+### Landed: heuresis phase 2, the gold set
 
 `scripts/heuresis_gold.py run` (or `make heuresis-gold GUARD=<ideas repo>`) triages each case in
 `plugins/heuresis/gold/cases.yaml` with this checkout's plugin, in a scratch ideas repository under
@@ -22,9 +22,8 @@ the last full run; regenerate it rather than editing it.
 
 ### Then: commit guards on Git 2.54 hooks (#96)
 
-Config-based `commit-msg` and `pre-commit` hooks set through `CLAUDE_ENV_FILE`. Blocked on Git 2.54
-being available to test against. Open: the Zenodo concept DOI into `CITATION.cff` and a README
-badge; epistole's day-8 token check (2026-10-19, #123).
+Config-based `commit-msg` and `pre-commit` hooks set through `CLAUDE_ENV_FILE`. Git 2.54 has shipped
+(2.56 is current), but WSL's Ubuntu 24.04 has 2.43; testing needs a 2.54 or newer git here.
 
 ## Skill collection state
 

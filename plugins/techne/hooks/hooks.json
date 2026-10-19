@@ -1,0 +1,18 @@
+{
+  "description": "Opt-in: when a session starts or resumes, remove worktrees and branches whose PR already merged, and list what a merge left behind. Off until switched on in /config.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "case \"$CLAUDE_PLUGIN_OPTION_CLEAN_FINISHED_WORK\" in true) exec python3 \"${CLAUDE_PLUGIN_ROOT}/skills/sisters/scripts/hygiene.py\" --auto --hook ;; esac",
+            "async": true,
+            "timeout": 300
+          }
+        ]
+      }
+    ]
+  }
+}

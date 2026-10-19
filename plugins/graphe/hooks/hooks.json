@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "command -v python3 >/dev/null 2>&1 && exec python3 \"${CLAUDE_PLUGIN_ROOT}/_shared/plugin_keys.py\" start; exit 0",
+            "command": "[ -n \"${CLAUDE_PLUGIN_ROOT}\" ] && command -v python3 >/dev/null 2>&1 && exec python3 \"${CLAUDE_PLUGIN_ROOT}/_shared/plugin_keys.py\" start; exit 0",
             "timeout": 10
           }
         ]

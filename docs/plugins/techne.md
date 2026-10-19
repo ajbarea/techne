@@ -30,6 +30,12 @@ git, the GitHub CLI (`gh`) and its sign-in, uv, and python3 3.11 or newer. tmux 
 
 Run `/techne:setup`. It checks each item above, the repo's `.claude/skill-context.md` and `~/.claude/techne.toml`. It only reads, and prints an install command (a `fix:` line) for anything missing. The last line is `result: ready`, or `result: missing` with the names of the required checks that failed. Pass `--repo PATH` to the doctor to look for `skill-context.md` somewhere other than the current directory. Claude follows the [setup runbook](https://github.com/ajbarea/techne/blob/main/plugins/techne/AGENTS.md).
 
+## Options
+
+| Option | What it does |
+|---|---|
+| `clean_finished_work` | Off by default. When a session starts or resumes, runs `techne:sisters` auto mode in the background: removes worktrees and branches whose PR merged and that nothing is using, and gives Claude what a merge left behind with the instruction to investigate each held item and report it to you, removing one only when nothing would be lost or you say so. Claude sees the report on its next turn. The script ends itself after 240 seconds. The session's working directory is included when its repo is yours. Set it in `/config` under the techne plugin. See [auto mode](../skills/sisters.md#auto-mode). |
+
 ## Skills
 
 | Skill | Use it to |
@@ -42,7 +48,7 @@ Run `/techne:setup`. It checks each item above, the repo's `.claude/skill-contex
 | [`techne:docs-site`](../skills/docs-site.md) | Audit the Zensical docs site. |
 | [`techne:docsync`](../skills/docsync.md) | Check documentation claims against the code. |
 | [`techne:elenchus`](../skills/elenchus.md) | Review a change adversarially before merge. |
-| [`techne:research-grounded`](../skills/research-grounded.md) | Ground design decisions in current sources. |
+| [`techne:research-grounded`](../skills/research-grounded.md) | Ground decisions in current sources. |
 | [`techne:reslop`](../skills/reslop.md) | Rewrite docstrings from the implementation. |
 | [`techne:setup`](../skills/techne-setup.md) | Check what techne needs on this machine. |
 | [`techne:sisters`](../skills/sisters.md) | Audit linked repos for drift. |
