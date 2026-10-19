@@ -427,7 +427,11 @@ def test_wrapper_passes_the_callers_directory(tmp_path):
     work.mkdir()
     (work / "installed.json").write_text(client_json())
     wrapper = Path(__file__).resolve().parent.parent / "plugins/epistole/bin/epistole-login"
-    env = {**os.environ, "EPISTOLE_HOME": str(tmp_path / "home")}
+    env = {
+        **os.environ,
+        "EPISTOLE_HOME": str(tmp_path / "home"),
+        "XDG_CACHE_HOME": str(tmp_path / "cache"),  # the wrapper syncs its venv here
+    }
     env.pop("EPISTOLE_CWD", None)
     done = subprocess.run(
         [str(wrapper), "--client", "installed.json"],
