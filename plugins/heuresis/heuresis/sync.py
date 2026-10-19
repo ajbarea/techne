@@ -12,7 +12,7 @@ from pathlib import Path, PurePosixPath
 from heuresis import board, context
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_shared"))
-from git_env import batch_ssh  # noqa: E402  # ty: ignore[unresolved-import]
+from git_env import batch_ssh  # ty: ignore[unresolved-import]
 
 # A push that loses a race refetches and rebases; three races in a row is a real problem.
 PUSH_ATTEMPTS = 3
