@@ -152,7 +152,7 @@ It prints one line per removal and two lists of what a merge left behind that wi
 
 A hold that clears by itself (only a live process, recent activity, or no way to tell if it is busy) is left out; a later run handles it. It prints nothing when it removed nothing and nothing is held.
 
-It never fails. A missing or logged-out `gh`, no network, a python3 older than 3.11 or one broken repo ends it quietly, and one repo's error does not lose the removals before it. It gives up after 240 seconds, limits each call, and runs git without prompts. It takes a non-blocking lock in `~/.cache/techne` (a second run exits at once; the lock frees on every exit). The roster sweep runs at most once per 30 minutes (`--min-interval SECONDS` changes that); the session's own `--path` repo is always processed.
+It never fails. A missing or logged-out `gh`, no network, a python3 older than 3.11 or one broken repo ends it quietly, and one repo's error does not lose the removals before it. It gives up after 240 seconds, limits each call, and runs git without prompts: ssh runs in batch mode unless you chose its command (`GIT_SSH_COMMAND`, `GIT_SSH` or the repo's `core.sshCommand`), which it uses as is. It takes a non-blocking lock in `~/.cache/techne` (a second run exits at once; the lock frees on every exit). The roster sweep runs at most once per 30 minutes (`--min-interval SECONDS` changes that); the session's own `--path` repo is always processed.
 
 Two kinds are reported and never acted on, in this list and in the normal report's **Needs a look**, and only for `github_user`'s PRs:
 

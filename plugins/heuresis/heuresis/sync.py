@@ -6,9 +6,13 @@ import datetime as dt
 import os
 import signal
 import subprocess
+import sys
 from pathlib import Path, PurePosixPath
 
 from heuresis import board, context
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_shared"))
+from git_env import batch_ssh  # ty: ignore[unresolved-import]
 
 # A push that loses a race refetches and rebases; three races in a row is a real problem.
 PUSH_ATTEMPTS = 3
@@ -19,8 +23,6 @@ PUBLISH_HINT = "run `heuresis publish`"
 FETCH_TIMEOUT = 10
 # A fetch or push still running after a minute is a stalled network, not a slow one.
 NETWORK_TIMEOUT = 60
-# Without a prompt or a key passphrase to answer, ssh fails at once instead of waiting.
-BATCH_SSH = "ssh -o BatchMode=yes -o ConnectTimeout=5"
 
 
 class SyncError(Exception):
@@ -35,16 +37,7 @@ def _env(root: Path | None = None) -> dict[str, str]:
     """git's environment; with root, also batch-mode ssh unless the user chose an ssh command."""
     env = {k: v for k, v in os.environ.items() if k not in _REPO_OVERRIDES}
     env.update(GIT_EDITOR="true", GIT_TERMINAL_PROMPT="0", LC_ALL="C", LANG="C")
-    if root is not None and not ({"GIT_SSH_COMMAND", "GIT_SSH"} & env.keys()):
-        chosen = subprocess.run(
-            ["git", "-C", str(root), "config", "--get", "core.sshCommand"],
-            capture_output=True,
-            text=True,
-            env=env,
-        )
-        if not chosen.stdout.strip():
-            env["GIT_SSH_COMMAND"] = BATCH_SSH
-    return env
+    return env if root is None else batch_ssh(env, root)
 
 
 def _git(
