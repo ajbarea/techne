@@ -1,0 +1,8 @@
+{
+  "name": "techne-srt",
+  "private": true,
+  "description": "Pins Anthropic's sandbox-runtime and its transitive dependencies for make test-sandboxed",
+  "dependencies": {
+    "@anthropic-ai/sandbox-runtime": "0.0.80"
+  }
+}

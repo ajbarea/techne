@@ -76,6 +76,10 @@ that drift class recurs.
   4. **OpenCode and other skill-folder agents.** They read `~/.agents/skills/` and have no plugin
      marketplace. A flat bundle needs unique names (six plugins each have `setup`) and each skill's
      `_shared` files beside it.
+- **Sandboxed tests in CI** (#172). `make test-sandboxed` runs locally on WSL2. GitHub's ubuntu-24.04
+  runners restrict unprivileged user namespaces through AppArmor, so bwrap needs a profile there;
+  measure one runner before adding the job, and pin srt the same way the Makefile does. Next hardening
+  step: deny `~` and allow back only what the tests need.
 - **epistole: reach drafts it did not create.** `search in:drafts` returns message ids, but
   `update_draft` and `send_draft` take the Gmail draft id (`r…`), and no tool lists drafts, so a
   draft made in Gmail or by another session cannot be edited or sent. Fix: a read-only

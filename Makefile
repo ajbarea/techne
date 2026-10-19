@@ -4,7 +4,7 @@
 ## that techne itself documents at docs/conventions.md.
 ##
 
-.PHONY: help check-env setup manifests citation plugin-validate plugin-test test-hooks-oldest frontmatter fix lint shellcheck guards test-unit zizmor test validate build ci clean docs evals evals-bash heuresis-gold freshness mod-types
+.PHONY: help check-env setup manifests citation plugin-validate plugin-test test-hooks-oldest frontmatter fix lint shellcheck guards test-unit test-sandboxed sandbox-warm zizmor test validate build ci clean docs evals evals-bash install-probe heuresis-gold freshness mod-types
 .DEFAULT_GOAL := help
 
 check-env:              ## Verify required tools are on PATH
@@ -80,8 +80,22 @@ guards:                 ## Stale-path + legacy-name + shared-copy + plugin-path 
 # declares the opt-out; without the declaration the suite fails rather than skipping them
 # unnoticed. The wheels are pulled per-run at the pins the skills use, rather than held as
 # dev dependencies.
+TEST_WITH := --with 'typst>=0.15,<0.16' --with playwright==1.63.0 --with axe-playwright-python==0.1.8 --with pillow --with python-pptx==1.0.2
 test-unit:              ## pytest over skill-shipped Python
-	@uv run --with 'typst>=0.15,<0.16' --with playwright==1.63.0 --with axe-playwright-python==0.1.8 --with pillow --with python-pptx==1.0.2 pytest
+	@uv run $(TEST_WITH) pytest
+
+# test-unit inside Anthropic's sandbox-runtime (srt, pinned in scripts/srt), settings template in
+# scripts/sandbox-test.json, logic in scripts/sandbox-test.sh. Inside: no network; writes only to the
+# repo (minus .venv and the Claude config that loads code) and $(SANDBOX_TMP); reads of credentials,
+# /tmp, /run/user, /run/WSL, /run/dbus, /mnt and ~/.claude-science denied except $(SANDBOX_TMP);
+# a cleaned environment with no tokens; a uv cache and venv of its own. It still reads the rest of
+# $$HOME, and Unix sockets stay open because tmux and Chromium need them.
+SANDBOX_TMP := /tmp/techne-test-$(shell id -u)
+test-sandboxed:         ## test-unit with no network, no credential reads and a cleaned environment (Linux only)
+	@bash scripts/sandbox-test.sh $(SANDBOX_TMP)
+
+sandbox-warm:
+	@uv run $(TEST_WITH) python -c '' # fetch the wheels while the network is open
 
 # The hooks and the setup doctors run on the user's system python3, not the project venv.
 # 3.9 is macOS's.
@@ -137,8 +151,13 @@ freshness:              ## Check upstream Claude Code + skills changes against t
 		--permission-mode dontAsk --tools "Read,Glob,Grep,WebFetch,Bash" \
 		--allowedTools "$(FRESHNESS_TOOLS)" --disallowedTools "Write,Edit,WebSearch,Read(//proc/**),Read(./.git/**)"
 
-# Cases that need Bash inside the run. The eval sandbox refuses to grant Bash on a machine
-# whose Docker credential store holds a symlink (Docker Desktop's WSL integration does).
+install-probe:          ## Install the marketplace from GitHub in Claude Code, Codex and Copilot CLI in a clean container
+	@bash scripts/install-probe.sh
+
+# Cases that need Bash inside the run. The eval sandbox refuses to grant Bash while ~/.docker holds
+# a symlink below its root; Docker Desktop's WSL integration links ~/.docker/contexts to Windows.
+# Only that `contexts` entry blocks it (features.json and the cli-plugins links do not). WSL uses the
+# default context, so a plain copy of that folder in place of the link is enough.
 evals-bash:             ## Behavior evals that grant Bash (needs a symlink-free ~/.docker)
 	@cd plugins/techne && claude plugin eval . --tag behavior-bash --ablation none \
 		--trust-plugin --no-publish -j 2 --threshold 0.9 --scaffold \

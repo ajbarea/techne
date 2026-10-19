@@ -33,3 +33,6 @@ COMMITS.md
 # Transient AI-status artifacts, never committable
 IMPROVEMENTS.md
 DEPLOYMENT_READY.md
+
+# srt install for make test-sandboxed
+scripts/srt/node_modules/
