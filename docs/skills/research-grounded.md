@@ -1,10 +1,10 @@
 ---
-description: Find design decisions in IMPL.md and ROADMAP.md that lack research provenance, then search the web to ground them.
+description: Find decisions in IMPL.md, ROADMAP.md and decision records that lack research provenance, then search the web to ground them.
 ---
 
 # `techne:research-grounded`
 
-Flag design decisions in a plan (library, framework, pattern, and architecture choices) that lack a `# research(YYYY-MM):` provenance comment, then web-search to ground them before they harden into code.
+Flag decisions (technology choices, data release and privacy, study design, access-rule readings, public-claim wording) that lack a `# research(YYYY-MM):` provenance comment, then web-search to ground them before they harden into code.
 
 Part of [techne](../plugins/techne.md): `/plugin install techne@techne`, then `/techne:setup`.
 
@@ -23,7 +23,7 @@ Invoke by name in Claude Code:
 /techne:research-grounded
 ```
 
-Default scope is `IMPL.md` + `ROADMAP.md` in the current repo. Narrow or redirect by naming a file or directory:
+Default scope is `IMPL.md` + `ROADMAP.md` in the current repo; a `decision_docs:` key in the `## research_grounded` block of `.claude/skill-context.md` adds research logs, ADRs and specs. Narrow or redirect by naming a file or directory:
 
 ```
 /techne:research-grounded planning/
