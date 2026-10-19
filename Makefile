@@ -156,7 +156,8 @@ install-probe:          ## Install the marketplace from GitHub in Claude Code, C
 
 # Cases that need Bash inside the run. The eval sandbox refuses to grant Bash while ~/.docker holds
 # a symlink below its root; Docker Desktop's WSL integration links ~/.docker/contexts to Windows.
-# WSL uses the default context, so a plain copy of that folder in place of the link is enough.
+# Only that `contexts` entry blocks it (features.json and the cli-plugins links do not). WSL uses the
+# default context, so a plain copy of that folder in place of the link is enough.
 evals-bash:             ## Behavior evals that grant Bash (needs a symlink-free ~/.docker)
 	@cd plugins/techne && claude plugin eval . --tag behavior-bash --ablation none \
 		--trust-plugin --no-publish -j 2 --threshold 0.9 --scaffold \
