@@ -17,7 +17,9 @@ the --repo names, and sorts what it finds into three groups per repo:
   review   anything a person should decide: unmerged commits, commits added after
            the PR merged, a PR merged elsewhere or closed unmerged, a dirty,
            locked, busy, recently active or ignored-work-holding worktree, a
-           remote branch with no PR or someone else's
+           remote branch with no PR or someone else's. A dirty, idle worktree whose
+           IMPL.md is unchanged since its branch left the default branch is marked
+           not resumable.
   info     branches of open PRs, stashes, uncommitted changes in the main checkout
 
 Squash merges leave a branch's own commits outside main forever, so "ahead of
@@ -64,6 +66,7 @@ sys.dont_write_bytecode = True  # the plugin cache stays as installed
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "_shared"))
 import doctor_lib  # noqa: E402  # ty: ignore[unresolved-import]
 from git_env import batch_ssh  # noqa: E402  # ty: ignore[unresolved-import]
+from resume_state import impl_matches  # noqa: E402  # ty: ignore[unresolved-import]
 
 # Stock macOS python3 is 3.9; stop with the fix before the 3.11-only import below.
 # A hook run has nobody to read the fix, so it ends quietly instead.
@@ -378,6 +381,8 @@ def last_activity(wt: str, ignored: tuple[str, ...] | list[str] = ()) -> float |
 
 
 BUSY_UNKNOWN = "cannot tell whether a process is using it"
+UNCOMMITTED = " uncommitted change(s)"
+ACTIVITY_UNKNOWN = "too many ignored files"
 BUSY_LIVE = "a live process is using it"
 ACTIVE_PREFIX = "active "
 
@@ -399,10 +404,10 @@ def worktree_blockers(wpath: str, others: list[str], busy: list[str] | None) -> 
     last = last_activity(wpath, ignored)
     idle = IDLE_SECONDS if last is None else time.time() - last
     blockers = [
-        f"too many ignored files (over {ACTIVITY_FILE_CAP}) to tell whether it was used recently"
+        f"{ACTIVITY_UNKNOWN} (over {ACTIVITY_FILE_CAP}) to tell whether it was used recently"
         if last is None
         else "",
-        f"{len(changes)} uncommitted change(s)" if changes else "",
+        f"{len(changes)}{UNCOMMITTED}" if changes else "",
         f"ignored files that are not build output: {', '.join(kept[:3])}" if kept else "",
         f"{len(nested)} worktree(s) inside it" if nested else "",
         BUSY_UNKNOWN if busy is None else "",
@@ -415,6 +420,23 @@ def worktree_blockers(wpath: str, others: list[str], busy: list[str] | None) -> 
 def transient(blockers: list[str]) -> bool:
     """True when a hold clears by itself: a session working in it, or no way to tell."""
     return any(b in (BUSY_UNKNOWN, BUSY_LIVE) or b.startswith(ACTIVE_PREFIX) for b in blockers)
+
+
+UNRESUMABLE = "not resumable from the branch: its IMPL.md is unchanged since it left "
+
+
+def resume_gap(wpath: str, branch: str, base: str, blockers: list[str], merged: bool) -> str:
+    """Uncommitted work in an idle worktree whose IMPL.md never said what the branch is for.
+
+    A fresh session there, after a restart, has only the diff to go on. Empty when nobody
+    is or may be at work in it, it is clean, it is detached, its PR merged (the work is
+    finished), the repo keeps no IMPL.md, or git cannot tell.
+    """
+    dirty = any(b.endswith(UNCOMMITTED) for b in blockers)
+    unsure = any(b.startswith(ACTIVITY_UNKNOWN) for b in blockers)
+    if not branch or merged or not dirty or unsure or transient(blockers):
+        return ""
+    return UNRESUMABLE + base if impl_matches(wpath, base) is True else ""
 
 
 def leftover(after: str, pr: dict | None, hold: list[str]) -> str:
@@ -475,10 +497,12 @@ def collect(name: str, path: str, slug: str, me: str, prs: dict[str, dict]) -> l
         others = [t["worktree"] for t in trees if t["worktree"] != wpath]
         blockers = ["locked"] if "locked" in wt else []
         blockers += worktree_blockers(wpath, others, busy)
+        merged = bool(prs.get(branch) and prs[branch]["state"] == "MERGED")
         if blockers:
             group, reason = "review", reason + "; " + ", ".join(blockers)
+            gap = resume_gap(wpath, branch, base, blockers, merged)
+            reason += f"; {gap}" if gap else ""
         left = leftover(group, prs.get(branch), blockers) if group == "review" else ""
-        merged = bool(prs.get(branch) and prs[branch]["state"] == "MERGED")
         items.append(
             Item(
                 "worktree", label, group, reason, sha=head, path=wpath, branch=branch,

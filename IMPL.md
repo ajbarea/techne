@@ -11,6 +11,14 @@ has crept in; extract it back to ROADMAP.
 
 ## In flight
 
+### Landed: resume state from the branch's IMPL.md (#180)
+
+`_shared/resume_state.py` reads a worktree's state from local git (IMPL.md compared at the
+merge-base, commits, uncommitted paths, ahead/behind its pushed branch; failures read as
+unknown). The `resume_brief` option's SessionStart hook gives it to a fresh session; `sisters`
+marks a dirty, idle, unmerged worktree whose IMPL.md never changed as not resumable. Known
+limits are in the PR body. Follow-up: klepsydra#36 (Resume from a gone card).
+
 ### Landed: heuresis phase 2, the gold set
 
 `scripts/heuresis_gold.py run` (or `make heuresis-gold GUARD=<ideas repo>`) triages each case in

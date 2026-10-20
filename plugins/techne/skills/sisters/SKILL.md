@@ -34,7 +34,7 @@ Each check reports per repo; one broken repo never aborts the others.
 | 2 | Skill-context parity | A repo missing a required `##` section, or carrying one the others lack | Surface; extra sections may be deliberate |
 | 3 | Merge settings | Anything but squash-only, delete-on-merge, auto-merge on | The canonical settings |
 | 4 | Open PRs | Open longer than 14 days, or not mergeable | Name it; `techne:ci-audit` reads failing checks |
-| 5 | Branch and worktree hygiene | A branch, worktree or stash left behind: judged by its PR's state, not by ahead counts, which squash merges make meaningless | Offer [clean mode](#clean-mode) for the safe-to-remove items |
+| 5 | Branch and worktree hygiene | A branch, worktree or stash left behind: judged by its PR's state, not by ahead counts, which squash merges make meaningless | Offer [clean mode](#clean-mode) for the safe-to-remove items; for a worktree marked not resumable, say its branch needs an `IMPL.md` before a restart |
 | 6 | Local `main` sync | Local `main` ahead of or behind `origin/main` | Pull, or investigate unpushed commits |
 | 7 | Toolchain pins | `requires-python`, ruff `target-version`, or ruff/ty/pytest specifiers differ | Newest for tools; ask the user for Python envelopes |
 | 8 | Branch protection | `main` unprotected, no required check, force-push or deletion allowed | Protect it |
@@ -79,6 +79,7 @@ A single block, no preamble (concrete repo names below are illustrative — subs
 - repo-a: clean ✓
 - repo-b: safe to remove: worktree `.claude/worktrees/docs` (PR #50 merged), local-branch `fix/x` (PR #41 merged)
 - repo-c: needs a look: local-branch `wip` (no PR; 3 commit(s) not in main); info: stash@{0} 12d old
+- repo-d: needs a look: worktree `.claude/worktrees/faces` (open branch; 2 uncommitted change(s); not resumable from the branch: its IMPL.md is unchanged since it left origin/main)
 - (end with: "N items safe to remove; say "clean them up" to review and remove them.")
 
 ### Local main sync

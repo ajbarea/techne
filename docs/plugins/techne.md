@@ -35,6 +35,7 @@ Run `/techne:setup`. It checks each item above, the repo's `.claude/skill-contex
 | Option | What it does |
 |---|---|
 | `clean_finished_work` | Off by default. When a session starts or resumes, runs `techne:sisters` auto mode in the background: removes worktrees and branches whose PR merged and that nothing is using, and gives Claude what a merge left behind with the instruction to investigate each held item and report it to you, removing one only when nothing would be lost or you say so. Claude sees the report on its next turn. The script ends itself after 240 seconds. The session's working directory is included when its repo is yours. Set it in `/config` under the techne plugin. See [auto mode](../skills/sisters.md#auto-mode). |
+| `resume_brief` | Off by default. When a session starts, resumes, clears or compacts in a repo that keeps an `IMPL.md`, gives Claude the branch's `IMPL.md`, its commits past the default branch, its uncommitted files and whether it was pushed, and the rule to rewrite `IMPL.md` and push after each finished task. It flags a branch whose `IMPL.md` is unchanged since it left the default branch, and says when the pushed branch has commits this worktree lacks (as of the last fetch). Reads local git only, with no network, and stays under Claude Code's 10,000-character context limit. Set it in `/config` under the techne plugin. See [working docs](../conventions.md#implmd-and-roadmapmd-working-docs). |
 
 ## Skills
 

@@ -132,6 +132,21 @@ The [template](https://github.com/ajbarea/techne/blob/main/plugins/techne/skills
 
 **Required for:** `techne:sisters`.
 
+## `IMPL.md` and `ROADMAP.md` (working docs)
+
+Both sit at the repo root and are committed. `ROADMAP.md` holds the long view and a dated log of what shipped. `IMPL.md` holds the work in flight: the current slice, what is done, what is next and how to verify it.
+
+On a branch, `IMPL.md` is that branch's resume state. A session that starts in the worktree after a restart, `/clear` or compaction should be able to pick up from `IMPL.md`, `git log` and the working tree alone, without the conversation or Claude's memory, which is one file per project shared by every worktree and kept on one machine. So:
+
+- Rewrite the branch's `IMPL.md` and push after each finished task, not only at the end.
+- A session starting in a worktree reads `IMPL.md`, the commits past the default branch and the uncommitted diff before it acts.
+- A branch whose `IMPL.md` is unchanged since it left the default branch has not said what it is for. Write it before the work grows.
+
+`IMPL.md` on the default branch describes the last slice merged. research(2026-10): Anthropic, "Effective harnesses for long-running agents" (a progress file and the git log are what a fresh context window resumes from).
+
+**Read by:** the techne plugin's `resume_brief` option, which adds this state as context at session start ([options](plugins/techne.md#options)).
+**Audited by:** `techne:sisters`, which marks a dirty, idle worktree whose `IMPL.md` is unchanged since its branch left the default branch as not resumable.
+
 ## `COMMITS.md` (local commit draft)
 
 `techne:auto-commit` writes a draft commit plan to `COMMITS.md` in your repo root. Gitignore it:
@@ -204,5 +219,6 @@ You don't need all conventions at once. Common starting points:
 
 - **Just want commit drafting?** Adopt the `COMMITS.md` gitignore line. That's it.
 - **Want the audit pipeline?** Adopt the Makefile pattern + `scripts/dev-runner.sh` + the `## audit` section of skill-context.md.
+- **Want sessions to pick up where the last one stopped?** Keep `IMPL.md` per branch and turn on `resume_brief`.
 - **Want cross-repo drift checks?** Adopt `~/.claude/techne.toml`. Sisters works without skill-context.md.
 - **Want the full kit?** Adopt all conventions and the docs site workflow.

@@ -24,6 +24,12 @@
       "title": "Clean up finished work at session start",
       "description": "When a session starts or resumes, remove worktrees and branches whose PR merged and that nothing is using, and list what a merge left behind.",
       "default": false
+    },
+    "resume_brief": {
+      "type": "boolean",
+      "title": "Brief each session on the branch's work",
+      "description": "When a session starts, resumes, clears or compacts in a repo that keeps an IMPL.md, add the branch's IMPL.md, its commits past the default branch, its uncommitted files and its push state as context. Local git only.",
+      "default": false
     }
   }
 }
