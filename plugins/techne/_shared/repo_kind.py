@@ -33,16 +33,27 @@ from project_board import techne_toml  # noqa: E402
 
 TIMEOUT = 10
 SKILL_CONTEXT = ".claude/skill-context.md"
-# Markdown decoration around a key-value line: blockquote marks, list bullets and numbers, table
-# pipes, emphasis and quotes. Stripped before matching, so `owner: team` counts in any form.
-_DECORATION = re.compile(r"""^\s*(?:>\s*)*(?:(?:[-*+]|\d+[.)])\s+)?|[|*_`"']""")
-_OWNER_TEAM = re.compile(r"^\s*owner\s*[:=]?\s*team\b", re.IGNORECASE)
+# Markdown and HTML decoration around a key-value line: tags (a whole <!-- comment --> goes too),
+# blockquote marks, heading marks, list bullets and numbers, table pipes, brackets, emphasis and
+# quotes. Stripped before matching, so `owner: team` counts in any form.
+_TAGS = re.compile(r"<[^>]*>")
+_DECORATION = re.compile(r"""^\s*(?:>\s*)*(?:#+\s*)?(?:(?:[-*+]|\d+[.)])\s+)?|[|*_`"'\[\]]""")
+_OWNER_TEAM = re.compile(r"^\s*owner\s*[:=\u2013\u2014-]?\s*team\b", re.IGNORECASE)
 
 
 def says_team(text: str) -> bool:
     """Whether any line of a skill-context file is an owner: team line, in any Markdown form.
     It can only make a repo team, so it counts anywhere in the file, not only under ## repo."""
+    text = _TAGS.sub(" ", text.lstrip("\ufeff"))
     return any(_OWNER_TEAM.match(_DECORATION.sub(" ", line)) for line in text.splitlines())
+
+
+def decode(raw: bytes) -> str:
+    """A skill-context file as text: UTF-16 when it starts with a UTF-16 byte-order mark (as
+    PowerShell 5 writes), otherwise UTF-8 with bad bytes replaced, never an exception."""
+    if raw[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        return raw.decode("utf-16", "replace")
+    return raw.decode("utf-8", "replace")
 
 
 class TomlUnreadable(Exception):
@@ -64,21 +75,20 @@ def as_directory(path: str) -> Path:
     return target if target.is_dir() else target.parent
 
 
-def marked_team_at(where: str, *refs: str) -> bool:
-    """An owner: team line in .claude/skill-context.md at any of these commits."""
-    return any(
-        says_team(sh("git", "-C", where, "show", f"{ref}:{SKILL_CONTEXT}") or "") for ref in refs
-    )
-
-
 def marked_team_in_repo(where: str, top: Path) -> bool:
-    """An owner: team line in the working tree, the current commit or origin/HEAD."""
+    """An owner: team line in the working tree or the current commit. The default branch is
+    read from GitHub in from_github, since a local origin/<branch> ref may be stale."""
     try:
-        if says_team((top / SKILL_CONTEXT).read_text(encoding="utf-8")):
+        if says_team(decode((top / SKILL_CONTEXT).read_bytes())):
             return True
-    except (OSError, UnicodeDecodeError):
+    except OSError:
         pass
-    return marked_team_at(where, "HEAD", "origin/HEAD")
+    return says_team(sh("git", "-C", where, "show", f"HEAD:{SKILL_CONTEXT}") or "")
+
+
+def is_team(sister: dict) -> bool:
+    """A [[sisters]] entry marked kind = "team", in any case."""
+    return str(sister.get("kind", "")).lower() == "team"
 
 
 def sister_entry(checkouts: set[Path], slug: tuple[str, str] | None, path: Path) -> dict | None:
@@ -100,19 +110,24 @@ def sister_entry(checkouts: set[Path], slug: tuple[str, str] | None, path: Path)
         return None
     here = {p.resolve() for p in checkouts}
     mine = bool(slug and isinstance(me, str) and slug[0].lower() == me.lower())
+    matches = []
     for sister in sisters:
         if not isinstance(sister, dict) or not isinstance(sister.get("name"), str):
             continue
-        if isinstance(root, str) and (Path(root).expanduser() / sister["name"]).resolve() in here:
-            return sister
-        if mine and slug and sister["name"].lower() == slug[1].lower():
-            return sister
-    return None
+        by_path = (
+            isinstance(root, str) and (Path(root).expanduser() / sister["name"]).resolve() in here
+        )
+        by_slug = mine and slug is not None and sister["name"].lower() == slug[1].lower()
+        if by_path or by_slug:
+            matches.append(sister)
+    # A team entry wins over any other entry the same repo matches.
+    teams = [m for m in matches if is_team(m)]
+    return (teams or matches or [None])[0]
 
 
-def from_github(owner: str, name: str, where: str, listed: bool = False) -> tuple[str, str]:
+def from_github(owner: str, name: str, listed: bool = False) -> tuple[str, str]:
     slug = f"{owner}/{name}"
-    fields = "owner,parent,isInOrganization,viewerPermission,defaultBranchRef"
+    fields = "owner,parent,isInOrganization,viewerPermission"
     raw = sh("gh", "repo", "view", f"github.com/{slug}", "--json", fields)
     try:
         info = json.loads(raw) if raw else None
@@ -128,20 +143,28 @@ def from_github(owner: str, name: str, where: str, listed: bool = False) -> tupl
         return "team", f"{slug} belongs to an organization"
     if info.get("viewerPermission") != "ADMIN":
         return "team", f"{slug} is not yours: your permission is {info.get('viewerPermission')}"
-    default = (info.get("defaultBranchRef") or {}).get("name")
-    if isinstance(default, str) and default and marked_team_at(where, f"origin/{default}"):
-        return "team", f"owner: team in {SKILL_CONTEXT} on origin/{default}"
-    api = ("gh", "api", "--hostname", "github.com", "--paginate")
-    with ThreadPoolExecutor(max_workers=2) as pool:  # two lookups, one wait
+    api = ("gh", "api", "--hostname", "github.com")
+    blob = (
+        "query($o:String!,$n:String!){repository(owner:$o,name:$n)"
+        f'{{object(expression:"HEAD:{SKILL_CONTEXT}"){{... on Blob{{text}}}}}}}}'
+    )
+    with ThreadPoolExecutor(max_workers=3) as pool:  # three lookups, one wait
         pushing = pool.submit(
-            sh,
-            *api,
-            f"repos/{slug}/collaborators",
-            "--jq",
-            ".[] | select(.permissions.push) | .login",
+            sh, *api, "--paginate", f"repos/{slug}/collaborators",
+            "--jq", ".[] | select(.permissions.push) | .login",
+        )  # fmt: skip
+        inviting = pool.submit(
+            sh, *api, "--paginate", f"repos/{slug}/invitations", "--jq", ".[].invitee.login"
         )
-        inviting = pool.submit(sh, *api, f"repos/{slug}/invitations", "--jq", ".[].invitee.login")
-        pushers, invited = pushing.result(), inviting.result()
+        reading = pool.submit(
+            sh, *api, "graphql", "-f", f"query={blob}", "-F", f"o={owner}", "-F", f"n={name}",
+            "--jq", '.data.repository.object.text // ""',
+        )  # fmt: skip
+        pushers, invited, on_default = pushing.result(), inviting.result(), reading.result()
+    if on_default is None:
+        return "team", f"could not read {SKILL_CONTEXT} on {slug}'s default branch"
+    if says_team(on_default):
+        return "team", f"owner: team in {SKILL_CONTEXT} on {slug}'s default branch"
     if pushers is None:
         return "team", f"could not list the collaborators of {slug}"
     logins = sorted(set(pushers.split()))
@@ -178,11 +201,11 @@ def classify(path: str = ".", toml: Path | None = None) -> tuple[str, str]:
         sister = sister_entry(checkouts, slug, toml)
     except TomlUnreadable as exc:
         return "team", str(exc)
-    if sister and str(sister.get("kind", "")).lower() == "team":
+    if sister and is_team(sister):
         return "team", f'kind = "team" in {toml}'
     if not slug:
         return "team", "no GitHub origin to check ownership against"
-    return from_github(*slug, where=where, listed=sister is not None)
+    return from_github(*slug, listed=sister is not None)
 
 
 def main(argv: list[str]) -> int:

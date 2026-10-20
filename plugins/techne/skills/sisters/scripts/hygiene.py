@@ -711,7 +711,7 @@ def print_env() -> None:
     active = [s for s in sisters if s.get("status", "active") == "active"]
     if not active:
         sys.exit(f"sisters: no active sisters in {TECHNE_TOML}. Run /techne:setup.")
-    team = [s["name"] for s in active if s.get("kind") == "team"]
+    team = [s["name"] for s in active if str(s.get("kind", "")).lower() == "team"]
     print(f"SISTERS={shlex.quote(' '.join(s['name'] for s in active))}")
     print(f"TEAM_SISTERS={shlex.quote(' '.join(team))}")
     print(f"WORKSPACE={shlex.quote(ws)}")

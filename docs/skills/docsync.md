@@ -4,7 +4,7 @@ description: "Check a documentation file for drift against the code: commands, p
 
 # `techne:docsync`
 
-Compare documentation against the code it describes. Surface where the docs say one thing and the code says another, then propose corrections grounded in current code.
+Compare documentation against the code it describes. Surface where the docs say one thing and the code says another, then correct it from current code: directly on a solo repo, after your confirmation on a team repo.
 
 Part of [techne](../plugins/techne.md): `/plugin install techne@techne`, then `/techne:setup`.
 
