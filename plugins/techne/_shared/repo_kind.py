@@ -33,19 +33,24 @@ from project_board import techne_toml  # noqa: E402
 
 TIMEOUT = 10
 SKILL_CONTEXT = ".claude/skill-context.md"
-# Markdown and HTML decoration around a key-value line: tags (a whole <!-- comment --> goes too),
-# blockquote marks, heading marks, list bullets and numbers, table pipes, brackets, emphasis and
-# quotes. Stripped before matching, so `owner: team` counts in any form.
-_TAGS = re.compile(r"<[^>]*>")
-_DECORATION = re.compile(r"""^\s*(?:>\s*)*(?:#+\s*)?(?:(?:[-*+]|\d+[.)])\s+)?|[|*_`"'\[\]]""")
-_OWNER_TEAM = re.compile(r"^\s*owner\s*[:=\u2013\u2014-]?\s*team\b", re.IGNORECASE)
+# An owner: team line, matched on the raw line so it fails toward team: `owner` and `team` as
+# whole words with at most six non-alphanumeric characters between them covers every Markdown,
+# HTML or table form (`- **owner:** team`, `| owner | team |`, `owner: __team__`) without
+# stripping anything. A line that opens an HTML comment is skipped, which is how the setup
+# template ships the line disabled.
+_OWNER_TEAM = re.compile(
+    r"(?<![A-Za-z0-9])owner[^A-Za-z0-9]{1,6}team(?![A-Za-z0-9])", re.IGNORECASE
+)
 
 
 def says_team(text: str) -> bool:
-    """Whether any line of a skill-context file is an owner: team line, in any Markdown form.
-    It can only make a repo team, so it counts anywhere in the file, not only under ## repo."""
-    text = _TAGS.sub(" ", text.lstrip("\ufeff"))
-    return any(_OWNER_TEAM.match(_DECORATION.sub(" ", line)) for line in text.splitlines())
+    """Whether any line of a skill-context file is an owner: team line. It can only make a repo
+    team, so it counts anywhere in the file. NUL characters are dropped first, so UTF-16 text
+    read as UTF-8 (git show of a PowerShell 5 file) still matches."""
+    for line in text.replace("\x00", "").splitlines():
+        if not line.lstrip("\ufeff \t").startswith("<!--") and _OWNER_TEAM.search(line):
+            return True
+    return False
 
 
 def decode(raw: bytes) -> str:
@@ -157,7 +162,7 @@ def from_github(owner: str, name: str, listed: bool = False) -> tuple[str, str]:
             sh, *api, "--paginate", f"repos/{slug}/invitations", "--jq", ".[].invitee.login"
         )
         reading = pool.submit(
-            sh, *api, "graphql", "-f", f"query={blob}", "-F", f"o={owner}", "-F", f"n={name}",
+            sh, *api, "graphql", "-f", f"query={blob}", "-f", f"o={owner}", "-f", f"n={name}",
             "--jq", '.data.repository.object.text // ""',
         )  # fmt: skip
         pushers, invited, on_default = pushing.result(), inviting.result(), reading.result()

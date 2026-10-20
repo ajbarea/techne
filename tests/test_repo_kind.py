@@ -32,7 +32,7 @@ QUERY = (
 )
 BLOB = [
     "gh", "api", "--hostname", "github.com", "graphql", "-f", f"query={QUERY}",
-    "-F", f"o={ME}", "-F", "n=myrepo", "--jq", '.data.repository.object.text // ""',
+    "-f", f"o={ME}", "-f", "n=myrepo", "--jq", '.data.repository.object.text // ""',
 ]  # fmt: skip
 MINE = json.dumps(
     {
@@ -548,3 +548,39 @@ def test_a_team_roster_entry_wins_over_another_match(rk, origin, tmp_path, gh):
         encoding="utf-8",
     )
     assert rk.classify(str(origin), toml)[0] == "team"
+
+
+# ----------------------------------------------------- round-8 regressions --
+
+
+@pytest.mark.parametrize(
+    "body",
+    ["requires python <3.12\n- owner: team\nphases: setup -> lint\n",
+     "x < y\n- owner: team\n> note\n", "- owner: __team__\n", "- owner:: team\n",
+     "- - owner: team\n"],
+    ids=["stray-angle", "angle-then-quote", "underscore-bold", "double-colon", "nested"],
+)  # fmt: skip
+def test_owner_team_survives_stray_markup_around_it(rk, origin, no_toml, gh, body):
+    mine(gh)  # GitHub alone would say solo, so team must come from the signal
+    skill_context(origin, body)
+    assert rk.classify(str(origin), no_toml)[0] == "team"
+
+
+@pytest.mark.parametrize(
+    "line", ["owner: not team", "- owner: teamwork", "<!-- - owner: team -->", "owners: team"]
+)
+def test_a_line_that_is_not_an_owner_team_line_does_not_count(rk, origin, no_toml, gh, line):
+    mine(gh)
+    skill_context(origin, f"{line}\n")
+    assert rk.classify(str(origin), no_toml)[0] == "solo"
+
+
+def test_a_utf16_owner_line_committed_but_not_in_the_working_copy_counts(rk, origin, no_toml, gh):
+    mine(gh)  # GitHub alone would say solo, so team must come from the signal
+    (origin / ".claude").mkdir()
+    ctx = origin / ".claude" / "skill-context.md"
+    ctx.write_bytes("- owner: team\n".encode("utf-16"))
+    git(origin, "add", ".claude")
+    git(origin, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "ctx")
+    ctx.write_bytes("- name: x\n".encode("utf-16"))
+    assert rk.classify(str(origin), no_toml)[0] == "team"
