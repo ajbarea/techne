@@ -13,8 +13,8 @@ has crept in; extract it back to ROADMAP.
 
 Done: `_shared/repo_kind.py`; only GitHub facts make a repo solo, `owner: team` and a
 `kind = "team"` sister only make it team, unsettled reads as team. docsync acts on solo repos;
-ci-audit turns `[PROPOSE]` into `[PROPOSE→FIX]`. Two `/code-review high` rounds fixed.
-Next: round 3, CI green, squash-merge. Verify: `make validate`.
+ci-audit turns `[PROPOSE]` into `[PROPOSE→FIX]`. Four `/code-review high` rounds fixed;
+42 tests, every false-solo mutant caught. Next: round 5, CI green, squash-merge. Verify: `make validate`.
 
 ## In flight: `techne:board` (branch `feat/board`)
 
@@ -43,15 +43,12 @@ stub-tested only. After merge: `gh auth refresh -h github.com -s project`, then
 
 Verify: `make validate`.
 
-### elenchus review tiers (feat/elenchus-review-tiers)
+### Landed on main: elenchus review tiers (#187)
 
-Done: three roles (author dispatches and relays, dispatched reader runs one round and writes
-nowhere, independent reader runs every phase) and two tiers (high: `/code-review high` on the
-branch or PR first, for a new subsystem, destructive op added or fed, persisted state, a
-security/privacy/access/governance boundary or a sensitive target, whatever the size; light:
-the reader alone; unsure means high). The reader is never a fork, and states the tier it judged;
-a higher one makes the author rerun. Errored reviews are rerun. Four review rounds; round 4 clean.
-Next: CI green, squash-merge. Verify: `make validate`.
+Three roles (author dispatches and relays, dispatched reader runs one round and writes nowhere,
+independent reader runs every phase) and two tiers (high: `/code-review high` on the PR or branch
+first, for a new subsystem, a destructive op added or fed, persisted state, a security, privacy,
+access or governance boundary, or a sensitive target; light: the reader alone; unsure is high).
 
 ### Landed on main: elenchus says when the review loop ends (#185)
 
