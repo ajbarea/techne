@@ -1,6 +1,6 @@
 ---
 name: elenchus
-description: Adversarial pre-merge code review — drive /code-review, then run the three passes diff-reading skips (reproduce the load-bearing claim, trace every consumer, review against the whole repo) and the bug-class rubric that catches reachable destructive ops, unmirrored parallel-path guards, migration crashes, and dead features that still pass CI. Use before merging a substantive change, when asked to "review it like a hostile reviewer", "hunt edge cases", "break this before merge", "is this actually mergeable", or to give a self-authored change an independent pass. Reads optional per-repo hints from the `## elenchus` section of `.claude/skill-context.md`.
+description: Adversarial pre-merge code review — drive an independent review sized to the change's risk (a fresh reviewer, plus /code-review high for risky changes) whose reader runs the three passes diff-reading skips (reproduce the load-bearing claim, trace every consumer, review against the whole repo) and the bug-class rubric that catches reachable destructive ops, unmirrored parallel-path guards, migration crashes, and dead features that still pass CI. Use before merging a substantive change, when asked to "review it like a hostile reviewer", "hunt edge cases", "break this before merge", "is this actually mergeable", or to give a self-authored change an independent pass. Reads optional per-repo hints from the `## elenchus` section of `.claude/skill-context.md`.
 disable-model-invocation: false
 allowed-tools: Bash Read Grep Glob Agent Skill
 ---
@@ -15,10 +15,22 @@ This skill exists because the same model that writes a change is a poor judge of
 
 ## The cardinal rule: independence is mechanical
 
-If you (or this session) authored the change under review, you are the wrong reviewer **by construction** — you cannot un-know what it was supposed to do. Restore independence with tools, not willpower:
+If you (or this session) authored the change under review, you are the wrong reviewer **by construction** — you cannot un-know what it was supposed to do. Restore independence with tools, not willpower.
 
-- **Primary:** run `/code-review` at `high`, which spawns independent local review agents, so the verdict comes from a context that never wrote the code. Scale to risk: `high` for anything destructive, security/governance-sensitive, or shipping to a sensitive target, where `ultra` (a billed multi-agent cloud review) is also worth recommending. `ultra` is user-triggered: name it to the user rather than trying to launch it.
-- **Fallback / supplement:** dispatch a fresh review subagent (the `Agent` tool) with the diff and this rubric but **no authorship narrative**.
+Restoring it means a fresh review subagent (the `Agent` tool, never a fork, which inherits the author's context) runs this protocol. Its cost scales with the change's risk, not with habit; independence comes from a context that never wrote the code, not from how many agents run.
+
+**Your role decides what you run:**
+
+- **Author** (you or this session wrote the change): do not run Phases 2 to 4 yourself. Pick the tier, run Phase 1, which dispatches the review, then relay its report as Phase 4 and carry on with Phase 5. You own the review loop (**When the review loop ends**).
+- **Dispatched reader** (an author's session started you with this file): run Phases 0 to 4 once (Phase 1 only takes the findings you were handed) and return the report. State the tier the change deserves; if it is higher than the one run, say so first, and the author reruns at that tier. Do not dispatch another reviewer, post, or run the loop; the author's session does those.
+- **Independent reader** (someone else's change, such as a teammate's PR): run every phase yourself, Phase 1's `/code-review` included when the high tier applies, and own the loop.
+
+**Tiers:**
+
+- **High tier** when any of these holds, whatever the size of the diff: a new subsystem; a change that adds a destructive operation, or whose output reaches an existing one (rubric cell 1: a path, a glob, a list that feeds an `rm -rf`, an overwrite, a `DROP`); a change to persisted state or its format (rubric cell 3); a security, privacy, access or governance boundary; a change shipping to a sensitive target. Phase 1 runs `/code-review` at `high` on the change (`/code-review high <PR number>`, or `/code-review high <branch>` before a PR exists), which spawns independent finder agents. `ultra` (a billed multi-agent cloud review) is also worth recommending; it is user-triggered, so name it to the user rather than trying to launch it.
+- **Light tier** only when none of those holds: no `/code-review`; for an author, the dispatched reader alone.
+- **Unsure** means high.
+- **A failed review is not a clean one.** When the dispatched reader or any finder agent errored (rate limit, API failure, timeout), zero findings means unverified, not clean: rerun that review before reporting it.
 
 **Never hand-read your own diff and call it reviewed.** A clean self-eyeball is not a review; it is the author agreeing with themselves.
 
@@ -30,19 +42,21 @@ echo "<!-- skill-context: $(git rev-parse --show-toplevel 2>/dev/null || pwd) --
 
 If the block above appears as a command rather than its output, run it and use what it prints.
 
-No context file: elenchus still runs tier-0; infer the test and run commands from the Makefile or ask. Add an optional `## elenchus` block for repo-specific hints; see Scaffolding below. The header names the repo it came from, which is the current directory's. When the target is a path in another repo, run `bash "<plugin-root>/_shared/skill_context.sh" <target-path>` and use that output instead.
+No context file: elenchus still runs with no hints; infer the test and run commands from the Makefile or ask. Add an optional `## elenchus` block for repo-specific hints; see Scaffolding below. The header names the repo it came from, which is the current directory's. When the target is a path in another repo, run `bash "<plugin-root>/_shared/skill_context.sh" <target-path>` and use that output instead.
 
-Read the `## elenchus` section if present (optional tier-1 hints — known destructive ops, load-bearing surfaces, reproduce recipes, what "the feature works" means here). For the commands to actually *run* the code, fall back in order to `## audit` (lint/test targets), `## theoros` (`repl_command`), then the repo `Makefile`. Tier-0 needs no config.
+Read the `## elenchus` section if present (optional hints — known destructive ops, load-bearing surfaces, reproduce recipes, what "the feature works" means here). For the commands to actually *run* the code, fall back in order to `## audit` (lint/test targets), `## theoros` (`repl_command`), then the repo `Makefile`. With no hints it needs no config.
 
 ## Protocol
 
-Run these phases in order. Do not skip a phase because the change "looks small" — the highest-value bugs hide in changes that look small.
+Run the phases your role covers (see **The cardinal rule**), in order. Do not skip one because the change "looks small" — the highest-value bugs hide in changes that look small.
 
 ### Phase 0 — Frame the load-bearing claim
 State, in one sentence, the single claim the change rests on ("this fix makes X portable", "this feature lets the model cite summaries", "this refactor is behavior-preserving"). That claim is your hypothesis to break. Everything after is an attempt to find the input, state, or path that falsifies it.
 
 ### Phase 1 — Drive the engine
-Run `/code-review` (effort per the independence rule). Treat its findings as input, not verdict — you still owe the three passes below, which `/code-review` does not force.
+- **Author:** in the high tier, run `/code-review high` on the change first. Then dispatch the reader with this prompt and the `/code-review` findings, if any, and **no authorship narrative**: "You are the dispatched reader for techne:elenchus. Read <path to this SKILL.md>. Review <PR number or branch> as the dispatched reader. Tier run: <high or light>. Run Phases 0 to 4 once and return the report. Do not dispatch another reviewer, post, or run a review loop." Relay its report as Phase 4.
+- **Dispatched reader:** take the findings you were handed as input, not verdict; you still owe the three passes below, which `/code-review` does not force.
+- **Independent reader:** in the high tier, run `/code-review high` on the change yourself, then treat its findings the same way.
 
 ### Phase 2 — The three passes diff-reading skips
 The bugs that pure diff review loses live here. Each one is invisible in the `+/-` and surfaces only by reading or running the code *around* the change.
@@ -97,9 +111,9 @@ Close with: a one-line **merge verdict** (mergeable / hold on finding #N / not m
 
 ## When the review loop ends
 
-A change often takes several rounds: review, fix, review again. The PR's owner fixes each finding, with a regression test that runs in CI wherever the finding is testable. On someone else's PR a round ends with the Phase 5 comment, and the next round starts when the owner pushes. When a PR exists, start each round by re-reading its comments and reviews. The loop has no fixed round count. It ends on what the last round found.
+A change often takes several rounds: review, fix, review again. The author's session (or the independent reader) owns the loop: it re-dispatches, counts the time, decides to stop and writes the stop down. A dispatched reader runs one round and writes nowhere. The PR's owner fixes each finding, with a regression test that runs in CI wherever the finding is testable. On someone else's PR a round ends with the Phase 5 comment, and the next round starts when the owner pushes. When a PR exists, start each round by re-reading its comments and reviews. The loop has no fixed round count. It ends on what the last round found.
 
-- **Reproduce before reporting.** Before a round's report, make one attempt to reproduce each Blocking or Should-fix finding not yet reproduced. One that still fails stays PLAUSIBLE and is recorded as open: it holds the merge, but does not by itself keep the loop going. Open means any Blocking or Should-fix finding not fixed when the loop stops or pauses.
+- **Reproduce before reporting.** Before a round's report, the reader makes one attempt to reproduce each Blocking or Should-fix finding not yet reproduced. One that still fails stays PLAUSIBLE and is recorded as open: it holds the merge, but does not by itself keep the loop going. Open means any Blocking or Should-fix finding not fixed when the loop stops or pauses.
 - **Keep going** while the round has a reproduced Blocking or Should-fix finding (see Output format) on a reachable input: one that a caller in the repo, or a documented usage, can produce, unless a pause below applies.
 - **Stop** in every other case: what remains is Minor, Informational, unreachable, or recorded as open.
 - **Write the stop down.** Open Blocking or Should-fix findings go in the Phase 5 comment on someone else's PR. On a PR the account owner opened, they go in its linked issue when one exists (the issue its body names with `Closes #N` or `Fixes #N`; with several, the first), under the same contract as the Phase 5 comment (account owner's voice, no provenance); with no linked issue, tell the user the PR waits on them. Minor findings stay in-session, and "keep it local" keeps everything in-session.
@@ -145,9 +159,9 @@ Publish the **work**, which anyone can check, never how it was run.
 
 Clean-pass shape: the verdict, the Findings line reading `none blocking`, and the Verified-clean list — a few lines, not a placeholder wall.
 
-## Scaffolding `## elenchus` into a repo (optional, tier-1)
+## Scaffolding `## elenchus` into a repo (optional)
 
-Tier-0 needs nothing. To give the skill repo-specific aim, add to `.claude/skill-context.md`:
+With no hints it needs nothing. To give the skill repo-specific aim, add to `.claude/skill-context.md`:
 
 ````markdown
 ## elenchus

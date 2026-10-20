@@ -4,7 +4,7 @@ description: "Review a change adversarially before merge: reproduce the load-bea
 
 # `techne:elenchus`
 
-Adversarial pre-merge code review. Drives `/code-review`, then runs the three passes diff-reading skips and applies a fixed bug-class rubric.
+Adversarial pre-merge code review. Drives an independent review sized to the change's risk (a fresh reviewer, plus `/code-review` at `high` for a risky change), then runs the three passes diff-reading skips and applies a fixed bug-class rubric.
 
 Part of [techne](../plugins/techne.md): `/plugin install techne@techne`, then `/techne:setup`.
 ἔλεγχος is the Socratic cross-examination: you do not confirm what the author meant, you hunt the one input that refutes the claim the change rests on.
@@ -13,7 +13,7 @@ Part of [techne](../plugins/techne.md): `/plugin install techne@techne`, then `/
 
 - Before merging any substantive change, especially a self-authored one.
 - "Review it like a hostile reviewer." / "Hunt edge cases." / "Break this before merge." / "Is this actually mergeable?"
-- Anything destructive, security-sensitive, or governance-related, at `high` or `ultra` effort.
+- Anything destructive, security-sensitive, or governance-related, at the high tier (or `ultra`).
 
 ## Usage
 
@@ -25,7 +25,7 @@ Part of [techne](../plugins/techne.md): `/plugin install techne@techne`, then `/
 
 The model that writes a change is a poor judge of it: the author reviews what they intended, under ship-it momentum, against a mental model that hides what the code actually does. The fix is not a smarter model but an independent reader running a fixed protocol against the whole repo, reproducing as it goes.
 
-Independence is restored mechanically, not by willpower. `/code-review` at `high` spawns independent local agents; `ultra` runs a billed multi-agent cloud review that you launch yourself, and the skill recommends it rather than starting it. Never hand-read your own diff and call it reviewed.
+Independence is restored mechanically, not by willpower. On your own change you do not review it: elenchus dispatches a fresh reviewer that never saw the authorship story, relays its report, and runs the review loop. On someone else's change you are the independent reader and run every step yourself. The cost scales with risk. The high tier adds `/code-review` at `high`, which spawns independent local agents, for any change that is a new subsystem, touches persisted state, crosses a security, privacy, access or governance boundary, ships to a sensitive target, or adds a destructive operation or feeds one, whatever the diff's size; `ultra` runs a billed multi-agent cloud review that you launch yourself, and the skill recommends it rather than starting it. Everything else gets the light tier, the fresh reviewer alone. When unsure, the high tier. A review whose agents errored is rerun, not counted as clean. Never hand-read your own diff and call it reviewed.
 
 ## The three passes
 
