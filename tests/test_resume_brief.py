@@ -9,9 +9,11 @@ with TECHNE_GUARD_PYTHON set to 3.9.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -107,9 +109,9 @@ def test_the_default_branch_points_new_work_at_a_branch(repo):
     assert text is not None
     assert "for `proj`, branch `main`" in text
     assert "Uncommitted: nothing" in text
-    assert "Pushed: origin/main is up to date" in text
+    assert "Pushed: origin/main is up to date (as of the last fetch)" in text
     assert "Start new work on a branch in its own worktree" in text
-    assert "Commits past" not in text and "unchanged from" not in text
+    assert "Commits past" not in text and "unchanged since" not in text
     assert text.endswith("Current slice: the base work.")
 
 
@@ -124,8 +126,8 @@ def test_a_branch_that_never_described_itself_is_flagged_with_its_diff(repo):
     assert "Commits past origin/main: 0" in text
     assert "Uncommitted: 1 path(s)" in text and "src/" in text
     assert "Pushed: never" in text
-    assert "IMPL.md: unchanged from origin/main" in text
-    assert "IMPL.md as origin/main has it:" in text
+    assert "IMPL.md: unchanged since this branch left origin/main" in text
+    assert "IMPL.md (as inherited, not this branch's):" in text
     assert "rewrite what the slice is" in text
 
 
@@ -138,8 +140,8 @@ def test_a_branch_with_its_own_impl_lists_commits_and_what_is_unpushed(repo):
     assert text is not None
     assert "Commits past origin/main: 2 (newest first)" in text
     assert "add launch.sh" in text and "add IMPL.md" in text
-    assert "Pushed: to origin/feat/launch, 1 commit(s) not pushed yet" in text
-    assert "unchanged from" not in text
+    assert "Pushed: to origin/feat/launch, 1 commit(s) not pushed yet (as" in text
+    assert "unchanged since" not in text
     assert text.endswith("Current slice: launch sessions.")
 
 
@@ -148,7 +150,7 @@ def test_an_uncommitted_impl_rewrite_counts_as_described(repo):
     (wt / "IMPL.md").write_text("# IMPL\n\nCurrent slice: a draft.\n")
     text = context(wt)
     assert text is not None
-    assert "unchanged from" not in text
+    assert "unchanged since" not in text
     assert "Current slice: a draft." in text
 
 
@@ -235,3 +237,98 @@ def test_the_hook_is_synchronous_and_fires_on_every_fresh_context():
     (group,) = [g for g in groups if "resume_brief.py" in json.dumps(g)]
     assert set(group["matcher"].split("|")) == {"startup", "resume", "clear", "compact"}
     assert not _handler().get("async")
+
+
+def test_main_moving_on_does_not_hide_a_branch_that_never_described_itself(repo):
+    wt = worktree(repo, "old")
+    commit(repo, "IMPL.md", "# IMPL\n\nCurrent slice: the next merged work.\n")
+    sh(repo, "push", "-q", "origin", "main")
+    sh(wt, "fetch", "-q", "origin")
+    (wt / "work.rs").write_text("x")
+    text = context(wt)
+    assert text is not None
+    assert "unchanged since this branch left origin/main" in text
+
+
+def test_after_its_squash_merge_a_branch_is_not_told_to_describe_itself(repo):
+    wt = worktree(repo, "done")
+    mine = "# IMPL\n\nCurrent slice: done.\n"
+    commit(wt, "IMPL.md", mine)
+    (repo / "IMPL.md").write_text(mine)  # the squash merge: same text, its own commit
+    sh(repo, "commit", "-q", "-am", "squash of feat/done")
+    sh(repo, "push", "-q", "origin", "main")
+    sh(wt, "fetch", "-q", "origin")
+    text = context(wt)
+    assert text is not None
+    assert "unchanged since" not in text
+
+
+def test_an_impl_that_is_not_utf8_is_compared_not_crashed_on(repo):
+    (repo / "IMPL.md").write_bytes(b"caf\xe9 slice\n")
+    sh(repo, "commit", "-q", "-am", "latin-1")
+    sh(repo, "push", "-q", "origin", "main")
+    wt = worktree(repo, "enc")
+    (wt / "work.rs").write_text("x")
+    text = context(wt)
+    assert text is not None
+    assert "unchanged since this branch left origin/main" in text
+
+
+def test_a_pushed_branch_with_commits_this_worktree_lacks_says_so(repo, tmp_path):
+    wt = worktree(repo, "two")
+    sh(wt, "push", "-q", "-u", "origin", "feat/two")
+    other = tmp_path / "other"
+    subprocess.run(
+        ["git", "clone", "-q", "-b", "feat/two", str(repo.parent / "origin.git"), str(other)],
+        check=True,
+    )
+    commit(other, "elsewhere.txt")
+    sh(other, "push", "-q", "origin", "feat/two")
+    sh(wt, "fetch", "-q", "origin")
+    text = context(wt)
+    assert text is not None
+    assert "1 commit(s) there are not here: pull before you build on it" in text
+
+
+def test_a_bare_repo_with_worktrees_is_named_by_its_repo(tmp_path, repo):
+    bare = tmp_path / "proj2.git"
+    subprocess.run(["git", "clone", "-q", "--bare", str(repo), str(bare)], check=True)
+    wt = tmp_path / "wt"
+    sh(bare, "worktree", "add", "-q", str(wt), "main")
+    text = context(wt)
+    assert text is not None
+    assert "for `proj2`" in text
+
+
+@pytest.fixture
+def hook(monkeypatch):
+    """The hook script as a module, importing the plugin's resume_state."""
+    monkeypatch.syspath_prepend(str(PLUGIN / "_shared"))
+    monkeypatch.setattr(sys, "dont_write_bytecode", True)
+    spec = importlib.util.spec_from_file_location("resume_brief_hook", SCRIPT)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, "resume_brief_hook", mod)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_a_git_failure_reads_as_unknown_not_as_a_clean_tree(repo, hook, monkeypatch):
+    real = hook.resume_state.git
+
+    def failing(root, *args):
+        return None if args[0] in ("status", "rev-list") else real(root, *args)
+
+    wt = worktree(repo, "slow")
+    monkeypatch.setattr(hook.resume_state, "git", failing)
+    text = hook.brief(hook.resume_state.read(str(wt)))
+    assert "Uncommitted: unknown" in text
+    assert "Commits past origin/main: unknown" in text
+    assert "ahead and behind unknown" not in text  # never pushed, so nothing to count
+    assert "Uncommitted: nothing" not in text
+
+
+def test_the_read_budget_stops_git_once_spent(repo, hook, monkeypatch):
+    monkeypatch.setattr(hook.resume_state, "READ_BUDGET", 0)
+    assert hook.resume_state.read(str(repo)) is None  # not even the toplevel is read
+    assert hook.resume_state._deadline is None  # and the budget does not leak into later calls

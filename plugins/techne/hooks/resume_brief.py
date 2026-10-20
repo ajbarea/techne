@@ -42,11 +42,17 @@ def brief(s: resume_state.ResumeState) -> str:
     where = f"branch `{s.branch}`" if s.branch else f"detached HEAD at {s.head}"
     lines = [f"Resume brief (techne) for `{s.repo}`, {where}, in {s.root}:"]
     if s.base and not s.on_base:
-        lines.append(f"- Commits past {s.base}: {s.ahead}" + (" (newest first)" if s.ahead else ""))
-        lines += [f"  - {c}" for c in s.commits]
-        if s.ahead > len(s.commits):
-            lines.append(f"  - and {s.ahead - len(s.commits)} older")
-    if s.dirty:
+        if s.ahead is None:
+            lines.append(f"- Commits past {s.base}: unknown (git failed; run `git log`)")
+        else:
+            newest = " (newest first)" if s.ahead else ""
+            lines.append(f"- Commits past {s.base}: {s.ahead}{newest}")
+            lines += [f"  - {c}" for c in s.commits]
+            if s.ahead > len(s.commits):
+                lines.append(f"  - and {s.ahead - len(s.commits)} older")
+    if s.dirty is None:
+        lines.append("- Uncommitted: unknown (git status failed or timed out; run it)")
+    elif s.dirty:
         lines.append(f"- Uncommitted: {len(s.dirty)} path(s)")
         lines += [f"  - `{d}`" for d in s.dirty[:DIRTY_SHOWN]]
         if len(s.dirty) > DIRTY_SHOWN:
@@ -54,20 +60,15 @@ def brief(s: resume_state.ResumeState) -> str:
     else:
         lines.append("- Uncommitted: nothing")
     if s.branch:
-        if not s.pushed_to:
-            lines.append("- Pushed: never")
-        elif s.unpushed:
-            lines.append(f"- Pushed: to {s.pushed_to}, {s.unpushed} commit(s) not pushed yet")
-        else:
-            lines.append(f"- Pushed: {s.pushed_to} is up to date")
+        lines.append(f"- Pushed: {pushed(s)}")
     if s.impl is None:
         lines.append(
             f"- IMPL.md: missing here although {s.base} has one; write it for this branch."
         )
     elif s.impl_matches_base:
         lines.append(
-            f"- IMPL.md: unchanged from {s.base}, so it does not describe this branch yet. "
-            "Read the commits and the uncommitted diff, then rewrite it for this branch."
+            f"- IMPL.md: unchanged since this branch left {s.base}, so it does not describe "
+            "this branch yet. Read the commits and the uncommitted diff, then rewrite it."
         )
     head = "\n".join(lines) + "\n\n" + (RULE_ON_BASE if s.on_base else RULE)
     if s.impl is None:
@@ -76,8 +77,21 @@ def brief(s: resume_state.ResumeState) -> str:
     impl = s.impl.strip()
     if len(impl) > room:
         impl = impl[: max(room, 0)].rstrip() + "\n[... cut here; read IMPL.md for the rest]"
-    label = f"IMPL.md as {s.base} has it:" if s.impl_matches_base else "IMPL.md:"
+    label = "IMPL.md (as inherited, not this branch's):" if s.impl_matches_base else "IMPL.md:"
     return f"{head}\n\n{label}\n\n{impl}"
+
+
+def pushed(s: resume_state.ResumeState) -> str:
+    if not s.pushed_to:
+        return "never"
+    if s.unpushed is None or s.behind is None:
+        return f"to {s.pushed_to}; ahead and behind unknown (git failed)"
+    parts = [f"{s.unpushed} commit(s) not pushed yet"] if s.unpushed else []
+    if s.behind:
+        parts.append(f"{s.behind} commit(s) there are not here: pull before you build on it")
+    if not parts:
+        return f"{s.pushed_to} is up to date (as of the last fetch)"
+    return f"to {s.pushed_to}, " + "; ".join(parts) + " (as of the last fetch)"
 
 
 def hook_cwd() -> str:

@@ -79,7 +79,7 @@ A single block, no preamble (concrete repo names below are illustrative — subs
 - repo-a: clean ✓
 - repo-b: safe to remove: worktree `.claude/worktrees/docs` (PR #50 merged), local-branch `fix/x` (PR #41 merged)
 - repo-c: needs a look: local-branch `wip` (no PR; 3 commit(s) not in main); info: stash@{0} 12d old
-- repo-d: needs a look: worktree `.claude/worktrees/faces` (open branch; 2 uncommitted change(s); not resumable from the branch: its IMPL.md still matches origin/main)
+- repo-d: needs a look: worktree `.claude/worktrees/faces` (open branch; 2 uncommitted change(s); not resumable from the branch: its IMPL.md is unchanged since it left origin/main)
 - (end with: "N items safe to remove; say "clean them up" to review and remove them.")
 
 ### Local main sync

@@ -140,12 +140,12 @@ On a branch, `IMPL.md` is that branch's resume state. A session that starts in t
 
 - Rewrite the branch's `IMPL.md` and push after each finished task, not only at the end.
 - A session starting in a worktree reads `IMPL.md`, the commits past the default branch and the uncommitted diff before it acts.
-- A branch whose `IMPL.md` still matches the default branch has not said what it is for. Write it before the work grows.
+- A branch whose `IMPL.md` is unchanged since it left the default branch has not said what it is for. Write it before the work grows.
 
 `IMPL.md` on the default branch describes the last slice merged. research(2026-10): Anthropic, "Effective harnesses for long-running agents" (a progress file and the git log are what a fresh context window resumes from).
 
 **Read by:** the techne plugin's `resume_brief` option, which adds this state as context at session start ([options](plugins/techne.md#options)).
-**Audited by:** `techne:sisters`, which marks a dirty, idle worktree whose `IMPL.md` still matches the default branch as not resumable.
+**Audited by:** `techne:sisters`, which marks a dirty, idle worktree whose `IMPL.md` is unchanged since its branch left the default branch as not resumable.
 
 ## `COMMITS.md` (local commit draft)
 

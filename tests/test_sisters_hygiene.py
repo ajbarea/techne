@@ -230,26 +230,47 @@ def test_a_worktree_someone_may_be_using_is_held(fleet, hy, monkeypatch, setup, 
     ("setup", "flagged"),
     [
         ("stale", True),
+        ("main-moved", True),  # main rewrote its IMPL.md after the branch left
+        ("not-utf8", True),
         ("rewritten", False),
+        ("squash-merged", False),  # main now carries the branch's own IMPL.md
         ("clean", False),
         ("recent", False),
         ("no-impl", False),
+        ("detached", False),
+        ("pr-merged", False),  # a finished branch's stray edits: held after merge instead
     ],
 )
 def test_a_dirty_idle_worktree_that_never_described_itself_is_not_resumable(
     fleet, hy, monkeypatch, setup, flagged
 ):
-    if setup != "no-impl":
-        commit(fleet.path, "IMPL.md")
+    def on_main(text: bytes) -> None:
+        (fleet.path / "IMPL.md").write_bytes(text)
+        sh(fleet.path, "add", "IMPL.md")
+        sh(fleet.path, "commit", "-q", "-m", "impl")
         sh(fleet.path, "push", "-q", "origin", "main")
+
+    if setup != "no-impl":
+        on_main(b"caf\xe9 slice\n" if setup == "not-utf8" else b"slice A\n")
     fleet.branch("feat/a")
-    path = add_worktree(fleet, "a", "feat/a")
+    if setup == "detached":
+        path = fleet.path / ".claude" / "worktrees" / "a"
+        sh(fleet.path, "worktree", "add", "-q", "--detach", str(path), "main")
+    else:
+        path = add_worktree(fleet, "a", "feat/a")
     if setup != "clean":
         (path / "work.rs").write_text("unsaved")
     if setup == "rewritten":
         (path / "IMPL.md").write_text("Current slice: work.rs")
+    elif setup == "squash-merged":
+        commit(path, "IMPL.md")  # the branch's own IMPL.md, content "IMPL.md"
+        on_main(b"IMPL.md")
+    elif setup == "main-moved":
+        on_main(b"slice B\n")
     elif setup == "recent":
         monkeypatch.setattr(hy, "IDLE_SECONDS", 3600)
+    elif setup == "pr-merged":
+        fleet.prs["feat/a"] = pr(1, "MERGED", sh(fleet.path, "rev-parse", "feat/a"))
     item = fleet.survey()[("worktree", ".claude/worktrees/a")]
     assert (hy.UNRESUMABLE + "origin/main" in item.reason) is flagged, item.reason
 

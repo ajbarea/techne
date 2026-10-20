@@ -18,7 +18,8 @@ the --repo names, and sorts what it finds into three groups per repo:
            the PR merged, a PR merged elsewhere or closed unmerged, a dirty,
            locked, busy, recently active or ignored-work-holding worktree, a
            remote branch with no PR or someone else's. A dirty, idle worktree whose
-           IMPL.md still matches the default branch is marked not resumable.
+           IMPL.md is unchanged since its branch left the default branch is marked
+           not resumable.
   info     branches of open PRs, stashes, uncommitted changes in the main checkout
 
 Squash merges leave a branch's own commits outside main forever, so "ahead of
@@ -419,17 +420,20 @@ def transient(blockers: list[str]) -> bool:
     return any(b in (BUSY_UNKNOWN, BUSY_LIVE) or b.startswith(ACTIVE_PREFIX) for b in blockers)
 
 
-UNRESUMABLE = "not resumable from the branch: its IMPL.md still matches "
+UNRESUMABLE = "not resumable from the branch: its IMPL.md is unchanged since it left "
 
 
-def resume_gap(wpath: str, base: str, blockers: list[str]) -> str:
+def resume_gap(wpath: str, branch: str, base: str, blockers: list[str], merged: bool) -> str:
     """Uncommitted work in an idle worktree whose IMPL.md never said what the branch is for.
 
     A fresh session there, after a restart, has only the diff to go on. Empty when nobody
-    is at work in it, it is clean, or the repo keeps no IMPL.md.
+    is at work in it, it is clean, it is detached, its PR merged (the work is finished), or
+    the repo keeps no IMPL.md.
     """
     dirty = any(b.endswith(" uncommitted change(s)") for b in blockers)
-    if not dirty or transient(blockers) or impl_matches(wpath, base) is not True:
+    if not branch or merged or not dirty or transient(blockers):
+        return ""
+    if impl_matches(wpath, base) is not True:
         return ""
     return UNRESUMABLE + base
 
@@ -494,7 +498,8 @@ def collect(name: str, path: str, slug: str, me: str, prs: dict[str, dict]) -> l
         blockers += worktree_blockers(wpath, others, busy)
         if blockers:
             group, reason = "review", reason + "; " + ", ".join(blockers)
-            gap = resume_gap(wpath, base, blockers)
+            merged = bool(prs.get(branch) and prs[branch]["state"] == "MERGED")
+            gap = resume_gap(wpath, branch, base, blockers, merged)
             reason += f"; {gap}" if gap else ""
         left = leftover(group, prs.get(branch), blockers) if group == "review" else ""
         merged = bool(prs.get(branch) and prs[branch]["state"] == "MERGED")

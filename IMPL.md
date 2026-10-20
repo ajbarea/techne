@@ -15,10 +15,11 @@ has crept in; extract it back to ROADMAP.
 
 - ✅ `_shared/resume_state.py` reads a worktree's state from local git; `hooks/resume_brief.py`
   (option `resume_brief`) adds it as SessionStart context; `sisters` marks a dirty, idle
-  worktree whose IMPL.md matches the default branch as not resumable.
+  worktree whose IMPL.md is unchanged since its branch left the default as not resumable.
 - ✅ Docs: conventions (working docs), techne options page and README, sisters SKILL + page.
-- 📋 Next: `make validate`, elenchus review, PR, merge; then switch the option on in user
-  settings and file the klepsydra card Resume follow-up.
+- ✅ Review round 1 (10 findings): merge-base comparison, unknown on git failure, behind
+  count, UTF-8 decoding, bare-repo name, read budget, no flag when detached or merged.
+- 📋 Next: review round 2, merge; then switch the option on in user settings.
 - Verify: `uv run pytest tests/test_resume_brief.py tests/test_sisters_hygiene.py` and
   `make test-hooks-oldest`.
 
