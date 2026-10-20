@@ -9,6 +9,14 @@ how each skill was designed.
 If this file is more than ~50 lines, something queued or referential
 has crept in; extract it back to ROADMAP.
 
+## In flight: solo repos act, team repos ask (branch `feat/solo-act-team-ask`)
+
+Done: `_shared/repo_kind.py` decides solo or team from the committed `owner:` line, the
+techne.toml `[[sisters]]` entry, then GitHub ownership and push access; unsettled reads as team.
+docsync applies every evidence-settled fix on a solo repo without asking; ci-audit turns
+`[PROPOSE]` into `[PROPOSE→FIX]` there. 19 tests, each team fallback mutation-checked.
+Next: independent review, CI green, squash-merge. Verify: `make validate`.
+
 ## In flight: `techne:board` (branch `feat/board`)
 
 One user-owned GitHub Projects board, Status = Idea, Issue, In PR, Merged, Live, named by

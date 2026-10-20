@@ -2,6 +2,7 @@
 
 ## repo
 <one-paragraph description of what this repo is and who uses it>
+- owner: <solo | team>   (optional; team = others contribute, so skills ask before acting)
 
 ## audit
 phases:

@@ -42,6 +42,7 @@ PROSE_SCRIPT = ROOT / "plugins" / "graphe" / "_shared" / "prose_check.py"
 DOKIMASIA_SCRIPT = ROOT / "plugins" / "dokimasia" / "skills" / "check" / "scripts" / "dokimasia.py"
 DOCTOR_LIB = ROOT / "plugins" / "techne" / "_shared" / "doctor_lib.py"
 SCHOLARLY_SCRIPT = ROOT / "plugins" / "techne" / "_shared" / "scholarly.py"
+REPO_KIND_SCRIPT = ROOT / "plugins" / "techne" / "_shared" / "repo_kind.py"
 GOLD_RUNNER = ROOT / "scripts" / "heuresis_gold.py"
 
 # The doctors and hooks run on the user's system python3; `make test-hooks-oldest` sets this
@@ -239,6 +240,11 @@ def rn() -> types.ModuleType:
 @pytest.fixture(scope="session")
 def sw() -> types.ModuleType:
     return _load("techne_sweep", SWEEP_SCRIPT)
+
+
+@pytest.fixture(scope="session")
+def rk() -> types.ModuleType:
+    return _load("techne_repo_kind", REPO_KIND_SCRIPT)
 
 
 @pytest.fixture(scope="session")

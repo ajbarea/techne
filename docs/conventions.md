@@ -110,7 +110,7 @@ The [template](https://github.com/ajbarea/techne/blob/main/plugins/techne/skills
 
 | Section | Read by | Keys |
 |---|---|---|
-| `## repo` | `docsync`, `audit`, `research-grounded` | One paragraph on what the repo is, its CLI entrypoint and runner module. |
+| `## repo` | `docsync`, `audit`, `research-grounded`, `ci-audit` | One paragraph on what the repo is, its CLI entrypoint and runner module. Optional `owner: solo` or `owner: team` (see [Solo and team repos](#solo-and-team-repos)). |
 | `## audit` | `audit`, `elenchus` (its test command) | `phases` (targets in dependency order), `fast_subset`, `stop_early`, `log_archive_glob`, `do_not_run`. |
 | `## ci_audit` | `ci-audit` | `referenced_configs` (files whose edit changes CI output), `tool_error_markers`. |
 | `## slop_ground_truth` | `deslop`, `reslop`, `docsync` | `authoritative_sources`, `test_locations`: what a claim is checked against. |
@@ -131,6 +131,16 @@ The [template](https://github.com/ajbarea/techne/blob/main/plugins/techne/skills
 `techne:sisters` reads a user-level config file at `~/.claude/techne.toml` that lists the repos to audit drift across. See [Configuration](configuration.md) for the schema and a worked example.
 
 **Required for:** `techne:sisters`.
+
+## Solo and team repos
+
+`docsync` and `ci-audit` act on a solo repo and ask on a team repo. A solo repo is yours alone, so a fix the evidence settles is applied without a question. A team repo has other people working in it, so the skill proposes and you choose. `_shared/repo_kind.py` decides from facts, the most specific first:
+
+1. an `- owner: solo` or `- owner: team` line under `## repo` in the repo's committed `.claude/skill-context.md`, which reaches every collaborator;
+2. the repo's `[[sisters]]` entry in `~/.claude/techne.toml`: `kind = "team"`, or solo when listed without it;
+3. GitHub: a repo owned by your signed-in `gh` account (not an organization) where nobody else can push.
+
+Anything none of these settles is treated as team, so a skill never edits someone else's repo without asking. Run `python3 plugins/techne/_shared/repo_kind.py <path>` to see the answer and the reason for any repo.
 
 ## `IMPL.md` and `ROADMAP.md` (working docs)
 

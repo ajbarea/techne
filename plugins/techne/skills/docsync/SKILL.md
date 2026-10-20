@@ -2,14 +2,14 @@
 name: docsync
 description: Check a documentation file for drift against the actual codebase — CLI commands, file paths, config keys, function signatures, version numbers, environment variables — and propose corrections. Use when the user wants to audit README.md, docs/*.md, or similar for claims that no longer match reality. Drift usually comes from refactors that forgot to update the docs.
 disable-model-invocation: false
-allowed-tools: Bash Glob Grep Read Edit Agent
+allowed-tools: Bash Glob Grep Read Edit Agent WebSearch WebFetch
 ---
 
 # Docsync
 
 `<plugin-root>` is the plugin's root directory, two levels above the directory holding this SKILL.md.
 
-Compare documentation against the code it describes. Find where the docs say one thing and the code says another. Propose fixes grounded in current code, not in what the docs *should* have said.
+Compare documentation against the code it describes. Find where the docs say one thing and the code says another. Fixes are grounded in current code (or, for a claim about something outside the repo, a cited web source), not in what the docs *should* have said.
 
 ## Repo context
 
@@ -80,13 +80,13 @@ A doc that links a file holding the detail covers that detail: a skill page that
      fix:     replace with `uv sync`
    ```
 
-5. **Apply with care.**
-   - Single-token swaps (command names, paths, signatures, config values) are safe to batch-apply on confirmation.
-   - Prose rewrites get shown as a full before/after diff first — never silently reword a sentence.
+5. **Apply.** Run `python3 "<plugin-root>/_shared/repo_kind.py" <target-doc>`. It prints `solo: <why>` or `team: <why>`, and anything it cannot settle reads as team.
+   - **Solo repo: act, don't ask.** In the same turn, apply every fix the evidence settles: the current code, config, lockfile or test, or, for a claim about a tool, version or service outside the repo, a web source you fetched and cite in the report. That covers single-token swaps and prose rewrites alike; the report shows each prose change as before and after, with its evidence. A claim that neither the code nor research settles stays as written and is listed as unresolved, with what you checked. It is not a question for the user.
+   - **Team repo: ask.** Single-token swaps (command names, paths, signatures, config values) batch-apply on the user's confirmation. Prose rewrites are shown as a full before/after diff first; never silently reword a sentence.
 
 ## Fan-out pattern
 
-For a whole `docs/` directory, spawn one `Explore` subagent per doc file. Each returns a drift report for its file. Main agent consolidates and presents grouped by file, then asks `apply all / apply selected / skip?`.
+For a whole `docs/` directory, spawn one `Explore` subagent per doc file. Each returns a drift report for its file. Main agent consolidates and presents grouped by file, then applies per step 5: on a solo repo it applies, on a team repo it asks `apply all / apply selected / skip?`.
 
 ## Don't touch
 
@@ -101,4 +101,4 @@ A doc update is also a chance to trim slop. If a fix requires rewriting a senten
 
 ## Why this skill is quiet
 
-Output is the drift report and, on confirmation, the edits. No narration of the verification process — just `claim → reality → fix`.
+Output is the drift report and the edits (on a team repo, after confirmation). No narration of the verification process — just `claim → reality → fix`.
