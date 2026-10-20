@@ -63,7 +63,7 @@ Skipped when there is no open PR, or when you say to keep the review local.
 
 ## When the review loop ends
 
-Review, fix and review again until a round confirms nothing that breaks the change's load-bearing claim on a real input. Each fix lands with a regression test that runs in CI. There is no fixed round count: the loop stops when what remains is crafted or adversarial input the change never sees. Findings left open are written on the PR or its linked issue, so a waiting PR says why it waits. A second inspection after repairs adds elapsed time more than caught defects ([Porter et al., 1997](https://doi.org/10.1109/32.601071)).
+Review, fix and review again while a round has a blocking or should-fix finding on an input that a caller or a documented usage can produce. The author makes each fix, with a regression test in CI where the finding is testable. There is no fixed round count. Findings left open go in the review comment on someone else's PR, or in the linked issue on your own, so a waiting PR says why it waits. A repeat inspection is not a reliable source of more catches: in an industrial study, a second inspection after repairs did not significantly raise detection ([Porter et al., 1997](https://doi.org/10.1109/32.601071)).
 
 ## Configuration
 

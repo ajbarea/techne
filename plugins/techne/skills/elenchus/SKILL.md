@@ -97,12 +97,12 @@ Close with: a one-line **merge verdict** (mergeable / hold on finding #N / not m
 
 ## When the review loop ends
 
-A change often takes several rounds: review, fix, review again. Fix each confirmed finding with a regression test that runs in CI, so every round leaves the suite stronger. The loop has no fixed round count. It ends on what the last round found.
+A change often takes several rounds: review, fix, review again. The author fixes each finding, with a regression test that runs in CI wherever the finding is testable. On someone else's PR that author is the PR's owner, and the next round re-reviews the fix. The loop has no fixed round count. It ends on what the last round found.
 
-- **Keep going** while a round confirms a finding that breaks the load-bearing claim (Phase 0) on an input the change will really receive.
-- **Stop** when a round confirms nothing of that kind: what remains is crafted or adversarial input the change never sees, or nothing. Past that point another inspection adds elapsed time, not caught defects: in a controlled industrial experiment, a second inspection with repairs in between did not significantly raise detection but lengthened the interval ([Porter et al., IEEE TSE 23(6), 1997](https://doi.org/10.1109/32.601071)).
-- **Write the stop down.** Findings left open go in the Phase 5 comment on someone else's PR, or in the linked issue (the PR description when there is none) on the author's own. A PR left waiting with the reason only in a session reads as abandoned.
-- **Keep the cost visible.** Start each round by re-reading the PR's comments and reviews. If one round runs past about 30 minutes, tell the user before starting the next.
+- **Keep going** while a round has a Blocking or Should-fix finding (the Output format scale) on a reachable input: one that a caller in the repo, or a documented usage, can produce. Before stopping, reproduce each PLAUSIBLE Blocking finding or record it as open.
+- **Stop** when what remains is Minor, Informational, or needs an input no caller and no documented usage can produce. Another pass is not a reliable source of more catches: in an industrial study of human code inspection, a second inspection with repairs in between did not significantly raise detection, and for two-person teams it doubled the median interval ([Porter et al., IEEE TSE 23(6), 1997](https://doi.org/10.1109/32.601071)).
+- **Write the stop down.** Findings left open go in the Phase 5 comment on someone else's PR. On the author's own PR they go in the linked issue, opened for the purpose when there is none, so the PR body stays what the human reviewer reads.
+- **Keep the cost visible.** When a PR exists, start each round by re-reading its comments and reviews. Track the loop's total time, not each round's, and tell the user once it runs long (past about 30 minutes), or when two rounds in a row find only bugs the previous fix introduced: then the fix approach is the problem.
 
 ## Posting the summary (Phase 5)
 
