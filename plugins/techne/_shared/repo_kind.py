@@ -25,9 +25,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import doctor_lib  # ty: ignore[unresolved-import]
-from git_env import GITHUB_REMOTE, without_repo_overrides  # ty: ignore[unresolved-import]
-from project_board import techne_toml  # ty: ignore[unresolved-import]
+import doctor_lib
+from git_env import GITHUB_REMOTE, without_repo_overrides
+from project_board import techne_toml
 
 TIMEOUT = 10
 SKILL_CONTEXT = ".claude/skill-context.md"
