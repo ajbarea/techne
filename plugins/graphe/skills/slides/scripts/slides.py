@@ -631,7 +631,7 @@ def contribution_findings(marked: list[tuple[int, bool]]) -> list[Finding]:
     if not marked:
         return [
             Finding(
-                WARN,
+                BLOCK,
                 "contribution",
                 "no slide carries data-contribution; mark the one slide, among the first few "
                 "after the agenda, that says what we did and why this audience should care",
@@ -641,7 +641,7 @@ def contribution_findings(marked: list[tuple[int, bool]]) -> list[Finding]:
     if len(marked) > 1:
         out.append(
             Finding(
-                WARN,
+                BLOCK,
                 "contribution",
                 f"data-contribution on slides {[n for n, _ in marked]}; one slide states it",
             )
@@ -650,7 +650,7 @@ def contribution_findings(marked: list[tuple[int, bool]]) -> list[Finding]:
     if number > CONTRIBUTION_LATEST:
         out.append(
             Finding(
-                WARN,
+                BLOCK,
                 "contribution",
                 f"the contribution slide is slide {number}; move it to slide "
                 f"{CONTRIBUTION_LATEST} or earlier (title, agenda, then the first content slides)",
@@ -660,7 +660,7 @@ def contribution_findings(marked: list[tuple[int, bool]]) -> list[Finding]:
     if not has_notes:
         out.append(
             Finding(
-                WARN,
+                BLOCK,
                 "contribution",
                 "no script on the contribution slide; the notes say the why-you-should-care "
                 "line aloud",
