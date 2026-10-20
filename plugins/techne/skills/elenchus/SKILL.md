@@ -95,6 +95,15 @@ Severity-ranked, most-actionable first. Each finding:
 
 Close with: a one-line **merge verdict** (mergeable / hold on finding #N / not mergeable + why), and a **Verified clean** list of what you checked and cleared.
 
+## When the review loop ends
+
+A change often takes several rounds: review, fix, review again. Fix each confirmed finding with a regression test that runs in CI, so every round leaves the suite stronger. The loop has no fixed round count. It ends on what the last round found.
+
+- **Keep going** while a round confirms a finding that breaks the load-bearing claim (Phase 0) on an input the change will really receive.
+- **Stop** when a round confirms nothing of that kind: what remains is crafted or adversarial input the change never sees, or nothing. Past that point another inspection adds elapsed time, not caught defects: in a controlled industrial experiment, a second inspection with repairs in between did not significantly raise detection but lengthened the interval ([Porter et al., IEEE TSE 23(6), 1997](https://doi.org/10.1109/32.601071)).
+- **Write the stop down.** Findings left open go in the Phase 5 comment on someone else's PR, or in the linked issue (the PR description when there is none) on the author's own. A PR left waiting with the reason only in a session reads as abandoned.
+- **Keep the cost visible.** Start each round by re-reading the PR's comments and reviews. If one round runs past about 30 minutes, tell the user before starting the next.
+
 ## Posting the summary (Phase 5)
 
 Default: after emitting the in-session report, post a **single** distilled comment to the PR. Write the body to a temp file and post with `gh pr comment <N> --body-file <file>` (a file, not inline `--body`, so multi-line Markdown survives). One comment per run — never inline per-line comments, never a multi-comment dump. Post even on a clean pass; the record that the change was scrutinized is the point.

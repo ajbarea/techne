@@ -11,6 +11,13 @@ has crept in; extract it back to ROADMAP.
 
 ## In flight
 
+### elenchus: when the review loop ends (feat/elenchus-iterating)
+
+Done: `## When the review loop ends` in the elenchus SKILL.md and docs page. No fixed round count;
+stop when a round confirms nothing that breaks the load-bearing claim on a real input; write the
+stop on the PR or its issue. Next: CI green (`plugin-validate` and `plugin-test` need Linux npx,
+so they ran only in CI), independent review, squash-merge. Verify: `make validate`.
+
 ### Landed: resume state from the branch's IMPL.md (#180)
 
 `_shared/resume_state.py` reads a worktree's state from local git (IMPL.md compared at the

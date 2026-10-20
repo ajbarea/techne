@@ -61,6 +61,10 @@ The comment publishes the work rather than the machinery. It never claims the re
 
 Skipped when there is no open PR, or when you say to keep the review local.
 
+## When the review loop ends
+
+Review, fix and review again until a round confirms nothing that breaks the change's load-bearing claim on a real input. Each fix lands with a regression test that runs in CI. There is no fixed round count: the loop stops when what remains is crafted or adversarial input the change never sees. Findings left open are written on the PR or its linked issue, so a waiting PR says why it waits. A second inspection after repairs adds elapsed time more than caught defects ([Porter et al., 1997](https://doi.org/10.1109/32.601071)).
+
 ## Configuration
 
 Reads optional per-repo hints from the `## elenchus` section of `.claude/skill-context.md`: known destructive operations, load-bearing surfaces, reproduce recipes, and what "the feature works" means in this repo. Falls back to `## audit`, `## theoros`, then the `Makefile`. Runs without any config.
