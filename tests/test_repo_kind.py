@@ -135,10 +135,21 @@ def test_owner_solo_is_not_trusted_on_its_own(rk, repo, no_toml):
     assert rk.classify(str(repo), no_toml)[0] == "team"
 
 
-def test_an_owner_line_outside_the_repo_section_is_ignored(rk, origin, no_toml, gh):
-    skill_context(origin, "## repo\n- name: x\n\n## audit\n- owner: team\n")
-    mine(gh)
-    assert rk.classify(str(origin), no_toml)[0] == "solo"
+@pytest.mark.parametrize(
+    "body",
+    [
+        "## audit\n- owner: team\n",
+        "- owner: team\n\n## repo\n- name: x\n",
+        "## repo\n* owner: team\n",
+        "## repo\n+ owner: team\n",
+        "## repo\n- **owner:** team\n",
+    ],
+    ids=["other-section", "above-headings", "star", "plus", "bold"],
+)
+def test_an_owner_team_line_counts_anywhere_in_any_form(rk, origin, no_toml, gh, body):
+    mine(gh)  # GitHub alone would say solo, so team must come from the signal
+    skill_context(origin, body)
+    assert rk.classify(str(origin), no_toml)[0] == "team"
 
 
 def test_a_sister_marked_team_is_team(rk, origin, tmp_path, gh):
@@ -290,7 +301,7 @@ def test_the_shipped_template_does_not_mark_a_repo_team(rk):
     from conftest import ROOT
 
     template = ROOT / "plugins/techne/skills/setup/skill-context.template.md"
-    assert not rk.OWNER_TEAM.search(rk.repo_section(template.read_text(encoding="utf-8")))
+    assert not rk.OWNER_TEAM.search(template.read_text(encoding="utf-8"))
 
 
 @pytest.mark.parametrize("line", ["owner: team", 'owner: "team"', "  - Owner: TEAM (lab)"])
@@ -368,3 +379,55 @@ def test_unlistable_invitations_are_team(rk, origin, no_toml, gh):
     gh.register(PUSHERS, stdout=f"{ME}\n")
     gh.register(INVITED, returncode=1)
     assert rk.classify(str(origin), no_toml)[0] == "team"
+
+
+# ----------------------------------------------------- round-5 regressions --
+
+
+def test_a_non_utf8_toml_reads_as_team(rk, origin, tmp_path, gh):
+    mine(gh)  # GitHub alone would say solo, so team must come from the signal
+    bad = tmp_path / "techne.toml"
+    bad.write_bytes(b"# caf\xe9\nworkspace_root = '/x'\n")
+    kind, why = rk.classify(str(origin), bad)
+    assert kind == "team" and why.startswith("cannot read")
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://git.example.org/mirrors/github.com/ajbarea/myrepo",
+        "https://evilgithub.com/ajbarea/myrepo",
+    ],
+)
+def test_an_origin_on_another_host_is_not_checked_on_github(rk, repo, no_toml, gh, url):
+    mine(gh)  # GitHub alone would say solo, so team must come from the host check
+    git(repo, "remote", "add", "origin", url)
+    assert rk.classify(str(repo), no_toml) == (
+        "team",
+        "no GitHub origin to check ownership against",
+    )
+
+
+def test_every_plugin_ships_the_same_git_env():
+    from conftest import ROOT
+
+    source = ROOT / "plugins/techne/_shared/git_env.py"
+    copies = sorted(ROOT.glob("plugins/*/_shared/git_env.py"))
+    assert len(copies) >= 2
+    for copy in copies:
+        assert copy.read_bytes() == source.read_bytes(), copy
+
+
+def test_running_the_script_writes_no_bytecode_into_the_plugin(tmp_path):
+    import shutil
+
+    from conftest import HOOK_PYTHON, ROOT
+
+    shared = tmp_path / "_shared"
+    shutil.copytree(
+        ROOT / "plugins/techne/_shared", shared, ignore=shutil.ignore_patterns("__pycache__")
+    )
+    repo = init(tmp_path / "plain")
+    env = {"HOME": str(tmp_path), "PATH": __import__("os").environ["PATH"]}
+    subprocess.run([HOOK_PYTHON, str(shared / "repo_kind.py"), str(repo)], env=env, check=True)
+    assert not (shared / "__pycache__").exists()

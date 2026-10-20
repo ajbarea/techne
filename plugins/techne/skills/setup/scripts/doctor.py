@@ -116,7 +116,7 @@ def checks(platform: d.Platform, repo: Path) -> list[d.Check]:
             minimum=(3, 11),
             why=(
                 "techne:catchup, techne:sisters and techne:board need 3.11; "
-                "docsync and ci-audit ask on every repo below it"
+                "below it, docsync and ci-audit ask on every repo when techne.toml exists"
             ),
         ),
         d.program(platform, "tmux", "tmux", version_argv=("-V",), why="techne:theoros"),

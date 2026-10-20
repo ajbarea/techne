@@ -110,7 +110,7 @@ The [template](https://github.com/ajbarea/techne/blob/main/plugins/techne/skills
 
 | Section | Read by | Keys |
 |---|---|---|
-| `## repo` | `docsync`, `audit`, `research-grounded`, `ci-audit` | One paragraph on what the repo is, its CLI entrypoint and runner module. Optional `owner: team` to make skills ask before acting (see [Solo and team repos](#solo-and-team-repos)). |
+| `## repo` | `docsync`, `audit`, `research-grounded`, `ci-audit` | One paragraph on what the repo is, its CLI entrypoint and runner module. Optional `- owner: team` to make skills ask before acting (see [Solo and team repos](#solo-and-team-repos)). |
 | `## audit` | `audit`, `elenchus` (its test command) | `phases` (targets in dependency order), `fast_subset`, `stop_early`, `log_archive_glob`, `do_not_run`. |
 | `## ci_audit` | `ci-audit` | `referenced_configs` (files whose edit changes CI output), `tool_error_markers`. |
 | `## slop_ground_truth` | `deslop`, `reslop`, `docsync` | `authoritative_sources`, `test_locations`: what a claim is checked against. |
@@ -136,7 +136,7 @@ The [template](https://github.com/ajbarea/techne/blob/main/plugins/techne/skills
 
 `docsync` and `ci-audit` act on a solo repo and ask on a team repo. A solo repo is yours alone, so a fix the evidence settles is applied without a question. A team repo has other people working in it, so the skill proposes and you choose. `_shared/repo_kind.py` decides, and only GitHub facts about you can make a repo solo: it is not in an organization, you administer it, nobody else can push, and it is not a fork of a live upstream unless it is one of your sisters. Two signals can only make it team, and are checked first:
 
-1. an `owner: team` line (with or without a leading `-`) under `## repo` in the repo's `.claude/skill-context.md`, in the working copy, the current commit or the default branch, so a committed line reaches every collaborator;
+1. an `owner: team` line anywhere in the repo's `.claude/skill-context.md` (any bullet or none, bold or quoted), in the working copy, the current commit or the default branch, so a committed line reaches every collaborator;
 2. `kind = "team"` on the repo's `[[sisters]]` entry in `~/.claude/techne.toml`, matched by its path under `workspace_root`.
 
 An `- owner: solo` line is not trusted on its own, since it is true only for its author. Anything unsettled, such as no GitHub origin, `gh` failing or a `techne.toml` that cannot be read, is treated as team, so a skill never edits someone else's repo without asking. Run `python3 plugins/techne/_shared/repo_kind.py <path>` to see the answer and the reason for any repo or file. `techne:sisters` reads the roster `kind` on its own, for conventions only a solo repo follows (the README masthead); acting without asking always goes through these facts.

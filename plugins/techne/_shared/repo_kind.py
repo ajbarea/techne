@@ -4,8 +4,8 @@ Only GitHub facts about the signed-in user can make a repo solo: not in an organ
 user administers it, nobody else can push, and it is not a fork of a live upstream (unless the
 user lists it as a sister, which says the fork is their own line of work). Other signals can
 only make it team, and are checked first because they need no network:
-1. an `- owner: team` line under `## repo` in the repo's `.claude/skill-context.md`, in the
-   working tree, the current commit or the default branch;
+1. an `owner: team` line anywhere in the repo's `.claude/skill-context.md` (any bullet, bold
+   or quoted), in the working tree, the current commit or the default branch;
 2. its `[[sisters]]` entry, matched by path (`workspace_root/<name>`), in ~/.claude/techne.toml
    with `kind = "team"`.
 Anything unsettled (no repo, no GitHub origin, gh failing, techne.toml present but unreadable)
@@ -24,16 +24,20 @@ import re
 import sys
 from pathlib import Path
 
+sys.dont_write_bytecode = True  # the plugin cache stays as installed
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import doctor_lib
-from git_env import GITHUB_REMOTE, without_repo_overrides
-from project_board import techne_toml
+import doctor_lib  # noqa: E402
+from git_env import GITHUB_REMOTE, without_repo_overrides  # noqa: E402
+from project_board import techne_toml  # noqa: E402
 
 TIMEOUT = 10
 SKILL_CONTEXT = ".claude/skill-context.md"
-# `- owner: team`, `owner: team` or `owner: "team"`, as other skill-context keys are written.
-OWNER_TEAM = re.compile(r"""^\s*(?:-\s*)?owner:\s*["']?team\b""", re.IGNORECASE | re.MULTILINE)
-REPO_SECTION = re.compile(r"^##[ \t]+repo\b[^\n]*\n(.*?)(?=^##[ \t]|\Z)", re.I | re.M | re.S)
+# An owner: team line in any common Markdown form: any bullet or none, bold or not, quoted or
+# not. It can only make a repo team, so it counts anywhere in the file, not only under ## repo.
+OWNER_TEAM = re.compile(
+    r"""^\s*(?:[-*+]\s+)?[*_]{0,2}owner[*_]{0,2}\s*:\s*[*_]{0,2}\s*["'`]?team\b""",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 
 class TomlUnreadable(Exception):
@@ -55,12 +59,6 @@ def as_directory(path: str) -> Path:
     return target if target.is_dir() else target.parent
 
 
-def repo_section(text: str) -> str:
-    """The body of the `## repo` section of a skill-context file, or ''."""
-    match = REPO_SECTION.search(text)
-    return match.group(1) if match else ""
-
-
 def marked_team_in_repo(where: str, top: Path) -> bool:
     """An owner: team line in the working tree, the current commit or the default branch."""
 
@@ -72,7 +70,7 @@ def marked_team_in_repo(where: str, top: Path) -> bool:
         for ref in ("HEAD", "origin/HEAD"):
             yield sh("git", "-C", where, "show", f"{ref}:{SKILL_CONTEXT}") or ""
 
-    return any(OWNER_TEAM.search(repo_section(text)) for text in texts())
+    return any(OWNER_TEAM.search(text) for text in texts())
 
 
 def sister_entry(checkouts: set[Path], path: Path) -> dict | None:
@@ -86,7 +84,7 @@ def sister_entry(checkouts: set[Path], path: Path) -> dict | None:
     try:
         with path.open("rb") as f:
             cfg = tomllib.load(f)
-    except (OSError, tomllib.TOMLDecodeError) as exc:
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
         raise TomlUnreadable(f"cannot read {path}: {exc}") from exc
     root, sisters = cfg.get("workspace_root"), cfg.get("sisters")
     if not isinstance(root, str) or not isinstance(sisters, list):
