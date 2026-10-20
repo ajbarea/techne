@@ -58,7 +58,7 @@ Walk every cell. For each, either find the falsifying case or explicitly clear i
 Emit the structured report (format below). End with an explicit merge verdict and what you are holding on, if anything.
 
 ### Phase 5 — Post the distilled summary
-If an open PR exists for the branch under review **and someone else opened it**, post the distilled summary (contract in **Posting the summary** below) as a **single** `gh pr comment`. This is default behavior, not opt-in — the review of record belongs on the PR. Skip when there is no PR, when the account owner opened it, or when the invoker explicitly said to keep it local; the report then stays in-session (except open findings when the review loop ends; see **When the review loop ends**).
+If an open PR exists for the branch under review **and someone else opened it**, post the distilled summary (contract in **Posting the summary** below) as a **single** `gh pr comment`. This is default behavior, not opt-in — the review of record belongs on the PR. Skip when there is no PR, when the account owner opened it, or when the invoker explicitly said to keep it local; the report then stays in-session (on your own PR, open findings at the end of the review loop go to its linked issue unless told to keep it local; see **When the review loop ends**).
 
 Derive authorship before posting — never assume.
 
@@ -97,11 +97,12 @@ Close with: a one-line **merge verdict** (mergeable / hold on finding #N / not m
 
 ## When the review loop ends
 
-A change often takes several rounds: review, fix, review again. The author fixes each finding, with a regression test that runs in CI wherever the finding is testable. On someone else's PR that author is the PR's owner: a round ends with the Phase 5 comment, and the next round starts when the owner pushes. When a PR exists, start each round by re-reading its comments and reviews. The loop has no fixed round count. It ends on what the last round found.
+A change often takes several rounds: review, fix, review again. The PR's owner fixes each finding, with a regression test that runs in CI wherever the finding is testable. On someone else's PR a round ends with the Phase 5 comment, and the next round starts when the owner pushes. When a PR exists, start each round by re-reading its comments and reviews. The loop has no fixed round count. It ends on what the last round found.
 
-- **Keep going** while a round has a Blocking or Should-fix finding (see Output format) on a reachable input: one that a caller in the repo, or a documented usage, can produce. A finding not yet reproduced gets one reproduction attempt in the next round.
-- **Stop** when what remains is Minor, Informational, or needs an input no caller and no documented usage can produce. Also stop when a Blocking or Should-fix finding still cannot be reproduced after that attempt: record it as open and hold the merge on it.
-- **Write the stop down.** Blocking or Should-fix findings left open go in the Phase 5 comment on someone else's PR. On the author's own PR they go in the linked issue, opened for the purpose when there is none, so a waiting PR says why it waits; this is the one exception to the in-session rule below. Minor findings stay in-session. Honor "keep it local": then everything stays in-session.
+- **Reproduce before reporting.** Before a round's report, make one attempt to reproduce each Blocking or Should-fix finding not yet reproduced. One that still fails stays PLAUSIBLE and is recorded as open: it holds the merge, but does not by itself keep the loop going.
+- **Keep going** while the round has a reproduced Blocking or Should-fix finding (see Output format) on a reachable input: one that a caller in the repo, or a documented usage, can produce.
+- **Stop** in every other case: what remains is Minor, Informational, unreachable, or recorded as open.
+- **Write the stop down.** Open Blocking or Should-fix findings go in the Phase 5 comment on someone else's PR. On a PR the account owner opened, they go in its linked issue when one exists, under the same contract as the Phase 5 comment (account owner's voice, no provenance); with no linked issue, tell the user the PR waits on them. Minor findings stay in-session, and "keep it local" keeps everything in-session.
 - **Pause when it runs long.** Count the reviewer's own working time across rounds, not time spent waiting for the owner. Stop and report when that passes the budget the user set, or when two rounds in a row find only bugs the previous fix introduced (then the fix approach is the problem); resume only on the user's go-ahead. With no budget set, ask for one before starting a third round.
 
 ## Posting the summary (Phase 5)
@@ -119,7 +120,7 @@ gh api user --jq .login                              # the account the comment p
 gh pr view <N> --json author --jq .author.login      # who opened the PR
 ```
 
-**Author == account owner → do not post.** The report stays in-session for the account owner to act on (findings still open when the review loop ends go to the linked issue; see **When the review loop ends**): fix the findings on the branch, and let the squash carry the result. A review comment on your own PR is the author talking to themselves in front of the reviewer, who reads the final diff, not the branch's history; it clutters the thread, and a verdict there pre-empts the human reviewer this entire method depends on.
+**Author == account owner → do not post.** The report stays in-session for the account owner to act on (Blocking or Should-fix findings still open when the review loop ends go to its linked issue, when one exists; see **When the review loop ends**): fix the findings on the branch, and let the squash carry the result. A review comment on your own PR is the author talking to themselves in front of the reviewer, who reads the final diff, not the branch's history; it clutters the thread, and a verdict there pre-empts the human reviewer this entire method depends on.
 
 **Author ≠ account owner** — the comment is, in order:
 
