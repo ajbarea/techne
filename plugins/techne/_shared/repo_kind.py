@@ -99,6 +99,19 @@ def is_team(sister: dict) -> bool:
     return kind_of(sister) == "team"
 
 
+def same_remote(root: object, name: str, slug: tuple[str, str] | None) -> bool:
+    """Whether the roster checkout workspace_root/<name> has this origin, so another clone of a
+    team sister whose folder and GitHub names differ still matches it. Run for team entries only,
+    since only a team match changes the answer."""
+    if not slug or not isinstance(root, str):
+        return False
+    checkout = Path(root).expanduser() / name
+    if not checkout.is_dir():
+        return False
+    theirs = github_slug(sh("git", "-C", str(checkout), "remote", "get-url", "origin") or "")
+    return bool(theirs) and tuple(p.lower() for p in theirs) == tuple(p.lower() for p in slug)
+
+
 def sister_entry(checkouts: set[Path], slug: tuple[str, str] | None, path: Path) -> dict | None:
     """The [[sisters]] table for this repo, or None: matched by workspace_root/<name> against
     the checkout paths, or by name when the origin is <github_user>/<name> (another clone)."""
@@ -126,7 +139,7 @@ def sister_entry(checkouts: set[Path], slug: tuple[str, str] | None, path: Path)
             isinstance(root, str) and (Path(root).expanduser() / sister["name"]).resolve() in here
         )
         by_slug = mine and slug is not None and sister["name"].lower() == slug[1].lower()
-        if by_path or by_slug:
+        if by_path or by_slug or (is_team(sister) and same_remote(root, sister["name"], slug)):
             matches.append(sister)
     # A team entry wins over any other entry the same repo matches.
     teams = [m for m in matches if is_team(m)]
@@ -155,7 +168,12 @@ def from_github(owner: str, name: str, fork_ok: bool = False) -> tuple[str, str]
             "--jq", ".[] | select(.permissions.push) | .login",
         )  # fmt: skip
         inviting = pool.submit(
-            sh, *api, "--paginate", f"repos/{slug}/invitations", "--jq", ".[].invitee.login"
+            sh,
+            *api,
+            "--paginate",
+            f"repos/{slug}/invitations",
+            "--jq",
+            '.[] | (.invitee.login // "an-email-invitee")',
         )
         raw, pushers, invited = querying.result(), pushing.result(), inviting.result()
     try:
@@ -193,16 +211,22 @@ def from_github(owner: str, name: str, fork_ok: bool = False) -> tuple[str, str]
     return "solo", f"{the_owner} owns {slug} and is its only collaborator with push access"
 
 
-_SCP_REMOTE = re.compile(r"^(?:[^@/\s]+@)?([^:/\s]+):([^/\s]+)/([^/\s]+?)(?:\.git)?/?$")
+# A remote through an ssh host alias, scp form (git@github-work:o/r) or URL form
+# (ssh://git@github-work/o/r): host, owner, name.
+_ALIAS_REMOTE = re.compile(
+    r"^(?:ssh://)?(?:[^@/\s]+@)?([^:/\s]+)(?:(?<=[^/]):(?!\d+/)|(?::\d+)?/)"
+    r"([^/\s]+)/([^/\s]+?)(?:\.git)?/?$"
+)
 
 
 def github_slug(url: str) -> tuple[str, str] | None:
-    """owner/name of a GitHub remote, including an scp-style remote through an ssh host alias
-    (git@github-work:o/r, as several-account setups use) that `ssh -G` resolves to github.com."""
+    """owner/name of a GitHub remote, including one through an ssh host alias (git@github-work:o/r
+    or ssh://git@github-work/o/r, as several-account setups use) that `ssh -G` resolves to
+    github.com."""
     found = GITHUB_REMOTE.search(url)
     if found:
         return found.group(1), found.group(2)
-    scp = _SCP_REMOTE.match(url)
+    scp = _ALIAS_REMOTE.match(url)
     if not scp:
         return None
     if scp.group(1).startswith("-"):  # never hand ssh an option from a remote URL

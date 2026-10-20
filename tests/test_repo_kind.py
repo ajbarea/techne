@@ -35,7 +35,7 @@ PUSHERS = [
 ]  # fmt: skip
 INVITED = [
     "gh", "api", "--hostname", "github.com", "--paginate", f"repos/{SLUG}/invitations",
-    "--jq", ".[].invitee.login",
+    "--jq", '.[] | (.invitee.login // "an-email-invitee")',
 ]  # fmt: skip
 MINE = json.dumps(
     {
@@ -677,3 +677,28 @@ def test_a_remote_host_starting_with_a_dash_never_reaches_ssh(rk, repo, no_toml,
         "no GitHub origin to check ownership against",
     )
     assert gh.call_count(["ssh", gh.any()]) == 0
+
+
+# ---------------------------------------------------- round-11 regressions --
+
+
+def test_another_clone_of_a_team_sister_with_another_folder_name_is_team(rk, tmp_path, gh):
+    mine(gh)  # GitHub alone would say solo, so team must come from the roster
+    roster_checkout = init(tmp_path / "ws" / "lab-site")
+    git(roster_checkout, "remote", "add", "origin", f"git@github.com:{SLUG}.git")
+    clone = init(tmp_path / "scratch" / "elsewhere")
+    git(clone, "remote", "add", "origin", f"https://github.com/{SLUG}")
+    toml = roster(tmp_path, tmp_path / "ws", 'name = "lab-site"\nkind = "team"')
+    assert rk.classify(str(clone), toml)[0] == "team"
+
+
+def test_a_url_form_ssh_alias_is_followed(rk, repo, no_toml, gh):
+    git(repo, "remote", "add", "origin", f"ssh://git@github-work/{SLUG}.git")
+    gh.register(["ssh", "-G", "--", "github-work"], stdout="hostname github.com\n")
+    mine(gh)
+    assert rk.classify(str(repo), no_toml)[0] == "solo"
+
+
+def test_an_email_invitation_is_named_plainly(rk, origin, no_toml, gh):
+    mine(gh, invited="an-email-invitee\n")
+    assert rk.classify(str(origin), no_toml) == ("team", f"an-email-invitee is invited to {SLUG}")

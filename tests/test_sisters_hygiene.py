@@ -596,7 +596,7 @@ def test_env_prints_the_audit_preamble_variables(tmp_path):
 
 def test_a_team_kind_counts_in_any_case(tmp_path):
     """The same rule repo_kind.py applies, so the two readers agree on one roster entry."""
-    proc = run_env(tmp_path, GOOD.replace('kind = "team"', 'kind = "Team"'))
+    proc = run_env(tmp_path, GOOD.replace('kind = "team"', 'kind = " Team "'))
     assert proc.returncode == 0, proc.stderr
     assert "TEAM_SISTERS=b" in proc.stdout.splitlines()
 
