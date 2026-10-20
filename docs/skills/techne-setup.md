@@ -27,7 +27,7 @@ The skill runs a doctor script that only reads, then follows the [setup runbook]
 | `git` | Every skill. |
 | `gh`, `gh-auth` | `catchup`, `ci-audit`, `sisters`, `elenchus`, `auto-commit`. Sign-in is checked for `GH_HOST`, else `github.com`. |
 | `uv` | `docs-site`, `elenchus`, and most repos' make targets. |
-| `python3` | 3.11 or newer for `catchup` and `sisters`. |
+| `python3` | 3.11 or newer for `catchup`, `sisters` and `board`. The board hook runs on 3.9. |
 | `tmux` | `theoros`. |
 | `chromium` | Optional. Playwright's Chromium for the docs-site visual check. |
 | `lsof` | macOS only: `sisters` clean mode. |
