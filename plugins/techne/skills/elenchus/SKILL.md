@@ -97,12 +97,12 @@ Close with: a one-line **merge verdict** (mergeable / hold on finding #N / not m
 
 ## When the review loop ends
 
-A change often takes several rounds: review, fix, review again. The author fixes each finding, with a regression test that runs in CI wherever the finding is testable. On someone else's PR that author is the PR's owner, and the next round re-reviews the fix. The loop has no fixed round count. It ends on what the last round found.
+A change often takes several rounds: review, fix, review again. The author fixes each finding, with a regression test that runs in CI wherever the finding is testable. On someone else's PR that author is the PR's owner: a round ends with the Phase 5 comment, and the next round starts when the owner pushes. The loop has no fixed round count. It ends on what the last round found.
 
-- **Keep going** while a round has a Blocking or Should-fix finding (the Output format scale) on a reachable input: one that a caller in the repo, or a documented usage, can produce. Before stopping, reproduce each PLAUSIBLE Blocking finding or record it as open.
-- **Stop** when what remains is Minor, Informational, or needs an input no caller and no documented usage can produce. Another pass is not a reliable source of more catches: in an industrial study of human code inspection, a second inspection with repairs in between did not significantly raise detection, and for two-person teams it doubled the median interval ([Porter et al., IEEE TSE 23(6), 1997](https://doi.org/10.1109/32.601071)).
-- **Write the stop down.** Findings left open go in the Phase 5 comment on someone else's PR. On the author's own PR they go in the linked issue, opened for the purpose when there is none, so the PR body stays what the human reviewer reads.
-- **Keep the cost visible.** When a PR exists, start each round by re-reading its comments and reviews. Track the loop's total time, not each round's, and tell the user once it runs long (past about 30 minutes), or when two rounds in a row find only bugs the previous fix introduced: then the fix approach is the problem.
+- **Keep going** while a round has a Blocking or Should-fix finding (see Output format) on a reachable input: one that a caller in the repo, or a documented usage, can produce. An unreproduced Blocking or Should-fix finding counts as reachable until shown otherwise.
+- **Stop** when what remains is Minor, Informational, or needs an input no caller and no documented usage can produce. A Blocking or Should-fix finding that cannot be reproduced also stops the loop: record it as open and hold the merge on it.
+- **Write the stop down.** Findings left open go in the Phase 5 comment on someone else's PR. On the author's own PR they go in the linked issue, opened for the purpose when there is none, so a waiting PR says why it waits; this is the one exception to the in-session rule below. Honor "keep it local": then they stay in-session.
+- **Pause when it runs long.** When a PR exists, start each round by re-reading its comments and reviews. Track the loop's total time, not each round's. Stop and report, and start another round only on the user's go-ahead, once it passes the budget the user set (about 30 minutes when none was set), or when two rounds in a row find only bugs the previous fix introduced: then the fix approach is the problem.
 
 ## Posting the summary (Phase 5)
 
@@ -119,7 +119,7 @@ gh api user --jq .login                              # the account the comment p
 gh pr view <N> --json author --jq .author.login      # who opened the PR
 ```
 
-**Author == account owner → do not post.** The report stays in-session for the account owner to act on: fix the findings on the branch, and let the squash carry the result. A review comment on your own PR is the author talking to themselves in front of the reviewer, who reads the final diff, not the branch's history; it clutters the thread, and a verdict there pre-empts the human reviewer this entire method depends on.
+**Author == account owner → do not post.** The report stays in-session for the account owner to act on (findings still open when the review loop ends go to the linked issue; see **When the review loop ends**): fix the findings on the branch, and let the squash carry the result. A review comment on your own PR is the author talking to themselves in front of the reviewer, who reads the final diff, not the branch's history; it clutters the thread, and a verdict there pre-empts the human reviewer this entire method depends on.
 
 **Author ≠ account owner** — the comment is, in order:
 

@@ -63,7 +63,7 @@ Skipped when there is no open PR, or when you say to keep the review local.
 
 ## When the review loop ends
 
-Review, fix and review again while a round has a blocking or should-fix finding on an input that a caller or a documented usage can produce. The author makes each fix, with a regression test in CI where the finding is testable. There is no fixed round count. Findings left open go in the review comment on someone else's PR, or in the linked issue on your own, so a waiting PR says why it waits. A repeat inspection is not a reliable source of more catches: in an industrial study, a second inspection after repairs did not significantly raise detection ([Porter et al., 1997](https://doi.org/10.1109/32.601071)).
+Review, fix and review again while a round has a blocking or should-fix finding on an input that a caller or a documented usage can produce. The PR's owner makes each fix, with a regression test in CI where the finding is testable. There is no fixed round count. A finding that cannot be reproduced is recorded as open and holds the merge. Findings left open go in the review comment on someone else's PR, or in the linked issue on your own (opened for the purpose when there is none), so a waiting PR says why it waits. A long loop pauses for your go-ahead: past your time budget, or when two rounds in a row find only bugs the previous fix introduced.
 
 ## Configuration
 

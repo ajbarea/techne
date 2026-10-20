@@ -14,8 +14,10 @@ has crept in; extract it back to ROADMAP.
 ### elenchus: when the review loop ends (feat/elenchus-iterating)
 
 Done: `## When the review loop ends` in the elenchus SKILL.md and docs page. No fixed round count;
-stop when a round confirms nothing that breaks the load-bearing claim on a real input; write the
-stop on the PR or its issue. Next: CI green (`plugin-validate` and `plugin-test` need Linux npx,
+continue while a round has a Blocking or Should-fix finding on a reachable input; open findings go
+in the Phase 5 comment or, on your own PR, the linked issue; a long loop pauses for the user.
+Two review rounds so far; Porter et al. 1997 dropped (it found two sessions beat one for
+one-person teams, so it does not back the stop rule). Next: CI green (`plugin-validate` and `plugin-test` need Linux npx,
 so they ran only in CI), independent review, squash-merge. Verify: `make validate`.
 
 ### Landed: resume state from the branch's IMPL.md (#180)
