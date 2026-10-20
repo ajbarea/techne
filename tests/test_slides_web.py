@@ -267,15 +267,15 @@ def test_the_starter_marks_its_contribution_slide(sl, web):
 
 
 @needs_browser
-def test_a_deck_with_no_contribution_slide_warns(sl, web, gates):
+def test_a_deck_with_no_contribution_slide_blocks(sl, web, gates):
     path = web("<section data-contribution>", "<section>")
     found = _check(sl, path)
-    assert ("WARN", "contribution") in gates(found)
-    assert sl.verdict(found)[0] == 0
+    assert ("BLOCK", "contribution") in gates(found)
+    assert sl.verdict(found)[0] != 0
 
 
 @needs_browser
-def test_a_contribution_slide_after_the_opening_warns(sl, web):
+def test_a_contribution_slide_after_the_opening_blocks(sl, web):
     start = web.index.read_text().index("<section data-contribution>")
     text = web.index.read_text()
     end = text.index("</section>", start) + len("</section>\n\n")
@@ -290,7 +290,7 @@ def test_a_contribution_slide_after_the_opening_warns(sl, web):
 
 
 @needs_browser
-def test_a_contribution_slide_without_notes_warns(sl, web):
+def test_a_contribution_slide_without_notes_blocks(sl, web):
     note = '<aside class="notes">[Here\'s what we did:'
     path = web(note, '<aside class="unused">[Here\'s what we did:')
     found = _contribution(_check(sl, path))
@@ -298,7 +298,7 @@ def test_a_contribution_slide_without_notes_warns(sl, web):
 
 
 @needs_browser
-def test_two_contribution_slides_warn(sl, web):
+def test_two_contribution_slides_block(sl, web):
     path = web(
         '<section data-chapter="1 · The problem">',
         '<section data-contribution data-chapter="1 · The problem">',
