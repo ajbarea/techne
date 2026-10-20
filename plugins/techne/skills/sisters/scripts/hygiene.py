@@ -17,7 +17,8 @@ the --repo names, and sorts what it finds into three groups per repo:
   review   anything a person should decide: unmerged commits, commits added after
            the PR merged, a PR merged elsewhere or closed unmerged, a dirty,
            locked, busy, recently active or ignored-work-holding worktree, a
-           remote branch with no PR or someone else's
+           remote branch with no PR or someone else's. A dirty, idle worktree whose
+           IMPL.md still matches the default branch is marked not resumable.
   info     branches of open PRs, stashes, uncommitted changes in the main checkout
 
 Squash merges leave a branch's own commits outside main forever, so "ahead of
@@ -64,6 +65,7 @@ sys.dont_write_bytecode = True  # the plugin cache stays as installed
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "_shared"))
 import doctor_lib  # noqa: E402  # ty: ignore[unresolved-import]
 from git_env import batch_ssh  # noqa: E402  # ty: ignore[unresolved-import]
+from resume_state import impl_matches  # noqa: E402  # ty: ignore[unresolved-import]
 
 # Stock macOS python3 is 3.9; stop with the fix before the 3.11-only import below.
 # A hook run has nobody to read the fix, so it ends quietly instead.
@@ -417,6 +419,21 @@ def transient(blockers: list[str]) -> bool:
     return any(b in (BUSY_UNKNOWN, BUSY_LIVE) or b.startswith(ACTIVE_PREFIX) for b in blockers)
 
 
+UNRESUMABLE = "not resumable from the branch: its IMPL.md still matches "
+
+
+def resume_gap(wpath: str, base: str, blockers: list[str]) -> str:
+    """Uncommitted work in an idle worktree whose IMPL.md never said what the branch is for.
+
+    A fresh session there, after a restart, has only the diff to go on. Empty when nobody
+    is at work in it, it is clean, or the repo keeps no IMPL.md.
+    """
+    dirty = any(b.endswith(" uncommitted change(s)") for b in blockers)
+    if not dirty or transient(blockers) or impl_matches(wpath, base) is not True:
+        return ""
+    return UNRESUMABLE + base
+
+
 def leftover(after: str, pr: dict | None, hold: list[str]) -> str:
     """Item.left for a branch or worktree: `after` is its group with its holds applied.
 
@@ -477,6 +494,8 @@ def collect(name: str, path: str, slug: str, me: str, prs: dict[str, dict]) -> l
         blockers += worktree_blockers(wpath, others, busy)
         if blockers:
             group, reason = "review", reason + "; " + ", ".join(blockers)
+            gap = resume_gap(wpath, base, blockers)
+            reason += f"; {gap}" if gap else ""
         left = leftover(group, prs.get(branch), blockers) if group == "review" else ""
         merged = bool(prs.get(branch) and prs[branch]["state"] == "MERGED")
         items.append(

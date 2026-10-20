@@ -1,5 +1,5 @@
 {
-  "description": "Opt-in: when a session starts or resumes, remove worktrees and branches whose PR already merged, and list what a merge left behind. Off until switched on in /config.",
+  "description": "Opt-in: when a session starts or resumes, remove worktrees and branches whose PR already merged, and list what a merge left behind; and tell the session where the branch's work stands, from IMPL.md and local git. Each is off until switched on in /config.",
   "hooks": {
     "SessionStart": [
       {
@@ -10,6 +10,16 @@
             "command": "case \"$CLAUDE_PLUGIN_OPTION_CLEAN_FINISHED_WORK\" in true) exec python3 \"${CLAUDE_PLUGIN_ROOT}/skills/sisters/scripts/hygiene.py\" --auto --hook ;; esac",
             "async": true,
             "timeout": 300
+          }
+        ]
+      },
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "case \"$CLAUDE_PLUGIN_OPTION_RESUME_BRIEF\" in true) exec python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/resume_brief.py\" ;; esac",
+            "timeout": 30
           }
         ]
       }

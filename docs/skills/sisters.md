@@ -36,6 +36,8 @@ Squash merges leave every merged branch "ahead of main", so ahead counts can't t
 - a remote branch with no PR, or someone else's
 - a stash
 
+The report marks a dirty, idle worktree whose `IMPL.md` still matches the default branch as not resumable: a session that starts there after a restart has only the diff to go on. See [working docs](../conventions.md#implmd-and-roadmapmd-working-docs).
+
 Branch, worktree and stash hygiene, and clean mode, run from `hygiene.py`; the other checks run from the skill's instructions. `hygiene.py --json` prints its survey as JSON, `--env` prints the shell variables `$SISTERS`, `$TEAM_SISTERS`, `$WORKSPACE` and `$GITHUB_USER` (one line and exit 1 when the config is missing, invalid or lists no active sister), and `--repo NAME`, which may repeat, narrows it to named sisters. One broken repo never stops the others. The audit flags open PRs older than 14 days and checks that logs are pruned after 30 days.
 
 Clean mode runs `hygiene.py` in two steps. The first writes the plan, and `--repo NAME` narrows it to one sister:

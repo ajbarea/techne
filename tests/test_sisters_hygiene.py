@@ -226,6 +226,34 @@ def test_a_worktree_someone_may_be_using_is_held(fleet, hy, monkeypatch, setup, 
     assert expected in item.reason
 
 
+@pytest.mark.parametrize(
+    ("setup", "flagged"),
+    [
+        ("stale", True),
+        ("rewritten", False),
+        ("clean", False),
+        ("recent", False),
+        ("no-impl", False),
+    ],
+)
+def test_a_dirty_idle_worktree_that_never_described_itself_is_not_resumable(
+    fleet, hy, monkeypatch, setup, flagged
+):
+    if setup != "no-impl":
+        commit(fleet.path, "IMPL.md")
+        sh(fleet.path, "push", "-q", "origin", "main")
+    fleet.branch("feat/a")
+    path = add_worktree(fleet, "a", "feat/a")
+    if setup != "clean":
+        (path / "work.rs").write_text("unsaved")
+    if setup == "rewritten":
+        (path / "IMPL.md").write_text("Current slice: work.rs")
+    elif setup == "recent":
+        monkeypatch.setattr(hy, "IDLE_SECONDS", 3600)
+    item = fleet.survey()[("worktree", ".claude/worktrees/a")]
+    assert (hy.UNRESUMABLE + "origin/main" in item.reason) is flagged, item.reason
+
+
 def test_a_detached_worktree_with_its_own_commits_is_held(fleet):
     path = fleet.path / ".claude" / "worktrees" / "preview"
     sh(fleet.path, "worktree", "add", "-q", "--detach", str(path), "main")

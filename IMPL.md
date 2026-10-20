@@ -11,6 +11,17 @@ has crept in; extract it back to ROADMAP.
 
 ## In flight
 
+### Now: resume state from the branch's IMPL.md (#180, branch `feat/resume-brief`)
+
+- ✅ `_shared/resume_state.py` reads a worktree's state from local git; `hooks/resume_brief.py`
+  (option `resume_brief`) adds it as SessionStart context; `sisters` marks a dirty, idle
+  worktree whose IMPL.md matches the default branch as not resumable.
+- ✅ Docs: conventions (working docs), techne options page and README, sisters SKILL + page.
+- 📋 Next: `make validate`, elenchus review, PR, merge; then switch the option on in user
+  settings and file the klepsydra card Resume follow-up.
+- Verify: `uv run pytest tests/test_resume_brief.py tests/test_sisters_hygiene.py` and
+  `make test-hooks-oldest`.
+
 ### Landed: heuresis phase 2, the gold set
 
 `scripts/heuresis_gold.py run` (or `make heuresis-gold GUARD=<ideas repo>`) triages each case in
