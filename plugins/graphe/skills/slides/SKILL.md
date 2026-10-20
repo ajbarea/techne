@@ -96,6 +96,7 @@ pass is reported on its own, beside the desktop findings.
 | WARN | `unbound-data` | A path in `window.DECK_DATA` that no `data-*` attribute binds, in the page as built or in its source; a binding in the speaker notes counts, one on a `data-visibility="hidden"` slide does not, and reveal.js's own attributes never do. The data file is published with the deck, so a figure no slide shows (a withheld reading, a cut slide's numbers) still ships: cut it from the file, or generate only the paths `index.html` binds. |
 | WARN | `offline` | The deck fetches from the network, so it fails on a projector laptop with no Wi-Fi. |
 | WARN | `no-notes` / `duplicate-title` | A talk slide with no script, in `<aside class="notes">` or `data-notes` (backup slides are exempt), or two slides a screen reader cannot tell apart. |
+| WARN | `contribution` | A web deck with no slide marked `data-contribution`, more than one, the marked slide after slide 5 (title, agenda, then the first content slides), or no script on it. It checks where the slide is, never what it says; see [What we did and why you should care](#what-we-did-and-why-you-should-care). Not checked on a .pptx or PDF. |
 | REVIEW | `figures` / `dense` | Percentages, ratios, decimals, `x of y` and long numbers (years and digits inside identifiers are labels), or more than 60 words, on talk slides. Slide 1 is exempt, and so is everything after a divider titled exactly `Backup`, `Backup slides` or `Appendix`, or from `--backup-from`. Words inside figures count: a `dense` on a figure-heavy slide is not a reason to cut the figure. |
 | REVIEW | `jargon` | A `--jargon` term on a talk slide. Use the plain word on the slide and the term in a muted footnote. |
 | REVIEW | `long-title` | Titles over 14 words, on every slide. |
@@ -124,6 +125,9 @@ guidance below is what a deck adds to it. To check a script, run
   it is the presenter's map when a question pulls the talk off course. Keep
   the section names identical to the kicker labels on the slides they
   introduce ("3 · How it works · Before the data").
+- **One slide says what we did and why this audience should care.** See
+  [below](#what-we-did-and-why-you-should-care). It is a standing requirement
+  for every talk.
 - **A story arc.** The problem, the catch that makes it hard, the idea, how it
   works, what was found (including where it failed and what is still
   untested), what comes next, and a plain closing slide: "Thank you", the
@@ -184,6 +188,43 @@ guidance below is what a deck adds to it. To check a script, run
 - **Source-bound.** When only one artifact is cleared for release (a prepub
   paper, say), every claim on a slide comes from it. Flag what you left out.
 
+## What we did and why you should care
+
+`# research(2026-10)`
+
+Every talk deck makes two things plain, on one slide among the first two or
+three content slides, right after the agenda:
+
+- **What we did**: a concrete claim with a number or an artifact. What was
+  built, measured or found, in one sentence a newcomer follows ("We ran 1,200
+  agent sessions and found 61 leaked a credential"), not a topic or a goal.
+- **Why this audience should care**: the stakes in the room's own terms,
+  rewritten per room. A security audience hears what an attacker gains, a lab
+  hears what it changes in their next experiment, a class hears what the
+  method lets them do.
+
+Rules that go with it:
+
+- Mark the slide `data-contribution` (the starter's slide 3 does). `check`
+  warns when no slide, or more than one, carries it, when it comes after slide
+  5, or when it has no script.
+- Every major section ties back to it: one plain line on its first slide or in
+  its script says how the section serves the claim or the stakes.
+- The script says the why-you-should-care line aloud, in the first person.
+- It is a plain fact and its stakes, never a slogan. The anti-slogan rule in
+  [A story arc](#writing-it-for-the-room) stands: no tagline intro, no
+  contrast-statement slide, close on a plain "Thank you". "Why you should
+  care" is a reason, not a catchphrase; "Security that never sleeps" fails it.
+
+`check` cannot read meaning, so it does not try, and a slogan in the marked
+slide passes it. A person decides, and the agent reports each item at the end
+of the run:
+
+1. The slide names what was done, with a number or an artifact.
+2. It names a stake this room would state in its own words.
+3. Each major section ties back to it.
+4. The script says the stakes aloud.
+
 ## The script
 
 The speaker notes hold the script: the words the presenter says out loud on
@@ -229,7 +270,7 @@ cp -r <skill-dir>/templates/web <talk-dir>
 
 | File | Holds |
 |---|---|
-| `index.html` | One `<section>` per slide: title, agenda, claim with a figure that builds, concrete case, quick bet, method steps, related-work map, timeline, discussion, limits, Thank you, backup divider, backup table. Drop the layouts the talk does not need; copy one to add a slide. |
+| `index.html` | One `<section>` per slide: title, agenda, what we did and why you should care (`data-contribution`), claim with a figure that builds, concrete case, quick bet, method steps, related-work map, timeline, discussion, limits, Thank you, backup divider, backup table. Drop the layouts the talk does not need; copy one to add a slide. |
 | `deck.css` | Colour tokens (every text colour clears 7:1 on its surface; figure marks use the colour-blind-safe Okabe-Ito hues), layouts, the phone layout, and the reduced-motion rule. |
 | `deck.js` | Builds what comes from data, then starts reveal.js. |
 | `data/deck-data.js` | Every figure and every related-work entry the deck shows. |
@@ -444,6 +485,9 @@ For a deck that already exists as a `.pptx` or a PDF:
 ## Done means
 
 1. `check` exits 0, and each `REVIEW` item is resolved or deliberately kept.
+   The four manual items under [What we did and why you should
+   care](#what-we-did-and-why-you-should-care) each pass, and the report says
+   how.
 2. `render` ran, and every slide was looked at, on desktop and on the phone.
 3. Every content slide passes the text-alone and figure-alone reading, and has a
    figure. The script is handed over with the deck; its length is near the
