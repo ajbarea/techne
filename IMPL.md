@@ -13,9 +13,9 @@ has crept in; extract it back to ROADMAP.
 
 Done: `_shared/repo_kind.py`; only GitHub facts make a repo solo, `owner: team` and a
 `kind = "team"` sister only make it team, unsettled reads as team. docsync acts on solo repos;
-ci-audit turns `[PROPOSE]` into `[PROPOSE→FIX]` and always asks before weakening a gate. Eight
-`/code-review high` rounds fixed (roster reader and matcher deferred to #190); 81 tests,
-every mutant caught, unstubbed gh fails the test. Next: round 9, CI green, squash-merge. Verify: `make validate`.
+ci-audit turns `[PROPOSE]` into `[PROPOSE→FIX]` and always asks before weakening a gate. Nine
+`/code-review high` rounds fixed (roster reader and matcher deferred to #190); 89 tests,
+every mutant caught, unstubbed gh fails the test. Next: round 10, CI green, squash-merge. Verify: `make validate`.
 
 ## In flight: `techne:board` (branch `feat/board`)
 

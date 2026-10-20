@@ -14,10 +14,21 @@ import pytest
 
 ME = "ajbarea"
 SLUG = f"{ME}/myrepo"
-VIEW = [
-    "gh", "repo", "view", f"github.com/{SLUG}", "--json",
-    "owner,parent,isInOrganization,viewerPermission",
-]  # fmt: skip
+QUERY = (
+    "query($o:String!,$n:String!){repository(owner:$o,name:$n){"
+    "owner{login} parent{name owner{login}} isInOrganization viewerPermission "
+    'object(expression:"HEAD:.claude/skill-context.md"){... on Blob{text isBinary}}}}'
+)
+
+
+def repo_query(name: str = "myrepo") -> list[str]:
+    return [
+        "gh", "api", "--hostname", "github.com", "graphql", "-f", f"query={QUERY}",
+        "-f", f"o={ME}", "-f", f"n={name}", "--jq", ".data.repository",
+    ]  # fmt: skip
+
+
+REPO = repo_query()
 PUSHERS = [
     "gh", "api", "--hostname", "github.com", "--paginate", f"repos/{SLUG}/collaborators",
     "--jq", ".[] | select(.permissions.push) | .login",
@@ -26,20 +37,13 @@ INVITED = [
     "gh", "api", "--hostname", "github.com", "--paginate", f"repos/{SLUG}/invitations",
     "--jq", ".[].invitee.login",
 ]  # fmt: skip
-QUERY = (
-    "query($o:String!,$n:String!){repository(owner:$o,name:$n)"
-    '{object(expression:"HEAD:.claude/skill-context.md"){... on Blob{text}}}}'
-)
-BLOB = [
-    "gh", "api", "--hostname", "github.com", "graphql", "-f", f"query={QUERY}",
-    "-f", f"o={ME}", "-f", "n=myrepo", "--jq", '.data.repository.object.text // ""',
-]  # fmt: skip
 MINE = json.dumps(
     {
         "owner": {"login": ME},
         "parent": None,
         "isInOrganization": False,
         "viewerPermission": "ADMIN",
+        "object": None,
     }
 )
 
@@ -92,10 +96,10 @@ def gh(fp, tmp_path, monkeypatch):
 
 
 def mine(gh, pushers: str = f"{ME}\n", invited: str = "", on_default: str = "") -> None:
-    gh.register(VIEW, stdout=MINE)
+    blob = {"text": on_default, "isBinary": False} if on_default else None
+    gh.register(REPO, stdout=view(object=blob))
     gh.register(PUSHERS, stdout=pushers)
     gh.register(INVITED, stdout=invited)
-    gh.register(BLOB, stdout=on_default)
 
 
 def roster(tmp_path: Path, workspace: Path, entry: str) -> Path:
@@ -222,40 +226,41 @@ def test_another_pusher_makes_it_team(rk, origin, no_toml, gh):
     ids=["organization", "not-admin", "fork-of-live-upstream", "bad-json", "empty"],
 )
 def test_github_facts_short_of_ownership_are_team(rk, origin, no_toml, gh, stdout):
-    gh.register(VIEW, stdout=stdout)
+    gh.register(REPO, stdout=stdout)
     gh.register(PUSHERS, stdout=f"{ME}\n")
     gh.register(INVITED, stdout="")
-    gh.register(BLOB, stdout="")
     assert rk.classify(str(origin), no_toml)[0] == "team"
 
 
-def test_a_fork_listed_as_a_sister_is_the_users_own_line(rk, origin, tmp_path, gh):
-    toml = roster(tmp_path, origin.parent, 'name = "myrepo"')
-    gh.register(VIEW, stdout=view(parent={"name": "up", "owner": {"login": "lab"}}))
+@pytest.mark.parametrize(
+    "entry, kind",
+    [('name = "myrepo"\nkind = "solo"', "solo"), ('name = "myrepo"\nkind = "Solo"', "solo"),
+     ('name = "myrepo"', "team")],
+    ids=["kind-solo", "kind-Solo", "listed-without-kind"],
+)  # fmt: skip
+def test_a_fork_is_solo_only_when_its_sister_entry_says_so(rk, origin, tmp_path, gh, entry, kind):
+    toml = roster(tmp_path, origin.parent, entry)
+    gh.register(REPO, stdout=view(parent={"name": "up", "owner": {"login": "lab"}}))
     gh.register(PUSHERS, stdout=f"{ME}\n")
     gh.register(INVITED, stdout="")
-    gh.register(BLOB, stdout="")
-    assert rk.classify(str(origin), toml)[0] == "solo"
+    assert rk.classify(str(origin), toml)[0] == kind
 
 
 @pytest.mark.parametrize("pushers", [None, ""], ids=["gh-fails", "nobody-listed"])
 def test_unlistable_or_empty_collaborators_are_team(rk, origin, no_toml, gh, pushers):
-    gh.register(VIEW, stdout=MINE)
+    gh.register(REPO, stdout=MINE)
     if pushers is None:
         gh.register(PUSHERS, returncode=1)
     else:
         gh.register(PUSHERS, stdout=pushers)
     gh.register(INVITED, stdout="")
-    gh.register(BLOB, stdout="")
     assert rk.classify(str(origin), no_toml)[0] == "team"
 
 
 def test_gh_failing_outright_is_team(rk, origin, no_toml, gh):
-    gh.register(VIEW, returncode=1)
+    for call in (REPO, PUSHERS, INVITED):
+        gh.register(call, returncode=1)
     assert rk.classify(str(origin), no_toml) == ("team", f"could not read {SLUG} on GitHub")
-
-
-# -------------------------------------------------------------- fallbacks --
 
 
 def test_outside_a_repo_is_team(rk, tmp_path, no_toml):
@@ -403,10 +408,9 @@ def test_a_pending_invitation_makes_it_team(rk, origin, no_toml, gh):
 
 
 def test_unlistable_invitations_are_team(rk, origin, no_toml, gh):
-    gh.register(VIEW, stdout=MINE)
+    gh.register(REPO, stdout=MINE)
     gh.register(PUSHERS, stdout=f"{ME}\n")
     gh.register(INVITED, returncode=1)
-    gh.register(BLOB, stdout="")
     assert rk.classify(str(origin), no_toml)[0] == "team"
 
 
@@ -491,11 +495,10 @@ def test_the_owner_line_on_githubs_default_branch_counts(rk, origin, no_toml, gh
     )
 
 
-def test_an_unreadable_default_branch_copy_is_team(rk, origin, no_toml, gh):
-    gh.register(VIEW, stdout=MINE)
+def test_a_binary_default_branch_copy_is_team(rk, origin, no_toml, gh):
+    gh.register(REPO, stdout=view(object={"text": None, "isBinary": True}))  # e.g. UTF-16
     gh.register(PUSHERS, stdout=f"{ME}\n")
     gh.register(INVITED, stdout="")
-    gh.register(BLOB, returncode=1)
     assert rk.classify(str(origin), no_toml)[0] == "team"
 
 
@@ -536,10 +539,9 @@ def test_a_utf16_working_copy_still_counts(rk, origin, no_toml, gh):
 
 def test_a_team_roster_entry_wins_over_another_match(rk, origin, tmp_path, gh):
     renamed = f"{ME}/renamed"  # GitHub alone would say solo, so team must come from the roster
-    gh.register([*VIEW[:3], f"github.com/{renamed}", *VIEW[4:]], stdout=MINE)
+    gh.register(repo_query("renamed"), stdout=MINE)
     gh.register([*PUSHERS[:5], f"repos/{renamed}/collaborators", *PUSHERS[6:]], stdout=f"{ME}\n")
     gh.register([*INVITED[:5], f"repos/{renamed}/invitations", *INVITED[6:]], stdout="")
-    gh.register([*BLOB[:10], "n=renamed", *BLOB[11:]], stdout="")
     git(origin, "remote", "set-url", "origin", f"git@github.com:{ME}/renamed.git")
     toml = tmp_path / "techne.toml"
     toml.write_text(
@@ -566,9 +568,7 @@ def test_owner_team_survives_stray_markup_around_it(rk, origin, no_toml, gh, bod
     assert rk.classify(str(origin), no_toml)[0] == "team"
 
 
-@pytest.mark.parametrize(
-    "line", ["owner: not team", "- owner: teamwork", "<!-- - owner: team -->", "owners: team"]
-)
+@pytest.mark.parametrize("line", ["- owner: teamwork", "<!-- - owner: team -->", "owners: team"])
 def test_a_line_that_is_not_an_owner_team_line_does_not_count(rk, origin, no_toml, gh, line):
     mine(gh)
     skill_context(origin, f"{line}\n")
@@ -583,4 +583,49 @@ def test_a_utf16_owner_line_committed_but_not_in_the_working_copy_counts(rk, ori
     git(origin, "add", ".claude")
     git(origin, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "ctx")
     ctx.write_bytes("- name: x\n".encode("utf-16"))
+    assert rk.classify(str(origin), no_toml)[0] == "team"
+
+
+# ----------------------------------------------------- round-9 regressions --
+
+
+@pytest.mark.parametrize(
+    "line", ["<!-- note --> owner: team", "- owner: lab team", "owner: the team"]
+)
+def test_owner_team_after_a_closed_comment_or_with_words_between(rk, origin, no_toml, gh, line):
+    mine(gh)  # GitHub alone would say solo, so team must come from the signal
+    skill_context(origin, f"{line}\n")
+    assert rk.classify(str(origin), no_toml)[0] == "team"
+
+
+def test_an_ssh_alias_for_github_is_followed(rk, repo, no_toml, gh):
+    git(repo, "remote", "add", "origin", f"git@github-work:{SLUG}.git")
+    gh.register(["ssh", "-G", "github-work"], stdout="user git\nhostname github.com\nport 22\n")
+    mine(gh)
+    assert rk.classify(str(repo), no_toml)[0] == "solo"
+
+
+def test_an_ssh_alias_for_another_host_is_not_github(rk, repo, no_toml, gh):
+    git(repo, "remote", "add", "origin", f"git@gitlab-work:{SLUG}.git")
+    gh.register(["ssh", "-G", "gitlab-work"], stdout="hostname gitlab.com\n")
+    mine(gh)
+    assert rk.classify(str(repo), no_toml) == (
+        "team",
+        "no GitHub origin to check ownership against",
+    )
+
+
+def test_any_unexpected_error_prints_team(rk, capsys, monkeypatch):
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("Could not determine home directory.")
+
+    monkeypatch.setattr(rk, "classify", boom)
+    assert rk.main(["repo_kind.py", "."]) == 0
+    assert capsys.readouterr().out.startswith("team: could not classify: RuntimeError")
+
+
+def test_an_ambiguous_owner_line_fails_toward_team(rk, origin, no_toml, gh):
+    """`owner: not team` reads as team: a wrong ask costs a confirmation, a wrong act does not."""
+    mine(gh)
+    skill_context(origin, "- owner: not team\n")
     assert rk.classify(str(origin), no_toml)[0] == "team"

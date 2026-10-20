@@ -1,9 +1,9 @@
 """Whether a repo is solo (the user's own: a skill acts) or team (others work in it: a skill asks).
 
 Only GitHub facts about the signed-in user can make a repo solo: not in an organization, the
-user administers it, nobody else can push, and it is not a fork of a live upstream (unless the
-user lists it as a sister, which says the fork is their own line of work). Other signals can
-only make it team, and are checked first because they need no network:
+user administers it, nobody else can push, and it is not a fork of a live upstream (unless its
+`[[sisters]]` entry says `kind = "solo"`, an explicit claim that the fork is the user's own line
+of work). Other signals can only make it team, and are checked first:
 1. an `owner: team` line anywhere in the repo's `.claude/skill-context.md`, in any Markdown
    form, in the working tree, the current commit or the default branch;
 2. its `[[sisters]]` entry in ~/.claude/techne.toml with `kind = "team"`, matched by path
@@ -12,7 +12,8 @@ Anything unsettled (no repo, no GitHub origin, gh failing, techne.toml present b
 reads as team, so a skill asks rather than acts on someone else's repo. An `owner: solo` line
 is only true for its author, so it is not trusted on its own.
 
-Usage: python3 repo_kind.py [path]   ->  prints `solo: <why>` or `team: <why>`, exits 0.
+Usage: python3 repo_kind.py [path]   ->  prints `solo: <why>` or `team: <why>`, exits 0, and
+reads any unexpected error as team too.
 A path may be a file or a directory, as docsync passes the doc it audits. Runs on python3 3.9;
 reading techne.toml needs 3.11, and below that an existing techne.toml reads as team.
 """
@@ -33,14 +34,17 @@ from project_board import techne_toml  # noqa: E402
 
 TIMEOUT = 10
 SKILL_CONTEXT = ".claude/skill-context.md"
-# An owner: team line, matched on the raw line so it fails toward team: `owner` and `team` as
-# whole words with at most six non-alphanumeric characters between them covers every Markdown,
-# HTML or table form (`- **owner:** team`, `| owner | team |`, `owner: __team__`) without
-# stripping anything. A line that opens an HTML comment is skipped, which is how the setup
-# template ships the line disabled.
+# An owner: team line, matched on the raw line so it fails toward team: `owner` then `team` as
+# whole words, with up to six punctuation characters and up to two words between them, covers
+# every Markdown, HTML or table form (`- **owner:** team`, `| owner | team |`, `owner: the lab
+# team`) without stripping anything. Closed <!-- comments --> are removed first; a line still
+# inside an open comment is skipped, which is how the setup template ships the line disabled.
 _OWNER_TEAM = re.compile(
-    r"(?<![A-Za-z0-9])owner[^A-Za-z0-9]{1,6}team(?![A-Za-z0-9])", re.IGNORECASE
+    r"(?<![A-Za-z0-9])owner[^A-Za-z0-9]{1,6}(?:[A-Za-z0-9]+[^A-Za-z0-9]{1,3}){0,2}team"
+    r"(?![A-Za-z0-9])",
+    re.IGNORECASE,
 )
+_CLOSED_COMMENT = re.compile(r"<!--.*?-->")
 
 
 def says_team(text: str) -> bool:
@@ -48,6 +52,7 @@ def says_team(text: str) -> bool:
     team, so it counts anywhere in the file. NUL characters are dropped first, so UTF-16 text
     read as UTF-8 (git show of a PowerShell 5 file) still matches."""
     for line in text.replace("\x00", "").splitlines():
+        line = _CLOSED_COMMENT.sub(" ", line)
         if not line.lstrip("\ufeff \t").startswith("<!--") and _OWNER_TEAM.search(line):
             return True
     return False
@@ -130,30 +135,23 @@ def sister_entry(checkouts: set[Path], slug: tuple[str, str] | None, path: Path)
     return (teams or matches or [None])[0]
 
 
-def from_github(owner: str, name: str, listed: bool = False) -> tuple[str, str]:
+_REPO_QUERY = (
+    "query($o:String!,$n:String!){repository(owner:$o,name:$n){"
+    "owner{login} parent{name owner{login}} isInOrganization viewerPermission "
+    f'object(expression:"HEAD:{SKILL_CONTEXT}"){{... on Blob{{text isBinary}}}}}}}}'
+)
+
+
+def from_github(owner: str, name: str, fork_ok: bool = False) -> tuple[str, str]:
+    """The GitHub facts, read in one round trip: one GraphQL query (ownership, fork, the
+    default branch's skill-context.md) with the collaborator and invitation lists alongside."""
     slug = f"{owner}/{name}"
-    fields = "owner,parent,isInOrganization,viewerPermission"
-    raw = sh("gh", "repo", "view", f"github.com/{slug}", "--json", fields)
-    try:
-        info = json.loads(raw) if raw else None
-    except json.JSONDecodeError:
-        info = None
-    if not isinstance(info, dict):
-        return "team", f"could not read {slug} on GitHub"
-    parent = info.get("parent")
-    if isinstance(parent, dict) and parent and not listed:  # a fork of a live upstream
-        up = f"{(parent.get('owner') or {}).get('login')}/{parent.get('name')}"
-        return "team", f"{slug} is a fork of {up}, so its changes may land there"
-    if info.get("isInOrganization"):
-        return "team", f"{slug} belongs to an organization"
-    if info.get("viewerPermission") != "ADMIN":
-        return "team", f"{slug} is not yours: your permission is {info.get('viewerPermission')}"
     api = ("gh", "api", "--hostname", "github.com")
-    blob = (
-        "query($o:String!,$n:String!){repository(owner:$o,name:$n)"
-        f'{{object(expression:"HEAD:{SKILL_CONTEXT}"){{... on Blob{{text}}}}}}}}'
-    )
-    with ThreadPoolExecutor(max_workers=3) as pool:  # three lookups, one wait
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        querying = pool.submit(
+            sh, *api, "graphql", "-f", f"query={_REPO_QUERY}",
+            "-f", f"o={owner}", "-f", f"n={name}", "--jq", ".data.repository",
+        )  # fmt: skip
         pushing = pool.submit(
             sh, *api, "--paginate", f"repos/{slug}/collaborators",
             "--jq", ".[] | select(.permissions.push) | .login",
@@ -161,14 +159,28 @@ def from_github(owner: str, name: str, listed: bool = False) -> tuple[str, str]:
         inviting = pool.submit(
             sh, *api, "--paginate", f"repos/{slug}/invitations", "--jq", ".[].invitee.login"
         )
-        reading = pool.submit(
-            sh, *api, "graphql", "-f", f"query={blob}", "-f", f"o={owner}", "-f", f"n={name}",
-            "--jq", '.data.repository.object.text // ""',
-        )  # fmt: skip
-        pushers, invited, on_default = pushing.result(), inviting.result(), reading.result()
-    if on_default is None:
-        return "team", f"could not read {SKILL_CONTEXT} on {slug}'s default branch"
-    if says_team(on_default):
+        raw, pushers, invited = querying.result(), pushing.result(), inviting.result()
+    try:
+        info = json.loads(raw) if raw else None
+    except json.JSONDecodeError:
+        info = None
+    if not isinstance(info, dict):
+        return "team", f"could not read {slug} on GitHub"
+    parent = info.get("parent")
+    if isinstance(parent, dict) and parent and not fork_ok:  # a fork of a live upstream
+        up = f"{(parent.get('owner') or {}).get('login')}/{parent.get('name')}"
+        return (
+            "team",
+            f'{slug} is a fork of {up} (kind = "solo" on its sister entry says otherwise)',
+        )
+    if info.get("isInOrganization"):
+        return "team", f"{slug} belongs to an organization"
+    if info.get("viewerPermission") != "ADMIN":
+        return "team", f"{slug} is not yours: your permission is {info.get('viewerPermission')}"
+    blob = info.get("object")
+    if isinstance(blob, dict) and blob.get("isBinary"):  # e.g. UTF-16: GitHub gives no text
+        return "team", f"{SKILL_CONTEXT} on {slug}'s default branch is not text, so unread"
+    if isinstance(blob, dict) and says_team(str(blob.get("text") or "")):
         return "team", f"owner: team in {SKILL_CONTEXT} on {slug}'s default branch"
     if pushers is None:
         return "team", f"could not list the collaborators of {slug}"
@@ -181,6 +193,25 @@ def from_github(owner: str, name: str, listed: bool = False) -> tuple[str, str]:
     if invited.split():
         return "team", f"{', '.join(sorted(set(invited.split())))} is invited to {slug}"
     return "solo", f"{the_owner} owns {slug} and is its only collaborator with push access"
+
+
+_SCP_REMOTE = re.compile(r"^(?:[^@/\s]+@)?([^:/\s]+):([^/\s]+)/([^/\s]+?)(?:\.git)?/?$")
+
+
+def github_slug(url: str) -> tuple[str, str] | None:
+    """owner/name of a GitHub remote, including an scp-style remote through an ssh host alias
+    (git@github-work:o/r, as several-account setups use) that `ssh -G` resolves to github.com."""
+    found = GITHUB_REMOTE.search(url)
+    if found:
+        return found.group(1), found.group(2)
+    scp = _SCP_REMOTE.match(url)
+    if not scp:
+        return None
+    settings = sh("ssh", "-G", scp.group(1)) or ""
+    host = next((ln.split()[1] for ln in settings.splitlines() if ln.startswith("hostname ")), "")
+    if host.lower() in ("github.com", "ssh.github.com"):
+        return scp.group(2), scp.group(3)
+    return None
 
 
 def classify(path: str = ".", toml: Path | None = None) -> tuple[str, str]:
@@ -200,8 +231,7 @@ def classify(path: str = ".", toml: Path | None = None) -> tuple[str, str]:
     checkouts = {top, common.parent}
     if common.name.endswith(".git") and common.name != ".git":
         checkouts.add(common.with_name(common.name[: -len(".git")]))
-    found = GITHUB_REMOTE.search(sh("git", "-C", where, "remote", "get-url", "origin") or "")
-    slug = (found.group(1), found.group(2)) if found else None
+    slug = github_slug(sh("git", "-C", where, "remote", "get-url", "origin") or "")
     try:
         sister = sister_entry(checkouts, slug, toml)
     except TomlUnreadable as exc:
@@ -210,11 +240,15 @@ def classify(path: str = ".", toml: Path | None = None) -> tuple[str, str]:
         return "team", f'kind = "team" in {toml}'
     if not slug:
         return "team", "no GitHub origin to check ownership against"
-    return from_github(*slug, listed=sister is not None)
+    fork_ok = bool(sister) and str(sister.get("kind", "")).lower() == "solo"
+    return from_github(*slug, fork_ok=fork_ok)
 
 
 def main(argv: list[str]) -> int:
-    kind, why = classify(argv[1] if len(argv) > 1 else ".")
+    try:
+        kind, why = classify(argv[1] if len(argv) > 1 else ".")
+    except Exception as exc:  # any surprise (no HOME, an unreadable folder) reads as team
+        kind, why = "team", f"could not classify: {type(exc).__name__}: {exc}"
     print(f"{kind}: {why}")
     return 0
 

@@ -87,3 +87,14 @@ def test_repo_overrides_are_dropped_and_injected_config_is_kept(ge):
         "GIT_CONFIG_VALUE_0",
         "GIT_CONFIG_PARAMETERS",
     } <= kept.keys()
+
+
+def test_a_variable_a_newer_git_reports_is_dropped_too(ge, monkeypatch):
+    class Done:
+        stdout = "GIT_DIR GIT_SOME_NEW_REDIRECT GIT_CONFIG_PARAMETERS\n"
+
+    monkeypatch.setattr(ge, "_local_env_cache", None)
+    monkeypatch.setattr(ge.subprocess, "run", lambda *a, **k: Done())
+    drop = ge.local_env()
+    assert "GIT_SOME_NEW_REDIRECT" in drop and "GIT_CONFIG_PARAMETERS" not in drop
+    assert set(ge.LOCAL_ENV) <= drop

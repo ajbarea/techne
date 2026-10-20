@@ -28,9 +28,35 @@ GITHUB_REMOTE = re.compile(
 )
 
 
+_CONFIG_ENV = frozenset({"GIT_CONFIG", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT"})
+_local_env_cache: frozenset[str] | None = None
+
+
+def local_env() -> frozenset[str]:
+    """LOCAL_ENV plus anything the installed git reports that LOCAL_ENV lacks (a variable a newer
+    git added), still minus the config variables. Asked once per process."""
+    global _local_env_cache
+    if _local_env_cache is None:
+        reported: set[str] = set()
+        try:
+            reported = set(
+                subprocess.run(
+                    ["git", "rev-parse", "--local-env-vars"],
+                    capture_output=True,
+                    text=True,
+                    timeout=CONFIG_TIMEOUT,
+                ).stdout.split()
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+        _local_env_cache = frozenset(LOCAL_ENV) | frozenset(reported - _CONFIG_ENV)
+    return _local_env_cache
+
+
 def without_repo_overrides(env: Mapping[str, str] | None = None) -> dict[str, str]:
     """env (os.environ by default) without the variables that redirect git to another repo."""
-    return {k: v for k, v in (os.environ if env is None else env).items() if k not in LOCAL_ENV}
+    drop = local_env()
+    return {k: v for k, v in (os.environ if env is None else env).items() if k not in drop}
 
 
 # Without a prompt or a key passphrase to answer, ssh fails at once instead of waiting.
