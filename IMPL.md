@@ -42,7 +42,8 @@ Done: three roles (author dispatches and relays, dispatched reader runs one roun
 nowhere, independent reader runs every phase) and two tiers (high: `/code-review high` on the
 branch or PR first, for a new subsystem, destructive op added or fed, persisted state, a
 security/privacy/access/governance boundary or a sensitive target, whatever the size; light:
-the reader alone; unsure means high). Errored reviews are rerun. Three review rounds so far.
+the reader alone; unsure means high). The reader is never a fork, and states the tier it judged;
+a higher one makes the author rerun. Errored reviews are rerun. Four review rounds; round 4 clean.
 Next: CI green, squash-merge. Verify: `make validate`.
 
 ### Landed on main: elenchus says when the review loop ends (#185)

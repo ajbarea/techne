@@ -42,9 +42,9 @@ echo "<!-- skill-context: $(git rev-parse --show-toplevel 2>/dev/null || pwd) --
 
 If the block above appears as a command rather than its output, run it and use what it prints.
 
-No context file: elenchus still runs tier-0; infer the test and run commands from the Makefile or ask. Add an optional `## elenchus` block for repo-specific hints; see Scaffolding below. The header names the repo it came from, which is the current directory's. When the target is a path in another repo, run `bash "<plugin-root>/_shared/skill_context.sh" <target-path>` and use that output instead.
+No context file: elenchus still runs with no hints; infer the test and run commands from the Makefile or ask. Add an optional `## elenchus` block for repo-specific hints; see Scaffolding below. The header names the repo it came from, which is the current directory's. When the target is a path in another repo, run `bash "<plugin-root>/_shared/skill_context.sh" <target-path>` and use that output instead.
 
-Read the `## elenchus` section if present (optional tier-1 hints — known destructive ops, load-bearing surfaces, reproduce recipes, what "the feature works" means here). For the commands to actually *run* the code, fall back in order to `## audit` (lint/test targets), `## theoros` (`repl_command`), then the repo `Makefile`. Tier-0 needs no config.
+Read the `## elenchus` section if present (optional hints — known destructive ops, load-bearing surfaces, reproduce recipes, what "the feature works" means here). For the commands to actually *run* the code, fall back in order to `## audit` (lint/test targets), `## theoros` (`repl_command`), then the repo `Makefile`. Tier-0 needs no config.
 
 ## Protocol
 
@@ -54,7 +54,7 @@ Run the phases your role covers (see **The cardinal rule**), in order. Do not sk
 State, in one sentence, the single claim the change rests on ("this fix makes X portable", "this feature lets the model cite summaries", "this refactor is behavior-preserving"). That claim is your hypothesis to break. Everything after is an attempt to find the input, state, or path that falsifies it.
 
 ### Phase 1 — Drive the engine
-- **Author:** in the high tier, run `/code-review high` on the change first. Then dispatch the reader with this prompt and the `/code-review` findings, if any, and **no authorship narrative**: "You are the dispatched reader for techne:elenchus. Read <path to this SKILL.md>. Review <PR number or branch> as the dispatched reader: run Phases 0 and 2 to 4 once and return the report. Do not dispatch another reviewer, post, or run a review loop." Relay its report as Phase 4.
+- **Author:** in the high tier, run `/code-review high` on the change first. Then dispatch the reader with this prompt and the `/code-review` findings, if any, and **no authorship narrative**: "You are the dispatched reader for techne:elenchus. Read <path to this SKILL.md>. Review <PR number or branch> as the dispatched reader. Tier run: <high or light>. Run Phases 0 to 4 once and return the report. Do not dispatch another reviewer, post, or run a review loop." Relay its report as Phase 4.
 - **Dispatched reader:** take the findings you were handed as input, not verdict; you still owe the three passes below, which `/code-review` does not force.
 - **Independent reader:** in the high tier, run `/code-review high` on the change yourself, then treat its findings the same way.
 
@@ -159,7 +159,7 @@ Publish the **work**, which anyone can check, never how it was run.
 
 Clean-pass shape: the verdict, the Findings line reading `none blocking`, and the Verified-clean list — a few lines, not a placeholder wall.
 
-## Scaffolding `## elenchus` into a repo (optional, tier-1)
+## Scaffolding `## elenchus` into a repo (optional)
 
 Tier-0 needs nothing. To give the skill repo-specific aim, add to `.claude/skill-context.md`:
 
