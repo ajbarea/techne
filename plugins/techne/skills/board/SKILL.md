@@ -19,7 +19,7 @@ owner = "your-login"
 number = 1
 ```
 
-Without that table every board feature does nothing. With it, techne's hook files each issue or PR that a `gh issue create`, `gh pr create` or `gh api` POST to `.../issues` or `.../pulls` opens in a repo the owner owns: Status **Issue** for an issue, **In PR** for a PR. The hook never blocks the command; when filing fails it adds one `board: could not add ...` line to the context. Tell the user that line, and its fix when it names one.
+Without that table every board feature does nothing. With it, techne's hook files each issue or PR that a `gh issue create`, `gh pr create` (or `new`) or `gh api` POST to `.../issues` or `.../pulls` opens in a repo the owner owns: Status **Issue** for an issue, **In PR** for a PR. An item already on the board keeps its Status. The hook needs python3 3.11 and never blocks the command; when filing fails it adds one `board: could not add ...` line to the context. Tell the user that line, and its fix when it names one.
 
 Every `gh project` call needs the `project` token scope. When gh says it is missing, the user runs `!gh auth refresh -h github.com -s project`. Never ask for a token.
 

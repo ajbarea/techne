@@ -61,7 +61,7 @@ Run `/techne:setup`. It checks each item above, the repo's `.claude/skill-contex
 
 - `.claude/skill-context.md` in a repo holds per-repo facts, one `##` section per skill family. [Conventions](../conventions.md) lists the sections.
 - `~/.claude/techne.toml` lists the sister repos and your workspace, and its `[board]` table names the project board. [Configuration](../configuration.md) gives its schema.
-- With a `[board]` table, a hook puts each issue or PR that `gh issue create`, `gh pr create` or a `gh api` POST opens in one of the owner's repos on the board, as Issue or In PR. It never blocks the command, and says in one line when filing fails. See [`techne:board`](../skills/board.md).
+- With a `[board]` table, a hook puts each issue or PR that `gh issue create`, `gh pr create` or a `gh api` POST opens in one of the owner's repos on the board, as Issue or In PR, and leaves an item already there as it is. It needs python3 3.11, never blocks the command, and says in one line when filing fails. See [`techne:board`](../skills/board.md).
 
 ## Troubleshooting
 

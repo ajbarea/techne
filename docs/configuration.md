@@ -50,7 +50,7 @@ number = 1
 | `board.owner` | string | yes | The login that owns the GitHub Projects board. Only issues and PRs in this owner's repos are filed. |
 | `board.number` | integer | yes | The project number, from the board's URL or from `/techne:board init`. |
 
-Without the table, `techne:board` and its hook do nothing. With it, a `PostToolUse` hook adds each issue or PR that `gh issue create`, `gh pr create` or a `gh api` POST to `.../issues` or `.../pulls` opens to the board and sets its Status. The board's IDs are cached in `~/.cache/techne/board-<owner>-<number>.json`. See [`techne:board`](skills/board.md).
+Without the table, `techne:board` and its hook do nothing. With it, a `PostToolUse` hook adds each issue or PR that `gh issue create`, `gh pr create` or a `gh api` POST to `.../issues` or `.../pulls` opens to the board and sets its Status; an item already on the board keeps its Status. The table is read with Python's `tomllib`, so the hook needs python3 3.11 and does nothing below it or when the file is not valid TOML (`/techne:board show` names the error). The board's IDs are cached in `~/.cache/techne/board-<owner>-<number>.json`. See [`techne:board`](skills/board.md).
 
 ### Status semantics
 

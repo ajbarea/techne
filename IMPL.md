@@ -15,7 +15,7 @@ One user-owned GitHub Projects board, Status = Idea, Issue, In PR, Merged, Live,
 `[board] owner/number` in `~/.claude/techne.toml` (absent = every board feature is a no-op).
 
 Done:
-- `_shared/project_board.py` (python3 3.9): config with a no-tomllib fallback, trigger
+- `_shared/project_board.py` (imports on 3.9; config needs tomllib): trigger
   detection, URL extraction, gh with one time budget, ID cache in `~/.cache/techne/`.
 - `hooks/board_add.py` + PostToolUse entry in `hooks/hooks.json` (`if: Bash(gh *)`).
 - `skills/board/` SKILL.md + `scripts/board.py`: show, sync, idea, live, init (init sets
@@ -23,6 +23,11 @@ Done:
   refuses to drop an option an item uses, prints the `[board]` table and workflow clicks).
 - Tests: `tests/test_board_hook.py` (in HOOK_TESTS, runs on 3.9), `tests/test_board_script.py`,
   stub gh `tests/fixtures/gh_stub.py` + `gh_stub` fixture. Docs page, config schema, eval case.
+
+Review fixes (PR #186): the hook takes only URL-only lines and a top-level `html_url`, never
+moves an item already on the board (GraphQL `resource.projectItems` check before adding),
+matches `gh issue/pr new` and wrappers outside quotes and heredocs, reads techne.toml only with
+tomllib (no fallback; below 3.11 it is a silent no-op), and caps its failure line under 300.
 
 Not verified live: the token here lacks the `project` scope, so every gh project call is
 stub-tested only. After merge: `gh auth refresh -h github.com -s project`, then

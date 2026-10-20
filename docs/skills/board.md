@@ -46,9 +46,11 @@ GitHub's own auto-add workflow is limited to one repository per workflow, and a 
 
 ## The hook
 
-With a `[board]` table, a `PostToolUse` hook runs after each Bash command that starts with `gh`. When the command was `gh issue create`, `gh pr create`, or a `gh api` POST to `repos/<owner>/<repo>/issues` or `/pulls`, it adds each issue or PR URL in the output whose repo the board's owner owns, with Status Issue or In PR. For a `gh api` JSON response it takes only the response's `html_url`, so URLs quoted in a PR body are left alone.
+With a `[board]` table, a `PostToolUse` hook runs after each Bash command that starts with `gh`. When the command was `gh issue create` or `gh pr create` (or their alias `new`), or a `gh api` POST to `repos/<owner>/<repo>/issues` or `/pulls`, it adds each issue or PR the command created in a repo of the board's owner, with Status Issue or In PR. It reads only what gh prints for a created item: a line holding nothing but the URL, or the `html_url` of a `gh api` JSON response. A URL quoted in a body or a listing is left alone. An item already on the board keeps its Status, so a Merged or Live item is never moved back.
 
-It never blocks or fails the command, and bounds its gh calls to 8 seconds. On success it prints nothing. On failure it adds one line to Claude's context, such as `board: could not add <url> (gh token lacks the 'project' scope; the user runs: gh auth refresh -h github.com -s project)`. The board's project, field and option IDs are cached in `~/.cache/techne/` and looked up again when they go stale.
+It never blocks or fails the command, and bounds its gh calls to 8 seconds. On success it prints nothing. On failure it adds one line of under 300 characters to Claude's context, such as `board: could not add <url> (gh token lacks the 'project' scope; the user runs: gh auth refresh -h github.com -s project)`. The board's project, field and option IDs are cached in `~/.cache/techne/` and looked up again when they go stale.
+
+The hook reads `~/.claude/techne.toml` with Python's `tomllib`, so it needs python3 3.11. Below 3.11, or when the file is not valid TOML, it does nothing; `/techne:board show` names a TOML error.
 
 ## Source
 
