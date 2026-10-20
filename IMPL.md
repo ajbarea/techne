@@ -11,12 +11,10 @@ has crept in; extract it back to ROADMAP.
 
 ## In flight: solo repos act, team repos ask (branch `feat/solo-act-team-ask`)
 
-Done: `_shared/repo_kind.py`: only GitHub facts make a repo solo (not an org, user is ADMIN, sole
-pusher, not a fork of a live upstream unless listed as a sister); the committed `owner: team` line
-and a path-matched `kind = "team"` sister can only make it team; unsettled reads as team; file
-targets and exported GIT_DIR handled. docsync acts on solo repos, ci-audit turns `[PROPOSE]` into
-`[PROPOSE→FIX]`. 25 tests; ten false-solo mutants all caught. Round 1 (/code-review high): ten
-findings fixed. Next: round 2, CI green, squash-merge. Verify: `make validate`.
+Done: `_shared/repo_kind.py`; only GitHub facts make a repo solo, `owner: team` and a
+`kind = "team"` sister only make it team, unsettled reads as team. docsync acts on solo repos;
+ci-audit turns `[PROPOSE]` into `[PROPOSE→FIX]`. Two `/code-review high` rounds fixed.
+Next: round 3, CI green, squash-merge. Verify: `make validate`.
 
 ## In flight: `techne:board` (branch `feat/board`)
 

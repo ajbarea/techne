@@ -112,6 +112,7 @@ def test_an_unreadable_toml_still_reaches_github(rk, origin, tmp_path, gh):
 
 
 def test_owner_team_in_the_repo_section_is_team(rk, origin, no_toml, gh):
+    mine(gh)  # GitHub alone would say solo, so team must come from the signal
     skill_context(origin, "# ctx\n\n## repo\n\n- name: x\n- owner: Team, lab site\n")
     assert rk.classify(str(origin), no_toml) == ("team", "owner: team in .claude/skill-context.md")
 
@@ -127,12 +128,14 @@ def test_an_owner_line_outside_the_repo_section_is_ignored(rk, origin, no_toml, 
     assert rk.classify(str(origin), no_toml)[0] == "solo"
 
 
-def test_a_sister_marked_team_is_team(rk, origin, tmp_path):
+def test_a_sister_marked_team_is_team(rk, origin, tmp_path, gh):
+    mine(gh)  # GitHub alone would say solo, so team must come from the signal
     toml = roster(tmp_path, origin.parent, 'name = "myrepo"\nkind = "team"')
     assert rk.classify(str(origin), toml)[0] == "team"
 
 
-def test_a_worktree_finds_its_main_checkouts_roster_entry(rk, origin, tmp_path):
+def test_a_worktree_finds_its_main_checkouts_roster_entry(rk, origin, tmp_path, gh):
+    mine(gh)  # GitHub alone would say solo, so team must come from the signal
     wt = tmp_path / "wt" / "feature-x"
     git(origin, "worktree", "add", "-q", str(wt), "-b", "feature-x")
     toml = roster(tmp_path, origin.parent, 'name = "myrepo"\nkind = "team"')
@@ -218,3 +221,59 @@ def test_main_prints_one_line_and_exits_zero(rk, origin, capsys, monkeypatch, no
     assert capsys.readouterr().out == (
         f"solo: {ME} owns {SLUG} and is its only collaborator with push access\n"
     )
+
+
+# ----------------------------------------------------- round-2 regressions --
+
+
+def test_python_without_tomllib_reads_an_existing_toml_as_team(
+    rk, origin, tmp_path, gh, monkeypatch
+):
+    toml = roster(tmp_path, origin.parent, 'name = "myrepo"')
+    monkeypatch.setitem(__import__("sys").modules, "tomllib", None)  # as on python3 3.9
+    mine(gh)
+    kind, why = rk.classify(str(origin), toml)
+    assert kind == "team" and "cannot read" in why
+
+
+def test_a_symlinked_workspace_root_still_matches(rk, origin, tmp_path, gh):
+    mine(gh)  # GitHub alone would say solo, so team must come from the signal
+    link = tmp_path / "link"
+    link.symlink_to(origin.parent)
+    toml = roster(tmp_path, link, 'name = "myrepo"\nkind = "team"')
+    assert rk.classify(str(origin), toml)[0] == "team"
+
+
+def test_an_exported_git_common_dir_does_not_redirect_the_check(
+    rk, origin, tmp_path, no_toml, gh, monkeypatch
+):
+    mine(gh)  # GitHub alone would say solo, so team must come from the signal
+    other = init(tmp_path / "elsewhere")
+    git(
+        other, "remote", "add", "origin", f"git@github.com:{SLUG}.git"
+    )  # a decoy that reaches GitHub
+    monkeypatch.setenv("GIT_COMMON_DIR", str(other / ".git"))
+    toml = roster(tmp_path, origin.parent, 'name = "myrepo"\nkind = "team"')
+    assert rk.classify(str(origin), toml)[0] == "team"
+
+
+def test_a_repo_heading_with_other_case_or_suffix_still_counts(rk, origin, no_toml, gh):
+    mine(gh)  # GitHub alone would say solo, so team must come from the signal
+    skill_context(origin, "## Repo (lab site)\n- owner: team\n")
+    assert rk.classify(str(origin), no_toml)[0] == "team"
+
+
+def test_a_committed_owner_line_counts_when_the_working_copy_lacks_it(rk, origin, no_toml, gh):
+    mine(gh)  # GitHub alone would say solo, so team must come from the signal
+    skill_context(origin, "## repo\n- owner: team\n")
+    git(origin, "add", ".claude")
+    git(origin, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "ctx")
+    (origin / ".claude" / "skill-context.md").write_text("## repo\n- name: x\n", encoding="utf-8")
+    assert rk.classify(str(origin), no_toml)[0] == "team"
+
+
+def test_the_shipped_template_does_not_mark_a_repo_team(rk):
+    from conftest import ROOT
+
+    template = ROOT / "plugins/techne/skills/setup/skill-context.template.md"
+    assert not rk.OWNER_TEAM.search(rk.repo_section(template.read_text(encoding="utf-8")))

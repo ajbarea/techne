@@ -4,15 +4,17 @@ Only GitHub facts about the signed-in user can make a repo solo: not in an organ
 user administers it, nobody else can push, and it is not a fork of a live upstream (unless the
 user lists it as a sister, which says the fork is their own line of work). Other signals can
 only make it team, and are checked first because they need no network:
-1. an `- owner: team` line under `## repo` in the repo's committed `.claude/skill-context.md`;
+1. an `- owner: team` line under `## repo` in the repo's `.claude/skill-context.md`, in the
+   working tree, the current commit or the default branch;
 2. its `[[sisters]]` entry, matched by path (`workspace_root/<name>`), in ~/.claude/techne.toml
    with `kind = "team"`.
-Anything unsettled (no repo, no GitHub origin, gh failing) reads as team, so a skill asks rather
-than acts on someone else's repo. An `owner: solo` line is only true for its author, so it is
-not trusted on its own.
+Anything unsettled (no repo, no GitHub origin, gh failing, techne.toml unreadable) reads as
+team, so a skill asks rather than acts on someone else's repo. An `owner: solo` line is only
+true for its author, so it is not trusted on its own.
 
 Usage: python3 repo_kind.py [path]   ->  prints `solo: <why>` or `team: <why>`, exits 0.
-A path may be a file or a directory, as docsync passes the doc it audits.
+A path may be a file or a directory, as docsync passes the doc it audits. Runs on python3 3.9;
+reading techne.toml needs 3.11, and below that an existing techne.toml reads as team.
 """
 
 from __future__ import annotations
@@ -20,25 +22,37 @@ from __future__ import annotations
 import json
 import os
 import re
-import subprocess
 import sys
 from pathlib import Path
 
-TECHNE_TOML = Path.home() / ".claude" / "techne.toml"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import doctor_lib  # noqa: E402  # ty: ignore[unresolved-import]
+from project_board import techne_toml  # noqa: E402  # ty: ignore[unresolved-import]
+
 TIMEOUT = 10
+SKILL_CONTEXT = ".claude/skill-context.md"
 OWNER_TEAM = re.compile(r"^\s*-\s*owner:\s*team\b", re.IGNORECASE | re.MULTILINE)
+REPO_SECTION = re.compile(r"^##[ \t]+repo\b[^\n]*\n(.*?)(?=^##[ \t]|\Z)", re.I | re.M | re.S)
 GITHUB_REMOTE = re.compile(r"github\.com[:/]([^/\s]+)/([^/\s]+?)(?:\.git)?/?$")
+# What `git rev-parse --local-env-vars` prints: a hook or wrapper exporting any of these would
+# point `git -C` at another repo.
+GIT_LOCAL_ENV = (
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CONFIG", "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_COUNT", "GIT_OBJECT_DIRECTORY", "GIT_DIR", "GIT_WORK_TREE",
+    "GIT_IMPLICIT_WORK_TREE", "GIT_GRAFT_FILE", "GIT_INDEX_FILE", "GIT_NO_REPLACE_OBJECTS",
+    "GIT_REPLACE_REF_BASE", "GIT_PREFIX", "GIT_SHALLOW_FILE", "GIT_COMMON_DIR",
+)  # fmt: skip
+
+
+class TomlUnreadable(Exception):
+    """techne.toml exists but this python3 cannot parse it, so a team entry may be missed."""
 
 
 def sh(*args: str) -> str | None:
     """stdout of a command, or None when it fails, times out or is missing."""
-    # A git hook exports GIT_DIR and GIT_WORK_TREE, which would override `git -C`.
-    env = {k: v for k, v in os.environ.items() if k not in ("GIT_DIR", "GIT_WORK_TREE")}
-    try:
-        done = subprocess.run(args, capture_output=True, text=True, timeout=TIMEOUT, env=env)
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    return done.stdout.strip() if done.returncode == 0 else None
+    env = {k: v for k, v in os.environ.items() if k not in GIT_LOCAL_ENV}
+    code, out = doctor_lib.run(args, timeout=TIMEOUT, merge_stderr=False, env=env)
+    return out.strip() if code == 0 else None
 
 
 def as_directory(path: str) -> Path:
@@ -51,22 +65,30 @@ def as_directory(path: str) -> Path:
 
 def repo_section(text: str) -> str:
     """The body of the `## repo` section of a skill-context file, or ''."""
-    match = re.search(r"^## repo[ \t]*\n(.*?)(?=^## |\Z)", text, re.MULTILINE | re.DOTALL)
+    match = REPO_SECTION.search(text)
     return match.group(1) if match else ""
 
 
-def marked_team_in_repo(top: Path) -> bool:
+def marked_team_in_repo(where: str, top: Path) -> bool:
+    """An owner: team line in the working tree, the current commit or the default branch."""
+    texts = []
     try:
-        text = (top / ".claude" / "skill-context.md").read_text(encoding="utf-8")
+        texts.append((top / SKILL_CONTEXT).read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError):
-        return False
-    return bool(OWNER_TEAM.search(repo_section(text)))
+        pass
+    for ref in ("HEAD", "origin/HEAD"):
+        texts.append(sh("git", "-C", where, "show", f"{ref}:{SKILL_CONTEXT}") or "")
+    return any(OWNER_TEAM.search(repo_section(text)) for text in texts)
 
 
-def sister_entry(main_checkout: Path, path: Path = TECHNE_TOML) -> dict | None:
+def sister_entry(main_checkout: Path, path: Path) -> dict | None:
     """The [[sisters]] table whose workspace_root/<name> is this checkout, or None."""
-    import tomllib  # 3.11+; imported here so hygiene.py can load this module on 3.9 and explain
-
+    if not path.exists():
+        return None
+    try:
+        import tomllib
+    except ImportError as exc:  # python3 below 3.11, as on stock macOS
+        raise TomlUnreadable(f"python3 {sys.version.split()[0]} cannot read {path}") from exc
     try:
         with path.open("rb") as f:
             cfg = tomllib.load(f)
@@ -75,9 +97,10 @@ def sister_entry(main_checkout: Path, path: Path = TECHNE_TOML) -> dict | None:
     root, sisters = cfg.get("workspace_root"), cfg.get("sisters")
     if not isinstance(root, str) or not isinstance(sisters, list):
         return None
+    here = main_checkout.resolve()
     for sister in sisters:
         if isinstance(sister, dict) and isinstance(sister.get("name"), str):
-            if Path(root).expanduser() / sister["name"] == main_checkout:
+            if (Path(root).expanduser() / sister["name"]).resolve() == here:
                 return sister
     return None
 
@@ -111,15 +134,19 @@ def from_github(owner: str, name: str, listed: bool = False) -> tuple[str, str]:
     return "solo", f"{logins[0]} owns {slug} and is its only collaborator with push access"
 
 
-def classify(path: str = ".", toml: Path = TECHNE_TOML) -> tuple[str, str]:
+def classify(path: str = ".", toml: Path | None = None) -> tuple[str, str]:
+    toml = toml or techne_toml()
     where = str(as_directory(path))
     top_out = sh("git", "-C", where, "rev-parse", "--show-toplevel")
     if not top_out:
         return "team", f"{path} is not in a git repository"
-    if marked_team_in_repo(Path(top_out)):
-        return "team", "owner: team in .claude/skill-context.md"
-    common = sh("git", "-C", where, "rev-parse", "--path-format=absolute", "--git-common-dir")
-    sister = sister_entry(Path(common).parent, toml) if common else None
+    if marked_team_in_repo(where, Path(top_out)):
+        return "team", f"owner: team in {SKILL_CONTEXT}"
+    common = sh("git", "-C", where, "rev-parse", "--git-common-dir")  # relative to `where`
+    try:
+        sister = sister_entry((Path(where) / common).resolve().parent, toml) if common else None
+    except TomlUnreadable as exc:
+        return "team", str(exc)
     if sister and sister.get("kind") == "team":
         return "team", f'kind = "team" in {toml}'
     slug = GITHUB_REMOTE.search(sh("git", "-C", where, "remote", "get-url", "origin") or "")

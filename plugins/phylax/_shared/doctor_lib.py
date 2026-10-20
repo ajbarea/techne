@@ -159,17 +159,24 @@ def _kill_group(proc: subprocess.Popen) -> None:
         proc.kill()
 
 
-def run(argv: Sequence[str], timeout: float = DEFAULT_TIMEOUT) -> tuple[int | None, str]:
-    """(exit code, stdout and stderr merged). The code is None when the program could not
-    start or ran past `timeout`; its own process group is killed so a child it left holding
-    the pipe cannot hang the doctor."""
+def run(
+    argv: Sequence[str],
+    timeout: float = DEFAULT_TIMEOUT,
+    *,
+    merge_stderr: bool = True,
+    env: Mapping[str, str] | None = None,
+) -> tuple[int | None, str]:
+    """(exit code, stdout with stderr merged in, or stdout alone when merge_stderr is False).
+    The code is None when the program could not start or ran past `timeout`; its own process
+    group is killed so a child it left holding the pipe cannot hang the caller."""
     try:
         proc = subprocess.Popen(
             list(argv),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stderr=subprocess.STDOUT if merge_stderr else subprocess.DEVNULL,
             start_new_session=True,
+            env=None if env is None else dict(env),
         )
     except (OSError, ValueError) as exc:
         return None, str(exc)
