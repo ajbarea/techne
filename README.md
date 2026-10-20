@@ -45,7 +45,7 @@ Install only the ones you use: every enabled plugin's skill list sits in the age
 | `techne:deslop` | Scans comments and docstrings for AI-generated slop and proposes tightened rewrites. |
 | `techne:docs-site` | Maintains the Zensical-powered docs site: config, deploy pipeline, theming, link integrity. |
 | `techne:docsync` | Verifies documentation claims (CLI commands, paths, config keys, signatures) against the actual code. |
-| `techne:elenchus` | Adversarial pre-merge review: drives `/code-review`, then reproduces the load-bearing claim, traces every consumer across the whole repo, and walks a bug-class rubric for reachable destructive ops, unmirrored parallel-path guards, migration crashes, and dead-but-green features. |
+| `techne:elenchus` | Adversarial pre-merge review: an independent reviewer sized to the change's risk (plus `/code-review` for risky changes) reproduces the load-bearing claim, traces every consumer across the whole repo, and walks a bug-class rubric for reachable destructive ops, unmirrored parallel-path guards, migration crashes, and dead-but-green features. |
 | `techne:research-grounded` | Flags decisions (technology, data release, study design, access rules, claim wording) in IMPL, ROADMAP and decision records that lack `# research(YYYY-MM):` provenance, then web-searches to ground them. |
 | `techne:reslop` | Rewrites docstrings grounded in the implementation rather than deleting them outright. |
 | `techne:sisters` | Cross-repo drift audit across the sister repos listed in `~/.claude/techne.toml`. |

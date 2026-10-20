@@ -36,6 +36,15 @@ stub-tested only. After merge: `gh auth refresh -h github.com -s project`, then
 
 Verify: `make validate`.
 
+### elenchus review tiers (feat/elenchus-review-tiers)
+
+Done: three roles (author dispatches and relays, dispatched reader runs one round and writes
+nowhere, independent reader runs every phase) and two tiers (high: `/code-review high` on the
+branch or PR first, for a new subsystem, destructive op added or fed, persisted state, a
+security/privacy/access/governance boundary or a sensitive target, whatever the size; light:
+the reader alone; unsure means high). Errored reviews are rerun. Three review rounds so far.
+Next: CI green, squash-merge. Verify: `make validate`.
+
 ### Landed on main: elenchus says when the review loop ends (#185)
 
 `## When the review loop ends` in the elenchus SKILL.md and docs page: no fixed round count; one
