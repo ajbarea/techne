@@ -11,6 +11,14 @@ has crept in; extract it back to ROADMAP.
 
 ## In flight
 
+### Landed: elenchus says when the review loop ends (#185)
+
+`## When the review loop ends` in the elenchus SKILL.md and docs page: no fixed round count; one
+reproduction attempt per unproven finding before each report; continue while a reproduced
+Blocking/Should-fix finding is reachable, stop otherwise; open findings go in the Phase 5 comment
+or an existing linked issue; a long loop pauses for the user. Took five review rounds; the first
+draft's Porter et al. 1997 citation was dropped (two sessions beat one for one-person teams).
+
 ### Landed: resume state from the branch's IMPL.md (#180)
 
 `_shared/resume_state.py` reads a worktree's state from local git (IMPL.md compared at the
