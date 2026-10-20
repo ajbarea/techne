@@ -348,7 +348,8 @@ BOARD_OPTIONS = {"Idea": "o_idea", "Issue": "o_issue", "In PR": "o_pr", "Merged"
 
 def board_rules(options: Mapping[str, str] = BOARD_OPTIONS) -> list[dict]:
     """gh answers for a board whose Status field holds OPTIONS: view, field-list, item-add
-    (item id PVTI_<n> from the URL's number), item-edit."""
+    (item id PVTI_<n> from the URL's number), item-edit, and a membership query that finds
+    no item on the board."""
     fields = {
         "fields": [
             {"id": "F_TITLE", "name": "Title", "type": "ProjectV2Field"},
@@ -373,4 +374,6 @@ def board_rules(options: Mapping[str, str] = BOARD_OPTIONS) -> list[dict]:
                 "stdout": json.dumps({"id": f"PVTI_{n}", "type": "Issue"}),
             }
         )
+    absent = {"data": {"resource": {"projectItems": {"nodes": []}}}}
+    rules.append({"match": ["api", "graphql"], "stdout": json.dumps(absent)})
     return rules

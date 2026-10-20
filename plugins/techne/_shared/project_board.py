@@ -2,8 +2,9 @@
 
 The board is named by a `[board]` table in ~/.claude/techne.toml (`owner`, `number`); without
 one every caller does nothing. All GitHub access goes through `gh project`, each call bounded
-by a shared Budget. The board's node IDs are cached under ~/.cache/techne. Runs on python3
-3.9 (stock macOS), because the PostToolUse hook imports it.
+by a shared Budget. The board's node IDs are cached under ~/.cache/techne. Imports on python3
+3.9 (stock macOS), where the PostToolUse hook loads it; reading the config needs tomllib (3.11),
+so below that the board is never configured.
 """
 
 from __future__ import annotations
@@ -24,11 +25,13 @@ SCOPE_FIX = (
 )
 
 ITEM_URL = re.compile(r"https://github\.com/([A-Za-z0-9-]+)/([A-Za-z0-9._-]+)/(issues|pull)/(\d+)")
-_SEGMENT_SPLIT = re.compile(r"&&|\|\||[;|\n]")
-# gh in command position: after an optional ( or {, `env`, and VAR=value assignments.
-_GH = r"^\s*[({]?\s*(?:env\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*gh\s+"
-_CREATE = re.compile(_GH + r"(?:issue|pr)\s+create(?:\s|$)")
+# gh in command position: after ( or {, the env, command, exec, nohup or time wrappers, and
+# VAR=value assignments.
+_GH = r"^\s*(?:[({]\s*)*(?:(?:env|command|exec|nohup|time)\s+|[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*gh\s+"
+_CREATE = re.compile(_GH + r"(?:issue|pr)\s+(?:create|new)(?=[\s)}]|$)")
 _API = re.compile(_GH + r"api(?:\s|$)")
+_HEREDOC = re.compile(r"(?<!<)<<(-?)\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\2")
+_SEPARATORS = ("&&", "||", ";", "|", "&", "\n")
 _API_PATH = re.compile(r"""(?:^|[\s'"/])repos/[^/\s'"]+/[^/\s'"]+/(?:issues|pulls)/?(?:$|[\s'"])""")
 _METHOD = re.compile(r"""(?:-X\s*|--method[=\s]+)['"]?([A-Za-z]+)""")
 _FIELDS = re.compile(r"(?:^|\s)(?:-[fF]|--field|--raw-field|--input)(?:[=\s]|$)")
@@ -36,6 +39,10 @@ _FIELDS = re.compile(r"(?:^|\s)(?:-[fF]|--field|--raw-field|--input)(?:[=\s]|$)"
 
 class BoardError(Exception):
     """A gh call or the board's setup failed; the message is one short reason."""
+
+
+class TomlError(BoardError):
+    """techne.toml is not valid TOML, so no [board] can be read from it."""
 
 
 @dataclass(frozen=True)
@@ -92,42 +99,67 @@ def _board_table(text: str) -> dict | None:
     try:
         import tomllib  # 3.11+
     except ImportError:
-        return _board_table_fallback(text)
+        return None  # one TOML reader, so a config means the same on every python3
     try:
         table = tomllib.loads(text).get("board")
     except tomllib.TOMLDecodeError as exc:
-        raise BoardError(f"techne.toml is not valid TOML ({exc})") from exc
+        raise TomlError(f"techne.toml is not valid TOML ({exc})") from exc
     return table if isinstance(table, dict) else None
 
 
-_HEADER = re.compile(r"^\s*\[\[?\s*([^\]]+?)\s*\]\]?\s*(?:#.*)?$")
-_KEY = re.compile(r"""^\s*([A-Za-z0-9_-]+)\s*=\s*("[^"]*"|'[^']*'|[+-]?\d+)\s*(?:#.*)?$""")
+def _without_heredocs(command: str) -> str:
+    """COMMAND with each heredoc body dropped, so the text it feeds a command is not read as
+    commands."""
+    kept: list[str] = []
+    end: tuple[str, bool] | None = None
+    for line in command.split("\n"):
+        if end is not None:
+            word, dash = end
+            if (line.lstrip("\t") if dash else line) == word:
+                end = None
+            continue
+        kept.append(line)
+        heredoc = _HEREDOC.search(line)
+        if heredoc:
+            end = (heredoc.group(3), heredoc.group(1) == "-")
+    return "\n".join(kept)
 
 
-def _board_table_fallback(text: str) -> dict | None:
-    """The [board] table on a python3 without tomllib: string and integer keys only."""
-    table: dict | None = None
-    for line in text.splitlines():
-        header = _HEADER.match(line)
-        if header:
-            if table is not None:
-                break
-            if header.group(1) == "board" and not line.strip().startswith("[["):
-                table = {}
+def _segments(command: str) -> list[str]:
+    """The simple commands of COMMAND, split on &&, ||, ;, |, & and newlines outside quotes."""
+    text = _without_heredocs(command)
+    parts: list[str] = []
+    start = i = 0
+    quote = ""
+    while i < len(text):
+        ch = text[i]
+        if quote:
+            if ch == "\\" and quote == '"':
+                i += 2
+                continue
+            if ch == quote:
+                quote = ""
+        elif ch in "'\"":
+            quote = ch
+        elif ch == "\\":
+            i += 2
             continue
-        if table is None:
-            continue
-        kv = _KEY.match(line)
-        if kv:
-            value = kv.group(2)
-            table[kv.group(1)] = value[1:-1] if value[0] in "\"'" else int(value)
-    return table
+        else:
+            sep = next((s for s in _SEPARATORS if text.startswith(s, i)), None)
+            if sep:
+                parts.append(text[start:i])
+                i += len(sep)
+                start = i
+                continue
+        i += 1
+    parts.append(text[start:])
+    return parts
 
 
 def creates_item(command: str) -> bool:
-    """True when the shell command opens an issue or a PR: `gh issue create`, `gh pr create`,
-    or a `gh api` POST to repos/<owner>/<repo>/issues or /pulls."""
-    for segment in _SEGMENT_SPLIT.split(command):
+    """True when the shell command opens an issue or a PR: `gh issue create` or `gh pr create`
+    (or their alias `new`), or a `gh api` POST to repos/<owner>/<repo>/issues or /pulls."""
+    for segment in _segments(command):
         if _CREATE.search(segment):
             return True
         if _API.search(segment) and _API_PATH.search(segment):
@@ -141,10 +173,11 @@ def creates_item(command: str) -> bool:
 
 
 def created_urls(output: str, owner: str) -> list[tuple[str, str]]:
-    """[(url, "Issue" | "In PR")] for each issue or PR URL in OUTPUT whose repo belongs to OWNER.
+    """[(url, "Issue" | "In PR")] for each issue or PR that OUTPUT reports created in a repo of
+    OWNER.
 
-    A JSON response (gh api) yields only its html_url, so the issues a PR body links are not
-    taken for new ones."""
+    gh prints a created item's URL on a line of its own, and a `gh api` POST answers with one
+    JSON object; only those count, so a URL quoted in a body or a listing is never taken."""
     text = output.strip()
     candidates: list[str] = []
     if text[:1] in ("[", "{"):
@@ -153,13 +186,11 @@ def created_urls(output: str, owner: str) -> list[tuple[str, str]]:
         except ValueError:
             data = None
         if data is not None:
-            records = data if isinstance(data, list) else [data]
-            for record in records:
-                if isinstance(record, dict) and isinstance(record.get("html_url"), str):
-                    candidates.append(record["html_url"])
+            if isinstance(data, dict) and isinstance(data.get("html_url"), str):
+                candidates.append(data["html_url"])
             text = ""
     if text:
-        candidates = [m.group(0) for m in ITEM_URL.finditer(text)]
+        candidates = [line.strip() for line in text.splitlines()]
     found: list[tuple[str, str]] = []
     for url in candidates:
         m = ITEM_URL.fullmatch(url)
@@ -309,3 +340,36 @@ def file_item(board: Board, url: str, status: str, budget: Budget) -> str:
     item_id = add_item(board, url, budget)
     set_status(board, item_id, status, budget)
     return item_id
+
+
+MEMBERSHIP = """
+query($url: URI!) {
+  resource(url: $url) {
+    ... on Issue { projectItems(first: 50, includeArchived: true) { nodes { project { id } } } }
+    ... on PullRequest {
+      projectItems(first: 50, includeArchived: true) { nodes { project { id } } }
+    }
+  }
+}
+"""
+
+
+def on_board(board: Board, url: str, budget: Budget) -> bool:
+    """Whether the issue or PR at URL is already an item of BOARD (archived ones included)."""
+    out = gh(["api", "graphql", "-f", f"query={MEMBERSHIP}", "-f", f"url={url}"], budget)
+    try:
+        resource = (json.loads(out).get("data") or {}).get("resource") or {}
+    except (ValueError, AttributeError) as exc:
+        raise BoardError("`gh api graphql` printed no JSON") from exc
+    project_id = board_ids(board, budget).project_id
+    nodes = (resource.get("projectItems") or {}).get("nodes") or []
+    return any(((n or {}).get("project") or {}).get("id") == project_id for n in nodes)
+
+
+def file_new_item(board: Board, url: str, status: str, budget: Budget) -> bool:
+    """Add the issue or PR at URL with STATUS, unless it is on the board already: an existing
+    item keeps its Status. True when it was added."""
+    if on_board(board, url, budget):
+        return False
+    file_item(board, url, status, budget)
+    return True

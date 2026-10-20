@@ -9,6 +9,7 @@ hook on python3 3.9. gh is a stub on PATH (tests/fixtures/gh_stub.py).
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -16,6 +17,12 @@ import pytest
 from conftest import BOARD_TOML, HOOK_PYTHON, ROOT, GhStub, board_rules
 
 PLUGIN = ROOT / "plugins" / "techne"
+# The hook reads techne.toml with tomllib only, so below python3 3.11 it never files anything;
+# test_below_3_11_the_hook_does_nothing covers that interpreter.
+HOOK_HAS_TOMLLIB = (
+    subprocess.run([HOOK_PYTHON, "-c", "import tomllib"], capture_output=True).returncode == 0
+)
+files = pytest.mark.skipif(not HOOK_HAS_TOMLLIB, reason="the hook files nothing below 3.11")
 HOOK = PLUGIN / "hooks" / "board_add.py"
 SCOPE_ERR = (
     "error: your authentication token is missing required scopes [project]\n"
@@ -58,6 +65,7 @@ def board(gh_stub: GhStub) -> GhStub:
     return gh_stub
 
 
+@files
 def test_issue_url_goes_on_as_issue(board: GhStub):
     url = "https://github.com/ajbarea/techne/issues/5"
     proc = run_hook(board, "gh issue create --title t --body b", url + "\n")
@@ -71,6 +79,7 @@ def test_issue_url_goes_on_as_issue(board: GhStub):
     assert edit[edit.index("--field-id") + 1] == "F_STATUS"
 
 
+@files
 def test_pr_url_goes_on_as_in_pr(board: GhStub):
     out = "Creating pull request for feat into main\n\nhttps://github.com/ajbarea/techne/pull/3\n"
     proc = run_hook(board, "cd x && gh pr create --fill", out)
@@ -102,8 +111,9 @@ def test_command_that_opens_nothing_calls_no_gh(board: GhStub, command: str):
     assert board.calls() == []
 
 
+@files
 def test_gh_failing_tells_claude_and_exits_0(board: GhStub):
-    board.rules([{"match": ["project"], "stderr": SCOPE_ERR, "exit": 1}])
+    board.rules([{"match": [], "stderr": SCOPE_ERR, "exit": 1}])
     url = "https://github.com/ajbarea/techne/issues/5"
     proc = run_hook(board, "gh issue create -t t -b b", url + "\n")
     assert proc.returncode == 0
@@ -115,6 +125,7 @@ def test_gh_failing_tells_claude_and_exits_0(board: GhStub):
     assert "gh auth refresh -h github.com -s project" in line
 
 
+@files
 def test_gh_missing_tells_claude(board: GhStub):
     board.env["PATH"] = str(board.home)  # no gh, no sh
     proc = run_hook(board, "gh pr create --fill", "https://github.com/ajbarea/techne/pull/3\n")
@@ -132,6 +143,7 @@ def test_without_board_config_does_nothing(gh_stub: GhStub, toml: str | None):
     assert gh_stub.calls() == []
 
 
+@files
 def test_malformed_board_config_says_so(gh_stub: GhStub):
     gh_stub.config('[board]\nowner = "ajbarea"\nnumber = "seven"\n')
     proc = run_hook(gh_stub, "gh issue create -t t -b b", "https://github.com/ajbarea/x/issues/5")
@@ -140,6 +152,7 @@ def test_malformed_board_config_says_so(gh_stub: GhStub):
     assert gh_stub.calls() == []
 
 
+@files
 def test_several_urls_each_get_their_status(board: GhStub):
     out = (
         "https://github.com/ajbarea/techne/issues/1\n"
@@ -155,6 +168,7 @@ def test_several_urls_each_get_their_status(board: GhStub):
     assert sum(a[:2] == ["project", "field-list"] for a in board.argvs()) == 1
 
 
+@files
 def test_api_post_takes_only_the_new_items_url(board: GhStub):
     body = {
         "url": "https://api.github.com/repos/ajbarea/techne/pulls/6",
@@ -168,13 +182,19 @@ def test_api_post_takes_only_the_new_items_url(board: GhStub):
     assert edits(board) == [("PVTI_6", "o_pr")]
 
 
+@files
 def test_cached_ids_skip_the_lookup(board: GhStub):
     run_hook(board, "gh issue create -t a -b a", "https://github.com/ajbarea/techne/issues/1\n")
     board.log.unlink()
     run_hook(board, "gh pr create --fill", "https://github.com/ajbarea/techne/pull/2\n")
-    assert [a[:2] for a in board.argvs()] == [["project", "item-add"], ["project", "item-edit"]]
+    assert [a[:2] for a in board.argvs()] == [
+        ["api", "graphql"],
+        ["project", "item-add"],
+        ["project", "item-edit"],
+    ]
 
 
+@files
 def test_stale_cache_is_looked_up_again(board: GhStub):
     cache = Path(board.env["XDG_CACHE_HOME"]) / "techne" / "board-ajbarea-7.json"
     cache.parent.mkdir(parents=True)
@@ -186,6 +206,7 @@ def test_stale_cache_is_looked_up_again(board: GhStub):
     assert json.loads(cache.read_text())["options"]["In PR"] == "o_pr"
 
 
+@files
 def test_board_without_the_status_option_says_run_init(board: GhStub):
     board.rules(board_rules({"Todo": "o_t", "In Progress": "o_p", "Done": "o_d"}))
     proc = run_hook(board, "gh pr create --fill", "https://github.com/ajbarea/techne/pull/2\n")
@@ -215,14 +236,15 @@ def test_creates_item(pb, command: str, expected: bool):
     assert pb.creates_item(command) is expected
 
 
-def test_toml_fallback_reads_only_the_board_table(pb):
-    text = (
-        'github_user = "ajbarea"\nnumber = 3\n\n[[sisters]]\nname = "board"\n\n'
-        "[board]  # the projects board\nowner = 'ajbarea'  # login\nnumber = 7\n\n"
-        '[other]\nowner = "x"\n'
-    )
-    assert pb._board_table_fallback(text) == {"owner": "ajbarea", "number": 7}
-    assert pb._board_table_fallback('[[board]]\nowner = "x"\n') is None
+def test_config_is_read_only_through_tomllib(pb, tmp_path: Path):
+    toml = tmp_path / "techne.toml"
+    toml.write_text('[board]\nowner = "ajbarea"\nnumber = 07\n')
+    with pytest.raises(pb.TomlError):
+        pb.load_board(toml)
+    toml.write_text('notes = """\n[board]\nowner = "x"\nnumber = 1\n"""\n')
+    assert pb.load_board(toml) is None
+    toml.write_text('[[sisters]]\nname = "board"\n\n[board]\nowner = "ajbarea"\nnumber = 7\n')
+    assert pb.load_board(toml) == pb.Board("ajbarea", 7)
 
 
 def test_budget_bounds_a_hanging_gh(pb, gh_stub: GhStub, monkeypatch: pytest.MonkeyPatch):
@@ -242,3 +264,116 @@ def test_hooks_json_declares_the_gh_filtered_post_tool_use_hook():
     assert hook["if"] == "Bash(gh *)"
     assert "${CLAUDE_PLUGIN_ROOT}/hooks/board_add.py" in hook["command"]
     assert hook["timeout"] > 8  # the script's own budget
+
+
+# Regressions from the review of #186.
+
+
+def on_board(n: int, item_id: str = "PVTI_OLD") -> dict:
+    """The membership answer for an issue or PR already on board PVT_7."""
+    nodes = [{"id": item_id, "project": {"id": "PVT_7"}}]
+    return {
+        "match": ["api", "graphql", f"*/{n}"],
+        "stdout": json.dumps({"data": {"resource": {"projectItems": {"nodes": nodes}}}}),
+    }
+
+
+@files
+def test_a_url_inside_other_output_is_not_filed(board: GhStub):
+    out = (
+        "https://github.com/ajbarea/techne/pull/3\n"
+        "title:\tadd the board\n"
+        "Follows https://github.com/ajbarea/techne/pull/180 and closes\n"
+        "  https://github.com/ajbarea/techne/issues/4.\n"
+    )
+    proc = run_hook(board, "gh pr create --fill && gh pr view", out)
+    assert proc.returncode == 0 and proc.stdout == ""
+    assert edits(board) == [("PVTI_3", "o_pr")]
+
+
+def test_api_json_takes_only_a_top_level_html_url(board: GhStub):
+    listed = [{"html_url": "https://github.com/ajbarea/techne/issues/9"}]
+    proc = run_hook(board, "gh api repos/ajbarea/techne/issues -f title=t", json.dumps(listed))
+    assert proc.returncode == 0 and proc.stdout == ""
+    assert board.calls() == []
+
+
+@files
+def test_an_item_already_on_the_board_is_never_moved(board: GhStub):
+    board.rules([on_board(3), *board_rules()])
+    proc = run_hook(board, "gh pr create --fill", "https://github.com/ajbarea/techne/pull/3\n")
+    assert proc.returncode == 0 and proc.stdout == ""
+    assert not any(a[:2] in (["project", "item-add"], ["project", "item-edit"])
+                   for a in board.argvs())  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("gh issue new -t x -b y", True),
+        ("gh pr new --fill", True),
+        ("(gh pr create --fill)", True),
+        ("(gh pr create)", True),
+        ("gh pr create&", True),
+        ("{ gh issue new; }", True),
+        ("gh pr create --fill&", True),
+        ("command gh pr create --fill", True),
+        ("cat <<'EOF'\ngh pr create --fill\nEOF", False),
+        ("cat <<-EOF > notes.md\n\tgh issue create -t x\n\tEOF", False),
+        ('grep -n "gh pr create" README.md', False),
+        ('echo "done; gh pr create --fill"', False),
+    ],
+)
+def test_creates_item_aliases_and_wrappers(pb, command: str, expected: bool):
+    assert pb.creates_item(command) is expected
+
+
+@pytest.mark.parametrize(
+    "toml",
+    [
+        'notes = """\n[board]\nowner = "ajbarea"\nnumber = 7\n"""\n',
+        '[board]\nowner = "ajbarea"\nnumber = 07\n',
+    ],
+)
+def test_config_tomllib_rejects_is_never_read(gh_stub: GhStub, toml: str):
+    gh_stub.config(toml)
+    gh_stub.rules(board_rules())
+    proc = run_hook(gh_stub, "gh issue create -t t", "https://github.com/ajbarea/techne/issues/5\n")
+    assert proc.returncode == 0 and proc.stdout == "" and proc.stderr == ""
+    assert gh_stub.calls() == []
+
+
+@files
+def test_the_failure_line_stays_short(board: GhStub):
+    board.rules([{"match": [], "stderr": SCOPE_ERR, "exit": 1}])
+    urls = [f"https://github.com/ajbarea/repository-with-a-long-name/issues/{n}" for n in range(40)]
+    proc = run_hook(board, "gh issue create -t t", "\n".join(urls) + "\n")
+    line = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert len(line) < 300 and "40" in line and urls[0] in line
+
+
+def test_below_3_11_the_hook_does_nothing(board: GhStub):
+    old = HOOK_PYTHON if not HOOK_HAS_TOMLLIB else None
+    if old is None:
+        uv = shutil.which("uv")
+        found = subprocess.run(
+            [uv, "python", "find", "--no-project", "3.9"], capture_output=True, text=True
+        ) if uv else None  # fmt: skip
+        old = found.stdout.strip() if found and found.returncode == 0 else None
+    if not old:
+        pytest.skip("no python3 3.9 here; make test-hooks-oldest runs this file on one")
+    payload = {
+        "tool_name": "Bash",
+        "tool_input": {"command": "gh issue create -t t"},
+        "tool_response": {"stdout": "https://github.com/ajbarea/techne/issues/5\n"},
+    }
+    proc = subprocess.run(
+        [old, str(HOOK)],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        env=board.env,
+        timeout=60,
+    )
+    assert proc.returncode == 0 and proc.stdout == "" and proc.stderr == ""
+    assert board.calls() == []
