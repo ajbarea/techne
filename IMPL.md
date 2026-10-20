@@ -11,14 +11,13 @@ has crept in; extract it back to ROADMAP.
 
 ## In flight
 
-### elenchus: when the review loop ends (feat/elenchus-iterating)
+### Landed: elenchus says when the review loop ends (#185)
 
-Done: `## When the review loop ends` in the elenchus SKILL.md and docs page. No fixed round count;
-one reproduction attempt per unproven finding before each report; continue while a reproduced
+`## When the review loop ends` in the elenchus SKILL.md and docs page: no fixed round count; one
+reproduction attempt per unproven finding before each report; continue while a reproduced
 Blocking/Should-fix finding is reachable, stop otherwise; open findings go in the Phase 5 comment
-or an existing linked issue; a long loop pauses for the user. Five review rounds; round 5 found nothing Blocking or Should-fix, minor fixes applied; Porter et
-al. 1997 dropped (two sessions beat one for one-person teams). Next: CI green
-(`plugin-validate`/`plugin-test` need Linux npx, CI only), squash-merge. Verify: `make validate`.
+or an existing linked issue; a long loop pauses for the user. Took five review rounds; the first
+draft's Porter et al. 1997 citation was dropped (two sessions beat one for one-person teams).
 
 ### Landed: resume state from the branch's IMPL.md (#180)
 
