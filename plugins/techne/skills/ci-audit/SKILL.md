@@ -85,6 +85,8 @@ Expand context (`grep -A3 -B1`) around any hit you can't classify from one line.
 
 ## Classify every finding
 
+First run `python3 "<plugin-root>/_shared/repo_kind.py"` in the repo under audit. It prints `solo: <why>` or `team: <why>` (anything unsettled reads as team); `[PROPOSE]` below depends on it, and the line goes at the top of the Findings.
+
 Put every finding into one of five buckets:
 
 1. **`[FIX]` — Fix now, in this repo.** Workflow YAML referencing a deprecated action, a lint/test failure, a missing file, a misconfigured flag, a ty/mypy error that config should cover. Edit and verify.
@@ -124,6 +126,8 @@ PR-level external checks (omit section if none):
 - ...
 
 ### Findings
+
+Repo: <the `solo: …` or `team: …` line from repo_kind.py>
 
 1. [FIX] <one-line summary> — <file:line> → edited.  Verified: <local check or "next CI run">.
 2. [BUMP] <action> <old>→<new> — <file:line> → edited.

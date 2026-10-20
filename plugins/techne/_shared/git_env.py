@@ -9,11 +9,12 @@ import subprocess
 from collections.abc import Mapping
 from pathlib import Path
 
-# What `git rev-parse --local-env-vars` lists. A hook or wrapper that exports any of these
+# What `git rev-parse --local-env-vars` lists, minus GIT_CONFIG, GIT_CONFIG_PARAMETERS and
+# GIT_CONFIG_COUNT: those carry config a container or CI job injects on purpose (safe.directory,
+# a credential helper), not a different repository. A hook or wrapper that exports any of these
 # points `git -C <dir>` at another repository than <dir>.
 LOCAL_ENV = (
-    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CONFIG", "GIT_CONFIG_PARAMETERS",
-    "GIT_CONFIG_COUNT", "GIT_OBJECT_DIRECTORY", "GIT_DIR", "GIT_WORK_TREE",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_OBJECT_DIRECTORY", "GIT_DIR", "GIT_WORK_TREE",
     "GIT_IMPLICIT_WORK_TREE", "GIT_GRAFT_FILE", "GIT_INDEX_FILE", "GIT_NO_REPLACE_OBJECTS",
     "GIT_REPLACE_REF_BASE", "GIT_PREFIX", "GIT_SHALLOW_FILE", "GIT_COMMON_DIR",
 )  # fmt: skip

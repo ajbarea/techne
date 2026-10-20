@@ -75,8 +75,8 @@ def marked_team_in_repo(where: str, top: Path) -> bool:
     return any(OWNER_TEAM.search(repo_section(text)) for text in texts())
 
 
-def sister_entry(main_checkout: Path, path: Path) -> dict | None:
-    """The [[sisters]] table whose workspace_root/<name> is this checkout, or None."""
+def sister_entry(checkouts: set[Path], path: Path) -> dict | None:
+    """The [[sisters]] table whose workspace_root/<name> is one of these paths, or None."""
     if not path.exists():
         return None
     try:
@@ -91,10 +91,10 @@ def sister_entry(main_checkout: Path, path: Path) -> dict | None:
     root, sisters = cfg.get("workspace_root"), cfg.get("sisters")
     if not isinstance(root, str) or not isinstance(sisters, list):
         return None
-    here = main_checkout.resolve()
+    here = {p.resolve() for p in checkouts}
     for sister in sisters:
         if isinstance(sister, dict) and isinstance(sister.get("name"), str):
-            if (Path(root).expanduser() / sister["name"]).resolve() == here:
+            if (Path(root).expanduser() / sister["name"]).resolve() in here:
                 return sister
     return None
 
@@ -132,27 +132,39 @@ def from_github(owner: str, name: str, listed: bool = False) -> tuple[str, str]:
     logins = sorted(set(pushers.split()))
     if len(logins) != 1:
         return "team", f"{', '.join(logins) or 'nobody listed'} can push to {slug}"
+    invited = sh(
+        "gh", "api", "--hostname", "github.com", "--paginate", f"repos/{slug}/invitations",
+        "--jq", ".[].invitee.login",
+    )  # fmt: skip
+    if invited is None:
+        return "team", f"could not list the pending invitations to {slug}"
+    if invited.split():
+        return "team", f"{', '.join(sorted(set(invited.split())))} is invited to {slug}"
     return "solo", f"{logins[0]} owns {slug} and is its only collaborator with push access"
 
 
 def classify(path: str = ".", toml: Path | None = None) -> tuple[str, str]:
     toml = toml or techne_toml()
     where = str(as_directory(path))
-    top_out = sh("git", "-C", where, "rev-parse", "--show-toplevel")
-    if not top_out:
+    out = (sh("git", "-C", where, "rev-parse", "--show-toplevel", "--git-common-dir") or "").split(
+        "\n"
+    )
+    if len(out) != 2:
         return "team", f"{path} is not in a git repository"
-    if marked_team_in_repo(where, Path(top_out)):
+    top, common = Path(out[0]), (Path(where) / out[1]).resolve()  # common is relative to `where`
+    if marked_team_in_repo(where, top):
         return "team", f"owner: team in {SKILL_CONTEXT}"
-    common = sh("git", "-C", where, "rev-parse", "--git-common-dir")  # relative to `where`
-    git_dir = (Path(where) / common).resolve() if common else None
-    # A worktree's common dir is <main checkout>/.git; a submodule's or a --separate-git-dir
-    # repo's is elsewhere, and there the top level is the checkout.
-    main_checkout = git_dir.parent if git_dir and git_dir.name == ".git" else Path(top_out)
+    # Where a roster may name this repo: its top level (a submodule, a --separate-git-dir repo),
+    # the folder holding its common dir (<checkout>/.git, or <checkout>/.bare behind worktrees),
+    # or a bare `<name>.git` common dir behind worktrees.
+    checkouts = {top, common.parent}
+    if common.name.endswith(".git") and common.name != ".git":
+        checkouts.add(common.with_name(common.name[: -len(".git")]))
     try:
-        sister = sister_entry(main_checkout, toml)
+        sister = sister_entry(checkouts, toml)
     except TomlUnreadable as exc:
         return "team", str(exc)
-    if sister and sister.get("kind") == "team":
+    if sister and str(sister.get("kind", "")).lower() == "team":
         return "team", f'kind = "team" in {toml}'
     slug = GITHUB_REMOTE.search(sh("git", "-C", where, "remote", "get-url", "origin") or "")
     if not slug:

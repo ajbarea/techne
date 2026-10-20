@@ -53,3 +53,34 @@ def test_a_failed_config_read_falls_back_to_batch_ssh(ge, repo, monkeypatch, err
 
     monkeypatch.setattr(ge.subprocess, "run", fail)
     assert ge.batch_ssh({"PATH": "/usr/bin:/bin"}, repo)["GIT_SSH_COMMAND"] == ge.BATCH_SSH
+
+
+CONFIG_VARS = {"GIT_CONFIG", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT"}
+
+
+def test_local_env_matches_what_git_reports(ge):
+    """git's own list, minus the config variables a job injects on purpose."""
+    reported = subprocess.run(
+        ["git", "rev-parse", "--local-env-vars"], capture_output=True, text=True, check=True
+    ).stdout.split()
+    assert set(ge.LOCAL_ENV) == set(reported) - CONFIG_VARS
+
+
+def test_repo_overrides_are_dropped_and_injected_config_is_kept(ge):
+    env = {
+        "GIT_DIR": "/elsewhere/.git",
+        "GIT_INDEX_FILE": "/elsewhere/index",
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": "safe.directory",
+        "GIT_CONFIG_VALUE_0": "*",
+        "GIT_CONFIG_PARAMETERS": "'credential.helper'='store'",
+        "PATH": "/bin",
+    }
+    kept = ge.without_repo_overrides(env)
+    assert "GIT_DIR" not in kept and "GIT_INDEX_FILE" not in kept
+    assert {
+        "GIT_CONFIG_COUNT",
+        "GIT_CONFIG_KEY_0",
+        "GIT_CONFIG_VALUE_0",
+        "GIT_CONFIG_PARAMETERS",
+    } <= kept.keys()

@@ -25,6 +25,10 @@ PUSHERS = [
     "gh", "api", "--hostname", "github.com", "--paginate", f"repos/{SLUG}/collaborators",
     "--jq", ".[] | select(.permissions.push) | .login",
 ]  # fmt: skip
+INVITED = [
+    "gh", "api", "--hostname", "github.com", "--paginate", f"repos/{SLUG}/invitations",
+    "--jq", ".[].invitee.login",
+]  # fmt: skip
 MINE = '{"parent":null,"isInOrganization":false,"viewerPermission":"ADMIN"}'
 
 
@@ -63,9 +67,10 @@ def gh(fp):
     return fp
 
 
-def mine(gh, pushers: str = f"{ME}\n") -> None:
+def mine(gh, pushers: str = f"{ME}\n", invited: str = "") -> None:
     gh.register(VIEW, stdout=MINE)
     gh.register(PUSHERS, stdout=pushers)
+    gh.register(INVITED, stdout=invited)
 
 
 def roster(tmp_path: Path, workspace: Path, entry: str) -> Path:
@@ -192,6 +197,7 @@ def test_a_fork_listed_as_a_sister_is_the_users_own_line(rk, origin, tmp_path, g
     fork = '{"parent":{"name":"up","owner":{"login":"lab"}},"isInOrganization":false,'
     gh.register(VIEW, stdout=fork + '"viewerPermission":"ADMIN"}')
     gh.register(PUSHERS, stdout=f"{ME}\n")
+    gh.register(INVITED, stdout="")
     assert rk.classify(str(origin), toml)[0] == "solo"
 
 
@@ -320,3 +326,45 @@ def test_the_script_runs_on_the_oldest_python(tmp_path):
     )
     assert done.returncode == 0, done.stderr
     assert done.stdout.startswith("team: "), done.stdout
+
+
+# ----------------------------------------------------- round-4 regressions --
+
+
+def worktree_of_bare(tmp_path: Path, bare: Path, wt: Path) -> Path:
+    src = init(tmp_path / "src")
+    subprocess.run(["git", "clone", "-q", "--bare", str(src), str(bare)], check=True)
+    git(bare, "worktree", "add", "-q", str(wt))
+    git(wt, "remote", "set-url", "origin", f"git@github.com:{SLUG}.git")
+    return wt
+
+
+@pytest.mark.parametrize("layout", ["dot-bare", "name-dot-git"])
+def test_a_worktree_of_a_bare_repo_finds_its_roster_entry(rk, tmp_path, gh, layout):
+    mine(gh)  # GitHub alone would say solo, so team must come from the signal
+    ws = tmp_path / "ws"
+    if layout == "dot-bare":
+        wt = worktree_of_bare(tmp_path, ws / "myrepo" / ".bare", ws / "myrepo" / "main")
+    else:
+        wt = worktree_of_bare(tmp_path, ws / "myrepo.git", tmp_path / "wts" / "main")
+    toml = roster(tmp_path, ws, 'name = "myrepo"\nkind = "team"')
+    assert rk.classify(str(wt), toml)[0] == "team"
+
+
+@pytest.mark.parametrize("kind", ["Team", "TEAM"])
+def test_the_roster_kind_is_case_insensitive(rk, origin, tmp_path, gh, kind):
+    mine(gh)  # GitHub alone would say solo, so team must come from the signal
+    toml = roster(tmp_path, origin.parent, f'name = "myrepo"\nkind = "{kind}"')
+    assert rk.classify(str(origin), toml)[0] == "team"
+
+
+def test_a_pending_invitation_makes_it_team(rk, origin, no_toml, gh):
+    mine(gh, invited="classmate\n")
+    assert rk.classify(str(origin), no_toml) == ("team", f"classmate is invited to {SLUG}")
+
+
+def test_unlistable_invitations_are_team(rk, origin, no_toml, gh):
+    gh.register(VIEW, stdout=MINE)
+    gh.register(PUSHERS, stdout=f"{ME}\n")
+    gh.register(INVITED, returncode=1)
+    assert rk.classify(str(origin), no_toml)[0] == "team"

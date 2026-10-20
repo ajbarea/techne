@@ -139,7 +139,7 @@ The [template](https://github.com/ajbarea/techne/blob/main/plugins/techne/skills
 1. an `owner: team` line (with or without a leading `-`) under `## repo` in the repo's `.claude/skill-context.md`, in the working copy, the current commit or the default branch, so a committed line reaches every collaborator;
 2. `kind = "team"` on the repo's `[[sisters]]` entry in `~/.claude/techne.toml`, matched by its path under `workspace_root`.
 
-An `- owner: solo` line is not trusted on its own, since it is true only for its author. Anything unsettled, such as no GitHub origin, `gh` failing or a `techne.toml` that cannot be read, is treated as team, so a skill never edits someone else's repo without asking. Run `python3 plugins/techne/_shared/repo_kind.py <path>` to see the answer and the reason for any repo or file.
+An `- owner: solo` line is not trusted on its own, since it is true only for its author. Anything unsettled, such as no GitHub origin, `gh` failing or a `techne.toml` that cannot be read, is treated as team, so a skill never edits someone else's repo without asking. Run `python3 plugins/techne/_shared/repo_kind.py <path>` to see the answer and the reason for any repo or file. `techne:sisters` reads the roster `kind` on its own, for conventions only a solo repo follows (the README masthead); acting without asking always goes through these facts.
 
 ## `IMPL.md` and `ROADMAP.md` (working docs)
 
