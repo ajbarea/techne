@@ -15,14 +15,14 @@ from dataclasses import dataclass, field
 GIT_TIMEOUT = 5
 READ_BUDGET = 20  # seconds for all of read(); the hook's own timeout is 30
 IMPL = "IMPL.md"
-_deadline: float | None = None
 
 
-def git(root: str, *args: str) -> str | None:
-    """stdout, or None when git fails, times out, is missing or read()'s budget is spent."""
+def git(root: str, *args: str, deadline: float | None = None) -> str | None:
+    """stdout, or None when git fails, times out, is missing or `deadline` (a
+    time.monotonic() value) has passed."""
     timeout: float = GIT_TIMEOUT
-    if _deadline is not None:
-        timeout = min(timeout, _deadline - time.monotonic())
+    if deadline is not None:
+        timeout = min(timeout, deadline - time.monotonic())
         if timeout <= 0:
             return None
     # status must not take index.lock: another session may be committing in this worktree.
@@ -41,29 +41,52 @@ def git(root: str, *args: str) -> str | None:
     return proc.stdout if proc.returncode == 0 else None
 
 
-def base_ref(root: str) -> str:
-    """The default branch to compare against: origin's HEAD, else origin/main or master, else
-    a local main or master; "" when none exists."""
-    head = git(root, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
-    if head and head.strip():
-        return head.strip()
-    for ref in ("origin/main", "origin/master", "main", "master"):
-        if git(root, "rev-parse", "--verify", "--quiet", ref + "^{commit}") is not None:
+def _exists(root: str, ref: str, deadline: float | None) -> bool:
+    return (
+        git(root, "rev-parse", "--verify", "--quiet", ref + "^{commit}", deadline=deadline)
+        is not None
+    )
+
+
+def base_ref(root: str, deadline: float | None = None) -> str:
+    """The default branch to compare against: origin's HEAD when it still names a branch
+    (a clone never updates it), else origin/main or master, else a local main or master;
+    "" when none exists."""
+    head = (
+        git(
+            root,
+            "symbolic-ref",
+            "--quiet",
+            "--short",
+            "refs/remotes/origin/HEAD",
+            deadline=deadline,
+        )
+        or ""
+    ).strip()
+    for ref in ([head] if head else []) + ["origin/main", "origin/master", "main", "master"]:
+        if _exists(root, ref, deadline):
             return ref
     return ""
 
 
-def impl_matches(root: str, base: str, here: str | None = None) -> bool | None:
+def impl_matches(
+    root: str, base: str, here: str | None = None, deadline: float | None = None
+) -> bool | None:
     """Whether the worktree's IMPL.md (uncommitted edits included) is unchanged since HEAD
     left base. It compares at their merge-base, so main moving on, or this branch's own
     squash merge, does not decide it. `here` is IMPL.md's text when the caller has read it.
 
-    None when the repo keeps no IMPL.md on either side, so the convention does not apply.
+    None when the repo keeps no IMPL.md on either side, so the convention does not apply,
+    or when git cannot find the merge-base (a timeout, a shallow clone), so nobody knows.
     """
     if here is None:
         here = _read(os.path.join(root, IMPL))
-    fork = (git(root, "merge-base", base, "HEAD") or "").strip() if base else ""
-    there = git(root, "show", f"{fork or base}:{IMPL}") if base else None
+    if not base:
+        return None if here is None else False
+    fork = (git(root, "merge-base", base, "HEAD", deadline=deadline) or "").strip()
+    if not fork:
+        return None
+    there = git(root, "show", f"{fork}:{IMPL}", deadline=deadline)
     if here is None and there is None:
         return None
     return here == there
@@ -77,9 +100,9 @@ def _read(path: str) -> str | None:
         return None
 
 
-def repo_name(root: str) -> str:
+def repo_name(root: str, deadline: float | None = None) -> str:
     """The repository's folder name, the same from any of its worktrees, bare layouts too."""
-    common = (git(root, "rev-parse", "--git-common-dir") or "").strip()
+    common = (git(root, "rev-parse", "--git-common-dir", deadline=deadline) or "").strip()
     if not common:
         return os.path.basename(root)
     common = os.path.normpath(os.path.join(root, common))  # relative from the main checkout
@@ -87,6 +110,22 @@ def repo_name(root: str) -> str:
     if name == ".git":
         return os.path.basename(os.path.dirname(common))
     return name[: -len(".git")] if name.endswith(".git") else name
+
+
+def pushed_ref(root: str, branch: str, base: str, deadline: float | None = None) -> str:
+    """The remote branch holding this branch: its upstream when that is not the base (a
+    `worktree-x` pushed as `feat/x`), else <remote>/<branch>; "" when there is none."""
+    upstream = git(
+        root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}", deadline=deadline
+    )
+    upstream = (upstream or "").strip()
+    if upstream and upstream != base and _exists(root, upstream, deadline):
+        return upstream
+    remote = (
+        git(root, "config", "--get", f"branch.{branch}.remote", deadline=deadline) or "origin"
+    ).strip()
+    mirror = f"{remote}/{branch}"
+    return mirror if mirror != base and _exists(root, mirror, deadline) else ""
 
 
 @dataclass
@@ -98,7 +137,7 @@ class ResumeState:
     base: str  # e.g. "origin/main"; "" when the repo has no default branch to compare
     on_base: bool  # the branch is the default branch itself
     impl: str | None
-    impl_matches_base: bool | None  # None on the default branch, detached, or without IMPL.md
+    impl_matches_base: bool | None  # None on the default branch, detached, unknown, no IMPL.md
     commits: list[str] = field(default_factory=list)  # base..HEAD, newest first, capped
     ahead: int | None = 0  # None when git could not count
     dirty: list[str] | None = field(default_factory=list)  # porcelain; None when unknown
@@ -108,53 +147,47 @@ class ResumeState:
 
 
 def read(cwd: str, max_commits: int = 10) -> ResumeState | None:
-    """The resume state of the worktree holding cwd, or None outside a git worktree."""
-    global _deadline
-    _deadline = time.monotonic() + READ_BUDGET
-    try:
-        return _read_state(cwd, max_commits)
-    finally:
-        _deadline = None
-
-
-def _read_state(cwd: str, max_commits: int) -> ResumeState | None:
-    top = git(cwd, "rev-parse", "--show-toplevel")
-    if not top or not top.strip():
+    """The resume state of the worktree holding cwd, or None outside a git worktree. Every
+    git call shares one READ_BUDGET; a call past it reads as unknown."""
+    d = time.monotonic() + READ_BUDGET
+    top = (git(cwd, "rev-parse", "--show-toplevel", deadline=d) or "").strip()
+    if not top:
         return None
-    root = top.strip()
-    branch = (git(root, "branch", "--show-current") or "").strip()
-    head = (git(root, "rev-parse", "--short", "HEAD") or "").strip()
-    base = base_ref(root)
+    branch = (git(top, "branch", "--show-current", deadline=d) or "").strip()
+    head = (git(top, "rev-parse", "--short", "HEAD", deadline=d) or "").strip()
+    base = base_ref(top, d)
     short = base[len("origin/") :] if base.startswith("origin/") else base
     on_base = bool(branch) and branch == short
-    impl = _read(os.path.join(root, IMPL))
+    impl = _read(os.path.join(top, IMPL))
     state = ResumeState(
-        root=root,
-        repo=repo_name(root),
+        root=top,
+        repo=repo_name(top, d),
         branch=branch,
         head=head,
         base=base,
         on_base=on_base,
         impl=impl,
-        impl_matches_base=None if on_base or not branch else impl_matches(root, base, impl),
+        impl_matches_base=None if on_base or not branch else impl_matches(top, base, impl, d),
     )
     if base and not on_base:
-        log = git(root, "log", f"-n{max_commits}", "--format=%h %s", f"{base}..HEAD")
+        log = git(top, "log", f"-n{max_commits}", "--format=%h %s", f"{base}..HEAD", deadline=d)
         state.commits = log.splitlines() if log else []
-        state.ahead = _count(git(root, "rev-list", "--count", f"{base}..HEAD"))
-    status = git(root, "status", "--porcelain", "--untracked-files=normal")
+        state.ahead = _count(git(top, "rev-list", "--count", f"{base}..HEAD", deadline=d))
+    status = git(top, "status", "--porcelain", "--untracked-files=normal", deadline=d)
     state.dirty = None if status is None else [ln for ln in status.splitlines() if ln.strip()]
-    if branch:
-        remote = (git(root, "config", "--get", f"branch.{branch}.remote") or "origin").strip()
-        mirror = f"{remote}/{branch}"
-        if git(root, "rev-parse", "--verify", "--quiet", mirror + "^{commit}") is not None:
-            state.pushed_to = mirror
-            counts = git(root, "rev-list", "--left-right", "--count", f"{mirror}...HEAD")
-            parts = (counts or "").split()
-            if len(parts) == 2 and all(p.isdigit() for p in parts):
-                state.behind, state.unpushed = int(parts[0]), int(parts[1])
-            else:
-                state.behind = state.unpushed = None
+    if branch and not on_base:
+        state.pushed_to = pushed_ref(top, branch, base, d)
+    elif on_base and _exists(top, base, d) and base != branch:
+        state.pushed_to = base
+    if state.pushed_to:
+        counts = git(
+            top, "rev-list", "--left-right", "--count", f"{state.pushed_to}...HEAD", deadline=d
+        )
+        parts = (counts or "").split()
+        if len(parts) == 2 and all(p.isdigit() for p in parts):
+            state.behind, state.unpushed = int(parts[0]), int(parts[1])
+        else:
+            state.behind = state.unpushed = None
     return state
 
 

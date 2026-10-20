@@ -381,6 +381,8 @@ def last_activity(wt: str, ignored: tuple[str, ...] | list[str] = ()) -> float |
 
 
 BUSY_UNKNOWN = "cannot tell whether a process is using it"
+UNCOMMITTED = " uncommitted change(s)"
+ACTIVITY_UNKNOWN = "too many ignored files"
 BUSY_LIVE = "a live process is using it"
 ACTIVE_PREFIX = "active "
 
@@ -402,10 +404,10 @@ def worktree_blockers(wpath: str, others: list[str], busy: list[str] | None) -> 
     last = last_activity(wpath, ignored)
     idle = IDLE_SECONDS if last is None else time.time() - last
     blockers = [
-        f"too many ignored files (over {ACTIVITY_FILE_CAP}) to tell whether it was used recently"
+        f"{ACTIVITY_UNKNOWN} (over {ACTIVITY_FILE_CAP}) to tell whether it was used recently"
         if last is None
         else "",
-        f"{len(changes)} uncommitted change(s)" if changes else "",
+        f"{len(changes)}{UNCOMMITTED}" if changes else "",
         f"ignored files that are not build output: {', '.join(kept[:3])}" if kept else "",
         f"{len(nested)} worktree(s) inside it" if nested else "",
         BUSY_UNKNOWN if busy is None else "",
@@ -427,15 +429,14 @@ def resume_gap(wpath: str, branch: str, base: str, blockers: list[str], merged: 
     """Uncommitted work in an idle worktree whose IMPL.md never said what the branch is for.
 
     A fresh session there, after a restart, has only the diff to go on. Empty when nobody
-    is at work in it, it is clean, it is detached, its PR merged (the work is finished), or
-    the repo keeps no IMPL.md.
+    is or may be at work in it, it is clean, it is detached, its PR merged (the work is
+    finished), the repo keeps no IMPL.md, or git cannot tell.
     """
-    dirty = any(b.endswith(" uncommitted change(s)") for b in blockers)
-    if not branch or merged or not dirty or transient(blockers):
+    dirty = any(b.endswith(UNCOMMITTED) for b in blockers)
+    unsure = any(b.startswith(ACTIVITY_UNKNOWN) for b in blockers)
+    if not branch or merged or not dirty or unsure or transient(blockers):
         return ""
-    if impl_matches(wpath, base) is not True:
-        return ""
-    return UNRESUMABLE + base
+    return UNRESUMABLE + base if impl_matches(wpath, base) is True else ""
 
 
 def leftover(after: str, pr: dict | None, hold: list[str]) -> str:
@@ -496,13 +497,12 @@ def collect(name: str, path: str, slug: str, me: str, prs: dict[str, dict]) -> l
         others = [t["worktree"] for t in trees if t["worktree"] != wpath]
         blockers = ["locked"] if "locked" in wt else []
         blockers += worktree_blockers(wpath, others, busy)
+        merged = bool(prs.get(branch) and prs[branch]["state"] == "MERGED")
         if blockers:
             group, reason = "review", reason + "; " + ", ".join(blockers)
-            merged = bool(prs.get(branch) and prs[branch]["state"] == "MERGED")
             gap = resume_gap(wpath, branch, base, blockers, merged)
             reason += f"; {gap}" if gap else ""
         left = leftover(group, prs.get(branch), blockers) if group == "review" else ""
-        merged = bool(prs.get(branch) and prs[branch]["state"] == "MERGED")
         items.append(
             Item(
                 "worktree", label, group, reason, sha=head, path=wpath, branch=branch,

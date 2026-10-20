@@ -239,6 +239,7 @@ def test_a_worktree_someone_may_be_using_is_held(fleet, hy, monkeypatch, setup, 
         ("no-impl", False),
         ("detached", False),
         ("pr-merged", False),  # a finished branch's stray edits: held after merge instead
+        ("unsure", False),  # too many ignored files to tell whether it is idle
     ],
 )
 def test_a_dirty_idle_worktree_that_never_described_itself_is_not_resumable(
@@ -269,6 +270,11 @@ def test_a_dirty_idle_worktree_that_never_described_itself_is_not_resumable(
         on_main(b"slice B\n")
     elif setup == "recent":
         monkeypatch.setattr(hy, "IDLE_SECONDS", 3600)
+    elif setup == "unsure":
+        monkeypatch.setattr(hy, "ACTIVITY_FILE_CAP", 0)
+        (fleet.path / ".git" / "info" / "exclude").write_text("build/\n")
+        (path / "build").mkdir()
+        (path / "build" / "out.o").write_text("x")
     elif setup == "pr-merged":
         fleet.prs["feat/a"] = pr(1, "MERGED", sh(fleet.path, "rev-parse", "feat/a"))
     item = fleet.survey()[("worktree", ".claude/worktrees/a")]

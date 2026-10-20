@@ -11,17 +11,13 @@ has crept in; extract it back to ROADMAP.
 
 ## In flight
 
-### Now: resume state from the branch's IMPL.md (#180, branch `feat/resume-brief`)
+### Landed: resume state from the branch's IMPL.md (#180)
 
-- ✅ `_shared/resume_state.py` reads a worktree's state from local git; `hooks/resume_brief.py`
-  (option `resume_brief`) adds it as SessionStart context; `sisters` marks a dirty, idle
-  worktree whose IMPL.md is unchanged since its branch left the default as not resumable.
-- ✅ Docs: conventions (working docs), techne options page and README, sisters SKILL + page.
-- ✅ Review round 1 (10 findings): merge-base comparison, unknown on git failure, behind
-  count, UTF-8 decoding, bare-repo name, read budget, no flag when detached or merged.
-- 📋 Next: review round 2, merge; then switch the option on in user settings.
-- Verify: `uv run pytest tests/test_resume_brief.py tests/test_sisters_hygiene.py` and
-  `make test-hooks-oldest`.
+`_shared/resume_state.py` reads a worktree's state from local git (IMPL.md compared at the
+merge-base, commits, uncommitted paths, ahead/behind its pushed branch; failures read as
+unknown). The `resume_brief` option's SessionStart hook gives it to a fresh session; `sisters`
+marks a dirty, idle, unmerged worktree whose IMPL.md never changed as not resumable. Known
+limits are in the PR body. Follow-up: klepsydra#36 (Resume from a gone card).
 
 ### Landed: heuresis phase 2, the gold set
 

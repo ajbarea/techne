@@ -316,8 +316,8 @@ def hook(monkeypatch):
 def test_a_git_failure_reads_as_unknown_not_as_a_clean_tree(repo, hook, monkeypatch):
     real = hook.resume_state.git
 
-    def failing(root, *args):
-        return None if args[0] in ("status", "rev-list") else real(root, *args)
+    def failing(root, *args, **kw):
+        return None if args[0] in ("status", "rev-list") else real(root, *args, **kw)
 
     wt = worktree(repo, "slow")
     monkeypatch.setattr(hook.resume_state, "git", failing)
@@ -331,4 +331,34 @@ def test_a_git_failure_reads_as_unknown_not_as_a_clean_tree(repo, hook, monkeypa
 def test_the_read_budget_stops_git_once_spent(repo, hook, monkeypatch):
     monkeypatch.setattr(hook.resume_state, "READ_BUDGET", 0)
     assert hook.resume_state.read(str(repo)) is None  # not even the toplevel is read
-    assert hook.resume_state._deadline is None  # and the budget does not leak into later calls
+
+
+def test_a_stale_origin_head_falls_back_to_a_branch_that_exists(repo):
+    sh(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/master")
+    text = context(repo)
+    assert text is not None
+    assert "Start new work on a branch in its own worktree" in text
+    assert "Commits past" not in text
+
+
+def test_a_branch_pushed_under_another_name_is_found_by_its_upstream(repo):
+    wt = worktree(repo, "local")
+    sh(wt, "push", "-q", "-u", "origin", "feat/local:feat/remote")
+    text = context(wt)
+    assert text is not None
+    assert "Pushed: origin/feat/remote is up to date" in text
+
+
+def test_an_unknown_merge_base_is_no_verdict_either_way(repo, hook, monkeypatch):
+    real = hook.resume_state.git
+
+    def failing(root, *args, **kw):
+        return None if args[0] == "merge-base" else real(root, *args, **kw)
+
+    wt = worktree(repo, "shallow")
+    (wt / "work.rs").write_text("x")
+    monkeypatch.setattr(hook.resume_state, "git", failing)
+    state = hook.resume_state.read(str(wt))
+    assert state.impl_matches_base is None
+    text = hook.brief(state)
+    assert "unchanged since" not in text and "Uncommitted: 1 path(s)" in text
