@@ -103,6 +103,12 @@ def test_markdown_code_and_link_targets_are_not_prose(pc):
     assert pc.check(pc.markdown_prose(text)) == []
 
 
+def test_markdown_comments_are_not_prose(pc):
+    text = pc.markdown_prose("<!-- It is worth noting this.\n-->\nPlain text.\n")
+    assert pc.check(text) == []
+    assert "worth noting" not in text
+
+
 def test_the_cli_reads_markdown(pc, tmp_path, monkeypatch, capsys):
     doc = tmp_path / "doc.md"
     doc.write_text("It is worth noting that this fires.\n", encoding="utf-8")
@@ -206,4 +212,4 @@ def test_render_prose_check_is_skipped_on_request(rn, tmp_path, monkeypatch, cap
     src.write_text("# T\n\nIt is worth noting this.\n", encoding="utf-8")
     monkeypatch.setattr(rn, "render", lambda s, o: (o / f"{s.stem}.pdf", ["Libertinus"]))
     assert rn.main([str(src), str(tmp_path / "out"), "--no-prose"]) == 0
-    assert "REVIEW" not in capsys.readouterr().out
+    assert "REVIEW prose" not in capsys.readouterr().out

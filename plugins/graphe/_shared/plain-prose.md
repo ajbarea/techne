@@ -61,6 +61,31 @@ source, not against the draft.
 - Every section earns its place. A deliverables line the prompt requires stays;
   a biography nobody asked for goes.
 
+## Length
+
+The sentence rules cannot see a document that says each thing three times.
+
+- **Set the budget before drafting**, from the prompt, the venue, or, for a
+  revision, the original. Declare it on one comment line of the source:
+  `% budget: 4 pages` in LaTeX, `<!-- budget: 1200 words -->` in markdown,
+  or both limits joined by a comma. The latex and pdf gates block a PDF over
+  it and ask for one when none is declared.
+- **Say each result once.** Other sections point to it. Only the abstract and
+  the conclusion restate the main result.
+- **A revision cuts as much as it adds.** A point a reviewer says "would help",
+  or asks for "briefly", gets a sentence, not a section.
+- **A correction edits the sentence it corrects.** A review finding that needs
+  a caveat changes the existing sentence instead of adding one.
+- **Evidence stays in the repo.** Logs, run tables and diffs stay in the
+  evidence files; the document states the claim and names its source.
+- **A response letter** opens with a summary of changes, one line each. Each
+  answer gives the change and where it is in one to three sentences, with
+  reasons only where nothing changed. A point several reviewers raise is
+  answered once; the other answers point to it.
+- **Every review of a document also lists cuts**: the sentences that repeat
+  another or that nothing requires. A reviewer that only asks for caveats
+  grows the document every round, so a reviewer's brief includes this section.
+
 ## Mechanical patterns
 
 Read by `_shared/prose_check.py`, which the latex and pdf gates run, together

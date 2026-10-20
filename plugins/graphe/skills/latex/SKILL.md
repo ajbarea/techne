@@ -19,6 +19,11 @@ and write to it: one claim per sentence, counts rather than qualities, no
 restating lines, and every number and summary checked against its source. A
 draft that needs a separate concision pass was written in the wrong register.
 
+Set the length budget before the first sentence, and declare it on one comment
+line of the root `.tex`: `% budget: 4 pages`, `% budget: 3000 words`, or both
+joined by a comma. Take it from the prompt or venue; a revision takes the
+original's. The *Length* section of the rubric says how to stay inside it.
+
 ## Run it
 
 ```
@@ -58,6 +63,8 @@ skipped on the run where it mattered.
 | BLOCK | `unsettled` | The log still asks for a rerun, so cross-references are stale. |
 | WARN | `overfull`, `font-substitution`, `package` | Largest five overfull boxes, then a count. |
 | REVIEW | `coverage` | Problem headers in the prompt with no match in the PDF. |
+| BLOCK | `budget` | The PDF is over the declared budget, or the budget line cannot be read. Pages count the PDF; words count its text without the reference list. |
+| REVIEW | `budget` | No budget declared in the root `.tex`. |
 | REVIEW | `prose` | Patterns from the `prose-patterns` block of `_shared/plain-prose.md`, plus sentences over 40 words. `--no-prose` skips it. |
 
 `--markers`, `--overfull-pt` and `--engine` move the thresholds. Read the

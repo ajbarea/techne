@@ -40,6 +40,7 @@ _BLOCK_BREAK = re.compile(r"\n\s*\n|\n(?=\s*(?:[-*+•]\s|\d+[.)]\s|\|))")
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z(\[])")
 _ENDS_SENTENCE = re.compile(r"[.!?][\"'”)\]]*$")
 _MD_CODE = re.compile(r"```.*?```|`[^`\n]*`", re.S)
+_MD_COMMENT = re.compile(r"<!--.*?-->", re.S)
 _MD_LINK_URL = re.compile(r"\]\([^)]*\)")
 # Between words only: a table separator row (| --- |) and a rule line are not dashes.
 _MD_TRIPLE_DASH = re.compile(r"(?<=\w)[ \t]*---[ \t]*(?=\w)")
@@ -120,8 +121,8 @@ def body_of(text: str) -> str:
 
 
 def markdown_prose(text: str) -> str:
-    """Code and link targets are not prose. Typst's smart punctuation sets `---` as an em-dash."""
-    text = _MD_LINK_URL.sub("]", _MD_CODE.sub(" ", text))
+    """Code, comments and link targets are not prose. Typst sets `---` as an em-dash."""
+    text = _MD_LINK_URL.sub("]", _MD_CODE.sub(" ", _MD_COMMENT.sub(" ", text)))
     return _MD_TRIPLE_DASH.sub("\u2014", text)
 
 

@@ -19,6 +19,13 @@ write to it. Each render prints `REVIEW prose` lines for the patterns that
 file lists and for sentences over 40 words; they never change the exit code.
 `--no-prose` skips them.
 
+Set the length budget before the first sentence, and declare it on one line of
+the markdown: `<!-- budget: 1200 words -->`, `<!-- budget: 3 pages -->`, or
+both joined by a comma. Take it from the prompt or venue; a revision takes the
+original's. The render prints `BLOCK budget` and exits 1 when the PDF is over
+it, and `REVIEW budget` when none is declared. Words count the prose, without
+code, link targets, comments or the reference list.
+
 ## Run it
 
 The user gives a path and usually nothing else. Resolve the rest yourself:

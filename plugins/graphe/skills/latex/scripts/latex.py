@@ -33,6 +33,11 @@ try:
 except ImportError:  # an install without prose_check.py
     prose_check = None
 
+try:
+    import length_budget  # ty: ignore[unresolved-import]
+except ImportError:  # an install without length_budget.py
+    length_budget = None
+
 SETUP = "/graphe:setup"
 TOOLS = (
     ("latexmk", "latex"),
@@ -319,6 +324,26 @@ def prose_findings(pdf: pathlib.Path) -> list[Finding]:
     ]
 
 
+def budget_findings(tex: pathlib.Path, pdf: pathlib.Path, text: str) -> list[Finding]:
+    """BLOCK over the budget the source declares, REVIEW when it declares none."""
+    if length_budget is None:
+        return [Finding(INFO, "budget", "budget check not installed (no _shared/length_budget.py)")]
+    try:
+        budget = length_budget.read(tex.read_text(encoding="utf-8", errors="replace"))
+    except ValueError as exc:
+        return [Finding(BLOCK, "budget", f"unreadable budget line: {exc}", tex.name)]
+    if budget is None:
+        hint = "`% budget: N pages` in the .tex"
+        return [Finding(REVIEW, "budget", length_budget.MISSING.format(hint=hint), tex.name)]
+    over, measured = length_budget.compare(
+        budget, length_budget.pdf_pages(pdf), length_budget.count_words(text)
+    )
+    if over:
+        message = length_budget.OVER.format(over="; ".join(over))
+        return [Finding(BLOCK, "budget", message, pdf.name)]
+    return [Finding(INFO, "budget", measured, pdf.name)]
+
+
 def find_prompt(tex: pathlib.Path) -> tuple[pathlib.Path | None, str]:
     """A sidecar of the document itself is not the prompt it answers."""
     own = f"{tex.stem}.extracted"
@@ -415,6 +440,9 @@ def main() -> int:
 
     if not args.no_prose and text:
         found += prose_findings(pdf)
+
+    if text:
+        found += budget_findings(tex, pdf, text)
 
     if code != 0 and not any(f.severity == ERROR for f in found):
         found.append(Finding(ERROR, "build", f"latexmk exited {code}, log says nothing"))

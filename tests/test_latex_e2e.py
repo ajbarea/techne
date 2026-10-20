@@ -57,6 +57,16 @@ Problem 1. See \cite{ghost}.
 \end{document}
 """
 
+OVER_BUDGET = r"""
+% budget: 1 page
+\documentclass{article}
+\begin{document}
+One.
+\newpage
+Two.
+\end{document}
+"""
+
 BIB = "@article{real, author = {A. Author}, title = {T}, journal = {J}, year = {2026}}\n"
 
 
@@ -104,6 +114,14 @@ def test_a_surviving_draft_marker_exits_two(tmp_path):
     code, out = run(tmp_path)
     assert code == 2, out
     assert "draft-marker" in out
+
+
+@needs_tex
+def test_a_document_over_its_page_budget_exits_two(tmp_path):
+    (tmp_path / "doc.tex").write_text(OVER_BUDGET)
+    code, out = run(tmp_path)
+    assert code == 2, out
+    assert "2 pages, budget 1" in out
 
 
 @needs_tex
