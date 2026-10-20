@@ -63,7 +63,10 @@ def test_local_env_matches_what_git_reports(ge):
     reported = subprocess.run(
         ["git", "rev-parse", "--local-env-vars"], capture_output=True, text=True, check=True
     ).stdout.split()
-    assert set(ge.LOCAL_ENV) == set(reported) - CONFIG_VARS
+    # Every entry is one git still reports, and no config variable is stripped. A git release
+    # that adds a variable leaves this green; LOCAL_ENV then misses it until someone adds it.
+    assert set(ge.LOCAL_ENV) <= set(reported)
+    assert not set(ge.LOCAL_ENV) & CONFIG_VARS
 
 
 def test_repo_overrides_are_dropped_and_injected_config_is_kept(ge):

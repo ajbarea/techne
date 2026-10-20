@@ -6,6 +6,7 @@ Only GitHub facts about the user may make a repo solo, so every other path must 
 
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -14,13 +15,9 @@ import pytest
 ME = "ajbarea"
 SLUG = f"{ME}/myrepo"
 VIEW = [
-    "gh",
-    "repo",
-    "view",
-    f"github.com/{SLUG}",
-    "--json",
-    "parent,isInOrganization,viewerPermission",
-]
+    "gh", "repo", "view", f"github.com/{SLUG}", "--json",
+    "owner,parent,isInOrganization,viewerPermission,defaultBranchRef",
+]  # fmt: skip
 PUSHERS = [
     "gh", "api", "--hostname", "github.com", "--paginate", f"repos/{SLUG}/collaborators",
     "--jq", ".[] | select(.permissions.push) | .login",
@@ -29,7 +26,19 @@ INVITED = [
     "gh", "api", "--hostname", "github.com", "--paginate", f"repos/{SLUG}/invitations",
     "--jq", ".[].invitee.login",
 ]  # fmt: skip
-MINE = '{"parent":null,"isInOrganization":false,"viewerPermission":"ADMIN"}'
+MINE = json.dumps(
+    {
+        "owner": {"login": ME},
+        "parent": None,
+        "isInOrganization": False,
+        "viewerPermission": "ADMIN",
+        "defaultBranchRef": {"name": "main"},
+    }
+)
+
+
+def view(**changes) -> str:
+    return json.dumps({**json.loads(MINE), **changes})
 
 
 def git(cwd: Path, *args: str) -> None:
@@ -186,27 +195,26 @@ def test_another_pusher_makes_it_team(rk, origin, no_toml, gh):
 
 
 @pytest.mark.parametrize(
-    "view",
+    "stdout",
     [
-        '{"parent":null,"isInOrganization":true,"viewerPermission":"ADMIN"}',
-        '{"parent":null,"isInOrganization":false,"viewerPermission":"WRITE"}',
-        '{"parent":{"name":"up","owner":{"login":"lab"}},"isInOrganization":false,'
-        '"viewerPermission":"ADMIN"}',
+        view(isInOrganization=True),
+        view(viewerPermission="WRITE"),
+        view(parent={"name": "up", "owner": {"login": "lab"}}),
         "not json",
         "",
     ],
     ids=["organization", "not-admin", "fork-of-live-upstream", "bad-json", "empty"],
 )
-def test_github_facts_short_of_ownership_are_team(rk, origin, no_toml, gh, view):
-    gh.register(VIEW, stdout=view)
+def test_github_facts_short_of_ownership_are_team(rk, origin, no_toml, gh, stdout):
+    gh.register(VIEW, stdout=stdout)
     gh.register(PUSHERS, stdout=f"{ME}\n")
+    gh.register(INVITED, stdout="")
     assert rk.classify(str(origin), no_toml)[0] == "team"
 
 
 def test_a_fork_listed_as_a_sister_is_the_users_own_line(rk, origin, tmp_path, gh):
     toml = roster(tmp_path, origin.parent, 'name = "myrepo"')
-    fork = '{"parent":{"name":"up","owner":{"login":"lab"}},"isInOrganization":false,'
-    gh.register(VIEW, stdout=fork + '"viewerPermission":"ADMIN"}')
+    gh.register(VIEW, stdout=view(parent={"name": "up", "owner": {"login": "lab"}}))
     gh.register(PUSHERS, stdout=f"{ME}\n")
     gh.register(INVITED, stdout="")
     assert rk.classify(str(origin), toml)[0] == "solo"
@@ -301,7 +309,7 @@ def test_the_shipped_template_does_not_mark_a_repo_team(rk):
     from conftest import ROOT
 
     template = ROOT / "plugins/techne/skills/setup/skill-context.template.md"
-    assert not rk.OWNER_TEAM.search(template.read_text(encoding="utf-8"))
+    assert not rk.says_team(template.read_text(encoding="utf-8"))
 
 
 @pytest.mark.parametrize("line", ["owner: team", 'owner: "team"', "  - Owner: TEAM (lab)"])
@@ -431,3 +439,52 @@ def test_running_the_script_writes_no_bytecode_into_the_plugin(tmp_path):
     env = {"HOME": str(tmp_path), "PATH": __import__("os").environ["PATH"]}
     subprocess.run([HOOK_PYTHON, str(shared / "repo_kind.py"), str(repo)], env=env, check=True)
     assert not (shared / "__pycache__").exists()
+
+
+# ----------------------------------------------------- round-6 regressions --
+
+
+@pytest.mark.parametrize(
+    "line",
+    ["- owner: __team__", "- owner: _team_", "1. owner: team", "> owner: team",
+     "| owner | team |", "owner = team"],
+)  # fmt: skip
+def test_owner_team_in_more_markdown_forms(rk, origin, no_toml, gh, line):
+    mine(gh)  # GitHub alone would say solo, so team must come from the signal
+    skill_context(origin, f"## repo\n{line}\n")
+    assert rk.classify(str(origin), no_toml)[0] == "team"
+
+
+@pytest.mark.parametrize("line", ["- owner: solo", "- ownership: team-x", "owners: team"])
+def test_near_miss_owner_lines_do_not_count(rk, origin, no_toml, gh, line):
+    mine(gh)
+    skill_context(origin, f"## repo\n{line}\n")
+    assert rk.classify(str(origin), no_toml)[0] == "solo"
+
+
+def test_the_owner_line_on_the_default_branch_counts_without_origin_head(rk, origin, no_toml, gh):
+    mine(gh)  # GitHub alone would say solo, so team must come from the signal
+    ident = ["-c", "user.name=t", "-c", "user.email=t@t"]
+    skill_context(origin, "## repo\n- owner: team\n")
+    git(origin, "add", ".claude")
+    git(origin, *ident, "commit", "-q", "-m", "ctx")
+    git(origin, "update-ref", "refs/remotes/origin/main", "HEAD")  # fetched, no origin/HEAD
+    git(origin, "checkout", "-q", "-b", "older", "HEAD~1")  # a branch cut before the line
+    assert rk.classify(str(origin), no_toml) == (
+        "team",
+        "owner: team in .claude/skill-context.md on origin/main",
+    )
+
+
+def test_another_clone_of_a_team_sister_is_team(rk, tmp_path, gh):
+    mine(gh)  # GitHub alone would say solo, so team must come from the signal
+    clone = init(tmp_path / "scratch" / "review-copy")
+    git(clone, "remote", "add", "origin", f"git@github.com:{SLUG}.git")
+    toml = roster(tmp_path, tmp_path / "ws", 'name = "myrepo"\nkind = "team"')
+    toml.write_text(f'github_user = "{ME}"\n' + toml.read_text(encoding="utf-8"), encoding="utf-8")
+    assert rk.classify(str(clone), toml)[0] == "team"
+
+
+def test_a_sole_pusher_who_is_not_the_owner_is_team(rk, origin, no_toml, gh):
+    mine(gh, pushers="someone-else\n")
+    assert rk.classify(str(origin), no_toml)[0] == "team"

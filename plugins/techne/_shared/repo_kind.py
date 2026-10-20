@@ -4,10 +4,10 @@ Only GitHub facts about the signed-in user can make a repo solo: not in an organ
 user administers it, nobody else can push, and it is not a fork of a live upstream (unless the
 user lists it as a sister, which says the fork is their own line of work). Other signals can
 only make it team, and are checked first because they need no network:
-1. an `owner: team` line anywhere in the repo's `.claude/skill-context.md` (any bullet, bold
-   or quoted), in the working tree, the current commit or the default branch;
-2. its `[[sisters]]` entry, matched by path (`workspace_root/<name>`), in ~/.claude/techne.toml
-   with `kind = "team"`.
+1. an `owner: team` line anywhere in the repo's `.claude/skill-context.md`, in any Markdown
+   form, in the working tree, the current commit or the default branch;
+2. its `[[sisters]]` entry in ~/.claude/techne.toml with `kind = "team"`, matched by path
+   (`workspace_root/<name>`) or, for another clone, by `<github_user>/<name>` as the origin.
 Anything unsettled (no repo, no GitHub origin, gh failing, techne.toml present but unreadable)
 reads as team, so a skill asks rather than acts on someone else's repo. An `owner: solo` line
 is only true for its author, so it is not trusted on its own.
@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 sys.dont_write_bytecode = True  # the plugin cache stays as installed
@@ -32,12 +33,16 @@ from project_board import techne_toml  # noqa: E402
 
 TIMEOUT = 10
 SKILL_CONTEXT = ".claude/skill-context.md"
-# An owner: team line in any common Markdown form: any bullet or none, bold or not, quoted or
-# not. It can only make a repo team, so it counts anywhere in the file, not only under ## repo.
-OWNER_TEAM = re.compile(
-    r"""^\s*(?:[-*+]\s+)?[*_]{0,2}owner[*_]{0,2}\s*:\s*[*_]{0,2}\s*["'`]?team\b""",
-    re.IGNORECASE | re.MULTILINE,
-)
+# Markdown decoration around a key-value line: blockquote marks, list bullets and numbers, table
+# pipes, emphasis and quotes. Stripped before matching, so `owner: team` counts in any form.
+_DECORATION = re.compile(r"""^\s*(?:>\s*)*(?:(?:[-*+]|\d+[.)])\s+)?|[|*_`"']""")
+_OWNER_TEAM = re.compile(r"^\s*owner\s*[:=]?\s*team\b", re.IGNORECASE)
+
+
+def says_team(text: str) -> bool:
+    """Whether any line of a skill-context file is an owner: team line, in any Markdown form.
+    It can only make a repo team, so it counts anywhere in the file, not only under ## repo."""
+    return any(_OWNER_TEAM.match(_DECORATION.sub(" ", line)) for line in text.splitlines())
 
 
 class TomlUnreadable(Exception):
@@ -59,22 +64,26 @@ def as_directory(path: str) -> Path:
     return target if target.is_dir() else target.parent
 
 
+def marked_team_at(where: str, *refs: str) -> bool:
+    """An owner: team line in .claude/skill-context.md at any of these commits."""
+    return any(
+        says_team(sh("git", "-C", where, "show", f"{ref}:{SKILL_CONTEXT}") or "") for ref in refs
+    )
+
+
 def marked_team_in_repo(where: str, top: Path) -> bool:
-    """An owner: team line in the working tree, the current commit or the default branch."""
-
-    def texts():
-        try:
-            yield (top / SKILL_CONTEXT).read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            pass
-        for ref in ("HEAD", "origin/HEAD"):
-            yield sh("git", "-C", where, "show", f"{ref}:{SKILL_CONTEXT}") or ""
-
-    return any(OWNER_TEAM.search(text) for text in texts())
+    """An owner: team line in the working tree, the current commit or origin/HEAD."""
+    try:
+        if says_team((top / SKILL_CONTEXT).read_text(encoding="utf-8")):
+            return True
+    except (OSError, UnicodeDecodeError):
+        pass
+    return marked_team_at(where, "HEAD", "origin/HEAD")
 
 
-def sister_entry(checkouts: set[Path], path: Path) -> dict | None:
-    """The [[sisters]] table whose workspace_root/<name> is one of these paths, or None."""
+def sister_entry(checkouts: set[Path], slug: tuple[str, str] | None, path: Path) -> dict | None:
+    """The [[sisters]] table for this repo, or None: matched by workspace_root/<name> against
+    the checkout paths, or by name when the origin is <github_user>/<name> (another clone)."""
     if not path.exists():
         return None
     try:
@@ -86,27 +95,25 @@ def sister_entry(checkouts: set[Path], path: Path) -> dict | None:
             cfg = tomllib.load(f)
     except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
         raise TomlUnreadable(f"cannot read {path}: {exc}") from exc
-    root, sisters = cfg.get("workspace_root"), cfg.get("sisters")
-    if not isinstance(root, str) or not isinstance(sisters, list):
+    root, sisters, me = cfg.get("workspace_root"), cfg.get("sisters"), cfg.get("github_user")
+    if not isinstance(sisters, list):
         return None
     here = {p.resolve() for p in checkouts}
+    mine = bool(slug and isinstance(me, str) and slug[0].lower() == me.lower())
     for sister in sisters:
-        if isinstance(sister, dict) and isinstance(sister.get("name"), str):
-            if (Path(root).expanduser() / sister["name"]).resolve() in here:
-                return sister
+        if not isinstance(sister, dict) or not isinstance(sister.get("name"), str):
+            continue
+        if isinstance(root, str) and (Path(root).expanduser() / sister["name"]).resolve() in here:
+            return sister
+        if mine and slug and sister["name"].lower() == slug[1].lower():
+            return sister
     return None
 
 
-def from_github(owner: str, name: str, listed: bool = False) -> tuple[str, str]:
+def from_github(owner: str, name: str, where: str, listed: bool = False) -> tuple[str, str]:
     slug = f"{owner}/{name}"
-    raw = sh(
-        "gh",
-        "repo",
-        "view",
-        f"github.com/{slug}",
-        "--json",
-        "parent,isInOrganization,viewerPermission",
-    )
+    fields = "owner,parent,isInOrganization,viewerPermission,defaultBranchRef"
+    raw = sh("gh", "repo", "view", f"github.com/{slug}", "--json", fields)
     try:
         info = json.loads(raw) if raw else None
     except json.JSONDecodeError:
@@ -121,24 +128,31 @@ def from_github(owner: str, name: str, listed: bool = False) -> tuple[str, str]:
         return "team", f"{slug} belongs to an organization"
     if info.get("viewerPermission") != "ADMIN":
         return "team", f"{slug} is not yours: your permission is {info.get('viewerPermission')}"
-    pushers = sh(
-        "gh", "api", "--hostname", "github.com", "--paginate", f"repos/{slug}/collaborators",
-        "--jq", ".[] | select(.permissions.push) | .login",
-    )  # fmt: skip
+    default = (info.get("defaultBranchRef") or {}).get("name")
+    if isinstance(default, str) and default and marked_team_at(where, f"origin/{default}"):
+        return "team", f"owner: team in {SKILL_CONTEXT} on origin/{default}"
+    api = ("gh", "api", "--hostname", "github.com", "--paginate")
+    with ThreadPoolExecutor(max_workers=2) as pool:  # two lookups, one wait
+        pushing = pool.submit(
+            sh,
+            *api,
+            f"repos/{slug}/collaborators",
+            "--jq",
+            ".[] | select(.permissions.push) | .login",
+        )
+        inviting = pool.submit(sh, *api, f"repos/{slug}/invitations", "--jq", ".[].invitee.login")
+        pushers, invited = pushing.result(), inviting.result()
     if pushers is None:
         return "team", f"could not list the collaborators of {slug}"
     logins = sorted(set(pushers.split()))
-    if len(logins) != 1:
+    the_owner = (info.get("owner") or {}).get("login")
+    if logins != [the_owner]:
         return "team", f"{', '.join(logins) or 'nobody listed'} can push to {slug}"
-    invited = sh(
-        "gh", "api", "--hostname", "github.com", "--paginate", f"repos/{slug}/invitations",
-        "--jq", ".[].invitee.login",
-    )  # fmt: skip
     if invited is None:
         return "team", f"could not list the pending invitations to {slug}"
     if invited.split():
         return "team", f"{', '.join(sorted(set(invited.split())))} is invited to {slug}"
-    return "solo", f"{logins[0]} owns {slug} and is its only collaborator with push access"
+    return "solo", f"{the_owner} owns {slug} and is its only collaborator with push access"
 
 
 def classify(path: str = ".", toml: Path | None = None) -> tuple[str, str]:
@@ -158,16 +172,17 @@ def classify(path: str = ".", toml: Path | None = None) -> tuple[str, str]:
     checkouts = {top, common.parent}
     if common.name.endswith(".git") and common.name != ".git":
         checkouts.add(common.with_name(common.name[: -len(".git")]))
+    found = GITHUB_REMOTE.search(sh("git", "-C", where, "remote", "get-url", "origin") or "")
+    slug = (found.group(1), found.group(2)) if found else None
     try:
-        sister = sister_entry(checkouts, toml)
+        sister = sister_entry(checkouts, slug, toml)
     except TomlUnreadable as exc:
         return "team", str(exc)
     if sister and str(sister.get("kind", "")).lower() == "team":
         return "team", f'kind = "team" in {toml}'
-    slug = GITHUB_REMOTE.search(sh("git", "-C", where, "remote", "get-url", "origin") or "")
     if not slug:
         return "team", "no GitHub origin to check ownership against"
-    return from_github(slug.group(1), slug.group(2), listed=sister is not None)
+    return from_github(*slug, where=where, listed=sister is not None)
 
 
 def main(argv: list[str]) -> int:

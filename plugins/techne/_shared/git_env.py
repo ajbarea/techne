@@ -18,11 +18,13 @@ LOCAL_ENV = (
     "GIT_IMPLICIT_WORK_TREE", "GIT_GRAFT_FILE", "GIT_INDEX_FILE", "GIT_NO_REPLACE_OBJECTS",
     "GIT_REPLACE_REF_BASE", "GIT_PREFIX", "GIT_SHALLOW_FILE", "GIT_COMMON_DIR",
 )  # fmt: skip
-# A remote whose host is github.com: scp form (git@github.com:o/r) or URL form, with or without
-# a scheme, user or port. Anchored at the start, so a mirror path that merely contains
-# "github.com/o/r" on another host does not count.
+# A remote on github.com (or its www. and ssh. hosts): scp form (git@github.com:o/r) or URL
+# form, with or without a scheme, user or port. Anchored at the start, so a mirror path that
+# merely contains "github.com/o/r" on another host does not count.
 GITHUB_REMOTE = re.compile(
-    r"^(?:[\w+.-]+://)?(?:[^@/\s]+@)?github\.com(?::\d+)?[:/]([^/\s]+)/([^/\s]+?)(?:\.git)?/?$"
+    r"^(?:[\w+.-]+://)?(?:[^@/\s]+@)?(?:www\.|ssh\.)?github\.com(?::\d+)?[:/]"
+    r"([^/\s]+)/([^/\s]+?)(?:\.git)?/?$",
+    re.IGNORECASE,
 )
 
 
