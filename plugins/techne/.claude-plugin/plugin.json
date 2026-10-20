@@ -1,6 +1,6 @@
 {
   "name": "techne",
-  "description": "Code-repo skills: toolchain audits, CI log review, adversarial pre-merge review, commit planning, GitHub catch-up, cross-repo drift, slop cleanup, and doc/code drift.",
+  "description": "Code-repo skills: toolchain audits, CI log review, adversarial pre-merge review, commit planning, GitHub catch-up, a cross-repo project board, cross-repo drift, slop cleanup, and doc/code drift.",
   "author": {
     "name": "AJ",
     "email": "ajbareaa@gmail.com"
@@ -14,6 +14,7 @@
     "audit",
     "code-review",
     "ci",
+    "github-projects",
     "drift",
     "documentation",
     "slop"

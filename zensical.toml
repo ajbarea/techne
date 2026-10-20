@@ -33,6 +33,7 @@ nav = [
       { "techne" = [
         { "techne:audit" = "skills/audit.md" },
         { "techne:auto-commit" = "skills/auto-commit.md" },
+        { "techne:board" = "skills/board.md" },
         { "techne:catchup" = "skills/catchup.md" },
         { "techne:ci-audit" = "skills/ci-audit.md" },
         { "techne:deslop" = "skills/deslop.md" },
@@ -144,7 +145,7 @@ social = {}
 # repeats the page's `description:` front matter; tests/test_docs_coverage.py keeps the two equal.
 [project.plugins.llmstxt]
 full_output = "llms-full.txt"
-markdown_description = """techne is a Claude Code plugin marketplace (ajbarea/techne). Plugins: techne (code-repo skills: build audits, CI review, pre-merge review, commit plans, GitHub catch-up, cross-repo drift), graphe (documents: LaTeX, markdown to PDF, talk decks, papers), dokimasia (bibliography verification), heuresis (idea triage against prior work), phylax (opt-in git guards and session restart), epistole (Gmail across accounts), schole (Brightspace course sites, read-only), keryx (spoken replies on WSL2). Install: /plugin marketplace add ajbarea/techne, then /plugin install <plugin>@techne, then run its setup step: /<plugin>:setup for most plugins, nothing for dokimasia (it needs only uv), and keryx status for keryx. Each plugin page lists its skills, commands, setup and troubleshooting. Per-plugin setup runbooks for agents are the AGENTS.md files under plugins/ in the repository."""
+markdown_description = """techne is a Claude Code plugin marketplace (ajbarea/techne). Plugins: techne (code-repo skills: build audits, CI review, pre-merge review, commit plans, GitHub catch-up, a cross-repo project board, cross-repo drift), graphe (documents: LaTeX, markdown to PDF, talk decks, papers), dokimasia (bibliography verification), heuresis (idea triage against prior work), phylax (opt-in git guards and session restart), epistole (Gmail across accounts), schole (Brightspace course sites, read-only), keryx (spoken replies on WSL2). Install: /plugin marketplace add ajbarea/techne, then /plugin install <plugin>@techne, then run its setup step: /<plugin>:setup for most plugins, nothing for dokimasia (it needs only uv), and keryx status for keryx. Each plugin page lists its skills, commands, setup and troubleshooting. Per-plugin setup runbooks for agents are the AGENTS.md files under plugins/ in the repository."""
 
 [project.plugins.llmstxt.sections]
 "Start" = [
@@ -165,6 +166,7 @@ markdown_description = """techne is a Claude Code plugin marketplace (ajbarea/te
   { "skills/index.md" = "Every skill, grouped by what it does, with a link to its page. Each page says when to use the skill, how to run it and what it changes." },
   { "skills/audit.md" = "Run the repo's make targets in dependency order and check each command's terminal output against its logs/dev archive." },
   { "skills/auto-commit.md" = "Group pending git changes into a conventional-commit plan in COMMITS.md for review, then branch, commit, push and open a PR on approval." },
+  { "skills/board.md" = "Keep one GitHub Projects board of every repo's work by stage: Idea, Issue, In PR, Merged, Live. Show it, sync it, add ideas, mark deploys Live, and file new issues and PRs automatically." },
   { "skills/catchup.md" = "Read every comment, review and state change on a GitHub repo since you last took part, and report who is blocked on whom." },
   { "skills/ci-audit.md" = "Audit the latest GitHub Actions runs on the current branch or PR for warnings, failures and noise, and fix what is fixable in the repo." },
   { "skills/deslop.md" = "Scan comments and docstrings for AI-generated filler and propose tighter rewrites." },

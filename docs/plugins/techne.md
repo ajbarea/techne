@@ -4,7 +4,7 @@ description: techne plugin, the code-repo skills for Claude Code. Install it, ru
 
 # techne
 
-techne is the plugin for work in a code repo: build audits, CI log review, pre-merge review, commit plans, GitHub catch-up, cross-repo drift checks, and comment and doc cleanup.
+techne is the plugin for work in a code repo: build audits, CI log review, pre-merge review, commit plans, GitHub catch-up, a project board across repos, cross-repo drift checks, and comment and doc cleanup.
 
 ## Use it when
 
@@ -12,6 +12,7 @@ techne is the plugin for work in a code repo: build audits, CI log review, pre-m
 - A change needs an adversarial review before merge.
 - Pending changes should become a reviewable commit plan.
 - You returned to a repo and need to know who is waiting on whom.
+- You want to see across all your repos what is an idea, an issue, in a PR, merged or live.
 - Docs, comments or a docs site may have drifted from the code.
 - Several linked repos should stay in step.
 
@@ -43,6 +44,7 @@ Run `/techne:setup`. It checks each item above, the repo's `.claude/skill-contex
 |---|---|
 | [`techne:audit`](../skills/audit.md) | Run the repo's `make` targets in order and check the output against the `logs/` archive. |
 | [`techne:auto-commit`](../skills/auto-commit.md) | Turn pending changes into a `COMMITS.md` commit plan. |
+| [`techne:board`](../skills/board.md) | See every repo's work on one board by stage, and file new issues and PRs on it. |
 | [`techne:catchup`](../skills/catchup.md) | See what changed on a repo's issues and PRs since you last took part. |
 | [`techne:ci-audit`](../skills/ci-audit.md) | Review GitHub Actions runs for warnings and failures. |
 | [`techne:deslop`](../skills/deslop.md) | Find AI-generated filler in comments and docstrings. |
@@ -58,14 +60,15 @@ Run `/techne:setup`. It checks each item above, the repo's `.claude/skill-contex
 ## Configuration
 
 - `.claude/skill-context.md` in a repo holds per-repo facts, one `##` section per skill family. [Conventions](../conventions.md) lists the sections.
-- `~/.claude/techne.toml` lists the sister repos and your workspace. [Configuration](../configuration.md) gives its schema.
+- `~/.claude/techne.toml` lists the sister repos and your workspace, and its `[board]` table names the project board. [Configuration](../configuration.md) gives its schema.
+- With a `[board]` table, a hook puts each issue or PR that `gh issue create`, `gh pr create` or a `gh api` POST opens in one of the owner's repos on the board, as Issue or In PR, and leaves an item already there as it is. It needs python3 3.11, never blocks the command, and says in one line when filing fails. See [`techne:board`](../skills/board.md).
 
 ## Troubleshooting
 
 - **`gh` or `gh-auth` is missing.** Install the GitHub CLI with the doctor's fix line, then run `!gh auth login --hostname github.com` in Claude Code. On GitHub Enterprise, set `GH_HOST` to your host first; the doctor and gh both read it.
 - **`skill-context` is missing.** `/techne:setup` offers to copy the skeleton into the repo. Keep the sections for the skills you use.
 - **`techne.toml` is missing.** `techne:sisters` requires it. `techne:catchup` reads `workspace_root` from it to resolve a bare repo name, and falls back to the parent of the current directory without it. The schema is on the [configuration page](../configuration.md).
-- **`python3` is older than 3.11.** `techne:catchup` and `techne:sisters` need 3.11, and stock macOS ships 3.9. Both stop with one line naming the fix. `uv python install --default 3.12 && uv python update-shell` puts a newer `python3` in `~/.local/bin` and on your PATH.
+- **`python3` is older than 3.11.** `techne:catchup`, `techne:sisters` and `techne:board` need 3.11, and stock macOS ships 3.9. Each stops with one line naming the fix. `uv python install --default 3.12 && uv python update-shell` puts a newer `python3` in `~/.local/bin` and on your PATH.
 - **Chromium does not start on Linux.** Its system libraries are missing. Run `uv run --no-project --with playwright==1.63.0 playwright install-deps chromium`, which calls `sudo apt` itself.
 - **`lsof` is missing on macOS.** macOS keeps it in `/usr/sbin`. The doctor's fix line adds that folder to PATH in `~/.zprofile`.
 - **A skill is not listed.** Run `/reload-plugins`, then `/skills`.

@@ -16,7 +16,7 @@ Techne is a collection of independent, composable skills that share conventions 
 
 **Versioning and observability.** `techne:auto-commit` groups working-tree changes into a structured commit plan at `COMMITS.md` for staged review before anything lands. `techne:theoros` starts an observed live dev session in a tmux pane; Claude drives the REPL, the human spectates read-only via `tmux attach -r`.
 
-**Review and collaboration.** `techne:catchup` reads every comment, review and state change on a repo since you last participated and reports who is blocked on whom; read-only. `techne:elenchus` is adversarial pre-merge review: it drives `/code-review`, then reproduces the load-bearing claim, traces every consumer across the repo, and walks a bug-class rubric.
+**Review and collaboration.** `techne:board` keeps one GitHub Projects board of every repo's work by stage (Idea, Issue, In PR, Merged, Live), and a hook files each issue or PR a `gh` command opens. `techne:catchup` reads every comment, review and state change on a repo since you last participated and reports who is blocked on whom; read-only. `techne:elenchus` is adversarial pre-merge review: it drives `/code-review`, then reproduces the load-bearing claim, traces every consumer across the repo, and walks a bug-class rubric.
 
 **Setup.** `techne:setup`, `graphe:setup`, `heuresis:setup` and `phylax:setup` each run a read-only doctor for their plugin and print the install command for anything missing; `epistole:setup` guides the Google sign-in and `schole:setup` the course-site sign-in.
 

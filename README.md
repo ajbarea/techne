@@ -22,7 +22,7 @@
 
 | Plugin | For | Runs in |
 | --- | --- | --- |
-| `techne` | Work in a code repo: audits, CI review, pre-merge review, commit plans, GitHub catch-up, cross-repo drift, slop and doc drift | Claude Code, Codex, Copilot CLI, Antigravity CLI |
+| `techne` | Work in a code repo: audits, CI review, pre-merge review, commit plans, GitHub catch-up, a cross-repo project board, cross-repo drift, slop and doc drift | Claude Code, Codex, Copilot CLI, Antigravity CLI |
 | `graphe` | Documents: LaTeX papers, markdown-to-PDF, talk decks, paper scaffolds and novelty review | Claude Code, Codex, Copilot CLI, Antigravity CLI |
 | `dokimasia` | Bibliography verification for LaTeX projects: lint a `.bib` or hand-written reference list, verify it against arXiv and Crossref, check every cited key rendered | Claude Code, Codex, Copilot CLI, Antigravity CLI, or one standalone Python file |
 | `heuresis` | Idea triage: capture an idea, search papers, patents, products and your own work for anything like it, and file it with a verdict grounded in checked records | Claude Code (needs `uv` and git; `gh` for GitHub search and the private remote) |
@@ -39,6 +39,7 @@ Install only the ones you use: every enabled plugin's skill list sits in the age
 | --- | --- |
 | `techne:audit` | Runs the repo's `make` targets in dependency order and reconciles terminal output against `logs/dev-*.log` archives. |
 | `techne:auto-commit` | Groups working-tree changes into a structured `COMMITS.md` plan for staged review before anything lands. |
+| `techne:board` | Keeps one GitHub Projects board of every repo's work by stage (Idea, Issue, In PR, Merged, Live): shows it, syncs recent issues and PRs, adds ideas, marks deploys Live. A hook files each issue or PR a `gh` command opens. |
 | `techne:catchup` | Reads every comment, review, and state change on a repo's issues and PRs since you last participated, then reports who is blocked on whom. |
 | `techne:ci-audit` | Audits GitHub Actions runs on the current branch/PR: surfaces warnings, failures, and noise; fixes what's fixable in-repo. |
 | `techne:deslop` | Scans comments and docstrings for AI-generated slop and proposes tightened rewrites. |
@@ -159,6 +160,7 @@ techne (marketplace: ajbarea/techne)
 ├── techne (plugin, plugins/techne)
 │   ├── audit             ── verifies build targets vs. logs/
 │   ├── auto-commit       ── groups diffs into COMMITS.md
+│   ├── board             ── one Projects board of every repo's work by stage
 │   ├── catchup           ── who is blocked on whom since you last looked
 │   ├── ci-audit          ── reads gh runs, fixes warnings in-repo
 │   ├── deslop            ── flags AI-slop prose

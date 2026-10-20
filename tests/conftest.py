@@ -8,12 +8,15 @@ pytest-subprocess (`fp`) to stand in for a command's output and to assert the
 exact argv, which is what the catchup sweep needs across many gh and git calls.
 Use monkeypatch where the assertion is about the environment a command runs in:
 `fp.calls` records argv only, so it cannot see that the latex build sets
-max_print_line, which is the line the log parsing depends on.
+max_print_line, which is the line the log parsing depends on. A hook or script run as its
+own process (the board hook on python3 3.9) gets `gh_stub`: a fake gh first on PATH, answering
+from rules and logging every call.
 """
 
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import pathlib
 import re
@@ -34,6 +37,7 @@ RENDER_SCRIPT = DOC_SKILLS / "pdf" / "scripts" / "render.py"
 SWEEP_SCRIPT = SKILLS / "catchup" / "scripts" / "sweep.py"
 SLIDES_SCRIPT = DOC_SKILLS / "slides" / "scripts" / "slides.py"
 HYGIENE_SCRIPT = SKILLS / "sisters" / "scripts" / "hygiene.py"
+BOARD_SCRIPT = SKILLS / "board" / "scripts" / "board.py"
 PROSE_SCRIPT = ROOT / "plugins" / "graphe" / "_shared" / "prose_check.py"
 DOKIMASIA_SCRIPT = ROOT / "plugins" / "dokimasia" / "skills" / "check" / "scripts" / "dokimasia.py"
 DOCTOR_LIB = ROOT / "plugins" / "techne" / "_shared" / "doctor_lib.py"
@@ -257,6 +261,17 @@ def dk() -> types.ModuleType:
     return _load("techne_dokimasia", DOKIMASIA_SCRIPT)
 
 
+@pytest.fixture(scope="session")
+def pb() -> types.ModuleType:
+    """The board's shared module, registered as project_board so board.py imports this copy."""
+    return _load("project_board", ROOT / "plugins" / "techne" / "_shared" / "project_board.py")
+
+
+@pytest.fixture(scope="session")
+def bd(pb: types.ModuleType) -> types.ModuleType:
+    return _load("techne_board", BOARD_SCRIPT)
+
+
 @pytest.fixture
 def gates():
     """Reduce findings to the (severity, gate) pairs a test actually asserts on."""
@@ -277,3 +292,88 @@ def write_log(tmp_path):
         return log
 
     return _write
+
+
+GH_STUB = ROOT / "tests" / "fixtures" / "gh_stub.py"
+
+
+class GhStub:
+    """A fake gh on PATH plus a HOME and cache under tmp_path; see fixtures/gh_stub.py."""
+
+    def __init__(self, tmp_path: pathlib.Path) -> None:
+        self.home = tmp_path / "home"
+        (self.home / ".claude").mkdir(parents=True)
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        shim = bin_dir / "gh"
+        shim.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{GH_STUB}" "$@"\n')
+        shim.chmod(0o755)
+        self.log = tmp_path / "gh-calls.jsonl"
+        self.rules_file = tmp_path / "gh-rules.json"
+        self.rules([])
+        self.env = {
+            "PATH": f"{bin_dir}{os.pathsep}/usr/bin{os.pathsep}/bin",
+            "HOME": str(self.home),
+            "XDG_CACHE_HOME": str(tmp_path / "cache"),
+            "LANG": "C.UTF-8",
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "GH_STUB_LOG": str(self.log),
+            "GH_STUB_RULES": str(self.rules_file),
+        }
+
+    def rules(self, rules: list[dict]) -> None:
+        self.rules_file.write_text(json.dumps(rules))
+
+    def config(self, text: str) -> None:
+        (self.home / ".claude" / "techne.toml").write_text(text)
+
+    def calls(self) -> list[dict]:
+        if not self.log.exists():
+            return []
+        return [json.loads(line) for line in self.log.read_text().splitlines()]
+
+    def argvs(self) -> list[list[str]]:
+        return [c["argv"] for c in self.calls()]
+
+
+@pytest.fixture
+def gh_stub(tmp_path: pathlib.Path) -> GhStub:
+    return GhStub(tmp_path)
+
+
+BOARD_TOML = '[board]\nowner = "ajbarea"\nnumber = 7\n'
+BOARD_OPTIONS = {"Idea": "o_idea", "Issue": "o_issue", "In PR": "o_pr", "Merged": "o_merged",
+                 "Live": "o_live"}  # fmt: skip
+
+
+def board_rules(options: Mapping[str, str] = BOARD_OPTIONS) -> list[dict]:
+    """gh answers for a board whose Status field holds OPTIONS: view, field-list, item-add
+    (item id PVTI_<n> from the URL's number), item-edit, and a membership query that finds
+    no item on the board."""
+    fields = {
+        "fields": [
+            {"id": "F_TITLE", "name": "Title", "type": "ProjectV2Field"},
+            {
+                "id": "F_STATUS",
+                "name": "Status",
+                "type": "ProjectV2SingleSelectField",
+                "options": [{"id": i, "name": n} for n, i in options.items()],
+            },
+        ],
+        "totalCount": 2,
+    }
+    rules: list[dict] = [
+        {"match": ["project", "view"], "stdout": json.dumps({"id": "PVT_7", "number": 7})},
+        {"match": ["project", "field-list"], "stdout": json.dumps(fields)},
+        {"match": ["project", "item-edit"], "stdout": "{}"},
+    ]
+    for n in range(1, 10):
+        rules.append(
+            {
+                "match": ["project", "item-add", f"*/{n}"],
+                "stdout": json.dumps({"id": f"PVTI_{n}", "type": "Issue"}),
+            }
+        )
+    absent = {"data": {"resource": {"projectItems": {"nodes": []}}}}
+    rules.append({"match": ["api", "graphql"], "stdout": json.dumps(absent)})
+    return rules

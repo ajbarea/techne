@@ -1,5 +1,5 @@
 {
-  "description": "Opt-in: when a session starts or resumes, remove worktrees and branches whose PR already merged, and list what a merge left behind; and tell the session where the branch's work stands, from IMPL.md and local git. Each is off until switched on in /config.",
+  "description": "Opt-in: when a session starts or resumes, remove worktrees and branches whose PR already merged, and list what a merge left behind; and tell the session where the branch's work stands, from IMPL.md and local git. Each is off until switched on in /config. With a [board] table in ~/.claude/techne.toml, each issue or PR a gh command opens goes on that GitHub Projects board.",
   "hooks": {
     "SessionStart": [
       {
@@ -20,6 +20,19 @@
             "type": "command",
             "command": "case \"$CLAUDE_PLUGIN_OPTION_RESUME_BRIEF\" in true) exec python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/resume_brief.py\" ;; esac",
             "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(gh *)",
+            "command": "command -v python3 >/dev/null 2>&1 && exec python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/board_add.py\"; exit 0",
+            "timeout": 15
           }
         ]
       }

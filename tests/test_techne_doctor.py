@@ -375,5 +375,5 @@ def test_require_python_exits_with_one_line_when_too_old():
     d.require_python((3, 0), "catchup", "/techne:setup")
 
 
-def test_doctor_names_catchup_and_sisters_as_needing_python_3_11():
-    assert "techne:catchup and techne:sisters need 3.11" in DOCTOR.read_text()
+def test_doctor_names_the_skills_needing_python_3_11():
+    assert "techne:catchup, techne:sisters and techne:board need 3.11" in DOCTOR.read_text()

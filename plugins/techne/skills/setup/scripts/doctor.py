@@ -114,7 +114,7 @@ def checks(platform: d.Platform, repo: Path) -> list[d.Check]:
             "python3",
             version_argv=d.PYTHON_VERSION_ARGV,
             minimum=(3, 11),
-            why="techne:catchup and techne:sisters need 3.11",
+            why="techne:catchup, techne:sisters and techne:board need 3.11",
         ),
         d.program(platform, "tmux", "tmux", version_argv=("-V",), why="techne:theoros"),
         d.guarded(
