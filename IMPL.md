@@ -16,8 +16,8 @@ has crept in; extract it back to ROADMAP.
 Done: `## When the review loop ends` in the elenchus SKILL.md and docs page. No fixed round count;
 one reproduction attempt per unproven finding before each report; continue while a reproduced
 Blocking/Should-fix finding is reachable, stop otherwise; open findings go in the Phase 5 comment
-or an existing linked issue; a long loop pauses for the user. Four review rounds so far; Porter et
-al. 1997 dropped (two sessions beat one for one-person teams). Next: round 5, CI green
+or an existing linked issue; a long loop pauses for the user. Five review rounds; round 5 found nothing Blocking or Should-fix, minor fixes applied; Porter et
+al. 1997 dropped (two sessions beat one for one-person teams). Next: CI green
 (`plugin-validate`/`plugin-test` need Linux npx, CI only), squash-merge. Verify: `make validate`.
 
 ### Landed: resume state from the branch's IMPL.md (#180)

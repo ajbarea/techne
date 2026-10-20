@@ -58,7 +58,7 @@ Walk every cell. For each, either find the falsifying case or explicitly clear i
 Emit the structured report (format below). End with an explicit merge verdict and what you are holding on, if anything.
 
 ### Phase 5 — Post the distilled summary
-If an open PR exists for the branch under review **and someone else opened it**, post the distilled summary (contract in **Posting the summary** below) as a **single** `gh pr comment`. This is default behavior, not opt-in — the review of record belongs on the PR. Skip when there is no PR, when the account owner opened it, or when the invoker explicitly said to keep it local; the report then stays in-session (on your own PR, open findings at the end of the review loop go to its linked issue unless told to keep it local; see **When the review loop ends**).
+If an open PR exists for the branch under review **and someone else opened it**, post the distilled summary (contract in **Posting the summary** below) as a **single** `gh pr comment`. This is default behavior, not opt-in — the review of record belongs on the PR. Skip when there is no PR, when the account owner opened it, or when the invoker explicitly said to keep it local; the report then stays in-session (Blocking or Should-fix findings still open when the review loop ends go to its linked issue, when one exists; see **When the review loop ends**).
 
 Derive authorship before posting — never assume.
 
@@ -99,10 +99,10 @@ Close with: a one-line **merge verdict** (mergeable / hold on finding #N / not m
 
 A change often takes several rounds: review, fix, review again. The PR's owner fixes each finding, with a regression test that runs in CI wherever the finding is testable. On someone else's PR a round ends with the Phase 5 comment, and the next round starts when the owner pushes. When a PR exists, start each round by re-reading its comments and reviews. The loop has no fixed round count. It ends on what the last round found.
 
-- **Reproduce before reporting.** Before a round's report, make one attempt to reproduce each Blocking or Should-fix finding not yet reproduced. One that still fails stays PLAUSIBLE and is recorded as open: it holds the merge, but does not by itself keep the loop going.
-- **Keep going** while the round has a reproduced Blocking or Should-fix finding (see Output format) on a reachable input: one that a caller in the repo, or a documented usage, can produce.
+- **Reproduce before reporting.** Before a round's report, make one attempt to reproduce each Blocking or Should-fix finding not yet reproduced. One that still fails stays PLAUSIBLE and is recorded as open: it holds the merge, but does not by itself keep the loop going. Open means any Blocking or Should-fix finding not fixed when the loop stops or pauses.
+- **Keep going** while the round has a reproduced Blocking or Should-fix finding (see Output format) on a reachable input: one that a caller in the repo, or a documented usage, can produce, unless a pause below applies.
 - **Stop** in every other case: what remains is Minor, Informational, unreachable, or recorded as open.
-- **Write the stop down.** Open Blocking or Should-fix findings go in the Phase 5 comment on someone else's PR. On a PR the account owner opened, they go in its linked issue when one exists, under the same contract as the Phase 5 comment (account owner's voice, no provenance); with no linked issue, tell the user the PR waits on them. Minor findings stay in-session, and "keep it local" keeps everything in-session.
+- **Write the stop down.** Open Blocking or Should-fix findings go in the Phase 5 comment on someone else's PR. On a PR the account owner opened, they go in its linked issue when one exists (the issue its body names with `Closes #N` or `Fixes #N`; with several, the first), under the same contract as the Phase 5 comment (account owner's voice, no provenance); with no linked issue, tell the user the PR waits on them. Minor findings stay in-session, and "keep it local" keeps everything in-session.
 - **Pause when it runs long.** Count the reviewer's own working time across rounds, not time spent waiting for the owner. Stop and report when that passes the budget the user set, or when two rounds in a row find only bugs the previous fix introduced (then the fix approach is the problem); resume only on the user's go-ahead. With no budget set, ask for one before starting a third round.
 
 ## Posting the summary (Phase 5)
