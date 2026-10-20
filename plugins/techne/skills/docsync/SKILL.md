@@ -31,7 +31,7 @@ The output is headed by the repo root it read. Its `## repo` section names the C
 - **Version constraints** — Python / dependency pins. Verify against `pyproject.toml`, workflow files.
 - **Internal links / anchors** — `[see strategies](strategies.md#fedavg)`. Verify target exists.
 - **Exit codes and error messages** — Verify against the source that produces them.
-- **Performance / comparative claims** — `45× faster`, `under 10 ms`, `scales to 100 clients`, `sub-millisecond aggregation`. Verify against the `slop_ground_truth` sources from the target repo's skill-context. If the claim is not traceable to a measurement there, it is drift — propose one of: cite the specific test, replace with the measured number, or delete. Use the "Unsupported quantitative / comparative claims" section of `<plugin-root>/_shared/hate-words.md` as the grep-seed pattern list.
+- **Performance / comparative claims** — `45× faster`, `under 10 ms`, `scales to 100 clients`, `sub-millisecond aggregation`. Verify against the `slop_ground_truth` sources from the target repo's skill-context. If the claim is not traceable to a measurement there, it is drift. The fix is one of: cite the specific test, replace with the measured number, or delete. On a solo repo (step 5), apply the first two when the test or measurement exists; a claim with no measurement anywhere is listed as unresolved, never deleted unasked. Use the "Unsupported quantitative / comparative claims" section of `<plugin-root>/_shared/hate-words.md` as the grep-seed pattern list.
 
 ## Silence
 

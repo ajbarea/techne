@@ -1,9 +1,29 @@
-"""Batch-mode ssh for git that runs with nobody at the terminal to answer a prompt."""
+"""git run by a script: batch-mode ssh with nobody at the terminal, and no variable that would
+point it at another repository."""
 
 from __future__ import annotations
 
+import os
+import re
 import subprocess
+from collections.abc import Mapping
 from pathlib import Path
+
+# What `git rev-parse --local-env-vars` lists. A hook or wrapper that exports any of these
+# points `git -C <dir>` at another repository than <dir>.
+LOCAL_ENV = (
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CONFIG", "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_COUNT", "GIT_OBJECT_DIRECTORY", "GIT_DIR", "GIT_WORK_TREE",
+    "GIT_IMPLICIT_WORK_TREE", "GIT_GRAFT_FILE", "GIT_INDEX_FILE", "GIT_NO_REPLACE_OBJECTS",
+    "GIT_REPLACE_REF_BASE", "GIT_PREFIX", "GIT_SHALLOW_FILE", "GIT_COMMON_DIR",
+)  # fmt: skip
+GITHUB_REMOTE = re.compile(r"github\.com[:/]([^/\s]+)/([^/\s]+?)(?:\.git)?/?$")
+
+
+def without_repo_overrides(env: Mapping[str, str] | None = None) -> dict[str, str]:
+    """env (os.environ by default) without the variables that redirect git to another repo."""
+    return {k: v for k, v in (os.environ if env is None else env).items() if k not in LOCAL_ENV}
+
 
 # Without a prompt or a key passphrase to answer, ssh fails at once instead of waiting.
 BATCH_SSH = "ssh -o BatchMode=yes -o ConnectTimeout=5"

@@ -8,9 +8,9 @@ only make it team, and are checked first because they need no network:
    working tree, the current commit or the default branch;
 2. its `[[sisters]]` entry, matched by path (`workspace_root/<name>`), in ~/.claude/techne.toml
    with `kind = "team"`.
-Anything unsettled (no repo, no GitHub origin, gh failing, techne.toml unreadable) reads as
-team, so a skill asks rather than acts on someone else's repo. An `owner: solo` line is only
-true for its author, so it is not trusted on its own.
+Anything unsettled (no repo, no GitHub origin, gh failing, techne.toml present but unreadable)
+reads as team, so a skill asks rather than acts on someone else's repo. An `owner: solo` line
+is only true for its author, so it is not trusted on its own.
 
 Usage: python3 repo_kind.py [path]   ->  prints `solo: <why>` or `team: <why>`, exits 0.
 A path may be a file or a directory, as docsync passes the doc it audits. Runs on python3 3.9;
@@ -20,28 +20,20 @@ reading techne.toml needs 3.11, and below that an existing techne.toml reads as 
 from __future__ import annotations
 
 import json
-import os
 import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import doctor_lib  # noqa: E402  # ty: ignore[unresolved-import]
-from project_board import techne_toml  # noqa: E402  # ty: ignore[unresolved-import]
+import doctor_lib  # ty: ignore[unresolved-import]
+from git_env import GITHUB_REMOTE, without_repo_overrides  # ty: ignore[unresolved-import]
+from project_board import techne_toml  # ty: ignore[unresolved-import]
 
 TIMEOUT = 10
 SKILL_CONTEXT = ".claude/skill-context.md"
-OWNER_TEAM = re.compile(r"^\s*-\s*owner:\s*team\b", re.IGNORECASE | re.MULTILINE)
+# `- owner: team`, `owner: team` or `owner: "team"`, as other skill-context keys are written.
+OWNER_TEAM = re.compile(r"""^\s*(?:-\s*)?owner:\s*["']?team\b""", re.IGNORECASE | re.MULTILINE)
 REPO_SECTION = re.compile(r"^##[ \t]+repo\b[^\n]*\n(.*?)(?=^##[ \t]|\Z)", re.I | re.M | re.S)
-GITHUB_REMOTE = re.compile(r"github\.com[:/]([^/\s]+)/([^/\s]+?)(?:\.git)?/?$")
-# What `git rev-parse --local-env-vars` prints: a hook or wrapper exporting any of these would
-# point `git -C` at another repo.
-GIT_LOCAL_ENV = (
-    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CONFIG", "GIT_CONFIG_PARAMETERS",
-    "GIT_CONFIG_COUNT", "GIT_OBJECT_DIRECTORY", "GIT_DIR", "GIT_WORK_TREE",
-    "GIT_IMPLICIT_WORK_TREE", "GIT_GRAFT_FILE", "GIT_INDEX_FILE", "GIT_NO_REPLACE_OBJECTS",
-    "GIT_REPLACE_REF_BASE", "GIT_PREFIX", "GIT_SHALLOW_FILE", "GIT_COMMON_DIR",
-)  # fmt: skip
 
 
 class TomlUnreadable(Exception):
@@ -50,7 +42,7 @@ class TomlUnreadable(Exception):
 
 def sh(*args: str) -> str | None:
     """stdout of a command, or None when it fails, times out or is missing."""
-    env = {k: v for k, v in os.environ.items() if k not in GIT_LOCAL_ENV}
+    env = without_repo_overrides()
     code, out = doctor_lib.run(args, timeout=TIMEOUT, merge_stderr=False, env=env)
     return out.strip() if code == 0 else None
 
@@ -71,14 +63,16 @@ def repo_section(text: str) -> str:
 
 def marked_team_in_repo(where: str, top: Path) -> bool:
     """An owner: team line in the working tree, the current commit or the default branch."""
-    texts = []
-    try:
-        texts.append((top / SKILL_CONTEXT).read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError):
-        pass
-    for ref in ("HEAD", "origin/HEAD"):
-        texts.append(sh("git", "-C", where, "show", f"{ref}:{SKILL_CONTEXT}") or "")
-    return any(OWNER_TEAM.search(repo_section(text)) for text in texts)
+
+    def texts():
+        try:
+            yield (top / SKILL_CONTEXT).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            pass
+        for ref in ("HEAD", "origin/HEAD"):
+            yield sh("git", "-C", where, "show", f"{ref}:{SKILL_CONTEXT}") or ""
+
+    return any(OWNER_TEAM.search(repo_section(text)) for text in texts())
 
 
 def sister_entry(main_checkout: Path, path: Path) -> dict | None:
@@ -92,8 +86,8 @@ def sister_entry(main_checkout: Path, path: Path) -> dict | None:
     try:
         with path.open("rb") as f:
             cfg = tomllib.load(f)
-    except (OSError, tomllib.TOMLDecodeError):
-        return None
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise TomlUnreadable(f"cannot read {path}: {exc}") from exc
     root, sisters = cfg.get("workspace_root"), cfg.get("sisters")
     if not isinstance(root, str) or not isinstance(sisters, list):
         return None
@@ -107,7 +101,14 @@ def sister_entry(main_checkout: Path, path: Path) -> dict | None:
 
 def from_github(owner: str, name: str, listed: bool = False) -> tuple[str, str]:
     slug = f"{owner}/{name}"
-    raw = sh("gh", "repo", "view", slug, "--json", "parent,isInOrganization,viewerPermission")
+    raw = sh(
+        "gh",
+        "repo",
+        "view",
+        f"github.com/{slug}",
+        "--json",
+        "parent,isInOrganization,viewerPermission",
+    )
     try:
         info = json.loads(raw) if raw else None
     except json.JSONDecodeError:
@@ -123,7 +124,7 @@ def from_github(owner: str, name: str, listed: bool = False) -> tuple[str, str]:
     if info.get("viewerPermission") != "ADMIN":
         return "team", f"{slug} is not yours: your permission is {info.get('viewerPermission')}"
     pushers = sh(
-        "gh", "api", "--paginate", f"repos/{slug}/collaborators",
+        "gh", "api", "--hostname", "github.com", "--paginate", f"repos/{slug}/collaborators",
         "--jq", ".[] | select(.permissions.push) | .login",
     )  # fmt: skip
     if pushers is None:
@@ -143,8 +144,12 @@ def classify(path: str = ".", toml: Path | None = None) -> tuple[str, str]:
     if marked_team_in_repo(where, Path(top_out)):
         return "team", f"owner: team in {SKILL_CONTEXT}"
     common = sh("git", "-C", where, "rev-parse", "--git-common-dir")  # relative to `where`
+    git_dir = (Path(where) / common).resolve() if common else None
+    # A worktree's common dir is <main checkout>/.git; a submodule's or a --separate-git-dir
+    # repo's is elsewhere, and there the top level is the checkout.
+    main_checkout = git_dir.parent if git_dir and git_dir.name == ".git" else Path(top_out)
     try:
-        sister = sister_entry((Path(where) / common).resolve().parent, toml) if common else None
+        sister = sister_entry(main_checkout, toml)
     except TomlUnreadable as exc:
         return "team", str(exc)
     if sister and sister.get("kind") == "team":

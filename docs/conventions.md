@@ -136,10 +136,10 @@ The [template](https://github.com/ajbarea/techne/blob/main/plugins/techne/skills
 
 `docsync` and `ci-audit` act on a solo repo and ask on a team repo. A solo repo is yours alone, so a fix the evidence settles is applied without a question. A team repo has other people working in it, so the skill proposes and you choose. `_shared/repo_kind.py` decides, and only GitHub facts about you can make a repo solo: it is not in an organization, you administer it, nobody else can push, and it is not a fork of a live upstream unless it is one of your sisters. Two signals can only make it team, and are checked first:
 
-1. an `- owner: team` line under `## repo` in the repo's committed `.claude/skill-context.md`, which reaches every collaborator;
+1. an `owner: team` line (with or without a leading `-`) under `## repo` in the repo's `.claude/skill-context.md`, in the working copy, the current commit or the default branch, so a committed line reaches every collaborator;
 2. `kind = "team"` on the repo's `[[sisters]]` entry in `~/.claude/techne.toml`, matched by its path under `workspace_root`.
 
-An `- owner: solo` line is not trusted on its own, since it is true only for its author. Anything unsettled, such as no GitHub origin or `gh` failing, is treated as team, so a skill never edits someone else's repo without asking. Run `python3 plugins/techne/_shared/repo_kind.py <path>` to see the answer and the reason for any repo or file.
+An `- owner: solo` line is not trusted on its own, since it is true only for its author. Anything unsettled, such as no GitHub origin, `gh` failing or a `techne.toml` that cannot be read, is treated as team, so a skill never edits someone else's repo without asking. Run `python3 plugins/techne/_shared/repo_kind.py <path>` to see the answer and the reason for any repo or file.
 
 ## `IMPL.md` and `ROADMAP.md` (working docs)
 

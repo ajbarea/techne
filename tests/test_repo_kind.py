@@ -13,9 +13,16 @@ import pytest
 
 ME = "ajbarea"
 SLUG = f"{ME}/myrepo"
-VIEW = ["gh", "repo", "view", SLUG, "--json", "parent,isInOrganization,viewerPermission"]
+VIEW = [
+    "gh",
+    "repo",
+    "view",
+    f"github.com/{SLUG}",
+    "--json",
+    "parent,isInOrganization,viewerPermission",
+]
 PUSHERS = [
-    "gh", "api", "--paginate", f"repos/{SLUG}/collaborators",
+    "gh", "api", "--hostname", "github.com", "--paginate", f"repos/{SLUG}/collaborators",
     "--jq", ".[] | select(.permissions.push) | .login",
 ]  # fmt: skip
 MINE = '{"parent":null,"isInOrganization":false,"viewerPermission":"ADMIN"}'
@@ -101,11 +108,12 @@ def test_an_exported_git_dir_does_not_redirect_the_check(
     assert rk.classify(str(origin), no_toml)[0] == "solo"
 
 
-def test_an_unreadable_toml_still_reaches_github(rk, origin, tmp_path, gh):
+def test_an_unreadable_toml_reads_as_team(rk, origin, tmp_path, gh):
+    mine(gh)  # GitHub alone would say solo, so team must come from the signal
     bad = tmp_path / "techne.toml"
     bad.write_text("this is = = not toml", encoding="utf-8")
-    mine(gh)
-    assert rk.classify(str(origin), bad)[0] == "solo"
+    kind, why = rk.classify(str(origin), bad)
+    assert kind == "team" and why.startswith("cannot read")
 
 
 # ---------------------------------------------- signals that only say team --
@@ -277,3 +285,38 @@ def test_the_shipped_template_does_not_mark_a_repo_team(rk):
 
     template = ROOT / "plugins/techne/skills/setup/skill-context.template.md"
     assert not rk.OWNER_TEAM.search(rk.repo_section(template.read_text(encoding="utf-8")))
+
+
+@pytest.mark.parametrize("line", ["owner: team", 'owner: "team"', "  - Owner: TEAM (lab)"])
+def test_owner_team_counts_with_or_without_a_dash_or_quotes(rk, origin, no_toml, gh, line):
+    mine(gh)  # GitHub alone would say solo, so team must come from the signal
+    skill_context(origin, f"## repo\n- name: x\n{line}\n")
+    assert rk.classify(str(origin), no_toml)[0] == "team"
+
+
+def test_a_separate_git_dir_checkout_finds_its_roster_entry(rk, tmp_path, gh):
+    mine(gh)  # GitHub alone would say solo, so team must come from the signal
+    root = tmp_path / "ws" / "myrepo"
+    root.mkdir(parents=True)
+    (tmp_path / "gitdirs").mkdir()
+    git(root, "init", "-q", "-b", "main", f"--separate-git-dir={tmp_path / 'gitdirs' / 'myrepo'}")
+    git(root, "remote", "add", "origin", f"git@github.com:{SLUG}.git")
+    toml = roster(tmp_path, root.parent, 'name = "myrepo"\nkind = "team"')
+    assert rk.classify(str(root), toml)[0] == "team"
+
+
+def test_the_script_runs_on_the_oldest_python(tmp_path):
+    """make test-hooks-oldest sets TECHNE_GUARD_PYTHON, so this runs the script on 3.9 there."""
+    from conftest import HOOK_PYTHON, ROOT
+
+    repo = init(tmp_path / "plain")
+    home = tmp_path / "home"
+    (home / ".claude").mkdir(parents=True)
+    (home / ".claude" / "techne.toml").write_text('workspace_root = "/x"\n', encoding="utf-8")
+    script = ROOT / "plugins/techne/_shared/repo_kind.py"
+    env = {"HOME": str(home), "PATH": __import__("os").environ["PATH"]}
+    done = subprocess.run(
+        [HOOK_PYTHON, str(script), str(repo)], capture_output=True, text=True, env=env
+    )
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.startswith("team: "), done.stdout

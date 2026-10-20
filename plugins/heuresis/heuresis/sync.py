@@ -12,7 +12,7 @@ from pathlib import Path, PurePosixPath
 from heuresis import board, context
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_shared"))
-from git_env import batch_ssh  # ty: ignore[unresolved-import]
+from git_env import batch_ssh, without_repo_overrides  # ty: ignore[unresolved-import]
 
 # A push that loses a race refetches and rebases; three races in a row is a real problem.
 PUSH_ATTEMPTS = 3
@@ -29,13 +29,9 @@ class SyncError(Exception):
     """Publishing stopped and needs the user: the local commit is kept, the rebase is aborted."""
 
 
-# Either one would point git at another repository than the ideas folder it is run in.
-_REPO_OVERRIDES = ("GIT_DIR", "GIT_WORK_TREE")
-
-
 def _env(root: Path | None = None) -> dict[str, str]:
     """git's environment; with root, also batch-mode ssh unless the user chose an ssh command."""
-    env = {k: v for k, v in os.environ.items() if k not in _REPO_OVERRIDES}
+    env = without_repo_overrides()
     env.update(GIT_EDITOR="true", GIT_TERMINAL_PROMPT="0", LC_ALL="C", LANG="C")
     return env if root is None else batch_ssh(env, root)
 
