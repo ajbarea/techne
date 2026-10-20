@@ -4,8 +4,8 @@ Only GitHub facts about the signed-in user can make a repo solo: not in an organ
 user administers it, nobody else can push, and it is not a fork of a live upstream (unless its
 `[[sisters]]` entry says `kind = "solo"`, an explicit claim that the fork is the user's own line
 of work). Other signals can only make it team, and are checked first:
-1. an `owner: team` line anywhere in the repo's `.claude/skill-context.md`, in any Markdown
-   form, in the working tree, the current commit or the default branch;
+1. a line holding the words `owner` and `team` anywhere in the repo's
+   `.claude/skill-context.md`, in the working tree, the current commit or the default branch;
 2. its `[[sisters]]` entry in ~/.claude/techne.toml with `kind = "team"`, matched by path
    (`workspace_root/<name>`) or, for another clone, by `<github_user>/<name>` as the origin.
 Anything unsettled (no repo, no GitHub origin, gh failing, techne.toml present but unreadable)
@@ -34,28 +34,22 @@ from project_board import techne_toml  # noqa: E402
 
 TIMEOUT = 10
 SKILL_CONTEXT = ".claude/skill-context.md"
-# An owner: team line, matched on the raw line so it fails toward team: `owner` then `team` as
-# whole words, with up to six punctuation characters and up to two words between them, covers
-# every Markdown, HTML or table form (`- **owner:** team`, `| owner | team |`, `owner: the lab
-# team`) without stripping anything. Closed <!-- comments --> are removed first; a line still
-# inside an open comment is skipped, which is how the setup template ships the line disabled.
-_OWNER_TEAM = re.compile(
-    r"(?<![A-Za-z0-9])owner[^A-Za-z0-9]{1,6}(?:[A-Za-z0-9]+[^A-Za-z0-9]{1,3}){0,2}team"
-    r"(?![A-Za-z0-9])",
-    re.IGNORECASE,
-)
-_CLOSED_COMMENT = re.compile(r"<!--.*?-->")
+# An owner line, erring toward team: any line outside an HTML comment that holds the whole
+# word `owner` (or `owners`) and the whole word `team`, in either order. No distance or form to
+# count, so every Markdown, table, alignment or HTML spelling counts. Closed <!-- comments -->,
+# including multi-line ones, are removed first, which is how the setup template ships the line
+# disabled.
+_OWNER = re.compile(r"(?<![A-Za-z0-9])owners?(?![A-Za-z0-9])", re.IGNORECASE)
+_TEAM = re.compile(r"(?<![A-Za-z0-9])team(?![A-Za-z0-9])", re.IGNORECASE)
+_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 
 
 def says_team(text: str) -> bool:
-    """Whether any line of a skill-context file is an owner: team line. It can only make a repo
+    """Whether any line of a skill-context file pairs `owner` with `team`. It can only make a repo
     team, so it counts anywhere in the file. NUL characters are dropped first, so UTF-16 text
     read as UTF-8 (git show of a PowerShell 5 file) still matches."""
-    for line in text.replace("\x00", "").splitlines():
-        line = _CLOSED_COMMENT.sub(" ", line)
-        if not line.lstrip("\ufeff \t").startswith("<!--") and _OWNER_TEAM.search(line):
-            return True
-    return False
+    text = _COMMENT.sub(" ", text.replace("\x00", ""))
+    return any(_OWNER.search(line) and _TEAM.search(line) for line in text.splitlines())
 
 
 def decode(raw: bytes) -> str:
@@ -96,15 +90,19 @@ def marked_team_in_repo(where: str, top: Path) -> bool:
     return says_team(sh("git", "-C", where, "show", f"HEAD:{SKILL_CONTEXT}") or "")
 
 
+def kind_of(sister: dict) -> str:
+    """A [[sisters]] entry's kind, lowercased: "team", "solo" or ""."""
+    return str(sister.get("kind", "")).strip().lower()
+
+
 def is_team(sister: dict) -> bool:
-    """A [[sisters]] entry marked kind = "team", in any case."""
-    return str(sister.get("kind", "")).lower() == "team"
+    return kind_of(sister) == "team"
 
 
 def sister_entry(checkouts: set[Path], slug: tuple[str, str] | None, path: Path) -> dict | None:
     """The [[sisters]] table for this repo, or None: matched by workspace_root/<name> against
     the checkout paths, or by name when the origin is <github_user>/<name> (another clone)."""
-    if not path.exists():
+    if not path.exists() and not path.is_symlink():  # a broken link is present but unreadable
         return None
     try:
         import tomllib
@@ -138,7 +136,7 @@ def sister_entry(checkouts: set[Path], slug: tuple[str, str] | None, path: Path)
 _REPO_QUERY = (
     "query($o:String!,$n:String!){repository(owner:$o,name:$n){"
     "owner{login} parent{name owner{login}} isInOrganization viewerPermission "
-    f'object(expression:"HEAD:{SKILL_CONTEXT}"){{... on Blob{{text isBinary}}}}}}}}'
+    f'object(expression:"HEAD:{SKILL_CONTEXT}"){{... on Blob{{text isBinary isTruncated}}}}}}}}'
 )
 
 
@@ -178,8 +176,8 @@ def from_github(owner: str, name: str, fork_ok: bool = False) -> tuple[str, str]
     if info.get("viewerPermission") != "ADMIN":
         return "team", f"{slug} is not yours: your permission is {info.get('viewerPermission')}"
     blob = info.get("object")
-    if isinstance(blob, dict) and blob.get("isBinary"):  # e.g. UTF-16: GitHub gives no text
-        return "team", f"{SKILL_CONTEXT} on {slug}'s default branch is not text, so unread"
+    if isinstance(blob, dict) and (blob.get("isBinary") or blob.get("isTruncated")):
+        return "team", f"{SKILL_CONTEXT} on {slug}'s default branch is not whole text, so unread"
     if isinstance(blob, dict) and says_team(str(blob.get("text") or "")):
         return "team", f"owner: team in {SKILL_CONTEXT} on {slug}'s default branch"
     if pushers is None:
@@ -207,7 +205,9 @@ def github_slug(url: str) -> tuple[str, str] | None:
     scp = _SCP_REMOTE.match(url)
     if not scp:
         return None
-    settings = sh("ssh", "-G", scp.group(1)) or ""
+    if scp.group(1).startswith("-"):  # never hand ssh an option from a remote URL
+        return None
+    settings = sh("ssh", "-G", "--", scp.group(1)) or ""
     host = next((ln.split()[1] for ln in settings.splitlines() if ln.startswith("hostname ")), "")
     if host.lower() in ("github.com", "ssh.github.com"):
         return scp.group(2), scp.group(3)
@@ -240,7 +240,7 @@ def classify(path: str = ".", toml: Path | None = None) -> tuple[str, str]:
         return "team", f'kind = "team" in {toml}'
     if not slug:
         return "team", "no GitHub origin to check ownership against"
-    fork_ok = bool(sister) and str(sister.get("kind", "")).lower() == "solo"
+    fork_ok = bool(sister) and kind_of(sister) == "solo"
     return from_github(*slug, fork_ok=fork_ok)
 
 

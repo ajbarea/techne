@@ -17,7 +17,7 @@ SLUG = f"{ME}/myrepo"
 QUERY = (
     "query($o:String!,$n:String!){repository(owner:$o,name:$n){"
     "owner{login} parent{name owner{login}} isInOrganization viewerPermission "
-    'object(expression:"HEAD:.claude/skill-context.md"){... on Blob{text isBinary}}}}'
+    'object(expression:"HEAD:.claude/skill-context.md"){... on Blob{text isBinary isTruncated}}}}'
 )
 
 
@@ -480,7 +480,7 @@ def test_owner_team_in_more_markdown_forms(rk, origin, no_toml, gh, line):
     assert rk.classify(str(origin), no_toml)[0] == "team"
 
 
-@pytest.mark.parametrize("line", ["- owner: solo", "- ownership: team-x", "owners: team"])
+@pytest.mark.parametrize("line", ["- owner: solo", "- ownership: team-x", "- teams: 3"])
 def test_near_miss_owner_lines_do_not_count(rk, origin, no_toml, gh, line):
     mine(gh)
     skill_context(origin, f"## repo\n{line}\n")
@@ -568,7 +568,9 @@ def test_owner_team_survives_stray_markup_around_it(rk, origin, no_toml, gh, bod
     assert rk.classify(str(origin), no_toml)[0] == "team"
 
 
-@pytest.mark.parametrize("line", ["- owner: teamwork", "<!-- - owner: team -->", "owners: team"])
+@pytest.mark.parametrize(
+    "line", ["- owner: teamwork", "<!-- - owner: team -->", "- ownership: team-x"]
+)
 def test_a_line_that_is_not_an_owner_team_line_does_not_count(rk, origin, no_toml, gh, line):
     mine(gh)
     skill_context(origin, f"{line}\n")
@@ -600,14 +602,16 @@ def test_owner_team_after_a_closed_comment_or_with_words_between(rk, origin, no_
 
 def test_an_ssh_alias_for_github_is_followed(rk, repo, no_toml, gh):
     git(repo, "remote", "add", "origin", f"git@github-work:{SLUG}.git")
-    gh.register(["ssh", "-G", "github-work"], stdout="user git\nhostname github.com\nport 22\n")
+    gh.register(
+        ["ssh", "-G", "--", "github-work"], stdout="user git\nhostname github.com\nport 22\n"
+    )
     mine(gh)
     assert rk.classify(str(repo), no_toml)[0] == "solo"
 
 
 def test_an_ssh_alias_for_another_host_is_not_github(rk, repo, no_toml, gh):
     git(repo, "remote", "add", "origin", f"git@gitlab-work:{SLUG}.git")
-    gh.register(["ssh", "-G", "gitlab-work"], stdout="hostname gitlab.com\n")
+    gh.register(["ssh", "-G", "--", "gitlab-work"], stdout="hostname gitlab.com\n")
     mine(gh)
     assert rk.classify(str(repo), no_toml) == (
         "team",
@@ -629,3 +633,47 @@ def test_an_ambiguous_owner_line_fails_toward_team(rk, origin, no_toml, gh):
     mine(gh)
     skill_context(origin, "- owner: not team\n")
     assert rk.classify(str(origin), no_toml)[0] == "team"
+
+
+# ---------------------------------------------------- round-10 regressions --
+
+
+@pytest.mark.parametrize(
+    "line",
+    ["| **owner** | **team** |", "owner:       team", "<td><b>owner</b></td><td><b>team</b></td>",
+     "owners: team", "Team owner: the lab"],
+)  # fmt: skip
+def test_owner_and_team_on_one_line_in_any_order_or_spacing(rk, origin, no_toml, gh, line):
+    mine(gh)  # GitHub alone would say solo, so team must come from the signal
+    skill_context(origin, f"{line}\n")
+    assert rk.classify(str(origin), no_toml)[0] == "team"
+
+
+def test_a_line_inside_a_multiline_comment_does_not_count(rk, origin, no_toml, gh):
+    mine(gh)
+    skill_context(origin, "<!--\n- owner: team\n-->\n")
+    assert rk.classify(str(origin), no_toml)[0] == "solo"
+
+
+def test_a_broken_toml_symlink_reads_as_team(rk, origin, tmp_path, gh):
+    mine(gh)  # GitHub alone would say solo, so team must come from the signal
+    link = tmp_path / "techne.toml"
+    link.symlink_to(tmp_path / "moved-away" / "techne.toml")
+    assert rk.classify(str(origin), link)[0] == "team"
+
+
+def test_a_truncated_default_branch_copy_is_team(rk, origin, no_toml, gh):
+    gh.register(REPO, stdout=view(object={"text": "x", "isBinary": False, "isTruncated": True}))
+    gh.register(PUSHERS, stdout=f"{ME}\n")
+    gh.register(INVITED, stdout="")
+    assert rk.classify(str(origin), no_toml)[0] == "team"
+
+
+def test_a_remote_host_starting_with_a_dash_never_reaches_ssh(rk, repo, no_toml, gh):
+    git(repo, "config", "remote.origin.url", f"-oHostname=github.com:{SLUG}.git")
+    gh.register(["ssh", gh.any()], stdout="hostname github.com\n", occurrences=5)
+    assert rk.classify(str(repo), no_toml) == (
+        "team",
+        "no GitHub origin to check ownership against",
+    )
+    assert gh.call_count(["ssh", gh.any()]) == 0
