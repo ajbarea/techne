@@ -44,7 +44,7 @@ If the block above appears as a command rather than its output, run it and use w
 
 No context file: elenchus still runs with no hints; infer the test and run commands from the Makefile or ask. Add an optional `## elenchus` block for repo-specific hints; see Scaffolding below. The header names the repo it came from, which is the current directory's. When the target is a path in another repo, run `bash "<plugin-root>/_shared/skill_context.sh" <target-path>` and use that output instead.
 
-Read the `## elenchus` section if present (optional hints — known destructive ops, load-bearing surfaces, reproduce recipes, what "the feature works" means here). For the commands to actually *run* the code, fall back in order to `## audit` (lint/test targets), `## theoros` (`repl_command`), then the repo `Makefile`. Tier-0 needs no config.
+Read the `## elenchus` section if present (optional hints — known destructive ops, load-bearing surfaces, reproduce recipes, what "the feature works" means here). For the commands to actually *run* the code, fall back in order to `## audit` (lint/test targets), `## theoros` (`repl_command`), then the repo `Makefile`. With no hints it needs no config.
 
 ## Protocol
 
@@ -161,7 +161,7 @@ Clean-pass shape: the verdict, the Findings line reading `none blocking`, and th
 
 ## Scaffolding `## elenchus` into a repo (optional)
 
-Tier-0 needs nothing. To give the skill repo-specific aim, add to `.claude/skill-context.md`:
+With no hints it needs nothing. To give the skill repo-specific aim, add to `.claude/skill-context.md`:
 
 ````markdown
 ## elenchus
