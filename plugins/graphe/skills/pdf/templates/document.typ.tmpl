@@ -114,9 +114,9 @@
   row-gutter: 0pt,
   align: (x, y) => if y == 0 { bottom + left } else { top + left },
 )
-#show table.cell.where(y: 0): it => text(
-  font: sans, size: 8.8pt, tracking: 0.03em, fill: accent, upper(it.body),
-)
+// A function show rule on the cell would drop its inset, so the style is a set rule.
+#show table.cell.where(y: 0): set text(font: sans, size: 8.8pt, tracking: 0.03em, fill: accent)
+#show table.cell.where(y: 0): upper
 
 // Title block, kept out of the markdown so the subtitle can carry its own style.
 #block(above: 0em, below: 14.3pt)[

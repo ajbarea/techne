@@ -178,3 +178,30 @@ def test_the_families_a_run_reports_are_the_ones_it_embedded(rn, tmp_path):
     out.mkdir()
     _, fonts = rn.render(src, out)
     assert rn.main([str(src), str(out), "--check-fonts", *fonts]) == 0
+
+
+HEADERS = """# Table
+
+| Case | Mutation | Tests |
+| --- | --- | --- |
+| one | two | three |
+"""
+
+
+@needs_typst
+@pytest.mark.skipif(not HAVE_POPPLER, reason="pdftotext not installed")
+def test_table_header_labels_keep_a_gap_between_columns(rn, tmp_path):
+    """A function show rule on a header cell drops its inset and runs the labels together."""
+    import re
+    import subprocess
+
+    src = tmp_path / "headers.md"
+    src.write_text(HEADERS)
+    out = tmp_path / "out"
+    out.mkdir()
+    dest, _ = rn.render(src, out)
+
+    text = subprocess.run(
+        ["pdftotext", "-layout", str(dest), "-"], capture_output=True, text=True
+    ).stdout
+    assert re.search(r"CASE\s+MUTATION\s+TESTS", text), text
