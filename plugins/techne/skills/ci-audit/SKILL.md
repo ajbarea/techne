@@ -89,7 +89,7 @@ Put every finding into one of five buckets:
 
 1. **`[FIX]` — Fix now, in this repo.** Workflow YAML referencing a deprecated action, a lint/test failure, a missing file, a misconfigured flag, a ty/mypy error that config should cover. Edit and verify.
 2. **`[BUMP]` — Fix now, upstream-version bump.** An action is deprecated and the repo pins an old major — bump the pin after checking the upstream changelog.
-3. **`[PROPOSE]` — Repo-side fix exists, and the path is a choice.** Use this when there's a real fix inside this repo but the choice between paths is a product decision, not a mechanical one. Example: `codecov/patch` failing because new code has no coverage — options are (a) install missing extras in CI so skipped tests run, (b) add `codecov.yml` with a lower patch threshold, (c) add `pragma: no cover` on the uncovered branch. Enumerate all viable options in one line each; don't pick silently. This bucket exists so `[DEFER]` stops being a cargo-culted cop-out for anything that requires a second of thought.
+3. **`[PROPOSE]`: a repo-side fix exists, and the path is a choice.** Use this when there's a real fix inside this repo but the choice between paths is a product decision, not a mechanical one. Example: `codecov/patch` failing because new code has no coverage: options are (a) install missing extras in CI so skipped tests run, (b) add `codecov.yml` with a lower patch threshold, (c) add `pragma: no cover` on the uncovered branch. Enumerate all viable options in one line each; don't pick silently. This bucket exists so `[DEFER]` stops being a cargo-culted cop-out for anything that requires a second of thought.
    - **Solo repo** (`python3 "<plugin-root>/_shared/repo_kind.py"` prints `solo: …`): pick the option the evidence supports and apply it like a `[FIX]`. The evidence is the repo's own configs, tests and CI output, plus current upstream docs or changelogs (web search) when the choice turns on a tool's behaviour. Report it as `[PROPOSE→FIX]` with the option taken, the evidence, and the others in one line each. Ask only when the choice is irreversible, costs money, or reaches outside the repo.
    - **Team repo** (`team: …`, which is also the answer whenever ownership is unsettled): enumerate the options and let the user pick, as above.
 4. **`[DEFER]` — No repo-side fix exists.** Node-runtime `DeprecationWarning: punycode` from an Actions transitive dep; library teardown noise from a third-party package; `xcrun is not installed` on Linux runners. If you can name a file in this repo that would change the output, it is not DEFER — it is PROPOSE or FIX. Cite the finding, say why no repo-side lever exists.
@@ -137,7 +137,7 @@ PR-level external checks (omit section if none):
 <"N fixed, M proposed, K deferred. Run `/techne:auto-commit` to group and commit the fixes." | "All runs clean; N items deferred with reasons.">
 ```
 
-Numbered findings, one per item. Keep each line tight — link to the file, not the log. If any findings are `[PROPOSE]`, name them explicitly in the verdict ("M proposed — pick a path") so the user doesn't miss them. On a solo repo, `[PROPOSE→FIX]` items count as fixed, and the verdict names the option each one took.
+Numbered findings, one per item. Keep each line tight: link to the file, not the log. If any findings are `[PROPOSE]`, name them explicitly in the verdict ("M proposed: pick a path") so the user doesn't miss them. On a solo repo, `[PROPOSE→FIX]` items count as fixed, and the verdict names the option each one took.
 
 ## Rules
 

@@ -101,4 +101,4 @@ A doc update is also a chance to trim slop. If a fix requires rewriting a senten
 
 ## Why this skill is quiet
 
-Output is the drift report and the edits (on a team repo, after confirmation). No narration of the verification process — just `claim → reality → fix`.
+Output is the drift report and the edits (on a team repo, after confirmation). No narration of the verification process, just `claim → reality → fix`.

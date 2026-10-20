@@ -11,11 +11,12 @@ has crept in; extract it back to ROADMAP.
 
 ## In flight: solo repos act, team repos ask (branch `feat/solo-act-team-ask`)
 
-Done: `_shared/repo_kind.py` decides solo or team from the committed `owner:` line, the
-techne.toml `[[sisters]]` entry, then GitHub ownership and push access; unsettled reads as team.
-docsync applies every evidence-settled fix on a solo repo without asking; ci-audit turns
-`[PROPOSE]` into `[PROPOSE→FIX]` there. 19 tests, each team fallback mutation-checked.
-Next: independent review, CI green, squash-merge. Verify: `make validate`.
+Done: `_shared/repo_kind.py`: only GitHub facts make a repo solo (not an org, user is ADMIN, sole
+pusher, not a fork of a live upstream unless listed as a sister); the committed `owner: team` line
+and a path-matched `kind = "team"` sister can only make it team; unsettled reads as team; file
+targets and exported GIT_DIR handled. docsync acts on solo repos, ci-audit turns `[PROPOSE]` into
+`[PROPOSE→FIX]`. 25 tests; ten false-solo mutants all caught. Round 1 (/code-review high): ten
+findings fixed. Next: round 2, CI green, squash-merge. Verify: `make validate`.
 
 ## In flight: `techne:board` (branch `feat/board`)
 

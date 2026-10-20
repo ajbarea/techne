@@ -35,7 +35,7 @@ status = "active"
 | `workspace_root` | string | yes | Absolute path to the parent directory containing your sister repos. |
 | `sisters[].name` | string | yes | Directory name under `workspace_root`. |
 | `sisters[].status` | string | no | Defaults to `"active"`. Set to `"backburner"` to skip without removing. |
-| `sisters[].kind` | string | no | `"team"` marks a repo other people work in. `techne:sisters` exempts it from solo-only conventions such as the README masthead, and `docsync` and `ci-audit` ask before acting on it ([Solo and team repos](conventions.md#solo-and-team-repos)). Omitted means solo. |
+| `sisters[].kind` | string | no | `"team"` marks a repo other people work in. `techne:sisters` exempts it from solo-only conventions such as the README masthead, and `docsync` and `ci-audit` ask before acting on it ([Solo and team repos](conventions.md#solo-and-team-repos)). Listing a fork as a sister also tells those skills the fork is your own line of work. |
 
 ### `[board]`
 

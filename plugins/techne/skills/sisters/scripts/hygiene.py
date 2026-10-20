@@ -66,6 +66,7 @@ sys.dont_write_bytecode = True  # the plugin cache stays as installed
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "_shared"))
 import doctor_lib  # noqa: E402  # ty: ignore[unresolved-import]
 from git_env import batch_ssh  # noqa: E402  # ty: ignore[unresolved-import]
+from repo_kind import GITHUB_REMOTE  # noqa: E402  # ty: ignore[unresolved-import]
 from resume_state import impl_matches  # noqa: E402  # ty: ignore[unresolved-import]
 
 # Stock macOS python3 is 3.9; stop with the fix before the 3.11-only import below.
@@ -820,7 +821,6 @@ def apply(plan_file: Path) -> int:
 
 
 AUTO_INTERVAL = 30 * 60
-GITHUB_REMOTE = re.compile(r"github\.com[:/]([^/\s]+)/([^/\s]+?)(?:\.git)?/?$")
 
 
 def cache_dir() -> Path:
