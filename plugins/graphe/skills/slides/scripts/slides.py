@@ -617,6 +617,59 @@ def text_gates(
     return found
 
 
+# The first slide that may carry the contribution: the title is slide 1, the agenda slide 2.
+CONTRIBUTION_LATEST = 5
+
+
+def contribution_findings(marked: list[tuple[int, bool]]) -> list[Finding]:
+    """The structure of "what we did and why you should care", never its wording.
+
+    `marked` is (slide number, has notes) for each slide carrying `data-contribution`. The
+    claim and the stakes are the author's to write and the reviewer's to read; this checks
+    only that one marked slide exists, sits early, and has a script to say the stakes aloud.
+    """
+    if not marked:
+        return [
+            Finding(
+                WARN,
+                "contribution",
+                "no slide carries data-contribution; mark the one slide, among the first few "
+                "after the agenda, that says what we did and why this audience should care",
+            )
+        ]
+    out: list[Finding] = []
+    if len(marked) > 1:
+        out.append(
+            Finding(
+                WARN,
+                "contribution",
+                f"data-contribution on slides {[n for n, _ in marked]}; one slide states it",
+            )
+        )
+    number, has_notes = marked[0]
+    if number > CONTRIBUTION_LATEST:
+        out.append(
+            Finding(
+                WARN,
+                "contribution",
+                f"the contribution slide is slide {number}; move it to slide "
+                f"{CONTRIBUTION_LATEST} or earlier (title, agenda, then the first content slides)",
+                number,
+            )
+        )
+    if not has_notes:
+        out.append(
+            Finding(
+                WARN,
+                "contribution",
+                "no script on the contribution slide; the notes say the why-you-should-care "
+                "line aloud",
+                number,
+            )
+        )
+    return out
+
+
 def duplicate_titles(titles: dict[str, list[int]]) -> list[Finding]:
     return [
         Finding(WARN, "duplicate-title", f"slides {numbers} share the title {title!r}")
@@ -966,6 +1019,7 @@ _READ_SLIDE = (
     title: heading ? heading.innerText.trim() : '',
     text: s.innerText,
     notes: noteText(s),
+    contribution: s.hasAttribute('data-contribution'),
     spill,
     panned,
   };
@@ -1278,11 +1332,14 @@ def _check_in(
     min_px = min_pt * 96 / 72 * wide / CANVAS["width"]
     titles: dict[str, list[int]] = {}
     no_notes: list[int] = []
+    contribution: list[tuple[int, bool]] = []
     unchecked = 0
     in_backup = False
     for i in range(count):
         number = i + 1
         slide = page.evaluate(_READ_SLIDE, i)
+        if slide["contribution"]:
+            contribution.append((number, bool(slide["notes"])))
         title = slide["title"]
         if title:
             titles.setdefault(title.casefold(), []).append(number)
@@ -1371,6 +1428,7 @@ def _check_in(
         found.append(
             Finding(WARN, "no-notes", f"no script in the speaker notes on slides {no_notes}")
         )
+    found += contribution_findings(contribution)
     if unchecked:
         found.append(
             Finding(

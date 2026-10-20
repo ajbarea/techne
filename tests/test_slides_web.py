@@ -257,6 +257,56 @@ def test_a_talk_slide_without_notes_warns(sl, web, gates):
     assert ("WARN", "no-notes") in gates(found)
 
 
+def _contribution(found):
+    return [f for f in found if f.gate == "contribution"]
+
+
+@needs_browser
+def test_the_starter_marks_its_contribution_slide(sl, web):
+    assert _contribution(_check(sl, web.index)) == []
+
+
+@needs_browser
+def test_a_deck_with_no_contribution_slide_warns(sl, web, gates):
+    path = web("<section data-contribution>", "<section>")
+    found = _check(sl, path)
+    assert ("WARN", "contribution") in gates(found)
+    assert sl.verdict(found)[0] == 0
+
+
+@needs_browser
+def test_a_contribution_slide_after_the_opening_warns(sl, web):
+    start = web.index.read_text().index("<section data-contribution>")
+    text = web.index.read_text()
+    end = text.index("</section>", start) + len("</section>\n\n")
+    block = text[start:end]
+    web.index.write_text(text[:start] + text[end:])
+    web(
+        '<section data-chapter="4 · What\'s next">',
+        block + '<section data-chapter="4 · What\'s next">',
+    )
+    found = _contribution(_check(sl, web.index))
+    assert len(found) == 1 and "move it to slide" in found[0].message
+
+
+@needs_browser
+def test_a_contribution_slide_without_notes_warns(sl, web):
+    note = '<aside class="notes">[Here\'s what we did:'
+    path = web(note, '<aside class="unused">[Here\'s what we did:')
+    found = _contribution(_check(sl, path))
+    assert len(found) == 1 and "no script" in found[0].message
+
+
+@needs_browser
+def test_two_contribution_slides_warn(sl, web):
+    path = web(
+        '<section data-chapter="1 · The problem">',
+        '<section data-contribution data-chapter="1 · The problem">',
+    )
+    found = _contribution(_check(sl, path))
+    assert len(found) == 1 and "one slide states it" in found[0].message
+
+
 @needs_browser
 def test_a_page_that_is_not_a_reveal_deck_is_unreadable(sl, tmp_path, gates):
     page = tmp_path / "page.html"
@@ -430,9 +480,9 @@ def test_motion_names_only_the_slide_that_moves(sl, web):
     assert len(motion) == 1
     named = {int(n) for n in re.findall(r"\d+", motion[0].message.split("[")[1].split("]")[0])}
     # The spinning slide is named. Slides with nothing that moves are not; with the rule gone,
-    # the starter's dots (5) and timeline (8) animate too, and a fragment's fade may still be
+    # the starter's dots (6) and timeline (9) animate too, and a fragment's fade may still be
     # running when it is read.
-    assert 9 in named and not named & {1, 2, 4, 10, 11}
+    assert 10 in named and not named & {1, 2, 3, 5, 11, 12}
 
 
 @needs_browser
@@ -474,9 +524,9 @@ def test_a_missing_viewport_tag_is_a_phone_warning(sl, web):
 def test_figures_jargon_and_backup_from_work_on_a_web_deck(sl, web):
     path = web(CLAIM, CLAIM + "<p>[Gerrit] stopped 42% of them</p>")
     by = {(f.gate, f.slide) for f in _check(sl, path, jargon=("Gerrit",))}
-    assert ("figures", 3) in by and ("jargon", 3) in by
-    later = {(f.gate, f.slide) for f in _check(sl, path, jargon=("Gerrit",), backup_from=3)}
-    assert not {("figures", 3), ("jargon", 3)} & later
+    assert ("figures", 4) in by and ("jargon", 4) in by
+    later = {(f.gate, f.slide) for f in _check(sl, path, jargon=("Gerrit",), backup_from=4)}
+    assert not {("figures", 4), ("jargon", 4)} & later
 
 
 def _stock(tmp_path, slides: str, config: str = "transition: 'none'") -> pathlib.Path:
@@ -674,10 +724,10 @@ def test_a_deck_that_starts_only_on_wide_screens_names_the_phone(sl, tmp_path):
 def test_the_script_reads_the_starter_from_reveal(sl):
     code, out = sl.script(STARTER / "index.html")
     assert code == 0
-    assert "## 3. [Claim headline: one full sentence the figure proves]" in out
+    assert "## 4. [Claim headline: one full sentence the figure proves]" in out
     assert "Walk the figure left to right" in out
     _, backup = out.split("# Backup slides")
-    assert "## 12. Backup slides" in backup
+    assert "## 13. Backup slides" in backup
 
 
 @needs_browser
