@@ -58,7 +58,7 @@ Walk every cell. For each, either find the falsifying case or explicitly clear i
 Emit the structured report (format below). End with an explicit merge verdict and what you are holding on, if anything.
 
 ### Phase 5 — Post the distilled summary
-If an open PR exists for the branch under review **and someone else opened it**, post the distilled summary (contract in **Posting the summary** below) as a **single** `gh pr comment`. This is default behavior, not opt-in — the review of record belongs on the PR. Skip when there is no PR, when the account owner opened it, or when the invoker explicitly said to keep it local; the report then stays in-session.
+If an open PR exists for the branch under review **and someone else opened it**, post the distilled summary (contract in **Posting the summary** below) as a **single** `gh pr comment`. This is default behavior, not opt-in — the review of record belongs on the PR. Skip when there is no PR, when the account owner opened it, or when the invoker explicitly said to keep it local; the report then stays in-session (except open findings when the review loop ends; see **When the review loop ends**).
 
 Derive authorship before posting — never assume.
 
@@ -97,12 +97,12 @@ Close with: a one-line **merge verdict** (mergeable / hold on finding #N / not m
 
 ## When the review loop ends
 
-A change often takes several rounds: review, fix, review again. The author fixes each finding, with a regression test that runs in CI wherever the finding is testable. On someone else's PR that author is the PR's owner: a round ends with the Phase 5 comment, and the next round starts when the owner pushes. The loop has no fixed round count. It ends on what the last round found.
+A change often takes several rounds: review, fix, review again. The author fixes each finding, with a regression test that runs in CI wherever the finding is testable. On someone else's PR that author is the PR's owner: a round ends with the Phase 5 comment, and the next round starts when the owner pushes. When a PR exists, start each round by re-reading its comments and reviews. The loop has no fixed round count. It ends on what the last round found.
 
-- **Keep going** while a round has a Blocking or Should-fix finding (see Output format) on a reachable input: one that a caller in the repo, or a documented usage, can produce. An unreproduced Blocking or Should-fix finding counts as reachable until shown otherwise.
-- **Stop** when what remains is Minor, Informational, or needs an input no caller and no documented usage can produce. A Blocking or Should-fix finding that cannot be reproduced also stops the loop: record it as open and hold the merge on it.
-- **Write the stop down.** Findings left open go in the Phase 5 comment on someone else's PR. On the author's own PR they go in the linked issue, opened for the purpose when there is none, so a waiting PR says why it waits; this is the one exception to the in-session rule below. Honor "keep it local": then they stay in-session.
-- **Pause when it runs long.** When a PR exists, start each round by re-reading its comments and reviews. Track the loop's total time, not each round's. Stop and report, and start another round only on the user's go-ahead, once it passes the budget the user set (about 30 minutes when none was set), or when two rounds in a row find only bugs the previous fix introduced: then the fix approach is the problem.
+- **Keep going** while a round has a Blocking or Should-fix finding (see Output format) on a reachable input: one that a caller in the repo, or a documented usage, can produce. A finding not yet reproduced gets one reproduction attempt in the next round.
+- **Stop** when what remains is Minor, Informational, or needs an input no caller and no documented usage can produce. Also stop when a Blocking or Should-fix finding still cannot be reproduced after that attempt: record it as open and hold the merge on it.
+- **Write the stop down.** Blocking or Should-fix findings left open go in the Phase 5 comment on someone else's PR. On the author's own PR they go in the linked issue, opened for the purpose when there is none, so a waiting PR says why it waits; this is the one exception to the in-session rule below. Minor findings stay in-session. Honor "keep it local": then everything stays in-session.
+- **Pause when it runs long.** Count the reviewer's own working time across rounds, not time spent waiting for the owner. Stop and report when that passes the budget the user set, or when two rounds in a row find only bugs the previous fix introduced (then the fix approach is the problem); resume only on the user's go-ahead. With no budget set, ask for one before starting a third round.
 
 ## Posting the summary (Phase 5)
 
