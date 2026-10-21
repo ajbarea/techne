@@ -5,10 +5,12 @@ Usage:
     agents_md.py WORKSPACE REPO [REPO ...]
 
 Claude Code reads AGENTS.md only when no CLAUDE.md, .claude/CLAUDE.md or
-CLAUDE.local.md sits in the working directory or above it, so any of those
-replaces AGENTS.md unless it imports it. An import resolves relative to the
-file that holds it, and is not parsed inside a code span or a fenced block.
-A nested CLAUDE.md shadows only the AGENTS.md in its own directory.
+CLAUDE.local.md sits in the working directory or above it, so those files
+replace AGENTS.md unless one of them imports it. Imports are parsed as Claude
+Code parses them: `@path` after whitespace or at a line start, cut at `#`,
+resolved from the importing file, followed up to four hops, and ignored in code
+spans, fenced or indented code, and HTML comments. A nested CLAUDE.md shadows
+only the AGENTS.md in its own directory.
 
 Prints one line per finding, or one passing line per repo. Always exits 0.
 """
@@ -23,16 +25,19 @@ from pathlib import Path
 
 ROOT_FILES = ("CLAUDE.md", ".claude/CLAUDE.md", "CLAUDE.local.md")
 NAMES = {"CLAUDE.md", "CLAUDE.local.md"}
+HOPS = 4
 FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
+INDENTED = re.compile(r"^( {4}|\t)")
 SPAN = re.compile(r"(`+).*?\1")
-IMPORT = re.compile(r"(?<![\w@])@((?:\\ |[^\s`])+)")
+COMMENT = re.compile(r"<!--.*?-->", re.S)
+IMPORT = re.compile(r"(?:^|\s)@((?:[^\s\\]|\\ )+)")
 
 
 def imports(text: str) -> list[str]:
-    """The @path imports in a CLAUDE.md, outside code spans and fences."""
+    """The @path imports Claude Code would expand in an instruction file."""
     found: list[str] = []
     fence = ""
-    for line in text.splitlines():
+    for line in COMMENT.sub("", text).splitlines():
         mark = FENCE.match(line)
         if mark:
             run = mark.group(1)
@@ -41,16 +46,34 @@ def imports(text: str) -> list[str]:
             elif run[0] == fence[0] and len(run) >= len(fence):
                 fence = ""
             continue
-        if fence:
+        if fence or INDENTED.match(line):
             continue
         for token in IMPORT.findall(SPAN.sub("", line)):
-            found.append(token.replace("\\ ", " ").rstrip(".,;:!?)"))
+            path = token.replace("\\ ", " ").split("#", 1)[0]
+            if path:
+                found.append(path)
     return found
 
 
 def resolve(holder: Path, token: str) -> Path:
     path = Path(os.path.expanduser(token))
     return (path if path.is_absolute() else holder.parent / path).resolve()
+
+
+def reaches(holder: Path, target: Path, hops: int = HOPS, seen: frozenset = frozenset()) -> bool:
+    """Whether holder's imports reach target within the hop limit."""
+    try:
+        text = holder.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    for token in imports(text):
+        path = resolve(holder, token)
+        if path == target:
+            return True
+        if hops > 1 and path.is_file() and path not in seen:
+            if reaches(path, target, hops - 1, seen | {path}):
+                return True
+    return False
 
 
 def tracked(root: Path) -> list[str] | None:
@@ -73,33 +96,45 @@ def check(root: Path) -> list[str]:
         findings.append("no committed AGENTS.md → add one")
     candidates = {p for p in files if Path(p).name in NAMES}
     candidates |= {p for p in ROOT_FILES if os.path.lexists(root / p)}
+    levels: dict[Path, list[str]] = {}
     for rel in sorted(candidates):
         holder = root / rel
+        if not os.path.lexists(holder):
+            continue
         level = holder.parent.parent if holder.parent.name == ".claude" else holder.parent
+        levels.setdefault(level, []).append(rel)
+    for level, rels in levels.items():
         target = level / "AGENTS.md"
-        if not os.path.lexists(holder) or not target.is_file():
+        if not target.is_file():
             continue
-        if holder.is_symlink():
-            findings.append(
-                f"{rel} is a symlink, which a Windows clone checks out as a one-line "
-                "text file → delete it; Claude Code reads AGENTS.md directly"
-            )
-            continue
-        text = holder.read_text(encoding="utf-8", errors="replace")
-        if any(resolve(holder, t) == target.resolve() for t in imports(text)):
+        plain = []
+        for rel in rels:
+            if (root / rel).is_symlink():
+                findings.append(
+                    f"{rel} is a symlink, which a Windows clone checks out as a one-line "
+                    "text file → delete it; Claude Code reads AGENTS.md directly"
+                )
+            else:
+                plain.append(rel)
+        if any(reaches(root / rel, target.resolve()) for rel in plain):
             continue
         shown = target.relative_to(root).as_posix()
-        want = os.path.relpath(target, holder.parent).replace(os.sep, "/")
-        findings.append(
-            f"{rel} does not import {shown}, so Claude Code reads it instead → "
-            f"move its content into {shown}, or add @{want}"
-        )
+        for rel in plain:
+            want = os.path.relpath(target, (root / rel).parent).replace(os.sep, "/")
+            fix = (
+                f"add @{want} to it"
+                if Path(rel).name == "CLAUDE.local.md"
+                else f"move its content into {shown}, or add @{want}"
+            )
+            findings.append(
+                f"{rel} does not import {shown}, so Claude Code reads it instead → {fix}"
+            )
     return findings
 
 
 def main(argv: list[str]) -> int:
     if len(argv) < 2:
-        print(__doc__.strip().splitlines()[2].strip())
+        print(__doc__.strip())
         return 0
     workspace = Path(argv[0]).expanduser()
     for name in argv[1:]:

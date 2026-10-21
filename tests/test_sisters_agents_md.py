@@ -42,6 +42,15 @@ def repo(tmp_path: Path, files: dict[str, str], untracked: dict[str, str] | None
         {"AGENTS.md": "# a\n", ".claude/CLAUDE.md": "@../AGENTS.md\n"},
         {"AGENTS.md": "# a\n", "sub/CLAUDE.md": "nested, and sub/ has no AGENTS.md\n"},
         {"AGENTS.md": "# a\n", "sub/AGENTS.md": "# s\n", "sub/CLAUDE.md": "@AGENTS.md\n"},
+        {"AGENTS.md": "# a\n", "CLAUDE.md": "@AGENTS.md#setup\n"},
+        {
+            "AGENTS.md": "# a\n",
+            "CLAUDE.md": "@docs/claude.md\n",
+            "docs/claude.md": "@../AGENTS.md\n",
+        },
+        # One file at a level importing AGENTS.md loads it for the whole level.
+        {"AGENTS.md": "# a\n", "CLAUDE.md": "@AGENTS.md\n", "CLAUDE.local.md": "mine\n"},
+        {"AGENTS.md": "# a\n", "CLAUDE.md": "@AGENTS.md\n", ".claude/CLAUDE.md": "x\n"},
     ],
     ids=[
         "agents-only",
@@ -52,6 +61,10 @@ def repo(tmp_path: Path, files: dict[str, str], untracked: dict[str, str] | None
         "dot-claude-up",
         "nested-no-sibling",
         "nested-import",
+        "anchor",
+        "via-another-file",
+        "local-beside-import",
+        "dot-claude-beside-import",
     ],
 )
 def test_passes(am, tmp_path, files):
@@ -70,6 +83,13 @@ def test_passes(am, tmp_path, files):
         ({"AGENTS.md": "# a\n", ".claude/CLAUDE.md": "@AGENTS.md\n"}, None, "or add @../AGENTS.md"),
         ({"AGENTS.md": "# a\n", "CLAUDE.md": "```\n@AGENTS.md\n```\n"}, None, "does not import"),
         ({"AGENTS.md": "# a\n", "CLAUDE.md": "See `@AGENTS.md`.\n"}, None, "does not import"),
+        # Claude Code keeps trailing punctuation and needs whitespace before the @.
+        ({"AGENTS.md": "# a\n", "CLAUDE.md": "See @AGENTS.md.\n"}, None, "does not import"),
+        ({"AGENTS.md": "# a\n", "CLAUDE.md": "(@AGENTS.md)\n"}, None, "does not import"),
+        ({"AGENTS.md": "# a\n", "CLAUDE.md": "see:@AGENTS.md\n"}, None, "does not import"),
+        ({"AGENTS.md": "# a\n", "CLAUDE.md": "<!-- @AGENTS.md -->\n"}, None, "does not import"),
+        ({"AGENTS.md": "# a\n", "CLAUDE.md": "x\n\n    @AGENTS.md\n"}, None, "does not import"),
+        ({"AGENTS.md": "# a\n"}, {"CLAUDE.local.md": "mine\n"}, "add @AGENTS.md to it"),
         (
             {"AGENTS.md": "# a\n", "sub/AGENTS.md": "# s\n", "sub/CLAUDE.md": "x\n"},
             None,
@@ -95,6 +115,12 @@ def test_passes(am, tmp_path, files):
         "wrong-dir",
         "fenced",
         "code-span",
+        "trailing-period",
+        "parenthesised",
+        "no-space-before",
+        "html-comment",
+        "indented-code",
+        "local-advice",
         "nested-shadow",
         "space-in-path",
         "non-ascii-path",

@@ -389,13 +389,15 @@ Each sister keeps its agent instructions in one committed root `AGENTS.md`, whic
 only when no `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md` sits in the working directory
 or above it, so a `CLAUDE.md` without an import of `AGENTS.md` (one `/init` writes, say, even
 untracked) silently replaces the repo's instructions for Claude. A `CLAUDE.md` exists only for
-Claude-only content and imports `AGENTS.md`; the import resolves relative to the file that holds
-it, so `.claude/CLAUDE.md` needs `@../AGENTS.md`. A nested `CLAUDE.md` shadows only the
+Claude-only content and imports `AGENTS.md`; one importing file at a directory level loads it for
+that level. The script parses imports as Claude Code does: the import resolves relative to the
+file that holds it (so `.claude/CLAUDE.md` needs `@../AGENTS.md`), follows up to four hops, and
+does not count inside code or HTML comments. A nested `CLAUDE.md` shadows only the
 `AGENTS.md` in its own directory. A symlinked `CLAUDE.md` checks out on Windows as a one-line
 text file. Sources: <https://code.claude.com/docs/en/memory#agents-md>, <https://agents.md/>.
 
 ```
-python3 "$WORKSPACE/techne/plugins/techne/skills/sisters/scripts/agents_md.py" "$WORKSPACE" $SISTERS
+python3 <agents-md script> "$WORKSPACE" $SISTERS   # the agents_md.py path SKILL.md names
 ```
 
 The script prints one line per finding and one passing line per clean sister, and always exits

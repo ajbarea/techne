@@ -25,7 +25,7 @@ If `~/.claude/techne.toml` is missing or yields zero active sisters, stop and te
 
 ## What to check
 
-Run every check, in order, using the commands in [references/checks.md](references/checks.md).
+Run every check, in order, using the commands in [references/checks.md](references/checks.md). Check 15's script is `<skill-dir>/scripts/agents_md.py`.
 Each check reports per repo; one broken repo never aborts the others.
 
 | # | Check | Drift means | Recommend |
