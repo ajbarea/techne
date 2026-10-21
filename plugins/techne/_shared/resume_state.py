@@ -12,6 +12,8 @@ import subprocess
 import time
 from dataclasses import dataclass, field
 
+from git_env import without_repo_overrides
+
 GIT_TIMEOUT = 5
 READ_BUDGET = 20  # seconds for all of read(); the hook's own timeout is 30
 IMPL = "IMPL.md"
@@ -26,7 +28,7 @@ def git(root: str, *args: str, deadline: float | None = None) -> str | None:
         if timeout <= 0:
             return None
     # status must not take index.lock: another session may be committing in this worktree.
-    env = {**os.environ, "GIT_OPTIONAL_LOCKS": "0", "GIT_TERMINAL_PROMPT": "0"}
+    env = {**without_repo_overrides(), "GIT_OPTIONAL_LOCKS": "0", "GIT_TERMINAL_PROMPT": "0"}
     try:
         proc = subprocess.run(
             ["git", "-C", root, *args],

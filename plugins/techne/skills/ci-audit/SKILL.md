@@ -2,12 +2,14 @@
 name: ci-audit
 description: Audit the latest GitHub Actions workflow runs on the current branch/PR for warnings, errors, failures, deprecation notices, and other log noise — then fix what's fixable in-repo (workflow YAML, configs, source, tests). Hands commit + push back to the developer. Use after CI finishes and before merge, or whenever the user asks about failing/noisy CI — phrasings like "audit the PR", "why did CI fail", "check the workflow logs", "what's wrong with the build on GitHub", "fix the Actions warnings", "review the latest CI run", "clean up the green-with-warnings run", or names a specific check (Codecov, GitGuardian, Renovate) that's failing on the PR.
 disable-model-invocation: false
-allowed-tools: Bash(gh *) Bash(git branch --show-current) Bash(git rev-parse *) Bash(git log *) Glob Grep Read Edit Write
+allowed-tools: Bash(gh *) Bash(git branch --show-current) Bash(git rev-parse *) Bash(git log *) Bash(python3 *_shared/repo_kind.py*) Glob Grep Read Edit Write WebSearch WebFetch
 ---
 
 # CI Audit
 
 Audit the GitHub Actions runs on the current branch. Classify every warning / error / failure / deprecation, fix what can be fixed in-repo, and leave `git add` / `commit` / `push` to the developer.
+
+`<plugin-root>` is the plugin's root directory, two levels above the directory holding this SKILL.md.
 
 ## Repo context
 
@@ -40,7 +42,7 @@ Pick the **latest run per workflow** on the current head SHA. Don't mix SHAs —
 
 Treat them as first-class findings, not footnotes:
 
-- **Codecov patch/project failures** — the uploaded `coverage.xml` is below a threshold. Repo-side fixes exist: add/tune `codecov.yml` (project + patch targets, carryforward, component flags), exclude generated/ignorable paths, install missing extras in CI so previously-skipped tests run, or add `pragma: no cover` to unreachable branches. All of these are `[FIX]` or `[PROPOSE]`, not `[DEFER]`.
+- **Codecov patch/project failures**: the uploaded `coverage.xml` is below a threshold. Repo-side fixes exist: add/tune `codecov.yml` (project + patch targets, carryforward, component flags), exclude generated/ignorable paths, install missing extras in CI so previously-skipped tests run, or add `pragma: no cover` to unreachable branches. None of these is `[DEFER]`. Installing missing extras is `[FIX]`; lowering a target, excluding a path or adding `pragma: no cover` weakens the gate, so it is always `[PROPOSE]` and asked, on any repo.
 - **GitGuardian / secret scanners** — if passing, `[EXPECTED]`. If failing, stop and ask before editing; the fix is usually rotating a real secret, not a repo edit.
 - **Anything else** — at minimum, list it under "PR-level external checks" in the output with its conclusion. Don't silently drop.
 
@@ -83,11 +85,15 @@ Expand context (`grep -A3 -B1`) around any hit you can't classify from one line.
 
 ## Classify every finding
 
+First run `python3 "<plugin-root>/_shared/repo_kind.py"` in the repo under audit. It prints `solo: <why>` or `team: <why>` (anything unsettled reads as team); `[PROPOSE]` below depends on it, and the line goes at the top of the Findings.
+
 Put every finding into one of five buckets:
 
-1. **`[FIX]` — Fix now, in this repo.** Workflow YAML referencing a deprecated action, a lint/test failure, a missing file, a misconfigured flag, a ty/mypy error that config should cover. Edit and verify.
+1. **`[FIX]`: fix now, in this repo.** Never a change that weakens a gate (a lower threshold, a skipped or excluded check, `pragma: no cover`, `continue-on-error`, an ignore rule): that is `[PROPOSE]` and asked. Workflow YAML referencing a deprecated action, a lint/test failure, a missing file, a misconfigured flag, a ty/mypy error that a config path or setting fixes without ignoring the rule. Edit and verify.
 2. **`[BUMP]` — Fix now, upstream-version bump.** An action is deprecated and the repo pins an old major — bump the pin after checking the upstream changelog.
-3. **`[PROPOSE]` — Repo-side fix exists, needs your input.** Use this when there's a real fix inside this repo but the choice between paths is a product decision, not a mechanical one. Example: `codecov/patch` failing because new code has no coverage — options are (a) install missing extras in CI so skipped tests run, (b) add `codecov.yml` with a lower patch threshold, (c) add `pragma: no cover` on the uncovered branch. Enumerate all viable options in one line each; don't pick silently. This bucket exists so `[DEFER]` stops being a cargo-culted cop-out for anything that requires a second of thought.
+3. **`[PROPOSE]`: a repo-side fix exists, and the path is a choice.** Use this when there's a real fix inside this repo but the choice between paths is a product decision, not a mechanical one. Example: the docs build fails after a Zensical release renamed a config key: (a) pin the previous Zensical version, (b) move `zensical.toml` to the new key, (c) drop the setting and accept the new default. Enumerate all viable options in one line each; on a team repo, don't pick silently. This bucket exists so `[DEFER]` stops being a cargo-culted cop-out for anything that requires a second of thought.
+   - **Solo repo** (`python3 "<plugin-root>/_shared/repo_kind.py"` prints `solo: …`): pick the option the evidence supports and apply it like a `[FIX]`. The evidence is the repo's own configs, tests and CI output, plus current upstream docs or changelogs (web search) when the choice turns on a tool's behaviour. Report it as `[PROPOSE→FIX]` with the option taken, the evidence, and the others in one line each. Ask instead when the choice is irreversible, costs money, reaches outside the repo, or weakens a gate: lowers a coverage or quality threshold, skips or excludes a check or a test, or adds `pragma: no cover`, `continue-on-error` or an ignore rule. A gate is the user's call on any repo.
+   - **Team repo** (`team: …`, which is also the answer whenever ownership is unsettled): enumerate the options and let the user pick, as above.
 4. **`[DEFER]` — No repo-side fix exists.** Node-runtime `DeprecationWarning: punycode` from an Actions transitive dep; library teardown noise from a third-party package; `xcrun is not installed` on Linux runners. If you can name a file in this repo that would change the output, it is not DEFER — it is PROPOSE or FIX. Cite the finding, say why no repo-side lever exists.
 5. **`[EXPECTED]` — Ran as designed.** `continue-on-error` steps that exit 0 cleanly. Note that they ran; they are not findings. See also the `##[error]` cross-reference rule — a non-blocking step that *did* emit an error is `[FIX]`, not `[EXPECTED]`.
 
@@ -121,9 +127,12 @@ PR-level external checks (omit section if none):
 
 ### Findings
 
+Repo: <the `solo: …` or `team: …` line from repo_kind.py>
+
 1. [FIX] <one-line summary> — <file:line> → edited.  Verified: <local check or "next CI run">.
 2. [BUMP] <action> <old>→<new> — <file:line> → edited.
-3. [PROPOSE] <one-line summary>. Options: (a) <option one>; (b) <option two>; (c) <option three>. Pick one.
+3. [PROPOSE] <one-line summary>. Options: (a) <option one>; (b) <option two>; (c) <option three>. Pick one.   (team repo)
+3. [PROPOSE→FIX] <one-line summary>: took (b) <option>, because <evidence> → edited. Also viable: (a) …; (c) ….   (solo repo)
 4. [DEFER] <one-line summary>.  Why: <no repo-side lever — upstream or cosmetic>.
 5. [EXPECTED] <step name> — `continue-on-error: true`, exited 0.
 
@@ -132,7 +141,7 @@ PR-level external checks (omit section if none):
 <"N fixed, M proposed, K deferred. Run `/techne:auto-commit` to group and commit the fixes." | "All runs clean; N items deferred with reasons.">
 ```
 
-Numbered findings, one per item. Keep each line tight — link to the file, not the log. If any findings are `[PROPOSE]`, name them explicitly in the verdict ("M proposed — pick a path") so the user doesn't miss them.
+Numbered findings, one per item. Keep each line tight: link to the file, not the log. If any findings are `[PROPOSE]`, name them explicitly in the verdict ("M proposed: pick a path") so the user doesn't miss them. On a solo repo, `[PROPOSE→FIX]` items count as fixed, and the verdict names the option each one took.
 
 ## Rules
 

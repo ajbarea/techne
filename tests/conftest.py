@@ -23,6 +23,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import tomllib
 import types
 from collections.abc import Iterable, Mapping
@@ -42,6 +43,7 @@ PROSE_SCRIPT = ROOT / "plugins" / "graphe" / "_shared" / "prose_check.py"
 DOKIMASIA_SCRIPT = ROOT / "plugins" / "dokimasia" / "skills" / "check" / "scripts" / "dokimasia.py"
 DOCTOR_LIB = ROOT / "plugins" / "techne" / "_shared" / "doctor_lib.py"
 SCHOLARLY_SCRIPT = ROOT / "plugins" / "techne" / "_shared" / "scholarly.py"
+REPO_KIND_SCRIPT = ROOT / "plugins" / "techne" / "_shared" / "repo_kind.py"
 GOLD_RUNNER = ROOT / "scripts" / "heuresis_gold.py"
 
 # The doctors and hooks run on the user's system python3; `make test-hooks-oldest` sets this
@@ -242,6 +244,11 @@ def sw() -> types.ModuleType:
 
 
 @pytest.fixture(scope="session")
+def rk() -> types.ModuleType:
+    return _load("techne_repo_kind", REPO_KIND_SCRIPT)
+
+
+@pytest.fixture(scope="session")
 def sl() -> types.ModuleType:
     return _load("techne_slides", SLIDES_SCRIPT)
 
@@ -377,3 +384,28 @@ def board_rules(options: Mapping[str, str] = BOARD_OPTIONS) -> list[dict]:
     absent = {"data": {"resource": {"projectItems": {"nodes": []}}}}
     rules.append({"match": ["api", "graphql"], "stdout": json.dumps(absent)})
     return rules
+
+
+def proc_state(pid: int) -> str:
+    """The /proc state letter of PID, or "Z" once it is gone (reaped between two reads too)."""
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            return f.read().rsplit(")", 1)[1].split()[0]
+    except OSError:
+        return "Z"
+
+
+def assert_gone(pid: int) -> None:
+    """Fail unless PID has exited (a zombie counts: init reaps it later) within 2 s; it is
+    killed afterwards either way."""
+    try:
+        for _ in range(40):
+            if proc_state(pid) == "Z":
+                return
+            time.sleep(0.05)
+        raise AssertionError(f"process {pid} is still running")
+    finally:
+        try:
+            os.kill(pid, 9)
+        except ProcessLookupError:
+            pass
