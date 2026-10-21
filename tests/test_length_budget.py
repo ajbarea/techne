@@ -145,9 +145,14 @@ def test_iffalse_hides_only_what_it_encloses(lb, source):
 def test_markdown_words_skip_table_bars_bullets_code_and_comments(lb):
     source = (
         "| Case | Group |\n|---|---|\n| one | two |\n\n- three `inline code`\n\n"
-        "```\nfenced code\n```\n\n    indented code\n\n<!-- budget: 9 words -->\n"
+        "```\nfenced code\n```\n\n<!-- budget: 9 words -->\n"
     )
     assert lb.markdown_words(source) == 5
+
+
+def test_markdown_words_count_nested_list_items_and_continuation_paragraphs(lb):
+    source = "- one two\n    - three four\n        - five\n\n- six seven\n\n    eight nine ten\n"
+    assert lb.markdown_words(source) == 10
 
 
 @pytest.mark.parametrize(
@@ -178,10 +183,10 @@ def test_a_longer_closing_fence_ends_the_code_block(lb):
     assert lb.markdown_words("```\ncode here\n````\n\nTwo words.\n") == 2
 
 
-def test_reading_and_counting_exclude_indented_code_alike(lb):
+def test_an_indented_budget_example_is_no_declaration_but_its_words_count(lb):
     source = "<!-- budget: 3 words -->\n\nOne two.\n\n    <!-- budget: 9 words -->\n    code\n"
     assert lb.read(source, markdown=True) == lb.Budget(None, 3)
-    assert lb.markdown_words(source) == 2
+    assert lb.markdown_words(source) == 3
 
 
 # -------------------------------------------------------- latex words --
@@ -240,6 +245,105 @@ def test_a_word_limit_without_texcount_asks_for_a_look(lb, tmp_path, monkeypatch
     assert severity == REVIEW
     assert "word limit cannot be measured: texcount not found" in message
     assert anchor == "doc.pdf"
+
+
+def test_a_texcount_failure_shows_its_first_stderr_line(lb, tmp_path, monkeypatch):
+    monkeypatch.setattr(lb.shutil, "which", lambda _tool: "/usr/bin/texcount")
+    done = subprocess.CompletedProcess(
+        [], 1, "2 (errors:1)\n", "! File not found: more.tex\nnext\n"
+    )
+    monkeypatch.setattr(lb.subprocess, "run", lambda *_a, **_k: done)
+    words, why = lb.tex_words(tmp_path / "doc.tex")
+    assert words is None
+    assert "File not found: more.tex" in why and "next" not in why
+
+
+@pytest.mark.parametrize(
+    "macro",
+    [
+        "\\ifthenelse{\\a}{x}{y}",
+        "\\iftoggle{t}{a}{b}",
+        "\\ifbool{b}{a}{b}",
+        "\\ifmymacro{arg}",
+        "\\ifthenelse {\\a}{x}{y}",
+    ],
+)
+def test_a_macro_that_takes_braces_does_not_open_a_conditional_in_iffalse(lb, macro):
+    source = f"\\iffalse\n{macro}\n\\fi\n% budget: 4 pages\n"
+    assert lb.read(source) == lb.Budget(4, None)
+
+
+@pytest.mark.parametrize(
+    "macro",
+    [
+        "\\subimport{d/}{f}",
+        "\\import{d/}{f}",
+        "\\subfile{f}",
+        "\\includefrom{d}{f}",
+        "\\inputfrom{d}{f}",
+    ],
+)
+def test_a_word_count_warns_of_files_texcount_does_not_follow(lb, tmp_path, monkeypatch, macro):
+    name = macro.split("{")[0]
+    source = f"% budget: 900 words\n{macro}\n"
+    monkeypatch.setattr(lb, "tex_words", lambda _tex: (10, ""))
+    tex = tmp_path / "doc.tex"
+    tex.write_text(source)
+    found = lb.assess(source, tmp_path / "doc.pdf", hint="h", source_name="doc.tex", tex=tex)
+    assert [s for s, _, _ in found] == [INFO, REVIEW]
+    assert f"word count may miss files texcount does not follow ({name})" in found[1][1]
+
+
+def test_no_warning_for_commented_or_input_files(lb, tmp_path, monkeypatch):
+    source = "% budget: 900 words\n% \\subimport{d/}{f}\n\\input{f}\n"
+    monkeypatch.setattr(lb, "tex_words", lambda _tex: (10, ""))
+    tex = tmp_path / "doc.tex"
+    tex.write_text(source)
+    found = lb.assess(source, tmp_path / "doc.pdf", hint="h", source_name="doc.tex", tex=tex)
+    assert [s for s, _, _ in found] == [INFO]
+
+
+@pytest.mark.parametrize(
+    ("source", "markdown", "budget"),
+    [
+        ("% budget: 1200 words.\n", False, (None, 1200)),
+        ("% budget: 4 pages, 3000 words.\n", False, (4, 3000)),
+        ("<!-- budget: 1200 words. -->\n", True, (None, 1200)),
+        ("% budget: 4 pages (IEEE).\n", False, (4, None)),
+    ],
+)
+def test_a_trailing_period_after_a_spec_is_read(lb, source, markdown, budget):
+    assert lb.read(source, markdown=markdown) == lb.Budget(*budget)
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        "max 4 pages",
+        "Maximum 4 pages",
+        "~1200 words",
+        "up to 4 pages",
+        "4 pp",
+        "<= 4 pages",
+        "at most 900 words",
+    ],
+)
+def test_a_spec_that_intends_a_limit_in_another_form_is_unreadable_and_shows_the_form(lb, spec):
+    with pytest.raises(ValueError, match="cannot read") as err:
+        lb.read(f"% budget: {spec}\n")
+    assert "`4 pages`" in str(err.value) and "`1200 words`" in str(err.value)
+
+
+def test_a_spec_in_another_form_blocks_instead_of_asking_for_a_budget(lb, tmp_path):
+    ((severity, message, anchor),) = lb.assess(
+        "% budget: max 4 pages\n",
+        tmp_path / "doc.pdf",
+        hint="h",
+        source_name="doc.tex",
+        tex=tmp_path / "doc.tex",
+    )
+    assert (severity, anchor) == (BLOCK, "doc.tex")
+    assert "no budget declared" not in message
 
 
 # ----------------------------------------------------------- pages --
@@ -311,15 +415,31 @@ def test_before_references_needs_pages(lb):
         lb.read("% budget: 900 words before references\n")
 
 
-def test_pages_before_references_count_up_to_the_page_of_the_last_heading(lb):
-    reading = "One.\fTwo.\fThree.\nReferences\n[1] A.\fMore refs.\f[2] B.\f"
+def test_pages_before_references_count_up_to_the_page_of_the_first_entry(lb):
+    reading = "One.\fTwo.\fThree.\n[1] A.\fMore refs.\f[2] B.\f"
     assert lb.pages_before_references(reading) == 3
-    two_lists = "One.\nReferences\n[1] A.\fTwo.\fAppendix text.\nReferences\n[2] B.\f"
-    assert lb.pages_before_references(two_lists) == 3
+    assert lb.pages_before_references("One.\f[1] A.\f[2] B.\f") == 2
+    assert lb.pages_before_references("One.\n  [1]\tA.\f") == 1
 
 
-def test_pages_before_references_are_unknown_without_a_heading(lb):
-    assert lb.pages_before_references("One.\fTwo.\f") is None
+def test_a_running_head_or_table_cell_named_references_does_not_move_the_count(lb):
+    book = "One.\fBIBLIOGRAPHY\nTwo.\fBIBLIOGRAPHY\n[1] A.\fBIBLIOGRAPHY\n[2] B.\f"
+    assert lb.pages_before_references(book) == 3
+    ieee = "One.\fTable\nReferences\nTwo.\fThree.\f[1] A. Author.\f[2] B.\f"
+    assert lb.pages_before_references(ieee) == 4
+
+
+@pytest.mark.parametrize(
+    "reading",
+    [
+        "One.\fTwo.\f",
+        "Body (Smith, 2020).\fSmith, J. 2020. A title.\f",
+        "See [1] in text.\f",
+        "[2] A.\f",
+    ],
+)
+def test_pages_before_references_are_unknown_without_a_numbered_first_entry(lb, reading):
+    assert lb.pages_before_references(reading) is None
 
 
 @pytest.mark.parametrize(
@@ -528,9 +648,13 @@ def test_a_body_over_a_before_references_budget_is_blocked_and_says_so(lb, tmp_p
     assert "4 pages before references, budget 3" in found[0][1]
 
 
-def test_a_before_references_budget_without_a_heading_asks_for_a_look(lb, tmp_path, monkeypatch):
-    found = _assess(lb, "% budget: 3 pages before references", "A.\fB.\f", 2, tmp_path, monkeypatch)
+def test_a_before_references_budget_without_a_numbered_list_asks_for_a_look(
+    lb, tmp_path, monkeypatch
+):
+    reading = "A.\fB.\nReferences\nSmith, J. 2020. T.\f"
+    found = _assess(lb, "% budget: 3 pages before references", reading, 2, tmp_path, monkeypatch)
     assert [s for s, _, _ in found] == [REVIEW]
+    assert "cannot find where the reference list starts (a numbered [1] entry)" in found[0][1]
 
 
 def test_assess_reads_missing_unreadable_and_none(lb, tmp_path, monkeypatch):

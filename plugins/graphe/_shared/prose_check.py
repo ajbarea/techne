@@ -34,10 +34,13 @@ _BACKTICKED = re.compile(r"`([^`]+)`")
 # A reference list is citations, not prose. It ends at the next heading (an appendix) or the end.
 # A numbered heading is `7 References`, `VII. REFERENCES` or `## 5. References`; `3. References`
 # without `#` is a list item.
+# The titles a reference list goes by, spaced small caps included; length_budget reads them too.
+REFERENCES_TITLES = (
+    r"R\s?EFERENCES|References|Bibliography|BIBLIOGRAPHY"
+    r"|W\s?ORKS\s+C\s?ITED|Works\s+Cited|L\s?ITERATURE\s+C\s?ITED|Literature\s+Cited"
+)
 _REFERENCES = re.compile(
-    r"^\s*(?:#{1,6}\s*(?:\d+(?:\.\d+)*\.?\s+)?|(?:\d+|[IVXLC]+\.)\s+)?"
-    r"(?:R\s?EFERENCES|References|Bibliography|BIBLIOGRAPHY"
-    r"|W\s?ORKS\s+C\s?ITED|Works\s+Cited|L\s?ITERATURE\s+C\s?ITED|Literature\s+Cited)\s*$",
+    rf"^\s*(?:#{{1,6}}\s*(?:\d+(?:\.\d+)*\.?\s+)?|(?:\d+|[IVXLC]+\.)\s+)?(?:{REFERENCES_TITLES})\s*$",
     re.M,
 )
 _NEXT_HEADING = re.compile(r"^\s*(?:#{1,6}\s+\S|(?:A\s?PPENDIX|Appendix)\b)", re.M)
@@ -118,12 +121,6 @@ def report(text: str) -> tuple[list[Hit], str]:
         return check(text, default_patterns()), ""
     except (OSError, ValueError, re.error) as exc:
         return [], f"prose check skipped: {exc}"
-
-
-def references_start(text: str) -> int | None:
-    """Where the last references heading begins, or None."""
-    headings = list(_REFERENCES.finditer(text))
-    return headings[-1].start() if headings else None
 
 
 def body_of(text: str) -> str:

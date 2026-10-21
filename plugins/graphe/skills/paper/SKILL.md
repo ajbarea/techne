@@ -47,7 +47,7 @@ biblatex, which skews against a system biber the moment a paper moves off classi
 2. Copy `templates/main.tex.tmpl` → `papers/<name>/main.tex`, filling `__TITLE__` (title-cased
    from `<name>`; confirm with the user), `__AUTHOR__`, `__AFFIL__`, `__EMAIL__`, `__VENUE__`,
    `__BIB__`, `__NAME__`, and `__BUDGET__` from the venue's page limit (`8 pages`, or
-   `8 pages before references` when the venue excludes the references; ask when no venue is
+   `8 pages before references` when the venue excludes a numbered `[1]` reference list; ask when no venue is
    set; `none` only when the user says the paper has no limit). Confirm no `__` placeholder
    survives.
 3. Copy `templates/harvest.py.tmpl` → `papers/<name>/harvest.py`, filling `__SISTER__`

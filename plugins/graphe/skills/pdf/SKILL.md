@@ -26,7 +26,7 @@ original's. A document with no limit declares `<!-- budget: none -->`. The
 render prints `BLOCK budget` and exits 1 when the PDF is over it or the line
 cannot be read, and `REVIEW budget` when none is declared or a declared limit
 cannot be measured. `<!-- budget: 8 pages before references -->` counts pages up to
-the one the last references heading is on. Words count the markdown body after
+the one holding the first `[1]` reference entry. Words count the markdown body after
 the title block, without code, link targets, comments or a References section.
 
 ## Run it

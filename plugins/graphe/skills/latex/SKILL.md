@@ -22,7 +22,9 @@ draft that needs a separate concision pass was written in the wrong register.
 Set the length budget before the first sentence, and declare it on one comment
 line of the root `.tex`: `% budget: 4 pages`, `% budget: 3000 words`, or both
 joined by a comma. When the venue's page limit excludes the references, write
-`% budget: 8 pages before references`. Take it from the prompt or venue; a
+`% budget: 8 pages before references` (the count stops at the page holding the
+first `[1]` entry, so it needs a numbered list; author-year lists get a REVIEW).
+Take it from the prompt or venue; a
 revision takes the original's. A `budget:` comment that does not open like a
 declaration (a number before `pages` or `words`, or `none`) is an ordinary
 comment. A document with no limit declares `% budget: none`, and the gate
@@ -67,8 +69,8 @@ skipped on the run where it mattered.
 | BLOCK | `unsettled` | The log still asks for a rerun, so cross-references are stale. |
 | WARN | `overfull`, `font-substitution`, `package` | Largest five overfull boxes, then a count. |
 | REVIEW | `coverage` | Problem headers in the prompt with no match in the PDF. |
-| BLOCK | `budget` | The PDF is over the declared budget, or the budget line cannot be read. Pages count the whole PDF, or up to the page of the last references heading with `before references`; words come from the source through `texcount` (needs it on PATH), bibliography left out. |
-| REVIEW | `budget` | No budget declared in the root `.tex`, or a declared limit cannot be measured (the PDF's pages cannot be counted, `texcount` is missing for a word limit, or `before references` finds no reference heading). When the build failed and left an old PDF, the PDF checks (including the budget) are skipped. |
+| BLOCK | `budget` | The PDF is over the declared budget, or the budget line cannot be read. Pages count the whole PDF, or up to the page holding the first `[1]` bibliography entry with `before references`; words come from the source through `texcount` (needs it on PATH), bibliography left out. |
+| REVIEW | `budget` | No budget declared in the root `.tex`, or a declared limit cannot be measured (the PDF's pages cannot be counted, `texcount` is missing for a word limit, `before references` finds no `[1]` entry, or the source loads files through `\subimport`-style macros `texcount` does not follow). When the build failed and left an old PDF, the PDF checks (including the budget) are skipped. |
 | REVIEW | `prose` | Patterns from the `prose-patterns` block of `_shared/plain-prose.md`, plus sentences over 40 words. `--no-prose` skips it. |
 
 `--markers`, `--overfull-pt` and `--engine` move the thresholds. Read the

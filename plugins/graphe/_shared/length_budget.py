@@ -9,10 +9,11 @@ A document declares its budget on one comment line of its source, before draftin
     % budget: none                   no limit; the length is still reported
 
 Pages count the whole PDF; `% budget: 8 pages before references` counts up to the page the
-last reference heading is on, for a venue whose limit excludes the list. Words come from the
-source, not the PDF: LaTeX through `texcount -inc -sum` (text, headers and captions, `\\input`
-followed, bibliography and title left out, as Overleaf counts), markdown from the body without
-code, comments, link targets or a References section. Neither counts the title block.
+first bibliography entry, a line starting `[1]`, is on, for a venue whose limit
+excludes the list. Words come from the source, not the PDF: LaTeX through
+`texcount -inc -sum` (text, headers, `\\title` included, and captions, `\\input` followed,
+bibliography left out, as Overleaf counts), markdown from the body
+without code, comments, link targets or a References section, and without the title block.
 
 A `budget:` comment is a declaration when its spec opens like one (a number or number word
 before `page(s)`/`word(s)`, a `_` placeholder, or `none`/`unlimited`/`no limit` alone); it must
@@ -41,7 +42,11 @@ _TEX_LINE = re.compile(r"^[ \t]*%+[ \t]*budget[ \t]*:[ \t]*(?P<spec>.*?)[ \t]*$"
 _MD_LINE = re.compile(r"^[ \t]*<!--[ \t]*budget[ \t]*:[ \t]*(?P<spec>.*?)-->[ \t]*$", re.I | re.M)
 # What a declaration opens with; `none` is handled by _NO_LIMIT, which needs it standing alone.
 _NUMBER = rf"\d[\d,]*(?:\.\d+)?|(?:{_NUMBER_WORDS})(?:[ -]+(?:{_NUMBER_WORDS}))*"
-_INTENT = re.compile(rf"^(?:(?:{_NUMBER})\s*(?:pages?|words?)\b|_)", re.I)
+# A qualifier before the number (`max 4 pages`, `~1200 words`) or `pp` still intends a limit.
+_QUALIFIER = r"(?:max(?:imum)?\.?|up\s+to|at\s+most|about|under|[~<≤≈]=?)"
+_INTENT = re.compile(
+    rf"^(?:(?:{_QUALIFIER}\s*)?(?:{_NUMBER})\s*(?:pages?\b|words?\b|pp\b)|_)", re.I
+)
 _NO_LIMIT = re.compile(r"^(?:none|unlimited|no\s+limit)[\s.,;:!]*$", re.I)
 _MD_INDENTED = re.compile(r"^(?: {4}|\t).*$", re.M)
 # Where a budget line is example text, not a declaration.
@@ -51,7 +56,12 @@ _TEX_VERBATIM = re.compile(
 )
 _CODE_PART = re.compile(r"(?:[^%\\\n]|\\.)*")
 _IFFALSE = re.compile(r"[ \t]*\\iffalse\b")
-_IF = re.compile(r"\\if[a-zA-Z@]*")
+# `\ifthenelse{..}`, `\iftoggle{..}` and any `\if<name>{` are macros with no `\fi`.
+_IF = re.compile(
+    r"\\if(?:false|true)(?![a-zA-Z@])"
+    r"|\\if(?!(?:thenelse|toggle|bool)(?![a-zA-Z@]))[a-zA-Z@]*(?![a-zA-Z@{])"
+)
+_NOT_FOLLOWED = re.compile(r"\\(subimport|import|subfile|includefrom|inputfrom)(?![a-zA-Z@])")
 _NEWIF = re.compile(r"\\newif\s*\\[a-zA-Z@]+")
 _FI = re.compile(r"\\fi(?![a-zA-Z@])")
 _NOTE = re.compile(r"\s*\([^()]*\)[\s.]*$")
@@ -64,8 +74,10 @@ _SEPARATOR = re.compile(r"\s*;\s*|,\s+|(?<=\D),|\s+and\s+", re.I)
 _WORD = re.compile(r"[^\W_]")
 _HEADING = re.compile(r"^(#{1,6})[ \t]+(?P<title>.*?)[ \t]*#*[ \t]*$", re.M)
 _REFERENCES_TITLE = re.compile(
-    r"^(?:\d+(?:\.\d+)*\.?\s+)?(?:references|bibliography|works\s+cited|literature\s+cited)$", re.I
+    rf"^(?:\d+(?:\.\d+)*\.?\s+)?(?:{prose_check.REFERENCES_TITLES})$", re.I
 )
+# The first bibliography entry; `\f` ends a page in pdftotext text, and `^` does not match after it.
+_FIRST_ENTRY = re.compile(r"(?:^|(?<=\f))[ \t]*\[1\]\s", re.M)
 _PAGE_OBJECT = re.compile(rb"/Type\s*/Page(?![s\w])")
 _PAGE_COUNT = re.compile(
     rb"/Type\s*/Pages\b[^>]*?/Count\s+(\d+)(?!\s+\d+\s+R)"
@@ -90,10 +102,10 @@ def read(source: str, markdown: bool = False) -> Budget | None:
     A `budget:` comment whose spec does not open like a declaration is not one.
     """
     if markdown:
-        found = _MD_LINE.finditer(_markdown_source(source))
+        found = _MD_LINE.finditer(_declaration_source(source))
     else:
         found = _TEX_LINE.finditer(_strip_iffalse(_TEX_VERBATIM.sub("", source)))
-    specs = [spec for m in found if (spec := _NOTE.sub("", m["spec"]).strip()) and _declares(spec)]
+    specs = [spec for m in found if (spec := _spec(m["spec"])) and _declares(spec)]
     if not specs:
         return None
     if len(specs) > 1:
@@ -107,8 +119,8 @@ def read(source: str, markdown: bool = False) -> Budget | None:
         match = _ITEM.match(item.strip())
         if not match:
             raise ValueError(
-                f"cannot read {item!r}; write `N pages`, `N pages before references`, "
-                "`N words`, a pair, or `none`"
+                f"cannot read {item!r}; write `4 pages`, `4 pages before references`, "
+                "`1200 words`, a pair, or `none`"
             )
         unit = match["unit"].lower().rstrip("s")
         n = int(match["n"].replace(",", ""))
@@ -124,6 +136,11 @@ def read(source: str, markdown: bool = False) -> Budget | None:
     return Budget(limits.get("page"), limits.get("word"), before_refs)
 
 
+def _spec(raw: str) -> str:
+    """The spec without a trailing `(note)` or full stop."""
+    return _NOTE.sub("", raw).strip().rstrip(".").strip()
+
+
 def _declares(spec: str) -> bool:
     return bool(_INTENT.match(spec) or _NO_LIMIT.match(spec))
 
@@ -131,11 +148,11 @@ def _declares(spec: str) -> bool:
 def _strip_iffalse(source: str) -> str:
     """Drop `\\iffalse ... \\fi` blocks opened at a line start, nested conditionals included.
 
-    Every `\\if<letters>` opens a conditional except the name a `\\newif` defines."""
+    Every `\\if<letters>` opens a conditional except the name a `\\newif` defines and the
+    macros that take braces."""
     kept, depth = [], 0
     for line in source.splitlines(keepends=True):
-        match = _CODE_PART.match(line)
-        code = match[0] if match else ""
+        code = _code_of(line)
         if depth == 0 and not _IFFALSE.match(code):
             kept.append(line)
             continue
@@ -144,8 +161,9 @@ def _strip_iffalse(source: str) -> str:
     return "".join(kept)
 
 
-def _markdown_source(source: str) -> str:
-    """The source without fenced and indented code: what a declaration or a word can sit in."""
+def _declaration_source(source: str) -> str:
+    """The source without fenced and indented code: where a declaration can sit. Words are
+    counted with indented lines kept, since a nested list item is indented."""
     return _MD_INDENTED.sub("", prose_check.MD_FENCE.sub("", source))
 
 
@@ -171,13 +189,13 @@ def markdown_words(source: str) -> int:
     """Words of a markdown body: no code, comments, link targets or reference sections.
 
     Tokens holding a letter or digit, so table bars and bullets do not count."""
-    text = _drop_reference_sections(prose_check.markdown_prose(_markdown_source(source)))
+    text = _drop_reference_sections(prose_check.markdown_prose(source))
     return sum(1 for token in text.split() if _WORD.search(token))
 
 
 def tex_words(tex: pathlib.Path) -> tuple[int | None, str]:
-    """Words of the root .tex and what it inputs, as texcount counts them (text, headers and
-    captions; bibliography and title left out), and why it could not be counted."""
+    """Words of the root .tex and what it inputs, as texcount counts them (text, headers
+    including the title, and captions; bibliography left out), and why it could not be counted."""
     if not shutil.which("texcount"):
         return None, "texcount not found"
     try:
@@ -193,6 +211,8 @@ def tex_words(tex: pathlib.Path) -> tuple[int | None, str]:
     lines = proc.stdout.split()
     if proc.returncode or not lines or not lines[0].isdigit() or "errors" in proc.stdout:
         detail = " ".join(proc.stdout.split()) or "no count printed"
+        err = next((ln.strip() for ln in proc.stderr.splitlines() if ln.strip()), "")
+        detail += f" ({err[:100]})" if err else ""
         return None, f"texcount could not read the document: {detail}"
     return int(lines[0]), ""
 
@@ -209,10 +229,11 @@ def pdf_pages(pdf: pathlib.Path) -> int | None:
 
 
 def pages_before_references(reading: str) -> int | None:
-    """Pages up to and including the one the last references heading is on, from `pdftotext`
-    text (pages end in a form feed). None when the text holds no such heading."""
-    start = prose_check.references_start(reading)
-    return None if start is None else reading.count("\f", 0, start) + 1
+    """Pages up to and including the one the first bibliography entry, a line starting `[1]`,
+    is on, from `pdftotext` text (pages end in a form feed). None when no line does, as with
+    author-year styles."""
+    match = _FIRST_ENTRY.search(reading)
+    return None if match is None else reading.count("\f", 0, match.start()) + 1
 
 
 def _count_pages(data: bytes) -> int | None:
@@ -275,6 +296,10 @@ def compare(budget: Budget, pages: int | None, words: int | None) -> Verdict:
 
 MISSING = "no length budget declared; set one before drafting ({hint})"
 UNMEASURED = "could not measure the PDF against the declared limit ({measured}); check by eye"
+NO_LIST_START = (
+    "cannot find where the reference list starts (a numbered [1] entry) ({measured}); check by eye"
+)
+NOT_FOLLOWED = "word count may miss files texcount does not follow ({names})"
 UNCOUNTED = "word limit cannot be measured: {why} ({measured}); check by eye"
 OVER = "over budget: {over}. Cut repeated results and retold material, not substance"
 
@@ -312,13 +337,34 @@ def assess(
     else:
         pages = pdf_pages(pdf)
     verdict = compare(budget, pages, words)
+    unfollowed = _unfollowed(source, tex, words, pdf)
     if verdict.over:
-        return [("BLOCK", OVER.format(over="; ".join(verdict.over)), pdf.name)]
+        return [("BLOCK", OVER.format(over="; ".join(verdict.over)), pdf.name), *unfollowed]
     if verdict.unmeasured:
         if budget.words is not None and words is None:
             return [("REVIEW", UNCOUNTED.format(why=why, measured=verdict.measured), pdf.name)]
+        if budget.before_refs and pages is None:
+            return [("REVIEW", NO_LIST_START.format(measured=verdict.measured), pdf.name)]
         return [("REVIEW", UNMEASURED.format(measured=verdict.measured), pdf.name)]
-    return [("INFO", verdict.measured, pdf.name)]
+    return [("INFO", verdict.measured, pdf.name), *unfollowed]
+
+
+def _unfollowed(
+    source: str, tex: pathlib.Path | None, words: int | None, pdf: pathlib.Path
+) -> list[tuple[str, str, str]]:
+    """A REVIEW when the root source loads files through a macro texcount does not follow."""
+    if tex is None or words is None:
+        return []
+    code = _strip_iffalse(_TEX_VERBATIM.sub("", source))
+    names = {m[0] for line in code.splitlines() for m in _NOT_FOLLOWED.finditer(_code_of(line))}
+    if not names:
+        return []
+    return [("REVIEW", NOT_FOLLOWED.format(names=", ".join(sorted(names))), pdf.name)]
+
+
+def _code_of(line: str) -> str:
+    match = _CODE_PART.match(line)
+    return match[0] if match else ""
 
 
 def _reading_order(pdf: pathlib.Path) -> str:
