@@ -16,7 +16,7 @@ import sys
 import pytest
 from conftest import LATEX_SCRIPT
 
-NEEDED = ("latexmk", "pdftotext", "pdfinfo", "pdffonts")
+NEEDED = ("latexmk", "texcount", "pdftotext", "pdfinfo", "pdffonts")
 MISSING = [tool for tool in NEEDED if not shutil.which(tool)]
 OPTED_OUT = os.environ.get("TECHNE_NO_TEX") == "1"
 needs_tex = pytest.mark.skipif(
@@ -82,17 +82,14 @@ word, so a count that stops at the reference list would let it through.
 \end{document}
 """
 
-CONTENTS_LISTS_REFERENCES = r"""
-% budget: 30 words
+LONG_REFERENCES = r"""
+% budget: 12 words
 \documentclass{article}
 \begin{document}
-\tableofcontents
-\section{Introduction}
-This body runs on well past the budget the paper declared, word after word after word,
-so a count that starts cutting at the contents entry for the references lets it through.
-\addcontentsline{toc}{section}{References}
-\begin{thebibliography}{1}
-\bibitem{a} A. Author. A title. 2026.
+Body of exactly seven words in it.
+\begin{thebibliography}{9}
+\bibitem{a} A. Author. A title that runs on for many more words than the budget allows,
+and goes on and on and on, because a reference list is not part of the count.
 \end{thebibliography}
 \end{document}
 """
@@ -180,12 +177,16 @@ def test_an_appendix_after_the_references_counts_against_the_budget(tmp_path):
 
 
 @needs_tex
-def test_a_contents_entry_for_the_references_does_not_hide_the_body(tmp_path):
-    (tmp_path / "doc.tex").write_text(CONTENTS_LISTS_REFERENCES)
-    run(tmp_path)  # the first pass writes the .toc the second one prints
+def test_the_reference_list_is_outside_a_word_budget(tmp_path):
+    (tmp_path / "doc.tex").write_text(LONG_REFERENCES)
+    code, out = run(tmp_path)
+    assert code == 0, out
+    assert "7 of 12 words" in out
+
+    (tmp_path / "doc.tex").write_text(LONG_REFERENCES.replace("12 words", "6 words"))
     code, out = run(tmp_path)
     assert code == 2, out
-    assert "words, budget 30" in out
+    assert "7 words, budget 6" in out
 
 
 @needs_tex

@@ -22,7 +22,6 @@ import re
 import shutil
 import subprocess
 import sys
-import time
 
 # The prose check and the install table ship in the plugin's _shared/ directory.
 sys.dont_write_bytecode = True  # a missing-tool exit leaves no file behind in the plugin cache
@@ -120,6 +119,14 @@ def find_main_tex(target: pathlib.Path) -> pathlib.Path:
         names = ", ".join(p.name for p in roots)
         sys.exit(f"{len(roots)} root documents in {target} ({names}); name the one to build")
     return roots[0]
+
+
+def _stamp(pdf: pathlib.Path) -> int | None:
+    """The PDF's modification time in nanoseconds, or None when there is no PDF."""
+    try:
+        return pdf.stat().st_mtime_ns
+    except OSError:
+        return None
 
 
 def build(tex: pathlib.Path, engine: str) -> int:
@@ -334,8 +341,10 @@ def budget_findings(tex: pathlib.Path, pdf: pathlib.Path, text: str) -> list[Fin
         return [Finding(INFO, "budget", "budget check not installed (no _shared/length_budget.py)")]
     source = tex.read_text(encoding="utf-8", errors="replace")
     hint = "`% budget: N pages` in the .tex"
-    results = length_budget.assess(source, pdf, hint=hint, tex=tex, reading=text)
-    return [Finding(severity, "budget", message, pdf.name) for severity, message in results]
+    results = length_budget.assess(
+        source, pdf, hint=hint, source_name=tex.name, tex=tex, reading=text
+    )
+    return [Finding(severity, "budget", message, where) for severity, message, where in results]
 
 
 def find_prompt(tex: pathlib.Path) -> tuple[pathlib.Path | None, str]:
@@ -417,14 +426,17 @@ def main() -> int:
 
     require_tools()
     tex = find_main_tex(args.path)
-    started = time.time()
-    code = build(tex, args.engine)
     log, pdf = tex.with_suffix(".log"), tex.with_suffix(".pdf")
+    before = _stamp(pdf)
+    code = build(tex, args.engine)
+    # A failed build leaves an earlier run's PDF behind; only a PDF this build wrote is checked.
+    fresh = pdf.exists() and (code == 0 or _stamp(pdf) != before)
 
     found = parse_log(log, args.overfull_pt) + parse_blg(tex)
-    text = pdf_text(pdf) if pdf.exists() else ""
+    text = pdf_text(pdf) if fresh else ""
     markers = tuple(m.strip() for m in args.markers.split(",") if m.strip())
-    found += pdf_checks(pdf, text, markers)
+    if fresh or not pdf.exists():
+        found += pdf_checks(pdf, text, markers)
 
     if not args.no_prompt and text:
         prompt, ambiguous = (args.prompt, "") if args.prompt else find_prompt(tex)
@@ -437,7 +449,7 @@ def main() -> int:
     if not args.no_prose and text:
         found += prose_findings(pdf, reading)
 
-    if pdf.exists() and (code == 0 or pdf.stat().st_mtime >= started):
+    if fresh:
         found += budget_findings(tex, pdf, reading)
 
     if code != 0 and not any(f.severity == ERROR for f in found):

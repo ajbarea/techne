@@ -163,10 +163,11 @@ def budget_lines(
         return ["  INFO   budget check not installed (no _shared/length_budget.py)"], ""
     hint = "`<!-- budget: N words -->` in the .md"
     lines, reason = [], ""
-    for severity, message in length_budget.assess(source, pdf, hint=hint, body=body):
+    results = length_budget.assess(source, pdf, hint=hint, source_name=src.name, body=body)
+    for severity, message, where in results:
         lines.append(f"  {severity:<6} budget {message}")
         if severity == "BLOCK":
-            reason = f"{src.name}: {message}"
+            reason = f"{where}: {message}"
     return lines, reason
 
 
