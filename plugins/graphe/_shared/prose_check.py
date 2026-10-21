@@ -32,14 +32,21 @@ Patterns = list[tuple[str, re.Pattern[str]]]
 _BLOCK = re.compile(r"```prose-patterns\n(?P<body>.*?)```", re.S)
 _BACKTICKED = re.compile(r"`([^`]+)`")
 # A reference list is citations, not prose. It ends at the next heading (an appendix) or the end.
-_REFERENCES = re.compile(r"^\s*(?:#{1,6}\s*)?(?:R\s?EFERENCES|References|Bibliography)\s*$", re.M)
+_REFERENCES = re.compile(
+    r"^\s*(?:#{1,6}\s*)?(?:(?:\d+|[IVXLC]+)\.?\s+)?"
+    r"(?:R\s?EFERENCES|References|Bibliography|BIBLIOGRAPHY"
+    r"|W\s?ORKS\s+C\s?ITED|Works\s+Cited|L\s?ITERATURE\s+C\s?ITED|Literature\s+Cited)\s*$",
+    re.M,
+)
 _NEXT_HEADING = re.compile(r"^\s*(?:#{1,6}\s+\S|(?:A\s?PPENDIX|Appendix)\b)", re.M)
 _HYPHEN_BREAK = re.compile(r"(\w)-\n(\w)")
 # Paragraph breaks, and the start of a list item or table row: none of these ends in a full stop.
 _BLOCK_BREAK = re.compile(r"\n\s*\n|\n(?=\s*(?:[-*+•]\s|\d+[.)]\s|\|))")
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z(\[])")
 _ENDS_SENTENCE = re.compile(r"[.!?][\"'”)\]]*$")
-_MD_CODE = re.compile(r"```.*?```|`[^`\n]*`", re.S)
+# A fence closes on a line holding the same run of backticks or tildes that opened it.
+MD_FENCE = re.compile(r"^[ \t]*(`{3,}|~{3,})[^\n]*\n.*?^[ \t]*\1[ \t]*$", re.M | re.S)
+_MD_INLINE_CODE = re.compile(r"`[^`\n]*`")
 _MD_COMMENT = re.compile(r"<!--.*?-->", re.S)
 _MD_LINK_URL = re.compile(r"\]\([^)]*\)")
 # Between words only: a table separator row (| --- |) and a rule line are not dashes.
@@ -111,18 +118,24 @@ def report(text: str) -> tuple[list[Hit], str]:
         return [], f"prose check skipped: {exc}"
 
 
-def body_of(text: str) -> str:
-    """Drop reference lists, keep appendices, and rejoin words hyphenated across a line."""
+def body_of(text: str, resume: tuple[str, ...] = ()) -> str:
+    """Drop reference lists, keep appendices, and rejoin words hyphenated across a line.
+
+    A reference list ends at the next heading, or at the first of `resume` (appendix
+    titles read from the source) found after it, whichever comes first.
+    """
+    resumes = [re.compile(r"\s+".join(map(re.escape, title.split()))) for title in resume]
     while match := _REFERENCES.search(text):
         rest = text[match.end() :]
-        nxt = _NEXT_HEADING.search(rest)
-        text = text[: match.start()] + (rest[nxt.start() :] if nxt else "")
+        starts = [m.start() for m in (p.search(rest) for p in (_NEXT_HEADING, *resumes)) if m]
+        text = text[: match.start()] + (rest[min(starts) :] if starts else "")
     return _HYPHEN_BREAK.sub(r"\1\2", text)
 
 
 def markdown_prose(text: str) -> str:
     """Code, comments and link targets are not prose. Typst sets `---` as an em-dash."""
-    text = _MD_LINK_URL.sub("]", _MD_CODE.sub(" ", _MD_COMMENT.sub(" ", text)))
+    text = _MD_INLINE_CODE.sub(" ", MD_FENCE.sub(" ", _MD_COMMENT.sub(" ", text)))
+    text = _MD_LINK_URL.sub("]", text)
     return _MD_TRIPLE_DASH.sub("\u2014", text)
 
 

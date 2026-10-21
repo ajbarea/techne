@@ -8,6 +8,7 @@ a document that is twice as long as it should be.
 from __future__ import annotations
 
 import pathlib
+import zlib
 
 import pytest
 
@@ -31,6 +32,12 @@ def lb(lx):
         ("\\documentclass{article}\n  % budget: 3000 words\n", False, None, 3000),
         ("# Title\n\n<!-- budget: 1200 words -->\n\nBody.\n", True, None, 1200),
         ("<!--budget: 3 pages, 1500 words-->\n", True, 3, 1500),
+        ("% budget: 3,000 words\n", False, None, 3000),
+        ("% budget: 8 pages; 6,500 words (ACM)\n", False, 8, 6500),
+        ("% budget: 4 pages and 500 words\n", False, 4, 500),
+        ("% budget: 4 pages (IEEE conference)\n", False, 4, None),
+        ("% budget: none\n", False, None, None),
+        ("<!-- budget: Unlimited -->\n", True, None, None),
     ],
 )
 def test_a_declared_budget_is_read(lb, source, markdown, pages, words):
@@ -45,10 +52,19 @@ def test_a_declared_budget_is_read(lb, source, markdown, pages, words):
         ("# T\n\n```\n<!-- budget: 2 pages -->\n```\n", True),
         ("# T\n\n% budget: 2 pages\n", True),
         ("<!-- budget: 2 pages -->\n", False),
+        ("# T\n\n~~~~\n```\n<!-- budget: 2 pages -->\n```\n~~~~\n", True),
     ],
 )
 def test_only_the_comment_form_for_the_source_counts(lb, source, markdown):
     assert lb.read(source, markdown=markdown) is None
+
+
+def test_a_budget_line_shown_as_example_text_is_not_a_second_declaration(lb):
+    source = (
+        "% budget: 4 pages\n\\begin{verbatim}\n% budget: 9 pages\n\\end{verbatim}\n"
+        "\\begin{comment}\n% budget: 2 pages\n\\end{comment}\n\\iffalse\n% budget: 1 page\n\\fi\n"
+    )
+    assert lb.read(source) == lb.Budget(4, None)
 
 
 @pytest.mark.parametrize(
@@ -60,6 +76,7 @@ def test_only_the_comment_form_for_the_source_counts(lb, source, markdown):
         ("% budget:\n", "cannot read"),
         ("% budget: 4 pages, 5 pages\n", "two page limits"),
         ("% budget: 0 pages\n", "a budget of 0"),
+        ("% budget: 3.5 pages\n", "cannot read"),
     ],
 )
 def test_a_budget_line_it_cannot_read_is_an_error(lb, source, says):
@@ -75,6 +92,23 @@ def test_words_skip_table_bars_bullets_and_the_reference_list(lb):
     assert lb.count_words(text) == 5
 
 
+@pytest.mark.parametrize(
+    "heading", ["Works Cited", "7 References", "VII. REFERENCES", "## 5 References"]
+)
+def test_words_skip_reference_lists_under_other_headings(lb, heading):
+    assert lb.count_words(f"One two three.\n{heading}\n[1] Not counted at all.\n") == 3
+
+
+def test_an_appendix_after_the_references_is_counted(lb):
+    source = "\\bibliography{refs}\n\\appendix\n\\section{Proof of the theorem}\nText.\n"
+    titles = lb.appendix_titles(source)
+    text = (
+        "Body words here.\nReferences\n[1] A. Smith. Paper.\nA\nProof of the theorem\nIt holds.\n"
+    )
+    assert titles == ("Proof of the theorem",)
+    assert lb.count_words(text, titles) == 9
+
+
 def test_pages_fall_back_to_the_page_objects_without_poppler(lb, monkeypatch, tmp_path):
     pdf = tmp_path / "doc.pdf"
     pdf.write_bytes(b"%PDF-1.7\n<< /Type /Pages /Count 2 >>\n<< /Type /Page >>\n<</Type/Page>>\n")
@@ -82,18 +116,36 @@ def test_pages_fall_back_to_the_page_objects_without_poppler(lb, monkeypatch, tm
     assert lb.pdf_pages(pdf) == 2
 
 
+def test_pages_are_found_inside_compressed_object_streams(lb, monkeypatch, tmp_path):
+    objects = zlib.compress(b"<< /Type /Pages /Kids [4 0 R 5 0 R 6 0 R] /Count 3 >>")
+    pdf = tmp_path / "doc.pdf"
+    pdf.write_bytes(b"%PDF-1.5\n<< /Type /ObjStm >>\nstream\n" + objects + b"\nendstream\n")
+    monkeypatch.setattr(lb.shutil, "which", lambda _tool: None)
+    assert lb.pdf_pages(pdf) == 3
+
+
+def test_pages_ignore_page_objects_repeated_by_an_incremental_update(lb, monkeypatch, tmp_path):
+    page = b"<< /Type /Page >>\n"
+    pdf = tmp_path / "doc.pdf"
+    pdf.write_bytes(b"%PDF-1.7\n<< /Type /Pages /Count 2 >>\n" + page * 4)
+    monkeypatch.setattr(lb.shutil, "which", lambda _tool: None)
+    assert lb.pdf_pages(pdf) == 2
+
+
 @pytest.mark.parametrize(
-    ("budget", "pages", "words", "over", "measured"),
+    ("budget", "pages", "words", "over", "measured", "unmeasured"),
     [
-        ((4, None), 5, 100, ["5 pages, budget 4"], "5 of 4 pages"),
-        ((4, None), 4, 100, [], "4 of 4 pages"),
-        ((None, 900), 9, 901, ["901 words, budget 900"], "901 of 900 words"),
-        ((3, 900), 2, 800, [], "2 of 3 pages, 800 of 900 words"),
-        ((3, None), None, 800, [], "? of 3 pages"),
+        ((4, None), 5, 100, ["5 pages, budget 4"], "5 of 4 pages, 100 words", False),
+        ((4, None), 4, 100, [], "4 of 4 pages, 100 words", False),
+        ((None, 900), 9, 901, ["901 words, budget 900"], "9 pages, 901 of 900 words", False),
+        ((3, 900), 2, 800, [], "2 of 3 pages, 800 of 900 words", False),
+        ((3, None), None, 800, [], "? of 3 pages, 800 words", True),
+        ((None, 900), None, 800, [], "? pages, 800 of 900 words", False),
+        ((None, None), 12, 9000, [], "12 pages, 9000 words (no limit declared)", False),
     ],
 )
-def test_compare_names_each_limit_it_is_over(lb, budget, pages, words, over, measured):
-    assert lb.compare(lb.Budget(*budget), pages, words) == (over, measured)
+def test_compare_names_each_limit_it_is_over(lb, budget, pages, words, over, measured, unmeasured):
+    assert lb.compare(lb.Budget(*budget), pages, words) == (over, measured, unmeasured)
 
 
 # ---------------------------------------------------------- gate wiring --
@@ -112,6 +164,9 @@ def _tex(tmp_path, first_line: str) -> tuple[pathlib.Path, pathlib.Path]:
         ("% budget: 4 pages", 4, INFO),
         ("% budget: 4 sheets", 4, BLOCK),
         ("% no budget here", 4, REVIEW),
+        ("% budget: none", 40, INFO),
+        ("% budget: 4 pages", None, REVIEW),
+        ("% budget: 900 words", None, INFO),
     ],
 )
 def test_latex_gates_on_the_declared_budget(
@@ -130,7 +185,7 @@ def test_latex_over_budget_is_not_submittable(lx, lb, monkeypatch, tmp_path):
     assert "901 words, budget 900" in found[0].message
 
 
-def _render_main(rn, monkeypatch, tmp_path, source: str, pages: int) -> int:
+def _render_main(rn, monkeypatch, tmp_path, source: str, pages: int | None) -> int:
     src = tmp_path / "doc.md"
     src.write_text(source, encoding="utf-8")
     monkeypatch.setattr(rn, "render", lambda s, o: (o / f"{s.stem}.pdf", ["Libertinus"]))
@@ -160,3 +215,27 @@ def test_render_asks_for_a_budget_without_failing(rn, monkeypatch, tmp_path, cap
 def test_render_counts_words_without_the_budget_comment_or_code(rn, monkeypatch, tmp_path):
     source = "# T\n\n<!-- budget: 4 words -->\n\nOne two three.\n\n```\nnot counted at all\n```\n"
     assert _render_main(rn, monkeypatch, tmp_path, source, 1) == 0
+
+
+def test_render_flags_a_page_limit_it_cannot_count(rn, monkeypatch, tmp_path, capsys):
+    source = "# T\n\n<!-- budget: 3 pages -->\n\nBody.\n"
+    code = _render_main(rn, monkeypatch, tmp_path, source, None)
+    assert code == 0
+    assert "REVIEW budget could not count the PDF's pages" in capsys.readouterr().out
+
+
+def test_render_reports_the_length_of_a_document_with_no_limit(rn, monkeypatch, tmp_path, capsys):
+    code = _render_main(rn, monkeypatch, tmp_path, "# T\n\n<!-- budget: none -->\n\nBody.\n", 30)
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "INFO   budget 30 pages, 2 words (no limit declared)" in out
+    assert "REVIEW" not in out
+
+
+def test_render_reads_a_budget_from_a_source_that_is_not_utf8(rn, monkeypatch, tmp_path, capsys):
+    src = tmp_path / "doc.md"
+    src.write_bytes("# Café\n\n<!-- budget: 3 pages -->\n\nBody.\n".encode("latin-1"))
+    monkeypatch.setattr(rn, "render", lambda s, o: (o / f"{s.stem}.pdf", ["Libertinus"]))
+    monkeypatch.setattr(rn.length_budget, "pdf_pages", lambda _pdf: 2)
+    assert rn.main([str(src), str(tmp_path / "out"), "--no-prose"]) == 0
+    assert "INFO   budget 2 of 3 pages" in capsys.readouterr().out

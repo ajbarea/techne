@@ -32,13 +32,13 @@ uv run --no-project --quiet --with 'typst>=0.15,<0.16' python \
 
 The `typst` wheel bundles the compiler, and `cmarker` is pulled from Typst Universe on first compile and cached afterwards. The font report needs `strings` (binutils, present on most systems), and the content check below needs poppler's `pdftotext`. A directory source renders its `*.md` files non-recursively, and the PDFs land beside the sources by default; the skill renders into a `_typst-preview/` folder first when that would overwrite existing PDFs. The font stack is Charter, XCharter, then Libertinus Serif for text, Helvetica Neue through Libertinus Serif for headings, and SF Mono, Menlo, Consolas, then DejaVu Sans Mono for code.
 
-Exit codes: `0` rendered, `1` font drift under `--check-fonts` or a PDF over its length budget, `2` the directory holds no `*.md`.
+Exit codes: `0` rendered, `1` font drift under `--check-fonts`, a PDF over its length budget or an unreadable budget line, `2` the directory holds no `*.md`.
 
 ## Output checks
 
 Every run prints the font families each PDF actually embedded. `--check-fonts LibertinusSerif TeXGyreHeros` turns that into a gate and exits non-zero on a mismatch, which is what catches a machine where a requested family is missing or unreadable and Typst has quietly fallen back.
 
-A markdown file declares its length budget on one line before drafting: `<!-- budget: 1200 words -->`, `<!-- budget: 3 pages -->`, or both joined by a comma. Each render prints the measured length against it, `BLOCK budget` and exit 1 when the PDF is over it, and `REVIEW budget` when none is declared. Words count the prose, without code, link targets, comments or the reference list.
+A markdown file declares its length budget on one line before drafting: `<!-- budget: 1200 words -->`, `<!-- budget: 3 pages -->`, or both joined by a comma; a document with no limit declares `<!-- budget: none -->`. Each render prints the measured length against it, `BLOCK budget` and exit 1 when the PDF is over it, and `REVIEW budget` when none is declared or a page limit cannot be counted. Words count the markdown source's prose, without code, link targets, comments or the reference list.
 
 Each render also prints `REVIEW prose` lines for the markdown source: the patterns listed in `_shared/plain-prose.md` and sentences over 40 words, with code and link targets ignored. They never change the exit code; `--no-prose` skips them.
 

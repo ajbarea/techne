@@ -68,8 +68,9 @@ The sentence rules cannot see a document that says each thing three times.
 - **Set the budget before drafting**, from the prompt, the venue, or, for a
   revision, the original. Declare it on one comment line of the source:
   `% budget: 4 pages` in LaTeX, `<!-- budget: 1200 words -->` in markdown,
-  or both limits joined by a comma. The latex and pdf gates block a PDF over
-  it and ask for one when none is declared.
+  or both limits joined by a comma. A document with no limit declares
+  `budget: none`. The latex and pdf gates block a PDF over it and ask for one
+  when none is declared.
 - **Say each result once.** Other sections point to it. Only the abstract and
   the conclusion restate the main result.
 - **A revision cuts as much as it adds.** A point a reviewer says "would help",

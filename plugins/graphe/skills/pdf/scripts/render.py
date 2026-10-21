@@ -139,10 +139,10 @@ def prose_lines(src: pathlib.Path) -> list[str]:
 
 
 def budget_lines(src: pathlib.Path, pdf: pathlib.Path) -> tuple[list[str], str]:
-    """Lines to print, and the reason the run fails when the PDF is over budget."""
+    """Lines to print, and the reason the run fails: over budget or an unreadable line."""
     if length_budget is None:
         return ["  INFO   budget check not installed (no _shared/length_budget.py)"], ""
-    source = src.read_text(encoding="utf-8")
+    source = src.read_text(encoding="utf-8", errors="replace")
     try:
         budget = length_budget.read(source, markdown=True)
     except ValueError as exc:
@@ -152,11 +152,14 @@ def budget_lines(src: pathlib.Path, pdf: pathlib.Path) -> tuple[list[str], str]:
         hint = "`<!-- budget: N words -->` in the .md"
         return [f"  REVIEW budget {length_budget.MISSING.format(hint=hint)}"], ""
     words = length_budget.count_markdown_words(source)
-    over, measured = length_budget.compare(budget, length_budget.pdf_pages(pdf), words)
-    if over:
-        reason = length_budget.OVER.format(over="; ".join(over))
+    verdict = length_budget.compare(budget, length_budget.pdf_pages(pdf), words)
+    if verdict.over:
+        reason = length_budget.OVER.format(over="; ".join(verdict.over))
         return [f"  BLOCK  budget {reason}"], f"{pdf.name}: {reason}"
-    return [f"  INFO   budget {measured}"], ""
+    if verdict.unmeasured:
+        message = length_budget.UNMEASURED.format(measured=verdict.measured)
+        return [f"  REVIEW budget {message}"], ""
+    return [f"  INFO   budget {verdict.measured}"], ""
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -183,7 +186,7 @@ def main(argv: list[str] | None = None) -> int:
 
     args.out.mkdir(parents=True, exist_ok=True)
     drift: list[str] = []
-    over_budget: list[str] = []
+    budget_failures: list[str] = []
     for src in sources:
         dest, fonts = render(src, args.out)
         print(f"{dest}  [{', '.join(fonts)}]")
@@ -194,16 +197,16 @@ def main(argv: list[str] | None = None) -> int:
         for line in lines:
             print(line)
         if over:
-            over_budget.append(over)
+            budget_failures.append(over)
         if args.check_fonts and sorted(args.check_fonts) != fonts:
             drift.append(f"{dest.name}: expected {sorted(args.check_fonts)}, got {fonts}")
 
-    for heading, failures in (("font drift", drift), ("over budget", over_budget)):
+    for heading, failures in (("font drift", drift), ("budget", budget_failures)):
         if failures:
             print(f"\n{heading}:", file=sys.stderr)
             for line in failures:
                 print(f"  {line}", file=sys.stderr)
-    return 1 if drift or over_budget else 0
+    return 1 if drift or budget_failures else 0
 
 
 if __name__ == "__main__":

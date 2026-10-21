@@ -67,6 +67,21 @@ Two.
 \end{document}
 """
 
+APPENDIX_AFTER_REFERENCES = r"""
+% budget: 30 words
+\documentclass{article}
+\begin{document}
+Short body.
+\begin{thebibliography}{1}
+\bibitem{a} A. Author. A title. 2026.
+\end{thebibliography}
+\appendix
+\section{Proof of the theorem}
+The appendix runs on well past the budget this paper declared, word after word after
+word, so a count that stops at the reference list would let it through.
+\end{document}
+"""
+
 BIB = "@article{real, author = {A. Author}, title = {T}, journal = {J}, year = {2026}}\n"
 
 
@@ -122,6 +137,23 @@ def test_a_document_over_its_page_budget_exits_two(tmp_path):
     code, out = run(tmp_path)
     assert code == 2, out
     assert "2 pages, budget 1" in out
+
+
+@needs_tex
+def test_an_appendix_after_the_references_counts_against_the_budget(tmp_path):
+    (tmp_path / "doc.tex").write_text(APPENDIX_AFTER_REFERENCES)
+    code, out = run(tmp_path)
+    assert code == 2, out
+    assert "words, budget 30" in out
+
+
+@needs_tex
+def test_pages_of_a_pdflatex_pdf_are_counted_without_poppler(lx, tmp_path, monkeypatch):
+    """pdflatex packs page objects into compressed object streams."""
+    (tmp_path / "doc.tex").write_text(OVER_BUDGET)
+    run(tmp_path)
+    monkeypatch.setattr(lx.length_budget.shutil, "which", lambda _tool: None)
+    assert lx.length_budget.pdf_pages(tmp_path / "doc.pdf") == 2
 
 
 @needs_tex
