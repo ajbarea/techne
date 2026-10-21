@@ -697,6 +697,9 @@ def read_config() -> tuple[Path, str, list[dict]]:
 def load_sisters(names: list[str]) -> tuple[list[tuple[str, str, str]], str]:
     ws, me, sisters = read_config()
     chosen = names or [s["name"] for s in sisters if tc.is_active(s)]
+    bad = [n for n in chosen if not tc.folder_name(n)]
+    if bad:
+        sys.exit(f"sisters: {bad[0]!r} is not a repo folder name under {ws}")
     return [(n, f"{me}/{n}", str(ws / n)) for n in chosen], me
 
 

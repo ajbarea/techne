@@ -47,7 +47,9 @@ def read_regular(path: Path, limit: int = MAX_BYTES) -> bytes | None:
     the check and the read. Raises Unusable for a broken link, anything not a regular file, or a
     file over LIMIT; OSError when unreadable."""
     try:
-        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
+        # O_BINARY: without it Windows reads in text mode and stops at a ^Z byte.
+        flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOCTTY", 0)
+        fd = os.open(path, flags | getattr(os, "O_BINARY", 0))
     except (FileNotFoundError, NotADirectoryError):
         if path.is_symlink():
             raise Unusable("is a link to a missing file") from None
@@ -89,6 +91,11 @@ def load(path: Path | None = None) -> dict | None:
         raise ConfigInvalid(f"{path} is not valid TOML ({exc})") from exc
 
 
+def folder_name(name: str) -> bool:
+    """Whether NAME is one folder name, so workspace_root/NAME stays under workspace_root."""
+    return bool(name) and name not in (".", "..") and "/" not in name and "\\" not in name
+
+
 def sisters(cfg: dict, path: Path | None = None) -> list[dict]:
     """The [[sisters]] tables, [] when there are none. A roster that is there but malformed
     raises ConfigInvalid rather than dropping entries, since a dropped entry may be a team one."""
@@ -100,7 +107,7 @@ def sisters(cfg: dict, path: Path | None = None) -> list[dict]:
         name = sister.get("name")
         if not isinstance(name, str) or not name:
             raise ConfigInvalid(f"[[sisters]] entry {number} in {where} has no name")
-        if name in (".", "..") or "/" in name or "\\" in name:  # checkout() joins it to the root
+        if not folder_name(name):  # checkout() joins it to the root
             raise ConfigInvalid(
                 f"[[sisters]] entry {number} in {where}: name {name!r} must be one folder name"
             )
@@ -142,8 +149,10 @@ def workspace_root(cfg: dict) -> Path | None:
     ConfigInvalid for a `~user` that names nobody on this machine, or a relative path, which
     would resolve against whatever folder a script runs in."""
     root = cfg.get("workspace_root")
-    if not isinstance(root, str) or not root:
+    if not isinstance(root, str):
         return None
+    if not root:
+        raise ConfigInvalid("workspace_root is empty")
     try:
         path = Path(root).expanduser()
     except RuntimeError as exc:  # Path.expanduser on an unknown ~user

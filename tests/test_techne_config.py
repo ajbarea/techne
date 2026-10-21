@@ -119,8 +119,10 @@ def test_workspace_root_is_expanded_and_typed(tc, monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
     assert tc.workspace_root({"workspace_root": "~/w"}) == tmp_path / "w"
     assert tc.workspace_root({"workspace_root": "/abs"}) == Path("/abs")
-    for bad in ({}, {"workspace_root": ""}, {"workspace_root": 3}):
+    for bad in ({}, {"workspace_root": 3}):
         assert tc.workspace_root(bad) is None
+    with pytest.raises(tc.ConfigInvalid, match="is empty"):
+        tc.workspace_root({"workspace_root": ""})
     assert tc.github_user({"github_user": "u"}) == "u"
     assert tc.github_user({"github_user": 1}) is None
 
@@ -196,3 +198,14 @@ def test_a_relative_workspace_root_is_invalid(tc):
 def test_a_sister_name_must_be_one_folder_name(tc, name):
     with pytest.raises(tc.ConfigInvalid, match="must be one folder name"):
         tc.sisters({"sisters": [{"name": name}]})
+
+
+def test_the_file_is_opened_in_binary_mode_where_the_platform_has_one(tc, tmp_path, monkeypatch):
+    seen = []
+    real = os.open
+    monkeypatch.setattr(tc.os, "O_BINARY", 1 << 30, raising=False)
+    monkeypatch.setattr(
+        tc.os, "open", lambda path, flags: seen.append(flags) or real(path, flags & ~(1 << 30))
+    )
+    assert tc.load(write(tmp_path, 'github_user = "u"\n')) == {"github_user": "u"}
+    assert seen and seen[0] & (1 << 30)

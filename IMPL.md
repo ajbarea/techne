@@ -19,11 +19,13 @@ has crept in; extract it back to ROADMAP.
 board CLI names it, repo_kind team, catchup warns and looks beside the cwd. Setup doctor uses
 it on 3.11+, a regex presence check below. Guard test: no other techne script parses TOML or
 builds a path to techne.toml.
-Review: high round 1 (62a448d) mergeable; light delta read; high round 2 (a79b726) code-review
-fixes landed; reader for round 2 next. Cap: 3 rounds from 10-21 orchestrator note (2 used).
+Review: high round 1 (62a448d) mergeable; light delta read; high round 2 (code-review at a79b726,
+reader at 3c9f5be) mergeable. Cap: 3 rounds from the 10-21 orchestrator note (2 used).
 Not changed (measured or deliberate): same-origin git call per team sister (~5 ms), matches()
 re-resolving per sister (resolving in the caller risks a false-solo), board init's double parse.
-Next: reader round 2, CI green, merge; delete the review-192 scratch worktree.
+Reader round 2 (3c9f5be): mergeable, Minors folded in (O_BINARY/O_NOCTTY, empty root,
+CLI repo names, docs). Loop stopped: no Blocking/Should-fix. Next: CI green, merge; delete the
+review-192 scratch worktree.
 Verify: `make validate` (CI).
 
 ### Landed on main: solo repos act, team repos ask (#189)

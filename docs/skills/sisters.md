@@ -68,7 +68,7 @@ To run it at the start of every session, turn on the `clean_finished_work` optio
 
 ## Prerequisites
 
-`~/.claude/techne.toml` must exist and list at least one active sister repo. If the file is missing, is invalid TOML, lacks a required key, or yields zero active sisters, the skill reports the one-line cause and stops, pointing you at `/techne:setup`.
+`~/.claude/techne.toml` must exist and list at least one active sister repo. If the file is missing, cannot be read, is invalid TOML, lacks a required key or has one of the wrong type, has a malformed `[[sisters]]` list, or yields zero active sisters, the skill reports the one-line cause and stops, pointing you at `/techne:setup`.
 
 See [Configuration](../configuration.md) for the `techne.toml` format.
 

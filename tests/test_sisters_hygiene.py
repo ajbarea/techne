@@ -1465,3 +1465,12 @@ def test_canonical_slug_reads_github_and_falls_back(hy, monkeypatch):
 
     monkeypatch.setattr(hy, "run", offline)
     assert hy.canonical_slug("ajbarea/ldqis") == "ajbarea/ldqis"
+
+
+@pytest.mark.parametrize("name", ["../x", "..", "a/b"])
+def test_a_repo_name_from_the_command_line_must_be_one_folder(hy, monkeypatch, tmp_path, name):
+    path = tmp_path / "techne.toml"
+    path.write_text('workspace_root = "/w"\ngithub_user = "u"\n[[sisters]]\nname = "a"\n')
+    monkeypatch.setattr(hy, "TECHNE_TOML", path)
+    with pytest.raises(SystemExit, match="is not a repo folder name"):
+        hy.load_sisters([name])
