@@ -62,13 +62,29 @@ def _typst_list(values: list[str]) -> str:
 
 
 def split_front_matter(text: str) -> tuple[str | None, str | None, str]:
-    """Return (title, subtitle, remaining body) for one markdown document."""
+    """Return (title, subtitle, remaining body) for one markdown document.
+
+    Blank lines and whole-line HTML comments (a budget declaration) may precede the title;
+    the comments stay at the head of the body."""
     lines = text.splitlines()
     title = subtitle = None
     index = 0
+    comments: list[str] = []
 
-    while index < len(lines) and not lines[index].strip():
-        index += 1
+    while index < len(lines):
+        stripped = lines[index].strip()
+        if not stripped:
+            index += 1
+        elif stripped.startswith("<!--"):
+            end = index
+            while end < len(lines) and not lines[end].rstrip().endswith("-->"):
+                end += 1
+            if end >= len(lines):
+                break
+            comments += lines[index : end + 1]
+            index = end + 1
+        else:
+            break
     if index < len(lines):
         match = _H1.match(lines[index])
         if match:
@@ -85,7 +101,7 @@ def split_front_matter(text: str) -> tuple[str | None, str | None, str]:
                 subtitle = match.group("text") or match.group("alt")
                 index = probe + 1
 
-    return title, subtitle, "\n".join(lines[index:]).lstrip("\n")
+    return title, subtitle, "\n".join([*comments, *lines[index:]]).lstrip("\n")
 
 
 def build_typ(src: pathlib.Path, work: pathlib.Path) -> pathlib.Path:

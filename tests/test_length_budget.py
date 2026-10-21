@@ -528,3 +528,18 @@ def test_latex_ignores_the_budget_of_a_stale_pdf_from_a_failed_build(
     monkeypatch.setattr("sys.argv", ["latex.py", str(tex), "--no-prompt"])
     lx.main()
     assert "INFO   budget" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "lead",
+    [
+        "<!-- budget: 3 pages, 1500 words -->\n",
+        "\n<!-- note\nover two lines -->\n\n<!-- budget: 3 pages -->\n",
+    ],
+)
+def test_a_leading_comment_does_not_hide_the_title_block(rn, lb, lead):
+    source = f"{lead}# Title\n\n*Subtitle*\n\nBody.\n"
+    title, subtitle, body = rn.split_front_matter(source)
+    assert (title, subtitle) == ("Title", "Subtitle")
+    assert "budget:" in body and "Body." in body
+    assert lb.read(body, markdown=True) is not None
