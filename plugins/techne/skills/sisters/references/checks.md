@@ -395,7 +395,7 @@ it, so `.claude/CLAUDE.md` needs `@../AGENTS.md`. A nested `CLAUDE.md` shadows o
 text file. Sources: <https://code.claude.com/docs/en/memory#agents-md>, <https://agents.md/>.
 
 ```
-python3 "<skill-dir>/scripts/agents_md.py" "$WORKSPACE" $SISTERS
+python3 "$WORKSPACE/techne/plugins/techne/skills/sisters/scripts/agents_md.py" "$WORKSPACE" $SISTERS
 ```
 
 The script prints one line per finding and one passing line per clean sister, and always exits
