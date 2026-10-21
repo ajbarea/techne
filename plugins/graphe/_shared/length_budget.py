@@ -97,7 +97,8 @@ def _strip_iffalse(source: str) -> str:
     """Drop `\\iffalse ... \\fi` blocks opened at a line start, nested conditionals included."""
     kept, depth = [], 0
     for line in source.splitlines(keepends=True):
-        code = _CODE_PART.match(line)[0]
+        match = _CODE_PART.match(line)
+        code = match[0] if match else ""
         if depth == 0 and not _IFFALSE.match(code):
             kept.append(line)
             continue
