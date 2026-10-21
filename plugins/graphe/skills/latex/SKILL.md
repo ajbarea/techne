@@ -69,8 +69,8 @@ skipped on the run where it mattered.
 | BLOCK | `unsettled` | The log still asks for a rerun, so cross-references are stale. |
 | WARN | `overfull`, `font-substitution`, `package` | Largest five overfull boxes, then a count. |
 | REVIEW | `coverage` | Problem headers in the prompt with no match in the PDF. |
-| BLOCK | `budget` | The PDF is over the declared budget, or the budget line cannot be read. Pages count the whole PDF; words come from the source through `texcount` (needs it on PATH), bibliography and `\iffalse` or `comment` blocks left out. |
-| REVIEW | `budget` | No budget declared in the root `.tex`, or a declared limit cannot be measured (the PDF's pages cannot be counted, `texcount` is missing for a word limit, or the source loads files through `\subimport`-style macros `texcount` does not follow). When the build failed and left an old PDF, the PDF checks (including the budget) are skipped. |
+| BLOCK | `budget` | The PDF is over the declared budget, or the budget line cannot be read. Pages count the whole PDF; words come from the source through `texcount` (needs it on PATH), bibliography left out, as Overleaf counts. Files loaded by `\input` or `\include` also have their `\iffalse` and `comment` blocks left out; files that the `import` or `subfiles` packages load are followed by `texcount` itself, which counts their hidden blocks. |
+| REVIEW | `budget` | No budget declared in the root `.tex`, or a declared limit cannot be measured (the PDF's pages cannot be counted or `texcount` is missing for a word limit). When the build failed and left an old PDF, the PDF checks (including the budget) are skipped. |
 | REVIEW | `prose` | Patterns from the `prose-patterns` block of `_shared/plain-prose.md`, plus sentences over 40 words. `--no-prose` skips it. |
 
 `--markers`, `--overfull-pt` and `--engine` move the thresholds. Read the

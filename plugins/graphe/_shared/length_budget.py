@@ -61,14 +61,6 @@ _IF = re.compile(
     r"|\\if(?!(?:thenelse|toggle|bool)(?![a-zA-Z@]))[a-zA-Z@]*(?![a-zA-Z@{])"
 )
 _ELSE = re.compile(r"\\else(?![a-zA-Z@])")
-# import/subfiles macros: \subimport{dir}{name} is relative to the current file, \import,
-# \inputfrom and \includefrom take the dir as given; \subfile{path} is a whole document.
-_IMPORT = re.compile(
-    r"\\(?P<macro>sub)?(?:import|inputfrom|includefrom)\*?(?![a-zA-Z@])"
-    r"\s*\{(?P<dir>[^{}]*)\}\s*\{(?P<name>[^{}]+)\}"
-)
-_SUBFILE = re.compile(r"\\subfile(?![a-zA-Z@])\s*\{(?P<name>[^{}]+)\}")
-_BODY = re.compile(r"\\begin\{document\}(.*)\\end\{document\}", re.S)
 _NEWIF = re.compile(r"\\newif\s*\\[a-zA-Z@]+")
 _FI = re.compile(r"\\fi(?![a-zA-Z@])")
 _NOTE = re.compile(r"\s*\([^()]*\)[\s.]*$")
@@ -254,55 +246,24 @@ def markdown_words(source: str) -> int:
     return sum(1 for token in text.split() if _WORD.search(token))
 
 
-def _find(base: pathlib.Path, name: str) -> pathlib.Path | None:
-    for path in (base / f"{name}.tex", base / name):
-        if path.is_file():
-            return path
-    return None
+def _inline_inputs(code: str, folder: pathlib.Path, depth: int = 0) -> str:
+    """`code` with each `\\input`/`\\include` of a file in `folder` replaced by that file's
+    printed code, so texcount never sees a hidden block. A missing file stays a macro. One
+    pass per line: inlined text is never rescanned by another substitution. Import and
+    subfiles macros are left for texcount to follow."""
 
-
-def _expand(
-    code: str, root: pathlib.Path, base: pathlib.Path, missing: list[str], depth: int = 0
-) -> str:
-    """`code` with each `\\input`/`\\include`/`\\subimport`/`\\import`/`\\subfile` of a file
-    replaced by that file's printed code, so texcount never sees a hidden block. `root` is
-    where `\\input` resolves, `base` the current file's folder. A missing `\\input` stays a
-    macro; a missing import or subfile is added to `missing`."""
-
-    def load(path: pathlib.Path, new_base: pathlib.Path, whole: bool = True) -> str:
-        text = path.read_text(encoding="utf-8-sig", errors="replace")
-        if not whole and (body := _BODY.search(_tex_code(text))):
-            text = body[1]
-        out = _expand(_tex_code(text), root, new_base, missing, depth + 1)
-        return out.rstrip("\n") + "\n"
-
-    def sub_input(match: re.Match[str]) -> str:
+    def inline(match: re.Match[str]) -> str:
         name = (match[1] or match[2]).strip()
-        path = _find(root, name) if depth < _MAX_INPUT_DEPTH else None
-        return load(path, base) if path else match[0]
-
-    def sub_import(match: re.Match[str]) -> str:
-        folder = (base if match["macro"] else root) / match["dir"].strip()
-        name = match["name"].strip()
-        path = _find(folder, name) if depth < _MAX_INPUT_DEPTH else None
-        if not path:
-            missing.append(f"{match['dir'].strip()}{name}")
-            return match[0]
-        return load(path, path.parent)
-
-    def sub_file(match: re.Match[str]) -> str:
-        name = match["name"].strip()
-        path = _find(base, name) if depth < _MAX_INPUT_DEPTH else None
-        if not path:
-            missing.append(name)
-            return match[0]
-        return load(path, base, whole=False)
+        for path in (folder / f"{name}.tex", folder / name):
+            if depth < _MAX_INPUT_DEPTH and path.is_file():
+                text = path.read_text(encoding="utf-8-sig", errors="replace")
+                return _inline_inputs(_tex_code(text), folder, depth + 1).rstrip("\n") + "\n"
+        return match[0]
 
     lines = []
     for line in code.splitlines(keepends=True):
         head = _code_of(line)
-        head = _IMPORT.sub(sub_import, _SUBFILE.sub(sub_file, _INPUT.sub(sub_input, head)))
-        lines.append(head + line[len(_code_of(line)) :])
+        lines.append(_INPUT.sub(inline, head) + line[len(head) :])
     return "".join(lines)
 
 
@@ -317,7 +278,7 @@ def tex_words(tex: pathlib.Path) -> tuple[int | None, str]:
         proc = subprocess.run(
             ["texcount", "-inc", "-sum", "-1", "-"],
             cwd=tex.parent,
-            input=_expand(code, tex.parent, tex.parent, []),
+            input=_inline_inputs(code, tex.parent),
             capture_output=True,
             text=True,
             timeout=_TEXCOUNT_TIMEOUT,
@@ -403,7 +364,6 @@ def compare(budget: Budget, pages: int | None, words: int | None) -> Verdict:
 
 MISSING = "no length budget declared; set one before drafting ({hint})"
 UNMEASURED = "could not measure the PDF against the declared limit ({measured}); check by eye"
-NOT_FOLLOWED = "word count may miss files that could not be found ({names})"
 UNCOUNTED = "word limit cannot be measured: {why} ({measured}); check by eye"
 OVER = "over budget: {over}. Cut repeated results and retold material, not substance"
 
@@ -439,27 +399,13 @@ def assess(
         words, why = tex_words(tex)
     pages = pdf_pages(pdf)
     verdict = compare(budget, pages, words)
-    unfollowed = _unfollowed(source, tex, words, pdf)
     if verdict.over:
-        return [("BLOCK", OVER.format(over="; ".join(verdict.over)), pdf.name), *unfollowed]
+        return [("BLOCK", OVER.format(over="; ".join(verdict.over)), pdf.name)]
     if verdict.unmeasured:
         if budget.words is not None and words is None:
             return [("REVIEW", UNCOUNTED.format(why=why, measured=verdict.measured), pdf.name)]
         return [("REVIEW", UNMEASURED.format(measured=verdict.measured), pdf.name)]
-    return [("INFO", verdict.measured, pdf.name), *unfollowed]
-
-
-def _unfollowed(
-    source: str, tex: pathlib.Path | None, words: int | None, pdf: pathlib.Path
-) -> list[tuple[str, str, str]]:
-    """A REVIEW naming each imported or subfile target that could not be found."""
-    if tex is None or words is None:
-        return []
-    missing: list[str] = []
-    _expand(_tex_code(source), tex.parent, tex.parent, missing)
-    if not missing:
-        return []
-    return [("REVIEW", NOT_FOLLOWED.format(names=", ".join(sorted(set(missing)))), pdf.name)]
+    return [("INFO", verdict.measured, pdf.name)]
 
 
 def _code_of(line: str) -> str:

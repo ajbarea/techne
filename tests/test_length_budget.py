@@ -351,27 +351,27 @@ def test_a_trailing_comment_in_an_input_file_does_not_swallow_the_roots_line(lb,
 
 def test_inlined_text_ends_with_a_newline(lb, tmp_path):
     (tmp_path / "more.tex").write_text("Input. % trailing")
-    out = lb._expand("\\input{more} Root.\n", tmp_path, tmp_path, [])
+    out = lb._inline_inputs("\\input{more} Root.\n", tmp_path)
     assert out == "Input. % trailing\n Root.\n"
 
 
 @pytest.mark.parametrize("form", ["\\input chap", "\\input chap.tex", "\\input{chap}"])
 def test_an_input_with_or_without_braces_is_inlined_and_preprocessed(lb, tmp_path, form):
     (tmp_path / "chap.tex").write_text("In.\n\\iffalse\nCut.\n\\fi\n")
-    out = lb._expand(f"{form}\nRoot.\n", tmp_path, tmp_path, [])
+    out = lb._inline_inputs(f"{form}\nRoot.\n", tmp_path)
     assert "In." in out and "Cut." not in out and "input" not in out
 
 
 def test_a_macro_that_starts_like_input_is_not_an_input(lb, tmp_path):
     (tmp_path / "enc.tex").write_text("Wrong.\n")
     line = "\\inputenc{utf8}\n"
-    assert lb._expand(line, tmp_path, tmp_path, []) == line
+    assert lb._inline_inputs(line, tmp_path) == line
 
 
 def test_input_tries_the_tex_suffix_first(lb, tmp_path):
     (tmp_path / "chap.tex").write_text("Right.\n")
     (tmp_path / "chap").write_text("Wrong.\n")
-    assert "Right." in lb._expand("\\input{chap}\n", tmp_path, tmp_path, [])
+    assert "Right." in lb._inline_inputs("\\input{chap}\n", tmp_path)
 
 
 def test_a_page_only_budget_does_not_call_texcount(lb, tmp_path, monkeypatch):
@@ -433,79 +433,29 @@ def test_a_macro_that_takes_braces_does_not_open_a_conditional_in_iffalse(lb, ma
     assert lb.read(source) == lb.Budget(4, None)
 
 
-@pytest.mark.parametrize(
-    ("macro", "named"),
-    [
-        ("\\subimport{d/}{f}", "d/f"),
-        ("\\import{d/}{f}", "d/f"),
-        ("\\subfile{f}", "f"),
-        ("\\includefrom{d}{f}", "df"),
-        ("\\inputfrom{d}{f}", "df"),
-    ],
-)
-def test_a_word_count_names_a_missing_import(lb, tmp_path, monkeypatch, macro, named):
-    source = f"% budget: 900 words\n{macro}\n"
-    monkeypatch.setattr(lb, "tex_words", lambda _tex: (10, ""))
-    tex = tmp_path / "doc.tex"
-    tex.write_text(source)
-    found = lb.assess(source, tmp_path / "doc.pdf", hint="h", source_name="doc.tex", tex=tex)
-    assert [s for s, _, _ in found] == [INFO, REVIEW]
-    assert f"word count may miss files that could not be found ({named})" in found[1][1]
-
-
-def test_an_import_that_resolves_gives_no_review(lb, tmp_path, monkeypatch):
-    (tmp_path / "d").mkdir()
-    (tmp_path / "d" / "f.tex").write_text("In.\n")
-    source = "% budget: 900 words\n\\subimport{d/}{f}\n"
-    monkeypatch.setattr(lb, "tex_words", lambda _tex: (10, ""))
-    tex = tmp_path / "doc.tex"
-    tex.write_text(source)
-    found = lb.assess(source, tmp_path / "doc.pdf", hint="h", source_name="doc.tex", tex=tex)
-    assert [s for s, _, _ in found] == [INFO]
-
-
 @needs_texcount
-def test_a_subimported_file_is_preprocessed(lb, tmp_path):
-    (tmp_path / "d").mkdir()
-    (tmp_path / "d" / "f.tex").write_text("Shown two.\n\\iffalse\nCut three words.\n\\fi\n")
-    (tmp_path / "doc.tex").write_text("\\subimport{d/}{f}\nEnd.\n")
-    assert lb.tex_words(tmp_path / "doc.tex") == (3, "")
-
-
-@needs_texcount
-def test_an_import_path_is_taken_from_the_root(lb, tmp_path):
-    (tmp_path / "d").mkdir()
-    (tmp_path / "d" / "f.tex").write_text("Shown two.\n\\iffalse\nCut three words.\n\\fi\n")
-    (tmp_path / "doc.tex").write_text("\\import{d/}{f}\n")
-    assert lb.tex_words(tmp_path / "doc.tex") == (2, "")
-
-
-@needs_texcount
-def test_a_subfile_child_counts_only_its_body(lb, tmp_path):
-    (tmp_path / "c.tex").write_text(
-        "\\documentclass[doc.tex]{subfiles}\n\\begin{document}\nShown two.\n"
-        "\\iffalse\nCut three words.\n\\fi\n\\end{document}\n"
-    )
-    (tmp_path / "doc.tex").write_text("\\subfile{c}\nEnd.\n")
-    assert lb.tex_words(tmp_path / "doc.tex") == (3, "")
-
-
-@needs_texcount
-def test_a_subimport_inside_an_input_file_is_followed(lb, tmp_path):
-    (tmp_path / "d").mkdir()
-    (tmp_path / "d" / "f.tex").write_text("Shown two.\n\\iffalse\nCut three words.\n\\fi\n")
-    (tmp_path / "more.tex").write_text("\\subimport{d/}{f}\n")
+def test_commented_import_macros_in_an_input_file_are_not_counted(lb, tmp_path):
+    (tmp_path / "x.tex").write_text("Cut one two\nthree four five.\n")
+    (tmp_path / "more.tex").write_text("Shown two.\n% \\subfile{x}\n% \\subimport{d/}{x}\n")
     (tmp_path / "doc.tex").write_text("\\input{more}\n")
     assert lb.tex_words(tmp_path / "doc.tex") == (2, "")
 
 
 @needs_texcount
-def test_a_subimport_inside_a_subimported_file_is_relative_to_it(lb, tmp_path):
-    (tmp_path / "d" / "e").mkdir(parents=True)
-    (tmp_path / "d" / "e" / "g.tex").write_text("Shown two.\n")
-    (tmp_path / "d" / "f.tex").write_text("\\subimport{e/}{g}\n")
-    (tmp_path / "doc.tex").write_text("\\subimport{d/}{f}\n")
-    assert lb.tex_words(tmp_path / "doc.tex") == (2, "")
+def test_a_subimported_file_is_followed_by_texcount_itself(lb, tmp_path):
+    (tmp_path / "d").mkdir()
+    (tmp_path / "d" / "f.tex").write_text(
+        "Four printed words here.\n\\iffalse\nThree hidden words.\n\\fi\n"
+    )
+    root = "\\documentclass{article}\n\\usepackage{import}\n\\begin{document}\n"
+    root += "\\subimport{d/}{f}\n\\end{document}\n"
+    (tmp_path / "doc.tex").write_text(root)
+    plain = subprocess.run(
+        ["texcount", "-inc", "-sum", "-1", "doc.tex"], cwd=tmp_path, capture_output=True, text=True
+    )
+    count = lb.tex_words(tmp_path / "doc.tex")
+    assert count == (int(plain.stdout.split()[0]), "")
+    assert count[0] not in (None, 2)
 
 
 def test_a_bom_before_the_budget_line_is_ignored(lb):
@@ -518,15 +468,6 @@ def test_a_bom_in_an_input_file_does_not_join_its_first_word(lb, tmp_path):
     (tmp_path / "more.tex").write_text("\ufeffShown two.\n", encoding="utf-8")
     (tmp_path / "doc.tex").write_text("\\input{more}\n", encoding="utf-8")
     assert lb.tex_words(tmp_path / "doc.tex") == (2, "")
-
-
-def test_no_warning_for_commented_or_input_files(lb, tmp_path, monkeypatch):
-    source = "% budget: 900 words\n% \\subimport{d/}{f}\n\\input{f}\n"
-    monkeypatch.setattr(lb, "tex_words", lambda _tex: (10, ""))
-    tex = tmp_path / "doc.tex"
-    tex.write_text(source)
-    found = lb.assess(source, tmp_path / "doc.pdf", hint="h", source_name="doc.tex", tex=tex)
-    assert [s for s, _, _ in found] == [INFO]
 
 
 @pytest.mark.parametrize(
