@@ -156,9 +156,11 @@ def workspace_root():
     or the file cannot be read."""
     try:
         cfg = tc.load(TECHNE_TOML)
-    except tc.ConfigError:
-        cfg = None
-    return (tc.workspace_root(cfg) if cfg else None) or Path.cwd().parent
+        root = tc.workspace_root(cfg) if cfg else None
+    except tc.ConfigError as exc:
+        print(f"catchup: {exc}; looking for repos beside the current folder", file=sys.stderr)
+        root = None
+    return root or Path.cwd().parent
 
 
 def git_root(path):

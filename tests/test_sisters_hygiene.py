@@ -610,6 +610,15 @@ def test_a_team_kind_counts_in_any_case(tmp_path):
         ('workspace_root = "~/w"\ngithub_user = "u"\n[[sisters]]\nx = 1\n', "no name"),
         ('workspace_root = "~/w"\ngithub_user = "u"\nsisters = "a"\n', "list of tables"),
         (
+            'workspace_root = "~nosuchuser-techne/w"\ngithub_user = "u"\n[[sisters]]\nname = "a"\n',
+            "names no home folder",
+        ),
+        ('workspace_root = 5\ngithub_user = "u"\n[[sisters]]\nname = "a"\n', "must be a path"),
+        (
+            'workspace_root = "/w"\ngithub_user = ["u"]\n[[sisters]]\nname = "a"\n',
+            "must be a login",
+        ),
+        (
             'workspace_root = "~/w"\ngithub_user = "u"\n[[sisters]]\nname = "a"\nstatus = "off"\n',
             "no active",
         ),

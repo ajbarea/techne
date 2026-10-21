@@ -266,8 +266,8 @@ def configured_owner() -> str | None:
         return board.owner
     try:
         cfg = tc.load()
-    except tc.ConfigError:
-        return None
+    except tc.ConfigError as exc:
+        raise pb.BoardError(f"{exc}; fix it, or pass --owner") from exc
     return tc.github_user(cfg) if cfg else None
 
 

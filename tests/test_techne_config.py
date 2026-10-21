@@ -146,3 +146,30 @@ def test_no_other_techne_script_parses_toml_itself():
         if path not in allowed and PARSES_TOML.search(path.read_text(encoding="utf-8"))
     ]
     assert offenders == []
+
+
+@pytest.mark.parametrize("kind", ["dev-zero", "fifo"])
+def test_a_device_or_fifo_is_unreadable_without_reading_it(tc, tmp_path, kind):
+    path = tmp_path / "techne.toml"
+    if kind == "dev-zero":
+        path.symlink_to("/dev/zero")
+    else:
+        os.mkfifo(path)
+    with pytest.raises(tc.ConfigUnreadable, match="is not a regular file"):
+        tc.load(path)
+
+
+def test_an_oversized_file_is_unreadable(tc, tmp_path, monkeypatch):
+    monkeypatch.setattr(tc, "MAX_BYTES", 64)
+    with pytest.raises(tc.ConfigUnreadable, match="is over 64 bytes"):
+        tc.load(write(tmp_path, "# " + "x" * 80 + "\n"))
+
+
+def test_an_unknown_home_user_is_invalid_not_a_crash(tc):
+    with pytest.raises(tc.ConfigInvalid, match="names no home folder"):
+        tc.workspace_root({"workspace_root": "~nosuchuser-techne/w"})
+
+
+@pytest.mark.parametrize("status", ["Active", " active ", "ACTIVE"])
+def test_status_is_read_in_any_case(tc, status):
+    assert tc.is_active({"name": "a", "status": status})

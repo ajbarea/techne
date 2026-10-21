@@ -23,9 +23,7 @@ reading techne.toml needs 3.11, and below that an existing techne.toml reads as 
 from __future__ import annotations
 
 import json
-import os
 import re
-import stat
 import sys
 from pathlib import Path
 
@@ -37,7 +35,7 @@ from git_env import github_slug, without_repo_overrides  # noqa: E402
 
 TIMEOUT = 10
 SKILL_CONTEXT = ".claude/skill-context.md"
-MAX_BYTES = 1 << 20  # a skill-context file is a few KB; past this it is not one
+MAX_BYTES = tc.MAX_BYTES
 # The team marker has one form: the line `- owner: team` in the `## repo` section. A line that
 # looks like an attempt at it (`owner`, `owners` or `ownership` and `team` or `teams` on one line
 # in any other form or place, or an `owner:` key with nothing after it) is not silently read
@@ -102,25 +100,15 @@ def marked_team_in_repo(where: str, top: Path) -> str | None:
     """Why the working tree or the current commit marks the repo team, or None. The default
     branch is read from GitHub in from_github, since a local origin/<branch> may be stale."""
     path, copy = top / SKILL_CONTEXT, f"the working copy of {SKILL_CONTEXT}"
-    try:  # os.stat, not Path.is_file: a permission error must surface, not read as absent
-        try:
-            info = os.stat(path)
-        except FileNotFoundError:
-            os.lstat(path)  # no file at all raises again, below
-            return f"{copy} is a link to a missing file, so unread"
-        if not stat.S_ISREG(info.st_mode):  # a device, FIFO or folder
-            return f"{copy} is not a regular file, so unread"
-        with path.open("rb") as f:
-            raw = f.read(MAX_BYTES + 1)
-        if len(raw) > MAX_BYTES:
-            return f"{copy} is over {MAX_BYTES} bytes, so unread"
-        why = team_marker(decode(raw), copy)
-        if why:
-            return why
-    except (FileNotFoundError, NotADirectoryError):
-        pass  # no working copy; the current commit is read next
-    except OSError as exc:
+    try:
+        raw = tc.read_regular(path, MAX_BYTES)
+    except tc.Unusable as exc:
+        return f"{copy} {exc}, so unread"
+    except OSError as exc:  # a permission error surfaces here, never as an absent file
         return f"{copy} could not be read ({exc.strerror or exc})"
+    why = team_marker(decode(raw), copy) if raw is not None else None
+    if why:
+        return why
     # Local objects only: a blob missing from a partial clone is not fetched, and the default
     # branch is still read from GitHub.
     env = {**without_repo_overrides(), "GIT_NO_LAZY_FETCH": "1"}
@@ -149,7 +137,8 @@ def sister_entry(checkouts: set[Path], slug: tuple[str, str] | None, path: Path)
     if cfg is None:
         return None
     roster = tc.sisters(cfg, path)
-    matches = [s for s in roster if tc.matches(cfg, s, checkouts, slug)]
+    resolved = {p.resolve() for p in checkouts}
+    matches = [s for s in roster if tc.matches(cfg, s, resolved, slug)]
     if not any(tc.is_team(m) for m in matches):  # last, as it runs git in each team checkout
         matches += [s for s in roster if tc.is_team(s) and same_remote(cfg, s, slug)]
     # A team entry wins over any other entry the same repo matches.

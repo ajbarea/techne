@@ -591,3 +591,12 @@ def test_the_workspace_root_is_read_as_toml_with_cwd_as_fallback(
     monkeypatch.chdir(tmp_path)
     want = tmp_path / expected if expected else tmp_path.parent
     assert sw.workspace_root() == want
+
+
+def test_an_unreadable_config_says_why_before_falling_back(sw, tmp_path, monkeypatch, capsys):
+    path = tmp_path / "techne.toml"
+    path.write_text('workspace_root = "/w"\n[board]\nnumber = 07\n', encoding="utf-8")
+    monkeypatch.setattr(sw, "TECHNE_TOML", path)
+    monkeypatch.chdir(tmp_path)
+    assert sw.workspace_root() == tmp_path.parent
+    assert "is not valid TOML" in capsys.readouterr().err
