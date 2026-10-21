@@ -334,16 +334,14 @@ def prose_findings(pdf: pathlib.Path, reading: str | None = None) -> list[Findin
     ]
 
 
-def budget_findings(tex: pathlib.Path, pdf: pathlib.Path, text: str) -> list[Finding]:
+def budget_findings(tex: pathlib.Path, pdf: pathlib.Path) -> list[Finding]:
     """BLOCK over the budget the source declares, REVIEW when it declares none or a
-    declared limit cannot be measured. `text` is the PDF in reading order."""
+    declared limit cannot be measured."""
     if length_budget is None:
         return [Finding(INFO, "budget", "budget check not installed (no _shared/length_budget.py)")]
     source = tex.read_text(encoding="utf-8", errors="replace")
     hint = "`% budget: N pages` in the .tex"
-    results = length_budget.assess(
-        source, pdf, hint=hint, source_name=tex.name, tex=tex, reading=text
-    )
+    results = length_budget.assess(source, pdf, hint=hint, source_name=tex.name, tex=tex)
     return [Finding(severity, "budget", message, where) for severity, message, where in results]
 
 
@@ -450,7 +448,7 @@ def main() -> int:
         found += prose_findings(pdf, reading)
 
     if fresh:
-        found += budget_findings(tex, pdf, reading)
+        found += budget_findings(tex, pdf)
 
     if code != 0 and not any(f.severity == ERROR for f in found):
         found.append(Finding(ERROR, "build", f"latexmk exited {code}, log says nothing"))

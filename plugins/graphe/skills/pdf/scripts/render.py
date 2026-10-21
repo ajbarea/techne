@@ -61,11 +61,15 @@ def _typst_list(values: list[str]) -> str:
     return "(" + ", ".join(_typst_str(v) for v in values) + ",)"
 
 
+_COMMENTS = re.compile(r"(?:<!--(?:(?!-->).)*-->\s*)+")
+
+
 def split_front_matter(text: str) -> tuple[str | None, str | None, str]:
     """Return (title, subtitle, remaining body) for one markdown document.
 
-    Blank lines and whole-line HTML comments (a budget declaration) may precede the title;
-    the comments stay at the head of the body."""
+    Blank lines and HTML comments (a budget declaration) may precede the title; a line counts
+    only when it is complete comments, and an unclosed `<!--` runs to the first line with `-->`.
+    The comments stay at the head of the body."""
     lines = text.splitlines()
     title = subtitle = None
     index = 0
@@ -75,9 +79,12 @@ def split_front_matter(text: str) -> tuple[str | None, str | None, str]:
         stripped = lines[index].strip()
         if not stripped:
             index += 1
-        elif stripped.startswith("<!--"):
+        elif _COMMENTS.fullmatch(stripped):
+            comments.append(lines[index])
+            index += 1
+        elif stripped.startswith("<!--") and "-->" not in stripped.split("<!--")[-1]:
             end = index
-            while end < len(lines) and not lines[end].rstrip().endswith("-->"):
+            while end < len(lines) and "-->" not in lines[end]:
                 end += 1
             if end >= len(lines):
                 break

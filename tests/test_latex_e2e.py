@@ -98,57 +98,6 @@ and goes on and on and on, because a reference list is not part of the count.
 \end{document}
 """
 
-LONG_BIBLIOGRAPHY = r"""
-% budget: 2 pages before references
-\documentclass{article}
-\begin{document}
-Short body.
-\newpage
-More body.
-\begin{thebibliography}{9}
-\bibitem{a} A. Author. A title. 2026.
-\newpage
-\bibitem{b} B. Author. Another title. 2026.
-\newpage
-\bibitem{c} C. Author. A third title. 2026.
-\end{thebibliography}
-\end{document}
-"""
-
-BOOK_RUNNING_HEADS = r"""
-% budget: 3 pages before references
-\documentclass[openany]{book}
-\pagestyle{headings}
-\begin{document}
-\chapter{One}
-Short body.
-\newpage
-More body.
-\begin{thebibliography}{9}
-\bibitem{a} A. Author. A title. 2026.
-\end{thebibliography}
-\end{document}
-"""
-
-TABLE_CELL_REFERENCES = r"""
-% budget: 4 pages before references
-\documentclass{article}
-\begin{document}
-Page one.
-\newpage
-\begin{tabular}{l}
-References \\
-\end{tabular}
-\newpage
-Page three.
-\newpage
-Page four.
-\begin{thebibliography}{9}
-\bibitem{a} A. Author. A title. 2026.
-\end{thebibliography}
-\end{document}
-"""
-
 BIB = "@article{real, author = {A. Author}, title = {T}, journal = {J}, year = {2026}}\n"
 
 
@@ -207,32 +156,6 @@ def test_a_document_over_its_page_budget_exits_two(tmp_path):
 
 
 @needs_tex
-def test_book_running_heads_do_not_move_the_before_references_count(tmp_path):
-    (tmp_path / "doc.tex").write_text(BOOK_RUNNING_HEADS)
-    code, out = run(tmp_path)
-    assert code == 0, out
-    assert "3 of 3 pages before references" in out
-
-    (tmp_path / "doc.tex").write_text(BOOK_RUNNING_HEADS.replace("3 pages", "2 pages"))
-    code, out = run(tmp_path)
-    assert code == 2, out
-    assert "3 pages before references, budget 2" in out
-
-
-@needs_tex
-def test_a_table_cell_named_references_does_not_end_the_body(tmp_path):
-    (tmp_path / "doc.tex").write_text(TABLE_CELL_REFERENCES)
-    code, out = run(tmp_path)
-    assert code == 0, out
-    assert "4 of 4 pages before references" in out
-
-    (tmp_path / "doc.tex").write_text(TABLE_CELL_REFERENCES.replace("4 pages", "2 pages"))
-    code, out = run(tmp_path)
-    assert code == 2, out
-    assert "4 pages before references, budget 2" in out
-
-
-@needs_tex
 @needs_texcount
 def test_an_appendix_after_the_references_counts_against_the_budget(tmp_path):
     (tmp_path / "doc.tex").write_text(APPENDIX_AFTER_REFERENCES)
@@ -253,19 +176,6 @@ def test_the_reference_list_is_outside_a_word_budget(tmp_path):
     code, out = run(tmp_path)
     assert code == 2, out
     assert "7 words, budget 6" in out
-
-
-@needs_tex
-def test_a_long_bibliography_is_outside_a_before_references_budget(tmp_path):
-    (tmp_path / "doc.tex").write_text(LONG_BIBLIOGRAPHY)
-    code, out = run(tmp_path)
-    assert code == 0, out
-    assert "2 of 2 pages before references" in out
-
-    (tmp_path / "doc.tex").write_text(LONG_BIBLIOGRAPHY.replace("2 pages", "1 page"))
-    code, out = run(tmp_path)
-    assert code == 2, out
-    assert "2 pages before references, budget 1" in out
 
 
 @needs_tex

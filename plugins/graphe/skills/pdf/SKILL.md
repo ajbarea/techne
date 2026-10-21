@@ -25,8 +25,7 @@ both joined by a comma. Take it from the prompt or venue; a revision takes the
 original's. A document with no limit declares `<!-- budget: none -->`. The
 render prints `BLOCK budget` and exits 1 when the PDF is over it or the line
 cannot be read, and `REVIEW budget` when none is declared or a declared limit
-cannot be measured. `<!-- budget: 8 pages before references -->` counts pages up to
-the one holding the first `[1]` reference entry. Words count the markdown body after
+cannot be measured. Pages count the whole PDF. Words count the markdown body after
 the title block, without code, link targets, comments or a References section.
 
 ## Run it
