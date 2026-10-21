@@ -362,3 +362,11 @@ def test_an_unknown_merge_base_is_no_verdict_either_way(repo, hook, monkeypatch)
     assert state.impl_matches_base is None
     text = hook.brief(state)
     assert "unchanged since" not in text and "Uncommitted: 1 path(s)" in text
+
+
+def test_an_exported_git_dir_does_not_redirect_the_read(repo, hook, tmp_path, monkeypatch):
+    other = tmp_path / "other"
+    subprocess.run(["git", "init", "-q", "-b", "main", str(other)], check=True)
+    commit(other, "x")
+    monkeypatch.setenv("GIT_DIR", str(other / ".git"))
+    assert hook.resume_state.git(str(repo), "log", "-1", "--format=%s").strip() == "add IMPL.md"

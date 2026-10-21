@@ -501,3 +501,9 @@ def test_render_keeps_each_field_on_one_line(dl):
     lines = dl.render([bad]).splitlines()
     assert len(lines) == 3 and "\x1b" not in lines[0]
     assert all(DOCTOR_LINE.match(line) for line in lines), lines
+
+
+def test_run_bytes_returns_the_output_undecoded(dl, tmp_path):
+    stub = stub_dir(tmp_path, {"t": "printf '\\377\\376#\\000'"})
+    assert dl.run_bytes([os.path.join(stub, "t")]) == (0, b"\xff\xfe#\x00")
+    assert dl.run([os.path.join(stub, "t")]) == (0, "\ufffd\ufffd#\x00")

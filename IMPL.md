@@ -27,6 +27,11 @@ plural/`ownership` look-alikes (`- owner: teams` read solo), advice both ways in
 HEAD copy decoded from bytes, scp alias never a port, relative paths never reach ssh, hygiene
 git env strips git's local list. Mutation check 21/21 killed. Left to #190: hygiene print_env's
 inline kind rule. Not changed: `ssh -G` in hygiene --auto (measured ~10 ms, capped 10 s).
+Light reader on the round-13 delta: HEAD read had dropped doctor_lib.run's process-group
+guards; now `doctor_lib.run_bytes` (run decodes on top of it) with GIT_NO_LAZY_FETCH=1;
+resume_state git env strips git's local list too. Mutation 4/4. High-tier rerun owed (the hygiene
+env change reaches existing destructive git calls). Full suite was memory-reaped at 91%, no
+failures; rerun only when memory allows (AJ's call).
 Next, in order:
 1. Full suite on a frozen tree; CI green; merge (squash).
 2. ldqis follow-up: rewrite its owner line to canonical `- owner: team`.

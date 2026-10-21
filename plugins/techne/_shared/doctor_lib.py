@@ -169,6 +169,18 @@ def run(
     """(exit code, stdout with stderr merged in, or stdout alone when merge_stderr is False).
     The code is None when the program could not start or ran past `timeout`; its own process
     group is killed so a child it left holding the pipe cannot hang the caller."""
+    code, out = run_bytes(argv, timeout, merge_stderr=merge_stderr, env=env)
+    return code, out.decode("utf-8", "replace")
+
+
+def run_bytes(
+    argv: Sequence[str],
+    timeout: float = DEFAULT_TIMEOUT,
+    *,
+    merge_stderr: bool = True,
+    env: Mapping[str, str] | None = None,
+) -> tuple[int | None, bytes]:
+    """run() with the output undecoded, for a caller that decodes it itself."""
     try:
         proc = subprocess.Popen(
             list(argv),
@@ -179,7 +191,7 @@ def run(
             env=None if env is None else dict(env),
         )
     except (OSError, ValueError) as exc:
-        return None, str(exc)
+        return None, str(exc).encode()
     try:
         out, _ = proc.communicate(timeout=timeout)
     except KeyboardInterrupt:
@@ -191,8 +203,8 @@ def run(
             proc.communicate(timeout=2)
         except subprocess.TimeoutExpired:
             pass
-        return None, f"timed out after {timeout:g}s"
-    return proc.returncode, out.decode("utf-8", "replace")
+        return None, f"timed out after {timeout:g}s".encode()
+    return proc.returncode, out
 
 
 def parse_version(text: str) -> tuple[int, ...] | None:

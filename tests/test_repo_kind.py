@@ -766,3 +766,18 @@ def test_a_utf16_file_committed_with_a_repo_heading_first_reads_the_marker(rk, o
     git(origin, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "ctx")
     ctx.unlink()
     assert rk.classify(str(origin), no_toml) == ("team", "owner: team in .claude/skill-context.md")
+
+
+def test_the_head_copy_is_read_locally_through_the_guarded_runner(rk, origin, no_toml, monkeypatch):
+    seen = []
+
+    def run_bytes(argv, timeout, *, merge_stderr, env):
+        seen.append((argv, env))
+        return 0, "## repo\n- owner: team\n".encode("utf-16")
+
+    monkeypatch.setenv("GIT_INDEX_FILE", "/elsewhere/index")
+    monkeypatch.setattr(rk.doctor_lib, "run_bytes", run_bytes)
+    assert rk.marked_team_in_repo(str(origin), origin) == "owner: team"
+    ((argv, env),) = seen
+    assert argv[-2:] == ("show", "HEAD:.claude/skill-context.md")
+    assert env["GIT_NO_LAZY_FETCH"] == "1" and "GIT_INDEX_FILE" not in env

@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 import sys
 from pathlib import Path
 
@@ -109,16 +108,12 @@ def marked_team_in_repo(where: str, top: Path) -> str | None:
             return why
     except OSError:
         pass
-    try:
-        shown = subprocess.run(
-            ["git", "-C", where, "show", f"HEAD:{SKILL_CONTEXT}"],
-            capture_output=True,
-            timeout=TIMEOUT,
-            env=without_repo_overrides(),
-        )
-    except (subprocess.TimeoutExpired, OSError):
-        return None  # the default branch on GitHub is still read
-    return team_marker(decode(shown.stdout)) if shown.returncode == 0 else None
+    # Local objects only: a blob missing from a partial clone is not fetched, and the default
+    # branch is still read from GitHub.
+    env = {**without_repo_overrides(), "GIT_NO_LAZY_FETCH": "1"}
+    show = ("git", "-C", where, "show", f"HEAD:{SKILL_CONTEXT}")
+    code, out = doctor_lib.run_bytes(show, timeout=TIMEOUT, merge_stderr=False, env=env)
+    return team_marker(decode(out)) if code == 0 else None
 
 
 def kind_of(sister: dict) -> str:
