@@ -163,7 +163,8 @@ def test_a_non_canonical_marker_reads_as_team_and_names_the_line(rk, origin, no_
     mine(gh)  # GitHub alone would say solo, so team must come from the lint path
     skill_context(origin, "## repo\n- name: x\n- owner: Team, lab site\n")
     kind, why = rk.classify(str(origin), no_toml)
-    assert kind == "team" and why.startswith("line 3 (") and "looks like an owner marker" in why
+    assert kind == "team" and why.startswith("line 3 (") and "`owner` and `team` on one line" in why
+    assert "write `- owner: team` under `## repo`; otherwise reword the line" in why
 
 
 def test_owner_solo_is_not_trusted_on_its_own(rk, repo, no_toml):
@@ -485,7 +486,7 @@ def test_owner_team_in_more_markdown_forms(rk, origin, no_toml, gh, line):
     assert rk.classify(str(origin), no_toml)[0] == "team"
 
 
-@pytest.mark.parametrize("line", ["- owner: solo", "- ownership: team-x", "- teams: 3"])
+@pytest.mark.parametrize("line", ["- owner: solo", "- ownerless: teamwork", "- teams: 3"])
 def test_near_miss_owner_lines_do_not_count(rk, origin, no_toml, gh, line):
     mine(gh)
     skill_context(origin, f"## repo\n{line}\n")
@@ -574,7 +575,7 @@ def test_owner_team_survives_stray_markup_around_it(rk, origin, no_toml, gh, bod
 
 
 @pytest.mark.parametrize(
-    "line", ["- owner: teamwork", "A team-owned service.", "- ownership: team-x"]
+    "line", ["- owner: teamwork", "A team-owned service.", "- ownerless: team"]
 )
 def test_a_line_that_is_not_an_owner_team_line_does_not_count(rk, origin, no_toml, gh, line):
     mine(gh)
@@ -660,7 +661,7 @@ def test_a_commented_out_marker_is_flagged_not_ignored(rk, origin, no_toml, gh, 
     mine(gh)
     skill_context(origin, body)
     kind, why = rk.classify(str(origin), no_toml)
-    assert kind == "team" and "looks like an owner marker" in why
+    assert kind == "team" and "`owner` and `team` on one line" in why
 
 
 def test_a_broken_toml_symlink_reads_as_team(rk, origin, tmp_path, gh):
@@ -738,4 +739,30 @@ def test_another_checkouts_origin_is_read_only_when_nothing_else_matched(
 def test_an_empty_owner_key_reads_as_team_and_names_the_line(rk, origin, no_toml, gh, line):
     skill_context(origin, f"# ctx\n\n## repo\n\n{line}\n")
     kind, why = rk.classify(str(origin), no_toml)
-    assert kind == "team" and "line 5" in why
+    assert kind == "team" and "line 5" in why and "is an `owner:` key with no value" in why
+
+
+@pytest.mark.parametrize(
+    "line",
+    ["- owner: teams", "owners: Teams", "- ownership: team", "- ownership: team-x",
+     "The owner of this repo works with a team of one."],
+)  # fmt: skip
+def test_plurals_ownership_and_prose_read_as_team_with_advice_both_ways(
+    rk, origin, no_toml, gh, line
+):
+    mine(gh)  # GitHub alone would say solo, so team must come from the signal
+    skill_context(origin, f"# ctx\n\n## repo\n\n{line}\n")
+    kind, why = rk.classify(str(origin), no_toml)
+    assert kind == "team" and why.startswith("line 5 (")
+    assert "otherwise reword the line so it is not taken for that marker" in why
+
+
+def test_a_utf16_file_committed_with_a_repo_heading_first_reads_the_marker(rk, origin, no_toml, gh):
+    mine(gh)
+    (origin / ".claude").mkdir()
+    ctx = origin / ".claude" / "skill-context.md"
+    ctx.write_bytes("## repo\n- owner: team\n".encode("utf-16"))
+    git(origin, "add", ".claude")
+    git(origin, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "ctx")
+    ctx.unlink()
+    assert rk.classify(str(origin), no_toml) == ("team", "owner: team in .claude/skill-context.md")

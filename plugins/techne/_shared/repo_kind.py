@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -36,14 +37,14 @@ from project_board import techne_toml  # noqa: E402
 TIMEOUT = 10
 SKILL_CONTEXT = ".claude/skill-context.md"
 # The team marker has one form: the line `- owner: team` in the `## repo` section. A line that
-# looks like an attempt at it (`owner` and `team` on one line in any other form or place, or an
-# `owner:` key with nothing after it) is not silently read either way: it reads as team, and
-# the reason names the line so it gets fixed (RFC 9413, Maintaining Robust Protocols, s. 4.2:
-# tolerating unexpected input conceals problems).
+# looks like an attempt at it (`owner`, `owners` or `ownership` and `team` or `teams` on one line
+# in any other form or place, or an `owner:` key with nothing after it) is not silently read
+# either way: it reads as team, and the reason names the line so it gets fixed (RFC 9413,
+# Maintaining Robust Protocols, s. 4.2: tolerating unexpected input conceals problems).
 _CANONICAL = re.compile(r"^- owner: team[ \t]*$")
 _REPO_HEADING = re.compile(r"^## repo[ \t]*$")
-_OWNER = re.compile(r"(?<![A-Za-z0-9])owners?(?![A-Za-z0-9])", re.IGNORECASE)
-_TEAM = re.compile(r"(?<![A-Za-z0-9])team(?![A-Za-z0-9])", re.IGNORECASE)
+_OWNER = re.compile(r"(?<![A-Za-z0-9])owner(?:s|ship)?(?![A-Za-z0-9])", re.IGNORECASE)
+_TEAM = re.compile(r"(?<![A-Za-z0-9])teams?(?![A-Za-z0-9])", re.IGNORECASE)
 _EMPTY_OWNER = re.compile(r"^\W*owners?\W*:\W*$", re.IGNORECASE)
 
 
@@ -58,11 +59,17 @@ def team_marker(text: str) -> str | None:
         elif section == "repo" and _CANONICAL.match(line):
             return "owner: team"
     for number, line in enumerate(lines, 1):
-        if (_OWNER.search(line) and _TEAM.search(line)) or _EMPTY_OWNER.match(line):
-            return (
-                f"line {number} ({line.strip()[:60]!r}) looks like an owner marker but is not "
-                "`- owner: team` under `## repo`; read as team until it is written that way"
-            )
+        shown = f"line {number} ({line.strip()[:60]!r})"
+        if _EMPTY_OWNER.match(line):
+            looks = f"{shown} is an `owner:` key with no value"
+        elif _OWNER.search(line) and _TEAM.search(line):
+            looks = f"{shown} has `owner` and `team` on one line"
+        else:
+            continue
+        return (
+            f"{looks}, so it reads as team. To mark the repo team, write `- owner: team` under "
+            "`## repo`; otherwise reword the line so it is not taken for that marker"
+        )
     return None
 
 
@@ -102,7 +109,16 @@ def marked_team_in_repo(where: str, top: Path) -> str | None:
             return why
     except OSError:
         pass
-    return team_marker(sh("git", "-C", where, "show", f"HEAD:{SKILL_CONTEXT}") or "")
+    try:
+        shown = subprocess.run(
+            ["git", "-C", where, "show", f"HEAD:{SKILL_CONTEXT}"],
+            capture_output=True,
+            timeout=TIMEOUT,
+            env=without_repo_overrides(),
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None  # the default branch on GitHub is still read
+    return team_marker(decode(shown.stdout)) if shown.returncode == 0 else None
 
 
 def kind_of(sister: dict) -> str:

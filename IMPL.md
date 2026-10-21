@@ -22,9 +22,14 @@ possibly solo (GitHub REST best practices); `same_remote` only when nothing else
 `local_env()` = git's runtime list, LOCAL_ENV only when git cannot be asked; heuresis doctor
 uses `without_repo_overrides()`. Mutation check: 14/14 killed (strict marker, lint path, empty
 `owner:`, call order, fallbacks).
+Round 13 (one high-tier review: /code-review high + elenchus reader, verdict mergeable) fixed:
+plural/`ownership` look-alikes (`- owner: teams` read solo), advice both ways in the reason,
+HEAD copy decoded from bytes, scp alias never a port, relative paths never reach ssh, hygiene
+git env strips git's local list. Mutation check 21/21 killed. Left to #190: hygiene print_env's
+inline kind rule. Not changed: `ssh -G` in hygiene --auto (measured ~10 ms, capped 10 s).
 Next, in order:
-1. Full suite on a frozen tree (no edits while it runs), then ONE high-tier review round.
-2. Merge on green; ldqis follow-up: rewrite its owner line to canonical `- owner: team`.
+1. Full suite on a frozen tree; CI green; merge (squash).
+2. ldqis follow-up: rewrite its owner line to canonical `- owner: team`.
 Verify: `make validate`.
 
 ## In flight: `techne:board` (branch `feat/board`)

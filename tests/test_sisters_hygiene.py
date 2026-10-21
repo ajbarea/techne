@@ -1046,6 +1046,15 @@ def test_a_path_whose_origin_is_an_ssh_alias_for_github_counts(hy, fleet, tmp_pa
     assert hy.repo_for_path(str(work), ME, {}) == ("work", f"{ME}/work", str(work.resolve()))
 
 
+def test_an_exported_git_dir_does_not_redirect_a_path_to_another_repo(
+    hy, fleet, tmp_path, monkeypatch
+):
+    mine = make_repo(tmp_path, "mine", f"git@github.com:{ME}/mine.git")
+    other = make_repo(tmp_path, "other", f"git@github.com:{ME}/other.git")
+    monkeypatch.setenv("GIT_DIR", str(other / ".git"))
+    assert hy.repo_for_path(str(mine), ME, {}) == ("mine", f"{ME}/mine", str(mine.resolve()))
+
+
 def test_paths_that_are_not_a_github_repo_are_skipped_silently(hy, fleet, tmp_path):
     plain = tmp_path / "plain"
     plain.mkdir()
@@ -1338,6 +1347,7 @@ def repo_git_calls(calls) -> list:
 def test_git_runs_with_a_timeout_and_without_prompts_under_auto(fleet, auto, hy, monkeypatch):
     monkeypatch.delenv("GIT_SSH_COMMAND", raising=False)
     monkeypatch.delenv("GIT_SSH", raising=False)
+    monkeypatch.setenv("GIT_NO_REPLACE_OBJECTS", "1")  # repo-local, harmless to the fleet
     fleet.prs["feat/a"] = pr(1, "MERGED", fleet.branch("feat/a", "a1"))
     sh(fleet.path, "push", "-q", "origin", "feat/a")
     add_worktree(fleet, "a", "feat/a")
@@ -1347,14 +1357,15 @@ def test_git_runs_with_a_timeout_and_without_prompts_under_auto(fleet, auto, hy,
     assert ours
     assert all(kw["timeout"] for _, kw in ours)
     assert all(kw["env"]["GIT_TERMINAL_PROMPT"] == "0" for _, kw in ours)
+    assert not any("GIT_NO_REPLACE_OBJECTS" in kw["env"] for _, kw in ours)
     # Every git call, not only fetch and push: a partial clone fetches objects on demand.
     repo_calls = repo_git_calls(calls)
     assert any("push" in c for c, _ in repo_calls)
     assert all("BatchMode=yes" in kw["env"]["GIT_SSH_COMMAND"] for _, kw in repo_calls)
     calls.clear()
-    hy.git(str(fleet.path), "status")  # outside --auto nothing changes for a person at a terminal
+    hy.git(str(fleet.path), "status")  # outside --auto: no timeout, no prompt change
     assert calls[0][1]["timeout"] is None
-    assert calls[0][1]["env"] is None
+    assert calls[0][1]["env"] == hy.without_repo_overrides()
 
 
 @pytest.mark.parametrize("where", ["GIT_SSH_COMMAND", "GIT_SSH", "core.sshCommand"])

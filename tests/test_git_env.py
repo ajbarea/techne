@@ -122,11 +122,14 @@ def test_a_github_remote_needs_no_ssh(ge, fp):
 
 
 @pytest.mark.parametrize(
-    "url", ["git@github-work:o/r.git", "ssh://git@github-work/o/r", "github-work:o/r"]
-)
-def test_an_ssh_alias_resolving_to_github_counts(ge, fp, url):
+    "url, slug",
+    [("git@github-work:o/r.git", ("o", "r")), ("ssh://git@github-work/o/r", ("o", "r")),
+     ("github-work:o/r", ("o", "r")), ("git@github-work:1234/r.git", ("1234", "r")),
+     ("ssh://git@github-work:22/o/r.git", ("o", "r")), ("git+ssh://github-work/o/r", ("o", "r"))],
+)  # fmt: skip
+def test_an_ssh_alias_resolving_to_github_counts(ge, fp, url, slug):
     fp.register(["ssh", "-G", "--", "github-work"], stdout="user git\nhostname github.com\n")
-    assert ge.github_slug(url) == ("o", "r")
+    assert ge.github_slug(url) == slug
 
 
 @pytest.mark.parametrize(
@@ -138,8 +141,10 @@ def test_an_ssh_alias_elsewhere_or_unresolved_does_not_count(ge, fp, stdout, ret
 
 
 @pytest.mark.parametrize(
-    "url", ["/srv/git/r.git", "-oProxyCommand=x:o/r", "https://gitlab.com/o/r"]
-)
+    "url",
+    ["/srv/git/r.git", "-oProxyCommand=x:o/r", "https://gitlab.com/o/r", "../o/r", "o/r",
+     "ssh://github-work:1234/r"],
+)  # fmt: skip
 def test_paths_options_and_other_hosts_never_reach_ssh(ge, fp, url):
     fp.register(["ssh", fp.any()], stdout="hostname github.com\n", occurrences=3)
     assert ge.github_slug(url) is None

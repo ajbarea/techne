@@ -89,11 +89,14 @@ def batch_ssh(env: dict[str, str], repo: str | Path) -> dict[str, str]:
     return {**env, "GIT_SSH_COMMAND": BATCH_SSH}
 
 
-# A remote through an ssh host alias, scp form (git@github-work:o/r) or URL form
-# (ssh://git@github-work/o/r): host, owner, name.
-_ALIAS_REMOTE = re.compile(
-    r"^(?:ssh://)?(?:[^@/\s]+@)?([^:/\s]+)(?:(?<=[^/]):(?!\d+/)|(?::\d+)?/)"
-    r"([^/\s]+)/([^/\s]+?)(?:\.git)?/?$"
+# A remote through an ssh host alias: host, owner, name. scp form (git@github-work:o/r) has no
+# port, so an all-digit owner is an owner; URL form (ssh://git@github-work:22/o/r) needs the
+# scheme, so a relative path (../o/r) is neither.
+_ALIAS_SCP = re.compile(r"^(?:[^@/\s]+@)?([^:/\s]+):([^/\s]+)/([^/\s]+?)(?:\.git)?/?$")
+_ALIAS_URL = re.compile(
+    r"^(?:git\+ssh|ssh\+git|ssh)://(?:[^@/\s]+@)?([^:/\s]+)(?::\d+)?/"
+    r"([^/\s]+)/([^/\s]+?)(?:\.git)?/?$",
+    re.IGNORECASE,
 )
 
 
@@ -104,7 +107,7 @@ def github_slug(url: str) -> tuple[str, str] | None:
     found = GITHUB_REMOTE.search(url)
     if found:
         return found.group(1), found.group(2)
-    alias = _ALIAS_REMOTE.match(url)
+    alias = _ALIAS_URL.match(url) or _ALIAS_SCP.match(url)
     if not alias or alias.group(1).startswith("-"):  # never hand ssh an option from a remote URL
         return None
     try:

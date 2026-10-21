@@ -65,7 +65,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True  # the plugin cache stays as installed
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "_shared"))
 import doctor_lib  # noqa: E402  # ty: ignore[unresolved-import]
-from git_env import batch_ssh, github_slug  # noqa: E402  # ty: ignore[unresolved-import]
+from git_env import batch_ssh, github_slug, without_repo_overrides  # noqa: E402  # ty: ignore[unresolved-import]
 from resume_state import impl_matches  # noqa: E402  # ty: ignore[unresolved-import]
 
 # Stock macOS python3 is 3.9; stop with the fix before the 3.11-only import below.
@@ -195,7 +195,12 @@ def sp(cmd: list[str], cwd: str | None = None) -> subprocess.CompletedProcess:
             raise RuntimeError("deadline passed")
     try:
         return subprocess.run(
-            cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout, env=_env
+            cmd,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=without_repo_overrides() if _env is None else _env,
         )
     except subprocess.TimeoutExpired:
         raise RuntimeError(f"{' '.join(cmd[:4])}: timed out") from None
@@ -934,7 +939,7 @@ def run_auto(paths: list[str], names: list[str], min_interval: int) -> str:
         if sweep:
             stamp.touch()
         _deadline = time.time() + AUTO_DEADLINE
-        _env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+        _env = {**without_repo_overrides(), "GIT_TERMINAL_PROMPT": "0"}
         try:
             return clean_targets(paths, names, sweep, log)
         finally:
@@ -944,7 +949,7 @@ def run_auto(paths: list[str], names: list[str], min_interval: int) -> str:
 def clean_targets(paths: list[str], names: list[str], sweep: bool, log: Path) -> str:
     global _env
     targets, me = auto_targets(paths, names, sweep)
-    base = _env if _env is not None else dict(os.environ)
+    base = _env if _env is not None else without_repo_overrides()
     removed: list[str] = []
     held: list[str] = []
     closed: list[str] = []
