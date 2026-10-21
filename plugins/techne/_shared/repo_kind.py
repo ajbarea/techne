@@ -35,6 +35,7 @@ from project_board import techne_toml  # noqa: E402
 
 TIMEOUT = 10
 SKILL_CONTEXT = ".claude/skill-context.md"
+MAX_BYTES = 1 << 20  # a skill-context file is a few KB; past this it is not one
 # The team marker has one form: the line `- owner: team` in the `## repo` section. A line that
 # looks like an attempt at it (`owner`, `owners` or `ownership` and `team` or `teams` on one line
 # in any other form or place, or an `owner:` key with nothing after it) is not silently read
@@ -47,18 +48,18 @@ _TEAM = re.compile(r"(?<![A-Za-z0-9])teams?(?![A-Za-z0-9])", re.IGNORECASE)
 _EMPTY_OWNER = re.compile(r"^\W*owners?\W*:\W*$", re.IGNORECASE)
 
 
-def team_marker(text: str) -> str | None:
-    """Why this skill-context text marks the repo team, or None. NUL characters are dropped
-    first, so UTF-16 text read as UTF-8 (git show of a PowerShell 5 file) still reads."""
+def team_marker(text: str, where: str = SKILL_CONTEXT) -> str | None:
+    """Why this skill-context text (WHERE names the copy) marks the repo team, or None. NUL
+    characters are dropped first, so UTF-16 text read as UTF-8 still reads."""
     lines = text.replace("\x00", "").lstrip("\ufeff").splitlines()
     section = None
     for line in lines:
         if line.startswith("## "):
             section = "repo" if _REPO_HEADING.match(line) else "other"
         elif section == "repo" and _CANONICAL.match(line):
-            return "owner: team"
+            return f"owner: team in {where}"
     for number, line in enumerate(lines, 1):
-        shown = f"line {number} ({line.strip()[:60]!r})"
+        shown = f"line {number} of {where} ({line.strip()[:60]!r})"
         if _EMPTY_OWNER.match(line):
             looks = f"{shown} is an `owner:` key with no value"
         elif _OWNER.search(line) and _TEAM.search(line):
@@ -102,18 +103,26 @@ def as_directory(path: str) -> Path:
 def marked_team_in_repo(where: str, top: Path) -> str | None:
     """Why the working tree or the current commit marks the repo team, or None. The default
     branch is read from GitHub in from_github, since a local origin/<branch> may be stale."""
+    path, copy = top / SKILL_CONTEXT, f"the working copy of {SKILL_CONTEXT}"
     try:
-        why = team_marker(decode((top / SKILL_CONTEXT).read_bytes()))
-        if why:
-            return why
-    except OSError:
-        pass
+        if path.is_file():
+            with path.open("rb") as f:
+                raw = f.read(MAX_BYTES + 1)
+            if len(raw) > MAX_BYTES:
+                return f"{copy} is over {MAX_BYTES} bytes, so unread"
+            why = team_marker(decode(raw), copy)
+            if why:
+                return why
+        elif path.exists() or path.is_symlink():  # a device, folder or broken link
+            return f"{copy} is not a regular file, so unread"
+    except OSError as exc:
+        return f"{copy} could not be read ({exc.strerror or exc})"
     # Local objects only: a blob missing from a partial clone is not fetched, and the default
     # branch is still read from GitHub.
     env = {**without_repo_overrides(), "GIT_NO_LAZY_FETCH": "1"}
     show = ("git", "-C", where, "show", f"HEAD:{SKILL_CONTEXT}")
     code, out = doctor_lib.run_bytes(show, timeout=TIMEOUT, merge_stderr=False, env=env)
-    return team_marker(decode(out)) if code == 0 else None
+    return team_marker(decode(out), f"{SKILL_CONTEXT} in the current commit") if code == 0 else None
 
 
 def kind_of(sister: dict) -> str:
@@ -212,9 +221,10 @@ def from_github(owner: str, name: str, fork_ok: bool = False) -> tuple[str, str]
     blob = info.get("object")
     if isinstance(blob, dict) and (blob.get("isBinary") or blob.get("isTruncated")):
         return "team", f"{SKILL_CONTEXT} on {slug}'s default branch is not whole text, so unread"
-    on_default = team_marker(str(blob.get("text") or "")) if isinstance(blob, dict) else None
+    copy = f"{SKILL_CONTEXT} on {slug}'s default branch"
+    on_default = team_marker(str(blob.get("text") or ""), copy) if isinstance(blob, dict) else None
     if on_default:
-        return "team", f"{on_default} in {SKILL_CONTEXT} on {slug}'s default branch"
+        return "team", on_default
     pushers = sh(
         *api, "--paginate", f"repos/{slug}/collaborators",
         "--jq", ".[] | select(.permissions.push) | .login",
@@ -247,7 +257,7 @@ def classify(path: str = ".", toml: Path | None = None) -> tuple[str, str]:
     top, common = Path(out[0]), (Path(where) / out[1]).resolve()  # common is relative to `where`
     why = marked_team_in_repo(where, top)
     if why:
-        return "team", f"{why} in {SKILL_CONTEXT}"
+        return "team", why
     # Where a roster may name this repo: its top level (a submodule, a --separate-git-dir repo),
     # the folder holding its common dir (<checkout>/.git, or <checkout>/.bare behind worktrees),
     # or a bare `<name>.git` common dir behind worktrees.

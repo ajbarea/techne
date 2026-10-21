@@ -32,6 +32,12 @@ guards; now `doctor_lib.run_bytes` (run decodes on top of it) with GIT_NO_LAZY_F
 resume_state git env strips git's local list too. Mutation 4/4. High-tier rerun owed (the hygiene
 env change reaches existing destructive git calls). Full suite was memory-reaped at 91%, no
 failures; rerun only when memory allows (AJ's call).
+High-tier rerun (after the 12:26 WSL crash): /code-review high + reader, verdict mergeable.
+Fixed: working-copy read is regular-file only and capped at 1 MiB (a /dev/zero symlink grew
+memory without bound); reasons name the copy (working copy, current commit, default branch);
+`ssh -G` back through doctor_lib.run (group kill). Mutation 5/5. Left as Minor: the lint misses
+owner values without "team" (`- owner: lab`), documented contract; a kind-less path match hides
+a same-origin team entry (to #190).
 Next, in order:
 1. Full suite on a frozen tree; CI green; merge (squash).
 2. ldqis follow-up: rewrite its owner line to canonical `- owner: team`.

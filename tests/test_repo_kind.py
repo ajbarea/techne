@@ -156,14 +156,21 @@ def test_an_unreadable_toml_reads_as_team(rk, origin, tmp_path, gh):
 def test_owner_team_in_the_repo_section_is_team(rk, origin, no_toml, gh):
     mine(gh)  # GitHub alone would say solo, so team must come from the signal
     skill_context(origin, "# ctx\n\n## repo\n\n- name: x\n- owner: team\n")
-    assert rk.classify(str(origin), no_toml) == ("team", "owner: team in .claude/skill-context.md")
+    assert rk.classify(str(origin), no_toml) == (
+        "team",
+        "owner: team in the working copy of .claude/skill-context.md",
+    )
 
 
 def test_a_non_canonical_marker_reads_as_team_and_names_the_line(rk, origin, no_toml, gh):
     mine(gh)  # GitHub alone would say solo, so team must come from the lint path
     skill_context(origin, "## repo\n- name: x\n- owner: Team, lab site\n")
     kind, why = rk.classify(str(origin), no_toml)
-    assert kind == "team" and why.startswith("line 3 (") and "`owner` and `team` on one line" in why
+    assert (
+        kind == "team"
+        and why.startswith("line 3 of the working copy of .claude/skill-context.md (")
+        and "`owner` and `team` on one line" in why
+    )
     assert "write `- owner: team` under `## repo`; otherwise reword the line" in why
 
 
@@ -753,7 +760,7 @@ def test_plurals_ownership_and_prose_read_as_team_with_advice_both_ways(
     mine(gh)  # GitHub alone would say solo, so team must come from the signal
     skill_context(origin, f"# ctx\n\n## repo\n\n{line}\n")
     kind, why = rk.classify(str(origin), no_toml)
-    assert kind == "team" and why.startswith("line 5 (")
+    assert kind == "team" and why.startswith("line 5 of the working copy")
     assert "otherwise reword the line so it is not taken for that marker" in why
 
 
@@ -765,7 +772,10 @@ def test_a_utf16_file_committed_with_a_repo_heading_first_reads_the_marker(rk, o
     git(origin, "add", ".claude")
     git(origin, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "ctx")
     ctx.unlink()
-    assert rk.classify(str(origin), no_toml) == ("team", "owner: team in .claude/skill-context.md")
+    assert rk.classify(str(origin), no_toml) == (
+        "team",
+        "owner: team in .claude/skill-context.md in the current commit",
+    )
 
 
 def test_the_head_copy_is_read_locally_through_the_guarded_runner(rk, origin, no_toml, monkeypatch):
@@ -777,7 +787,45 @@ def test_the_head_copy_is_read_locally_through_the_guarded_runner(rk, origin, no
 
     monkeypatch.setenv("GIT_INDEX_FILE", "/elsewhere/index")
     monkeypatch.setattr(rk.doctor_lib, "run_bytes", run_bytes)
-    assert rk.marked_team_in_repo(str(origin), origin) == "owner: team"
+    assert rk.marked_team_in_repo(str(origin), origin) == (
+        "owner: team in .claude/skill-context.md in the current commit"
+    )
     ((argv, env),) = seen
     assert argv[-2:] == ("show", "HEAD:.claude/skill-context.md")
     assert env["GIT_NO_LAZY_FETCH"] == "1" and "GIT_INDEX_FILE" not in env
+
+
+def test_a_look_alike_only_in_the_current_commit_names_that_copy(rk, origin, no_toml, gh):
+    mine(gh)
+    skill_context(origin, "## repo\nOwner: the lab team\n")
+    git(origin, "add", ".claude")
+    git(origin, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "ctx")
+    skill_context(origin, "## repo\n- name: x\n")
+    kind, why = rk.classify(str(origin), no_toml)
+    assert kind == "team"
+    assert why.startswith("line 2 of .claude/skill-context.md in the current commit (")
+
+
+@pytest.mark.parametrize("target", ["/dev/zero", "a-folder", "missing"])
+def test_a_skill_context_that_is_not_a_regular_file_reads_as_team_unread(
+    rk, origin, no_toml, gh, target
+):
+    mine(gh)
+    (origin / ".claude").mkdir()
+    (origin / "a-folder").mkdir()
+    link = origin / ".claude" / "skill-context.md"
+    link.symlink_to(target if target.startswith("/") else origin / target)
+    assert rk.classify(str(origin), no_toml) == (
+        "team",
+        "the working copy of .claude/skill-context.md is not a regular file, so unread",
+    )
+
+
+def test_an_oversized_skill_context_reads_as_team_unread(rk, origin, no_toml, gh, monkeypatch):
+    mine(gh)
+    monkeypatch.setattr(rk, "MAX_BYTES", 64)
+    skill_context(origin, "## repo\n" + "x" * 64 + "\n")
+    assert rk.classify(str(origin), no_toml) == (
+        "team",
+        "the working copy of .claude/skill-context.md is over 64 bytes, so unread",
+    )

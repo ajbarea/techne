@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -149,3 +151,33 @@ def test_paths_options_and_other_hosts_never_reach_ssh(ge, fp, url):
     fp.register(["ssh", fp.any()], stdout="hostname github.com\n", occurrences=3)
     assert ge.github_slug(url) is None
     assert fp.call_count(["ssh", fp.any()]) == 0
+
+
+def test_ssh_g_cannot_leave_a_child_holding_the_pipe(ge, tmp_path, monkeypatch):
+    pidfile, bindir = tmp_path / "pid", tmp_path / "bin"
+    bindir.mkdir()
+    ssh = bindir / "ssh"
+    ssh.write_text(f'#!/bin/sh\n/bin/sleep 30 &\necho $! > "{pidfile}"\n/bin/sleep 30\n')
+    ssh.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bindir}:/usr/bin:/bin")
+    monkeypatch.setattr(ge, "CONFIG_TIMEOUT", 1)
+    started = time.monotonic()
+    assert ge.github_slug("git@github-work:o/r") is None
+    assert time.monotonic() - started < 5
+    pid = int(pidfile.read_text())
+    try:
+        for _ in range(40):  # SIGKILL lands at once; a zombie lingers until init reaps it
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                break
+            if "\tZ" in Path(f"/proc/{pid}/status").read_text():
+                break
+            time.sleep(0.05)
+        else:
+            raise AssertionError(f"child {pid} is still running")
+    finally:
+        try:
+            os.kill(pid, 9)
+        except ProcessLookupError:
+            pass

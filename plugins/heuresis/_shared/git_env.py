@@ -110,20 +110,16 @@ def github_slug(url: str) -> tuple[str, str] | None:
     alias = _ALIAS_URL.match(url) or _ALIAS_SCP.match(url)
     if not alias or alias.group(1).startswith("-"):  # never hand ssh an option from a remote URL
         return None
-    try:
-        settings = subprocess.run(
-            ["ssh", "-G", "--", alias.group(1)],
-            capture_output=True,
-            text=True,
-            timeout=CONFIG_TIMEOUT,
-        )
-    except (subprocess.TimeoutExpired, OSError):
-        return None
-    if settings.returncode:
-        return None
-    host = next(
-        (ln.split()[1] for ln in settings.stdout.splitlines() if ln.startswith("hostname ")), ""
+    import doctor_lib  # every _shared folder holding this file holds doctor_lib too
+
+    # Its own session, stdin closed, the process group killed on timeout: a slow `Match exec`
+    # helper in ~/.ssh/config cannot outlive the call.
+    code, out = doctor_lib.run(
+        ("ssh", "-G", "--", alias.group(1)), timeout=CONFIG_TIMEOUT, merge_stderr=False
     )
+    if code != 0:
+        return None
+    host = next((ln.split()[1] for ln in out.splitlines() if ln.startswith("hostname ")), "")
     if host.lower() in ("github.com", "ssh.github.com"):
         return alias.group(2), alias.group(3)
     return None
