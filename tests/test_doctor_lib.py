@@ -13,7 +13,16 @@ import subprocess
 import time
 
 import pytest
-from conftest import DOCTOR_LIB, DOCTOR_LINE, HOOK_PYTHON, ROOT, _load, fake_chromium, stub_dir
+from conftest import (
+    DOCTOR_LIB,
+    DOCTOR_LINE,
+    HOOK_PYTHON,
+    ROOT,
+    _load,
+    assert_gone,
+    fake_chromium,
+    stub_dir,
+)
 
 
 @pytest.fixture(scope="module")
@@ -469,31 +478,8 @@ def test_run_kills_the_grandchild_it_leaves_behind(dl, tmp_path):
     stub = stub_dir(tmp_path, {"t": f'/bin/sleep 30 &\necho $! > "{pidfile}"\nexit 0'})
     code, _ = dl.run([os.path.join(stub, "t")], timeout=1.0)
     pid = int(pidfile.read_text())
-    try:
-        assert code is None
-        for _ in range(40):  # SIGKILL lands at once; a zombie lingers until init reaps it
-            try:
-                os.kill(pid, 0)
-            except ProcessLookupError:
-                break
-            if "Z" in _proc_state(pid):
-                break
-            time.sleep(0.05)
-        else:
-            raise AssertionError(f"grandchild {pid} is still running")
-    finally:
-        try:
-            os.kill(pid, 9)
-        except ProcessLookupError:
-            pass
-
-
-def _proc_state(pid):
-    try:
-        with open(f"/proc/{pid}/stat") as f:
-            return f.read().rsplit(")", 1)[1].split()[0]
-    except OSError:
-        return "Z"
+    assert code is None
+    assert_gone(pid)
 
 
 def test_render_keeps_each_field_on_one_line(dl):
@@ -501,3 +487,9 @@ def test_render_keeps_each_field_on_one_line(dl):
     lines = dl.render([bad]).splitlines()
     assert len(lines) == 3 and "\x1b" not in lines[0]
     assert all(DOCTOR_LINE.match(line) for line in lines), lines
+
+
+def test_run_bytes_returns_the_output_undecoded(dl, tmp_path):
+    stub = stub_dir(tmp_path, {"t": "printf '\\377\\376#\\000'"})
+    assert dl.run_bytes([os.path.join(stub, "t")]) == (0, b"\xff\xfe#\x00")
+    assert dl.run([os.path.join(stub, "t")]) == (0, "\ufffd\ufffd#\x00")

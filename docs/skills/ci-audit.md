@@ -23,7 +23,7 @@ Invoke by name in Claude Code:
 /techne:ci-audit
 ```
 
-The skill pulls the most recent run per workflow on the current head SHA via the PR's `statusCheckRollup` (falling back to `gh run list` when there is no PR), reads each run with `gh run view`, lists external PR checks such as Codecov and GitGuardian, classifies every finding, applies in-repo fixes (workflow YAML, config, source), and outputs a verdict: `N fixed, M proposed, K deferred.`
+The skill pulls the most recent run per workflow on the current head SHA via the PR's `statusCheckRollup` (falling back to `gh run list` when there is no PR), reads each run with `gh run view`, lists external PR checks such as Codecov and GitGuardian, classifies every finding, applies in-repo fixes (workflow YAML, config, source), and outputs a verdict: `N fixed, M proposed, K deferred.` A finding with a repo-side fix that needs a choice between paths is `[PROPOSE]`: on a solo repo the skill takes the option the evidence supports and applies it, naming the others; on a team repo it lists the options for you to pick. See [Solo and team repos](../conventions.md#solo-and-team-repos).
 
 The skill does not commit, push, or merge. Run `/techne:auto-commit` to group and commit the fixes.
 

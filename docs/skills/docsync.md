@@ -4,7 +4,7 @@ description: "Check a documentation file for drift against the code: commands, p
 
 # `techne:docsync`
 
-Compare documentation against the code it describes. Surface where the docs say one thing and the code says another, then propose corrections grounded in current code.
+Compare documentation against the code it describes. Surface where the docs say one thing and the code says another, then correct it from current code: directly on a solo repo, after your confirmation on a team repo.
 
 Part of [techne](../plugins/techne.md): `/plugin install techne@techne`, then `/techne:setup`.
 
@@ -29,7 +29,7 @@ Default scope is `README.md` plus every tracked file under `docs/**/*.md`. Narro
 /techne:docsync docs/getting-started.md
 ```
 
-The skill extracts checkable claims (commands, paths, signatures, config keys, version numbers, env vars), verifies each against the source, and outputs a drift report grouped by file. It also lists user-visible surface no doc mentions: commands, flags, exit codes, config keys, env vars, files written on your machine, and a plugin's skills, MCP tools and hooks. A page that links the file holding the detail, such as a skill's `SKILL.md`, covers it. Single-token swaps are safe to batch-apply on confirmation; prose rewrites are shown as full before/after diffs first.
+The skill extracts checkable claims (commands, paths, signatures, config keys, version numbers, env vars), verifies each against the source, and outputs a drift report grouped by file. It also lists user-visible surface no doc mentions: commands, flags, exit codes, config keys, env vars, files written on your machine, and a plugin's skills, MCP tools and hooks. A page that links the file holding the detail, such as a skill's `SKILL.md`, covers it. How it applies fixes depends on whose repo it is. On a solo repo (yours alone) it applies every fix the code or a cited web source settles, prose included, and lists what neither settles as unresolved rather than asking. On a team repo it asks: single-token swaps apply on confirmation, prose rewrites are shown as full before/after diffs first. See [Solo and team repos](../conventions.md#solo-and-team-repos).
 
 ## See also
 

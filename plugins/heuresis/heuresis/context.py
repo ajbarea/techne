@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-import os
 import subprocess
+import sys
 import tomllib
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from heuresis import board
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_shared"))
+from git_env import without_repo_overrides  # ty: ignore[unresolved-import]
 
 DEFAULT_SOURCES = [
     {"kind": "bib", "repo": "papers", "path": "references.bib"},
@@ -113,17 +116,13 @@ def is_ideas_repo(path: Path) -> bool:
     return _own_toplevel(path)
 
 
-def _git_env() -> dict[str, str]:
-    return {k: v for k, v in os.environ.items() if k not in ("GIT_DIR", "GIT_WORK_TREE")}
-
-
 def _own_toplevel(root: Path) -> bool:
     top = subprocess.run(
         ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
         capture_output=True,
         text=True,
         check=False,
-        env=_git_env(),
+        env=without_repo_overrides(),
     )
     return not top.returncode and Path(top.stdout.strip()).resolve() == root.resolve()
 
@@ -141,4 +140,6 @@ def init_repo(root: Path, techne_toml: Path | None, repos_root: Path) -> None:
         (root / "README.md").write_text(README, encoding="utf-8")
     board.write(root, dt.date.today())
     if not _own_toplevel(root):
-        subprocess.run(["git", "init", "-q", "-b", "main", str(root)], check=True, env=_git_env())
+        subprocess.run(
+            ["git", "init", "-q", "-b", "main", str(root)], check=True, env=without_repo_overrides()
+        )

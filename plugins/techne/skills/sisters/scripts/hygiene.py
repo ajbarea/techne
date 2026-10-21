@@ -65,7 +65,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True  # the plugin cache stays as installed
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "_shared"))
 import doctor_lib  # noqa: E402  # ty: ignore[unresolved-import]
-from git_env import batch_ssh  # noqa: E402  # ty: ignore[unresolved-import]
+from git_env import batch_ssh, github_slug, without_repo_overrides  # noqa: E402  # ty: ignore[unresolved-import]
 from resume_state import impl_matches  # noqa: E402  # ty: ignore[unresolved-import]
 
 # Stock macOS python3 is 3.9; stop with the fix before the 3.11-only import below.
@@ -195,7 +195,12 @@ def sp(cmd: list[str], cwd: str | None = None) -> subprocess.CompletedProcess:
             raise RuntimeError("deadline passed")
     try:
         return subprocess.run(
-            cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout, env=_env
+            cmd,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=without_repo_overrides() if _env is None else _env,
         )
     except subprocess.TimeoutExpired:
         raise RuntimeError(f"{' '.join(cmd[:4])}: timed out") from None
@@ -711,7 +716,7 @@ def print_env() -> None:
     active = [s for s in sisters if s.get("status", "active") == "active"]
     if not active:
         sys.exit(f"sisters: no active sisters in {TECHNE_TOML}. Run /techne:setup.")
-    team = [s["name"] for s in active if s.get("kind") == "team"]
+    team = [s["name"] for s in active if str(s.get("kind", "")).strip().lower() == "team"]
     print(f"SISTERS={shlex.quote(' '.join(s['name'] for s in active))}")
     print(f"TEAM_SISTERS={shlex.quote(' '.join(team))}")
     print(f"WORKSPACE={shlex.quote(ws)}")
@@ -820,7 +825,6 @@ def apply(plan_file: Path) -> int:
 
 
 AUTO_INTERVAL = 30 * 60
-GITHUB_REMOTE = re.compile(r"github\.com[:/]([^/\s]+)/([^/\s]+?)(?:\.git)?/?$")
 
 
 def cache_dir() -> Path:
@@ -845,10 +849,10 @@ def repo_for_path(
         remote = git(main, "remote", "get-url", "origin").strip()
     except (RuntimeError, OSError):
         return None
-    m = GITHUB_REMOTE.search(remote)
-    if not m:
+    found = github_slug(remote)
+    if not found:
         return None
-    slug = canonical_slug(f"{m.group(1)}/{m.group(2)}")
+    slug = canonical_slug("/".join(found))
     owner, repo = slug.split("/", 1)
     if owner.lower() != me.lower() and main not in roster and slug.lower() not in slugs:
         return None
@@ -935,7 +939,7 @@ def run_auto(paths: list[str], names: list[str], min_interval: int) -> str:
         if sweep:
             stamp.touch()
         _deadline = time.time() + AUTO_DEADLINE
-        _env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+        _env = {**without_repo_overrides(), "GIT_TERMINAL_PROMPT": "0"}
         try:
             return clean_targets(paths, names, sweep, log)
         finally:
@@ -945,7 +949,7 @@ def run_auto(paths: list[str], names: list[str], min_interval: int) -> str:
 def clean_targets(paths: list[str], names: list[str], sweep: bool, log: Path) -> str:
     global _env
     targets, me = auto_targets(paths, names, sweep)
-    base = _env if _env is not None else dict(os.environ)
+    base = _env if _env is not None else without_repo_overrides()
     removed: list[str] = []
     held: list[str] = []
     closed: list[str] = []

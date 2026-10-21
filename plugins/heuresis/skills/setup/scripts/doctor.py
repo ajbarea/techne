@@ -18,6 +18,7 @@ PLUGIN = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PLUGIN / "_shared"))
 import doctor_lib as d  # noqa: E402  # ty: ignore[unresolved-import]
 import plugin_keys as pk  # noqa: E402  # ty: ignore[unresolved-import]
+from git_env import without_repo_overrides  # noqa: E402  # ty: ignore[unresolved-import]
 
 
 def parse(argv: Sequence[str]) -> dict[str, str]:
@@ -33,13 +34,12 @@ def ideas_repo(path: Path) -> bool:
     """Mirrors heuresis.context.is_ideas_repo, which this standard-library script cannot import."""
     if not ((path / "ideas").is_dir() and (path / "projects.toml").is_file()):
         return False
-    env = {k: v for k, v in os.environ.items() if k not in ("GIT_DIR", "GIT_WORK_TREE")}
     top = subprocess.run(
         ["git", "-C", str(path), "rev-parse", "--show-toplevel"],
         capture_output=True,
         text=True,
         check=False,
-        env=env,
+        env=without_repo_overrides(),
     )
     return not top.returncode and Path(top.stdout.strip()).resolve() == path.resolve()
 

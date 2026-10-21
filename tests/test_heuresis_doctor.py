@@ -145,3 +145,23 @@ def test_a_malformed_manifest_is_one_optional_line_not_a_traceback(tmp_path, mon
     values = {"IDEAS_REPO": str(tmp_path), "REPOS_ROOT": str(tmp_path)}
     lines = {c.name: (c.status, c.detail) for c in d.checks(values, environ={})}
     assert lines["search keys"] == ("optional", "plugin.json unreadable")
+
+
+def test_the_ideas_repo_check_drops_every_repo_local_git_variable(tmp_path, monkeypatch):
+    seen = {}
+
+    class Done:
+        returncode, stdout = 1, ""
+
+    def run(argv, **kwargs):
+        seen.update(kwargs["env"])
+        return Done()
+
+    (tmp_path / "ideas").mkdir()
+    (tmp_path / "projects.toml").touch()
+    for name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE"):
+        monkeypatch.setenv(name, str(tmp_path / "elsewhere"))
+    d.without_repo_overrides({})  # asks git for its list before run is replaced
+    monkeypatch.setattr(d.subprocess, "run", run)
+    assert not d.ideas_repo(tmp_path)
+    assert not {"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE"} & seen.keys()
