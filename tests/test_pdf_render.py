@@ -182,3 +182,9 @@ def test_a_directory_renders_every_markdown_file(rn, tmp_path, monkeypatch, name
     monkeypatch.setattr(rn, "render", lambda s, o: (seen.append(s.name), (o / "x.pdf", ["A"]))[1])
     assert rn.main([str(tmp_path), str(tmp_path / "out")]) == 0
     assert seen == sorted(names)
+
+
+def test_a_bom_does_not_hide_the_title(rn, tmp_path):
+    src = tmp_path / "doc.md"
+    src.write_bytes("﻿# The Title\n\nBody.\n".encode())
+    assert '"The Title"' in rn.build_typ(src, tmp_path).read_text()

@@ -18,10 +18,15 @@ from conftest import LATEX_SCRIPT
 
 NEEDED = ("latexmk", "pdftotext", "pdfinfo", "pdffonts")
 MISSING = [tool for tool in NEEDED if not shutil.which(tool)]
+UNGUARDED = [tool for tool in (*NEEDED, "texcount") if not shutil.which(tool)]
 OPTED_OUT = os.environ.get("TECHNE_NO_TEX") == "1"
 needs_tex = pytest.mark.skipif(
     OPTED_OUT or bool(MISSING),
     reason="opted out of TeX builds" if OPTED_OUT else f"not installed: {', '.join(MISSING)}",
+)
+
+needs_texcount = pytest.mark.skipif(
+    not shutil.which("texcount"), reason="not installed: texcount (texlive-extra-utils)"
 )
 
 CLEAN = r"""
@@ -82,17 +87,14 @@ word, so a count that stops at the reference list would let it through.
 \end{document}
 """
 
-CONTENTS_LISTS_REFERENCES = r"""
-% budget: 30 words
+LONG_REFERENCES = r"""
+% budget: 12 words
 \documentclass{article}
 \begin{document}
-\tableofcontents
-\section{Introduction}
-This body runs on well past the budget the paper declared, word after word after word,
-so a count that starts cutting at the contents entry for the references lets it through.
-\addcontentsline{toc}{section}{References}
-\begin{thebibliography}{1}
-\bibitem{a} A. Author. A title. 2026.
+Body of exactly seven words in it.
+\begin{thebibliography}{9}
+\bibitem{a} A. Author. A title that runs on for many more words than the budget allows,
+and goes on and on and on, because a reference list is not part of the count.
 \end{thebibliography}
 \end{document}
 """
@@ -112,11 +114,11 @@ def run(target, *args):
 def test_the_toolchain_is_present_or_its_absence_is_declared():
     """Green by absence is the failure this guards. Either the builds below
     ran, or the environment said in writing that it opted out of them."""
-    if not MISSING and not OPTED_OUT:
+    if not UNGUARDED and not OPTED_OUT:
         return
     assert OPTED_OUT, (
-        f"missing {', '.join(MISSING)} and TECHNE_NO_TEX is unset: the end-to-end "
-        "tests would have skipped silently. Install TeX Live and poppler, or set "
+        f"missing {', '.join(UNGUARDED)} and TECHNE_NO_TEX is unset: the end-to-end "
+        "tests would have skipped silently. Install TeX Live (with texcount) and poppler, or set "
         "TECHNE_NO_TEX=1 to opt out on purpose."
     )
 
@@ -155,6 +157,15 @@ def test_a_document_over_its_page_budget_exits_two(tmp_path):
 
 
 @needs_tex
+def test_a_bom_does_not_hide_the_budget_line(tmp_path):
+    (tmp_path / "doc.tex").write_text("\ufeff" + OVER_BUDGET.lstrip(), encoding="utf-8")
+    code, out = run(tmp_path)
+    assert code == 2, out
+    assert "2 pages, budget 1" in out
+
+
+@needs_tex
+@needs_texcount
 def test_an_appendix_after_the_references_counts_against_the_budget(tmp_path):
     (tmp_path / "doc.tex").write_text(APPENDIX_AFTER_REFERENCES)
     code, out = run(tmp_path)
@@ -163,12 +174,17 @@ def test_an_appendix_after_the_references_counts_against_the_budget(tmp_path):
 
 
 @needs_tex
-def test_a_contents_entry_for_the_references_does_not_hide_the_body(tmp_path):
-    (tmp_path / "doc.tex").write_text(CONTENTS_LISTS_REFERENCES)
-    run(tmp_path)  # the first pass writes the .toc the second one prints
+@needs_texcount
+def test_the_reference_list_is_outside_a_word_budget(tmp_path):
+    (tmp_path / "doc.tex").write_text(LONG_REFERENCES)
+    code, out = run(tmp_path)
+    assert code == 0, out
+    assert "7 of 12 words" in out
+
+    (tmp_path / "doc.tex").write_text(LONG_REFERENCES.replace("12 words", "6 words"))
     code, out = run(tmp_path)
     assert code == 2, out
-    assert "words, budget 30" in out
+    assert "7 words, budget 6" in out
 
 
 @needs_tex

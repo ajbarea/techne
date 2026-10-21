@@ -61,14 +61,39 @@ def _typst_list(values: list[str]) -> str:
     return "(" + ", ".join(_typst_str(v) for v in values) + ",)"
 
 
+_COMMENTS = re.compile(r"(?:<!--(?:(?!-->).)*-->\s*)+")
+
+
 def split_front_matter(text: str) -> tuple[str | None, str | None, str]:
-    """Return (title, subtitle, remaining body) for one markdown document."""
+    """Return (title, subtitle, remaining body) for one markdown document.
+
+    Blank lines and HTML comments (a budget declaration) may precede the title; a line counts
+    only when it is complete comments, and an unclosed `<!--` runs to the first line with `-->`.
+    The comments stay at the head of the body."""
     lines = text.splitlines()
     title = subtitle = None
     index = 0
+    comments: list[str] = []
 
-    while index < len(lines) and not lines[index].strip():
-        index += 1
+    while index < len(lines):
+        stripped = lines[index].strip()
+        if not stripped:
+            index += 1
+        elif _COMMENTS.fullmatch(stripped):
+            comments.append(lines[index])
+            index += 1
+        elif stripped.startswith("<!--") and "-->" not in stripped.split("<!--")[-1]:
+            end = index
+            while end < len(lines) and "-->" not in (
+                lines[end].rsplit("<!--", 1)[-1] if end == index else lines[end]
+            ):
+                end += 1
+            if end >= len(lines):
+                break
+            comments += lines[index : end + 1]
+            index = end + 1
+        else:
+            break
     if index < len(lines):
         match = _H1.match(lines[index])
         if match:
@@ -85,12 +110,12 @@ def split_front_matter(text: str) -> tuple[str | None, str | None, str]:
                 subtitle = match.group("text") or match.group("alt")
                 index = probe + 1
 
-    return title, subtitle, "\n".join(lines[index:]).lstrip("\n")
+    return title, subtitle, "\n".join([*comments, *lines[index:]]).lstrip("\n")
 
 
 def build_typ(src: pathlib.Path, work: pathlib.Path) -> pathlib.Path:
     """Write the .typ driver plus the body-only markdown it reads."""
-    title, subtitle, body = split_front_matter(src.read_text(encoding="utf-8"))
+    title, subtitle, body = split_front_matter(src.read_text(encoding="utf-8-sig"))
     body_path = work / f"{src.stem}.body.md"
     body_path.write_text(body, encoding="utf-8")
 
@@ -127,39 +152,32 @@ def render(src: pathlib.Path, out_dir: pathlib.Path) -> tuple[pathlib.Path, list
     return dest, pdf_fonts(dest)
 
 
-def prose_lines(src: pathlib.Path) -> list[str]:
-    """Advisory REVIEW lines for the markdown source; never decides the exit code."""
+def prose_lines(body: str) -> list[str]:
+    """Advisory REVIEW lines for the markdown body; never decides the exit code."""
     if prose_check is None:
         return ["  INFO   prose check not installed (no _shared/prose_check.py)"]
-    text = prose_check.markdown_prose(src.read_text(encoding="utf-8"))
-    hits, skipped = prose_check.report(text)
+    hits, skipped = prose_check.report(prose_check.markdown_prose(body))
     if skipped:
         return [f"  INFO   {skipped}"]
     return [f"  REVIEW prose {hit.count}x {hit.name}: \u201c{hit.example}\u201d" for hit in hits]
 
 
-def budget_lines(src: pathlib.Path, pdf: pathlib.Path) -> tuple[list[str], str]:
-    """Lines to print, and the reason the run fails: over budget or an unreadable line."""
+def budget_lines(
+    src: pathlib.Path, pdf: pathlib.Path, source: str, body: str
+) -> tuple[list[str], str]:
+    """Lines to print, and the reason the run fails: over budget or an unreadable line.
+
+    `source` holds the declaration; `body` is what follows the title block."""
     if length_budget is None:
         return ["  INFO   budget check not installed (no _shared/length_budget.py)"], ""
-    source = src.read_text(encoding="utf-8")
-    try:
-        budget = length_budget.read(source, markdown=True)
-    except ValueError as exc:
-        reason = f"unreadable budget line: {exc}"
-        return [f"  BLOCK  budget {reason}"], f"{src.name}: {reason}"
-    if budget is None:
-        hint = "`<!-- budget: N words -->` in the .md"
-        return [f"  REVIEW budget {length_budget.MISSING.format(hint=hint)}"], ""
-    words = length_budget.count_markdown_words(source)
-    verdict = length_budget.compare(budget, length_budget.pdf_pages(pdf), words)
-    if verdict.over:
-        reason = length_budget.OVER.format(over="; ".join(verdict.over))
-        return [f"  BLOCK  budget {reason}"], f"{pdf.name}: {reason}"
-    if verdict.unmeasured:
-        message = length_budget.UNMEASURED.format(measured=verdict.measured)
-        return [f"  REVIEW budget {message}"], ""
-    return [f"  INFO   budget {verdict.measured}"], ""
+    hint = "`<!-- budget: N words -->` in the .md"
+    lines, reason = [], ""
+    results = length_budget.assess(source, pdf, hint=hint, source_name=src.name, body=body)
+    for severity, message, where in results:
+        lines.append(f"  {severity:<6} budget {message}")
+        if severity == "BLOCK":
+            reason = f"{where}: {message}"
+    return lines, reason
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -190,10 +208,12 @@ def main(argv: list[str] | None = None) -> int:
     for src in sources:
         dest, fonts = render(src, args.out)
         print(f"{dest}  [{', '.join(fonts)}]")
+        source = src.read_text(encoding="utf-8-sig")
+        body = split_front_matter(source)[2]
         if not args.no_prose:
-            for line in prose_lines(src):
+            for line in prose_lines(body):
                 print(line)
-        lines, over = budget_lines(src, dest)
+        lines, over = budget_lines(src, dest, source, body)
         for line in lines:
             print(line)
         if over:

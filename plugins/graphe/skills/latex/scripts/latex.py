@@ -121,6 +121,14 @@ def find_main_tex(target: pathlib.Path) -> pathlib.Path:
     return roots[0]
 
 
+def _stamp(pdf: pathlib.Path) -> int | None:
+    """The PDF's modification time in nanoseconds, or None when there is no PDF."""
+    try:
+        return pdf.stat().st_mtime_ns
+    except OSError:
+        return None
+
+
 def build(tex: pathlib.Path, engine: str) -> int:
     """Run latexmk to completion. Returns its exit code; the log carries the detail."""
     cmd = [
@@ -293,7 +301,7 @@ def pdf_checks(pdf: pathlib.Path, text: str, markers: tuple[str, ...]) -> list[F
 
 def prompt_coverage(prompt: pathlib.Path, text: str) -> list[Finding]:
     """Heuristic. Reports what it could not locate; never decides the exit code."""
-    source = prompt.read_text(encoding="utf-8", errors="replace")
+    source = prompt.read_text(encoding="utf-8-sig", errors="replace")
     asked = {f"{m['kind']} {m['num']}" for m in _PROBLEM.finditer(source)}
     answered = {f"{m['kind']} {m['num']}" for m in _PROBLEM.finditer(text)}
     if not asked:
@@ -326,29 +334,15 @@ def prose_findings(pdf: pathlib.Path, reading: str | None = None) -> list[Findin
     ]
 
 
-def budget_findings(tex: pathlib.Path, pdf: pathlib.Path, text: str) -> list[Finding]:
+def budget_findings(tex: pathlib.Path, pdf: pathlib.Path) -> list[Finding]:
     """BLOCK over the budget the source declares, REVIEW when it declares none or a
-    declared page limit cannot be counted. `text` is the PDF in reading order."""
+    declared limit cannot be measured."""
     if length_budget is None:
         return [Finding(INFO, "budget", "budget check not installed (no _shared/length_budget.py)")]
-    source = tex.read_text(encoding="utf-8", errors="replace")
-    try:
-        budget = length_budget.read(source)
-    except ValueError as exc:
-        return [Finding(BLOCK, "budget", f"unreadable budget line: {exc}", tex.name)]
-    if budget is None:
-        hint = "`% budget: N pages` in the .tex"
-        return [Finding(REVIEW, "budget", length_budget.MISSING.format(hint=hint), tex.name)]
-    titles = length_budget.appendix_titles(length_budget.expand_inputs(tex))
-    words = length_budget.count_words(text, titles) if text.strip() else None
-    verdict = length_budget.compare(budget, length_budget.pdf_pages(pdf), words)
-    if verdict.over:
-        message = length_budget.OVER.format(over="; ".join(verdict.over))
-        return [Finding(BLOCK, "budget", message, pdf.name)]
-    if verdict.unmeasured:
-        message = length_budget.UNMEASURED.format(measured=verdict.measured)
-        return [Finding(REVIEW, "budget", message, pdf.name)]
-    return [Finding(INFO, "budget", verdict.measured, pdf.name)]
+    source = tex.read_text(encoding="utf-8-sig", errors="replace")
+    hint = "`% budget: N pages` in the .tex"
+    results = length_budget.assess(source, pdf, hint=hint, source_name=tex.name, tex=tex)
+    return [Finding(severity, "budget", message, where) for severity, message, where in results]
 
 
 def find_prompt(tex: pathlib.Path) -> tuple[pathlib.Path | None, str]:
@@ -430,13 +424,17 @@ def main() -> int:
 
     require_tools()
     tex = find_main_tex(args.path)
-    code = build(tex, args.engine)
     log, pdf = tex.with_suffix(".log"), tex.with_suffix(".pdf")
+    before = _stamp(pdf)
+    code = build(tex, args.engine)
+    # A failed build leaves an earlier run's PDF behind; only a PDF this build wrote is checked.
+    fresh = pdf.exists() and (code == 0 or _stamp(pdf) != before)
 
     found = parse_log(log, args.overfull_pt) + parse_blg(tex)
-    text = pdf_text(pdf) if pdf.exists() else ""
+    text = pdf_text(pdf) if fresh else ""
     markers = tuple(m.strip() for m in args.markers.split(",") if m.strip())
-    found += pdf_checks(pdf, text, markers)
+    if fresh or not pdf.exists():
+        found += pdf_checks(pdf, text, markers)
 
     if not args.no_prompt and text:
         prompt, ambiguous = (args.prompt, "") if args.prompt else find_prompt(tex)
@@ -449,8 +447,8 @@ def main() -> int:
     if not args.no_prose and text:
         found += prose_findings(pdf, reading)
 
-    if pdf.exists():
-        found += budget_findings(tex, pdf, reading)
+    if fresh:
+        found += budget_findings(tex, pdf)
 
     if code != 0 and not any(f.severity == ERROR for f in found):
         found.append(Finding(ERROR, "build", f"latexmk exited {code}, log says nothing"))

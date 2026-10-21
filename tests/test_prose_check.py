@@ -109,6 +109,13 @@ def test_markdown_comments_are_not_prose(pc):
     assert "worth noting" not in text
 
 
+@pytest.mark.parametrize("code", ["`<!--`", "```\n<!--\n```"], ids=["inline", "fenced"])
+def test_a_comment_opener_inside_code_does_not_swallow_the_prose(pc, code):
+    text = pc.markdown_prose(f"Open with:\n\n{code}\n\nKept prose.\n\n<!-- gone -->\n")
+    assert "Kept prose." in text
+    assert "gone" not in text
+
+
 def test_the_cli_reads_markdown(pc, tmp_path, monkeypatch, capsys):
     doc = tmp_path / "doc.md"
     doc.write_text("It is worth noting that this fires.\n", encoding="utf-8")
@@ -195,14 +202,14 @@ def test_a_malformed_rubric_is_reported_not_fatal(lx, rn, monkeypatch, gates, tm
     src = tmp_path / "doc.md"
     src.write_text("# T\n\nText.\n", encoding="utf-8")
     monkeypatch.setattr(rn.prose_check, "default_patterns", broken)
-    (line,) = rn.prose_lines(src)
+    (line,) = rn.prose_lines(src.read_text())
     assert line.strip().startswith("INFO")
 
 
 def test_render_reports_prose_hits_in_the_markdown_source(rn, tmp_path):
     src = tmp_path / "doc.md"
     src.write_text("# Title\n\nIt is worth noting that `leverage()` is code.\n", encoding="utf-8")
-    lines = rn.prose_lines(src)
+    lines = rn.prose_lines(src.read_text())
     assert len(lines) == 1
     assert "REVIEW prose" in lines[0] and "throat-clearing" in lines[0]
 

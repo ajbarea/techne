@@ -21,8 +21,13 @@ draft that needs a separate concision pass was written in the wrong register.
 
 Set the length budget before the first sentence, and declare it on one comment
 line of the root `.tex`: `% budget: 4 pages`, `% budget: 3000 words`, or both
-joined by a comma. Take it from the prompt or venue; a revision takes the
-original's. A document with no limit declares `% budget: none`, and the gate
+joined by a comma. Pages count the whole PDF; when the venue's limit excludes the
+references, write `% budget: none`. Take it from the prompt or venue; a
+revision takes the original's. A `budget:` comment is a declaration when its spec
+opens with a digit, a number word before `page(s)`/`word(s)` (`four pages`), a qualifier
+and number (`max 4 pages`, `~1200 words`), a `_` placeholder (`__BUDGET__`), or
+stands alone as `none`, `unlimited` or `no limit`; it must then parse, else the gate blocks. Any other `budget:`
+comment is ordinary prose. A document with no limit declares `% budget: none`, and the gate
 reports its length without asking for one. The *Length* section of the rubric says how to stay inside it.
 
 ## Run it
@@ -64,8 +69,8 @@ skipped on the run where it mattered.
 | BLOCK | `unsettled` | The log still asks for a rerun, so cross-references are stale. |
 | WARN | `overfull`, `font-substitution`, `package` | Largest five overfull boxes, then a count. |
 | REVIEW | `coverage` | Problem headers in the prompt with no match in the PDF. |
-| BLOCK | `budget` | The PDF is over the declared budget, or the budget line cannot be read. Pages count the PDF; words count its text without the reference list, keeping appendices after it. |
-| REVIEW | `budget` | No budget declared in the root `.tex`, or a page limit is declared but the PDF's pages cannot be counted. |
+| BLOCK | `budget` | The PDF is over the declared budget, or the budget line cannot be read. Pages count the whole PDF; words come from the source through `texcount` (needs it on PATH), bibliography left out, as Overleaf counts. The root and the files it loads by `\input` or `\include` have their `\iffalse` and `comment` blocks left out, which Overleaf's count keeps; files that the `import` or `subfiles` packages load are followed by `texcount` itself, which counts their hidden blocks. |
+| REVIEW | `budget` | No budget declared in the root `.tex`, or a declared limit cannot be measured (the PDF's pages cannot be counted or `texcount` is missing for a word limit). When the build failed and left an old PDF, the PDF checks (including the budget) are skipped. |
 | REVIEW | `prose` | Patterns from the `prose-patterns` block of `_shared/plain-prose.md`, plus sentences over 40 words. `--no-prose` skips it. |
 
 `--markers`, `--overfull-pt` and `--engine` move the thresholds. Read the

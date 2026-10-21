@@ -26,6 +26,7 @@ The skill runs a doctor script that only reads, then follows the [setup runbook]
 |---|---|
 | `uv` | Every graphe script. |
 | `latexmk`, `pdflatex` | `graphe:latex`, `graphe:paper`. |
+| `texcount` | Optional. The `graphe:latex` word budget. |
 | `biber` | Optional. Documents that use biblatex. |
 | `pdftotext`, `pdfinfo`, `pdffonts`, `pdftoppm` | The `graphe:latex` gates and `graphe:slides`. One poppler install covers all four. |
 | `strings` | The `graphe:pdf` font report. |

@@ -8,10 +8,19 @@ A document declares its budget on one comment line of its source, before draftin
     % budget: 4 pages, 3000 words    both limits
     % budget: none                   no limit; the length is still reported
 
-Pages count the whole PDF. Words count the reading text: the reference list is
-dropped (appendices after it are kept), and in markdown so are code, link targets
-and comments. The latex and pdf gates block a build over budget, ask for a budget
-when none is declared, and ask for a look when a declared page limit cannot be counted.
+Pages count the whole PDF; a venue whose limit leaves the references out declares `none`.
+Words come from the source, not the PDF: LaTeX through `texcount -inc -sum` (text, headers,
+`\\title` included, and captions, `\\input` followed, bibliography left out, as Overleaf
+counts; text in `\\iffalse` or `comment` blocks of the root and its `\\input`/`\\include`
+files is left out too, while files the import or subfiles packages load keep it), markdown
+from the body without code, comments, link targets or a References section, and without the
+title block.
+
+A `budget:` comment is a declaration when its spec opens with a number, a number word before
+`page(s)`/`word(s)`, a `_` placeholder, or `none`/`unlimited`/`no limit` alone; it must
+then parse. Any other `budget:` comment is prose. The latex and pdf gates block a build over
+budget or with an unreadable line, ask for a budget when none is declared, and ask for a look
+when a declared limit cannot be measured.
 """
 
 from __future__ import annotations
@@ -25,35 +34,57 @@ from typing import NamedTuple
 
 import prose_check
 
-_TEX_LINE = re.compile(r"^[ \t]*%+[ \t]*budget[ \t]*:(?P<spec>.*?)[ \t]*$", re.I | re.M)
-_MD_LINE = re.compile(r"^[ \t]*<!--[ \t]*budget[ \t]*:(?P<spec>.*?)-->[ \t]*$", re.I | re.M)
+_NUMBER_WORDS = (
+    "zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen"
+    "|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy"
+    "|eighty|ninety|hundred|thousand"
+)
+_TEX_LINE = re.compile(r"^[ \t]*%+[ \t]*budget[ \t]*:[ \t]*(?P<spec>.*?)[ \t]*$", re.I | re.M)
+_MD_LINE = re.compile(r"^[ \t]*<!--[ \t]*budget[ \t]*:[ \t]*(?P<spec>.*?)-->[ \t]*$", re.I | re.M)
+# What a declaration opens with; `none` is handled by _NO_LIMIT, which needs it standing alone.
+_NUMBER = rf"\d[\d,]*(?:\.\d+)?|(?:{_NUMBER_WORDS})(?:[ -]+(?:{_NUMBER_WORDS}))*"
+# A qualifier before the number (`max 4 pages`, `~1200 words`) or `pp` still intends a limit.
+# A leading digit always does, whatever follows (`4 sheets`, `1200 wrods`).
+_QUALIFIER = r"(?:max(?:imum)?\.?|up\s+to|at\s+most|about|under|[~<≤≈]=?)"
+_INTENT = re.compile(
+    rf"^(?:(?:{_QUALIFIER}\s*)?(?:\d|(?:{_NUMBER})\s*(?:pages?\b|words?\b|pp\b))|_)", re.I
+)
+_NO_LIMIT = re.compile(r"^(?:none|unlimited|no\s+limit)[\s.,;:!]*$", re.I)
+_MD_INDENTED = re.compile(r"^(?: {4}|\t).*$", re.M)
 # Where a budget line is example text, not a declaration.
-_TEX_VERBATIM = re.compile(
-    r"\\begin\{(verbatim|lstlisting|minted|comment)\*?\}.*?\\end\{\1\*?\}", re.S
+_TEX_BEGIN = re.compile(
+    r"\\begin\{(verbatim|[BL]?Verbatim|lstlisting|minted|comment|filecontents)\*?\}"
 )
 _CODE_PART = re.compile(r"(?:[^%\\\n]|\\.)*")
 _IFFALSE = re.compile(r"[ \t]*\\iffalse\b")
-_IF = re.compile(r"\\if[a-zA-Z@]*")
+# `\ifthenelse{..}`, `\iftoggle{..}` and any `\if<name>{` are macros with no `\fi`.
+_IF = re.compile(
+    r"\\if(?:false|true)(?![a-zA-Z@])"
+    r"|\\if(?!(?:thenelse|toggle|bool)(?![a-zA-Z@]))[a-zA-Z@]*(?![a-zA-Z@{])"
+)
+_ELSE = re.compile(r"\\else(?![a-zA-Z@])")
+_NEWIF = re.compile(r"\\newif\s*\\[a-zA-Z@]+")
 _FI = re.compile(r"\\fi(?![a-zA-Z@])")
-_COMMENT = re.compile(r"(?<!\\)%.*")
-_INPUT = re.compile(r"\\(?:input|include)\s*\{(?P<name>[^{}]+)\}")
-_NOTE = re.compile(r"\s*\([^()]*\)\s*$")
-_NO_LIMIT = re.compile(r"^(?:none|unlimited|no limit)$", re.I)
+_NOTE = re.compile(r"\s*\([^()]*\)[\s.]*$")
 _ITEM = re.compile(r"^(?P<n>\d{1,3}(?:,\d{3})+|\d+)\s+(?P<unit>pages?|words?)$", re.I)
 # A comma between digits is a thousands separator (3,000), not a list break.
 _SEPARATOR = re.compile(r"\s*;\s*|,\s+|(?<=\D),|\s+and\s+", re.I)
 _WORD = re.compile(r"[^\W_]")
-_APPENDIX = re.compile(r"\\appendix\b|\\begin\{appendices\}")
-_SECTION = re.compile(r"\\(?:chapter|section)\*?\s*(?:\[[^\]]*\])?\s*\{")
-_TEXORPDF = re.compile(r"\\texorpdfstring\s*\{(?:[^{}]|\{[^{}]*\})*\}\s*\{")
-_MATH = re.compile(r"\$[^$]*\$")
-_MACRO = re.compile(r"\\[a-zA-Z@]+\*?")
+_HEADING = re.compile(r"^(#{1,6})[ \t]+(?P<title>.*?)[ \t]*#*[ \t]*$", re.M)
+_REFERENCES_TITLE = re.compile(
+    rf"^(?:\d+(?:\.\d+)*\.?\s+)?(?:{prose_check.REFERENCES_TITLES})$", re.I
+)
+_SETEXT = re.compile(r"^(?P<title>[^\n#][^\n]*)\n(?P<bar>=+|-+)[ \t]*$", re.M)
+_INPUT = re.compile(r"\\(?:input|include)(?![a-zA-Z@])\s*(?:\{([^{}]+)\}|([^\s{}\\%]+))")
+_MAX_INPUT_DEPTH = 20
 _PAGE_OBJECT = re.compile(rb"/Type\s*/Page(?![s\w])")
 _PAGE_COUNT = re.compile(
     rb"/Type\s*/Pages\b[^>]*?/Count\s+(\d+)(?!\s+\d+\s+R)"
     rb"|/Count\s+(\d+)(?!\s+\d+\s+R)[^>]*?/Type\s*/Pages\b"
 )
 _STREAM = re.compile(rb"stream\r?\n(.*?)\r?\nendstream", re.S)
+_OBJ_STREAM = re.compile(rb"/Type\s*/ObjStm\b")
+_TEXCOUNT_TIMEOUT = 60
 
 
 class Budget(NamedTuple):
@@ -66,23 +97,28 @@ def read(source: str, markdown: bool = False) -> Budget | None:
 
     LaTeX declares it in a `%` comment, markdown in an HTML comment, both outside code.
     `none` declares no limit: Budget(None, None). A trailing `(note)` is ignored.
+    A `budget:` comment whose spec does not open like a declaration is not one.
     """
+    source = source.removeprefix("\ufeff")
     if markdown:
-        lines = list(_MD_LINE.finditer(prose_check.MD_FENCE.sub("", source)))
+        found = _MD_LINE.finditer(_declaration_source(source))
     else:
-        lines = list(_TEX_LINE.finditer(_strip_iffalse(_TEX_VERBATIM.sub("", source))))
-    if not lines:
+        found = _TEX_LINE.finditer(_tex_code(source))
+    specs = [spec for m in found if (spec := _spec(m["spec"])) and _declares(spec)]
+    if not specs:
         return None
-    if len(lines) > 1:
-        raise ValueError(f"{len(lines)} budget lines; declare one")
-    spec = _NOTE.sub("", lines[0]["spec"]).strip()
+    if len(specs) > 1:
+        raise ValueError(f"{len(specs)} budget lines; declare one")
+    spec = specs[0]
     if _NO_LIMIT.match(spec):
         return Budget(None, None)
     limits: dict[str, int] = {}
     for item in _SEPARATOR.split(spec):
         match = _ITEM.match(item.strip())
         if not match:
-            raise ValueError(f"cannot read {item!r}; write `N pages`, `N words`, both, or `none`")
+            raise ValueError(
+                f"cannot read {item!r}; write `4 pages`, `1200 words`, a pair, or `none`"
+            )
         unit = match["unit"].lower().rstrip("s")
         n = int(match["n"].replace(",", ""))
         if unit in limits:
@@ -93,77 +129,174 @@ def read(source: str, markdown: bool = False) -> Budget | None:
     return Budget(limits.get("page"), limits.get("word"))
 
 
+def _spec(raw: str) -> str:
+    """The spec without a trailing `(note)` or full stop."""
+    return _NOTE.sub("", raw).strip().rstrip(".").strip()
+
+
+def _declares(spec: str) -> bool:
+    return bool(_INTENT.match(spec) or _NO_LIMIT.match(spec))
+
+
+def _tex_code(source: str) -> str:
+    """The source LaTeX prints: without verbatim-like environments (`comment` included) and
+    `\\iffalse ... \\fi` blocks."""
+    return _strip_iffalse(_strip_verbatim(source))
+
+
+def _strip_verbatim(source: str) -> str:
+    """Drop verbatim-like environments whose `\\begin` sits in the code part of a line, up to
+    the matching `\\end`; a commented-out `%\\begin{comment}` hides nothing."""
+    out, pos = [], 0
+    for match in _TEX_BEGIN.finditer(source):
+        if match.start() < pos:
+            continue
+        start = source.rfind("\n", 0, match.start()) + 1
+        if len(_code_of(source[start : match.start()])) < match.start() - start:
+            continue
+        env = re.escape(match[1])
+        end = re.compile(rf"\\end\{{{env}\*?\}}").search(source, match.end())
+        if not end:
+            continue
+        out.append(source[pos : match.start()])
+        pos = end.end()
+    out.append(source[pos:])
+    return "".join(out)
+
+
 def _strip_iffalse(source: str) -> str:
-    """Drop `\\iffalse ... \\fi` blocks opened at a line start, nested conditionals included."""
-    kept, depth = [], 0
+    """Drop `\\iffalse ... \\fi` blocks opened at a line start, nested conditionals included;
+    the `\\else` branch of such a block is printed and kept.
+
+    Every `\\if<letters>` opens a conditional except the name a `\\newif` defines and the
+    macros that take braces."""
+    kept: list[str] = []
+    frames: list[list[bool]] = []  # per open conditional: [is \iffalse, still hiding]
+    token = re.compile(f"{_IF.pattern}|{_FI.pattern}|{_ELSE.pattern}")
     for line in source.splitlines(keepends=True):
-        match = _CODE_PART.match(line)
-        code = match[0] if match else ""
-        if depth == 0 and not _IFFALSE.match(code):
+        code = _code_of(line)
+        if not frames and not _IFFALSE.match(code):
             kept.append(line)
             continue
-        depth += len(_IF.findall(code)) - len(_FI.findall(code))
-        depth = max(depth, 0)
+        code = _NEWIF.sub("", code)
+        pos = 0
+        for m in token.finditer(code):
+            if not any(hiding for _, hiding in frames):
+                kept.append(code[pos : m.start()])
+            pos = m.end()
+            if _FI.match(m[0]):
+                if frames:
+                    frames.pop()
+            elif _ELSE.match(m[0]):
+                if frames and frames[-1][0]:
+                    frames[-1][1] = False
+            else:
+                is_false = m[0].startswith("\\iffalse")
+                frames.append([is_false, is_false])
+        if not any(hiding for _, hiding in frames):
+            kept.append(code[pos:] + line[len(_code_of(line)) :])
     return "".join(kept)
 
 
-def count_words(text: str, resume: tuple[str, ...] = ()) -> int:
-    """Tokens holding a letter or digit, so table bars and bullets do not count.
-
-    `resume` names the appendix titles that end a reference list; see appendix_titles.
-    """
-    return sum(1 for token in prose_check.body_of(text, resume).split() if _WORD.search(token))
+def _declaration_source(source: str) -> str:
+    """The source without fenced and indented code: where a declaration can sit. Words are
+    counted with indented lines kept, since a nested list item is indented."""
+    return _MD_INDENTED.sub("", prose_check.MD_FENCE.sub("", source))
 
 
-def appendix_titles(tex_source: str) -> tuple[str, ...]:
-    """Titles of the sections after `\\appendix`, which the PDF text prints after the references.
-
-    Markup is dropped (`\\emph{main}` reads `main`); math is dropped, so a title that opens
-    with math is not found and the appendix behind it goes uncounted.
-    """
-    source = _COMMENT.sub("", tex_source)
-    match = _APPENDIX.search(source)
-    if not match:
-        return ()
-    titles = []
-    for section in _SECTION.finditer(source, match.end()):
-        title = _braced(source, section.end())
-        title = _TEXORPDF.sub("{", title)
-        title = " ".join(
-            _MACRO.sub(" ", _MATH.sub(" ", title)).replace("{", " ").replace("}", " ").split()
-        )
-        if title:
-            titles.append(title)
-    return tuple(titles)
+class _Heading(NamedTuple):
+    level: int
+    title: str
+    start: int
 
 
-def _braced(source: str, start: int) -> str:
-    """The text from `start` up to the brace that closes the one just before it."""
-    depth = 1
-    for i in range(start, len(source)):
-        depth += {"{": 1, "}": -1}.get(source[i], 0)
-        if depth == 0:
-            return source[start:i]
-    return source[start:]
+def _headings(text: str) -> list[_Heading]:
+    """ATX (`## Title`) and setext (`Title` over `===` or `---`) headings, in order. A setext
+    title is a one-line paragraph directly above the bar."""
+    found = [_Heading(len(m[1]), m["title"], m.start()) for m in _HEADING.finditer(text)]
+    found += [
+        _Heading(1 if m["bar"][0] == "=" else 2, m["title"].strip(), m.start())
+        for m in _SETEXT.finditer(text)
+        if m.start() == 0 or text[: m.start()].endswith("\n\n")
+    ]
+    return sorted(found, key=lambda h: h.start)
 
 
-def expand_inputs(tex: pathlib.Path, depth: int = 0) -> str:
-    """The root .tex with `\\input` and `\\include` files inlined, so an appendix there is seen."""
-    source = tex.read_text(encoding="utf-8", errors="replace")
-    if depth >= 8:
-        return source
+def _drop_reference_sections(text: str) -> str:
+    """Each References/Bibliography/Works Cited heading's section, up to the next heading of
+    the same or a higher level."""
+    kept, pos, skip_level = [], 0, 0
+    for heading in _headings(text):
+        level = heading.level
+        if skip_level:
+            if level > skip_level:
+                continue
+            skip_level = 0
+            pos = heading.start
+        if _REFERENCES_TITLE.match(heading.title):
+            kept.append(text[pos : heading.start])
+            skip_level = level
+    kept.append("" if skip_level else text[pos:])
+    return "".join(kept)
+
+
+def markdown_words(source: str) -> int:
+    """Words of a markdown body: no code, comments, link targets or reference sections.
+
+    Tokens holding a letter or digit, so table bars and bullets do not count."""
+    text = _drop_reference_sections(prose_check.markdown_prose(source))
+    return sum(1 for token in text.split() if _WORD.search(token))
+
+
+def _inline_inputs(code: str, folder: pathlib.Path, depth: int = 0) -> str:
+    """`code` with each `\\input`/`\\include` of a file in `folder` replaced by that file's
+    printed code, so texcount never sees a hidden block. A missing file stays a macro. One
+    pass per line: inlined text is never rescanned by another substitution. Import and
+    subfiles macros are left for texcount to follow."""
 
     def inline(match: re.Match[str]) -> str:
-        name = match["name"].strip()
-        path = tex.parent / (name if name.endswith(".tex") else f"{name}.tex")
-        return expand_inputs(path, depth + 1) if path.is_file() else match[0]
+        name = (match[1] or match[2]).strip()
+        for path in (folder / f"{name}.tex", folder / name):
+            if depth < _MAX_INPUT_DEPTH and path.is_file():
+                text = path.read_text(encoding="utf-8-sig", errors="replace")
+                return _inline_inputs(_tex_code(text), folder, depth + 1).rstrip("\n") + "\n"
+        return match[0]
 
-    return _INPUT.sub(inline, source)
+    lines = []
+    for line in code.splitlines(keepends=True):
+        head = _code_of(line)
+        lines.append(_INPUT.sub(inline, head) + line[len(head) :])
+    return "".join(lines)
 
 
-def count_markdown_words(source: str) -> int:
-    """Words of a markdown source, without code, link targets or comments."""
-    return count_words(prose_check.markdown_prose(source))
+def tex_words(tex: pathlib.Path) -> tuple[int | None, str]:
+    """Words of the root .tex and what it inputs, as texcount counts them (text, headers
+    including the title, and captions; bibliography, and `\\iffalse` and `comment` blocks in
+    the root and its `\\input`/`\\include` files, left out; files the import or subfiles
+    packages load keep theirs), and why it could not be counted."""
+    if not shutil.which("texcount"):
+        return None, "texcount not found"
+    try:
+        code = _tex_code(tex.read_text(encoding="utf-8-sig", errors="replace"))
+        proc = subprocess.run(
+            ["texcount", "-inc", "-sum", "-1", "-"],
+            cwd=tex.parent,
+            input=_inline_inputs(code, tex.parent),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=_TEXCOUNT_TIMEOUT,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return None, f"texcount failed: {exc}"
+    lines = proc.stdout.split()
+    if proc.returncode or not lines or not lines[0].isdigit() or "errors" in proc.stdout:
+        detail = " ".join(proc.stdout.split()) or "no count printed"
+        err = next((ln.strip() for ln in proc.stderr.splitlines() if ln.strip()), "")
+        detail += f" ({err[:100]})" if err else ""
+        return None, f"texcount could not read the document: {detail}"
+    return int(lines[0]), ""
 
 
 def pdf_pages(pdf: pathlib.Path) -> int | None:
@@ -184,6 +317,9 @@ def _count_pages(data: bytes) -> int | None:
     """
     chunks = [data]
     for stream in _STREAM.finditer(data):
+        head = data[max(data.rfind(b"obj", 0, stream.start()), 0) : stream.start()]
+        if not _OBJ_STREAM.search(head):
+            continue
         try:
             chunks.append(zlib.decompress(stream[1]))
         except zlib.error:
@@ -200,26 +336,30 @@ class Verdict(NamedTuple):
     unmeasured: bool
 
 
+def _plural(n: int | str, unit: str) -> str:
+    return f"{n} {unit}" if str(n) == "1" else f"{n} {unit}s"
+
+
 def compare(budget: Budget, pages: int | None, words: int | None) -> Verdict:
     """Each limit the document is over, the measured length (`5 of 4 pages`), and whether
-    a declared limit could not be measured."""
+    a declared limit could not be measured. `words` is None when not counted."""
     over = []
-    shown = "?" if pages is None else str(pages)
+    shown = "?" if pages is None else pages
     if budget.pages is None:
-        page_part = f"{shown} pages"
+        page_part = _plural(shown, "page")
     else:
-        page_part = f"{shown} of {budget.pages} pages"
+        page_part = f"{shown} of {_plural(budget.pages, 'page')}"
         if pages is not None and pages > budget.pages:
-            over.append(f"{pages} pages, budget {budget.pages}")
+            over.append(f"{_plural(pages, 'page')}, budget {budget.pages}")
     shown_words = "?" if words is None else str(words)
     if budget.words is None:
-        word_part = f"{shown_words} words"
+        word_part = _plural(shown_words, "word")
     else:
-        word_part = f"{shown_words} of {budget.words} words"
+        word_part = f"{shown_words} of {_plural(budget.words, 'word')}"
         if words is not None and words > budget.words:
-            over.append(f"{words} words, budget {budget.words}")
-    measured = f"{page_part}, {word_part}"
-    if budget == Budget(None, None):
+            over.append(f"{_plural(words, 'word')}, budget {budget.words}")
+    measured = page_part if budget.words is None and words is None else f"{page_part}, {word_part}"
+    if budget.pages is None and budget.words is None:
         measured += " (no limit declared)"
     unmeasured = (budget.pages is not None and pages is None) or (
         budget.words is not None and words is None
@@ -229,4 +369,50 @@ def compare(budget: Budget, pages: int | None, words: int | None) -> Verdict:
 
 MISSING = "no length budget declared; set one before drafting ({hint})"
 UNMEASURED = "could not measure the PDF against the declared limit ({measured}); check by eye"
+UNCOUNTED = "word limit cannot be measured: {why} ({measured}); check by eye"
 OVER = "over budget: {over}. Cut repeated results and retold material, not substance"
+
+
+def assess(
+    source: str,
+    pdf: pathlib.Path,
+    *,
+    hint: str,
+    source_name: str,
+    tex: pathlib.Path | None = None,
+    body: str | None = None,
+) -> list[tuple[str, str, str]]:
+    """The gates' shared verdict as (severity, message, anchor) triples.
+
+    `source` holds the declaration. Markdown (no `tex`) counts the words of `body`, default
+    `source`; LaTeX counts those of `tex` through texcount, only for a word limit or no limit.
+    The anchor is `source_name` for a missing or
+    unreadable budget and the PDF's name for a measurement. BLOCK is over budget or an
+    unreadable line; REVIEW is no budget or a declared limit that could not be measured.
+    """
+    try:
+        budget = read(source, markdown=tex is None)
+    except ValueError as exc:
+        return [("BLOCK", f"unreadable budget line: {exc}", source_name)]
+    if budget is None:
+        return [("REVIEW", MISSING.format(hint=hint), source_name)]
+    if tex is None:
+        words, why = markdown_words(source if body is None else body), ""
+    elif budget.words is None and budget.pages is not None:
+        words, why = None, ""
+    else:
+        words, why = tex_words(tex)
+    pages = pdf_pages(pdf)
+    verdict = compare(budget, pages, words)
+    if verdict.over:
+        return [("BLOCK", OVER.format(over="; ".join(verdict.over)), pdf.name)]
+    if verdict.unmeasured:
+        if budget.words is not None and words is None:
+            return [("REVIEW", UNCOUNTED.format(why=why, measured=verdict.measured), pdf.name)]
+        return [("REVIEW", UNMEASURED.format(measured=verdict.measured), pdf.name)]
+    return [("INFO", verdict.measured, pdf.name)]
+
+
+def _code_of(line: str) -> str:
+    match = _CODE_PART.match(line)
+    return match[0] if match else ""
