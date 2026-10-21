@@ -9,24 +9,15 @@ how each skill was designed.
 If this file is more than ~50 lines, something queued or referential
 has crept in; extract it back to ROADMAP.
 
-## In flight: one techne.toml reader (branch `refactor/techne-config`, PR #192, issue #190)
+### Landed on main: one techne.toml reader (#192, closes #190)
 
-`_shared/techne_config.py`: `read_regular()` (non-blocking open, fstat, regular file under
-1 MiB; also repo_kind's skill-context read), `load()` (None when absent; `NeedsTomllib`,
-`ConfigUnreadable`, `ConfigInvalid`), `sisters()` (strict; a name must be one folder name),
-`required()` (keys present and typed), `workspace_root()` (absolute or `~`), kind/status rules,
-`checkout()`, `matches()`. Callers map errors: hygiene exits, board hook silent (TomlError),
-board CLI names it, repo_kind team, catchup warns and looks beside the cwd. Setup doctor uses
-it on 3.11+, a regex presence check below. Guard test: no other techne script parses TOML or
-builds a path to techne.toml.
-Review: high round 1 (62a448d) mergeable; light delta read; high round 2 (code-review at a79b726,
-reader at 3c9f5be) mergeable. Cap: 3 rounds from the 10-21 orchestrator note (2 used).
-Not changed (measured or deliberate): same-origin git call per team sister (~5 ms), matches()
-re-resolving per sister (resolving in the caller risks a false-solo), board init's double parse.
-Reader round 2 (3c9f5be): mergeable, Minors folded in (O_BINARY/O_NOCTTY, empty root,
-CLI repo names, docs). Loop stopped: no Blocking/Should-fix. Next: CI green, merge; delete the
-review-192 scratch worktree.
-Verify: `make validate` (CI).
+`_shared/techne_config.py` is the only reader of `~/.claude/techne.toml`: bounded
+`read_regular()` (also repo_kind's skill-context read), `load()` with one `ConfigError` family
+each caller maps, strict roster (`sisters()`, one-folder names), `required()`, `workspace_root()`
+(absolute or `~`), kind/status rules, `checkout()`, `matches()`. A guard test keeps every other
+techne script from parsing TOML or building a path to the file. Not changed on purpose:
+same-origin git call per team sister (~5 ms), `matches()` resolving per sister, board init's
+double parse.
 
 ### Landed on main: solo repos act, team repos ask (#189)
 
