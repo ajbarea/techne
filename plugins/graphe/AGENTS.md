@@ -23,6 +23,7 @@ If the shell says `python3` is not found, the doctor cannot start. The user inst
 | --- | --- | --- |
 | `uv` | every graphe script | Run the fix line after the user approves, then open a new terminal so `uv` is on PATH. |
 | `latexmk`, `pdflatex` | graphe:latex, graphe:paper | The user runs the fix line with `!`. One install covers both. After a macOS install, open a new terminal. |
+| `texcount` | graphe:latex word budgets | The user runs the fix line with `!`. Optional: without it a declared word limit prints `REVIEW budget`. A MacTeX install includes it. |
 | `biber` | documents that use biblatex | Optional. On Debian or Ubuntu the user runs the fix line with `!`. On macOS you may run it after the user approves. |
 | `pdftotext`, `pdfinfo`, `pdffonts`, `pdftoppm` | graphe:latex gates, graphe:slides | On Debian or Ubuntu the user runs the fix line with `!`. On macOS you may run it after the user approves. One poppler install covers all four. |
 | `strings` | graphe:pdf font report | The user runs the fix line with `!`. It is part of binutils on Linux and of the Xcode command line tools on macOS. |

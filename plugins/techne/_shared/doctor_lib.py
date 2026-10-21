@@ -75,6 +75,9 @@ FIXES = {
         apt="sudo apt install texlive-latex-extra latexmk",
         brew="brew install --cask mactex-no-gui",
     ),
+    "texcount": Fix(
+        apt="sudo apt install texlive-extra-utils", brew="brew install --cask mactex-no-gui"
+    ),
     "biber": Fix(apt="sudo apt install biber", brew="brew install biber"),
     "poppler": Fix(apt="sudo apt install poppler-utils", brew="brew install poppler"),
     "strings": Fix(apt="sudo apt install binutils", brew="xcode-select --install"),

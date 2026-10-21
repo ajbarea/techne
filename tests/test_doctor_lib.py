@@ -186,6 +186,9 @@ def test_exact_fix_commands(dl):
     )
     assert f["poppler"] == dl.Fix(apt="sudo apt install poppler-utils", brew="brew install poppler")
     assert f["strings"] == dl.Fix(apt="sudo apt install binutils", brew="xcode-select --install")
+    assert f["texcount"] == dl.Fix(
+        apt="sudo apt install texlive-extra-utils", brew="brew install --cask mactex-no-gui"
+    )
     assert f["biber"] == dl.Fix(apt="sudo apt install biber", brew="brew install biber")
     assert f["gh"].brew == "brew install gh"
     assert f["gh"].apt.endswith("sudo apt update && sudo apt install gh -y")
