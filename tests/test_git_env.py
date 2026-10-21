@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 import time
 from pathlib import Path
 
 import pytest
-from conftest import ROOT, _load
+from conftest import ROOT, _load, assert_gone
 
 GIT_ENV = ROOT / "plugins" / "techne" / "_shared" / "git_env.py"
 
@@ -165,23 +164,7 @@ def test_ssh_g_cannot_leave_a_child_holding_the_pipe(ge, tmp_path, monkeypatch):
     started = time.monotonic()
     assert ge.github_slug("git@github-work:o/r") is None
     assert time.monotonic() - started < 5
-    pid = int(pidfile.read_text())
-    try:
-        for _ in range(40):  # SIGKILL lands at once; a zombie lingers until init reaps it
-            try:
-                os.kill(pid, 0)
-            except ProcessLookupError:
-                break
-            if "\tZ" in Path(f"/proc/{pid}/status").read_text():
-                break
-            time.sleep(0.05)
-        else:
-            raise AssertionError(f"child {pid} is still running")
-    finally:
-        try:
-            os.kill(pid, 9)
-        except ProcessLookupError:
-            pass
+    assert_gone(int(pidfile.read_text()))
 
 
 def test_git_env_loaded_by_file_path_alone_still_resolves_an_alias(tmp_path):

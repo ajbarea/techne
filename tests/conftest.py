@@ -23,6 +23,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import tomllib
 import types
 from collections.abc import Iterable, Mapping
@@ -383,3 +384,28 @@ def board_rules(options: Mapping[str, str] = BOARD_OPTIONS) -> list[dict]:
     absent = {"data": {"resource": {"projectItems": {"nodes": []}}}}
     rules.append({"match": ["api", "graphql"], "stdout": json.dumps(absent)})
     return rules
+
+
+def proc_state(pid: int) -> str:
+    """The /proc state letter of PID, or "Z" once it is gone (reaped between two reads too)."""
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            return f.read().rsplit(")", 1)[1].split()[0]
+    except OSError:
+        return "Z"
+
+
+def assert_gone(pid: int) -> None:
+    """Fail unless PID has exited (a zombie counts: init reaps it later) within 2 s; it is
+    killed afterwards either way."""
+    try:
+        for _ in range(40):
+            if proc_state(pid) == "Z":
+                return
+            time.sleep(0.05)
+        raise AssertionError(f"process {pid} is still running")
+    finally:
+        try:
+            os.kill(pid, 9)
+        except ProcessLookupError:
+            pass
