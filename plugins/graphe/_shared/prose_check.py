@@ -120,31 +120,71 @@ def report(text: str) -> tuple[list[Hit], str]:
         return [], f"prose check skipped: {exc}"
 
 
-def body_of(text: str, resume: tuple[str, ...] = ()) -> str:
-    """Drop reference lists, keep appendices, and rejoin words hyphenated across a line.
+# A contents block: after `Contents`, short lines with no sentence in them, and page numbers.
+_CONTENTS = re.compile(
+    r"^[ \t]*(?:#{1,6}[ \t]*)?(?:Table[ \t]+of[ \t]+)?Contents[ \t]*$", re.M | re.I
+)
+_CONTENTS_ENTRY = re.compile(r"(?=.{0,100}$)(?:[^.!?]|\.(?=\S)|\. (?=[. \d]))*")
 
-    The list starts at the last references heading, so a table of contents entry for it
-    is kept. It ends at the next heading, or at a line opening with one of `resume`
-    (appendix titles read from the source, maybe lettered `A` or `Appendix A:`).
+
+def _contents_blocks(text: str) -> list[tuple[int, int]]:
+    """Spans of a table of contents, whose lines can read like headings."""
+    spans = []
+    for head in _CONTENTS.finditer(text):
+        end = head.end()
+        for line in text[head.end() :].splitlines(keepends=True):
+            if not _CONTENTS_ENTRY.fullmatch(line.rstrip("\n")):
+                break
+            end += len(line)
+        spans.append((head.start(), end))
+    return spans
+
+
+def _reference_lists(text: str, resume: tuple[str, ...]) -> list[tuple[int, int, int]]:
+    """(heading start, heading end, list end) of each reference list, contents entries excluded.
+
+    A list ends at the next heading, or at a line that is one of `resume` (appendix titles
+    read from the source, maybe lettered `A` or `Appendix A:`), or at the end.
     """
     resumes = [_resume_line(title) for title in resume if title.split()]
-    headings = list(_REFERENCES.finditer(text))
-    if headings:
-        match = headings[-1]
+    blocks = _contents_blocks(text)
+    lists, pos = [], 0
+    for match in _REFERENCES.finditer(text):
+        if match.start() < pos or any(a <= match.start() < b for a, b in blocks):
+            continue
         rest = text[match.end() :]
         starts = [m.start() for m in (p.search(rest) for p in (_NEXT_HEADING, *resumes)) if m]
-        text = text[: match.start()] + (rest[min(starts) :] if starts else "")
-    return _HYPHEN_BREAK.sub(r"\1\2", text)
+        pos = match.end() + min(starts) if starts else len(text)
+        lists.append((match.start(), match.end(), pos))
+    return lists
+
+
+def references_start(text: str) -> int | None:
+    """Where the first reference list begins, or None. A contents entry is not a list."""
+    lists = _reference_lists(text, ())
+    return lists[0][0] if lists else None
+
+
+def body_of(text: str, resume: tuple[str, ...] = ()) -> str:
+    """Drop every reference list, keep appendices, and rejoin words hyphenated across a line."""
+    kept, pos = [], 0
+    for start, _, end in _reference_lists(text, resume):
+        kept.append(text[pos:start])
+        pos = end
+    kept.append(text[pos:])
+    return _HYPHEN_BREAK.sub(r"\1\2", "".join(kept))
 
 
 def _resume_line(title: str) -> re.Pattern[str]:
-    words = r"\s+".join(map(re.escape, title.split()[:3]))
-    return re.compile(rf"^[ \t]*(?:(?:Appendix\s+)?[A-Z](?:\.\d+)*[.:]?\s+)?{words}\b", re.M)
+    """The whole line (maybe wrapped, maybe lettered `A` or `Appendix A:`) that prints `title`."""
+    words = r"\s+".join(map(re.escape, title.split()))
+    label = r"(?:(?:Appendix\s+)?[A-Z](?:\.\d+)*[.:]?\s+)?"
+    return re.compile(rf"^[ \t]*{label}{words}[ \t]*$", re.M)
 
 
 def markdown_prose(text: str) -> str:
     """Code, comments and link targets are not prose. Typst sets `---` as an em-dash."""
-    text = _MD_INLINE_CODE.sub(" ", MD_FENCE.sub(" ", _MD_COMMENT.sub(" ", text)))
+    text = _MD_COMMENT.sub(" ", _MD_INLINE_CODE.sub(" ", MD_FENCE.sub(" ", text)))
     text = _MD_LINK_URL.sub("]", text)
     return _MD_TRIPLE_DASH.sub("\u2014", text)
 

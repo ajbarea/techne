@@ -22,6 +22,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 
 # The prose check and the install table ship in the plugin's _shared/ directory.
 sys.dont_write_bytecode = True  # a missing-tool exit leaves no file behind in the plugin cache
@@ -328,27 +329,13 @@ def prose_findings(pdf: pathlib.Path, reading: str | None = None) -> list[Findin
 
 def budget_findings(tex: pathlib.Path, pdf: pathlib.Path, text: str) -> list[Finding]:
     """BLOCK over the budget the source declares, REVIEW when it declares none or a
-    declared page limit cannot be counted. `text` is the PDF in reading order."""
+    declared limit cannot be measured. `text` is the PDF in reading order."""
     if length_budget is None:
         return [Finding(INFO, "budget", "budget check not installed (no _shared/length_budget.py)")]
     source = tex.read_text(encoding="utf-8", errors="replace")
-    try:
-        budget = length_budget.read(source)
-    except ValueError as exc:
-        return [Finding(BLOCK, "budget", f"unreadable budget line: {exc}", tex.name)]
-    if budget is None:
-        hint = "`% budget: N pages` in the .tex"
-        return [Finding(REVIEW, "budget", length_budget.MISSING.format(hint=hint), tex.name)]
-    titles = length_budget.appendix_titles(length_budget.expand_inputs(tex))
-    words = length_budget.count_words(text, titles) if text.strip() else None
-    verdict = length_budget.compare(budget, length_budget.pdf_pages(pdf), words)
-    if verdict.over:
-        message = length_budget.OVER.format(over="; ".join(verdict.over))
-        return [Finding(BLOCK, "budget", message, pdf.name)]
-    if verdict.unmeasured:
-        message = length_budget.UNMEASURED.format(measured=verdict.measured)
-        return [Finding(REVIEW, "budget", message, pdf.name)]
-    return [Finding(INFO, "budget", verdict.measured, pdf.name)]
+    hint = "`% budget: N pages` in the .tex"
+    results = length_budget.assess(source, pdf, hint=hint, tex=tex, reading=text)
+    return [Finding(severity, "budget", message, pdf.name) for severity, message in results]
 
 
 def find_prompt(tex: pathlib.Path) -> tuple[pathlib.Path | None, str]:
@@ -430,6 +417,7 @@ def main() -> int:
 
     require_tools()
     tex = find_main_tex(args.path)
+    started = time.time()
     code = build(tex, args.engine)
     log, pdf = tex.with_suffix(".log"), tex.with_suffix(".pdf")
 
@@ -449,7 +437,7 @@ def main() -> int:
     if not args.no_prose and text:
         found += prose_findings(pdf, reading)
 
-    if pdf.exists():
+    if pdf.exists() and (code == 0 or pdf.stat().st_mtime >= started):
         found += budget_findings(tex, pdf, reading)
 
     if code != 0 and not any(f.severity == ERROR for f in found):

@@ -21,8 +21,10 @@ draft that needs a separate concision pass was written in the wrong register.
 
 Set the length budget before the first sentence, and declare it on one comment
 line of the root `.tex`: `% budget: 4 pages`, `% budget: 3000 words`, or both
-joined by a comma. Take it from the prompt or venue; a revision takes the
-original's. A document with no limit declares `% budget: none`, and the gate
+joined by a comma. When the venue's page limit excludes the references, write
+`% budget: 8 pages before references`. Take it from the prompt or venue; a
+revision takes the original's. A `budget:` comment that does not start with a
+digit or `none` is an ordinary comment. A document with no limit declares `% budget: none`, and the gate
 reports its length without asking for one. The *Length* section of the rubric says how to stay inside it.
 
 ## Run it
@@ -64,8 +66,8 @@ skipped on the run where it mattered.
 | BLOCK | `unsettled` | The log still asks for a rerun, so cross-references are stale. |
 | WARN | `overfull`, `font-substitution`, `package` | Largest five overfull boxes, then a count. |
 | REVIEW | `coverage` | Problem headers in the prompt with no match in the PDF. |
-| BLOCK | `budget` | The PDF is over the declared budget, or the budget line cannot be read. Pages count the PDF; words count its text without the reference list, keeping appendices after it. |
-| REVIEW | `budget` | No budget declared in the root `.tex`, or a page limit is declared but the PDF's pages cannot be counted. |
+| BLOCK | `budget` | The PDF is over the declared budget, or the budget line cannot be read. Pages count the whole PDF, or up to the page the reference list starts on with `before references`; words count its text without the reference list, keeping appendices after it. |
+| REVIEW | `budget` | No budget declared in the root `.tex`, or a declared limit cannot be measured (the PDF's pages cannot be counted, it holds no text to count words in, or `before references` finds no reference heading). The gate skips the budget when the build failed and left an old PDF. |
 | REVIEW | `prose` | Patterns from the `prose-patterns` block of `_shared/plain-prose.md`, plus sentences over 40 words. `--no-prose` skips it. |
 
 `--markers`, `--overfull-pt` and `--engine` move the thresholds. Read the

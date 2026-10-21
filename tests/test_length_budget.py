@@ -7,6 +7,7 @@ a document that is twice as long as it should be.
 
 from __future__ import annotations
 
+import os
 import pathlib
 import zlib
 
@@ -37,7 +38,7 @@ def lb(lx):
         ("% budget: 4 pages and 500 words\n", False, 4, 500),
         ("% budget: 4 pages (IEEE conference)\n", False, 4, None),
         ("% budget: none\n", False, None, None),
-        ("<!-- budget: Unlimited -->\n", True, None, None),
+        ("<!-- budget: None -->\n", True, None, None),
     ],
 )
 def test_a_declared_budget_is_read(lb, source, markdown, pages, words):
@@ -71,9 +72,8 @@ def test_a_budget_line_shown_as_example_text_is_not_a_second_declaration(lb):
     ("source", "says"),
     [
         ("% budget: 4 pages\n% budget: 5 pages\n", "2 budget lines"),
-        ("% budget: four pages\n", "cannot read"),
+        ("% budget: 4pages\n", "cannot read"),
         ("% budget: 4 lines\n", "cannot read"),
-        ("% budget:\n", "cannot read"),
         ("% budget: 4 pages, 5 pages\n", "two page limits"),
         ("% budget: 0 pages\n", "a budget of 0"),
         ("% budget: 3.5 pages\n", "cannot read"),
@@ -228,7 +228,7 @@ def test_render_reports_the_length_of_a_document_with_no_limit(rn, monkeypatch, 
     code = _render_main(rn, monkeypatch, tmp_path, "# T\n\n<!-- budget: none -->\n\nBody.\n", 30)
     out = capsys.readouterr().out
     assert code == 0
-    assert "INFO   budget 30 pages, 2 words (no limit declared)" in out
+    assert "INFO   budget 30 pages, 1 words (no limit declared)" in out
     assert "REVIEW" not in out
 
 
@@ -303,3 +303,228 @@ def test_an_indirect_page_count_is_not_read_as_the_count(lb, monkeypatch, tmp_pa
 def test_latex_asks_for_a_look_when_a_word_limit_meets_no_text(lx, lb, tmp_path, gates):
     tex, pdf = _tex(tmp_path, "% budget: 900 words")
     assert gates(lx.budget_findings(tex, pdf, "  \n")) == {(REVIEW, "budget")}
+
+
+# ------------------------------------------------ third-review cases --
+
+
+@pytest.mark.parametrize(
+    ("source", "markdown"),
+    [
+        ("% Budget: personnel costs justified below\n", False),
+        ("% budget:\n", False),
+        ("% budget: four pages\n", False),
+        ("<!-- budget: see the grant text -->\n", True),
+    ],
+)
+def test_a_budget_comment_that_states_no_limit_is_an_ordinary_comment(lb, source, markdown):
+    assert lb.read(source, markdown=markdown) is None
+
+
+def test_an_ordinary_budget_comment_does_not_hide_the_declaration(lb):
+    assert lb.read("% Budget: costs below\n% budget: 4 pages\n") == lb.Budget(4, None)
+
+
+@pytest.mark.parametrize("env", ["Verbatim", "BVerbatim", "filecontents", "filecontents*"])
+def test_a_budget_line_in_a_fancyvrb_or_filecontents_block_is_example_text(lb, env):
+    source = f"% budget: 4 pages\n\\begin{{{env}}}\n% budget: 9 pages\n\\end{{{env}}}\n"
+    assert lb.read(source) == lb.Budget(4, None)
+
+
+@pytest.mark.parametrize("indent", ["    ", "\t"])
+def test_a_budget_line_in_an_indented_markdown_code_block_is_example_text(lb, indent):
+    source = f"# T\n\n<!-- budget: 4 pages -->\n\nExample:\n\n{indent}<!-- budget: 9 pages -->\n"
+    assert lb.read(source, markdown=True) == lb.Budget(4, None)
+
+
+def test_expand_inputs_ignores_a_commented_input(lb, tmp_path):
+    (tmp_path / "doc.tex").write_text("% \\input{old}\nText \\% \\input{kept}\n")
+    (tmp_path / "old.tex").write_text("\\appendix\n\\section{Stale}\n")
+    assert "Stale" not in lb.expand_inputs(tmp_path / "doc.tex")
+
+
+def test_a_nested_input_resolves_against_the_root_folder(lb, tmp_path):
+    (tmp_path / "sec").mkdir()
+    (tmp_path / "doc.tex").write_text("\\input{sec/one}\n")
+    (tmp_path / "sec" / "one.tex").write_text("\\input{sec/two}\n")
+    (tmp_path / "sec" / "two.tex").write_text("Reached.\n")
+    assert "Reached." in lb.expand_inputs(tmp_path / "doc.tex")
+
+
+def test_a_wrapped_reference_line_that_starts_like_an_appendix_title_stays_in_the_list(lb):
+    text = "Body words.\nReferences\n[1] A. Smith. Paper.\nDatasets and Benchmarks Track, 2023.\n"
+    assert lb.count_words(text, ("Datasets and Benchmarks",)) == 2
+
+
+def test_an_appendix_title_ending_in_punctuation_still_resumes_the_count(lb):
+    text = "Body words.\nReferences\n[1] A. Smith.\nB Why?\nIt holds.\n"
+    assert lb.count_words(text, ("Why?",)) == 6
+
+
+def test_a_wrapped_appendix_title_still_resumes_the_count(lb):
+    text = "Body.\nReferences\n[1] A. Smith.\nA Proof of the main\ntheorem and more\nIt holds.\n"
+    assert lb.count_words(text, ("Proof of the main theorem and more",)) == 11
+
+
+def test_every_reference_list_is_dropped(lb):
+    text = (
+        "Body one two.\nReferences\n[1] Not counted.\n\n"
+        "# Appendix A\nAppendix three words.\nReferences\n[2] Also not counted.\n"
+    )
+    assert lb.count_words(text) == 3 + 2 + 3
+
+
+def test_a_contents_entry_among_two_reference_lists_is_kept_out_of_the_cut(lb):
+    text = (
+        "Contents\n1 Introduction\nReferences\n\n"
+        "Body has these five words.\nReferences\n[1] Not counted.\n"
+    )
+    assert lb.count_words(text) == 1 + 2 + 1 + 5
+
+
+def test_page_numbers_and_numeric_lines_are_not_words(lb):
+    assert lb.count_words("Three real words.\n12\n0.5 1.0 -2,5\n(3)\n1e3 x\n") == 3 + 2
+
+
+def test_a_pdf_stream_is_decompressed_only_when_it_is_an_object_stream(lb, monkeypatch, tmp_path):
+    objects = zlib.compress(b"<< /Type /Pages /Count 3 >>")
+    content = zlib.compress(b"BT (page text) Tj ET")
+    pdf = tmp_path / "doc.pdf"
+    pdf.write_bytes(
+        b"%PDF-1.5\n1 0 obj\n<< /Length 9 /Filter /FlateDecode >>\nstream\n"
+        + content
+        + b"\nendstream\nendobj\n2 0 obj\n<< /Type /ObjStm /N 1 >>\nstream\n"
+        + objects
+        + b"\nendstream\nendobj\n"
+    )
+    seen = []
+    real = zlib.decompress
+    monkeypatch.setattr(lb.zlib, "decompress", lambda data: seen.append(data) or real(data))
+    monkeypatch.setattr(lb.shutil, "which", lambda _tool: None)
+    assert lb.pdf_pages(pdf) == 3
+    assert seen == [objects]
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("\\iffalse\n\\newif\\ifdraft\n\\fi\n% budget: 4 pages\n", lambda lb: lb.Budget(4, None)),
+        (
+            "\\iffalse\n\\newif\\ifdraft \\ifdraft x\\fi\n\\fi\n% budget: 4 pages\n",
+            lambda lb: lb.Budget(4, None),
+        ),
+    ],
+)
+def test_a_newif_inside_an_iffalse_block_does_not_swallow_the_rest(lb, source, expected):
+    assert lb.read(source) == expected(lb)
+
+
+@pytest.mark.parametrize(
+    ("line", "budget"),
+    [
+        ("% budget: 8 pages before references", (8, None, True)),
+        ("% budget: 8 pages before references, 6000 words", (8, 6000, True)),
+        ("% budget: 8 pages", (8, None, False)),
+    ],
+)
+def test_a_page_limit_can_exclude_the_references(lb, line, budget):
+    assert lb.read(line + "\n") == lb.Budget(*budget)
+
+
+def test_before_references_needs_pages(lb):
+    with pytest.raises(ValueError, match="before references"):
+        lb.read("% budget: 900 words before references\n")
+
+
+def test_pages_before_references_count_up_to_the_page_the_list_starts_on(lb):
+    reading = "One.\fTwo.\fThree.\nReferences\n[1] A.\fMore refs.\f[2] B.\f"
+    assert lb.pages_before_references(reading) == 3
+
+
+def test_pages_before_references_are_unknown_without_a_heading(lb):
+    assert lb.pages_before_references("One.\fTwo.\f") is None
+
+
+def test_pages_before_references_skip_a_contents_entry(lb):
+    reading = "Contents\n1 Intro\nReferences\n\fBody.\fMore.\nReferences\n[1] A.\f"
+    assert lb.pages_before_references(reading) == 3
+
+
+def _assess(lb, line, reading, pages, tmp_path, monkeypatch):
+    tex = tmp_path / "doc.tex"
+    tex.write_text(f"{line}\n\\documentclass{{article}}\n", encoding="utf-8")
+    monkeypatch.setattr(lb, "pdf_pages", lambda _pdf: pages)
+    return lb.assess(tex.read_text(), tmp_path / "doc.pdf", hint="h", tex=tex, reading=reading)
+
+
+def test_a_long_bibliography_does_not_break_a_before_references_budget(lb, tmp_path, monkeypatch):
+    reading = "Body.\fMore.\nReferences\n[1] A.\f[2] B.\f[3] C.\f"
+    found = _assess(lb, "% budget: 3 pages before references", reading, 5, tmp_path, monkeypatch)
+    assert [s for s, _ in found] == [INFO]
+    assert "2 of 3 pages before references" in found[0][1]
+
+
+def test_a_body_over_a_before_references_budget_is_blocked_and_says_so(lb, tmp_path, monkeypatch):
+    reading = "A.\fB.\fC.\fD.\nReferences\n[1] A.\f"
+    found = _assess(lb, "% budget: 3 pages before references", reading, 5, tmp_path, monkeypatch)
+    assert found[0][0] == BLOCK
+    assert "4 pages before references, budget 3" in found[0][1]
+
+
+def test_a_before_references_budget_without_a_heading_asks_for_a_look(lb, tmp_path, monkeypatch):
+    found = _assess(lb, "% budget: 3 pages before references", "A.\fB.\f", 2, tmp_path, monkeypatch)
+    assert [s for s, _ in found] == [REVIEW]
+
+
+def test_assess_reads_missing_unreadable_and_none(lb, tmp_path, monkeypatch):
+    pdf = tmp_path / "doc.pdf"
+    monkeypatch.setattr(lb, "pdf_pages", lambda _pdf: 1)
+    assert lb.assess("Plain.\n", pdf, hint="H", reading="x")[0][0] == REVIEW
+    assert "H" in lb.assess("Plain.\n", pdf, hint="H", reading="x")[0][1]
+    assert lb.assess("<!-- budget: 0 pages -->\n", pdf, hint="H", reading="x")[0][0] == BLOCK
+    ((severity, message),) = lb.assess("<!-- budget: none -->\n", pdf, hint="H", reading="x")
+    assert severity == INFO and "1 page," in message
+
+
+def test_one_page_is_singular(lb):
+    assert lb.compare(lb.Budget(4, None), 1, 10).measured == "1 of 4 pages, 10 words"
+    assert lb.compare(lb.Budget(1, None), 1, 10).measured == "1 of 1 page, 10 words"
+    assert lb.compare(lb.Budget(None, None), 1, 10).measured.startswith("1 page,")
+
+
+def test_render_does_not_count_the_title_block_as_words(rn, monkeypatch, tmp_path):
+    source = "# A long title\n\n*A subtitle line*\n\n<!-- budget: 2 words -->\n\nOne two.\n"
+    assert _render_main(rn, monkeypatch, tmp_path, source, 1) == 0
+
+
+def test_render_reads_the_source_once(rn, monkeypatch, tmp_path):
+    src = tmp_path / "doc.md"
+    src.write_text("# T\n\n<!-- budget: 9 words -->\n\nBody.\n", encoding="utf-8")
+    reads = []
+    real = pathlib.Path.read_text
+    monkeypatch.setattr(
+        pathlib.Path,
+        "read_text",
+        lambda self, *a, **k: (reads.append(self.name), real(self, *a, **k))[1],
+    )
+    monkeypatch.setattr(rn, "render", lambda s, o: (o / f"{s.stem}.pdf", ["Libertinus"]))
+    monkeypatch.setattr(rn.length_budget, "pdf_pages", lambda _pdf: 1)
+    assert rn.main([str(src), str(tmp_path / "out")]) == 0
+    assert reads.count("doc.md") == 1
+
+
+def test_latex_ignores_the_budget_of_a_stale_pdf_from_a_failed_build(
+    lx, monkeypatch, tmp_path, capsys
+):
+    tex = tmp_path / "doc.tex"
+    tex.write_text("% budget: 20 pages\n\\documentclass{article}\n")
+    pdf = tmp_path / "doc.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n")
+    os.utime(pdf, (1_000_000, 1_000_000))
+    monkeypatch.setattr(lx, "require_tools", lambda: None)
+    monkeypatch.setattr(lx, "build", lambda _tex, _engine: 1)
+    monkeypatch.setattr(lx, "pdf_text", lambda _pdf: "")
+    monkeypatch.setattr(lx.length_budget, "pdf_pages", lambda _pdf: 9)
+    monkeypatch.setattr("sys.argv", ["latex.py", str(tex), "--no-prompt"])
+    lx.main()
+    assert "INFO   budget" not in capsys.readouterr().out

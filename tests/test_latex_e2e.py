@@ -97,6 +97,23 @@ so a count that starts cutting at the contents entry for the references lets it 
 \end{document}
 """
 
+LONG_BIBLIOGRAPHY = r"""
+% budget: 2 pages before references
+\documentclass{article}
+\begin{document}
+Short body.
+\newpage
+More body.
+\begin{thebibliography}{9}
+\bibitem{a} A. Author. A title. 2026.
+\newpage
+\bibitem{b} B. Author. Another title. 2026.
+\newpage
+\bibitem{c} C. Author. A third title. 2026.
+\end{thebibliography}
+\end{document}
+"""
+
 BIB = "@article{real, author = {A. Author}, title = {T}, journal = {J}, year = {2026}}\n"
 
 
@@ -169,6 +186,19 @@ def test_a_contents_entry_for_the_references_does_not_hide_the_body(tmp_path):
     code, out = run(tmp_path)
     assert code == 2, out
     assert "words, budget 30" in out
+
+
+@needs_tex
+def test_a_long_bibliography_is_outside_a_before_references_budget(tmp_path):
+    (tmp_path / "doc.tex").write_text(LONG_BIBLIOGRAPHY)
+    code, out = run(tmp_path)
+    assert code == 0, out
+    assert "2 of 2 pages before references" in out
+
+    (tmp_path / "doc.tex").write_text(LONG_BIBLIOGRAPHY.replace("2 pages", "1 page"))
+    code, out = run(tmp_path)
+    assert code == 2, out
+    assert "2 pages before references, budget 1" in out
 
 
 @needs_tex
