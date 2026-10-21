@@ -311,11 +311,13 @@ def prompt_coverage(prompt: pathlib.Path, text: str) -> list[Finding]:
     return [Finding(INFO, "coverage", f"all {len(asked)} headers in {prompt.name} appear")]
 
 
-def prose_findings(pdf: pathlib.Path) -> list[Finding]:
-    """Advisory. Patterns from _shared/plain-prose.md; never decides the exit code."""
+def prose_findings(pdf: pathlib.Path, reading: str | None = None) -> list[Finding]:
+    """Advisory. Patterns from _shared/plain-prose.md; never decides the exit code.
+
+    `reading` is the PDF's reading-order text when the caller already has it."""
     if prose_check is None:
         return [Finding(INFO, "prose", "prose check not installed (no _shared/prose_check.py)")]
-    hits, skipped = prose_check.report(prose_check.pdf_text(pdf))
+    hits, skipped = prose_check.report(prose_check.pdf_text(pdf) if reading is None else reading)
     if skipped:
         return [Finding(INFO, "prose", skipped)]
     return [
@@ -337,7 +339,8 @@ def budget_findings(tex: pathlib.Path, pdf: pathlib.Path, text: str) -> list[Fin
     if budget is None:
         hint = "`% budget: N pages` in the .tex"
         return [Finding(REVIEW, "budget", length_budget.MISSING.format(hint=hint), tex.name)]
-    words = length_budget.count_words(text, length_budget.appendix_titles(source))
+    titles = length_budget.appendix_titles(length_budget.expand_inputs(tex))
+    words = length_budget.count_words(text, titles) if text.strip() else None
     verdict = length_budget.compare(budget, length_budget.pdf_pages(pdf), words)
     if verdict.over:
         message = length_budget.OVER.format(over="; ".join(verdict.over))
@@ -442,11 +445,11 @@ def main() -> int:
         elif ambiguous:
             found.append(Finding(INFO, "coverage", ambiguous))
 
+    reading = prose_check.pdf_text(pdf) if prose_check is not None and text else text
     if not args.no_prose and text:
-        found += prose_findings(pdf)
+        found += prose_findings(pdf, reading)
 
     if pdf.exists():
-        reading = prose_check.pdf_text(pdf) if prose_check is not None else text
         found += budget_findings(tex, pdf, reading)
 
     if code != 0 and not any(f.severity == ERROR for f in found):

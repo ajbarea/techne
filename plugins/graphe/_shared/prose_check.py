@@ -32,8 +32,10 @@ Patterns = list[tuple[str, re.Pattern[str]]]
 _BLOCK = re.compile(r"```prose-patterns\n(?P<body>.*?)```", re.S)
 _BACKTICKED = re.compile(r"`([^`]+)`")
 # A reference list is citations, not prose. It ends at the next heading (an appendix) or the end.
+# A numbered heading is `7 References`, `VII. REFERENCES` or `## 5. References`; `3. References`
+# without `#` is a list item.
 _REFERENCES = re.compile(
-    r"^\s*(?:#{1,6}\s*)?(?:(?:\d+|[IVXLC]+)\.?\s+)?"
+    r"^\s*(?:#{1,6}\s*(?:\d+(?:\.\d+)*\.?\s+)?|(?:\d+|[IVXLC]+\.)\s+)?"
     r"(?:R\s?EFERENCES|References|Bibliography|BIBLIOGRAPHY"
     r"|W\s?ORKS\s+C\s?ITED|Works\s+Cited|L\s?ITERATURE\s+C\s?ITED|Literature\s+Cited)\s*$",
     re.M,
@@ -44,8 +46,8 @@ _HYPHEN_BREAK = re.compile(r"(\w)-\n(\w)")
 _BLOCK_BREAK = re.compile(r"\n\s*\n|\n(?=\s*(?:[-*+•]\s|\d+[.)]\s|\|))")
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z(\[])")
 _ENDS_SENTENCE = re.compile(r"[.!?][\"'”)\]]*$")
-# A fence closes on a line holding the same run of backticks or tildes that opened it.
-MD_FENCE = re.compile(r"^[ \t]*(`{3,}|~{3,})[^\n]*\n.*?^[ \t]*\1[ \t]*$", re.M | re.S)
+# A fence closes on a line holding at least the run of backticks or tildes that opened it.
+MD_FENCE = re.compile(r"^[ \t]*(`{3,}|~{3,})[^\n]*\n.*?^[ \t]*\1[`~]*[ \t]*$", re.M | re.S)
 _MD_INLINE_CODE = re.compile(r"`[^`\n]*`")
 _MD_COMMENT = re.compile(r"<!--.*?-->", re.S)
 _MD_LINK_URL = re.compile(r"\]\([^)]*\)")
@@ -121,15 +123,23 @@ def report(text: str) -> tuple[list[Hit], str]:
 def body_of(text: str, resume: tuple[str, ...] = ()) -> str:
     """Drop reference lists, keep appendices, and rejoin words hyphenated across a line.
 
-    A reference list ends at the next heading, or at the first of `resume` (appendix
-    titles read from the source) found after it, whichever comes first.
+    The list starts at the last references heading, so a table of contents entry for it
+    is kept. It ends at the next heading, or at a line opening with one of `resume`
+    (appendix titles read from the source, maybe lettered `A` or `Appendix A:`).
     """
-    resumes = [re.compile(r"\s+".join(map(re.escape, title.split()))) for title in resume]
-    while match := _REFERENCES.search(text):
+    resumes = [_resume_line(title) for title in resume if title.split()]
+    headings = list(_REFERENCES.finditer(text))
+    if headings:
+        match = headings[-1]
         rest = text[match.end() :]
         starts = [m.start() for m in (p.search(rest) for p in (_NEXT_HEADING, *resumes)) if m]
         text = text[: match.start()] + (rest[min(starts) :] if starts else "")
     return _HYPHEN_BREAK.sub(r"\1\2", text)
+
+
+def _resume_line(title: str) -> re.Pattern[str]:
+    words = r"\s+".join(map(re.escape, title.split()[:3]))
+    return re.compile(rf"^[ \t]*(?:(?:Appendix\s+)?[A-Z](?:\.\d+)*[.:]?\s+)?{words}\b", re.M)
 
 
 def markdown_prose(text: str) -> str:

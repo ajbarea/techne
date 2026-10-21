@@ -142,7 +142,7 @@ def budget_lines(src: pathlib.Path, pdf: pathlib.Path) -> tuple[list[str], str]:
     """Lines to print, and the reason the run fails: over budget or an unreadable line."""
     if length_budget is None:
         return ["  INFO   budget check not installed (no _shared/length_budget.py)"], ""
-    source = src.read_text(encoding="utf-8", errors="replace")
+    source = src.read_text(encoding="utf-8")
     try:
         budget = length_budget.read(source, markdown=True)
     except ValueError as exc:

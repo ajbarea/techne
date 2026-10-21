@@ -106,7 +106,7 @@ def test_an_appendix_after_the_references_is_counted(lb):
         "Body words here.\nReferences\n[1] A. Smith. Paper.\nA\nProof of the theorem\nIt holds.\n"
     )
     assert titles == ("Proof of the theorem",)
-    assert lb.count_words(text, titles) == 9
+    assert lb.count_words(text, titles) == 10
 
 
 def test_pages_fall_back_to_the_page_objects_without_poppler(lb, monkeypatch, tmp_path):
@@ -221,7 +221,7 @@ def test_render_flags_a_page_limit_it_cannot_count(rn, monkeypatch, tmp_path, ca
     source = "# T\n\n<!-- budget: 3 pages -->\n\nBody.\n"
     code = _render_main(rn, monkeypatch, tmp_path, source, None)
     assert code == 0
-    assert "REVIEW budget could not count the PDF's pages" in capsys.readouterr().out
+    assert "REVIEW budget could not measure the PDF" in capsys.readouterr().out
 
 
 def test_render_reports_the_length_of_a_document_with_no_limit(rn, monkeypatch, tmp_path, capsys):
@@ -232,10 +232,74 @@ def test_render_reports_the_length_of_a_document_with_no_limit(rn, monkeypatch, 
     assert "REVIEW" not in out
 
 
-def test_render_reads_a_budget_from_a_source_that_is_not_utf8(rn, monkeypatch, tmp_path, capsys):
-    src = tmp_path / "doc.md"
-    src.write_bytes("# Café\n\n<!-- budget: 3 pages -->\n\nBody.\n".encode("latin-1"))
-    monkeypatch.setattr(rn, "render", lambda s, o: (o / f"{s.stem}.pdf", ["Libertinus"]))
-    monkeypatch.setattr(rn.length_budget, "pdf_pages", lambda _pdf: 2)
-    assert rn.main([str(src), str(tmp_path / "out"), "--no-prose"]) == 0
-    assert "INFO   budget 2 of 3 pages" in capsys.readouterr().out
+# ------------------------------------------------ second-review cases --
+
+
+def test_a_contents_entry_for_the_references_does_not_cut_the_body(lb):
+    text = (
+        "Contents\n1 Introduction\nReferences\nA Proof\n"
+        "1 Introduction\nThe body has seven words in it.\n"
+        "References\n[1] A. Smith. Not counted.\n"
+    )
+    assert lb.count_words(text) == 15
+
+
+def test_an_appendix_title_inside_a_reference_entry_does_not_resume_the_count(lb):
+    text = "Body words here.\nReferences\n[1] A. Smith. Data mining at scale.\n"
+    assert lb.count_words(text, ("Data",)) == 3
+
+
+@pytest.mark.parametrize(
+    ("source", "titles"),
+    [
+        (
+            "\\appendix\n\\section{Proof of the \\emph{main} theorem}",
+            ("Proof of the main theorem",),
+        ),
+        ("\\appendix\n\\section{\\texorpdfstring{$\\alpha$ bound}{Alpha bound}}", ("Alpha bound",)),
+        ("\\begin{appendices}\n\\section{More data}\n\\end{appendices}", ("More data",)),
+        ("% \\appendix\n\\section{Method}", ()),
+        ("\\appendix\n% \\section{Old}\n\\section*[s]{New}", ("New",)),
+    ],
+)
+def test_appendix_titles_read_through_markup(lb, source, titles):
+    assert lb.appendix_titles(source) == titles
+
+
+def test_an_appendix_in_an_input_file_is_found(lb, tmp_path):
+    (tmp_path / "doc.tex").write_text("\\begin{document}\n\\input{appendix}\n\\end{document}\n")
+    (tmp_path / "appendix.tex").write_text("\\appendix\n\\section{Extra results}\n")
+    titles = lb.appendix_titles(lb.expand_inputs(tmp_path / "doc.tex"))
+    assert titles == ("Extra results",)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "% budget: 4 pages\n\\iffalse\n\\ifx\\a\\b x\\fi\n% budget: 9 pages\n\\fi\n",
+        "\\let\\ifblind\\iffalse\n% budget: 4 pages\n\\fi\n",
+        "% uses \\iffalse\n% budget: 4 pages\n",
+    ],
+)
+def test_iffalse_hides_only_what_it_encloses(lb, source):
+    assert lb.read(source) == lb.Budget(4, None)
+
+
+def test_a_numbered_list_item_is_not_a_references_heading(lb):
+    assert lb.count_markdown_words("One two.\n\n3. References are cited inline.\n\nFour.\n") == 8
+
+
+def test_a_longer_closing_fence_ends_the_code_block(lb):
+    assert lb.count_markdown_words("```\ncode here\n````\n\nTwo words.\n") == 2
+
+
+def test_an_indirect_page_count_is_not_read_as_the_count(lb, monkeypatch, tmp_path):
+    pdf = tmp_path / "doc.pdf"
+    pdf.write_bytes(b"%PDF-1.7\n<< /Type /Pages /Count 9 0 R >>\n<< /Type /Page >>\n")
+    monkeypatch.setattr(lb.shutil, "which", lambda _tool: None)
+    assert lb.pdf_pages(pdf) == 1
+
+
+def test_latex_asks_for_a_look_when_a_word_limit_meets_no_text(lx, lb, tmp_path, gates):
+    tex, pdf = _tex(tmp_path, "% budget: 900 words")
+    assert gates(lx.budget_findings(tex, pdf, "  \n")) == {(REVIEW, "budget")}

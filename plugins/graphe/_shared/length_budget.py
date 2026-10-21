@@ -28,22 +28,30 @@ import prose_check
 _TEX_LINE = re.compile(r"^[ \t]*%+[ \t]*budget[ \t]*:(?P<spec>.*?)[ \t]*$", re.I | re.M)
 _MD_LINE = re.compile(r"^[ \t]*<!--[ \t]*budget[ \t]*:(?P<spec>.*?)-->[ \t]*$", re.I | re.M)
 # Where a budget line is example text, not a declaration.
-_TEX_QUOTED = re.compile(
-    r"\\begin\{(verbatim|lstlisting|minted|comment)\*?\}.*?\\end\{\1\*?\}"
-    r"|\\iffalse\b.*?\\fi\b",
-    re.S,
+_TEX_VERBATIM = re.compile(
+    r"\\begin\{(verbatim|lstlisting|minted|comment)\*?\}.*?\\end\{\1\*?\}", re.S
 )
+_CODE_PART = re.compile(r"(?:[^%\\\n]|\\.)*")
+_IFFALSE = re.compile(r"[ \t]*\\iffalse\b")
+_IF = re.compile(r"\\if[a-zA-Z@]*")
+_FI = re.compile(r"\\fi(?![a-zA-Z@])")
+_COMMENT = re.compile(r"(?<!\\)%.*")
+_INPUT = re.compile(r"\\(?:input|include)\s*\{(?P<name>[^{}]+)\}")
 _NOTE = re.compile(r"\s*\([^()]*\)\s*$")
 _NO_LIMIT = re.compile(r"^(?:none|unlimited|no limit)$", re.I)
 _ITEM = re.compile(r"^(?P<n>\d{1,3}(?:,\d{3})+|\d+)\s+(?P<unit>pages?|words?)$", re.I)
 # A comma between digits is a thousands separator (3,000), not a list break.
 _SEPARATOR = re.compile(r"\s*;\s*|,\s+|(?<=\D),|\s+and\s+", re.I)
 _WORD = re.compile(r"[^\W_]")
-_APPENDIX = re.compile(r"\\appendix\b(?P<rest>.*)", re.S)
-_SECTION_TITLE = re.compile(r"\\(?:chapter|section)\*?\s*(?:\[[^\]]*\])?\s*\{(?P<title>[^{}]+)\}")
+_APPENDIX = re.compile(r"\\appendix\b|\\begin\{appendices\}")
+_SECTION = re.compile(r"\\(?:chapter|section)\*?\s*(?:\[[^\]]*\])?\s*\{")
+_TEXORPDF = re.compile(r"\\texorpdfstring\s*\{(?:[^{}]|\{[^{}]*\})*\}\s*\{")
+_MATH = re.compile(r"\$[^$]*\$")
+_MACRO = re.compile(r"\\[a-zA-Z@]+\*?")
 _PAGE_OBJECT = re.compile(rb"/Type\s*/Page(?![s\w])")
 _PAGE_COUNT = re.compile(
-    rb"/Type\s*/Pages\b[^>]*?/Count\s+(\d+)|/Count\s+(\d+)[^>]*?/Type\s*/Pages\b"
+    rb"/Type\s*/Pages\b[^>]*?/Count\s+(\d+)(?!\s+\d+\s+R)"
+    rb"|/Count\s+(\d+)(?!\s+\d+\s+R)[^>]*?/Type\s*/Pages\b"
 )
 _STREAM = re.compile(rb"stream\r?\n(.*?)\r?\nendstream", re.S)
 
@@ -62,7 +70,7 @@ def read(source: str, markdown: bool = False) -> Budget | None:
     if markdown:
         lines = list(_MD_LINE.finditer(prose_check.MD_FENCE.sub("", source)))
     else:
-        lines = list(_TEX_LINE.finditer(_TEX_QUOTED.sub("", source)))
+        lines = list(_TEX_LINE.finditer(_strip_iffalse(_TEX_VERBATIM.sub("", source))))
     if not lines:
         return None
     if len(lines) > 1:
@@ -85,6 +93,19 @@ def read(source: str, markdown: bool = False) -> Budget | None:
     return Budget(limits.get("page"), limits.get("word"))
 
 
+def _strip_iffalse(source: str) -> str:
+    """Drop `\\iffalse ... \\fi` blocks opened at a line start, nested conditionals included."""
+    kept, depth = [], 0
+    for line in source.splitlines(keepends=True):
+        code = _CODE_PART.match(line)[0]
+        if depth == 0 and not _IFFALSE.match(code):
+            kept.append(line)
+            continue
+        depth += len(_IF.findall(code)) - len(_FI.findall(code))
+        depth = max(depth, 0)
+    return "".join(kept)
+
+
 def count_words(text: str, resume: tuple[str, ...] = ()) -> int:
     """Tokens holding a letter or digit, so table bars and bullets do not count.
 
@@ -94,11 +115,49 @@ def count_words(text: str, resume: tuple[str, ...] = ()) -> int:
 
 
 def appendix_titles(tex_source: str) -> tuple[str, ...]:
-    """Titles of the sections after `\\appendix`, which the PDF text prints after the references."""
-    match = _APPENDIX.search(tex_source)
+    """Titles of the sections after `\\appendix`, which the PDF text prints after the references.
+
+    Markup is dropped (`\\emph{main}` reads `main`); math is dropped, so a title that opens
+    with math is not found and the appendix behind it goes uncounted.
+    """
+    source = _COMMENT.sub("", tex_source)
+    match = _APPENDIX.search(source)
     if not match:
         return ()
-    return tuple(m["title"].strip() for m in _SECTION_TITLE.finditer(match["rest"]))
+    titles = []
+    for section in _SECTION.finditer(source, match.end()):
+        title = _braced(source, section.end())
+        title = _TEXORPDF.sub("{", title)
+        title = " ".join(
+            _MACRO.sub(" ", _MATH.sub(" ", title)).replace("{", " ").replace("}", " ").split()
+        )
+        if title:
+            titles.append(title)
+    return tuple(titles)
+
+
+def _braced(source: str, start: int) -> str:
+    """The text from `start` up to the brace that closes the one just before it."""
+    depth = 1
+    for i in range(start, len(source)):
+        depth += {"{": 1, "}": -1}.get(source[i], 0)
+        if depth == 0:
+            return source[start:i]
+    return source[start:]
+
+
+def expand_inputs(tex: pathlib.Path, depth: int = 0) -> str:
+    """The root .tex with `\\input` and `\\include` files inlined, so an appendix there is seen."""
+    source = tex.read_text(encoding="utf-8", errors="replace")
+    if depth >= 8:
+        return source
+
+    def inline(match: re.Match[str]) -> str:
+        name = match["name"].strip()
+        path = tex.parent / (name if name.endswith(".tex") else f"{name}.tex")
+        return expand_inputs(path, depth + 1) if path.is_file() else match[0]
+
+    return _INPUT.sub(inline, source)
 
 
 def count_markdown_words(source: str) -> int:
@@ -140,9 +199,9 @@ class Verdict(NamedTuple):
     unmeasured: bool
 
 
-def compare(budget: Budget, pages: int | None, words: int) -> Verdict:
+def compare(budget: Budget, pages: int | None, words: int | None) -> Verdict:
     """Each limit the document is over, the measured length (`5 of 4 pages`), and whether
-    a declared page limit could not be counted."""
+    a declared limit could not be measured."""
     over = []
     shown = "?" if pages is None else str(pages)
     if budget.pages is None:
@@ -151,18 +210,22 @@ def compare(budget: Budget, pages: int | None, words: int) -> Verdict:
         page_part = f"{shown} of {budget.pages} pages"
         if pages is not None and pages > budget.pages:
             over.append(f"{pages} pages, budget {budget.pages}")
+    shown_words = "?" if words is None else str(words)
     if budget.words is None:
-        word_part = f"{words} words"
+        word_part = f"{shown_words} words"
     else:
-        word_part = f"{words} of {budget.words} words"
-        if words > budget.words:
+        word_part = f"{shown_words} of {budget.words} words"
+        if words is not None and words > budget.words:
             over.append(f"{words} words, budget {budget.words}")
     measured = f"{page_part}, {word_part}"
     if budget == Budget(None, None):
         measured += " (no limit declared)"
-    return Verdict(over, measured, budget.pages is not None and pages is None)
+    unmeasured = (budget.pages is not None and pages is None) or (
+        budget.words is not None and words is None
+    )
+    return Verdict(over, measured, unmeasured)
 
 
 MISSING = "no length budget declared; set one before drafting ({hint})"
-UNMEASURED = "could not count the PDF's pages against the page limit ({measured}); check by eye"
+UNMEASURED = "could not measure the PDF against the declared limit ({measured}); check by eye"
 OVER = "over budget: {over}. Cut repeated results and retold material, not substance"
