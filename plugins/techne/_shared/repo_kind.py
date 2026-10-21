@@ -9,10 +9,10 @@ of work). Other signals can only make it team, and are checked first:
    attempt at it reads as team too, and the reason names it);
 2. its `[[sisters]]` entry in ~/.claude/techne.toml with `kind = "team"`, matched by path
    (`workspace_root/<name>`), for another clone by `<github_user>/<name>` as the origin, or,
-   when neither matches, by a team entry whose checkout has the same origin.
-Anything unsettled (no repo, no GitHub origin, gh failing, techne.toml present but unreadable)
-reads as team, so a skill asks rather than acts on someone else's repo. An `owner: solo` line
-is only true for its author, so it is not trusted on its own.
+   when no team entry matched those ways, by a team entry whose checkout has the same origin.
+Anything unsettled (no repo, no GitHub origin, gh failing, techne.toml present but unreadable or
+with a malformed roster) reads as team, so a skill asks rather than acts on someone else's repo.
+An `owner: solo` line is only true for its author, so it is not trusted on its own.
 
 Usage: python3 repo_kind.py [path]   ->  prints `solo: <why>` or `team: <why>`, exits 0, and
 reads any unexpected error as team too.

@@ -584,12 +584,13 @@ def run_env(tmp_path, body, script=HYGIENE_SCRIPT):
 
 
 def test_env_prints_the_audit_preamble_variables(tmp_path):
+    """WORKSPACE comes out expanded: a quoted '~/...' would never expand in the shell."""
     proc = run_env(tmp_path, GOOD)
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout.splitlines() == [
         "SISTERS='a b'",
         "TEAM_SISTERS=b",
-        "WORKSPACE='~/w x'",
+        f"WORKSPACE='{tmp_path / 'home' / 'w x'}'",
         "GITHUB_USER=u",
     ]
 

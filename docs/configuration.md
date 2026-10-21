@@ -32,7 +32,7 @@ status = "active"
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `github_user` | string | yes | Your GitHub username; used to construct repo URLs. |
-| `workspace_root` | string | yes | Absolute path to the parent directory containing your sister repos. |
+| `workspace_root` | string | yes | Path to the parent directory containing your sister repos, absolute or starting with `~`. |
 | `sisters[].name` | string | yes | Directory name under `workspace_root`. |
 | `sisters[].status` | string | no | Defaults to `"active"`. Set to `"backburner"` to skip without removing. |
 | `sisters[].kind` | string | no | `"team"` marks a repo other people work in: `techne:sisters` exempts it from solo-only conventions such as the README masthead, and `docsync` and `ci-audit` ask before acting on it. `"solo"` on a fork says the fork is your own line of work, so those skills may act on it ([Solo and team repos](conventions.md#solo-and-team-repos)). Any case. Omitted: no claim either way. |

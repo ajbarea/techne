@@ -573,3 +573,21 @@ def test_missing_gh_leaves_no_bytecode_in_the_plugin(tmp_path):
     )
     assert proc.returncode == 1 and "/techne:setup" in proc.stderr, proc.stderr
     assert not list(plugin.rglob("__pycache__"))
+
+
+@pytest.mark.parametrize(
+    "body, expected",
+    [('workspace_root = "~/w"\n', "home/w"), ("# workspace_root = '/x'\n", None),
+     ("workspace_root = [", None), (None, None)],
+)  # fmt: skip
+def test_the_workspace_root_is_read_as_toml_with_cwd_as_fallback(
+    sw, tmp_path, monkeypatch, body, expected
+):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    path = tmp_path / "techne.toml"
+    if body is not None:
+        path.write_text(body, encoding="utf-8")
+    monkeypatch.setattr(sw, "TECHNE_TOML", path)
+    monkeypatch.chdir(tmp_path)
+    want = tmp_path / expected if expected else tmp_path.parent
+    assert sw.workspace_root() == want

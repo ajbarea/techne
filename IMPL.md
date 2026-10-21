@@ -20,13 +20,11 @@ instead of skipping it); `kind_of`/`is_team`/`is_active`, `workspace_root()` (ex
 `checkout()`, `matches()` (path or `<github_user>/<name>`). repo_kind's team-origin fallback
 runs whenever no match is a team entry (#190 comment). Setup doctor keeps its regex presence
 check (must run on 3.9).
-Steps: 1. module + tests; 2. repo_kind; 3. project_board + board.py; 4. hygiene (read_config,
-load_sisters, print_env, WORKSPACE expanded); 5. catchup sweep.py; 6. docs; 7. mutation check,
-targeted tests (one heavy job at a time), CI as the full suite, high-tier review, merge.
+Done 10-21: module + tests (tests/test_techne_config.py, guard: no other techne script parses
+TOML), repo_kind, project_board + board.py, hygiene (WORKSPACE printed expanded), catchup
+sweep.py (`~` expanded, was a line scan), docs. Mutation 11/11; 3.9 hook tests green.
+Next: PR (Closes #190), CI as the full suite, high-tier review, merge.
 Verify: `make validate` (CI).
-CHECKPOINT 10-21 (usage limit): steps 1-4 coded, NOT yet tested for hygiene; next: update
-hygiene --env test (WORKSPACE now printed expanded), run hygiene/board/repo_kind tests, write
-tests/test_techne_config.py, then step 5 (catchup sweep.py) onward.
 
 ### Landed on main: solo repos act, team repos ask (#189)
 

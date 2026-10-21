@@ -25,13 +25,14 @@ from pathlib import Path
 sys.dont_write_bytecode = True  # the plugin cache stays as installed
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "_shared"))
 import doctor_lib  # noqa: E402  # ty: ignore[unresolved-import]
+import techne_config as tc  # noqa: E402  # ty: ignore[unresolved-import]
 
 # Stock macOS python3 is 3.9; stop with the fix before the 3.11-only imports below.
 doctor_lib.require_python((3, 11), "catchup", "/techne:setup")
 
 from datetime import UTC, datetime, timedelta  # noqa: E402
 
-TECHNE_TOML = Path.home() / ".claude" / "techne.toml"
+TECHNE_TOML = tc.techne_toml()
 
 # GitHub caps a GraphQL page at 100 nodes. These defaults cover months of
 # activity on a working repo while keeping the query well under the 500k-node
@@ -151,12 +152,13 @@ def run(cmd, **kw):
 
 
 def workspace_root():
-    """Read workspace_root from techne.toml, or fall back to the parent of cwd."""
-    if TECHNE_TOML.exists():
-        for line in TECHNE_TOML.read_text().splitlines():
-            if line.strip().startswith("workspace_root"):
-                return Path(line.split("=", 1)[1].strip().strip('"').strip("'"))
-    return Path.cwd().parent
+    """workspace_root from techne.toml (`~` expanded), or the parent of cwd when there is none
+    or the file cannot be read."""
+    try:
+        cfg = tc.load(TECHNE_TOML)
+    except tc.ConfigError:
+        cfg = None
+    return (tc.workspace_root(cfg) if cfg else None) or Path.cwd().parent
 
 
 def git_root(path):
