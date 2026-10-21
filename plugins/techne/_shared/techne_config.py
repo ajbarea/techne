@@ -94,6 +94,21 @@ def sisters(cfg: dict, path: Path | None = None) -> list[dict]:
     return roster
 
 
+def required(cfg: dict, path: Path | None = None) -> tuple[Path, str, list[dict]]:
+    """(workspace_root, github_user, [[sisters]]) for a script that needs all three. Raises
+    ConfigInvalid naming the first that is missing or of the wrong type."""
+    where = path or techne_toml()
+    for key in ("workspace_root", "github_user", "sisters"):
+        if key not in cfg:
+            raise ConfigInvalid(f"{where} has no {key}")
+    ws, me, roster = workspace_root(cfg), github_user(cfg), sisters(cfg, where)
+    if ws is None:
+        raise ConfigInvalid(f"workspace_root in {where} must be a path")
+    if me is None:
+        raise ConfigInvalid(f"github_user in {where} must be a login")
+    return ws, me, roster
+
+
 def kind_of(sister: dict) -> str:
     """A [[sisters]] entry's kind, lowercased: "team", "solo" or ""."""
     return str(sister.get("kind", "")).strip().lower()
@@ -132,7 +147,7 @@ def checkout(cfg: dict, sister: dict) -> Path | None:
 
 
 def matches(cfg: dict, sister: dict, checkouts: set[Path], slug: tuple[str, str] | None) -> bool:
-    """Whether a repo is this sister: one of its CHECKOUTS (resolved) is workspace_root/<name>,
+    """Whether a repo is this sister: one of its CHECKOUTS (resolved here) is workspace_root/<name>,
     or its GitHub SLUG is <github_user>/<name> (another clone), case-insensitive."""
     path = checkout(cfg, sister)
     if path is not None and path.resolve() in {p.resolve() for p in checkouts}:

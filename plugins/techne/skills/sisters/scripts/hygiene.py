@@ -689,17 +689,9 @@ def read_config() -> tuple[Path, str, list[dict]]:
         cfg = tc.load(TECHNE_TOML)
         if cfg is None:
             sys.exit(f"sisters: {TECHNE_TOML} not found. {where}")
-        for key in ("workspace_root", "github_user", "sisters"):
-            if key not in cfg:
-                sys.exit(f"sisters: {TECHNE_TOML} has no {key}. {where}")
-        ws, me, sisters = tc.workspace_root(cfg), tc.github_user(cfg), tc.sisters(cfg, TECHNE_TOML)
+        return tc.required(cfg, TECHNE_TOML)
     except tc.ConfigError as exc:
         sys.exit(f"sisters: {exc}. {where}")
-    if ws is None:
-        sys.exit(f"sisters: workspace_root in {TECHNE_TOML} must be a path. {where}")
-    if me is None:
-        sys.exit(f"sisters: github_user in {TECHNE_TOML} must be a login. {where}")
-    return ws, me, sisters
 
 
 def load_sisters(names: list[str]) -> tuple[list[tuple[str, str, str]], str]:

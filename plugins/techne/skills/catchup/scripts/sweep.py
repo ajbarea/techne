@@ -236,7 +236,7 @@ def resolve_repo(name):
     hint = f" (looked in {candidates[0]})" if name else ""
     sys.exit(
         f"catchup: cannot resolve repo {name!r}{hint}. "
-        "Pass owner/name explicitly, or run from inside the clone."
+        "Pass owner/name explicitly, or run with no argument from inside the clone."
     )
 
 

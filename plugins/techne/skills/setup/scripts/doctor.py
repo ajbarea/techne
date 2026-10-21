@@ -95,6 +95,11 @@ def techne_toml() -> d.Check:
         lacking = [k for k in TOML_KEYS if k not in cfg]
         if "sisters" not in cfg:
             lacking.append("[[sisters]]")
+        if not lacking:
+            try:
+                tc.required(cfg, path)
+            except tc.ConfigError as exc:
+                return d.Check(d.OPTIONAL, "techne.toml", str(exc), edit)
     if lacking:
         return d.Check(d.OPTIONAL, "techne.toml", "missing " + ", ".join(lacking), edit)
     return d.Check(d.OK, "techne.toml", str(path))

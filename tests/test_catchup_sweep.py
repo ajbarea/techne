@@ -611,5 +611,5 @@ def test_a_bare_name_that_is_no_clone_never_falls_back_to_the_cwd_repo(
     fp.register(["git", "-C", str(ws / "zzz"), "rev-parse", "--show-toplevel"], returncode=128)
     register_toplevel(fp, clone, clone)  # the cwd is a clone, and must not be used
     fp.register(["gh", "repo", "view", fp.any()], stdout="someone/myrepo\n")
-    with pytest.raises(SystemExit, match="cannot resolve repo 'zzz'"):
+    with pytest.raises(SystemExit, match=r"cannot resolve repo 'zzz'.*run with no argument"):
         sw.resolve_repo("zzz")

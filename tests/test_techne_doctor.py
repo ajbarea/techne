@@ -383,7 +383,10 @@ def test_doctor_names_the_skills_needing_python_3_11():
 @pytest.mark.parametrize(
     "body, said",
     [("workspace_root = [", "is not valid TOML"),
-     ('workspace_root = "/w"\ngithub_user = "u"\n[[sisters]]\nkind = "team"\n', "has no name")],
+     ('workspace_root = "/w"\ngithub_user = "u"\n[[sisters]]\nkind = "team"\n', "has no name"),
+     ('workspace_root = 5\ngithub_user = "u"\n[[sisters]]\nname = "a"\n', "must be a path"),
+     ('workspace_root = ""\ngithub_user = "u"\n[[sisters]]\nname = "a"\n', "must be a path"),
+     ('workspace_root = "/w"\ngithub_user = ["u"]\n[[sisters]]\nname = "a"\n', "must be a login")],
 )  # fmt: skip
 def test_techne_toml_the_tools_reject_is_not_reported_ok(tmp_path, machine, body, said):
     home, repo = machine

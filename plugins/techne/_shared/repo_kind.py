@@ -137,8 +137,7 @@ def sister_entry(checkouts: set[Path], slug: tuple[str, str] | None, path: Path)
     if cfg is None:
         return None
     roster = tc.sisters(cfg, path)
-    resolved = {p.resolve() for p in checkouts}
-    matches = [s for s in roster if tc.matches(cfg, s, resolved, slug)]
+    matches = [s for s in roster if tc.matches(cfg, s, checkouts, slug)]
     if not any(tc.is_team(m) for m in matches):  # last, as it runs git in each team checkout
         matches += [s for s in roster if tc.is_team(s) and same_remote(cfg, s, slug)]
     # A team entry wins over any other entry the same repo matches.
