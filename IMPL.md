@@ -16,16 +16,15 @@ team); docsync acts on solo repos, ci-audit `[PROPOSE→FIX]`, gates never `[FIX
 rounds; rounds 11-12 hit bugs from the previous fix, so per elenchus the fuzzy owner matcher was
 replaced (2026-10-21, AJ: decide by research) with ONE canonical marker, `- owner: team` under
 `## repo`; any look-alike reads team and the reason names the line (RFC 9413 s.2.1, 4.2, 5.1).
-Template no longer ships the line. Tests green (repo_kind, git_env, hygiene).
+Template no longer ships the line. Round-12 fixes landed 2026-10-21: `github_slug` (ssh alias) lives in `git_env.py` and hygiene
+uses it; GraphQL first, then collaborators, then invitations, serially and only while still
+possibly solo (GitHub REST best practices); `same_remote` only when nothing else matched;
+`local_env()` = git's runtime list, LOCAL_ENV only when git cannot be asked; heuresis doctor
+uses `without_repo_overrides()`. Mutation check: 14/14 killed (strict marker, lint path, empty
+`owner:`, call order, fallbacks).
 Next, in order:
-1. Round-12 small fixes: heuresis setup doctor `ideas_repo()` -> `without_repo_overrides()`;
-   move `github_slug` (ssh alias) into `git_env.py` and use it in `hygiene.repo_for_path`;
-   GraphQL first, REST collaborators/invitations only when ADMIN, not org, not (fork w/o solo);
-   `same_remote` only when nothing else matched; `local_env()` = runtime list, LOCAL_ENV only as
-   fallback; docs: canonical marker + lint wording, third roster match (team entry's origin).
-2. Mutation-check the strict marker (canonical-only, lint path, empty `owner:`), update PR body.
-3. Full suite on a frozen tree (no edits while it runs), then ONE high-tier review round.
-4. Merge on green; ldqis follow-up: rewrite its owner line to canonical `- owner: team`.
+1. Full suite on a frozen tree (no edits while it runs), then ONE high-tier review round.
+2. Merge on green; ldqis follow-up: rewrite its owner line to canonical `- owner: team`.
 Verify: `make validate`.
 
 ## In flight: `techne:board` (branch `feat/board`)

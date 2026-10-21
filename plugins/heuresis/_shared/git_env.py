@@ -9,10 +9,11 @@ import subprocess
 from collections.abc import Mapping
 from pathlib import Path
 
-# What `git rev-parse --local-env-vars` lists, minus GIT_CONFIG, GIT_CONFIG_PARAMETERS and
-# GIT_CONFIG_COUNT: those carry config a container or CI job injects on purpose (safe.directory,
-# a credential helper), not a different repository. A hook or wrapper that exports any of these
-# points `git -C <dir>` at another repository than <dir>.
+# What `git rev-parse --local-env-vars` lists (git 2.43), minus GIT_CONFIG, GIT_CONFIG_PARAMETERS
+# and GIT_CONFIG_COUNT: those carry config a container or CI job injects on purpose
+# (safe.directory, a credential helper), not a different repository. A hook or wrapper that
+# exports any of these points `git -C <dir>` at another repository than <dir>. Used only when
+# the installed git cannot be asked; local_env() prefers git's own list.
 LOCAL_ENV = (
     "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_OBJECT_DIRECTORY", "GIT_DIR", "GIT_WORK_TREE",
     "GIT_IMPLICIT_WORK_TREE", "GIT_GRAFT_FILE", "GIT_INDEX_FILE", "GIT_NO_REPLACE_OBJECTS",
@@ -33,23 +34,24 @@ _local_env_cache: frozenset[str] | None = None
 
 
 def local_env() -> frozenset[str]:
-    """LOCAL_ENV plus anything the installed git reports that LOCAL_ENV lacks (a variable a newer
-    git added), still minus the config variables. Asked once per process."""
+    """The variables the installed git treats as repository-local (`git rev-parse
+    --local-env-vars`), minus the config variables; LOCAL_ENV when git cannot be asked.
+    Asked once per process."""
     global _local_env_cache
     if _local_env_cache is None:
         reported: set[str] = set()
         try:
-            reported = set(
-                subprocess.run(
-                    ["git", "rev-parse", "--local-env-vars"],
-                    capture_output=True,
-                    text=True,
-                    timeout=CONFIG_TIMEOUT,
-                ).stdout.split()
+            done = subprocess.run(
+                ["git", "rev-parse", "--local-env-vars"],
+                capture_output=True,
+                text=True,
+                timeout=CONFIG_TIMEOUT,
             )
+            if done.returncode == 0:
+                reported = {n for n in done.stdout.split() if n.startswith("GIT_")}
         except (subprocess.TimeoutExpired, OSError):
             pass
-        _local_env_cache = frozenset(LOCAL_ENV) | frozenset(reported - _CONFIG_ENV)
+        _local_env_cache = frozenset(reported - _CONFIG_ENV) if reported else frozenset(LOCAL_ENV)
     return _local_env_cache
 
 
@@ -85,3 +87,40 @@ def batch_ssh(env: dict[str, str], repo: str | Path) -> dict[str, str]:
     if chosen.strip():
         return env
     return {**env, "GIT_SSH_COMMAND": BATCH_SSH}
+
+
+# A remote through an ssh host alias, scp form (git@github-work:o/r) or URL form
+# (ssh://git@github-work/o/r): host, owner, name.
+_ALIAS_REMOTE = re.compile(
+    r"^(?:ssh://)?(?:[^@/\s]+@)?([^:/\s]+)(?:(?<=[^/]):(?!\d+/)|(?::\d+)?/)"
+    r"([^/\s]+)/([^/\s]+?)(?:\.git)?/?$"
+)
+
+
+def github_slug(url: str) -> tuple[str, str] | None:
+    """(owner, name) of a GitHub remote, or None. An ssh host alias (git@github-work:o/r or
+    ssh://git@github-work/o/r, as several-account setups use) counts when `ssh -G` resolves it
+    to github.com."""
+    found = GITHUB_REMOTE.search(url)
+    if found:
+        return found.group(1), found.group(2)
+    alias = _ALIAS_REMOTE.match(url)
+    if not alias or alias.group(1).startswith("-"):  # never hand ssh an option from a remote URL
+        return None
+    try:
+        settings = subprocess.run(
+            ["ssh", "-G", "--", alias.group(1)],
+            capture_output=True,
+            text=True,
+            timeout=CONFIG_TIMEOUT,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    if settings.returncode:
+        return None
+    host = next(
+        (ln.split()[1] for ln in settings.stdout.splitlines() if ln.startswith("hostname ")), ""
+    )
+    if host.lower() in ("github.com", "ssh.github.com"):
+        return alias.group(2), alias.group(3)
+    return None

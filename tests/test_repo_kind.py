@@ -233,9 +233,7 @@ def test_another_pusher_makes_it_team(rk, origin, no_toml, gh):
     ids=["organization", "not-admin", "fork-of-live-upstream", "bad-json", "empty"],
 )
 def test_github_facts_short_of_ownership_are_team(rk, origin, no_toml, gh, stdout):
-    gh.register(REPO, stdout=stdout)
-    gh.register(PUSHERS, stdout=f"{ME}\n")
-    gh.register(INVITED, stdout="")
+    gh.register(REPO, stdout=stdout)  # the REST lists are not asked for: gh fails the test
     assert rk.classify(str(origin), no_toml)[0] == "team"
 
 
@@ -712,3 +710,32 @@ def test_a_url_form_ssh_alias_is_followed(rk, repo, no_toml, gh):
 def test_an_email_invitation_is_named_plainly(rk, origin, no_toml, gh):
     mine(gh, invited="an-email-invitee\n")
     assert rk.classify(str(origin), no_toml) == ("team", f"an-email-invitee is invited to {SLUG}")
+
+
+def test_the_rest_lists_are_asked_one_at_a_time_and_only_while_needed(rk, origin, no_toml, gh):
+    mine(gh, pushers=f"{ME}\nsomeone-else\n")
+    assert rk.classify(str(origin), no_toml)[0] == "team"
+    assert gh.call_count(REPO) == gh.call_count(PUSHERS) == 1
+    assert gh.call_count(INVITED) == 0
+
+
+def test_another_checkouts_origin_is_read_only_when_nothing_else_matched(
+    rk, origin, tmp_path, gh, monkeypatch
+):
+    def never(*args):
+        raise AssertionError("same_remote ran though the path already matched")
+
+    monkeypatch.setattr(rk, "same_remote", never)
+    toml = roster(tmp_path, origin.parent, 'name = "myrepo"\nkind = "team"')
+    toml.write_text(
+        toml.read_text(encoding="utf-8") + '\n[[sisters]]\nname = "other"\nkind = "team"\n',
+        encoding="utf-8",
+    )
+    assert rk.classify(str(origin), toml) == ("team", f'kind = "team" in {toml}')
+
+
+@pytest.mark.parametrize("line", ["- owner:", "owner :", "**Owners:**", "- owner: "])
+def test_an_empty_owner_key_reads_as_team_and_names_the_line(rk, origin, no_toml, gh, line):
+    skill_context(origin, f"# ctx\n\n## repo\n\n{line}\n")
+    kind, why = rk.classify(str(origin), no_toml)
+    assert kind == "team" and "line 5" in why

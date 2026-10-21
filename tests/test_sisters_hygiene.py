@@ -1039,6 +1039,13 @@ def test_a_path_in_someone_elses_repo_counts_only_when_it_is_in_the_roster(hy, f
     assert found == ("theirs", "other/theirs", str(theirs.resolve()))
 
 
+def test_a_path_whose_origin_is_an_ssh_alias_for_github_counts(hy, fleet, tmp_path, fp):
+    fp.allow_unregistered(True)
+    fp.register(["ssh", "-G", "--", "github-work"], stdout="hostname github.com\n")
+    work = make_repo(tmp_path, "work", f"git@github-work:{ME}/work.git")
+    assert hy.repo_for_path(str(work), ME, {}) == ("work", f"{ME}/work", str(work.resolve()))
+
+
 def test_paths_that_are_not_a_github_repo_are_skipped_silently(hy, fleet, tmp_path):
     plain = tmp_path / "plain"
     plain.mkdir()

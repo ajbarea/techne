@@ -89,12 +89,58 @@ def test_repo_overrides_are_dropped_and_injected_config_is_kept(ge):
     } <= kept.keys()
 
 
-def test_a_variable_a_newer_git_reports_is_dropped_too(ge, monkeypatch):
+def test_the_installed_gits_own_list_is_used(ge, monkeypatch):
     class Done:
+        returncode = 0
         stdout = "GIT_DIR GIT_SOME_NEW_REDIRECT GIT_CONFIG_PARAMETERS\n"
 
     monkeypatch.setattr(ge, "_local_env_cache", None)
     monkeypatch.setattr(ge.subprocess, "run", lambda *a, **k: Done())
-    drop = ge.local_env()
-    assert "GIT_SOME_NEW_REDIRECT" in drop and "GIT_CONFIG_PARAMETERS" not in drop
-    assert set(ge.LOCAL_ENV) <= drop
+    assert ge.local_env() == {"GIT_DIR", "GIT_SOME_NEW_REDIRECT"}
+
+
+@pytest.mark.parametrize("failure", ["exit", "empty", "missing"])
+def test_the_fixed_list_is_used_when_git_cannot_be_asked(ge, monkeypatch, failure):
+    class Done:
+        returncode = 1 if failure == "exit" else 0
+        stdout = "GIT_PARTIAL\n" if failure == "exit" else ""
+
+    def run(*args, **kwargs):
+        if failure == "missing":
+            raise FileNotFoundError("git")
+        return Done()
+
+    monkeypatch.setattr(ge, "_local_env_cache", None)
+    monkeypatch.setattr(ge.subprocess, "run", run)
+    assert ge.local_env() == set(ge.LOCAL_ENV)
+
+
+def test_a_github_remote_needs_no_ssh(ge, fp):
+    assert ge.github_slug("https://github.com/o/r.git") == ("o", "r")
+    assert ge.github_slug("git@github.com:o/r") == ("o", "r")
+    assert fp.call_count(["ssh", fp.any()]) == 0
+
+
+@pytest.mark.parametrize(
+    "url", ["git@github-work:o/r.git", "ssh://git@github-work/o/r", "github-work:o/r"]
+)
+def test_an_ssh_alias_resolving_to_github_counts(ge, fp, url):
+    fp.register(["ssh", "-G", "--", "github-work"], stdout="user git\nhostname github.com\n")
+    assert ge.github_slug(url) == ("o", "r")
+
+
+@pytest.mark.parametrize(
+    "stdout, returncode", [("hostname gitlab.com\n", 0), ("", 255)], ids=["other-host", "ssh-fails"]
+)
+def test_an_ssh_alias_elsewhere_or_unresolved_does_not_count(ge, fp, stdout, returncode):
+    fp.register(["ssh", "-G", "--", "work"], stdout=stdout, returncode=returncode)
+    assert ge.github_slug("git@work:o/r") is None
+
+
+@pytest.mark.parametrize(
+    "url", ["/srv/git/r.git", "-oProxyCommand=x:o/r", "https://gitlab.com/o/r"]
+)
+def test_paths_options_and_other_hosts_never_reach_ssh(ge, fp, url):
+    fp.register(["ssh", fp.any()], stdout="hostname github.com\n", occurrences=3)
+    assert ge.github_slug(url) is None
+    assert fp.call_count(["ssh", fp.any()]) == 0

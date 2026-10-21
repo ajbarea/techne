@@ -8,7 +8,8 @@ of work). Other signals can only make it team, and are checked first:
    working tree, the current commit or the default branch (any other line that looks like an
    attempt at it reads as team too, and the reason names it);
 2. its `[[sisters]]` entry in ~/.claude/techne.toml with `kind = "team"`, matched by path
-   (`workspace_root/<name>`) or, for another clone, by `<github_user>/<name>` as the origin.
+   (`workspace_root/<name>`), for another clone by `<github_user>/<name>` as the origin, or,
+   when neither matches, by a team entry whose checkout has the same origin.
 Anything unsettled (no repo, no GitHub origin, gh failing, techne.toml present but unreadable)
 reads as team, so a skill asks rather than acts on someone else's repo. An `owner: solo` line
 is only true for its author, so it is not trusted on its own.
@@ -24,13 +25,12 @@ from __future__ import annotations
 import json
 import re
 import sys
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 sys.dont_write_bytecode = True  # the plugin cache stays as installed
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import doctor_lib  # noqa: E402
-from git_env import GITHUB_REMOTE, without_repo_overrides  # noqa: E402
+from git_env import github_slug, without_repo_overrides  # noqa: E402
 from project_board import techne_toml  # noqa: E402
 
 TIMEOUT = 10
@@ -129,7 +129,8 @@ def same_remote(root: object, name: str, slug: tuple[str, str] | None) -> bool:
 
 def sister_entry(checkouts: set[Path], slug: tuple[str, str] | None, path: Path) -> dict | None:
     """The [[sisters]] table for this repo, or None: matched by workspace_root/<name> against
-    the checkout paths, or by name when the origin is <github_user>/<name> (another clone)."""
+    the checkout paths, or by name when the origin is <github_user>/<name> (another clone), or,
+    when neither matches, by a team entry whose checkout has the same origin."""
     if not path.exists() and not path.is_symlink():  # a broken link is present but unreadable
         return None
     try:
@@ -146,16 +147,17 @@ def sister_entry(checkouts: set[Path], slug: tuple[str, str] | None, path: Path)
         return None
     here = {p.resolve() for p in checkouts}
     mine = bool(slug and isinstance(me, str) and slug[0].lower() == me.lower())
+    named = [s for s in sisters if isinstance(s, dict) and isinstance(s.get("name"), str)]
     matches = []
-    for sister in sisters:
-        if not isinstance(sister, dict) or not isinstance(sister.get("name"), str):
-            continue
+    for sister in named:
         by_path = (
             isinstance(root, str) and (Path(root).expanduser() / sister["name"]).resolve() in here
         )
         by_slug = mine and slug is not None and sister["name"].lower() == slug[1].lower()
-        if by_path or by_slug or (is_team(sister) and same_remote(root, sister["name"], slug)):
+        if by_path or by_slug:
             matches.append(sister)
+    if not matches:  # last, as it runs git in each team checkout
+        matches = [s for s in named if is_team(s) and same_remote(root, s["name"], slug)]
     # A team entry wins over any other entry the same repo matches.
     teams = [m for m in matches if is_team(m)]
     return (teams or matches or [None])[0]
@@ -169,28 +171,16 @@ _REPO_QUERY = (
 
 
 def from_github(owner: str, name: str, fork_ok: bool = False) -> tuple[str, str]:
-    """The GitHub facts, read in one round trip: one GraphQL query (ownership, fork, the
-    default branch's skill-context.md) with the collaborator and invitation lists alongside."""
+    """The GitHub facts. One GraphQL query first (ownership, fork, the default branch's
+    skill-context.md); the collaborator and invitation lists, which only an admin can read,
+    only when that query leaves the repo possibly solo, one request at a time (GitHub's REST
+    best practices: serial requests, none that are not needed)."""
     slug = f"{owner}/{name}"
     api = ("gh", "api", "--hostname", "github.com")
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        querying = pool.submit(
-            sh, *api, "graphql", "-f", f"query={_REPO_QUERY}",
-            "-f", f"o={owner}", "-f", f"n={name}", "--jq", ".data.repository",
-        )  # fmt: skip
-        pushing = pool.submit(
-            sh, *api, "--paginate", f"repos/{slug}/collaborators",
-            "--jq", ".[] | select(.permissions.push) | .login",
-        )  # fmt: skip
-        inviting = pool.submit(
-            sh,
-            *api,
-            "--paginate",
-            f"repos/{slug}/invitations",
-            "--jq",
-            '.[] | (.invitee.login // "an-email-invitee")',
-        )
-        raw, pushers, invited = querying.result(), pushing.result(), inviting.result()
+    raw = sh(
+        *api, "graphql", "-f", f"query={_REPO_QUERY}",
+        "-f", f"o={owner}", "-f", f"n={name}", "--jq", ".data.repository",
+    )  # fmt: skip
     try:
         info = json.loads(raw) if raw else None
     except json.JSONDecodeError:
@@ -214,44 +204,25 @@ def from_github(owner: str, name: str, fork_ok: bool = False) -> tuple[str, str]
     on_default = team_marker(str(blob.get("text") or "")) if isinstance(blob, dict) else None
     if on_default:
         return "team", f"{on_default} in {SKILL_CONTEXT} on {slug}'s default branch"
+    pushers = sh(
+        *api, "--paginate", f"repos/{slug}/collaborators",
+        "--jq", ".[] | select(.permissions.push) | .login",
+    )  # fmt: skip
     if pushers is None:
         return "team", f"could not list the collaborators of {slug}"
     logins = sorted(set(pushers.split()))
     the_owner = (info.get("owner") or {}).get("login")
     if logins != [the_owner]:
         return "team", f"{', '.join(logins) or 'nobody listed'} can push to {slug}"
+    invited = sh(
+        *api, "--paginate", f"repos/{slug}/invitations",
+        "--jq", '.[] | (.invitee.login // "an-email-invitee")',
+    )  # fmt: skip
     if invited is None:
         return "team", f"could not list the pending invitations to {slug}"
     if invited.split():
         return "team", f"{', '.join(sorted(set(invited.split())))} is invited to {slug}"
     return "solo", f"{the_owner} owns {slug} and is its only collaborator with push access"
-
-
-# A remote through an ssh host alias, scp form (git@github-work:o/r) or URL form
-# (ssh://git@github-work/o/r): host, owner, name.
-_ALIAS_REMOTE = re.compile(
-    r"^(?:ssh://)?(?:[^@/\s]+@)?([^:/\s]+)(?:(?<=[^/]):(?!\d+/)|(?::\d+)?/)"
-    r"([^/\s]+)/([^/\s]+?)(?:\.git)?/?$"
-)
-
-
-def github_slug(url: str) -> tuple[str, str] | None:
-    """owner/name of a GitHub remote, including one through an ssh host alias (git@github-work:o/r
-    or ssh://git@github-work/o/r, as several-account setups use) that `ssh -G` resolves to
-    github.com."""
-    found = GITHUB_REMOTE.search(url)
-    if found:
-        return found.group(1), found.group(2)
-    scp = _ALIAS_REMOTE.match(url)
-    if not scp:
-        return None
-    if scp.group(1).startswith("-"):  # never hand ssh an option from a remote URL
-        return None
-    settings = sh("ssh", "-G", "--", scp.group(1)) or ""
-    host = next((ln.split()[1] for ln in settings.splitlines() if ln.startswith("hostname ")), "")
-    if host.lower() in ("github.com", "ssh.github.com"):
-        return scp.group(2), scp.group(3)
-    return None
 
 
 def classify(path: str = ".", toml: Path | None = None) -> tuple[str, str]:

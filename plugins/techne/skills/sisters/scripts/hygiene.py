@@ -65,7 +65,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True  # the plugin cache stays as installed
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "_shared"))
 import doctor_lib  # noqa: E402  # ty: ignore[unresolved-import]
-from git_env import GITHUB_REMOTE, batch_ssh  # noqa: E402  # ty: ignore[unresolved-import]
+from git_env import batch_ssh, github_slug  # noqa: E402  # ty: ignore[unresolved-import]
 from resume_state import impl_matches  # noqa: E402  # ty: ignore[unresolved-import]
 
 # Stock macOS python3 is 3.9; stop with the fix before the 3.11-only import below.
@@ -844,10 +844,10 @@ def repo_for_path(
         remote = git(main, "remote", "get-url", "origin").strip()
     except (RuntimeError, OSError):
         return None
-    m = GITHUB_REMOTE.search(remote)
-    if not m:
+    found = github_slug(remote)
+    if not found:
         return None
-    slug = canonical_slug(f"{m.group(1)}/{m.group(2)}")
+    slug = canonical_slug("/".join(found))
     owner, repo = slug.split("/", 1)
     if owner.lower() != me.lower() and main not in roster and slug.lower() not in slugs:
         return None
