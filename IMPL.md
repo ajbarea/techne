@@ -38,6 +38,10 @@ memory without bound); reasons name the copy (working copy, current commit, defa
 `ssh -G` back through doctor_lib.run (group kill). Mutation 5/5. Left as Minor: the lint misses
 owner values without "team" (`- owner: lab`), documented contract; a kind-less path match hides
 a same-origin team entry (to #190).
+Light reader on that delta: git_env's `import doctor_lib` needed the caller's sys.path (test
+isolation + load by file path); now it appends its own folder. Working-copy read uses os.stat
+(3.14 swallows EACCES in is_file), names a broken link. Mutation 4/4. Review loop stopped at
+AJ's budget (one high-tier review); remaining Minors documented in the PR. Next: CI green, merge.
 Next, in order:
 1. Full suite on a frozen tree; CI green; merge (squash).
 2. ldqis follow-up: rewrite its owner line to canonical `- owner: team`.

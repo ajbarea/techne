@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -181,3 +182,24 @@ def test_ssh_g_cannot_leave_a_child_holding_the_pipe(ge, tmp_path, monkeypatch):
             os.kill(pid, 9)
         except ProcessLookupError:
             pass
+
+
+def test_git_env_loaded_by_file_path_alone_still_resolves_an_alias(tmp_path):
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    (bindir / "ssh").write_text("#!/bin/sh\necho 'hostname github.com'\n")
+    (bindir / "ssh").chmod(0o755)
+    code = (
+        "import importlib.util, sys\n"
+        f"spec = importlib.util.spec_from_file_location('git_env', {str(GIT_ENV)!r})\n"
+        "mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)\n"
+        "print(mod.github_slug('git@github-work:o/r'))\n"
+    )
+    out = subprocess.run(
+        [sys.executable, "-I", "-B", "-c", code],
+        capture_output=True,
+        text=True,
+        env={"PATH": f"{bindir}:/usr/bin:/bin"},
+        check=True,
+    ).stdout
+    assert out.strip() == "('o', 'r')"

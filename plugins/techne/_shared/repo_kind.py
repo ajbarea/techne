@@ -23,7 +23,9 @@ reading techne.toml needs 3.11, and below that an existing techne.toml reads as 
 from __future__ import annotations
 
 import json
+import os
 import re
+import stat
 import sys
 from pathlib import Path
 
@@ -104,17 +106,23 @@ def marked_team_in_repo(where: str, top: Path) -> str | None:
     """Why the working tree or the current commit marks the repo team, or None. The default
     branch is read from GitHub in from_github, since a local origin/<branch> may be stale."""
     path, copy = top / SKILL_CONTEXT, f"the working copy of {SKILL_CONTEXT}"
-    try:
-        if path.is_file():
-            with path.open("rb") as f:
-                raw = f.read(MAX_BYTES + 1)
-            if len(raw) > MAX_BYTES:
-                return f"{copy} is over {MAX_BYTES} bytes, so unread"
-            why = team_marker(decode(raw), copy)
-            if why:
-                return why
-        elif path.exists() or path.is_symlink():  # a device, folder or broken link
+    try:  # os.stat, not Path.is_file: a permission error must surface, not read as absent
+        try:
+            info = os.stat(path)
+        except FileNotFoundError:
+            os.lstat(path)  # no file at all raises again, below
+            return f"{copy} is a link to a missing file, so unread"
+        if not stat.S_ISREG(info.st_mode):  # a device, FIFO or folder
             return f"{copy} is not a regular file, so unread"
+        with path.open("rb") as f:
+            raw = f.read(MAX_BYTES + 1)
+        if len(raw) > MAX_BYTES:
+            return f"{copy} is over {MAX_BYTES} bytes, so unread"
+        why = team_marker(decode(raw), copy)
+        if why:
+            return why
+    except (FileNotFoundError, NotADirectoryError):
+        pass  # no working copy; the current commit is read next
     except OSError as exc:
         return f"{copy} could not be read ({exc.strerror or exc})"
     # Local objects only: a blob missing from a partial clone is not fetched, and the default

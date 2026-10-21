@@ -6,6 +6,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import sys
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -110,7 +111,10 @@ def github_slug(url: str) -> tuple[str, str] | None:
     alias = _ALIAS_URL.match(url) or _ALIAS_SCP.match(url)
     if not alias or alias.group(1).startswith("-"):  # never hand ssh an option from a remote URL
         return None
-    import doctor_lib  # every _shared folder holding this file holds doctor_lib too
+    here = str(Path(__file__).resolve().parent)
+    if here not in sys.path:  # loaded by file path: doctor_lib sits beside this file
+        sys.path.append(here)
+    import doctor_lib
 
     # Its own session, stdin closed, the process group killed on timeout: a slow `Match exec`
     # helper in ~/.ssh/config cannot outlive the call.

@@ -7,6 +7,7 @@ Only GitHub facts about the user may make a repo solo, so every other path must 
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -462,6 +463,8 @@ def test_every_plugin_ships_the_same_git_env():
     assert len(copies) >= 2
     for copy in copies:
         assert copy.read_bytes() == source.read_bytes(), copy
+        beside = copy.with_name("doctor_lib.py")  # github_slug imports it from beside itself
+        assert beside.read_bytes() == source.with_name("doctor_lib.py").read_bytes(), beside
 
 
 def test_running_the_script_writes_no_bytecode_into_the_plugin(tmp_path):
@@ -806,9 +809,13 @@ def test_a_look_alike_only_in_the_current_commit_names_that_copy(rk, origin, no_
     assert why.startswith("line 2 of .claude/skill-context.md in the current commit (")
 
 
-@pytest.mark.parametrize("target", ["/dev/zero", "a-folder", "missing"])
+@pytest.mark.parametrize(
+    "target, why",
+    [("/dev/zero", "is not a regular file"), ("a-folder", "is not a regular file"),
+     ("missing", "is a link to a missing file")],
+)  # fmt: skip
 def test_a_skill_context_that_is_not_a_regular_file_reads_as_team_unread(
-    rk, origin, no_toml, gh, target
+    rk, origin, no_toml, gh, target, why
 ):
     mine(gh)
     (origin / ".claude").mkdir()
@@ -817,8 +824,26 @@ def test_a_skill_context_that_is_not_a_regular_file_reads_as_team_unread(
     link.symlink_to(target if target.startswith("/") else origin / target)
     assert rk.classify(str(origin), no_toml) == (
         "team",
-        "the working copy of .claude/skill-context.md is not a regular file, so unread",
+        f"the working copy of .claude/skill-context.md {why}, so unread",
     )
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads a mode-000 folder")
+def test_an_unreadable_claude_folder_reads_as_team(rk, origin, no_toml, gh):
+    mine(gh)
+    skill_context(origin, "## repo\n- owner: team\n")  # not committed
+    (origin / ".claude").chmod(0)
+    try:
+        kind, why = rk.classify(str(origin), no_toml)
+    finally:
+        (origin / ".claude").chmod(0o755)
+    assert kind == "team" and "could not be read (Permission denied)" in why
+
+
+def test_a_plain_folder_named_like_the_file_path_is_absent_not_team(rk, origin, no_toml, gh):
+    mine(gh)
+    (origin / ".claude").write_text("not a folder", encoding="utf-8")
+    assert rk.classify(str(origin), no_toml)[0] == "solo"
 
 
 def test_an_oversized_skill_context_reads_as_team_unread(rk, origin, no_toml, gh, monkeypatch):
