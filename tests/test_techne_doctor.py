@@ -377,3 +377,19 @@ def test_require_python_exits_with_one_line_when_too_old():
 
 def test_doctor_names_the_skills_needing_python_3_11():
     assert "techne:catchup, techne:sisters and techne:board need 3.11" in DOCTOR.read_text()
+
+
+@pytest.mark.skipif(_hook_python_is_old(), reason="below 3.11 the doctor has no TOML parser")
+@pytest.mark.parametrize(
+    "body, said",
+    [("workspace_root = [", "is not valid TOML"),
+     ('workspace_root = "/w"\ngithub_user = "u"\n[[sisters]]\nkind = "team"\n', "has no name"),
+     ('workspace_root = 5\ngithub_user = "u"\n[[sisters]]\nname = "a"\n', "must be a path"),
+     ('workspace_root = ""\ngithub_user = "u"\n[[sisters]]\nname = "a"\n', "is empty"),
+     ('workspace_root = "/w"\ngithub_user = ["u"]\n[[sisters]]\nname = "a"\n', "must be a login")],
+)  # fmt: skip
+def test_techne_toml_the_tools_reject_is_not_reported_ok(tmp_path, machine, body, said):
+    home, repo = machine
+    (home / ".claude" / "techne.toml").write_text(body)
+    _, found = doctor(tmp_path, home, repo)
+    assert found["techne.toml"][0] == "optional" and said in found["techne.toml"][1]

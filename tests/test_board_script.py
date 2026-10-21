@@ -268,3 +268,11 @@ def test_init_leaves_a_board_already_set_up(gh_stub: GhStub):
     assert proc.returncode == 0, proc.stderr
     assert "Status already holds Idea, Issue, In PR, Merged, Live" in proc.stdout
     assert not any(a[:2] == ["api", "graphql"] for a in gh_stub.argvs())
+
+
+def test_init_names_a_config_error_instead_of_asking_for_github_user(bd, tmp_path, monkeypatch):
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / ".claude" / "techne.toml").write_text('github_user = "u"\nx = 07\n')
+    monkeypatch.setenv("HOME", str(tmp_path))
+    with pytest.raises(bd.pb.BoardError, match=r"is not valid TOML.*pass --owner"):
+        bd.configured_owner()

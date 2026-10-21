@@ -148,7 +148,7 @@ def test_an_unreadable_toml_reads_as_team(rk, origin, tmp_path, gh):
     bad = tmp_path / "techne.toml"
     bad.write_text("this is = = not toml", encoding="utf-8")
     kind, why = rk.classify(str(origin), bad)
-    assert kind == "team" and why.startswith("cannot read")
+    assert kind == "team" and why.startswith(f"{bad} is not valid TOML")
 
 
 # ---------------------------------------------- signals that only say team --
@@ -436,7 +436,7 @@ def test_a_non_utf8_toml_reads_as_team(rk, origin, tmp_path, gh):
     bad = tmp_path / "techne.toml"
     bad.write_bytes(b"# caf\xe9\nworkspace_root = '/x'\n")
     kind, why = rk.classify(str(origin), bad)
-    assert kind == "team" and why.startswith("cannot read")
+    assert kind == "team" and why.startswith(f"{bad} is not valid TOML")
 
 
 @pytest.mark.parametrize(
@@ -730,7 +730,7 @@ def test_the_rest_lists_are_asked_one_at_a_time_and_only_while_needed(rk, origin
     assert gh.call_count(INVITED) == 0
 
 
-def test_another_checkouts_origin_is_read_only_when_nothing_else_matched(
+def test_another_checkouts_origin_is_read_only_when_no_team_entry_matched(
     rk, origin, tmp_path, gh, monkeypatch
 ):
     def never(*args):
@@ -854,3 +854,34 @@ def test_an_oversized_skill_context_reads_as_team_unread(rk, origin, no_toml, gh
         "team",
         "the working copy of .claude/skill-context.md is over 64 bytes, so unread",
     )
+
+
+@pytest.mark.parametrize(
+    "roster_body, said",
+    [('sisters = "myrepo"\n', "must be a list of tables"),
+     ('[[sisters]]\nname = 7\nkind = "team"\n', "entry 1"),
+     ('[[sisters]]\nkind = "team"\n', "entry 1")],
+)  # fmt: skip
+def test_a_malformed_roster_reads_as_team_not_as_no_entry(
+    rk, origin, tmp_path, gh, roster_body, said
+):
+    mine(gh)  # GitHub alone would say solo, so team must come from the signal
+    toml = tmp_path / "techne.toml"
+    toml.write_text(f'workspace_root = "{origin.parent}"\n{roster_body}', encoding="utf-8")
+    kind, why = rk.classify(str(origin), toml)
+    assert kind == "team" and said in why
+
+
+def test_a_kind_less_path_match_does_not_hide_a_same_origin_team_entry(rk, tmp_path, gh):
+    mine(gh)  # GitHub alone would say solo, so team must come from the signal
+    ws = tmp_path / "ws"
+    site, lab = init(ws / "site"), init(ws / "site-lab")
+    for clone in (site, lab):
+        git(clone, "remote", "add", "origin", f"git@github.com:{SLUG}.git")
+    toml = tmp_path / "techne.toml"
+    toml.write_text(
+        f'workspace_root = "{ws}"\n[[sisters]]\nname = "site"\n'
+        '[[sisters]]\nname = "site-lab"\nkind = "team"\n',
+        encoding="utf-8",
+    )
+    assert rk.classify(str(site), toml) == ("team", f'kind = "team" in {toml}')

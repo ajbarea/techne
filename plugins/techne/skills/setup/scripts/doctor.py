@@ -18,6 +18,7 @@ sys.dont_write_bytecode = True  # a doctor leaves no file behind, not even in th
 PLUGIN = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PLUGIN / "_shared"))
 import doctor_lib as d  # noqa: E402  # ty: ignore[unresolved-import]
+import techne_config as tc  # noqa: E402  # ty: ignore[unresolved-import]
 
 SKELETON = PLUGIN / "skills" / "setup" / "skill-context.template.md"
 TOML_KEYS = ("workspace_root", "github_user")
@@ -68,20 +69,34 @@ def skill_context(start: Path) -> d.Check:
 
 
 def techne_toml() -> d.Check:
-    path = Path.home() / ".claude" / "techne.toml"
+    """techne.toml read the way every techne script reads it (techne_config); below python3 3.11,
+    with no TOML parser, a presence check of its keys instead."""
+    path = tc.techne_toml()
     edit = (f"fix: ${{EDITOR:-nano}} ~/.claude/techne.toml  # schema: {d.CONFIG_DOCS}",)
-    if not path.is_file():
-        return d.Check(
-            d.OPTIONAL, "techne.toml", "~/.claude/techne.toml not found (techne:sisters)", edit
-        )
     try:
-        text = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as exc:
-        return d.Check(d.OPTIONAL, "techne.toml", f"unreadable: {exc}", edit)
-    top = re.split(r"^\s*\[", text, maxsplit=1, flags=re.MULTILINE)[0]  # keys before any table
-    lacking = [k for k in TOML_KEYS if not re.search(rf"^\s*{k}\s*=", top, re.MULTILINE)]
-    if not re.search(r"^\s*\[\[sisters\]\]", text, re.MULTILINE):
-        lacking.append("[[sisters]]")
+        cfg = tc.load(path)
+    except tc.NeedsTomllib:
+        cfg = None
+        text = path.read_text(encoding="utf-8", errors="replace")
+        top = re.split(r"^\s*\[", text, maxsplit=1, flags=re.MULTILINE)[0]  # keys before tables
+        lacking = [k for k in TOML_KEYS if not re.search(rf"^\s*{k}\s*=", top, re.MULTILINE)]
+        if not re.search(r"^\s*\[\[sisters\]\]", text, re.MULTILINE):
+            lacking.append("[[sisters]]")
+    except tc.ConfigError as exc:
+        return d.Check(d.OPTIONAL, "techne.toml", str(exc), edit)
+    else:
+        if cfg is None:
+            return d.Check(
+                d.OPTIONAL, "techne.toml", "~/.claude/techne.toml not found (techne:sisters)", edit
+            )
+        lacking = [k for k in TOML_KEYS if k not in cfg]
+        if "sisters" not in cfg:
+            lacking.append("[[sisters]]")
+        if not lacking:
+            try:
+                tc.required(cfg, path)
+            except tc.ConfigError as exc:
+                return d.Check(d.OPTIONAL, "techne.toml", str(exc), edit)
     if lacking:
         return d.Check(d.OPTIONAL, "techne.toml", "missing " + ", ".join(lacking), edit)
     return d.Check(d.OK, "techne.toml", str(path))

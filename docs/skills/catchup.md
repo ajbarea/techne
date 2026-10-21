@@ -21,7 +21,7 @@ Part of [techne](../plugins/techne.md): `/plugin install techne@techne`, then `/
 /techne:catchup <reponame>
 ```
 
-A bare repo name resolves against the local clone's remote under `workspace_root`, so team repos owned by a collaborator resolve correctly. An `owner/name` works, and so does a path to a clone or to any directory inside one. With no argument, the skill uses the current directory's remote.
+A bare repo name resolves against the local clone's remote under `workspace_root`, so team repos owned by a collaborator resolve correctly. An `owner/name` works, and so does a path to a clone or to any directory inside one. With no argument, the skill uses the current directory's remote. A name that resolves to no clone stops with a message rather than falling back to the current directory. When `techne.toml` cannot be used, the script says why on stderr and looks for repos beside the current folder.
 
 Given a path, it also reports any clone checked out beneath it. A repo parked inside another repo's working tree answers to the outer clone, so sweeping the outer one alone would report "nothing to catch up on" while the real threads sit a directory down.
 

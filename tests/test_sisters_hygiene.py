@@ -584,12 +584,13 @@ def run_env(tmp_path, body, script=HYGIENE_SCRIPT):
 
 
 def test_env_prints_the_audit_preamble_variables(tmp_path):
+    """WORKSPACE comes out expanded: a quoted '~/...' would never expand in the shell."""
     proc = run_env(tmp_path, GOOD)
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout.splitlines() == [
         "SISTERS='a b'",
         "TEAM_SISTERS=b",
-        "WORKSPACE='~/w x'",
+        f"WORKSPACE='{tmp_path / 'home' / 'w x'}'",
         "GITHUB_USER=u",
     ]
 
@@ -608,6 +609,15 @@ def test_a_team_kind_counts_in_any_case(tmp_path):
         ("workspace_root = [", "not valid TOML"),
         ('workspace_root = "~/w"\ngithub_user = "u"\n[[sisters]]\nx = 1\n', "no name"),
         ('workspace_root = "~/w"\ngithub_user = "u"\nsisters = "a"\n', "list of tables"),
+        (
+            'workspace_root = "~nosuchuser-techne/w"\ngithub_user = "u"\n[[sisters]]\nname = "a"\n',
+            "names no home folder",
+        ),
+        ('workspace_root = 5\ngithub_user = "u"\n[[sisters]]\nname = "a"\n', "must be a path"),
+        (
+            'workspace_root = "/w"\ngithub_user = ["u"]\n[[sisters]]\nname = "a"\n',
+            "must be a login",
+        ),
         (
             'workspace_root = "~/w"\ngithub_user = "u"\n[[sisters]]\nname = "a"\nstatus = "off"\n',
             "no active",
@@ -1455,3 +1465,12 @@ def test_canonical_slug_reads_github_and_falls_back(hy, monkeypatch):
 
     monkeypatch.setattr(hy, "run", offline)
     assert hy.canonical_slug("ajbarea/ldqis") == "ajbarea/ldqis"
+
+
+@pytest.mark.parametrize("name", ["../x", "..", "a/b"])
+def test_a_repo_name_from_the_command_line_must_be_one_folder(hy, monkeypatch, tmp_path, name):
+    path = tmp_path / "techne.toml"
+    path.write_text('workspace_root = "/w"\ngithub_user = "u"\n[[sisters]]\nname = "a"\n')
+    monkeypatch.setattr(hy, "TECHNE_TOML", path)
+    with pytest.raises(SystemExit, match="is not a repo folder name"):
+        hy.load_sisters([name])
