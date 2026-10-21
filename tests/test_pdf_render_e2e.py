@@ -205,3 +205,20 @@ def test_table_header_labels_keep_a_gap_between_columns(rn, tmp_path):
         ["pdftotext", "-layout", str(dest), "-"], capture_output=True, text=True
     ).stdout
     assert re.search(r"CASE\s+MUTATION\s+TESTS", text), text
+
+
+@needs_typst
+def test_a_render_over_its_page_budget_fails(rn, tmp_path, monkeypatch, capsys):
+    """Pages are counted from the real Typst PDF, with and without poppler."""
+    paragraphs = "\n\n".join(f"Paragraph {n}. " + "Words fill the page. " * 40 for n in range(30))
+    src = tmp_path / "long.md"
+    src.write_text(f"# Long\n\n<!-- budget: 1 page -->\n\n{paragraphs}\n")
+    out = tmp_path / "out"
+    assert rn.main([str(src), str(out), "--no-prose"]) == 1
+    assert "BLOCK  budget over budget" in capsys.readouterr().out
+
+    pdf = out / "long.pdf"
+    counted = rn.length_budget.pdf_pages(pdf)
+    assert counted is not None and counted > 1
+    monkeypatch.setattr(rn.length_budget.shutil, "which", lambda _tool: None)
+    assert rn.length_budget.pdf_pages(pdf) == counted

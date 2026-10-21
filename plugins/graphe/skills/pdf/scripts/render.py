@@ -34,6 +34,11 @@ try:
 except ImportError:  # an install without prose_check.py
     prose_check = None
 
+try:
+    import length_budget  # ty: ignore[unresolved-import]
+except ImportError:  # an install without length_budget.py
+    length_budget = None
+
 SETUP = "/graphe:setup"
 
 # Ordered fallbacks. Libertinus Serif and DejaVu Sans Mono
@@ -133,6 +138,30 @@ def prose_lines(src: pathlib.Path) -> list[str]:
     return [f"  REVIEW prose {hit.count}x {hit.name}: \u201c{hit.example}\u201d" for hit in hits]
 
 
+def budget_lines(src: pathlib.Path, pdf: pathlib.Path) -> tuple[list[str], str]:
+    """Lines to print, and the reason the run fails: over budget or an unreadable line."""
+    if length_budget is None:
+        return ["  INFO   budget check not installed (no _shared/length_budget.py)"], ""
+    source = src.read_text(encoding="utf-8")
+    try:
+        budget = length_budget.read(source, markdown=True)
+    except ValueError as exc:
+        reason = f"unreadable budget line: {exc}"
+        return [f"  BLOCK  budget {reason}"], f"{src.name}: {reason}"
+    if budget is None:
+        hint = "`<!-- budget: N words -->` in the .md"
+        return [f"  REVIEW budget {length_budget.MISSING.format(hint=hint)}"], ""
+    words = length_budget.count_markdown_words(source)
+    verdict = length_budget.compare(budget, length_budget.pdf_pages(pdf), words)
+    if verdict.over:
+        reason = length_budget.OVER.format(over="; ".join(verdict.over))
+        return [f"  BLOCK  budget {reason}"], f"{pdf.name}: {reason}"
+    if verdict.unmeasured:
+        message = length_budget.UNMEASURED.format(measured=verdict.measured)
+        return [f"  REVIEW budget {message}"], ""
+    return [f"  INFO   budget {verdict.measured}"], ""
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("src", type=pathlib.Path, help="markdown file or directory")
@@ -157,21 +186,27 @@ def main(argv: list[str] | None = None) -> int:
 
     args.out.mkdir(parents=True, exist_ok=True)
     drift: list[str] = []
+    budget_failures: list[str] = []
     for src in sources:
         dest, fonts = render(src, args.out)
         print(f"{dest}  [{', '.join(fonts)}]")
         if not args.no_prose:
             for line in prose_lines(src):
                 print(line)
+        lines, over = budget_lines(src, dest)
+        for line in lines:
+            print(line)
+        if over:
+            budget_failures.append(over)
         if args.check_fonts and sorted(args.check_fonts) != fonts:
             drift.append(f"{dest.name}: expected {sorted(args.check_fonts)}, got {fonts}")
 
-    if drift:
-        print("\nfont drift:", file=sys.stderr)
-        for line in drift:
-            print(f"  {line}", file=sys.stderr)
-        return 1
-    return 0
+    for heading, failures in (("font drift", drift), ("budget", budget_failures)):
+        if failures:
+            print(f"\n{heading}:", file=sys.stderr)
+            for line in failures:
+                print(f"  {line}", file=sys.stderr)
+    return 1 if drift or budget_failures else 0
 
 
 if __name__ == "__main__":

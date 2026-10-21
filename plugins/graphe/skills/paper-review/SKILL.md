@@ -97,7 +97,9 @@ mandatory citation-integrity gate, then OpenNovelty's four-phase pipeline (arXiv
      against what the time allows.
    - **§3c Quality** per `<plugin-root>/_shared/paper-quality.md`:
      every-sentence test (list sentences that help no venue review criterion and no required
-     element; propose cut or merge, never apply); comparison against `conventions.md` (titles,
+     element, and every result stated in more than one place outside the abstract and
+     conclusion; propose cut or merge, never apply); length against the budget the source
+     declares (the *Length* section of `<plugin-root>/_shared/plain-prose.md`); comparison against `conventions.md` (titles,
      abstract length, RQ phrasing, section order, tense) or, if absent, against the venue's
      accepted papers; integrity guards (ethics or IRB claims with no written determination,
      numbers from data without permission, a "not in a published figure" promise broken

@@ -33,6 +33,11 @@ try:
 except ImportError:  # an install without prose_check.py
     prose_check = None
 
+try:
+    import length_budget  # ty: ignore[unresolved-import]
+except ImportError:  # an install without length_budget.py
+    length_budget = None
+
 SETUP = "/graphe:setup"
 TOOLS = (
     ("latexmk", "latex"),
@@ -306,17 +311,44 @@ def prompt_coverage(prompt: pathlib.Path, text: str) -> list[Finding]:
     return [Finding(INFO, "coverage", f"all {len(asked)} headers in {prompt.name} appear")]
 
 
-def prose_findings(pdf: pathlib.Path) -> list[Finding]:
-    """Advisory. Patterns from _shared/plain-prose.md; never decides the exit code."""
+def prose_findings(pdf: pathlib.Path, reading: str | None = None) -> list[Finding]:
+    """Advisory. Patterns from _shared/plain-prose.md; never decides the exit code.
+
+    `reading` is the PDF's reading-order text when the caller already has it."""
     if prose_check is None:
         return [Finding(INFO, "prose", "prose check not installed (no _shared/prose_check.py)")]
-    hits, skipped = prose_check.report(prose_check.pdf_text(pdf))
+    hits, skipped = prose_check.report(prose_check.pdf_text(pdf) if reading is None else reading)
     if skipped:
         return [Finding(INFO, "prose", skipped)]
     return [
         Finding(REVIEW, "prose", f"{hit.count}x {hit.name}: \u201c{hit.example}\u201d")
         for hit in hits
     ]
+
+
+def budget_findings(tex: pathlib.Path, pdf: pathlib.Path, text: str) -> list[Finding]:
+    """BLOCK over the budget the source declares, REVIEW when it declares none or a
+    declared page limit cannot be counted. `text` is the PDF in reading order."""
+    if length_budget is None:
+        return [Finding(INFO, "budget", "budget check not installed (no _shared/length_budget.py)")]
+    source = tex.read_text(encoding="utf-8", errors="replace")
+    try:
+        budget = length_budget.read(source)
+    except ValueError as exc:
+        return [Finding(BLOCK, "budget", f"unreadable budget line: {exc}", tex.name)]
+    if budget is None:
+        hint = "`% budget: N pages` in the .tex"
+        return [Finding(REVIEW, "budget", length_budget.MISSING.format(hint=hint), tex.name)]
+    titles = length_budget.appendix_titles(length_budget.expand_inputs(tex))
+    words = length_budget.count_words(text, titles) if text.strip() else None
+    verdict = length_budget.compare(budget, length_budget.pdf_pages(pdf), words)
+    if verdict.over:
+        message = length_budget.OVER.format(over="; ".join(verdict.over))
+        return [Finding(BLOCK, "budget", message, pdf.name)]
+    if verdict.unmeasured:
+        message = length_budget.UNMEASURED.format(measured=verdict.measured)
+        return [Finding(REVIEW, "budget", message, pdf.name)]
+    return [Finding(INFO, "budget", verdict.measured, pdf.name)]
 
 
 def find_prompt(tex: pathlib.Path) -> tuple[pathlib.Path | None, str]:
@@ -413,8 +445,12 @@ def main() -> int:
         elif ambiguous:
             found.append(Finding(INFO, "coverage", ambiguous))
 
+    reading = prose_check.pdf_text(pdf) if prose_check is not None and text else text
     if not args.no_prose and text:
-        found += prose_findings(pdf)
+        found += prose_findings(pdf, reading)
+
+    if pdf.exists():
+        found += budget_findings(tex, pdf, reading)
 
     if code != 0 and not any(f.severity == ERROR for f in found):
         found.append(Finding(ERROR, "build", f"latexmk exited {code}, log says nothing"))
