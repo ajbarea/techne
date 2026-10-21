@@ -10,9 +10,11 @@ A document declares its budget on one comment line of its source, before draftin
 
 Pages count the whole PDF; a venue whose limit leaves the references out declares `none`.
 Words come from the source, not the PDF: LaTeX through `texcount -inc -sum` (text, headers,
-`\\title` included, and captions, `\\input` followed, bibliography and text in `\\iffalse` or
-`comment` blocks left out, as Overleaf counts), markdown from the body
-without code, comments, link targets or a References section, and without the title block.
+`\\title` included, and captions, `\\input` followed, bibliography left out, as Overleaf
+counts; text in `\\iffalse` or `comment` blocks of the root and its `\\input`/`\\include`
+files is left out too, while files the import or subfiles packages load keep it), markdown
+from the body without code, comments, link targets or a References section, and without the
+title block.
 
 A `budget:` comment is a declaration when its spec opens with a number, a number word before
 `page(s)`/`word(s)`, a `_` placeholder, or `none`/`unlimited`/`no limit` alone; it must
@@ -269,8 +271,9 @@ def _inline_inputs(code: str, folder: pathlib.Path, depth: int = 0) -> str:
 
 def tex_words(tex: pathlib.Path) -> tuple[int | None, str]:
     """Words of the root .tex and what it inputs, as texcount counts them (text, headers
-    including the title, and captions; bibliography, `\\iffalse` and `comment` blocks left
-    out), and why it could not be counted."""
+    including the title, and captions; bibliography, and `\\iffalse` and `comment` blocks in
+    the root and its `\\input`/`\\include` files, left out; files the import or subfiles
+    packages load keep theirs), and why it could not be counted."""
     if not shutil.which("texcount"):
         return None, "texcount not found"
     try:
@@ -281,6 +284,8 @@ def tex_words(tex: pathlib.Path) -> tuple[int | None, str]:
             input=_inline_inputs(code, tex.parent),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=_TEXCOUNT_TIMEOUT,
         )
     except (OSError, subprocess.SubprocessError) as exc:

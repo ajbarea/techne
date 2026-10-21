@@ -876,3 +876,17 @@ def test_a_comment_after_an_unclosed_one_on_the_first_line_is_not_its_close(rn):
     source = "<!-- a --> <!-- b\nstill -->\n# Title\n\nBody.\n"
     title, _, body = rn.split_front_matter(source)
     assert title == "Title" and "<!-- b" in body
+
+
+@needs_texcount
+def test_texcount_input_is_utf8_whatever_the_locale(lb, monkeypatch, tmp_path):
+    import locale
+
+    monkeypatch.setattr(locale, "getencoding", lambda: "cp1252")
+    tex = tmp_path / "doc.tex"
+    tex.write_text(
+        "\\documentclass{article}\n\\begin{document}\n\u65e5\u672c one two\n\\end{document}\n",
+        encoding="utf-8",
+    )
+    words, why = lb.tex_words(tex)
+    assert words is not None, why
