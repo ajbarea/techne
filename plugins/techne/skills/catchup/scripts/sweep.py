@@ -209,7 +209,8 @@ def resolve_repo(name):
     """Resolve an argument to (owner/name, clone root or None).
 
     Accepts owner/name, a bare name under workspace_root, a path to a clone or
-    to any directory inside one, or nothing (cwd). Uses `gh repo view` in the
+    to any directory inside one, or nothing (cwd). A name that resolves to no
+    clone stops with a message; it never falls back to the cwd's repo. Uses `gh repo view` in the
     clone rather than parsing the remote URL: remotes come in SSH and HTTPS
     forms with an optional .git suffix, and a parse that leaves the suffix
     attached yields owner/repo.git, which 404s on every later call.
@@ -223,7 +224,8 @@ def resolve_repo(name):
             return name, None  # owner/name, not a path on this machine
         else:
             candidates.append(workspace_root() / name)
-    candidates.append(Path.cwd())
+    else:
+        candidates.append(Path.cwd())
     for path in candidates:
         root = git_root(path)
         if root:

@@ -600,3 +600,16 @@ def test_an_unreadable_config_says_why_before_falling_back(sw, tmp_path, monkeyp
     monkeypatch.chdir(tmp_path)
     assert sw.workspace_root() == tmp_path.parent
     assert "is not valid TOML" in capsys.readouterr().err
+
+
+def test_a_bare_name_that_is_no_clone_never_falls_back_to_the_cwd_repo(
+    sw, fp, clone, tmp_path, monkeypatch
+):
+    ws = tmp_path / "ws"
+    monkeypatch.setattr(sw, "workspace_root", lambda: ws)
+    monkeypatch.chdir(clone)
+    fp.register(["git", "-C", str(ws / "zzz"), "rev-parse", "--show-toplevel"], returncode=128)
+    register_toplevel(fp, clone, clone)  # the cwd is a clone, and must not be used
+    fp.register(["gh", "repo", "view", fp.any()], stdout="someone/myrepo\n")
+    with pytest.raises(SystemExit, match="cannot resolve repo 'zzz'"):
+        sw.resolve_repo("zzz")

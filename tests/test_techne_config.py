@@ -12,6 +12,7 @@ from conftest import ROOT, _load
 
 TC = ROOT / "plugins" / "techne" / "_shared" / "techne_config.py"
 PARSES_TOML = re.compile(r"\bimport tomllib\b|\bfrom tomllib\b|\btomllib\.loads?\(")
+OPENS_TECHNE_TOML = re.compile(r"/\s*[\"']techne\.toml[\"']")  # a path built to the file
 
 
 @pytest.fixture(scope="module")
@@ -138,12 +139,17 @@ def test_matches_by_resolved_path_or_by_owner_slug(tc, tmp_path):
 
 
 def test_no_other_techne_script_parses_toml_itself():
-    """Every reader of techne.toml goes through techne_config, so the failure rules stay one."""
+    """Every reader of techne.toml goes through techne_config, so the failure rules stay one: no
+    other script parses TOML, or builds a path to techne.toml (as a line-scanning reader would)."""
     allowed = {TC, ROOT / "plugins/techne/skills/docs-site/templates/shared/tests/test_docs_nav.py"}
     offenders = [
         path
         for path in (ROOT / "plugins" / "techne").rglob("*.py")
-        if path not in allowed and PARSES_TOML.search(path.read_text(encoding="utf-8"))
+        if path not in allowed
+        and (
+            PARSES_TOML.search(text := path.read_text(encoding="utf-8"))
+            or OPENS_TECHNE_TOML.search(text)
+        )
     ]
     assert offenders == []
 
@@ -173,3 +179,9 @@ def test_an_unknown_home_user_is_invalid_not_a_crash(tc):
 @pytest.mark.parametrize("status", ["Active", " active ", "ACTIVE"])
 def test_status_is_read_in_any_case(tc, status):
     assert tc.is_active({"name": "a", "status": status})
+
+
+def test_the_guard_fires_on_a_line_scanning_reader():
+    old_sweep = 'TECHNE_TOML = Path.home() / ".claude" / "techne.toml"\n'
+    assert OPENS_TECHNE_TOML.search(old_sweep)
+    assert not OPENS_TECHNE_TOML.search('d.Check(d.OK, "techne.toml", str(path))')
