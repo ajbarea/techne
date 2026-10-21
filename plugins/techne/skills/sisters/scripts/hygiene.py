@@ -65,6 +65,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True  # the plugin cache stays as installed
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "_shared"))
 import doctor_lib  # noqa: E402  # ty: ignore[unresolved-import]
+import techne_config as tc  # noqa: E402  # ty: ignore[unresolved-import]
 from git_env import batch_ssh, github_slug, without_repo_overrides  # noqa: E402  # ty: ignore[unresolved-import]
 from resume_state import impl_matches  # noqa: E402  # ty: ignore[unresolved-import]
 
@@ -74,9 +75,8 @@ if sys.version_info < (3, 11) and {"--auto", "--hook"} & set(sys.argv):
     sys.exit(0)
 doctor_lib.require_python((3, 11), "sisters", "/techne:setup")
 
-import tomllib  # noqa: E402
 
-TECHNE_TOML = Path.home() / ".claude" / "techne.toml"
+TECHNE_TOML = tc.techne_toml()
 
 # A worktree touched this recently may belong to a session that is still working
 # in it, even when nothing is uncommitted.
@@ -682,44 +682,40 @@ def canonical_slug(slug: str) -> str:
         return slug
 
 
-def read_config() -> tuple[str, str, list[dict]]:
+def read_config() -> tuple[Path, str, list[dict]]:
     """(workspace_root, github_user, [[sisters]] tables), or exit with a message."""
     where = f"Run /techne:setup, or see {doctor_lib.CONFIG_DOCS}"
     try:
-        with TECHNE_TOML.open("rb") as f:
-            cfg = tomllib.load(f)
-        ws, me, sisters = cfg["workspace_root"], cfg["github_user"], cfg["sisters"]
-    except FileNotFoundError:
-        sys.exit(f"sisters: {TECHNE_TOML} not found. {where}")
-    except tomllib.TOMLDecodeError as exc:
-        sys.exit(f"sisters: {TECHNE_TOML} is not valid TOML ({exc}). {where}")
-    except KeyError as exc:
-        sys.exit(f"sisters: {TECHNE_TOML} has no {exc.args[0]}. {where}")
-    if not isinstance(sisters, list) or not all(isinstance(s, dict) for s in sisters):
-        sys.exit(f"sisters: sisters in {TECHNE_TOML} must be a list of tables. {where}")
-    for number, sister in enumerate(sisters, 1):
-        if not isinstance(sister.get("name"), str):
-            sys.exit(f"sisters: [[sisters]] entry {number} in {TECHNE_TOML} has no name. {where}")
-    return str(ws), str(me), sisters
+        cfg = tc.load(TECHNE_TOML)
+        if cfg is None:
+            sys.exit(f"sisters: {TECHNE_TOML} not found. {where}")
+        sisters = tc.sisters(cfg, TECHNE_TOML)
+    except tc.ConfigError as exc:
+        sys.exit(f"sisters: {exc}. {where}")
+    ws, me = tc.workspace_root(cfg), tc.github_user(cfg)
+    for key, value in (("workspace_root", ws), ("github_user", me), ("sisters", sisters)):
+        if not value and (key != "sisters" or "sisters" not in cfg):
+            sys.exit(f"sisters: {TECHNE_TOML} has no {key}. {where}")
+    assert ws is not None and me is not None
+    return ws, me, sisters
 
 
 def load_sisters(names: list[str]) -> tuple[list[tuple[str, str, str]], str]:
     ws, me, sisters = read_config()
-    active = [s["name"] for s in sisters if s.get("status", "active") == "active"]
-    chosen = names or active
-    return [(n, f"{me}/{n}", str(Path(ws) / n)) for n in chosen], me
+    chosen = names or [s["name"] for s in sisters if tc.is_active(s)]
+    return [(n, f"{me}/{n}", str(ws / n)) for n in chosen], me
 
 
 def print_env() -> None:
     """The audit preamble's shell variables, quoted for eval."""
     ws, me, sisters = read_config()
-    active = [s for s in sisters if s.get("status", "active") == "active"]
+    active = [s for s in sisters if tc.is_active(s)]
     if not active:
         sys.exit(f"sisters: no active sisters in {TECHNE_TOML}. Run /techne:setup.")
-    team = [s["name"] for s in active if str(s.get("kind", "")).strip().lower() == "team"]
+    team = [s["name"] for s in active if tc.is_team(s)]
     print(f"SISTERS={shlex.quote(' '.join(s['name'] for s in active))}")
     print(f"TEAM_SISTERS={shlex.quote(' '.join(team))}")
-    print(f"WORKSPACE={shlex.quote(ws)}")
+    print(f"WORKSPACE={shlex.quote(str(ws))}")
     print(f"GITHUB_USER={shlex.quote(me)}")
 
 

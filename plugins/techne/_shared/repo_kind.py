@@ -32,8 +32,8 @@ from pathlib import Path
 sys.dont_write_bytecode = True  # the plugin cache stays as installed
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import doctor_lib  # noqa: E402
+import techne_config as tc  # noqa: E402
 from git_env import github_slug, without_repo_overrides  # noqa: E402
-from project_board import techne_toml  # noqa: E402
 
 TIMEOUT = 10
 SKILL_CONTEXT = ".claude/skill-context.md"
@@ -83,10 +83,6 @@ def decode(raw: bytes) -> str:
     return raw.decode("utf-8", "replace")
 
 
-class TomlUnreadable(Exception):
-    """techne.toml exists but this python3 cannot parse it, so a team entry may be missed."""
-
-
 def sh(*args: str) -> str | None:
     """stdout of a command, or None when it fails, times out or is missing."""
     env = without_repo_overrides()
@@ -133,23 +129,12 @@ def marked_team_in_repo(where: str, top: Path) -> str | None:
     return team_marker(decode(out), f"{SKILL_CONTEXT} in the current commit") if code == 0 else None
 
 
-def kind_of(sister: dict) -> str:
-    """A [[sisters]] entry's kind, lowercased: "team", "solo" or ""."""
-    return str(sister.get("kind", "")).strip().lower()
-
-
-def is_team(sister: dict) -> bool:
-    return kind_of(sister) == "team"
-
-
-def same_remote(root: object, name: str, slug: tuple[str, str] | None) -> bool:
+def same_remote(cfg: dict, sister: dict, slug: tuple[str, str] | None) -> bool:
     """Whether the roster checkout workspace_root/<name> has this origin, so another clone of a
     team sister whose folder and GitHub names differ still matches it. Run for team entries only,
     since only a team match changes the answer."""
-    if not slug or not isinstance(root, str):
-        return False
-    checkout = Path(root).expanduser() / name
-    if not checkout.is_dir():
+    checkout = tc.checkout(cfg, sister)
+    if not slug or checkout is None or not checkout.is_dir():
         return False
     theirs = github_slug(sh("git", "-C", str(checkout), "remote", "get-url", "origin") or "")
     return bool(theirs) and tuple(p.lower() for p in theirs) == tuple(p.lower() for p in slug)
@@ -157,37 +142,18 @@ def same_remote(root: object, name: str, slug: tuple[str, str] | None) -> bool:
 
 def sister_entry(checkouts: set[Path], slug: tuple[str, str] | None, path: Path) -> dict | None:
     """The [[sisters]] table for this repo, or None: matched by workspace_root/<name> against
-    the checkout paths, or by name when the origin is <github_user>/<name> (another clone), or,
-    when neither matches, by a team entry whose checkout has the same origin."""
-    if not path.exists() and not path.is_symlink():  # a broken link is present but unreadable
+    the checkout paths, or by name when the origin is <github_user>/<name> (another clone), or by
+    a team entry whose checkout has the same origin. Raises tc.ConfigError when techne.toml is
+    there but unusable, roster included."""
+    cfg = tc.load(path)
+    if cfg is None:
         return None
-    try:
-        import tomllib
-    except ImportError as exc:  # python3 below 3.11, as on stock macOS
-        raise TomlUnreadable(f"python3 {sys.version.split()[0]} cannot read {path}") from exc
-    try:
-        with path.open("rb") as f:
-            cfg = tomllib.load(f)
-    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
-        raise TomlUnreadable(f"cannot read {path}: {exc}") from exc
-    root, sisters, me = cfg.get("workspace_root"), cfg.get("sisters"), cfg.get("github_user")
-    if not isinstance(sisters, list):
-        return None
-    here = {p.resolve() for p in checkouts}
-    mine = bool(slug and isinstance(me, str) and slug[0].lower() == me.lower())
-    named = [s for s in sisters if isinstance(s, dict) and isinstance(s.get("name"), str)]
-    matches = []
-    for sister in named:
-        by_path = (
-            isinstance(root, str) and (Path(root).expanduser() / sister["name"]).resolve() in here
-        )
-        by_slug = mine and slug is not None and sister["name"].lower() == slug[1].lower()
-        if by_path or by_slug:
-            matches.append(sister)
-    if not matches:  # last, as it runs git in each team checkout
-        matches = [s for s in named if is_team(s) and same_remote(root, s["name"], slug)]
+    roster = tc.sisters(cfg, path)
+    matches = [s for s in roster if tc.matches(cfg, s, checkouts, slug)]
+    if not any(tc.is_team(m) for m in matches):  # last, as it runs git in each team checkout
+        matches += [s for s in roster if tc.is_team(s) and same_remote(cfg, s, slug)]
     # A team entry wins over any other entry the same repo matches.
-    teams = [m for m in matches if is_team(m)]
+    teams = [m for m in matches if tc.is_team(m)]
     return (teams or matches or [None])[0]
 
 
@@ -255,7 +221,7 @@ def from_github(owner: str, name: str, fork_ok: bool = False) -> tuple[str, str]
 
 
 def classify(path: str = ".", toml: Path | None = None) -> tuple[str, str]:
-    toml = toml or techne_toml()
+    toml = toml or tc.techne_toml()
     where = str(as_directory(path))
     out = (sh("git", "-C", where, "rev-parse", "--show-toplevel", "--git-common-dir") or "").split(
         "\n"
@@ -275,13 +241,13 @@ def classify(path: str = ".", toml: Path | None = None) -> tuple[str, str]:
     slug = github_slug(sh("git", "-C", where, "remote", "get-url", "origin") or "")
     try:
         sister = sister_entry(checkouts, slug, toml)
-    except TomlUnreadable as exc:
+    except tc.ConfigError as exc:
         return "team", str(exc)
-    if sister and is_team(sister):
+    if sister and tc.is_team(sister):
         return "team", f'kind = "team" in {toml}'
     if not slug:
         return "team", "no GitHub origin to check ownership against"
-    fork_ok = bool(sister) and kind_of(sister) == "solo"
+    fork_ok = bool(sister) and tc.kind_of(sister) == "solo"
     return from_github(*slug, fork_ok=fork_ok)
 
 

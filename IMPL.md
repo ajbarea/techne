@@ -24,6 +24,9 @@ Steps: 1. module + tests; 2. repo_kind; 3. project_board + board.py; 4. hygiene 
 load_sisters, print_env, WORKSPACE expanded); 5. catchup sweep.py; 6. docs; 7. mutation check,
 targeted tests (one heavy job at a time), CI as the full suite, high-tier review, merge.
 Verify: `make validate` (CI).
+CHECKPOINT 10-21 (usage limit): steps 1-4 coded, NOT yet tested for hygiene; next: update
+hygiene --env test (WORKSPACE now printed expanded), run hygiene/board/repo_kind tests, write
+tests/test_techne_config.py, then step 5 (catchup sweep.py) onward.
 
 ### Landed on main: solo repos act, team repos ask (#189)
 
