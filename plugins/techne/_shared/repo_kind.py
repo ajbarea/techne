@@ -4,8 +4,9 @@ Only GitHub facts about the signed-in user can make a repo solo: not in an organ
 user administers it, nobody else can push, and it is not a fork of a live upstream (unless its
 `[[sisters]]` entry says `kind = "solo"`, an explicit claim that the fork is the user's own line
 of work). Other signals can only make it team, and are checked first:
-1. a line holding the words `owner` and `team` anywhere in the repo's
-   `.claude/skill-context.md`, in the working tree, the current commit or the default branch;
+1. the line `- owner: team` under `## repo` in the repo's `.claude/skill-context.md`, in the
+   working tree, the current commit or the default branch (any other line that looks like an
+   attempt at it reads as team too, and the reason names it);
 2. its `[[sisters]]` entry in ~/.claude/techne.toml with `kind = "team"`, matched by path
    (`workspace_root/<name>`) or, for another clone, by `<github_user>/<name>` as the origin.
 Anything unsettled (no repo, no GitHub origin, gh failing, techne.toml present but unreadable)
@@ -34,22 +35,35 @@ from project_board import techne_toml  # noqa: E402
 
 TIMEOUT = 10
 SKILL_CONTEXT = ".claude/skill-context.md"
-# An owner line, erring toward team: any line outside an HTML comment that holds the whole
-# word `owner` (or `owners`) and the whole word `team`, in either order. No distance or form to
-# count, so every Markdown, table, alignment or HTML spelling counts. Closed <!-- comments -->,
-# including multi-line ones, are removed first, which is how the setup template ships the line
-# disabled.
+# The team marker has one form: the line `- owner: team` in the `## repo` section. A line that
+# looks like an attempt at it (`owner` and `team` on one line in any other form or place, or an
+# `owner:` key with nothing after it) is not silently read either way: it reads as team, and
+# the reason names the line so it gets fixed (RFC 9413, Maintaining Robust Protocols, s. 4.2:
+# tolerating unexpected input conceals problems).
+_CANONICAL = re.compile(r"^- owner: team[ \t]*$")
+_REPO_HEADING = re.compile(r"^## repo[ \t]*$")
 _OWNER = re.compile(r"(?<![A-Za-z0-9])owners?(?![A-Za-z0-9])", re.IGNORECASE)
 _TEAM = re.compile(r"(?<![A-Za-z0-9])team(?![A-Za-z0-9])", re.IGNORECASE)
-_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+_EMPTY_OWNER = re.compile(r"^\W*owners?\W*:\W*$", re.IGNORECASE)
 
 
-def says_team(text: str) -> bool:
-    """Whether any line of a skill-context file pairs `owner` with `team`. It can only make a repo
-    team, so it counts anywhere in the file. NUL characters are dropped first, so UTF-16 text
-    read as UTF-8 (git show of a PowerShell 5 file) still matches."""
-    text = _COMMENT.sub(" ", text.replace("\x00", ""))
-    return any(_OWNER.search(line) and _TEAM.search(line) for line in text.splitlines())
+def team_marker(text: str) -> str | None:
+    """Why this skill-context text marks the repo team, or None. NUL characters are dropped
+    first, so UTF-16 text read as UTF-8 (git show of a PowerShell 5 file) still reads."""
+    lines = text.replace("\x00", "").lstrip("\ufeff").splitlines()
+    section = None
+    for line in lines:
+        if line.startswith("## "):
+            section = "repo" if _REPO_HEADING.match(line) else "other"
+        elif section == "repo" and _CANONICAL.match(line):
+            return "owner: team"
+    for number, line in enumerate(lines, 1):
+        if (_OWNER.search(line) and _TEAM.search(line)) or _EMPTY_OWNER.match(line):
+            return (
+                f"line {number} ({line.strip()[:60]!r}) looks like an owner marker but is not "
+                "`- owner: team` under `## repo`; read as team until it is written that way"
+            )
+    return None
 
 
 def decode(raw: bytes) -> str:
@@ -79,15 +93,16 @@ def as_directory(path: str) -> Path:
     return target if target.is_dir() else target.parent
 
 
-def marked_team_in_repo(where: str, top: Path) -> bool:
-    """An owner: team line in the working tree or the current commit. The default branch is
-    read from GitHub in from_github, since a local origin/<branch> ref may be stale."""
+def marked_team_in_repo(where: str, top: Path) -> str | None:
+    """Why the working tree or the current commit marks the repo team, or None. The default
+    branch is read from GitHub in from_github, since a local origin/<branch> may be stale."""
     try:
-        if says_team(decode((top / SKILL_CONTEXT).read_bytes())):
-            return True
+        why = team_marker(decode((top / SKILL_CONTEXT).read_bytes()))
+        if why:
+            return why
     except OSError:
         pass
-    return says_team(sh("git", "-C", where, "show", f"HEAD:{SKILL_CONTEXT}") or "")
+    return team_marker(sh("git", "-C", where, "show", f"HEAD:{SKILL_CONTEXT}") or "")
 
 
 def kind_of(sister: dict) -> str:
@@ -196,8 +211,9 @@ def from_github(owner: str, name: str, fork_ok: bool = False) -> tuple[str, str]
     blob = info.get("object")
     if isinstance(blob, dict) and (blob.get("isBinary") or blob.get("isTruncated")):
         return "team", f"{SKILL_CONTEXT} on {slug}'s default branch is not whole text, so unread"
-    if isinstance(blob, dict) and says_team(str(blob.get("text") or "")):
-        return "team", f"owner: team in {SKILL_CONTEXT} on {slug}'s default branch"
+    on_default = team_marker(str(blob.get("text") or "")) if isinstance(blob, dict) else None
+    if on_default:
+        return "team", f"{on_default} in {SKILL_CONTEXT} on {slug}'s default branch"
     if pushers is None:
         return "team", f"could not list the collaborators of {slug}"
     logins = sorted(set(pushers.split()))
@@ -247,8 +263,9 @@ def classify(path: str = ".", toml: Path | None = None) -> tuple[str, str]:
     if len(out) != 2:
         return "team", f"{path} is not in a git repository"
     top, common = Path(out[0]), (Path(where) / out[1]).resolve()  # common is relative to `where`
-    if marked_team_in_repo(where, top):
-        return "team", f"owner: team in {SKILL_CONTEXT}"
+    why = marked_team_in_repo(where, top)
+    if why:
+        return "team", f"{why} in {SKILL_CONTEXT}"
     # Where a roster may name this repo: its top level (a submodule, a --separate-git-dir repo),
     # the folder holding its common dir (<checkout>/.git, or <checkout>/.bare behind worktrees),
     # or a bare `<name>.git` common dir behind worktrees.

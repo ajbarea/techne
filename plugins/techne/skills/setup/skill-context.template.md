@@ -2,7 +2,6 @@
 
 ## repo
 <one-paragraph description of what this repo is and who uses it>
-<!-- - owner: team   (uncomment when others work in this repo: docsync and ci-audit then ask before acting) -->
 
 ## audit
 phases:

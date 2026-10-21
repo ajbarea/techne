@@ -9,13 +9,24 @@ how each skill was designed.
 If this file is more than ~50 lines, something queued or referential
 has crept in; extract it back to ROADMAP.
 
-## In flight: solo repos act, team repos ask (branch `feat/solo-act-team-ask`)
+## In flight: solo repos act, team repos ask (branch `feat/solo-act-team-ask`, PR #189)
 
-Done: `_shared/repo_kind.py`; only GitHub facts make a repo solo, `owner: team` and a
-`kind = "team"` sister only make it team, unsettled reads as team. docsync acts on solo repos;
-ci-audit turns `[PROPOSE]` into `[PROPOSE→FIX]` and always asks before weakening a gate. Eleven
-`/code-review high` rounds fixed (roster reader and matcher deferred to #190); 101 tests,
-every mutant caught, unstubbed gh fails the test. Next: round 12, CI green, squash-merge. Verify: `make validate`.
+Done: `_shared/repo_kind.py` classifies solo/team (only GitHub facts make solo; unsettled is
+team); docsync acts on solo repos, ci-audit `[PROPOSE→FIX]`, gates never `[FIX]`. 12 review
+rounds; rounds 11-12 hit bugs from the previous fix, so per elenchus the fuzzy owner matcher was
+replaced (2026-10-21, AJ: decide by research) with ONE canonical marker, `- owner: team` under
+`## repo`; any look-alike reads team and the reason names the line (RFC 9413 s.2.1, 4.2, 5.1).
+Template no longer ships the line. Tests green (repo_kind, git_env, hygiene).
+Next, in order:
+1. Round-12 small fixes: heuresis setup doctor `ideas_repo()` -> `without_repo_overrides()`;
+   move `github_slug` (ssh alias) into `git_env.py` and use it in `hygiene.repo_for_path`;
+   GraphQL first, REST collaborators/invitations only when ADMIN, not org, not (fork w/o solo);
+   `same_remote` only when nothing else matched; `local_env()` = runtime list, LOCAL_ENV only as
+   fallback; docs: canonical marker + lint wording, third roster match (team entry's origin).
+2. Mutation-check the strict marker (canonical-only, lint path, empty `owner:`), update PR body.
+3. Full suite on a frozen tree (no edits while it runs), then ONE high-tier review round.
+4. Merge on green; ldqis follow-up: rewrite its owner line to canonical `- owner: team`.
+Verify: `make validate`.
 
 ## In flight: `techne:board` (branch `feat/board`)
 

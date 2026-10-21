@@ -155,8 +155,15 @@ def test_an_unreadable_toml_reads_as_team(rk, origin, tmp_path, gh):
 
 def test_owner_team_in_the_repo_section_is_team(rk, origin, no_toml, gh):
     mine(gh)  # GitHub alone would say solo, so team must come from the signal
-    skill_context(origin, "# ctx\n\n## repo\n\n- name: x\n- owner: Team, lab site\n")
+    skill_context(origin, "# ctx\n\n## repo\n\n- name: x\n- owner: team\n")
     assert rk.classify(str(origin), no_toml) == ("team", "owner: team in .claude/skill-context.md")
+
+
+def test_a_non_canonical_marker_reads_as_team_and_names_the_line(rk, origin, no_toml, gh):
+    mine(gh)  # GitHub alone would say solo, so team must come from the lint path
+    skill_context(origin, "## repo\n- name: x\n- owner: Team, lab site\n")
+    kind, why = rk.classify(str(origin), no_toml)
+    assert kind == "team" and why.startswith("line 3 (") and "looks like an owner marker" in why
 
 
 def test_owner_solo_is_not_trusted_on_its_own(rk, repo, no_toml):
@@ -334,7 +341,7 @@ def test_the_shipped_template_does_not_mark_a_repo_team(rk):
     from conftest import ROOT
 
     template = ROOT / "plugins/techne/skills/setup/skill-context.template.md"
-    assert not rk.says_team(template.read_text(encoding="utf-8"))
+    assert rk.team_marker(template.read_text(encoding="utf-8")) is None
 
 
 @pytest.mark.parametrize("line", ["owner: team", 'owner: "team"', "  - Owner: TEAM (lab)"])
@@ -569,7 +576,7 @@ def test_owner_team_survives_stray_markup_around_it(rk, origin, no_toml, gh, bod
 
 
 @pytest.mark.parametrize(
-    "line", ["- owner: teamwork", "<!-- - owner: team -->", "- ownership: team-x"]
+    "line", ["- owner: teamwork", "A team-owned service.", "- ownership: team-x"]
 )
 def test_a_line_that_is_not_an_owner_team_line_does_not_count(rk, origin, no_toml, gh, line):
     mine(gh)
@@ -649,10 +656,13 @@ def test_owner_and_team_on_one_line_in_any_order_or_spacing(rk, origin, no_toml,
     assert rk.classify(str(origin), no_toml)[0] == "team"
 
 
-def test_a_line_inside_a_multiline_comment_does_not_count(rk, origin, no_toml, gh):
+@pytest.mark.parametrize("body", ["<!--\n- owner: team\n-->\n", "<!-- - owner: team -->\n"])
+def test_a_commented_out_marker_is_flagged_not_ignored(rk, origin, no_toml, gh, body):
+    """A disabled marker is still an ambiguous one: it reads as team and names its line."""
     mine(gh)
-    skill_context(origin, "<!--\n- owner: team\n-->\n")
-    assert rk.classify(str(origin), no_toml)[0] == "solo"
+    skill_context(origin, body)
+    kind, why = rk.classify(str(origin), no_toml)
+    assert kind == "team" and "looks like an owner marker" in why
 
 
 def test_a_broken_toml_symlink_reads_as_team(rk, origin, tmp_path, gh):
