@@ -42,17 +42,25 @@ class Unusable(Exception):
 
 def read_regular(path: Path, limit: int = MAX_BYTES) -> bytes | None:
     """The bytes of PATH, or None when there is no file. Only a regular file under LIMIT bytes is
-    read, so a link to /dev/zero or a FIFO can neither hang nor fill memory. Raises Unusable for
-    a broken link, anything not a regular file, or a file over LIMIT; OSError when unreadable."""
+    read, so a link to /dev/zero or a FIFO can neither hang nor fill memory: the file is opened
+    without blocking and checked through that open descriptor, so it cannot be swapped between
+    the check and the read. Raises Unusable for a broken link, anything not a regular file, or a
+    file over LIMIT; OSError when unreadable."""
     try:
-        info = os.stat(path)
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
     except (FileNotFoundError, NotADirectoryError):
         if path.is_symlink():
             raise Unusable("is a link to a missing file") from None
         return None
-    if not stat.S_ISREG(info.st_mode):  # a device, FIFO or folder
+    try:
+        regular = stat.S_ISREG(os.fstat(fd).st_mode)
+    except OSError:
+        os.close(fd)
+        raise
+    if not regular:  # a device, FIFO or folder
+        os.close(fd)
         raise Unusable("is not a regular file")
-    with path.open("rb") as f:
+    with os.fdopen(fd, "rb") as f:
         raw = f.read(limit + 1)
     if len(raw) > limit:
         raise Unusable(f"is over {limit} bytes")
@@ -89,8 +97,13 @@ def sisters(cfg: dict, path: Path | None = None) -> list[dict]:
     if not isinstance(roster, list) or not all(isinstance(s, dict) for s in roster):
         raise ConfigInvalid(f"sisters in {where} must be a list of tables")
     for number, sister in enumerate(roster, 1):
-        if not isinstance(sister.get("name"), str) or not sister["name"]:
+        name = sister.get("name")
+        if not isinstance(name, str) or not name:
             raise ConfigInvalid(f"[[sisters]] entry {number} in {where} has no name")
+        if name in (".", "..") or "/" in name or "\\" in name:  # checkout() joins it to the root
+            raise ConfigInvalid(
+                f"[[sisters]] entry {number} in {where}: name {name!r} must be one folder name"
+            )
     return roster
 
 
@@ -101,7 +114,8 @@ def required(cfg: dict, path: Path | None = None) -> tuple[Path, str, list[dict]
     for key in ("workspace_root", "github_user", "sisters"):
         if key not in cfg:
             raise ConfigInvalid(f"{where} has no {key}")
-    ws, me, roster = workspace_root(cfg), github_user(cfg), sisters(cfg, where)
+    roster = sisters(cfg, where)
+    ws, me = workspace_root(cfg), github_user(cfg)
     if ws is None:
         raise ConfigInvalid(f"workspace_root in {where} must be a path")
     if me is None:
@@ -125,14 +139,18 @@ def is_active(sister: dict) -> bool:
 
 def workspace_root(cfg: dict) -> Path | None:
     """workspace_root with `~` expanded, or None when it is absent or not a string. Raises
-    ConfigInvalid for a `~user` that names nobody on this machine."""
+    ConfigInvalid for a `~user` that names nobody on this machine, or a relative path, which
+    would resolve against whatever folder a script runs in."""
     root = cfg.get("workspace_root")
     if not isinstance(root, str) or not root:
         return None
     try:
-        return Path(root).expanduser()
+        path = Path(root).expanduser()
     except RuntimeError as exc:  # Path.expanduser on an unknown ~user
         raise ConfigInvalid(f"workspace_root {root!r} names no home folder here") from exc
+    if not path.is_absolute():
+        raise ConfigInvalid(f"workspace_root {root!r} must be absolute or start with ~")
+    return path
 
 
 def github_user(cfg: dict) -> str | None:

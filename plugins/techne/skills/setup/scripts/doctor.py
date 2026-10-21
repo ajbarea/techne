@@ -75,9 +75,6 @@ def techne_toml() -> d.Check:
     edit = (f"fix: ${{EDITOR:-nano}} ~/.claude/techne.toml  # schema: {d.CONFIG_DOCS}",)
     try:
         cfg = tc.load(path)
-        if cfg is not None:
-            tc.sisters(cfg, path)
-            tc.workspace_root(cfg)
     except tc.NeedsTomllib:
         cfg = None
         text = path.read_text(encoding="utf-8", errors="replace")

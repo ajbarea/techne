@@ -9,21 +9,21 @@ how each skill was designed.
 If this file is more than ~50 lines, something queued or referential
 has crept in; extract it back to ROADMAP.
 
-## In flight: one techne.toml reader (branch `refactor/techne-config`, issue #190)
+## In flight: one techne.toml reader (branch `refactor/techne-config`, PR #192, issue #190)
 
-New `_shared/techne_config.py` (imports on 3.9; parsing needs tomllib): `load()` returns the
-table, None when absent, or raises `ConfigError` (`NeedsTomllib`, `ConfigUnreadable`,
-`ConfigInvalid`; coverage.py's own ConfigError wrapping is the precedent); each caller maps it
-(hygiene exits with its messages, board hook silent, repo_kind team, catchup cwd fallback).
-`sisters()` validates the roster strictly (a malformed entry raises, so repo_kind reads team
-instead of skipping it); `kind_of`/`is_team`/`is_active`, `workspace_root()` (expanded),
-`checkout()`, `matches()` (path or `<github_user>/<name>`). repo_kind's team-origin fallback
-runs whenever no match is a team entry (#190 comment). Setup doctor keeps its regex presence
-check (must run on 3.9).
-Done 10-21: module + tests (tests/test_techne_config.py, guard: no other techne script parses
-TOML), repo_kind, project_board + board.py, hygiene (WORKSPACE printed expanded), catchup
-sweep.py (`~` expanded, was a line scan), docs. Mutation 11/11; 3.9 hook tests green.
-Next: PR (Closes #190), CI as the full suite, high-tier review, merge.
+`_shared/techne_config.py`: `read_regular()` (non-blocking open, fstat, regular file under
+1 MiB; also repo_kind's skill-context read), `load()` (None when absent; `NeedsTomllib`,
+`ConfigUnreadable`, `ConfigInvalid`), `sisters()` (strict; a name must be one folder name),
+`required()` (keys present and typed), `workspace_root()` (absolute or `~`), kind/status rules,
+`checkout()`, `matches()`. Callers map errors: hygiene exits, board hook silent (TomlError),
+board CLI names it, repo_kind team, catchup warns and looks beside the cwd. Setup doctor uses
+it on 3.11+, a regex presence check below. Guard test: no other techne script parses TOML or
+builds a path to techne.toml.
+Review: high round 1 (62a448d) mergeable; light delta read; high round 2 (a79b726) code-review
+fixes landed; reader for round 2 next. Cap: 3 rounds from 10-21 orchestrator note (2 used).
+Not changed (measured or deliberate): same-origin git call per team sister (~5 ms), matches()
+re-resolving per sister (resolving in the caller risks a false-solo), board init's double parse.
+Next: reader round 2, CI green, merge; delete the review-192 scratch worktree.
 Verify: `make validate` (CI).
 
 ### Landed on main: solo repos act, team repos ask (#189)

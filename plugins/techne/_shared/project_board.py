@@ -48,7 +48,7 @@ class BoardError(Exception):
 
 
 class TomlError(BoardError):
-    """techne.toml is not valid TOML, so no [board] can be read from it."""
+    """techne.toml is there but cannot be read or is not valid TOML, so no [board] is known."""
 
 
 @dataclass(frozen=True)
@@ -77,20 +77,18 @@ class Budget:
         return min(cap, left)
 
 
-techne_toml = tc.techne_toml
-
-
 def load_board(path: Path | None = None) -> Board | None:
     """The configured board, or None when techne.toml or its [board] table is absent, or when
     this python3 cannot read it (one TOML reader, so a config means the same everywhere).
 
-    Raises BoardError when [board] is there but malformed, TomlError when the file is not TOML."""
-    path = path or techne_toml()
+    Raises BoardError when [board] is there but malformed, TomlError when the file is there but
+    cannot be read or is not TOML (the hook stays quiet on it; /techne:board names it)."""
+    path = path or tc.techne_toml()
     try:
         cfg = tc.load(path)
-    except (tc.NeedsTomllib, tc.ConfigUnreadable):
+    except tc.NeedsTomllib:
         return None
-    except tc.ConfigInvalid as exc:
+    except tc.ConfigError as exc:
         raise TomlError(str(exc)) from exc
     table = (cfg or {}).get("board")
     if not isinstance(table, dict):

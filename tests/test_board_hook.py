@@ -377,3 +377,10 @@ def test_below_3_11_the_hook_does_nothing(board: GhStub):
     )
     assert proc.returncode == 0 and proc.stdout == "" and proc.stderr == ""
     assert board.calls() == []
+
+
+def test_an_unreadable_config_is_a_toml_error_the_hook_can_stay_quiet_on(pb, tmp_path: Path):
+    link = tmp_path / "techne.toml"
+    link.symlink_to(tmp_path / "gone.toml")
+    with pytest.raises(pb.TomlError, match="a link to a missing file"):
+        pb.load_board(link)

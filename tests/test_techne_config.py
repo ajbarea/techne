@@ -185,3 +185,14 @@ def test_the_guard_fires_on_a_line_scanning_reader():
     old_sweep = 'TECHNE_TOML = Path.home() / ".claude" / "techne.toml"\n'
     assert OPENS_TECHNE_TOML.search(old_sweep)
     assert not OPENS_TECHNE_TOML.search('d.Check(d.OK, "techne.toml", str(path))')
+
+
+def test_a_relative_workspace_root_is_invalid(tc):
+    with pytest.raises(tc.ConfigInvalid, match="must be absolute or start with ~"):
+        tc.workspace_root({"workspace_root": "ajsoftworks"})
+
+
+@pytest.mark.parametrize("name", ["..", ".", "/etc", "a/../../b", "a\\b"])
+def test_a_sister_name_must_be_one_folder_name(tc, name):
+    with pytest.raises(tc.ConfigInvalid, match="must be one folder name"):
+        tc.sisters({"sisters": [{"name": name}]})

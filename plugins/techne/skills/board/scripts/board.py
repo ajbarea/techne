@@ -347,7 +347,7 @@ def main(argv: list[str] | None = None) -> int:
         board = pb.load_board()
         if board is None:
             print(
-                f"board: no [board] table in {pb.techne_toml()}; run init first",
+                f"board: no [board] table in {tc.techne_toml()}; run init first",
                 file=sys.stderr,
             )
             return 1
