@@ -385,32 +385,20 @@ Report each drifted or missing shared file (fix: edit techne's copy, then
 ## 15. Agent instruction file
 
 Each sister keeps its agent instructions in one committed root `AGENTS.md`, which Claude Code
-(v2.1.277 and later), Codex, Copilot's coding agent and Antigravity all read. Claude Code reads
-`AGENTS.md` only when no `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md` sits in the working
-directory or above it, so a `CLAUDE.md` without an `@AGENTS.md` import (one `/init` writes, say)
-silently replaces the repo's instructions for Claude. A `CLAUDE.md` exists only for Claude-only
-content and imports `AGENTS.md`. A symlinked `CLAUDE.md` checks out on Windows as a one-line text
-file, so it fails too. Sources: <https://code.claude.com/docs/en/memory#agents-md>,
-<https://agents.md/>.
+(v2.1.277 and later), Codex and Copilot's coding agent all read. Claude Code reads `AGENTS.md`
+only when no `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md` sits in the working directory
+or above it, so a `CLAUDE.md` without an import of `AGENTS.md` (one `/init` writes, say, even
+untracked) silently replaces the repo's instructions for Claude. A `CLAUDE.md` exists only for
+Claude-only content and imports `AGENTS.md`; the import resolves relative to the file that holds
+it, so `.claude/CLAUDE.md` needs `@../AGENTS.md`. A nested `CLAUDE.md` shadows only the
+`AGENTS.md` in its own directory. A symlinked `CLAUDE.md` checks out on Windows as a one-line
+text file. Sources: <https://code.claude.com/docs/en/memory#agents-md>, <https://agents.md/>.
 
 ```
-for repo in $SISTERS; do
-  r="$WORKSPACE/$repo"; ok=1
-  git -C "$r" ls-files --error-unmatch AGENTS.md >/dev/null 2>&1 \
-    || { echo "$repo: no committed AGENTS.md → add one"; ok=0; }
-  files=$( { git -C "$r" ls-files -- CLAUDE.md '*/CLAUDE.md' CLAUDE.local.md '*/CLAUDE.local.md'
-             [ -e "$r/CLAUDE.local.md" ] && echo CLAUDE.local.md; } | sort -u)
-  for f in $files; do
-    if [ -L "$r/$f" ]; then
-      echo "$repo: $f is a symlink → replace it with a file whose first line is @AGENTS.md"; ok=0
-    elif ! grep -qxE '@(\./)?AGENTS\.md' "$r/$f"; then
-      echo "$repo: $f does not import AGENTS.md, so Claude Code reads it instead → move its content into AGENTS.md, or start it with @AGENTS.md"; ok=0
-    fi
-  done
-  [ "$ok" = 1 ] && echo "$repo: AGENTS.md, nothing shadows it ✓"
-done
+python3 "<skill-dir>/scripts/agents_md.py" "$WORKSPACE" $SISTERS
 ```
 
-Report each sister without a committed `AGENTS.md`, and each `CLAUDE.md` or `CLAUDE.local.md`
-(committed, or a local one at the root) that is a symlink or lacks the import. A `CLAUDE.md` that
-holds only the import passes; it is redundant, not drift.
+The script prints one line per finding and one passing line per clean sister, and always exits
+0. Report each sister without a committed `AGENTS.md`, each shadowing `CLAUDE.md` or
+`CLAUDE.local.md` (committed, or untracked at the root), each symlink, and a sister that is not
+cloned. A `CLAUDE.md` that holds only the import passes; it is redundant, not drift.
