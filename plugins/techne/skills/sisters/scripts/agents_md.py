@@ -9,8 +9,10 @@ CLAUDE.local.md sits in the working directory or above it, so those files
 replace AGENTS.md unless one of them imports it. Imports are parsed as Claude
 Code parses them: `@path` after whitespace or at a line start, cut at `#`,
 resolved from the importing file, followed up to four hops, and ignored in code
-spans, fenced or indented code, and HTML comments. A nested CLAUDE.md shadows
-only the AGENTS.md in its own directory.
+spans, fenced or indented code, and HTML comments. A CLAUDE-family file in a
+directory above the repo shadows AGENTS.md for every session in it (the user's
+~/.claude/CLAUDE.md does not), and a nested one replaces it for any session
+started in that subdirectory, whatever it imports.
 
 Prints one line per finding, or one passing line per repo. Always exits 0.
 """
@@ -76,6 +78,18 @@ def reaches(holder: Path, target: Path, hops: int = HOPS, seen: frozenset = froz
     return False
 
 
+def above(root: Path) -> list[str]:
+    """CLAUDE-family files in the directories above root, which shadow its AGENTS.md."""
+    user = Path.home() / ".claude" / "CLAUDE.md"
+    found = []
+    for parent in root.resolve().parents:
+        for rel in ROOT_FILES:
+            path = parent / rel
+            if os.path.lexists(path) and path != user:
+                found.append(f"{path} sits above the repo and replaces AGENTS.md → move it out")
+    return found
+
+
 def tracked(root: Path) -> list[str] | None:
     out = subprocess.run(
         ["git", "-C", str(root), "ls-files", "-z"], capture_output=True, check=False
@@ -96,6 +110,7 @@ def check(root: Path) -> list[str]:
         findings.append("no committed AGENTS.md → add one")
     candidates = {p for p in files if Path(p).name in NAMES}
     candidates |= {p for p in ROOT_FILES if os.path.lexists(root / p)}
+    findings += above(root)
     levels: dict[Path, list[str]] = {}
     for rel in sorted(candidates):
         holder = root / rel
@@ -104,6 +119,14 @@ def check(root: Path) -> list[str]:
         level = holder.parent.parent if holder.parent.name == ".claude" else holder.parent
         levels.setdefault(level, []).append(rel)
     for level, rels in levels.items():
+        if level != root:
+            where = level.relative_to(root).as_posix()
+            findings += [
+                f"{rel} replaces AGENTS.md for a session started in {where}/ → "
+                "move its content into AGENTS.md and delete it"
+                for rel in rels
+            ]
+            continue
         target = level / "AGENTS.md"
         if not target.is_file():
             continue

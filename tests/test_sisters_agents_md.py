@@ -40,8 +40,6 @@ def repo(tmp_path: Path, files: dict[str, str], untracked: dict[str, str] | None
         {"AGENTS.md": "# a\n", "CLAUDE.md": "Read @AGENTS.md first.\n"},
         {"AGENTS.md": "# a\n", "CLAUDE.md": "@AGENTS.md\r\n## Claude\r\n"},
         {"AGENTS.md": "# a\n", ".claude/CLAUDE.md": "@../AGENTS.md\n"},
-        {"AGENTS.md": "# a\n", "sub/CLAUDE.md": "nested, and sub/ has no AGENTS.md\n"},
-        {"AGENTS.md": "# a\n", "sub/AGENTS.md": "# s\n", "sub/CLAUDE.md": "@AGENTS.md\n"},
         {"AGENTS.md": "# a\n", "CLAUDE.md": "@AGENTS.md#setup\n"},
         {
             "AGENTS.md": "# a\n",
@@ -59,8 +57,6 @@ def repo(tmp_path: Path, files: dict[str, str], untracked: dict[str, str] | None
         "inline",
         "crlf",
         "dot-claude-up",
-        "nested-no-sibling",
-        "nested-import",
         "anchor",
         "via-another-file",
         "local-beside-import",
@@ -93,17 +89,17 @@ def test_passes(am, tmp_path, files):
         (
             {"AGENTS.md": "# a\n", "sub/AGENTS.md": "# s\n", "sub/CLAUDE.md": "x\n"},
             None,
-            "sub/CLAUDE.md does not import sub/AGENTS.md",
+            "sub/CLAUDE.md replaces AGENTS.md for a session started in sub/",
         ),
         (
             {"AGENTS.md": "# a\n", "my dir/AGENTS.md": "# s\n", "my dir/CLAUDE.md": "x\n"},
             None,
-            "my dir/CLAUDE.md does not import",
+            "my dir/CLAUDE.md replaces AGENTS.md",
         ),
         (
             {"AGENTS.md": "# a\n", "dé/AGENTS.md": "# s\n", "dé/CLAUDE.md": "x\n"},
             None,
-            "dé/CLAUDE.md does not import",
+            "dé/CLAUDE.md replaces AGENTS.md",
         ),
     ],
     ids=[
@@ -170,3 +166,36 @@ def test_clean_repo_prints_pass_line(tmp_path):
         check=False,
     )
     assert out.stdout == f"r: {OK}\n"
+
+
+@pytest.mark.parametrize(
+    "files",
+    [
+        {"AGENTS.md": "# a\n", "sub/CLAUDE.md": "nested, and sub/ has no AGENTS.md\n"},
+        {"AGENTS.md": "# a\n", "sub/AGENTS.md": "# s\n", "sub/CLAUDE.md": "@AGENTS.md\n"},
+        {"AGENTS.md": "# a\n", "CLAUDE.md": "@AGENTS.md\n", "sub/CLAUDE.md": "@../AGENTS.md\n"},
+    ],
+    ids=["nested-no-sibling", "nested-imports-sibling", "nested-imports-root"],
+)
+def test_nested_claude_md_is_flagged(am, tmp_path, files):
+    # A session started in sub/ loads sub/CLAUDE.md and skips every AGENTS.md.
+    findings = am.check(repo(tmp_path, files))
+    assert findings == [
+        "sub/CLAUDE.md replaces AGENTS.md for a session started in sub/ → "
+        "move its content into AGENTS.md and delete it"
+    ]
+
+
+def test_claude_md_above_the_repo_is_flagged(am, tmp_path):
+    root = repo(tmp_path, {"AGENTS.md": "# a\n"})
+    (tmp_path / "CLAUDE.md").write_text("workspace notes\n")
+    assert am.check(root) == [
+        f"{tmp_path / 'CLAUDE.md'} sits above the repo and replaces AGENTS.md → move it out"
+    ]
+
+
+def test_user_claude_md_is_not_above_the_repo(am, tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / ".claude" / "CLAUDE.md").write_text("user memory\n")
+    assert am.check(repo(tmp_path, {"AGENTS.md": "# a\n"})) == []

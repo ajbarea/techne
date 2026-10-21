@@ -392,8 +392,9 @@ untracked) silently replaces the repo's instructions for Claude. A `CLAUDE.md` e
 Claude-only content and imports `AGENTS.md`; one importing file at a directory level loads it for
 that level. The script parses imports as Claude Code does: the import resolves relative to the
 file that holds it (so `.claude/CLAUDE.md` needs `@../AGENTS.md`), follows up to four hops, and
-does not count inside code or HTML comments. A nested `CLAUDE.md` shadows only the
-`AGENTS.md` in its own directory. A symlinked `CLAUDE.md` checks out on Windows as a one-line
+does not count inside code or HTML comments. A `CLAUDE.md` in a directory above
+the repo (other than the user's `~/.claude/CLAUDE.md`) shadows it for every session there, and a
+nested `CLAUDE.md` replaces it for any session started in that subdirectory, whatever it imports. A symlinked `CLAUDE.md` checks out on Windows as a one-line
 text file. Sources: <https://code.claude.com/docs/en/memory#agents-md>, <https://agents.md/>.
 
 ```
@@ -402,5 +403,5 @@ python3 <agents-md script> "$WORKSPACE" $SISTERS   # the agents_md.py path SKILL
 
 The script prints one line per finding and one passing line per clean sister, and always exits
 0. Report each sister without a committed `AGENTS.md`, each shadowing `CLAUDE.md` or
-`CLAUDE.local.md` (committed, or untracked at the root), each symlink, and a sister that is not
+`CLAUDE.local.md` (committed, untracked at the root, nested, or above the repo), each symlink, and a sister that is not
 cloned. A `CLAUDE.md` that holds only the import passes; it is redundant, not drift.
