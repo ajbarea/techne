@@ -23,8 +23,11 @@ Set the length budget before the first sentence, and declare it on one comment
 line of the root `.tex`: `% budget: 4 pages`, `% budget: 3000 words`, or both
 joined by a comma. Pages count the whole PDF; when the venue's limit excludes the
 references, write `% budget: none`. Take it from the prompt or venue; a
-revision takes the original's. A `budget:` comment that does not open like a
-declaration (a number, or `none`) is an ordinary comment. A document with no limit declares `% budget: none`, and the gate
+revision takes the original's. A `budget:` comment is a declaration when its spec
+opens with a digit, a number word before `page(s)`/`word(s)` (`four pages`), a qualifier
+and number (`max 4 pages`, `~1200 words`), a `_` placeholder (`__BUDGET__`), or
+stands alone as `none`; it must then parse, else the gate blocks. Any other `budget:`
+comment is ordinary prose. A document with no limit declares `% budget: none`, and the gate
 reports its length without asking for one. The *Length* section of the rubric says how to stay inside it.
 
 ## Run it

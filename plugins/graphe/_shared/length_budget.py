@@ -50,9 +50,8 @@ _INTENT = re.compile(
 _NO_LIMIT = re.compile(r"^(?:none|unlimited|no\s+limit)[\s.,;:!]*$", re.I)
 _MD_INDENTED = re.compile(r"^(?: {4}|\t).*$", re.M)
 # Where a budget line is example text, not a declaration.
-_TEX_VERBATIM = re.compile(
-    r"\\begin\{(verbatim|[BL]?Verbatim|lstlisting|minted|comment|filecontents)\*?\}.*?\\end\{\1\*?\}",
-    re.S,
+_TEX_BEGIN = re.compile(
+    r"\\begin\{(verbatim|[BL]?Verbatim|lstlisting|minted|comment|filecontents)\*?\}"
 )
 _CODE_PART = re.compile(r"(?:[^%\\\n]|\\.)*")
 _IFFALSE = re.compile(r"[ \t]*\\iffalse\b")
@@ -61,6 +60,7 @@ _IF = re.compile(
     r"\\if(?:false|true)(?![a-zA-Z@])"
     r"|\\if(?!(?:thenelse|toggle|bool)(?![a-zA-Z@]))[a-zA-Z@]*(?![a-zA-Z@{])"
 )
+_ELSE = re.compile(r"\\else(?![a-zA-Z@])")
 _NOT_FOLLOWED = re.compile(r"\\(subimport|import|subfile|includefrom|inputfrom)(?![a-zA-Z@])")
 _NEWIF = re.compile(r"\\newif\s*\\[a-zA-Z@]+")
 _FI = re.compile(r"\\fi(?![a-zA-Z@])")
@@ -74,7 +74,7 @@ _REFERENCES_TITLE = re.compile(
     rf"^(?:\d+(?:\.\d+)*\.?\s+)?(?:{prose_check.REFERENCES_TITLES})$", re.I
 )
 _SETEXT = re.compile(r"^(?P<title>[^\n#][^\n]*)\n(?P<bar>=+|-+)[ \t]*$", re.M)
-_INPUT = re.compile(r"\\(?:input|include)\s*\{([^{}]+)\}")
+_INPUT = re.compile(r"\\(?:input|include)(?![a-zA-Z@])\s*(?:\{([^{}]+)\}|([^\s{}\\%]+))")
 _MAX_INPUT_DEPTH = 20
 _PAGE_OBJECT = re.compile(rb"/Type\s*/Page(?![s\w])")
 _PAGE_COUNT = re.compile(
@@ -139,22 +139,60 @@ def _declares(spec: str) -> bool:
 def _tex_code(source: str) -> str:
     """The source LaTeX prints: without verbatim-like environments (`comment` included) and
     `\\iffalse ... \\fi` blocks."""
-    return _strip_iffalse(_TEX_VERBATIM.sub("", source))
+    return _strip_iffalse(_strip_verbatim(source))
+
+
+def _strip_verbatim(source: str) -> str:
+    """Drop verbatim-like environments whose `\\begin` sits in the code part of a line, up to
+    the matching `\\end`; a commented-out `%\\begin{comment}` hides nothing."""
+    out, pos = [], 0
+    for match in _TEX_BEGIN.finditer(source):
+        if match.start() < pos:
+            continue
+        start = source.rfind("\n", 0, match.start()) + 1
+        if len(_code_of(source[start : match.start()])) < match.start() - start:
+            continue
+        env = re.escape(match[1])
+        end = re.compile(rf"\\end\{{{env}\*?\}}").search(source, match.end())
+        if not end:
+            continue
+        out.append(source[pos : match.start()])
+        pos = end.end()
+    out.append(source[pos:])
+    return "".join(out)
 
 
 def _strip_iffalse(source: str) -> str:
-    """Drop `\\iffalse ... \\fi` blocks opened at a line start, nested conditionals included.
+    """Drop `\\iffalse ... \\fi` blocks opened at a line start, nested conditionals included;
+    the `\\else` branch of such a block is printed and kept.
 
     Every `\\if<letters>` opens a conditional except the name a `\\newif` defines and the
     macros that take braces."""
-    kept, depth = [], 0
+    kept: list[str] = []
+    frames: list[list[bool]] = []  # per open conditional: [is \iffalse, still hiding]
+    token = re.compile(f"{_IF.pattern}|{_FI.pattern}|{_ELSE.pattern}")
     for line in source.splitlines(keepends=True):
         code = _code_of(line)
-        if depth == 0 and not _IFFALSE.match(code):
+        if not frames and not _IFFALSE.match(code):
             kept.append(line)
             continue
-        depth += len(_IF.findall(_NEWIF.sub("", code))) - len(_FI.findall(code))
-        depth = max(depth, 0)
+        code = _NEWIF.sub("", code)
+        pos = 0
+        for m in token.finditer(code):
+            if not any(hiding for _, hiding in frames):
+                kept.append(code[pos : m.start()])
+            pos = m.end()
+            if _FI.match(m[0]):
+                if frames:
+                    frames.pop()
+            elif _ELSE.match(m[0]):
+                if frames and frames[-1][0]:
+                    frames[-1][1] = False
+            else:
+                is_false = m[0].startswith("\\iffalse")
+                frames.append([is_false, is_false])
+        if not any(hiding for _, hiding in frames):
+            kept.append(code[pos:] + line[len(_code_of(line)) :])
     return "".join(kept)
 
 
@@ -213,11 +251,11 @@ def _inline_inputs(code: str, folder: pathlib.Path, depth: int = 0) -> str:
     printed code, so texcount never sees a hidden block. A missing file stays a macro."""
 
     def inline(match: re.Match[str]) -> str:
-        name = match[1].strip()
-        for path in (folder / name, folder / f"{name}.tex"):
+        name = (match[1] or match[2]).strip()
+        for path in (folder / f"{name}.tex", folder / name):
             if depth < _MAX_INPUT_DEPTH and path.is_file():
                 text = path.read_text(encoding="utf-8", errors="replace")
-                return _inline_inputs(_tex_code(text), folder, depth + 1)
+                return _inline_inputs(_tex_code(text), folder, depth + 1).rstrip("\n") + "\n"
         return match[0]
 
     lines = []

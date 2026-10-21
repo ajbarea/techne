@@ -84,7 +84,9 @@ def split_front_matter(text: str) -> tuple[str | None, str | None, str]:
             index += 1
         elif stripped.startswith("<!--") and "-->" not in stripped.split("<!--")[-1]:
             end = index
-            while end < len(lines) and "-->" not in lines[end]:
+            while end < len(lines) and "-->" not in (
+                lines[end].rsplit("<!--", 1)[-1] if end == index else lines[end]
+            ):
                 end += 1
             if end >= len(lines):
                 break

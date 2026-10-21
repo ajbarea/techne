@@ -210,6 +210,21 @@ needs_texcount = pytest.mark.skipif(
     reason="texcount not available or TECHNE_NO_TEX=1",
 )
 
+
+def guard_texcount():
+    """Fail when TeX is not opted out of and texcount is missing."""
+    if os.environ.get("TECHNE_NO_TEX") == "1" or shutil.which("texcount"):
+        return
+    raise AssertionError(
+        "texcount missing and TECHNE_NO_TEX is unset: the word-count tests would skip "
+        "silently. Install texlive-extra-utils, or set TECHNE_NO_TEX=1."
+    )
+
+
+def test_texcount_is_present_or_its_absence_is_declared():
+    guard_texcount()
+
+
 TEX_DOC = (
     "\\documentclass{article}\n\\title{Not counted title}\n\\begin{document}\n\\maketitle\n"
     "\\section{Two words}\nBody has five words.\n\\input{more}\n"
@@ -270,8 +285,93 @@ def test_latex_words_leave_out_hidden_blocks_in_input_files(lb, tmp_path):
 @needs_texcount
 def test_a_commented_input_is_not_followed(lb, tmp_path):
     (tmp_path / "doc.tex").write_text("Root.\n% \\input{more}\n")
-    (tmp_path / "more.tex").write_text("Many many words.\n")
+    (tmp_path / "more.tex").write_text("Many many words.\nAnd some more.\n")
     assert lb.tex_words(tmp_path / "doc.tex") == (1, "")
+
+
+def _printed(lb, source):
+    return lb._tex_code(source)
+
+
+def test_a_commented_out_comment_environment_hides_nothing(lb):
+    source = "A.\n%\\begin{comment}\nPrinted words.\n%\\end{comment}\nB.\n"
+    assert "Printed words." in _printed(lb, source)
+
+
+def test_a_comment_environment_in_code_still_hides(lb):
+    source = "A.\n\\begin{comment} % note\nHidden.\n\\end{comment}\nB.\n"
+    out = _printed(lb, source)
+    assert "Hidden." not in out and "B." in out
+
+
+def test_a_budget_line_after_a_commented_out_begin_is_read(lb):
+    source = "%\\begin{comment}\n% budget: 3 pages\n%\\end{comment}\n"
+    assert lb.read(source) == lb.Budget(3, None)
+
+
+@needs_texcount
+def test_latex_words_count_text_between_commented_out_begin_and_end(lb, tmp_path):
+    (tmp_path / "doc.tex").write_text(
+        "One.\n%\\begin{comment}\nPrinted three words.\n%\\end{comment}\n"
+    )
+    assert lb.tex_words(tmp_path / "doc.tex") == (4, "")
+
+
+def test_the_else_branch_of_an_iffalse_is_kept(lb):
+    out = _printed(lb, "A.\n\\iffalse\nCut.\n\\else\nShown.\n\\fi\nB.\n")
+    assert "Cut." not in out and "Shown." in out and "B." in out
+
+
+def test_a_nested_conditionals_else_does_not_end_the_skip(lb):
+    src = "\\iffalse\n\\ifx a b\nX.\n\\else\nY.\n\\fi\nCut.\n\\else\nShown.\n\\fi\nB.\n"
+    out = _printed(lb, src)
+    assert "X." not in out and "Y." not in out and "Cut." not in out
+    assert "Shown." in out and "B." in out
+
+
+def test_a_nested_iffalse_in_the_else_branch_is_still_hidden(lb):
+    src = "\\iffalse\nC.\n\\else\nS.\n\\iffalse\nD.\n\\fi\nT.\n\\fi\nB.\n"
+    out = _printed(lb, src)
+    assert "C." not in out and "D." not in out
+    assert "S." in out and "T." in out and "B." in out
+
+
+@needs_texcount
+def test_latex_words_count_the_else_branch_of_an_iffalse(lb, tmp_path):
+    (tmp_path / "doc.tex").write_text("\\iffalse\nCut words.\n\\else\nShown two.\n\\fi\nEnd.\n")
+    assert lb.tex_words(tmp_path / "doc.tex") == (3, "")
+
+
+@needs_texcount
+def test_a_trailing_comment_in_an_input_file_does_not_swallow_the_roots_line(lb, tmp_path):
+    (tmp_path / "doc.tex").write_text("\\input{more} Root words.\n")
+    (tmp_path / "more.tex").write_text("Input. % trailing")
+    assert lb.tex_words(tmp_path / "doc.tex") == (3, "")
+
+
+def test_inlined_text_ends_with_a_newline(lb, tmp_path):
+    (tmp_path / "more.tex").write_text("Input. % trailing")
+    out = lb._inline_inputs("\\input{more} Root.\n", tmp_path)
+    assert out == "Input. % trailing\n Root.\n"
+
+
+@pytest.mark.parametrize("form", ["\\input chap", "\\input chap.tex", "\\input{chap}"])
+def test_an_input_with_or_without_braces_is_inlined_and_preprocessed(lb, tmp_path, form):
+    (tmp_path / "chap.tex").write_text("In.\n\\iffalse\nCut.\n\\fi\n")
+    out = lb._inline_inputs(f"{form}\nRoot.\n", tmp_path)
+    assert "In." in out and "Cut." not in out and "input" not in out
+
+
+def test_a_macro_that_starts_like_input_is_not_an_input(lb, tmp_path):
+    (tmp_path / "enc.tex").write_text("Wrong.\n")
+    line = "\\inputenc{utf8}\n"
+    assert lb._inline_inputs(line, tmp_path) == line
+
+
+def test_input_tries_the_tex_suffix_first(lb, tmp_path):
+    (tmp_path / "chap.tex").write_text("Right.\n")
+    (tmp_path / "chap").write_text("Wrong.\n")
+    assert "Right." in lb._inline_inputs("\\input{chap}\n", tmp_path)
 
 
 def test_a_page_only_budget_does_not_call_texcount(lb, tmp_path, monkeypatch):
@@ -763,3 +863,9 @@ def test_an_unclosed_comment_ends_at_the_first_line_with_a_close(rn):
 def test_several_complete_comments_on_a_line_are_skipped(rn):
     title, _, body = rn.split_front_matter("<!-- a --> <!-- b -->\n# Title\n\nBody.\n")
     assert title == "Title" and "<!-- a -->" in body
+
+
+def test_a_comment_after_an_unclosed_one_on_the_first_line_is_not_its_close(rn):
+    source = "<!-- a --> <!-- b\nstill -->\n# Title\n\nBody.\n"
+    title, _, body = rn.split_front_matter(source)
+    assert title == "Title" and "<!-- b" in body
