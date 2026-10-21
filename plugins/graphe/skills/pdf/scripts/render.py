@@ -115,7 +115,7 @@ def split_front_matter(text: str) -> tuple[str | None, str | None, str]:
 
 def build_typ(src: pathlib.Path, work: pathlib.Path) -> pathlib.Path:
     """Write the .typ driver plus the body-only markdown it reads."""
-    title, subtitle, body = split_front_matter(src.read_text(encoding="utf-8"))
+    title, subtitle, body = split_front_matter(src.read_text(encoding="utf-8-sig"))
     body_path = work / f"{src.stem}.body.md"
     body_path.write_text(body, encoding="utf-8")
 
@@ -208,7 +208,7 @@ def main(argv: list[str] | None = None) -> int:
     for src in sources:
         dest, fonts = render(src, args.out)
         print(f"{dest}  [{', '.join(fonts)}]")
-        source = src.read_text(encoding="utf-8")
+        source = src.read_text(encoding="utf-8-sig")
         body = split_front_matter(source)[2]
         if not args.no_prose:
             for line in prose_lines(body):

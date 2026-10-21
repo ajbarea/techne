@@ -157,6 +157,14 @@ def test_a_document_over_its_page_budget_exits_two(tmp_path):
 
 
 @needs_tex
+def test_a_bom_does_not_hide_the_budget_line(tmp_path):
+    (tmp_path / "doc.tex").write_text("\ufeff" + OVER_BUDGET.lstrip(), encoding="utf-8")
+    code, out = run(tmp_path)
+    assert code == 2, out
+    assert "2 pages, budget 1" in out
+
+
+@needs_tex
 @needs_texcount
 def test_an_appendix_after_the_references_counts_against_the_budget(tmp_path):
     (tmp_path / "doc.tex").write_text(APPENDIX_AFTER_REFERENCES)

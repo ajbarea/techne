@@ -26,7 +26,7 @@ references, write `% budget: none`. Take it from the prompt or venue; a
 revision takes the original's. A `budget:` comment is a declaration when its spec
 opens with a digit, a number word before `page(s)`/`word(s)` (`four pages`), a qualifier
 and number (`max 4 pages`, `~1200 words`), a `_` placeholder (`__BUDGET__`), or
-stands alone as `none`; it must then parse, else the gate blocks. Any other `budget:`
+stands alone as `none`, `unlimited` or `no limit`; it must then parse, else the gate blocks. Any other `budget:`
 comment is ordinary prose. A document with no limit declares `% budget: none`, and the gate
 reports its length without asking for one. The *Length* section of the rubric says how to stay inside it.
 

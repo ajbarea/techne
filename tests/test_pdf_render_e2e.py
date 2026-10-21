@@ -222,3 +222,13 @@ def test_a_render_over_its_page_budget_fails(rn, tmp_path, monkeypatch, capsys):
     assert counted is not None and counted > 1
     monkeypatch.setattr(rn.length_budget.shutil, "which", lambda _tool: None)
     assert rn.length_budget.pdf_pages(pdf) == counted
+
+
+@needs_typst
+def test_a_bom_does_not_hide_the_budget_or_the_title(rn, tmp_path, capsys):
+    paragraphs = "\n\n".join(f"Paragraph {n}. " + "Words fill the page. " * 40 for n in range(30))
+    src = tmp_path / "long.md"
+    src.write_text(f"\ufeff# Long\n\n<!-- budget: 1 page -->\n\n{paragraphs}\n", encoding="utf-8")
+    out = tmp_path / "out"
+    assert rn.main([str(src), str(out), "--no-prose"]) == 1
+    assert "BLOCK  budget over budget" in capsys.readouterr().out

@@ -61,7 +61,14 @@ _IF = re.compile(
     r"|\\if(?!(?:thenelse|toggle|bool)(?![a-zA-Z@]))[a-zA-Z@]*(?![a-zA-Z@{])"
 )
 _ELSE = re.compile(r"\\else(?![a-zA-Z@])")
-_NOT_FOLLOWED = re.compile(r"\\(subimport|import|subfile|includefrom|inputfrom)(?![a-zA-Z@])")
+# import/subfiles macros: \subimport{dir}{name} is relative to the current file, \import,
+# \inputfrom and \includefrom take the dir as given; \subfile{path} is a whole document.
+_IMPORT = re.compile(
+    r"\\(?P<macro>sub)?(?:import|inputfrom|includefrom)\*?(?![a-zA-Z@])"
+    r"\s*\{(?P<dir>[^{}]*)\}\s*\{(?P<name>[^{}]+)\}"
+)
+_SUBFILE = re.compile(r"\\subfile(?![a-zA-Z@])\s*\{(?P<name>[^{}]+)\}")
+_BODY = re.compile(r"\\begin\{document\}(.*)\\end\{document\}", re.S)
 _NEWIF = re.compile(r"\\newif\s*\\[a-zA-Z@]+")
 _FI = re.compile(r"\\fi(?![a-zA-Z@])")
 _NOTE = re.compile(r"\s*\([^()]*\)[\s.]*$")
@@ -98,6 +105,7 @@ def read(source: str, markdown: bool = False) -> Budget | None:
     `none` declares no limit: Budget(None, None). A trailing `(note)` is ignored.
     A `budget:` comment whose spec does not open like a declaration is not one.
     """
+    source = source.removeprefix("\ufeff")
     if markdown:
         found = _MD_LINE.finditer(_declaration_source(source))
     else:
@@ -246,22 +254,55 @@ def markdown_words(source: str) -> int:
     return sum(1 for token in text.split() if _WORD.search(token))
 
 
-def _inline_inputs(code: str, folder: pathlib.Path, depth: int = 0) -> str:
-    """`code` with each `\\input`/`\\include` of a file in `folder` replaced by that file's
-    printed code, so texcount never sees a hidden block. A missing file stays a macro."""
+def _find(base: pathlib.Path, name: str) -> pathlib.Path | None:
+    for path in (base / f"{name}.tex", base / name):
+        if path.is_file():
+            return path
+    return None
 
-    def inline(match: re.Match[str]) -> str:
+
+def _expand(
+    code: str, root: pathlib.Path, base: pathlib.Path, missing: list[str], depth: int = 0
+) -> str:
+    """`code` with each `\\input`/`\\include`/`\\subimport`/`\\import`/`\\subfile` of a file
+    replaced by that file's printed code, so texcount never sees a hidden block. `root` is
+    where `\\input` resolves, `base` the current file's folder. A missing `\\input` stays a
+    macro; a missing import or subfile is added to `missing`."""
+
+    def load(path: pathlib.Path, new_base: pathlib.Path, whole: bool = True) -> str:
+        text = path.read_text(encoding="utf-8-sig", errors="replace")
+        if not whole and (body := _BODY.search(_tex_code(text))):
+            text = body[1]
+        out = _expand(_tex_code(text), root, new_base, missing, depth + 1)
+        return out.rstrip("\n") + "\n"
+
+    def sub_input(match: re.Match[str]) -> str:
         name = (match[1] or match[2]).strip()
-        for path in (folder / f"{name}.tex", folder / name):
-            if depth < _MAX_INPUT_DEPTH and path.is_file():
-                text = path.read_text(encoding="utf-8", errors="replace")
-                return _inline_inputs(_tex_code(text), folder, depth + 1).rstrip("\n") + "\n"
-        return match[0]
+        path = _find(root, name) if depth < _MAX_INPUT_DEPTH else None
+        return load(path, base) if path else match[0]
+
+    def sub_import(match: re.Match[str]) -> str:
+        folder = (base if match["macro"] else root) / match["dir"].strip()
+        name = match["name"].strip()
+        path = _find(folder, name) if depth < _MAX_INPUT_DEPTH else None
+        if not path:
+            missing.append(f"{match['dir'].strip()}{name}")
+            return match[0]
+        return load(path, path.parent)
+
+    def sub_file(match: re.Match[str]) -> str:
+        name = match["name"].strip()
+        path = _find(base, name) if depth < _MAX_INPUT_DEPTH else None
+        if not path:
+            missing.append(name)
+            return match[0]
+        return load(path, base, whole=False)
 
     lines = []
     for line in code.splitlines(keepends=True):
         head = _code_of(line)
-        lines.append(_INPUT.sub(inline, head) + line[len(head) :])
+        head = _IMPORT.sub(sub_import, _SUBFILE.sub(sub_file, _INPUT.sub(sub_input, head)))
+        lines.append(head + line[len(_code_of(line)) :])
     return "".join(lines)
 
 
@@ -272,11 +313,11 @@ def tex_words(tex: pathlib.Path) -> tuple[int | None, str]:
     if not shutil.which("texcount"):
         return None, "texcount not found"
     try:
-        code = _tex_code(tex.read_text(encoding="utf-8", errors="replace"))
+        code = _tex_code(tex.read_text(encoding="utf-8-sig", errors="replace"))
         proc = subprocess.run(
             ["texcount", "-inc", "-sum", "-1", "-"],
             cwd=tex.parent,
-            input=_inline_inputs(code, tex.parent),
+            input=_expand(code, tex.parent, tex.parent, []),
             capture_output=True,
             text=True,
             timeout=_TEXCOUNT_TIMEOUT,
@@ -362,7 +403,7 @@ def compare(budget: Budget, pages: int | None, words: int | None) -> Verdict:
 
 MISSING = "no length budget declared; set one before drafting ({hint})"
 UNMEASURED = "could not measure the PDF against the declared limit ({measured}); check by eye"
-NOT_FOLLOWED = "word count may miss files texcount does not follow ({names})"
+NOT_FOLLOWED = "word count may miss files that could not be found ({names})"
 UNCOUNTED = "word limit cannot be measured: {why} ({measured}); check by eye"
 OVER = "over budget: {over}. Cut repeated results and retold material, not substance"
 
@@ -411,14 +452,14 @@ def assess(
 def _unfollowed(
     source: str, tex: pathlib.Path | None, words: int | None, pdf: pathlib.Path
 ) -> list[tuple[str, str, str]]:
-    """A REVIEW when the root source loads files through a macro texcount does not follow."""
+    """A REVIEW naming each imported or subfile target that could not be found."""
     if tex is None or words is None:
         return []
-    code = _tex_code(source)
-    names = {m[0] for line in code.splitlines() for m in _NOT_FOLLOWED.finditer(_code_of(line))}
-    if not names:
+    missing: list[str] = []
+    _expand(_tex_code(source), tex.parent, tex.parent, missing)
+    if not missing:
         return []
-    return [("REVIEW", NOT_FOLLOWED.format(names=", ".join(sorted(names))), pdf.name)]
+    return [("REVIEW", NOT_FOLLOWED.format(names=", ".join(sorted(set(missing)))), pdf.name)]
 
 
 def _code_of(line: str) -> str:

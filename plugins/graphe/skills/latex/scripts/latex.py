@@ -301,7 +301,7 @@ def pdf_checks(pdf: pathlib.Path, text: str, markers: tuple[str, ...]) -> list[F
 
 def prompt_coverage(prompt: pathlib.Path, text: str) -> list[Finding]:
     """Heuristic. Reports what it could not locate; never decides the exit code."""
-    source = prompt.read_text(encoding="utf-8", errors="replace")
+    source = prompt.read_text(encoding="utf-8-sig", errors="replace")
     asked = {f"{m['kind']} {m['num']}" for m in _PROBLEM.finditer(source)}
     answered = {f"{m['kind']} {m['num']}" for m in _PROBLEM.finditer(text)}
     if not asked:
@@ -339,7 +339,7 @@ def budget_findings(tex: pathlib.Path, pdf: pathlib.Path) -> list[Finding]:
     declared limit cannot be measured."""
     if length_budget is None:
         return [Finding(INFO, "budget", "budget check not installed (no _shared/length_budget.py)")]
-    source = tex.read_text(encoding="utf-8", errors="replace")
+    source = tex.read_text(encoding="utf-8-sig", errors="replace")
     hint = "`% budget: N pages` in the .tex"
     results = length_budget.assess(source, pdf, hint=hint, source_name=tex.name, tex=tex)
     return [Finding(severity, "budget", message, where) for severity, message, where in results]
