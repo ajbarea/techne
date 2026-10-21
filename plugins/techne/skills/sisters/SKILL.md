@@ -25,7 +25,7 @@ If `~/.claude/techne.toml` is missing or yields zero active sisters, stop and te
 
 ## What to check
 
-Run all fourteen, in order, using the commands in [references/checks.md](references/checks.md).
+Run every check, in order, using the commands in [references/checks.md](references/checks.md).
 Each check reports per repo; one broken repo never aborts the others.
 
 | # | Check | Drift means | Recommend |
@@ -44,6 +44,7 @@ Each check reports per repo; one broken repo never aborts the others.
 | 12 | README header | A solo repo with a hero asset whose README does not open Hero → Title → tagline → Badges | Align, or confirm it is intentional |
 | 13 | Worktree ignore | `.claude/worktrees/` not ignored by a committed `.gitignore` (unignored, or only in `.git/info/exclude`) | Add `.claude/worktrees/` to `.gitignore` |
 | 14 | Docs-site shared files | A site's copy of a shared docs-site file differs from techne's, or a `docs/` page is missing from the nav | Fix techne's copy and sync it; list or move the page |
+| 15 | Agent instruction file | No committed `AGENTS.md`, or a `CLAUDE.md`/`CLAUDE.local.md` that is a symlink or lacks an `@AGENTS.md` import (it shadows `AGENTS.md` for Claude Code) | Move the content into `AGENTS.md`; keep a `CLAUDE.md` only for Claude-only content, starting with `@AGENTS.md` |
 
 ## Output format
 
@@ -117,6 +118,11 @@ A single block, no preamble (concrete repo names below are illustrative — subs
 - repo-a: shared files match ✓
 - repo-b: overrides/main.html differs → fix techne's copy, sync, PR
 - repo-c: docs/notes.md published but not in the nav → list it or move it out of docs/
+
+### Agent instruction file
+- repo-a: AGENTS.md, nothing shadows it ✓
+- repo-b: no committed AGENTS.md → add one
+- repo-c: CLAUDE.md does not import AGENTS.md, so Claude Code reads it instead → move its content into AGENTS.md, or start it with @AGENTS.md
 
 ### Verdict
 

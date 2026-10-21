@@ -18,6 +18,8 @@ Run from the shell after the config preamble in `SKILL.md`, which sets `$SISTERS
 - [11. Dependabot config coverage](#11-dependabot-config-coverage)
 - [12. README header convention](#12-readme-header-convention)
 - [13. Worktree ignore](#13-worktree-ignore)
+- [14. Docs-site shared files and nav coverage](#14-docs-site-shared-files-and-nav-coverage)
+- [15. Agent instruction file](#15-agent-instruction-file)
 
 ## 1. Action-pin drift
 
@@ -379,3 +381,36 @@ done
 
 Report each drifted or missing shared file (fix: edit techne's copy, then
 `python3 "$SYNC" <repo>` and open a PR in the site) and each unlisted page.
+
+## 15. Agent instruction file
+
+Each sister keeps its agent instructions in one committed root `AGENTS.md`, which Claude Code
+(v2.1.277 and later), Codex, Copilot's coding agent and Antigravity all read. Claude Code reads
+`AGENTS.md` only when no `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md` sits in the working
+directory or above it, so a `CLAUDE.md` without an `@AGENTS.md` import (one `/init` writes, say)
+silently replaces the repo's instructions for Claude. A `CLAUDE.md` exists only for Claude-only
+content and imports `AGENTS.md`. A symlinked `CLAUDE.md` checks out on Windows as a one-line text
+file, so it fails too. Sources: <https://code.claude.com/docs/en/memory#agents-md>,
+<https://agents.md/>.
+
+```
+for repo in $SISTERS; do
+  r="$WORKSPACE/$repo"; ok=1
+  git -C "$r" ls-files --error-unmatch AGENTS.md >/dev/null 2>&1 \
+    || { echo "$repo: no committed AGENTS.md → add one"; ok=0; }
+  files=$( { git -C "$r" ls-files -- CLAUDE.md '*/CLAUDE.md' CLAUDE.local.md '*/CLAUDE.local.md'
+             [ -e "$r/CLAUDE.local.md" ] && echo CLAUDE.local.md; } | sort -u)
+  for f in $files; do
+    if [ -L "$r/$f" ]; then
+      echo "$repo: $f is a symlink → replace it with a file whose first line is @AGENTS.md"; ok=0
+    elif ! grep -qxE '@(\./)?AGENTS\.md' "$r/$f"; then
+      echo "$repo: $f does not import AGENTS.md, so Claude Code reads it instead → move its content into AGENTS.md, or start it with @AGENTS.md"; ok=0
+    fi
+  done
+  [ "$ok" = 1 ] && echo "$repo: AGENTS.md, nothing shadows it ✓"
+done
+```
+
+Report each sister without a committed `AGENTS.md`, and each `CLAUDE.md` or `CLAUDE.local.md`
+(committed, or a local one at the root) that is a symlink or lacks the import. A `CLAUDE.md` that
+holds only the import passes; it is redundant, not drift.
