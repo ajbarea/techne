@@ -25,8 +25,19 @@ Done (tests green):
 
 Rounds: r1 `/code-review high` (10), r2 opus reader (4), r3 opus reader (1 Blocking, 1
 Should-fix, both recurring classes, both now fixed structurally). Ledger: #195, #196, #197.
-Budget of three rounds is spent: the r3 fixes are unreviewed. Next: AJ's go-ahead for a fourth
-round, then merge, then the companion prefs PR (it waits on this one).
+Budget of three rounds is spent: the r3 fixes (commit "model guard stands down...") are
+unreviewed. Live-fired on the final head: no setting -> refused, retry with haiku ran;
+CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 -> ran. Paused 2026-10-22 ~09:45 for the account limit.
+
+Exact next step on resume:
+1. Read the final gate: `grep -nE "VALIDATE_EXIT| passed| failed" <scratchpad>/validate6.log`
+   (session 51b37772 scratchpad); if gone or red, rerun `make validate` (Linux node first on
+   PATH: `export PATH="$HOME/.nvm/versions/node/v24.18.0/bin:$PATH"`), rc into the log.
+2. Ask AJ for the go-ahead on a fourth review round (opus dispatched reader, high tier, on the
+   r3 fixes only: `model_guard.py` stand-down and the incident grammar in
+   `tests/test_bug_classes.py`). On a clean round: `gh pr checks 194`, merge #194.
+3. Then claude-prefs #32 (merge after #194): one more opus reader round on its r1 fixes, merge,
+   back up `~/.claude/CLAUDE.md`, run `scripts/sync-from-repo.sh` per its README.
 
 ## Follow-up: sisters check 15 minors (PR #193 merged)
 
