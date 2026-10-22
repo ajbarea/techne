@@ -51,7 +51,7 @@ def default_decides(kind: str) -> bool:
     """Whether something other than the session's model may decide an unnamed call to kind."""
     if kind not in INHERITING or any(os.environ.get(name) for name in OVERRIDES):
         return True
-    default = os.environ.get("CLAUDE_CODE_SUBAGENT_MODEL", "")
+    default = os.environ.get("CLAUDE_CODE_SUBAGENT_MODEL", "").strip()
     return kind in NO_OWN_MODEL and default not in ("", "inherit")
 
 

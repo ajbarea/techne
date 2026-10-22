@@ -32,7 +32,8 @@ def payload(tool="Agent", **tool_input) -> str:
     return json.dumps({"tool_name": tool, "tool_input": tool_input})
 
 
-# The settings that choose subagent models; while any is set the guard stands down.
+# The settings that choose subagent models: _FORCE and coordinator mode stand the guard down for
+# every type, CLAUDE_CODE_SUBAGENT_MODEL only for the types with no model of their own.
 DEFAULT_ENV = (
     "CLAUDE_CODE_SUBAGENT_MODEL",
     "CLAUDE_CODE_SUBAGENT_MODEL_FORCE",
@@ -116,6 +117,9 @@ def test_a_setting_that_overrides_the_call_stands_the_guard_down(var, value, age
         ("general-purpose", "haiku", False),
         ("claude", "sonnet", False),
         ("general-purpose", "inherit", True),
+        ("general-purpose", "inherit ", True),  # Claude Code trims the value
+        ("general-purpose", "  ", True),
+        ("general-purpose", " haiku ", False),
         ("claude", "inherit", True),
         ("Explore", "haiku", True),
         ("Plan", "haiku", True),

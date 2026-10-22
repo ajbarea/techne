@@ -19,9 +19,10 @@ Done (tests green):
   ledger with issues, 3-round default budget, After merge, reader on the strongest model the
   session can dispatch, "Before you ask for review" pre-flight.
 - phylax `require_subagent_model`: refuses a no-model call to general-purpose, claude, Explore,
-  Plan; plugin and user agents left to their definitions; stands down while any
-  `CLAUDE_CODE_SUBAGENT_MODEL*` or coordinator setting is present (round 3 showed _FORCE can
-  remove `model` from the Agent schema, so modelling the order failed three rounds running).
+  Plan; plugin and user agents left to their definitions. Any CLAUDE_CODE_SUBAGENT_MODEL_FORCE or
+  coordinator setting stands it down for every type (Claude Code drops the call's model);
+  CLAUDE_CODE_SUBAGENT_MODEL (trimmed, not `inherit`) only for general-purpose and claude, since
+  Explore and Plan pin `inherit`.
 
 Rounds: r1 `/code-review high` (10), r2 opus reader (4), r3 (1 Blocking, 1 Should-fix), r4 scoped
 to the r3 fixes (1 Blocking: private repo names in the r3 test cases, now fictional; 2
@@ -30,11 +31,11 @@ down for them, fixed and 15/15 mutants killed; the scrub grammar still lets a pr
 ledgered as #198). r3 and r4 each found bugs the previous fix introduced, so the loop is paused
 per elenchus. Ledger: #195, #196, #197, #198.
 
-Exact next step: AJ decides (a) whether the r4 fixes merge on green or get a fifth reader round,
-(b) whether to rewrite the public branch's history to drop the private names from commit
-f75d666 (it is on the PR branch; the squash merge keeps them off main). Then merge #194, then
-the companion private prefs PR (three review rounds done; r3's two Should-fix fixed with tests,
-unreviewed; merge after #194), back up ~/.claude/CLAUDE.md, run its scripts/sync-from-repo.sh.
+r5 (AJ's go-ahead, scoped to the r4 fixes): no Blocking; its Should-fix (two stale lines) and
+the whitespace minor fixed. AJ chose to leave the branch history (squash keeps main clean).
+Next: `make validate`, push, `gh pr checks 194`, squash-merge #194; then the companion private
+prefs PR (AJ asked for a fourth round there: done, fixes landed), merge it, back up
+~/.claude/CLAUDE.md, run its scripts/sync-from-repo.sh.
 
 ## Follow-up: sisters check 15 minors (PR #193 merged)
 
