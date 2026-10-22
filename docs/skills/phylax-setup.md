@@ -22,7 +22,7 @@ The skill runs a doctor script that only reads, then follows the [setup runbook]
 
 ## What it checks
 
-The first four lines are the options: `ok` is on, `n/a` is off or not set, which is off. The lines after them check only what the options that are on need.
+The first lines are the options, one per option: `ok` is on, `n/a` is off or not set, which is off. The lines after them check only what the options that are on need.
 
 | Check | Matters when |
 |---|---|

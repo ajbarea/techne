@@ -9,6 +9,34 @@ how each skill was designed.
 If this file is more than ~50 lines, something queued or referential
 has crept in; extract it back to ROADMAP.
 
+## In flight: elenchus bug-class catalog + phylax model guard (branch `feat/elenchus-bug-classes`, PR #194)
+
+Done (tests green):
+- `plugins/techne/skills/elenchus/references/bug-classes.md`: 9 core classes plus learned ones,
+  each Symptom, Question, Guard, Incidents (at most three; private repos described, not named).
+  `tests/test_bug_classes.py` parses it strictly and enforces the incident grammar and budget.
+- elenchus SKILL.md: catalog first, class tags, recurring class escalates, deferred-findings
+  ledger with issues, 3-round default budget, After merge, reader on the strongest model the
+  session can dispatch, "Before you ask for review" pre-flight.
+- phylax `require_subagent_model`: refuses a no-model call to general-purpose, claude, Explore,
+  Plan; plugin and user agents left to their definitions. Any CLAUDE_CODE_SUBAGENT_MODEL_FORCE or
+  coordinator setting stands it down for every type (Claude Code drops the call's model);
+  CLAUDE_CODE_SUBAGENT_MODEL (trimmed, not `inherit`) only for general-purpose and claude, since
+  Explore and Plan pin `inherit`.
+
+Rounds: r1 `/code-review high` (10), r2 opus reader (4), r3 (1 Blocking, 1 Should-fix), r4 scoped
+to the r3 fixes (1 Blocking: private repo names in the r3 test cases, now fictional; 2
+Should-fix: Explore/Plan pin `inherit`, so CLAUDE_CODE_SUBAGENT_MODEL must not stand the guard
+down for them, fixed and 15/15 mutants killed; the scrub grammar still lets a private name pass,
+ledgered as #198). r3 and r4 each found bugs the previous fix introduced, so the loop is paused
+per elenchus. Ledger: #195, #196, #197, #198.
+
+r5 (AJ's go-ahead, scoped to the r4 fixes): no Blocking; its Should-fix (two stale lines) and
+the whitespace minor fixed. AJ chose to leave the branch history (squash keeps main clean).
+Next: `make validate`, push, `gh pr checks 194`, squash-merge #194; then the companion private
+prefs PR (AJ asked for a fourth round there: done, fixes landed), merge it, back up
+~/.claude/CLAUDE.md, run its scripts/sync-from-repo.sh.
+
 ## Follow-up: sisters check 15 minors (PR #193 merged)
 
 Check 15 (`scripts/agents_md.py`) flags every CLAUDE.md, .claude/CLAUDE.md and CLAUDE.local.md

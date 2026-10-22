@@ -12,7 +12,7 @@ This is the setup guide for phylax, written for an agent guiding a user. Every p
 
 ## 1. Run the doctor
 
-The first four lines are the options. `ok` means on; `n/a` means off, or not set, which is off. The lines after them check what the options need. A `missing` or `optional` line is followed by `fix:` lines. The last line is `result: ready`, or `result: missing` with the names of the required checks that failed. The doctor exits 0 when nothing required is missing.
+The first lines are the options, one per option. `ok` means on; `n/a` means off, or not set, which is off. The lines after them check what the options need. A `missing` or `optional` line is followed by `fix:` lines. The last line is `result: ready`, or `result: missing` with the names of the required checks that failed. The doctor exits 0 when nothing required is missing.
 
 If the shell says `python3` is not found, the doctor cannot start. The user installs it with `sudo apt install python3` on Debian or Ubuntu, or `xcode-select --install` on macOS.
 
@@ -23,6 +23,7 @@ Explain each option, and ask which the user wants:
 - `block_attribution_trailers` refuses a commit or PR whose message or body carries a Claude-Session link, a Co-Authored-By: Claude trailer, or a Generated with Claude Code line.
 - `block_commits_md` refuses staging or committing a `COMMITS.md` scratchpad.
 - `warn_main_checkout_commit` warns when a commit runs in a repo's main checkout while linked worktrees exist.
+- `require_subagent_model` refuses an Agent call to a built-in agent type that runs on the session's model (`general-purpose`, `claude`, `Explore`, `Plan`) when it names no model. Plugin and user agents are left to their own definitions, and it stands down while `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` or coordinator mode overrides the call's model. It needs python3 only, not git or the mod.
 - `restart_on_update` moves an idle session onto a newly installed Claude Code in a new tmux window or Windows Terminal tab, keeping the conversation. It works on Linux and WSL only.
 
 The user switches them on in `/config`. Then they run `/reload-plugins`, and you run the setup skill again so the doctor sees the new values.

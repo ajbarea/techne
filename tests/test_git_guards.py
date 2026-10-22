@@ -332,7 +332,8 @@ def test_unparseable_command_falls_back_to_raw_scan(repo):
 
 def _handlers() -> list[dict]:
     config = json.loads(HOOKS_JSON.read_text())
-    return [h for group in config["hooks"]["PreToolUse"] for h in group["hooks"]]
+    groups = [g for g in config["hooks"]["PreToolUse"] if g["matcher"] == "Bash"]
+    return [h for group in groups for h in group["hooks"]]
 
 
 def run_handler(handler: dict, command: str, cwd: pathlib.Path, *, on, env_extra=None, **fields):
@@ -490,8 +491,9 @@ def test_a_failed_check_beside_a_warning_still_fails(repo, linked):
 
 def test_manifest_options_match_the_guard_and_default_off():
     options = json.loads(MANIFEST.read_text())["userConfig"]
-    # restart_on_update belongs to stale_restart.py, tested in test_stale_restart.py.
-    assert set(options) - {"restart_on_update"} == set(ALL)
+    # restart_on_update belongs to stale_restart.py, tested in test_stale_restart.py;
+    # require_subagent_model to model_guard.py, tested in test_model_guard.py.
+    assert set(options) - {"restart_on_update", "require_subagent_model"} == set(ALL)
     for spec in options.values():
         assert spec["type"] == "boolean"
         assert spec["default"] is False

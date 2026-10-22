@@ -1,6 +1,6 @@
 {
   "name": "phylax",
-  "description": "Opt-in Claude Code hooks: refuse attribution lines in commits and PRs, refuse staging COMMITS.md, warn on commits in a main checkout, and restart idle sessions onto an updated Claude Code.",
+  "description": "Opt-in Claude Code hooks: refuse attribution lines in commits and PRs, refuse staging COMMITS.md, warn on commits in a main checkout, refuse a subagent call that would silently inherit the session's model, and restart idle sessions onto an updated Claude Code.",
   "author": {
     "name": "AJ",
     "email": "ajbareaa@gmail.com"
@@ -32,6 +32,12 @@
       "type": "boolean",
       "title": "Warn on commits in the main checkout",
       "description": "Warn when git commit runs in a repo's main checkout while linked worktrees exist.",
+      "default": false
+    },
+    "require_subagent_model": {
+      "type": "boolean",
+      "title": "Require a model on subagent calls",
+      "description": "Refuse an Agent call to a built-in agent type that runs on this session's model (general-purpose, claude, Explore, Plan) when it names no model. Plugin and user agents are left to their own definitions.",
       "default": false
     },
     "restart_on_update": {
