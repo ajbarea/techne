@@ -22,9 +22,13 @@ HEADING_RE = re.compile(r"^### (?:(\d+)\. )?([a-z0-9]+(?:-[a-z0-9]+)*): (\S.*)$"
 FIELD_RE = re.compile(r"^- \*\*(\w+):\*\* (\S.*)$")
 FIELDS = ("Symptom", "Question", "Guard", "Incidents")
 DATE_RE = re.compile(r"\b20\d\d-\d\d(?:-\d\d)?\b")
-# One incident: `where (YYYY-MM[-DD]): what happened`.
-INCIDENT_RE = re.compile(r"\(20\d\d-\d\d(?:-\d\d)?\):")
+# Incidents are `where (YYYY-MM[-DD]): what happened`, joined by "; ".
+INCIDENT_RE = re.compile(r"^(?P<where>[^;():]+?) \((?P<date>20\d\d-\d\d(?:-\d\d)?)\): \S")
+NONE_RECORDED = "none recorded."
 MAX_INCIDENTS = 3
+# The catalog ships in a public repo: an incident names one of these public repos, or
+# describes a private one ("a private rm-approval hook") without naming it.
+PUBLIC_REPOS = {"techne", "pharos", "sphragis", "klepsydra", "kourai"}
 BUDGET_RE = re.compile(r"<!-- budget: (\d+) words -->")
 # How SKILL.md and the docs page name a class: class `slug`.
 CLASS_REF_RE = re.compile(r"\bclass `([a-z0-9-]+)`")
@@ -59,6 +63,17 @@ def parse(text: str) -> list[dict]:
     return classes
 
 
+def split_incidents(text: str) -> list[str]:
+    """Split on "; " outside backticks, so a command such as `a; b` stays one incident."""
+    items, start, ticks = [], 0, 0
+    for i, char in enumerate(text):
+        ticks += char == "`"
+        if text.startswith("; ", i) and ticks % 2 == 0:
+            items.append(text[start:i])
+            start = i + 2
+    return [*items, text[start:]]
+
+
 def problems(entry: dict) -> list[str]:
     """What is wrong with one parsed class; empty when it is well formed."""
     found = []
@@ -66,10 +81,22 @@ def problems(entry: dict) -> list[str]:
     if names != FIELDS:
         found.append(f"fields {names} are not {FIELDS}")
     incidents = dict(entry["fields"]).get("Incidents", "")
-    if entry["number"] is None and not DATE_RE.search(incidents):
-        found.append("a learned class cites no dated incident")
-    if len(INCIDENT_RE.findall(incidents)) > MAX_INCIDENTS:
+    if incidents == NONE_RECORDED:
+        if entry["number"] is None:
+            found.append("a learned class cites no incident")
+        return found
+    items = split_incidents(incidents)
+    if len(items) > MAX_INCIDENTS:
         found.append(f"more than {MAX_INCIDENTS} incidents")
+    for item in items:
+        match = INCIDENT_RE.match(item)
+        if not match:
+            found.append(f"incident is not `where (date): what`: {item[:60]!r}")
+            continue
+        where = match.group("where")
+        repo = re.split(r"[#\s]", where, maxsplit=1)[0]
+        if not where.startswith(("a ", "an ")) and repo not in PUBLIC_REPOS:
+            found.append(f"incident names {repo!r}, not a public repo or `a private ...`")
     return found
 
 
@@ -99,22 +126,21 @@ def test_core_rubric_is_cells_one_to_nine_in_order(classes):
     assert all(entry["number"] is None for entry in classes if entry["section"] != "Core rubric")
 
 
-def test_learned_classes_cite_a_dated_incident(classes):
-    for entry in classes:
-        incidents = dict(entry["fields"])["Incidents"]
-        if entry["number"] is None:
-            assert DATE_RE.search(incidents), entry["slug"]
-        else:
-            assert DATE_RE.search(incidents) or incidents == "none recorded.", entry["slug"]
-
-
 def _entry(**fields: str) -> dict:
     lines = "".join(f"- **{name}:** {value}\n" for name, value in fields.items())
     (entry,) = parse(f"## Learned\n\n### a-b: A\n\n{lines}")
     return entry
 
 
-GOOD = {"Symptom": "s", "Question": "q", "Guard": "g", "Incidents": "x (2026-10): y."}
+GOOD = {"Symptom": "s", "Question": "q", "Guard": "g", "Incidents": "techne#1 (2026-10): y."}
+
+
+def test_split_keeps_a_command_with_a_semicolon_whole():
+    text = "techne#1 (2026-10-01): `ln -s ~ hl; rm -rf hl/` passed; pharos (2026-08): y"
+    assert split_incidents(text) == [
+        "techne#1 (2026-10-01): `ln -s ~ hl; rm -rf hl/` passed",
+        "pharos (2026-08): y",
+    ]
 
 
 def test_a_well_formed_class_has_no_problems():
@@ -126,13 +152,29 @@ def test_a_missing_field_is_a_problem():
     assert problems(_entry(**fields))
 
 
-def test_an_undated_learned_class_is_a_problem():
-    assert problems(_entry(**{**GOOD, "Incidents": "somewhere: something."}))
+@pytest.mark.parametrize(
+    "incidents",
+    [
+        "techne: something, no date.",
+        NONE_RECORDED,  # allowed only on a core class
+        "techne#1 (2026-10-01): x; the same day an undated second one",
+        "; ".join(f"techne#{n} (2026-10-0{n}): x" for n in range(1, 5)),
+        "private-repo#3 (2026-10-01): a private repo named by name",
+    ],
+)
+def test_a_malformed_or_unpublishable_incident_is_a_problem(incidents):
+    assert problems(_entry(**{**GOOD, "Incidents": incidents}))
 
 
-def test_a_fourth_incident_is_a_problem():
-    four = "; ".join(f"r#{n} (2026-10-0{n}): x" for n in range(1, 5))
-    assert problems(_entry(**{**GOOD, "Incidents": four}))
+@pytest.mark.parametrize(
+    "incidents",
+    [
+        "a private rm-approval hook r1 (2026-10-21): x",
+        "pharos (2026-08): x; techne#189 r2 (2026-10-21): y",
+    ],
+)
+def test_a_public_repo_or_a_described_private_one_is_fine(incidents):
+    assert problems(_entry(**{**GOOD, "Incidents": incidents})) == []
 
 
 @pytest.mark.parametrize("stray", ["  - r#1 (2026-10): an indented sub-bullet", "wrapped text"])

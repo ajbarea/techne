@@ -10,7 +10,7 @@ Each class has the same four fields:
 - **Symptom:** what you observe when the bug is present.
 - **Question:** the one question, asked of the diff, that catches it.
 - **Guard:** the test, check or structural fix that prevents it.
-- **Incidents:** where it bit, as `repo#PR round (date): what happened`, newest last, at most three; adding a fourth drops the oldest, which git history keeps. A private repo is named by what it is, not by name.
+- **Incidents:** where it bit, as `repo#PR round (date): what happened`, joined by `; `, newest last, at most three; adding a fourth drops the oldest, which git history keeps. A private repo is named by what it is, not by name. When an addition would pass the word budget, merge overlapping classes or trim incidents first; raising the budget is a deliberate edit in that PR.
 
 ## Core rubric
 
@@ -19,28 +19,28 @@ Each class has the same four fields:
 - **Symptom:** an `rm -rf`, overwrite, `DROP`, `truncate` or force-push runs on a target nobody meant: the source folder, the home directory, a sibling's data.
 - **Question:** for every destructive op, which exact input or invocation reaches it, and can that input resolve under the thing being wiped?
 - **Guard:** a refusal-path test per reachable input (the source inside the destination, `.`, `..`, `~`, a symlink, an empty variable), written in the same change as the op.
-- **Incidents:** makesense#534 (2026-06-30): `bash <dest>/plugin/install.sh` resolved its source folder under `<dest>`, which `rm -rf "$dest"` then wiped; a private rm-approval hook r1 to r10 (2026-10-21): 16 path-protection gaps in an rm-approval hook.
+- **Incidents:** a private plugin installer (2026-06-30): `bash <dest>/plugin/install.sh` resolved its source folder under `<dest>`, which `rm -rf "$dest"` then wiped; a private rm-approval hook r1 to r10 (2026-10-21): 16 path-protection gaps in an rm-approval hook.
 
 ### 2. unmirrored-parallel-guard: Parallel-path mirroring
 
 - **Symptom:** a new path that mirrors an existing one passes its tests, yet one input cell reaches a failure the sibling path guards against, because the structure was copied and the guard or its regression test was not.
 - **Question:** for every guard and regression test on the sibling path, does the new path have both, and which cell of the input matrix (type x location x state) is untested? Test-first does not find it: it tests the behaviour someone specified, and nobody specified the missing cell.
 - **Guard:** one shared helper that every parallel path calls, so a guard cannot be added to one path alone; otherwise the input matrix written as a parametrized test over every path.
-- **Incidents:** makesense#534 (2026-06-30): the folder install lacked the ZIP path's guard and its test; techne#189 r1 to r18 (2026-10-21): one `GIT_*` env strip missed in five places and a UTF-16 decode missing on three read paths, hit in 15 of 18 passes until the reads shared one helper.
+- **Incidents:** a private plugin installer (2026-06-30): the folder install lacked the ZIP path's guard and its test; techne#189 r1 to r18 (2026-10-21): one `GIT_*` env strip missed in five places and a UTF-16 decode missing on three read paths, hit in 15 of 18 passes until the reads shared one helper.
 
 ### 3. migration-tolerance: Migration tolerance
 
 - **Symptom:** state written by the old code (a saved session, a config, a cache, a database row) crashes or misreads under the new code after an upgrade.
 - **Question:** does every field the new code reads have a default when state from the previous release lacks it?
 - **Guard:** a test that loads a fixture saved by the previous release; new fields follow their siblings' access pattern (`.get(k, default)`, not `dict["k"]`).
-- **Incidents:** makesense#528 (2026-06-29): a session reopen crashed on `dict["k"]` where the rest of the loader used `.get`.
+- **Incidents:** a private MCP server (2026-06-29): a session reopen crashed on `dict["k"]` where the rest of the loader used `.get`.
 
 ### 4. unreached-surface: Reachability to the real surface
 
 - **Symptom:** every test passes, yet the feature is dead: the change landed on an inner copy, not the registered wrapper, the shipped path or the docstring the model reads.
 - **Question:** is the changed symbol the one the harness registers, ships or shows, and who consumes it across the whole repo?
 - **Guard:** a test through the registered entry point (the wrapper, the CLI, the installed plugin), not the inner function.
-- **Incidents:** makesense#528 (2026-06-29): enriched tool guidance landed on the inner function, not the FastMCP-registered wrapper.
+- **Incidents:** a private MCP server (2026-06-29): enriched tool guidance landed on the inner function, not the FastMCP-registered wrapper.
 
 ### 5. boundary-input: Boundary and empty inputs
 
@@ -54,7 +54,7 @@ Each class has the same four fields:
 - **Symptom:** lint and tests are green, but the value path was never run end to end: a test mocks the seam it claims to cover, or one config typo aborts the whole boot.
 - **Question:** what run, outside the unit tests, shows the feature working, does any test mock the very wiring under test, and has each gate or detector been seen to fire?
 - **Guard:** an end-to-end run of the shipped path (start the server, run the CLI, load the plugin) recorded in the PR; a test through the unmocked wiring; a test where each gate fires (see class `vacuous-guard`).
-- **Incidents:** makesense (2026-06): a one-line config typo aborted the whole MCP server boot while tests passed.
+- **Incidents:** a private MCP server (2026-06): a one-line config typo aborted the whole MCP server boot while tests passed.
 
 ### 7. flake-vs-real-red: Flake versus real red
 
@@ -84,7 +84,7 @@ Each class has the same four fields:
 - **Symptom:** a guard that parses a command line allows or denies a string bash runs differently: a comment, newline, quote, glob or expansion the parser reads one way and bash another.
 - **Question:** for each token rule in the parser, what does bash itself do with this string, and has a test asked bash rather than the parser's author?
 - **Guard:** a differential test that feeds generated strings to both the parser and the real shell and fails on any disagreement; after a second round of new corners, stop parsing and delegate to the real implementation, or deny the shape outright.
-- **Incidents:** a private rm-approval hook r1 (2026-10-21): `rm -rf logs/a # note`, a newline, then `rm -rf ~`, where shlex's comment rule hid the second line; new bash corners in all 10 rounds until a 3,000-string differential against bash in r10.
+- **Incidents:** a private rm-approval hook r1 (2026-10-21): `rm -rf logs/a # note`, a newline, then `rm -rf ~`, where shlex's comment rule hid the second line, and new bash corners turned up in all 10 rounds until a 3,000-string differential against bash in r10.
 
 ### check-time-vs-run-time: Checked state is not the state at run time
 
@@ -161,7 +161,7 @@ Each class has the same four fields:
 - **Symptom:** a negative control passes even with detection killed in one cell, because one half asserts `all(...)` over every cell and the other `bool(filtered)`, an `any` over a subset.
 - **Question:** across the family of verdicts in this file, is each one an any or an all, and do they agree?
 - **Guard:** read the verdicts side by side along one dimension; trip the control by silencing one cell and requiring the verdict to flip.
-- **Incidents:** pharos#31 (2026-08-16): one of eight verdicts used `bool(filtered_list)`; a reproduce pass and `/code-review high` both missed it.
+- **Incidents:** pharos#31 (2026-08-16): one of eight verdicts used `bool(filtered_list)`, and a reproduce pass and `/code-review high` both missed it.
 
 ### vacuous-guard: A guard or check that cannot fail
 
@@ -182,7 +182,7 @@ Each class has the same four fields:
 - **Symptom:** a step reports success while the log says failure or nothing was produced. Seen on `gh run watch --exit-status` and `gh pr checks --watch` (exit 0 when checks finish, pass or fail), a verify piped to `tail` (`&&` commits on red), a backgrounded pipe or task notification (the wrapper's code, not the command's), `latexmk` with every citation `[?]`, `tar --strip-components` extracting nothing, `python -m` on a module with no `__main__` guard, and ugrep exiting 2 on a complex pattern that `if grep` reads as no match.
 - **Question:** was the exit code captured from the command itself, and does the output, or the count of produced artifacts, agree with it?
 - **Guard:** `cmd > log 2>&1; rc=$?`, then read the log; never put a verify left of a pipe or gate a commit on one; read `gh run view <id> --json conclusion` after a watch.
-- **Incidents:** pharos (2026-08-06): a notification said exit 0 for a run whose log said `MAKE_CI_EXIT=2`; makesense#673 (2026-07-04): `gh pr checks --watch` exited 0 while `lint-and-test (3.12)` failed.
+- **Incidents:** pharos (2026-08-06): a notification said exit 0 for a run whose log said `MAKE_CI_EXIT=2`; a private MCP server's CI (2026-07-04): `gh pr checks --watch` exited 0 while `lint-and-test (3.12)` failed.
 
 ### overlapping-gate-runs: A second gate or an unbounded watcher reports a superseded run
 
@@ -196,7 +196,7 @@ Each class has the same four fields:
 - **Symptom:** a child process dies mid-suite with -15 or -9 and no signal from the test, and reads as a flake; a shared helper worktree vanishes mid-task.
 - **Question:** does every kill target a PID this command started, and does any cleanup touch something another session owns?
 - **Guard:** capture `$!` and kill that PID; bind port 0, not a fixed port; never `pkill` or `killall` by pattern; a shared helper worktree gets a named branch; never remove the worktree your own session stands in (a hook then starts in a deleted folder).
-- **Incidents:** techne (2026-10-17): a subagent's `pkill` of its http servers SIGTERMed another worktree's visual-QA subprocess; the same day a detached helper worktree was cleaned up while a sync agent used it.
+- **Incidents:** techne (2026-10-17): a subagent's `pkill` of its http servers SIGTERMed another worktree's visual-QA subprocess; techne (2026-10-17): a detached helper worktree was cleaned up while a sync agent used it.
 
 ### rebase-arms-live-test: A rebase turns a refusal-path test into a live request
 
@@ -210,7 +210,7 @@ Each class has the same four fields:
 - **Symptom:** a test compares two independently enqueued async results and passes only when both happen to reach the same stage; one CI leg reds now and then.
 - **Question:** does the test poll to a stable terminal state and then assert the whole record, or does it exclude the fields that race?
 - **Guard:** poll with a short interval and a timeout, then compare the full result, excluding only fields unique by construction (ids, timestamps); sweep the suite for the same pattern; no rerun-until-green plugin.
-- **Incidents:** makesense#673 (2026-07-04): a submit-response comparison raced state, finished_at, cumulative_rows and result, and reded the 3.12 leg.
+- **Incidents:** a private MCP server's CI (2026-07-04): a submit-response comparison raced state, finished_at, cumulative_rows and result, and reded the 3.12 leg.
 
 ### sweepable-flag-fixed-constants: A sweep flag with fixed companion constants
 
@@ -231,14 +231,14 @@ Each class has the same four fields:
 - **Symptom:** code written ahead of an upstream release matches a predicted shape, not the real one, and a migration estimate built on it misses most of the work.
 - **Question:** has every placeholder's predicted shape been checked against the upstream migration guide or release?
 - **Guard:** read the upstream guide before estimating; treat each mismatch as scope; rewrite the stub's comment to admit the wrong prediction.
-- **Incidents:** kourai a2a-sdk 1.0 (2026-04-29): a firewall predicted a unified `Part`; the release shipped a flat `Part(text=...)` and matched only by protobuf permissiveness.
+- **Incidents:** kourai a2a-sdk 1.0 (2026-04-29): a firewall predicted a unified `Part`, but the release shipped a flat `Part(text=...)` and matched only by protobuf permissiveness.
 
 ### ingestion-scrub-not-release-scrub: Identities leak into released artifacts
 
 - **Symptom:** names, emails, usernames or ids from mined sources appear in committed results, fixtures or example ids, while substring exclusions drop real people.
 - **Question:** is every tracked file scanned for identities before release, and are exclusions structural matches on the parsed local part and domain?
 - **Guard:** a release-time scan of every tracked file of every extension; structural exclusions, never substrings; redact the release, not the corpus, flag redacted rows, and recompute the verdicts to show no number moved; the same substitution on both sides of any join key.
-- **Incidents:** sphragis (2026-09-21): the first guard watched `datasets/results/*.json` and missed a test fixture with three contributors' names and addresses; a substring exclusion on `rit.edu` also matched an unrelated address on a `.edu.cn` domain.
+- **Incidents:** sphragis (2026-09-21): the first guard watched `datasets/results/*.json` and missed a test fixture with three contributors' names and addresses, and a substring exclusion on `rit.edu` also matched an unrelated address on a `.edu.cn` domain.
 
 ### rejected-idea-returns: A design dead end reappears in the build
 
@@ -252,4 +252,4 @@ Each class has the same four fields:
 - **Symptom:** a search, build or model job an agent started runs for many minutes or holds gigabytes, and the shared host (WSL, a CI runner) swaps or crashes, taking other sessions with it.
 - **Question:** what is the worst-case time and memory of this command on the largest input it can see, and how many like it run at once?
 - **Guard:** cap heavy jobs (`systemd-run --user -p MemoryMax=2G`, `timeout`); bound searches over minified or generated files (`grep -m`, `rg --max-columns`, never `.{0,N}` with a large N); one heavy job at a time.
-- **Incidents:** a WSL workstation (2026-10-21): `grep -o '.\{0,6000\}'` over a minified bundle ran 23 min and held 3.8 GB; two concurrent 3.5 GB rembg jobs crashed WSL at 12:26.
+- **Incidents:** a WSL workstation (2026-10-21): `grep -o '.\{0,6000\}'` over a minified bundle ran 23 min and held 3.8 GB; a WSL workstation (2026-10-21): two concurrent 3.5 GB rembg jobs crashed WSL at 12:26.

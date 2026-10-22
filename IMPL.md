@@ -22,12 +22,13 @@ Done (tests green, `make validate` before push):
   `model: "opus"`; "Before you ask for review" pre-flight (catalog walk, differential test for
   parsers, mutation check of guards).
 - phylax `require_subagent_model` (`hooks/model_guard.py`, matcher `Agent|Task`, exact-match
-  list): refuses a no-model call to the inheriting built-ins (general-purpose, claude, Explore,
-  Plan); plugin/user agents left to their definitions (a call's model outranks a pinned one).
-  Fails open with a stderr line on an unreadable payload. Mutation check 13/13 + 2/2 killed.
+  list): follows Claude Code's model order (call > definition > CLAUDE_CODE_SUBAGENT_MODEL,
+  Explore/Plan only when _FORCE=1 > session); refuses a no-model call to general-purpose,
+  claude, Explore, Plan when the session's model would decide. Mutation check 18/18 + 2/2.
 
-PR #194. Round 1 `/code-review high`: 10 findings, 7 fixed, 3 ledgered in the PR body.
-Next: opus dispatched reader on the fixed head, then merge. Then claude-prefs: CLAUDE.md model-routing section + catalog pointer, memory
+PR #194. Round 1 `/code-review high` (10 findings), round 2 opus reader (4 Should-fix, two
+recurring classes fixed structurally). Ledger: #195, #196, #197.
+Next: round 3 (the last under the 3-round budget), then merge; then claude-prefs #32. Then claude-prefs: CLAUDE.md model-routing section + catalog pointer, memory
 bug-lesson files become pointers to catalog entries, sync ~/.claude.
 
 ## Follow-up: sisters check 15 minors (PR #193 merged)

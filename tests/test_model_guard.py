@@ -32,9 +32,18 @@ def payload(tool="Agent", **tool_input) -> str:
     return json.dumps({"tool_name": tool, "tool_input": tool_input})
 
 
-def run_guard(stdin: str) -> subprocess.CompletedProcess:
+DEFAULT_ENV = ("CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL_FORCE")
+
+
+def run_guard(stdin: str, **env_extra: str) -> subprocess.CompletedProcess:
+    env = {k: v for k, v in os.environ.items() if k not in DEFAULT_ENV}
     return subprocess.run(
-        [HOOK_PYTHON, str(GUARD)], input=stdin, capture_output=True, text=True, check=False
+        [HOOK_PYTHON, str(GUARD)],
+        input=stdin,
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**env, **env_extra},
     )
 
 
@@ -78,6 +87,31 @@ def test_unnamed_model_is_refused(tool, model):
 )
 def test_named_model_is_silent(model):
     assert decision(run_guard(payload(model=model))) is None
+
+
+# Claude Code's order: the call's model, the definition's, CLAUDE_CODE_SUBAGENT_MODEL (which
+# Explore and Plan ignore unless forced), the session's. _FORCE=1 puts the variable first.
+# Each row: agent type, env, whether a call with no model is refused.
+RESOLUTION = [
+    ("general-purpose", {}, True),
+    ("general-purpose", {"CLAUDE_CODE_SUBAGENT_MODEL": "haiku"}, False),
+    ("general-purpose", {"CLAUDE_CODE_SUBAGENT_MODEL": "inherit"}, True),
+    ("general-purpose", {"CLAUDE_CODE_SUBAGENT_MODEL": ""}, True),
+    ("general-purpose", {"CLAUDE_CODE_SUBAGENT_MODEL_FORCE": "1"}, True),
+    ("claude", {"CLAUDE_CODE_SUBAGENT_MODEL": "sonnet"}, False),
+    ("Explore", {"CLAUDE_CODE_SUBAGENT_MODEL": "haiku"}, True),
+    ("Plan", {"CLAUDE_CODE_SUBAGENT_MODEL": "haiku"}, True),
+    ("Explore", {"CLAUDE_CODE_SUBAGENT_MODEL": "haiku", "CLAUDE_CODE_SUBAGENT_MODEL_FORCE": "1"}, False),
+    ("Plan", {"CLAUDE_CODE_SUBAGENT_MODEL": "haiku", "CLAUDE_CODE_SUBAGENT_MODEL_FORCE": "0"}, True),
+    ("Plan", {"CLAUDE_CODE_SUBAGENT_MODEL": "inherit", "CLAUDE_CODE_SUBAGENT_MODEL_FORCE": "1"}, True),
+]
+
+
+@pytest.mark.parametrize(("agent", "env", "refused"), RESOLUTION)
+def test_refusal_follows_claude_codes_model_order(agent, env, refused):
+    assert bool(decision(run_guard(payload(subagent_type=agent), **env))) is refused
+    # A model named in the call always settles it.
+    assert decision(run_guard(payload(subagent_type=agent, model="opus"), **env)) is None
 
 
 def test_fork_is_exempt_without_a_model():
