@@ -1,16 +1,17 @@
 ---
-description: phylax plugin, four opt-in Claude Code hooks. Block attribution lines in commits and PRs, block staging COMMITS.md, warn on main-checkout commits, and restart an idle session onto an updated Claude Code.
+description: phylax plugin, opt-in Claude Code hooks. Block attribution lines in commits and PRs, block staging COMMITS.md, warn on main-checkout commits, refuse subagent calls that name no model, and restart an idle session onto an updated Claude Code.
 ---
 
 # phylax
 
-phylax adds four opt-in Claude Code hooks. Each is off until you switch it on in `/config`.
+phylax adds opt-in Claude Code hooks. Each is off until you switch it on in `/config`.
 
 ## Use it when
 
 - A repo or an employer bans attribution lines in commit messages and PR bodies.
 - A `COMMITS.md` scratchpad must never be committed.
 - You work with several Claude sessions and want a warning before committing in a main checkout that has linked worktrees.
+- Subagents should never silently run on your most expensive session model.
 - You leave sessions open and want them moved onto an updated Claude Code without losing the conversation.
 
 ## Install
@@ -22,7 +23,7 @@ phylax adds four opt-in Claude Code hooks. Each is off until you switch it on in
 
 ## Needs
 
-Claude Code 2.1.288 or later for the guard mod. On 2.1.287 the mod runs but breaks Bash in worktree subagents, and on an older version the guards run from the command hook instead. Any option that is on needs python3 3.9 or newer and git. `restart_on_update` needs Linux or WSL, plus tmux or Windows Terminal, and the `claude` command on PATH.
+Claude Code 2.1.288 or later for the guard mod. On 2.1.287 the mod runs but breaks Bash in worktree subagents, and on an older version the guards run from the command hook instead. Any option that is on needs python3 3.9 or newer; the git guards also need git. `restart_on_update` needs Linux or WSL, plus tmux or Windows Terminal, and the `claude` command on PATH.
 
 ## Set up
 
@@ -41,6 +42,7 @@ Switch the options you want on in `/config`, under the phylax plugin's options. 
 | `block_attribution_trailers` | Refuses `git commit` and `gh pr create`, `gh pr edit` or `gh pr merge` when the message, title or body has a `Claude-Session`, `claude.ai/code/session`, `Co-Authored-By: Claude` or `Generated with Claude Code` line, and blanks the trailer and footer Claude Code asks Claude to write. |
 | `block_commits_md` | Refuses `git add` of a file named `COMMITS.md`, and `git commit` when the commit would include one. |
 | `warn_main_checkout_commit` | Warns, without blocking, when `git commit` runs in a repo's main checkout while linked worktrees exist. |
+| `require_subagent_model` | Refuses an `Agent` call that names no model, so a subagent never silently runs on the session's model. A `fork` subagent is exempt. |
 | `restart_on_update` | Moves an idle session onto an updated Claude Code in a new tmux window or Windows Terminal tab, keeping the conversation. Any key during the 15 second countdown cancels it. |
 
 [Configuration](../configuration.md#guards) describes what each guard reads and its limits, and [Restart on update](../configuration.md#restart-on-update) the restart. To turn a guard off in one repo, set its camelCase git config key, such as `git config phylax.blockCommitsMd false`.

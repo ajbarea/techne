@@ -27,12 +27,25 @@ Restoring it means a fresh review subagent (the `Agent` tool, never a fork, whic
 
 **Tiers:**
 
-- **High tier** when any of these holds, whatever the size of the diff: a new subsystem; a change that adds a destructive operation, or whose output reaches an existing one (rubric cell 1: a path, a glob, a list that feeds an `rm -rf`, an overwrite, a `DROP`); a change to persisted state or its format (rubric cell 3); a security, privacy, access or governance boundary; a change shipping to a sensitive target. Phase 1 runs `/code-review` at `high` on the change (`/code-review high <PR number>`, or `/code-review high <branch>` before a PR exists), which spawns independent finder agents. `ultra` (a billed multi-agent cloud review) is also worth recommending; it is user-triggered, so name it to the user rather than trying to launch it.
+- **High tier** when any of these holds, whatever the size of the diff: a new subsystem; a change that adds a destructive operation, or whose output reaches an existing one (class `destructive-op-reachability`: a path, a glob, a list that feeds an `rm -rf`, an overwrite, a `DROP`); a change to persisted state or its format (class `migration-tolerance`); a security, privacy, access or governance boundary; a change shipping to a sensitive target. Phase 1 runs `/code-review` at `high` on the change (`/code-review high <PR number>`, or `/code-review high <branch>` before a PR exists), which spawns independent finder agents. `ultra` (a billed multi-agent cloud review) is also worth recommending; it is user-triggered, so name it to the user rather than trying to launch it.
 - **Light tier** only when none of those holds: no `/code-review`; for an author, the dispatched reader alone.
 - **Unsure** means high.
 - **A failed review is not a clean one.** When the dispatched reader or any finder agent errored (rate limit, API failure, timeout), zero findings means unverified, not clean: rerun that review before reporting it.
 
 **Never hand-read your own diff and call it reviewed.** A clean self-eyeball is not a review; it is the author agreeing with themselves.
+
+## The bug-class catalog
+
+[references/bug-classes.md](references/bug-classes.md) holds every class of bug already paid for once: the nine core rubric classes and the classes learned since, each with its symptom, the question that catches it, the guard that prevents it, and dated incidents. Authors walk it before review, readers walk it during review, and the loop adds to it after merge. A loop that relearns a catalogued class has wasted a round.
+
+## Before you ask for review
+
+The author's pre-flight, before the first round:
+
+1. **Walk the catalog against the diff.** Ask every core class's question, and each learned class's question wherever the diff touches its trigger. Fix what it finds before a reader spends a round on it.
+2. **Code that parses another language or format** (bash, a regex, TOML, YAML, paths, a URL, a CLI's argv) gets a differential or property test against the real implementation: generated inputs fed to both your parser and the real one (bash, `tomllib`, `os.path.realpath`, the program itself), failing on any disagreement. A hand-picked example list only proves the cases its author thought of (class `shell-semantics-mismatch`).
+3. **Mutation-check the guards.** Flip each guard condition in turn (invert it, drop a branch, widen an allow-list) and confirm a test goes red; restore it after. mutmut (Python) or Stryker (JS and TS) automate this; a handful of conditions can be flipped by hand. A guard no test can fail is unguarded (class `vacuous-guard`).
+4. **Start the deferred-findings ledger** in the PR body, or in IMPL.md before a PR exists: one line per finding the author chose not to fix in this change, with its class, why, and the issue that tracks it. Readers read it and do not re-report its items.
 
 ## Repo context
 
@@ -54,8 +67,8 @@ Run the phases your role covers (see **The cardinal rule**), in order. Do not sk
 State, in one sentence, the single claim the change rests on ("this fix makes X portable", "this feature lets the model cite summaries", "this refactor is behavior-preserving"). That claim is your hypothesis to break. Everything after is an attempt to find the input, state, or path that falsifies it.
 
 ### Phase 1 — Drive the engine
-- **Author:** in the high tier, run `/code-review high` on the change first. Then dispatch the reader with this prompt and the `/code-review` findings, if any, and **no authorship narrative**: "You are the dispatched reader for techne:elenchus. Read <path to this SKILL.md>. Review <PR number or branch> as the dispatched reader. Tier run: <high or light>. Run Phases 0 to 4 once and return the report. Do not dispatch another reviewer, post, or run a review loop." Relay its report as Phase 4.
-- **Dispatched reader:** take the findings you were handed as input, not verdict; you still owe the three passes below, which `/code-review` does not force.
+- **Author:** in the high tier, run `/code-review high` on the change first. Then dispatch the reader with `model: "opus"` set explicitly (an unset model inherits the author's session model; review is the step that most needs the strongest reasoner), this prompt, and the `/code-review` findings, if any, and **no authorship narrative**: "You are the dispatched reader for techne:elenchus. Read <path to this SKILL.md>, then its bug-class catalog. Review <PR number or branch> as the dispatched reader. Tier run: <high or light>. Deferred-findings ledger: <where it is, or none>. Classes found in earlier rounds: <slugs, or none>. Run Phases 0 to 4 once and return the report. Do not dispatch another reviewer, post, or run a review loop." Relay its report as Phase 4.
+- **Dispatched reader:** read the catalog and the deferred-findings ledger before the diff. Take the findings you were handed as input, not verdict; you still owe the three passes below, which `/code-review` does not force.
 - **Independent reader:** in the high tier, run `/code-review high` on the change yourself, then treat its findings the same way.
 
 ### Phase 2 — The three passes diff-reading skips
@@ -65,8 +78,8 @@ The bugs that pure diff review loses live here. Each one is invisible in the `+/
 2. **Trace every consumer.** `grep`/`glob` every call-site of every symbol the change touched, across the **whole tree**, not the diff. Ask of each: does this caller still hold? Did the change reach the surface that actually matters (the docstring the model reads, the wrapper that gets registered, the path that ships)? *(This is how a feature passes every test and still ships dead: the enriched guidance landed on the inner function, not the wrapper the harness surfaces.)*
 3. **Review against `main`, not the diff.** Read the unchanged code the change now interacts with. Old persisted state, sibling code paths, and callers outside the diff are all in scope.
 
-### Phase 3 — The rubric
-Walk every cell. For each, either find the falsifying case or explicitly clear it.
+### Phase 3 — The catalog
+Walk the [bug-class catalog](references/bug-classes.md): every core class (1 to 9), and each learned class whose trigger the diff touches. For each, either find the falsifying case or explicitly clear it. A ledgered deferred finding is not re-reported unless this change makes it worse or reaches it by a new path.
 
 ### Phase 4 — Report
 Emit the structured report (format below). End with an explicit merge verdict and what you are holding on, if anything.
@@ -78,17 +91,7 @@ Derive authorship before posting — never assume.
 
 ## The rubric (load-bearing)
 
-| # | Cell | The question that finds the bug |
-| --- | --- | --- |
-| 1 | **Destructive-op reachability** | For every `rm -rf` / overwrite / `DROP` / `truncate` / force-push, name the **exact input or invocation** that reaches it. Don't assume it's unreachable — find the user command that makes the source resolve under the wipe. |
-| 2 | **Parallel-path mirroring** | When a path mirrors an existing one, were the **guards _and_ the regression tests** mirrored too — or only the structure? Find the cell the new path leaves untested. |
-| 3 | **Migration tolerance** | Does state persisted by the **old** code load under the **new** code? `dict["k"]` where the rest of the loader uses `.get(k, default)` is a silent reopen crash across an upgrade. |
-| 4 | **Reachability to the real surface** | Did the change reach the surface that actually runs — the registered wrapper, the shipped path, the docstring the model/user sees — or only an inner copy the diff happened to touch? |
-| 5 | **Boundary & empty inputs** | null / undefined / "" / 0 rows / unset env / missing file. Which one throws, mis-buckets, or silently no-ops? |
-| 6 | **Looks-done ≠ is-done** | Local-green ≠ CI-green ≠ the feature actually working. Did you verify the **value path end to end**, or just that tests and lint pass? A green build can ship a dead feature. A test that mocks the seam under test (the wrapper, the context manager, the browser) proves the parts, not the wiring: find the unmocked path that runs it. A gate or detector nobody has seen fire may be blind, measuring the wrong quantity: find the test where it fires. |
-| 7 | **Flake vs real red** | Is a red check the change's fault or a pre-existing flake? Attribute it (touches no relevant code ⇒ likely flake), but **never merge on red**, and never blame the change for an unrelated failure. |
-| 8 | **Claim ↔ code drift** | Do the PR description, docstrings, comments, and `Closes #N` match what the code does? A `Closes` that auto-retires a still-open gap is a defect of record. |
-| 9 | **DRY / right altitude** | Is this the deep fix folded into the existing tolerance, or a band-aid special-case? Does a near-duplicate path want consolidation? |
+The rubric is the catalog's core section, nine classes walked on every review: destructive-op reachability, parallel-path mirroring, migration tolerance, reachability to the real surface, boundary and empty inputs, looks done is not done, flake versus real red, claim and code drift, and DRY at the right altitude. Their questions, guards and incidents live in [references/bug-classes.md](references/bug-classes.md), so the rubric and the classes learned since stay one list.
 
 ## Honesty discipline
 
@@ -102,6 +105,7 @@ Derive authorship before posting — never assume.
 Severity-ranked, most-actionable first. Each finding:
 
 - **Severity** — Blocking / Should-fix / Minor / Informational
+- **Class** — the catalog slug, such as `unmirrored-parallel-guard`, or `new: <short name>` when no class fits; required on every Blocking and Should-fix finding
 - **Anchor** — `path/to/file.py:LINE`
 - **Verdict** — CONFIRMED | PLAUSIBLE
 - **Failure scenario** — concrete inputs/state → wrong output/crash, and the reachable path to it
@@ -117,7 +121,13 @@ A change often takes several rounds: review, fix, review again. The author's ses
 - **Keep going** while the round has a reproduced Blocking or Should-fix finding (see Output format) on a reachable input: one that a caller in the repo, or a documented usage, can produce, unless a pause below applies.
 - **Stop** in every other case: what remains is Minor, Informational, unreachable, or recorded as open.
 - **Write the stop down.** Open Blocking or Should-fix findings go in the Phase 5 comment on someone else's PR. On a PR the account owner opened, they go in its linked issue when one exists (the issue its body names with `Closes #N` or `Fixes #N`; with several, the first), under the same contract as the Phase 5 comment (account owner's voice, no provenance); with no linked issue, tell the user the PR waits on them. Minor findings stay in-session, and "keep it local" keeps everything in-session.
-- **Pause when it runs long.** Count the reviewer's own working time across rounds, not time spent waiting for the owner. Stop and report when that passes the budget the user set, or when two rounds in a row find only bugs the previous fix introduced (then the fix approach is the problem); resume only on the user's go-ahead. With no budget set, ask for one before starting a third round.
+- **A class that recurs escalates.** When a Blocking or Should-fix finding's class already had a finding in an earlier round of this loop, do not patch the new instance: name the structural fix (one shared helper every parallel path calls, a canonical format instead of a wider regex, delegating to the real parser instead of modelling it) and make it, with a test that sweeps the class: differential, property-based or mutation (see **Before you ask for review**). The reader names the recurrence and the structural fix in its report.
+- **Deferred findings are ledgered, not re-reported.** A finding the author defers goes in the ledger (PR body, or IMPL.md before a PR) with its class, why, and its tracking issue. Readers read the ledger and leave its items out of their report unless the change made one worse.
+- **Pause when it runs long.** Count the reviewer's own working time across rounds, not time spent waiting for the owner. Stop and report when that passes the budget the user set, or when two rounds in a row find only bugs the previous fix introduced (then the fix approach is the problem); resume only on the user's go-ahead. With no budget set, the budget is three rounds: after the third, report what is open instead of starting a fourth, unless the user asked for the change to be reviewed until clean.
+
+## After merge
+
+The author adds to the catalog, in the same PR or a follow-up: each `new:` class from the loop as a full entry, and each finding of an existing class as a dated incident on that entry (`repo#PR rN (YYYY-MM-DD): what happened`). A class that cost a round belongs in the catalog before the next change can relearn it.
 
 ## Posting the summary (Phase 5)
 
@@ -178,7 +188,7 @@ feature_works_means:
 ```
 ````
 
-All fields optional — each one you add sharpens a phase. `destructive_ops` feeds rubric cell 1, `load_bearing_surfaces` feeds Phase 2 pass 2 / cell 4, `feature_works_means` feeds cell 6.
+All fields optional — each one you add sharpens a phase. `destructive_ops` feeds class `destructive-op-reachability`, `load_bearing_surfaces` feeds Phase 2 pass 2 and class `unreached-surface`, `feature_works_means` feeds class `looks-done-not-done`.
 
 ## Why "elenchus"
 

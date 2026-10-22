@@ -66,6 +66,7 @@ phylax's guards run from a [mod](https://code.claude.com/docs/en/plugins/mods/ov
 | `block_attribution_trailers` | Blanks the commit trailer and pull request footer Claude Code asks Claude to write, so neither is composed. Also refuses `git commit` and `gh pr create`, `gh pr edit` or `gh pr merge` when the message, title or body has a line matching `Claude-Session`, `claude.ai/code/session`, `Co-Authored-By: Claude` or `Generated with Claude Code`. |
 | `block_commits_md` | Refuses `git add` when it would stage a file named `COMMITS.md` (exact case, any directory), and `git commit` when the commit would include one. A commit that removes it passes. |
 | `warn_main_checkout_commit` | Warns, without blocking, when `git commit` runs in a repo's main checkout while linked worktrees exist. |
+| `require_subagent_model` | Refuses an `Agent` call whose input names no `model`, so a subagent never silently runs on the session's model. A `fork` subagent is exempt. Runs from the `PreToolUse` command hook, needs `python3` only, and checks the `Agent` tool call only, so agents a Workflow script spawns are not covered. |
 
 A refusal tells Claude the reason, so it can fix the command and retry. A warning reaches Claude after the command's output and shows as a dim line in the transcript. The guards run before the permission check, so they apply in `bypassPermissions` mode. When a blocking guard is on and the check itself fails (it errors, git times out, or `python3` cannot start), the command is refused rather than run unchecked.
 

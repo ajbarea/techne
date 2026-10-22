@@ -24,9 +24,10 @@ OPTIONS = (
     "block_attribution_trailers",
     "block_commits_md",
     "warn_main_checkout_commit",
+    "require_subagent_model",
     "restart_on_update",
 )
-GUARDS = OPTIONS[:3]
+GUARDS = OPTIONS[:3]  # the git guards: they need git and may run from the mod
 MOD_ADDED = (2, 1, 287)
 # 2.1.288 fixed a mod's tool.call hook breaking Bash in subagents that run in a worktree.
 MOD_MINIMUM = (2, 1, 288)
@@ -151,10 +152,11 @@ def state_dir() -> d.Check:
 
 def checks(platform: d.Platform, options: dict[str, bool | None]) -> list[d.Check]:
     guards_on = any(options[key] for key in GUARDS)
+    model_on = bool(options["require_subagent_model"])
     restart_on = bool(options["restart_on_update"])
     found = [option_line(key, options[key]) for key in OPTIONS]
     found.append(d.guarded("mod", False, lambda: mod(platform, guards_on)))
-    if guards_on or restart_on:
+    if guards_on or model_on or restart_on:
         found.append(
             d.program(
                 platform,

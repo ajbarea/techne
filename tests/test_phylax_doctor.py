@@ -26,6 +26,7 @@ OPTIONS = (
     "block_attribution_trailers",
     "block_commits_md",
     "warn_main_checkout_commit",
+    "require_subagent_model",
     "restart_on_update",
 )
 STUBS = {
@@ -100,6 +101,17 @@ def test_guards_on_needs_python3_and_git(tmp_path, env):
     assert found["python3"][0] == "ok" and found["mod"][0] == "ok"
     old = {**STUBS, "python3": "echo 3.8.10"}
     proc, found = doctor(tmp_path, args(block_commits_md=True), env, stubs=old)
+    assert found["python3"][0] == "missing" and "need 3.9 or newer" in found["python3"][1]
+
+
+def test_subagent_model_needs_python3_only(tmp_path, env):
+    proc, found = doctor(tmp_path, args(require_subagent_model=True), env, links=())
+    assert proc.returncode == 0
+    assert found["require_subagent_model"] == ("ok", "on")
+    assert found["python3"][0] == "ok"
+    assert found["git"][0] == "n/a" and found["mod"][0] == "n/a"
+    old = {**STUBS, "python3": "echo 3.8.10"}
+    proc, found = doctor(tmp_path, args(require_subagent_model=True), env, stubs=old)
     assert found["python3"][0] == "missing" and "need 3.9 or newer" in found["python3"][1]
 
 
