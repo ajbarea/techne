@@ -92,18 +92,19 @@ def test_named_model_is_silent(model):
 # Claude Code's order: the call's model, the definition's, CLAUDE_CODE_SUBAGENT_MODEL (which
 # Explore and Plan ignore unless forced), the session's. _FORCE=1 puts the variable first.
 # Each row: agent type, env, whether a call with no model is refused.
+VAR, FORCE = DEFAULT_ENV
 RESOLUTION = [
     ("general-purpose", {}, True),
-    ("general-purpose", {"CLAUDE_CODE_SUBAGENT_MODEL": "haiku"}, False),
-    ("general-purpose", {"CLAUDE_CODE_SUBAGENT_MODEL": "inherit"}, True),
-    ("general-purpose", {"CLAUDE_CODE_SUBAGENT_MODEL": ""}, True),
-    ("general-purpose", {"CLAUDE_CODE_SUBAGENT_MODEL_FORCE": "1"}, True),
-    ("claude", {"CLAUDE_CODE_SUBAGENT_MODEL": "sonnet"}, False),
-    ("Explore", {"CLAUDE_CODE_SUBAGENT_MODEL": "haiku"}, True),
-    ("Plan", {"CLAUDE_CODE_SUBAGENT_MODEL": "haiku"}, True),
-    ("Explore", {"CLAUDE_CODE_SUBAGENT_MODEL": "haiku", "CLAUDE_CODE_SUBAGENT_MODEL_FORCE": "1"}, False),
-    ("Plan", {"CLAUDE_CODE_SUBAGENT_MODEL": "haiku", "CLAUDE_CODE_SUBAGENT_MODEL_FORCE": "0"}, True),
-    ("Plan", {"CLAUDE_CODE_SUBAGENT_MODEL": "inherit", "CLAUDE_CODE_SUBAGENT_MODEL_FORCE": "1"}, True),
+    ("general-purpose", {VAR: "haiku"}, False),
+    ("general-purpose", {VAR: "inherit"}, True),
+    ("general-purpose", {VAR: ""}, True),
+    ("general-purpose", {FORCE: "1"}, True),
+    ("claude", {VAR: "sonnet"}, False),
+    ("Explore", {VAR: "haiku"}, True),
+    ("Plan", {VAR: "haiku"}, True),
+    ("Explore", {VAR: "haiku", FORCE: "1"}, False),
+    ("Plan", {VAR: "haiku", FORCE: "0"}, True),
+    ("Plan", {VAR: "inherit", FORCE: "1"}, True),
 ]
 
 
