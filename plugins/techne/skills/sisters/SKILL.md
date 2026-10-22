@@ -1,6 +1,6 @@
 ---
 name: sisters
-description: Cross-repo drift audit across the linked repos listed in `~/.claude/techne.toml`. Read-only inspection of CI action and toolchain pins, skill-context parity, GitHub merge settings and branch protection, open PRs, branch/worktree/stash hygiene, and fleet conventions (Codecov, Dependabot, log retention, README header, shared docs-site files). A clean mode removes finished branches and worktrees after the user approves the list, and an auto mode does it unasked for work that is provably finished. Use for "audit the sisters", "are the sisters in sync", "check cross-repo drift", "comb the sisters", "clean up branches and worktrees across the repos", or when several sister repos are named together for a consistency check. Not for auditing one repo's own build (techne:audit) or its CI logs (techne:ci-audit).
+description: Cross-repo drift audit across the linked repos listed in `~/.claude/techne.toml`. Read-only inspection of CI action and toolchain pins, skill-context parity, GitHub merge settings and branch protection, open PRs, branch/worktree/stash hygiene, and fleet conventions (Codecov, Dependabot, log retention, README header, shared docs-site files, the agent instruction file). A clean mode removes finished branches and worktrees after the user approves the list, and an auto mode does it unasked for work that is provably finished. Use for "audit the sisters", "are the sisters in sync", "check cross-repo drift", "comb the sisters", "clean up branches and worktrees across the repos", or when several sister repos are named together for a consistency check. Not for auditing one repo's own build (techne:audit) or its CI logs (techne:ci-audit).
 disable-model-invocation: false
 allowed-tools: Bash(gh api repos/*) Bash(gh pr list*) Bash(gh auth status) Bash(git fetch *) Bash(git for-each-ref *) Bash(git rev-list *) Bash(git branch *) Bash(grep *) Bash(awk *) Bash(sed *) Bash(sort *) Bash(uniq *) Bash(wc *) Bash(ls *) Bash(python3 *) Bash(git -C *) Bash(head *) Bash(cut *) Bash(tr *) Bash(printf *) Glob Grep Read
 ---
@@ -25,7 +25,7 @@ If `~/.claude/techne.toml` is missing or yields zero active sisters, stop and te
 
 ## What to check
 
-Run all fourteen, in order, using the commands in [references/checks.md](references/checks.md).
+Run every check, in order, using the commands in [references/checks.md](references/checks.md). Check 15's script is `<skill-dir>/scripts/agents_md.py`.
 Each check reports per repo; one broken repo never aborts the others.
 
 | # | Check | Drift means | Recommend |
@@ -44,6 +44,7 @@ Each check reports per repo; one broken repo never aborts the others.
 | 12 | README header | A solo repo with a hero asset whose README does not open Hero → Title → tagline → Badges | Align, or confirm it is intentional |
 | 13 | Worktree ignore | `.claude/worktrees/` not ignored by a committed `.gitignore` (unignored, or only in `.git/info/exclude`) | Add `.claude/worktrees/` to `.gitignore` |
 | 14 | Docs-site shared files | A site's copy of a shared docs-site file differs from techne's, or a `docs/` page is missing from the nav | Fix techne's copy and sync it; list or move the page |
+| 15 | Agent instruction file | No committed `AGENTS.md`; any `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md` in the repo (tracked, untracked or ignored, at any depth, except inside a wholly ignored folder such as node_modules) or above it; a symlinked `CLAUDE.md` | Move the content into `AGENTS.md` and delete the file; personal notes go to `~/.claude/CLAUDE.md` |
 
 ## Output format
 
@@ -117,6 +118,11 @@ A single block, no preamble (concrete repo names below are illustrative — subs
 - repo-a: shared files match ✓
 - repo-b: overrides/main.html differs → fix techne's copy, sync, PR
 - repo-c: docs/notes.md published but not in the nav → list it or move it out of docs/
+
+### Agent instruction file
+- repo-a: AGENTS.md, nothing shadows it ✓
+- repo-b: no committed AGENTS.md → add one
+- repo-c: CLAUDE.md stops Claude Code reading AGENTS.md directly, and an @AGENTS.md import in it is external for a session started in a subdirectory → move its content into AGENTS.md and delete it
 
 ### Verdict
 

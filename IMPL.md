@@ -9,6 +9,23 @@ how each skill was designed.
 If this file is more than ~50 lines, something queued or referential
 has crept in; extract it back to ROADMAP.
 
+## Follow-up: sisters check 15 minors (PR #193 merged)
+
+Check 15 (`scripts/agents_md.py`) flags every CLAUDE.md, .claude/CLAUDE.md and CLAUDE.local.md
+in a sister (tracked, untracked or ignored, any depth, except inside a wholly ignored folder)
+or above it. Six review rounds; the last found no Blocking or Should-fix. Open Minors:
+1. A wholly ignored non-vendored folder (`scratch/`, or `.claude/` ignored) hides a CLAUDE.md
+   a session started there loads (probe: PLUM). Fix: for each `dir/` entry from the
+   `--directory` listing, also check that folder's top level (`CLAUDE.md`, `.claude/CLAUDE.md`,
+   `CLAUDE.local.md`, plus `dir/CLAUDE.md` when dir is `.claude`); test beside node_modules.
+2. Non-UTF-8 path + strict UTF-8 stdout raises UnicodeEncodeError and aborts later repos. Fix:
+   `sys.stdout.reconfigure(errors="backslashreplace")` in main; test a bytes-named folder in a
+   subprocess with PYTHONIOENCODING=utf-8 (kills the fsdecode-revert mutant).
+3. Dead `found = set()` in `candidates()`; nested CLAUDE.local.md gets "move into AGENTS.md"
+   advice (should get the personal-notes advice); a corrupt index reads "not a git repository".
+Fleet: velocity-fl (harvest-only) has no AGENTS.md; every other sister passes.
+Verify: `flock /tmp/fleet-heavy.lock timeout 600 uv run pytest tests/test_sisters_agents_md.py -q -rA`.
+
 ### Landed on main: one techne.toml reader (#192, closes #190)
 
 `_shared/techne_config.py` is the only reader of `~/.claude/techne.toml`: bounded

@@ -18,6 +18,8 @@ Run from the shell after the config preamble in `SKILL.md`, which sets `$SISTERS
 - [11. Dependabot config coverage](#11-dependabot-config-coverage)
 - [12. README header convention](#12-readme-header-convention)
 - [13. Worktree ignore](#13-worktree-ignore)
+- [14. Docs-site shared files and nav coverage](#14-docs-site-shared-files-and-nav-coverage)
+- [15. Agent instruction file](#15-agent-instruction-file)
 
 ## 1. Action-pin drift
 
@@ -379,3 +381,28 @@ done
 
 Report each drifted or missing shared file (fix: edit techne's copy, then
 `python3 "$SYNC" <repo>` and open a PR in the site) and each unlisted page.
+
+## 15. Agent instruction file
+
+Each sister keeps its agent instructions in one committed root `AGENTS.md`, which Claude Code
+(v2.1.277 and later), Codex and Copilot's coding agent all read, and no CLAUDE-family file.
+Claude Code reads `AGENTS.md` only when no `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md`
+sits in the working directory or above it. A `CLAUDE.md` that imports `AGENTS.md` still breaks a
+session started in a subdirectory: the import is external there, so it loads only after an
+approval dialog, and `claude -p` skips it. The script flags every `CLAUDE.md`,
+`.claude/CLAUDE.md` and `CLAUDE.local.md` in the repo at any depth, tracked, untracked or ignored,
+except inside a wholly ignored folder such as `node_modules`, and every one in a directory above
+the repo. `.claude/CLAUDE.local.md` is not a file Claude Code reads, so it is not flagged. The
+user's `~/.claude/CLAUDE.md` is not flagged. A
+symlinked `CLAUDE.md` checks out on Windows as a one-line text file. Sources:
+<https://code.claude.com/docs/en/memory#agents-md>, <https://agents.md/>.
+
+```
+python3 <agents-md script> "$WORKSPACE" $SISTERS   # the agents_md.py path SKILL.md names
+```
+
+The script prints one line per finding and one passing line per clean sister, and always exits
+0. Report each sister without a committed `AGENTS.md`, each `CLAUDE.md` or `.claude/CLAUDE.md`
+(fix: move the content into `AGENTS.md` and delete the file), each `CLAUDE.local.md` (fix: move
+it to `~/.claude/CLAUDE.md`, or set Project instructions to `claude-md-and-agents-md`), each
+symlink, and a sister that is not cloned.

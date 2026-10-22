@@ -23,7 +23,7 @@ Invoke by name in Claude Code:
 /techne:sisters
 ```
 
-The skill reads the active sister list from `~/.claude/techne.toml`, runs all fourteen checks in order, and outputs a single audit block grouped by category: merge settings, skill-context parity, action-pin drift, toolchain-pin drift, branch protection, Codecov config, log-retention policy, Dependabot coverage, README header convention, worktree ignore, docs-site shared files, open PRs, branch and worktree hygiene, and local main sync.
+The skill reads the active sister list from `~/.claude/techne.toml`, runs every check in order, and outputs a single audit block grouped by category: merge settings, skill-context parity, action-pin drift, toolchain-pin drift, branch protection, Codecov config, log-retention policy, Dependabot coverage, README header convention, worktree ignore, docs-site shared files, agent instruction file, open PRs, branch and worktree hygiene, and local main sync.
 
 The audit report is read-only. It surfaces findings; it does not edit files, push branches, or change GitHub settings. Clean mode, below, is the only part that removes anything.
 

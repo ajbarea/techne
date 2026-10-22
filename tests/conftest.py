@@ -38,6 +38,7 @@ RENDER_SCRIPT = DOC_SKILLS / "pdf" / "scripts" / "render.py"
 SWEEP_SCRIPT = SKILLS / "catchup" / "scripts" / "sweep.py"
 SLIDES_SCRIPT = DOC_SKILLS / "slides" / "scripts" / "slides.py"
 HYGIENE_SCRIPT = SKILLS / "sisters" / "scripts" / "hygiene.py"
+AGENTS_MD_SCRIPT = SKILLS / "sisters" / "scripts" / "agents_md.py"
 BOARD_SCRIPT = SKILLS / "board" / "scripts" / "board.py"
 PROSE_SCRIPT = ROOT / "plugins" / "graphe" / "_shared" / "prose_check.py"
 DOKIMASIA_SCRIPT = ROOT / "plugins" / "dokimasia" / "skills" / "check" / "scripts" / "dokimasia.py"
@@ -256,6 +257,11 @@ def sl() -> types.ModuleType:
 @pytest.fixture(scope="session")
 def hy() -> types.ModuleType:
     return _load("techne_hygiene", HYGIENE_SCRIPT)
+
+
+@pytest.fixture(scope="session")
+def am() -> types.ModuleType:
+    return _load("techne_agents_md", AGENTS_MD_SCRIPT)
 
 
 @pytest.fixture(scope="session")
