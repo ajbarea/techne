@@ -31,100 +31,116 @@ def repo(tmp_path: Path, files: dict[str, str], untracked: dict[str, str] | None
     return root
 
 
+ROOT = (
+    " stops Claude Code reading AGENTS.md directly, and an @AGENTS.md import in it is "
+    "external for a session started in a subdirectory → move its content into AGENTS.md "
+    "and delete it"
+)
+LOCAL = (
+    " stops Claude Code reading AGENTS.md for you → move it to ~/.claude/CLAUDE.md, "
+    "or set Project instructions to claude-md-and-agents-md"
+)
+
+
+def nested(rel: str, where: str) -> str:
+    return (
+        f"{rel} replaces AGENTS.md for a session started in {where}/ → "
+        "move its content into AGENTS.md and delete it"
+    )
+
+
 @pytest.mark.parametrize(
     "files",
     [
         {"AGENTS.md": "# a\n"},
-        {"AGENTS.md": "# a\n", "CLAUDE.md": "@AGENTS.md\n"},
-        {"AGENTS.md": "# a\n", "CLAUDE.md": "<!-- c -->\n@./AGENTS.md\n\n## Claude\n"},
-        {"AGENTS.md": "# a\n", "CLAUDE.md": "Read @AGENTS.md first.\n"},
-        {"AGENTS.md": "# a\n", "CLAUDE.md": "@AGENTS.md\r\n## Claude\r\n"},
-        {"AGENTS.md": "# a\n", ".claude/CLAUDE.md": "@../AGENTS.md\n"},
-        {"AGENTS.md": "# a\n", "CLAUDE.md": "@AGENTS.md#setup\n"},
-        {
-            "AGENTS.md": "# a\n",
-            "CLAUDE.md": "@docs/claude.md\n",
-            "docs/claude.md": "@../AGENTS.md\n",
-        },
-        # One file at a level importing AGENTS.md loads it for the whole level.
-        {"AGENTS.md": "# a\n", "CLAUDE.md": "@AGENTS.md\n", "CLAUDE.local.md": "mine\n"},
-        {"AGENTS.md": "# a\n", "CLAUDE.md": "@AGENTS.md\n", ".claude/CLAUDE.md": "x\n"},
+        {"AGENTS.md": "# a\n", "sub/AGENTS.md": "# s\n"},
     ],
-    ids=[
-        "agents-only",
-        "import",
-        "dot-slash-mid-file",
-        "inline",
-        "crlf",
-        "dot-claude-up",
-        "anchor",
-        "via-another-file",
-        "local-beside-import",
-        "dot-claude-beside-import",
-    ],
+    ids=["agents-only", "nested-agents"],
 )
 def test_passes(am, tmp_path, files):
     assert am.check(repo(tmp_path, files)) == []
 
 
+def test_no_agents(am, tmp_path):
+    assert am.check(repo(tmp_path, {"README.md": "x\n"})) == ["no committed AGENTS.md → add one"]
+
+
 @pytest.mark.parametrize(
     ("files", "untracked", "expect"),
     [
-        ({"README.md": "x\n"}, None, "no committed AGENTS.md"),
-        ({"AGENTS.md": "# a\n", "CLAUDE.md": "rules\n"}, None, "does not import AGENTS.md"),
-        ({"AGENTS.md": "# a\n"}, {"CLAUDE.md": "written by /init\n"}, "CLAUDE.md does not import"),
-        ({"AGENTS.md": "# a\n"}, {".claude/CLAUDE.md": "x\n"}, ".claude/CLAUDE.md does not import"),
-        ({"AGENTS.md": "# a\n"}, {"CLAUDE.local.md": "mine\n"}, "CLAUDE.local.md does not import"),
-        # Imports resolve from the importing file: this one names .claude/AGENTS.md.
-        ({"AGENTS.md": "# a\n", ".claude/CLAUDE.md": "@AGENTS.md\n"}, None, "or add @../AGENTS.md"),
-        ({"AGENTS.md": "# a\n", "CLAUDE.md": "```\n@AGENTS.md\n```\n"}, None, "does not import"),
-        ({"AGENTS.md": "# a\n", "CLAUDE.md": "See `@AGENTS.md`.\n"}, None, "does not import"),
-        # Claude Code keeps trailing punctuation and needs whitespace before the @.
-        ({"AGENTS.md": "# a\n", "CLAUDE.md": "See @AGENTS.md.\n"}, None, "does not import"),
-        ({"AGENTS.md": "# a\n", "CLAUDE.md": "(@AGENTS.md)\n"}, None, "does not import"),
-        ({"AGENTS.md": "# a\n", "CLAUDE.md": "see:@AGENTS.md\n"}, None, "does not import"),
-        ({"AGENTS.md": "# a\n", "CLAUDE.md": "<!-- @AGENTS.md -->\n"}, None, "does not import"),
-        ({"AGENTS.md": "# a\n", "CLAUDE.md": "x\n\n    @AGENTS.md\n"}, None, "does not import"),
-        ({"AGENTS.md": "# a\n"}, {"CLAUDE.local.md": "mine\n"}, "add @AGENTS.md to it"),
+        ({"AGENTS.md": "# a\n", "CLAUDE.md": "@AGENTS.md\n"}, None, "CLAUDE.md" + ROOT),
+        ({"AGENTS.md": "# a\n", "CLAUDE.md": "rules\n"}, None, "CLAUDE.md" + ROOT),
+        ({"AGENTS.md": "# a\n"}, {"CLAUDE.md": "written by /init\n"}, "CLAUDE.md" + ROOT),
+        (
+            {"AGENTS.md": "# a\n", ".claude/CLAUDE.md": "@../AGENTS.md\n"},
+            None,
+            ".claude/CLAUDE.md" + ROOT,
+        ),
+        ({"AGENTS.md": "# a\n"}, {".claude/CLAUDE.md": "x\n"}, ".claude/CLAUDE.md" + ROOT),
+        ({"AGENTS.md": "# a\n", "CLAUDE.local.md": "mine\n"}, None, "CLAUDE.local.md" + LOCAL),
+        ({"AGENTS.md": "# a\n"}, {"CLAUDE.local.md": "mine\n"}, "CLAUDE.local.md" + LOCAL),
         (
             {"AGENTS.md": "# a\n", "sub/AGENTS.md": "# s\n", "sub/CLAUDE.md": "x\n"},
             None,
-            "sub/CLAUDE.md replaces AGENTS.md for a session started in sub/",
+            nested("sub/CLAUDE.md", "sub"),
+        ),
+        ({"AGENTS.md": "# a\n"}, {"sub/CLAUDE.md": "x\n"}, nested("sub/CLAUDE.md", "sub")),
+        (
+            {"AGENTS.md": "# a\n", ".gitignore": "CLAUDE.local.md\n"},
+            {"sub/CLAUDE.local.md": "x\n"},
+            nested("sub/CLAUDE.local.md", "sub"),
         ),
         (
-            {"AGENTS.md": "# a\n", "my dir/AGENTS.md": "# s\n", "my dir/CLAUDE.md": "x\n"},
-            None,
-            "my dir/CLAUDE.md replaces AGENTS.md",
+            {"AGENTS.md": "# a\n", ".gitignore": "CLAUDE.local.md\n"},
+            {"CLAUDE.local.md": "x\n"},
+            "CLAUDE.local.md" + LOCAL,
         ),
         (
-            {"AGENTS.md": "# a\n", "dé/AGENTS.md": "# s\n", "dé/CLAUDE.md": "x\n"},
-            None,
-            "dé/CLAUDE.md replaces AGENTS.md",
+            {"AGENTS.md": "# a\n"},
+            {"sub/.claude/CLAUDE.md": "x\n"},
+            nested("sub/.claude/CLAUDE.md", "sub"),
         ),
+        (
+            {"AGENTS.md": "# a\n", "my dir/CLAUDE.md": "x\n"},
+            None,
+            nested("my dir/CLAUDE.md", "my dir"),
+        ),
+        ({"AGENTS.md": "# a\n", "dé/CLAUDE.md": "x\n"}, None, nested("dé/CLAUDE.md", "dé")),
     ],
     ids=[
-        "no-agents",
-        "no-import",
-        "untracked-init",
-        "untracked-dot-claude",
-        "local",
-        "wrong-dir",
-        "fenced",
-        "code-span",
-        "trailing-period",
-        "parenthesised",
-        "no-space-before",
-        "html-comment",
-        "indented-code",
-        "local-advice",
-        "nested-shadow",
+        "root-import",
+        "root-plain",
+        "root-untracked",
+        "dot-claude",
+        "dot-claude-untracked",
+        "local-tracked",
+        "local-untracked",
+        "nested-tracked",
+        "nested-untracked",
+        "nested-local-ignored",
+        "root-local-ignored",
+        "nested-dot-claude-untracked",
         "space-in-path",
         "non-ascii-path",
     ],
 )
 def test_flags(am, tmp_path, files, untracked, expect):
-    findings = am.check(repo(tmp_path, files, untracked))
-    assert len(findings) == 1 and expect in findings[0], findings
+    assert am.check(repo(tmp_path, files, untracked)) == [expect]
+
+
+def test_ignored_vendored_claude_md_is_not_flagged(am, tmp_path):
+    root = repo(
+        tmp_path,
+        {"AGENTS.md": "# a\n", ".gitignore": "node_modules/\n"},
+        {"node_modules/pkg/CLAUDE.md": "vendored\n"},
+    )
+    assert am.check(root) == []
+
+
+def test_directory_named_claude_md_is_not_flagged(am, tmp_path):
+    root = repo(tmp_path, {"AGENTS.md": "# a\n", "CLAUDE.md/notes.txt": "x\n"})
+    (root / "other" / "CLAUDE.local.md").mkdir(parents=True)
+    assert am.check(root) == []
 
 
 def test_symlink_is_flagged(am, tmp_path):
@@ -166,24 +182,6 @@ def test_clean_repo_prints_pass_line(tmp_path):
         check=False,
     )
     assert out.stdout == f"r: {OK}\n"
-
-
-@pytest.mark.parametrize(
-    "files",
-    [
-        {"AGENTS.md": "# a\n", "sub/CLAUDE.md": "nested, and sub/ has no AGENTS.md\n"},
-        {"AGENTS.md": "# a\n", "sub/AGENTS.md": "# s\n", "sub/CLAUDE.md": "@AGENTS.md\n"},
-        {"AGENTS.md": "# a\n", "CLAUDE.md": "@AGENTS.md\n", "sub/CLAUDE.md": "@../AGENTS.md\n"},
-    ],
-    ids=["nested-no-sibling", "nested-imports-sibling", "nested-imports-root"],
-)
-def test_nested_claude_md_is_flagged(am, tmp_path, files):
-    # A session started in sub/ loads sub/CLAUDE.md and skips every AGENTS.md.
-    findings = am.check(repo(tmp_path, files))
-    assert findings == [
-        "sub/CLAUDE.md replaces AGENTS.md for a session started in sub/ → "
-        "move its content into AGENTS.md and delete it"
-    ]
 
 
 def test_claude_md_above_the_repo_is_flagged(am, tmp_path):

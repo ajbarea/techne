@@ -385,23 +385,23 @@ Report each drifted or missing shared file (fix: edit techne's copy, then
 ## 15. Agent instruction file
 
 Each sister keeps its agent instructions in one committed root `AGENTS.md`, which Claude Code
-(v2.1.277 and later), Codex and Copilot's coding agent all read. Claude Code reads `AGENTS.md`
-only when no `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md` sits in the working directory
-or above it, so a `CLAUDE.md` without an import of `AGENTS.md` (one `/init` writes, say, even
-untracked) silently replaces the repo's instructions for Claude. A `CLAUDE.md` exists only for
-Claude-only content and imports `AGENTS.md`; one importing file at a directory level loads it for
-that level. The script parses imports as Claude Code does: the import resolves relative to the
-file that holds it (so `.claude/CLAUDE.md` needs `@../AGENTS.md`), follows up to four hops, and
-does not count inside code or HTML comments. A `CLAUDE.md` in a directory above
-the repo (other than the user's `~/.claude/CLAUDE.md`) shadows it for every session there, and a
-nested `CLAUDE.md` replaces it for any session started in that subdirectory, whatever it imports. A symlinked `CLAUDE.md` checks out on Windows as a one-line
-text file. Sources: <https://code.claude.com/docs/en/memory#agents-md>, <https://agents.md/>.
+(v2.1.277 and later), Codex and Copilot's coding agent all read, and no CLAUDE-family file.
+Claude Code reads `AGENTS.md` only when no `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md`
+sits in the working directory or above it. A `CLAUDE.md` that imports `AGENTS.md` still breaks a
+session started in a subdirectory: the import is external there, so it loads only after an
+approval dialog, and `claude -p` skips it. The script flags every `CLAUDE.md`,
+`.claude/CLAUDE.md` and `CLAUDE.local.md` in the repo at any depth, tracked, untracked or ignored
+(an ignored `CLAUDE.md` is vendored and skipped; an ignored `CLAUDE.local.md` is flagged), and
+every one in a directory above the repo. The user's `~/.claude/CLAUDE.md` is not flagged. A
+symlinked `CLAUDE.md` checks out on Windows as a one-line text file. Sources:
+<https://code.claude.com/docs/en/memory#agents-md>, <https://agents.md/>.
 
 ```
 python3 <agents-md script> "$WORKSPACE" $SISTERS   # the agents_md.py path SKILL.md names
 ```
 
 The script prints one line per finding and one passing line per clean sister, and always exits
-0. Report each sister without a committed `AGENTS.md`, each shadowing `CLAUDE.md` or
-`CLAUDE.local.md` (committed, untracked at the root, nested, or above the repo), each symlink, and a sister that is not
-cloned. A `CLAUDE.md` that holds only the import passes; it is redundant, not drift.
+0. Report each sister without a committed `AGENTS.md`, each `CLAUDE.md` or `.claude/CLAUDE.md`
+(fix: move the content into `AGENTS.md` and delete the file), each `CLAUDE.local.md` (fix: move
+it to `~/.claude/CLAUDE.md`, or set Project instructions to `claude-md-and-agents-md`), each
+symlink, and a sister that is not cloned.
