@@ -9,25 +9,22 @@ how each skill was designed.
 If this file is more than ~50 lines, something queued or referential
 has crept in; extract it back to ROADMAP.
 
-## In flight: sisters check 15, AGENTS.md (branch `feat/sisters-agents-md`, PR #193)
+## Follow-up: sisters check 15 minors (PR #193 merged)
 
-Done: `scripts/agents_md.py` flags every CLAUDE.md, .claude/CLAUDE.md, CLAUDE.local.md in a
-sister (any depth) or above it; the import parser is gone. Round 4 reproduced on Claude Code
-2.1.301 that a root CLAUDE.md with `@AGENTS.md` drops AGENTS.md for a `claude -p` session in a
-subdirectory (external import; docs memory#import-additional-files), so the rule tightened
-(d9a5dd0). Fleet run: 14/14 clean once pharos main was fast-forwarded.
-Stopped (review cap): round 5 reader found one Should-fix, reproduced. Next, in order:
-1. Should-fix: a nested CLAUDE.md that `.gitignore` names (`CLAUDE.md` rule + `sub/CLAUDE.md`)
-   is missed. List ignored with `git ls-files -z -o -i --exclude-standard --directory` (wholly
-   ignored dirs come back as one `dir/` entry), keep names CLAUDE.md/CLAUDE.local.md; test it
-   beside the node_modules cell.
-2. Minors: `.claude/CLAUDE.local.md` is not loaded (false flag); `above()` lacks the
-   file-or-symlink filter; nested CLAUDE.local.md gets the root local-file advice; decode git
-   output with `os.fsdecode`; filter names in Python (GIT_LITERAL_PATHSPECS=1 breaks `:(glob)`);
-   align SKILL.md row, ROADMAP, docstring, checks.md with ignored-file behaviour + test ignored
-   root CLAUDE.md; show git's error instead of "not a git repository".
-3. One opus reader on that delta, then CI green, re-read comments, squash-merge.
-Verify: `flock /tmp/fleet-heavy.lock timeout 600 uv run pytest tests/test_sisters_agents_md.py -q`.
+Check 15 (`scripts/agents_md.py`) flags every CLAUDE.md, .claude/CLAUDE.md and CLAUDE.local.md
+in a sister (tracked, untracked or ignored, any depth, except inside a wholly ignored folder)
+or above it. Six review rounds; the last found no Blocking or Should-fix. Open Minors:
+1. A wholly ignored non-vendored folder (`scratch/`, or `.claude/` ignored) hides a CLAUDE.md
+   a session started there loads (probe: PLUM). Fix: for each `dir/` entry from the
+   `--directory` listing, also check that folder's top level (`CLAUDE.md`, `.claude/CLAUDE.md`,
+   `CLAUDE.local.md`, plus `dir/CLAUDE.md` when dir is `.claude`); test beside node_modules.
+2. Non-UTF-8 path + strict UTF-8 stdout raises UnicodeEncodeError and aborts later repos. Fix:
+   `sys.stdout.reconfigure(errors="backslashreplace")` in main; test a bytes-named folder in a
+   subprocess with PYTHONIOENCODING=utf-8 (kills the fsdecode-revert mutant).
+3. Dead `found = set()` in `candidates()`; nested CLAUDE.local.md gets "move into AGENTS.md"
+   advice (should get the personal-notes advice); a corrupt index reads "not a git repository".
+Fleet: velocity-fl (harvest-only) has no AGENTS.md; every other sister passes.
+Verify: `flock /tmp/fleet-heavy.lock timeout 600 uv run pytest tests/test_sisters_agents_md.py -q -rA`.
 
 ## In flight: solo repos act, team repos ask (branch `feat/solo-act-team-ask`, PR #189)
 
