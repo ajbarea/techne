@@ -9,27 +9,24 @@ how each skill was designed.
 If this file is more than ~50 lines, something queued or referential
 has crept in; extract it back to ROADMAP.
 
-## In flight: elenchus bug-class catalog + phylax model guard (branch `feat/elenchus-bug-classes`)
+## In flight: elenchus bug-class catalog + phylax model guard (branch `feat/elenchus-bug-classes`, PR #194)
 
-Done (tests green, `make validate` before push):
-- `plugins/techne/skills/elenchus/references/bug-classes.md`: 9 core rubric classes plus the
-  learned classes (bug-lesson memories and the 10 classes from the claude-prefs rm-hook and
-  techne #189 loops), each with Symptom, Question, Guard, Incidents. `tests/test_bug_classes.py`
-  parses it and checks every `class \`slug\`` named in SKILL.md and the docs page exists.
-- elenchus SKILL.md: reader reads the catalog and ledger first, tags Blocking/Should-fix with a
-  class; recurring class escalates to a structural fix; deferred-findings ledger; 3-round budget
-  unless review-until-clean; After merge adds classes and incidents; reader dispatched with
-  `model: "opus"`; "Before you ask for review" pre-flight (catalog walk, differential test for
-  parsers, mutation check of guards).
-- phylax `require_subagent_model` (`hooks/model_guard.py`, matcher `Agent|Task`, exact-match
-  list): follows Claude Code's model order (call > definition > CLAUDE_CODE_SUBAGENT_MODEL,
-  Explore/Plan only when _FORCE=1 > session); refuses a no-model call to general-purpose,
-  claude, Explore, Plan when the session's model would decide. Mutation check 18/18 + 2/2.
+Done (tests green):
+- `plugins/techne/skills/elenchus/references/bug-classes.md`: 9 core classes plus learned ones,
+  each Symptom, Question, Guard, Incidents (at most three; private repos described, not named).
+  `tests/test_bug_classes.py` parses it strictly and enforces the incident grammar and budget.
+- elenchus SKILL.md: catalog first, class tags, recurring class escalates, deferred-findings
+  ledger with issues, 3-round default budget, After merge, reader on the strongest model the
+  session can dispatch, "Before you ask for review" pre-flight.
+- phylax `require_subagent_model`: refuses a no-model call to general-purpose, claude, Explore,
+  Plan; plugin and user agents left to their definitions; stands down while any
+  `CLAUDE_CODE_SUBAGENT_MODEL*` or coordinator setting is present (round 3 showed _FORCE can
+  remove `model` from the Agent schema, so modelling the order failed three rounds running).
 
-PR #194. Round 1 `/code-review high` (10 findings), round 2 opus reader (4 Should-fix, two
-recurring classes fixed structurally). Ledger: #195, #196, #197.
-Next: round 3 (the last under the 3-round budget), then merge; then claude-prefs #32. Then claude-prefs: CLAUDE.md model-routing section + catalog pointer, memory
-bug-lesson files become pointers to catalog entries, sync ~/.claude.
+Rounds: r1 `/code-review high` (10), r2 opus reader (4), r3 opus reader (1 Blocking, 1
+Should-fix, both recurring classes, both now fixed structurally). Ledger: #195, #196, #197.
+Budget of three rounds is spent: the r3 fixes are unreviewed. Next: AJ's go-ahead for a fourth
+round, then merge, then the companion prefs PR (it waits on this one).
 
 ## Follow-up: sisters check 15 minors (PR #193 merged)
 

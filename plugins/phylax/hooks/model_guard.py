@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""Guard on the Agent tool: refuse a call that leaves its model to the session's default.
+"""Guard on the Agent tool: refuse a call that leaves its model to the session's.
 
 The hooks.json PreToolUse hook (matcher Agent|Task) runs this when the
 require_subagent_model option is on, passing the PreToolUse JSON on stdin. Claude Code
-picks a subagent's model in this order: the call's `model`, the agent definition's,
-CLAUDE_CODE_SUBAGENT_MODEL (which Explore and Plan ignore unless
-CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1, which also puts it first), then the session's. The
-built-in types in INHERITING have no model of their own, so a call to one is refused
-when nothing before the session's model would decide it. Every other type is left to
-its definition: a call's `model` would override one the definition pins. A `fork`
-always runs on the parent's model and ignores `model`. The tool was named Task before
-Claude Code 2.1.63.
-A payload or tool input that cannot be read is reported on stderr and allowed: the
-guard sets a default rather than protecting data, so a change in payload shape must
-not block every dispatch.
+picks a subagent's model from the call's `model`, then the agent definition's, then
+settings that choose subagent models (SETTINGS), then the session's. The built-in types
+in INHERITING have no model of their own, so with no setting present a call to one
+that names no model runs on the session's model, and is refused. Every other type is
+left to its definition: a call's `model` would override one the definition pins. While
+any setting in SETTINGS is present the guard stands down rather than re-implement how
+Claude Code reads them; some of them make it ignore, or withhold, the call's `model`.
+A `fork` always runs on the parent's model. The tool was named Task before Claude Code
+2.1.63. A payload or tool input that cannot be read is reported on stderr and allowed:
+the guard sets a default rather than protecting data, so a change in payload shape
+must not block every dispatch.
 Runs on the system python3, so it stays compatible with 3.9 (macOS's).
 """
 
@@ -26,8 +26,12 @@ import sys
 TOOLS = ("Agent", "Task")
 # Built-in agent types with no model of their own; an omitted type is general-purpose.
 INHERITING = ("general-purpose", "claude", "Explore", "Plan")
-# The built-ins that CLAUDE_CODE_SUBAGENT_MODEL alone does not reach.
-UNLESS_FORCED = ("Explore", "Plan")
+# Settings that choose subagent models; any non-empty value stands the guard down.
+SETTINGS = (
+    "CLAUDE_CODE_SUBAGENT_MODEL",
+    "CLAUDE_CODE_SUBAGENT_MODEL_FORCE",
+    "CLAUDE_CODE_COORDINATOR_FORCE_WORKER_INHERIT_MODEL",
+)
 REASON = (
     "phylax: this subagent call names no model, so it would fall back to a default "
     "rather than a model chosen for the task. "
@@ -41,19 +45,9 @@ def agent_type(tool_input: dict) -> str:
     return kind if isinstance(kind, str) and kind else "general-purpose"
 
 
-def env_default() -> str | None:
-    """CLAUDE_CODE_SUBAGENT_MODEL when it names a model; `inherit` or empty is the session's."""
-    model = os.environ.get("CLAUDE_CODE_SUBAGENT_MODEL", "")
-    return model if model and model != "inherit" else None
-
-
 def default_decides(kind: str) -> bool:
-    """Whether something other than the session's model decides an unnamed call to kind."""
-    if kind not in INHERITING:
-        return True  # the agent's own definition decides
-    if env_default() is None:
-        return False
-    return kind not in UNLESS_FORCED or os.environ.get("CLAUDE_CODE_SUBAGENT_MODEL_FORCE") == "1"
+    """Whether something other than the session's model may decide an unnamed call to kind."""
+    return kind not in INHERITING or any(os.environ.get(name) for name in SETTINGS)
 
 
 def names_model(tool_input: dict) -> bool:

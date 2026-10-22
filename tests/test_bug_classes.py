@@ -29,6 +29,12 @@ MAX_INCIDENTS = 3
 # The catalog ships in a public repo: an incident names one of these public repos, or
 # describes a private one ("a private rm-approval hook") without naming it.
 PUBLIC_REPOS = {"techne", "pharos", "sphragis", "klepsydra", "kourai"}
+# Where an incident happened: a public repo with an optional PR, round and short label
+# ("techne#189 r1 to r18", "kourai a2a-sdk 1.0"), "a private ..." or a listed host.
+PUBLIC_WHERE_RE = re.compile(r"^(?P<repo>[a-z0-9-]+)(?:#\d+)?(?: r\d+(?: to r\d+)?)?(?: [\w.-]+)*$")
+HOSTS = {"a WSL workstation"}
+# A `name#N` reference anywhere in a class must name a public repo.
+REPO_REF_RE = re.compile(r"\b([a-z][a-z0-9-]*)#\d+")
 BUDGET_RE = re.compile(r"<!-- budget: (\d+) words -->")
 # How SKILL.md and the docs page name a class: class `slug`.
 CLASS_REF_RE = re.compile(r"\bclass `([a-z0-9-]+)`")
@@ -94,9 +100,17 @@ def problems(entry: dict) -> list[str]:
             found.append(f"incident is not `where (date): what`: {item[:60]!r}")
             continue
         where = match.group("where")
-        repo = re.split(r"[#\s]", where, maxsplit=1)[0]
-        if not where.startswith(("a ", "an ")) and repo not in PUBLIC_REPOS:
-            found.append(f"incident names {repo!r}, not a public repo or `a private ...`")
+        public = PUBLIC_WHERE_RE.match(where)
+        if not (
+            where.startswith("a private ")
+            or where in HOSTS
+            or (public and public.group("repo") in PUBLIC_REPOS)
+        ):
+            found.append(f"incident is at {where!r}: not a public repo, `a private ...` or a host")
+    for _, value in entry["fields"]:
+        for repo in REPO_REF_RE.findall(value):
+            if repo not in PUBLIC_REPOS:
+                found.append(f"names {repo}#N, not a public repo")
     return found
 
 
@@ -160,6 +174,9 @@ def test_a_missing_field_is_a_problem():
         "techne#1 (2026-10-01): x; the same day an undated second one",
         "; ".join(f"techne#{n} (2026-10-0{n}): x" for n in range(1, 5)),
         "private-repo#3 (2026-10-01): a private repo named by name",
+        "a scads-makesense installer (2026-06-30): an article in front of a private name",
+        "an claude-prefs rm hook r1 (2026-10-21): the same with `an`",
+        "techne#1 (2026-10-01): it echoed scads-makesense#534 in the text",
     ],
 )
 def test_a_malformed_or_unpublishable_incident_is_a_problem(incidents):
@@ -171,6 +188,8 @@ def test_a_malformed_or_unpublishable_incident_is_a_problem(incidents):
     [
         "a private rm-approval hook r1 (2026-10-21): x",
         "pharos (2026-08): x; techne#189 r2 (2026-10-21): y",
+        "techne#189 r1 to r18 (2026-10-21): x; kourai a2a-sdk 1.0 (2026-04-29): y",
+        "a WSL workstation (2026-10-21): x; a private MCP server's CI (2026-07-04): y",
     ],
 )
 def test_a_public_repo_or_a_described_private_one_is_fine(incidents):

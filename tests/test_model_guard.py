@@ -32,7 +32,12 @@ def payload(tool="Agent", **tool_input) -> str:
     return json.dumps({"tool_name": tool, "tool_input": tool_input})
 
 
-DEFAULT_ENV = ("CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL_FORCE")
+# The settings that choose subagent models; while any is set the guard stands down.
+DEFAULT_ENV = (
+    "CLAUDE_CODE_SUBAGENT_MODEL",
+    "CLAUDE_CODE_SUBAGENT_MODEL_FORCE",
+    "CLAUDE_CODE_COORDINATOR_FORCE_WORKER_INHERIT_MODEL",
+)
 
 
 def run_guard(stdin: str, **env_extra: str) -> subprocess.CompletedProcess:
@@ -89,30 +94,41 @@ def test_named_model_is_silent(model):
     assert decision(run_guard(payload(model=model))) is None
 
 
-# Claude Code's order: the call's model, the definition's, CLAUDE_CODE_SUBAGENT_MODEL (which
-# Explore and Plan ignore unless forced), the session's. _FORCE=1 puts the variable first.
-# Each row: agent type, env, whether a call with no model is refused.
-VAR, FORCE = DEFAULT_ENV
-RESOLUTION = [
-    ("general-purpose", {}, True),
-    ("general-purpose", {VAR: "haiku"}, False),
-    ("general-purpose", {VAR: "inherit"}, True),
-    ("general-purpose", {VAR: ""}, True),
-    ("general-purpose", {FORCE: "1"}, True),
-    ("claude", {VAR: "sonnet"}, False),
-    ("Explore", {VAR: "haiku"}, True),
-    ("Plan", {VAR: "haiku"}, True),
-    ("Explore", {VAR: "haiku", FORCE: "1"}, False),
-    ("Plan", {VAR: "haiku", FORCE: "0"}, True),
-    ("Plan", {VAR: "inherit", FORCE: "1"}, True),
+# Any value, in any spelling Claude Code might read as true or false, stands the guard down:
+# the guard does not re-implement how Claude Code parses these settings.
+SPELLINGS = [
+    "1",
+    "true",
+    "TRUE",
+    "yes",
+    "on",
+    " 1",
+    "0",
+    "false",
+    "haiku",
+    "inherit",
+    "INHERIT",
+    "  ",
 ]
+INHERITING_TYPES = ["general-purpose", "claude", "Explore", "Plan"]
 
 
-@pytest.mark.parametrize(("agent", "env", "refused"), RESOLUTION)
-def test_refusal_follows_claude_codes_model_order(agent, env, refused):
-    assert bool(decision(run_guard(payload(subagent_type=agent), **env))) is refused
-    # A model named in the call always settles it.
-    assert decision(run_guard(payload(subagent_type=agent, model="opus"), **env)) is None
+@pytest.mark.parametrize("var", DEFAULT_ENV)
+@pytest.mark.parametrize("value", SPELLINGS)
+@pytest.mark.parametrize("agent", INHERITING_TYPES)
+def test_any_subagent_model_setting_stands_the_guard_down(var, value, agent):
+    assert decision(run_guard(payload(subagent_type=agent), **{var: value})) is None
+
+
+@pytest.mark.parametrize("var", DEFAULT_ENV)
+def test_an_empty_setting_counts_as_unset(var):
+    assert decision(run_guard(payload(), **{var: ""}))
+
+
+@pytest.mark.parametrize("agent", INHERITING_TYPES)
+def test_with_no_setting_a_named_model_settles_it(agent):
+    assert decision(run_guard(payload(subagent_type=agent)))
+    assert decision(run_guard(payload(subagent_type=agent, model="opus"))) is None
 
 
 def test_fork_is_exempt_without_a_model():
