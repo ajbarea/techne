@@ -33,8 +33,8 @@ per elenchus. Ledger: #195, #196, #197, #198.
 Exact next step: AJ decides (a) whether the r4 fixes merge on green or get a fifth reader round,
 (b) whether to rewrite the public branch's history to drop the private names from commit
 f75d666 (it is on the PR branch; the squash merge keeps them off main). Then merge #194, then
-the companion private prefs PR (round 2 review running/landed), back up ~/.claude/CLAUDE.md,
-run its scripts/sync-from-repo.sh.
+the companion private prefs PR (three review rounds done; r3's two Should-fix fixed with tests,
+unreviewed; merge after #194), back up ~/.claude/CLAUDE.md, run its scripts/sync-from-repo.sh.
 
 ## Follow-up: sisters check 15 minors (PR #193 merged)
 
