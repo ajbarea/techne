@@ -32,9 +32,9 @@ status = "active"
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `github_user` | string | yes | Your GitHub username; used to construct repo URLs. |
-| `workspace_root` | string | yes | Absolute path to the parent directory containing your sister repos. |
+| `workspace_root` | string | yes | Path to the parent directory containing your sister repos, absolute or starting with `~`; a relative path is an error. |
 | `sisters[].name` | string | yes | Directory name under `workspace_root`. |
-| `sisters[].status` | string | no | Defaults to `"active"`. Set to `"backburner"` to skip without removing. |
+| `sisters[].status` | string | no | Defaults to `"active"`, in any case. Set to `"backburner"` to skip without removing. |
 | `sisters[].kind` | string | no | `"team"` marks a repo other people work in: `techne:sisters` exempts it from solo-only conventions such as the README masthead, and `docsync` and `ci-audit` ask before acting on it. `"solo"` on a fork says the fork is your own line of work, so those skills may act on it ([Solo and team repos](conventions.md#solo-and-team-repos)). Any case. Omitted: no claim either way. |
 
 ### `[board]`
@@ -50,7 +50,7 @@ number = 1
 | `board.owner` | string | yes | The login that owns the GitHub Projects board. Only issues and PRs in this owner's repos are filed. |
 | `board.number` | integer | yes | The project number, from the board's URL or from `/techne:board init`. |
 
-Without the table, `techne:board` and its hook do nothing. With it, a `PostToolUse` hook adds each issue or PR that `gh issue create`, `gh pr create` or a `gh api` POST to `.../issues` or `.../pulls` opens to the board and sets its Status; an item already on the board keeps its Status. The table is read with Python's `tomllib`, so the hook needs python3 3.11 and does nothing below it or when the file is not valid TOML (`/techne:board show` names the error). The board's IDs are cached in `~/.cache/techne/board-<owner>-<number>.json`. See [`techne:board`](skills/board.md).
+Without the table, `techne:board` and its hook do nothing. With it, a `PostToolUse` hook adds each issue or PR that `gh issue create`, `gh pr create` or a `gh api` POST to `.../issues` or `.../pulls` opens to the board and sets its Status; an item already on the board keeps its Status. The table is read with Python's `tomllib`, so the hook needs python3 3.11 and does nothing below it or when the file cannot be read or is not valid TOML (`/techne:board show` names the error). The board's IDs are cached in `~/.cache/techne/board-<owner>-<number>.json`. See [`techne:board`](skills/board.md).
 
 ### Status semantics
 

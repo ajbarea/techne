@@ -28,6 +28,7 @@ STUBS = {
     "uv": "echo 'uv 0.11.5'",
     "latexmk": TEX,
     "pdflatex": "echo 'pdfTeX 3.141592653-2.6-1.40.25 (TeX Live 2023/Debian)'",
+    "texcount": "echo 'TeXcount version 3.1.1, 2018 Oct 28.'",
     "biber": "echo 'biber version: 2.19'",
     "pdftotext": "exit 0",
     "pdfinfo": "exit 0",
@@ -57,6 +58,7 @@ def test_all_present_is_ready(tmp_path, home):
         "uv",
         "latexmk",
         "pdflatex",
+        "texcount",
         "biber",
         "pdftotext",
         "pdfinfo",
@@ -110,6 +112,13 @@ def test_optional_gaps_leave_it_ready(tmp_path, home):
     assert proc.returncode == 0
     assert found["biber"][0] == "optional" and found["pptx-renderer"][0] == "optional"
     assert "  fix: sudo apt install libreoffice-impress" in proc.stdout.splitlines()
+
+
+def test_a_missing_texcount_is_optional_and_names_its_fix(tmp_path, home):
+    stubs = {k: v for k, v in STUBS.items() if k != "texcount"}
+    proc, found = doctor(tmp_path, home, stubs, env={"TECHNE_DOCTOR_OS": "debian"})
+    assert proc.returncode == 0 and found["texcount"][0] == "optional"
+    assert "  fix: sudo apt install texlive-extra-utils" in proc.stdout.splitlines()
 
 
 def test_pptxgenjs_is_found_only_where_require_looks_from_the_current_folder(tmp_path, home):
@@ -226,6 +235,7 @@ def test_runbook_gives_every_sudo_and_browser_fix_to_the_user():
     by_row = {
         "uv": "uv",
         "latexmk": "latex",
+        "texcount": "texcount",
         "biber": "biber",
         "pdftotext": "poppler",
         "strings": "strings",

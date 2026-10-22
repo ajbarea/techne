@@ -50,7 +50,7 @@ With a `[board]` table, a `PostToolUse` hook runs after each Bash command that s
 
 It never blocks or fails the command, and bounds its gh calls to 8 seconds. On success it prints nothing. On failure it adds one line of under 300 characters to Claude's context, such as `board: could not add <url> (gh token lacks the 'project' scope; the user runs: gh auth refresh -h github.com -s project)`. The board's project, field and option IDs are cached in `~/.cache/techne/` and looked up again when they go stale.
 
-The hook reads `~/.claude/techne.toml` with Python's `tomllib`, so it needs python3 3.11. Below 3.11, or when the file is not valid TOML, it does nothing; `/techne:board show` names a TOML error.
+The hook reads `~/.claude/techne.toml` with Python's `tomllib`, so it needs python3 3.11. Below 3.11, or when the file cannot be read or is not valid TOML, it does nothing; `/techne:board show` names the error.
 
 ## Source
 

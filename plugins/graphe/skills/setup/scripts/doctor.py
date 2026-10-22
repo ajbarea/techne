@@ -72,6 +72,13 @@ def checks(platform: d.Platform, environ: Mapping[str, str] | None = None) -> li
         program("uv", "uv", version_argv=version),
         program("latexmk", "latex", version_argv=("-v",)),
         program("pdflatex", "latex", version_argv=version),
+        program(
+            "texcount",
+            "texcount",
+            required=False,
+            version_argv=("-version",),
+            why="graphe:latex word budgets",
+        ),
         program("biber", "biber", required=False, version_argv=version, why="biblatex"),
     ]
     found += [program(name, "poppler") for name in POPPLER]

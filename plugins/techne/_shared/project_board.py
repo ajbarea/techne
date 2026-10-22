@@ -13,9 +13,15 @@ import json
 import os
 import re
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
+
+_HERE = str(Path(__file__).resolve().parent)
+if _HERE not in sys.path:  # loaded by file path: techne_config sits beside this file
+    sys.path.append(_HERE)
+import techne_config as tc  # noqa: E402
 
 STATUSES = ("Idea", "Issue", "In PR", "Merged", "Live")
 STATUS_FIELD = "Status"
@@ -42,7 +48,7 @@ class BoardError(Exception):
 
 
 class TomlError(BoardError):
-    """techne.toml is not valid TOML, so no [board] can be read from it."""
+    """techne.toml is there but cannot be read or is not valid TOML, so no [board] is known."""
 
 
 @dataclass(frozen=True)
@@ -71,21 +77,21 @@ class Budget:
         return min(cap, left)
 
 
-def techne_toml() -> Path:
-    return Path.home() / ".claude" / "techne.toml"
-
-
 def load_board(path: Path | None = None) -> Board | None:
-    """The configured board, or None when techne.toml or its [board] table is absent.
+    """The configured board, or None when techne.toml or its [board] table is absent, or when
+    this python3 cannot read it (one TOML reader, so a config means the same everywhere).
 
-    Raises BoardError when [board] is there but malformed."""
-    path = path or techne_toml()
+    Raises BoardError when [board] is there but malformed, TomlError when the file is there but
+    cannot be read or is not TOML (the hook stays quiet on it; /techne:board names it)."""
+    path = path or tc.techne_toml()
     try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
+        cfg = tc.load(path)
+    except tc.NeedsTomllib:
         return None
-    table = _board_table(text)
-    if table is None:
+    except tc.ConfigError as exc:
+        raise TomlError(str(exc)) from exc
+    table = (cfg or {}).get("board")
+    if not isinstance(table, dict):
         return None
     owner, number = table.get("owner"), table.get("number")
     if not isinstance(owner, str) or not owner or isinstance(number, bool):
@@ -93,18 +99,6 @@ def load_board(path: Path | None = None) -> Board | None:
     if not isinstance(number, int) or number < 1:
         raise BoardError(f'[board] in {path} needs owner = "<login>" and number = <int>')
     return Board(owner, number)
-
-
-def _board_table(text: str) -> dict | None:
-    try:
-        import tomllib  # 3.11+
-    except ImportError:
-        return None  # one TOML reader, so a config means the same on every python3
-    try:
-        table = tomllib.loads(text).get("board")
-    except tomllib.TOMLDecodeError as exc:
-        raise TomlError(f"techne.toml is not valid TOML ({exc})") from exc
-    return table if isinstance(table, dict) else None
 
 
 def _without_heredocs(command: str) -> str:

@@ -24,9 +24,9 @@ the markdown: `<!-- budget: 1200 words -->`, `<!-- budget: 3 pages -->`, or
 both joined by a comma. Take it from the prompt or venue; a revision takes the
 original's. A document with no limit declares `<!-- budget: none -->`. The
 render prints `BLOCK budget` and exits 1 when the PDF is over it or the line
-cannot be read, and `REVIEW budget` when none is declared or a page limit
-cannot be counted. Words count the markdown source's prose, without code, link
-targets, comments or the reference list.
+cannot be read, and `REVIEW budget` when none is declared or a declared limit
+cannot be measured. Pages count the whole PDF. Words count the markdown body after
+the title block, without code, link targets, comments or a References section.
 
 ## Run it
 

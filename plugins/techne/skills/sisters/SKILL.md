@@ -19,7 +19,7 @@ Active sister list, workspace root, and GitHub user are read from `~/.claude/tec
 env=$(python3 "<skill-dir>/scripts/hygiene.py" --env) && eval "$env"
 ```
 
-The script prints one line and exits 1 when the file is missing, is not valid TOML, lacks a key, or lists no active sister. Report that line and stop.
+The script prints one line and exits 1 when the file is missing, cannot be read, is not valid TOML, lacks a key or has one of the wrong type, has a malformed `[[sisters]]` list, or lists no active sister. Report that line and stop.
 
 If `~/.claude/techne.toml` is missing or yields zero active sisters, stop and tell the user to run /techne:setup; do not guess. Each sister's canonical local path is `$WORKSPACE/<name>` and its GitHub slug is `$GITHUB_USER/<name>`.
 

@@ -25,10 +25,10 @@ sys.dont_write_bytecode = True  # the plugin cache stays as installed
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "_shared"))
 import doctor_lib  # noqa: E402  # ty: ignore[unresolved-import]
 import project_board as pb  # noqa: E402  # ty: ignore[unresolved-import]
+import techne_config as tc  # noqa: E402  # ty: ignore[unresolved-import]
 
 doctor_lib.require_python((3, 11), "board", "/techne:setup")
 
-import tomllib  # noqa: E402
 
 ITEM_LIMIT = "1000"
 LIST_TIMEOUT = 60.0
@@ -265,11 +265,10 @@ def configured_owner() -> str | None:
     if board:
         return board.owner
     try:
-        cfg = tomllib.loads(pb.techne_toml().read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    user = cfg.get("github_user")
-    return user if isinstance(user, str) and user else None
+        cfg = tc.load()
+    except tc.ConfigError as exc:
+        raise pb.BoardError(f"{exc}; fix it, or pass --owner") from exc
+    return tc.github_user(cfg) if cfg else None
 
 
 def cmd_init(args: argparse.Namespace) -> int:
@@ -348,7 +347,7 @@ def main(argv: list[str] | None = None) -> int:
         board = pb.load_board()
         if board is None:
             print(
-                f"board: no [board] table in {pb.techne_toml()}; run init first",
+                f"board: no [board] table in {tc.techne_toml()}; run init first",
                 file=sys.stderr,
             )
             return 1

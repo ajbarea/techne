@@ -573,3 +573,43 @@ def test_missing_gh_leaves_no_bytecode_in_the_plugin(tmp_path):
     )
     assert proc.returncode == 1 and "/techne:setup" in proc.stderr, proc.stderr
     assert not list(plugin.rglob("__pycache__"))
+
+
+@pytest.mark.parametrize(
+    "body, expected",
+    [('workspace_root = "~/w"\n', "home/w"), ("# workspace_root = '/x'\n", None),
+     ("workspace_root = [", None), (None, None)],
+)  # fmt: skip
+def test_the_workspace_root_is_read_as_toml_with_cwd_as_fallback(
+    sw, tmp_path, monkeypatch, body, expected
+):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    path = tmp_path / "techne.toml"
+    if body is not None:
+        path.write_text(body, encoding="utf-8")
+    monkeypatch.setattr(sw, "TECHNE_TOML", path)
+    monkeypatch.chdir(tmp_path)
+    want = tmp_path / expected if expected else tmp_path.parent
+    assert sw.workspace_root() == want
+
+
+def test_an_unreadable_config_says_why_before_falling_back(sw, tmp_path, monkeypatch, capsys):
+    path = tmp_path / "techne.toml"
+    path.write_text('workspace_root = "/w"\n[board]\nnumber = 07\n', encoding="utf-8")
+    monkeypatch.setattr(sw, "TECHNE_TOML", path)
+    monkeypatch.chdir(tmp_path)
+    assert sw.workspace_root() == tmp_path.parent
+    assert "is not valid TOML" in capsys.readouterr().err
+
+
+def test_a_bare_name_that_is_no_clone_never_falls_back_to_the_cwd_repo(
+    sw, fp, clone, tmp_path, monkeypatch
+):
+    ws = tmp_path / "ws"
+    monkeypatch.setattr(sw, "workspace_root", lambda: ws)
+    monkeypatch.chdir(clone)
+    fp.register(["git", "-C", str(ws / "zzz"), "rev-parse", "--show-toplevel"], returncode=128)
+    register_toplevel(fp, clone, clone)  # the cwd is a clone, and must not be used
+    fp.register(["gh", "repo", "view", fp.any()], stdout="someone/myrepo\n")
+    with pytest.raises(SystemExit, match=r"cannot resolve repo 'zzz'.*run with no argument"):
+        sw.resolve_repo("zzz")

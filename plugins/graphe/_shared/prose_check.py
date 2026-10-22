@@ -34,10 +34,13 @@ _BACKTICKED = re.compile(r"`([^`]+)`")
 # A reference list is citations, not prose. It ends at the next heading (an appendix) or the end.
 # A numbered heading is `7 References`, `VII. REFERENCES` or `## 5. References`; `3. References`
 # without `#` is a list item.
+# The titles a reference list goes by, spaced small caps included; length_budget reads them too.
+REFERENCES_TITLES = (
+    r"R\s?EFERENCES|References|Bibliography|BIBLIOGRAPHY"
+    r"|W\s?ORKS\s+C\s?ITED|Works\s+Cited|L\s?ITERATURE\s+C\s?ITED|Literature\s+Cited"
+)
 _REFERENCES = re.compile(
-    r"^\s*(?:#{1,6}\s*(?:\d+(?:\.\d+)*\.?\s+)?|(?:\d+|[IVXLC]+\.)\s+)?"
-    r"(?:R\s?EFERENCES|References|Bibliography|BIBLIOGRAPHY"
-    r"|W\s?ORKS\s+C\s?ITED|Works\s+Cited|L\s?ITERATURE\s+C\s?ITED|Literature\s+Cited)\s*$",
+    rf"^\s*(?:#{{1,6}}\s*(?:\d+(?:\.\d+)*\.?\s+)?|(?:\d+|[IVXLC]+\.)\s+)?(?:{REFERENCES_TITLES})\s*$",
     re.M,
 )
 _NEXT_HEADING = re.compile(r"^\s*(?:#{1,6}\s+\S|(?:A\s?PPENDIX|Appendix)\b)", re.M)
@@ -120,31 +123,24 @@ def report(text: str) -> tuple[list[Hit], str]:
         return [], f"prose check skipped: {exc}"
 
 
-def body_of(text: str, resume: tuple[str, ...] = ()) -> str:
-    """Drop reference lists, keep appendices, and rejoin words hyphenated across a line.
+def body_of(text: str) -> str:
+    """Drop the reference list, keep appendices, and rejoin words hyphenated across a line.
 
     The list starts at the last references heading, so a table of contents entry for it
-    is kept. It ends at the next heading, or at a line opening with one of `resume`
-    (appendix titles read from the source, maybe lettered `A` or `Appendix A:`).
+    is kept. It ends at the next heading.
     """
-    resumes = [_resume_line(title) for title in resume if title.split()]
     headings = list(_REFERENCES.finditer(text))
     if headings:
         match = headings[-1]
         rest = text[match.end() :]
-        starts = [m.start() for m in (p.search(rest) for p in (_NEXT_HEADING, *resumes)) if m]
-        text = text[: match.start()] + (rest[min(starts) :] if starts else "")
+        nxt = _NEXT_HEADING.search(rest)
+        text = text[: match.start()] + (rest[nxt.start() :] if nxt else "")
     return _HYPHEN_BREAK.sub(r"\1\2", text)
-
-
-def _resume_line(title: str) -> re.Pattern[str]:
-    words = r"\s+".join(map(re.escape, title.split()[:3]))
-    return re.compile(rf"^[ \t]*(?:(?:Appendix\s+)?[A-Z](?:\.\d+)*[.:]?\s+)?{words}\b", re.M)
 
 
 def markdown_prose(text: str) -> str:
     """Code, comments and link targets are not prose. Typst sets `---` as an em-dash."""
-    text = _MD_INLINE_CODE.sub(" ", MD_FENCE.sub(" ", _MD_COMMENT.sub(" ", text)))
+    text = _MD_COMMENT.sub(" ", _MD_INLINE_CODE.sub(" ", MD_FENCE.sub(" ", text)))
     text = _MD_LINK_URL.sub("]", text)
     return _MD_TRIPLE_DASH.sub("\u2014", text)
 
