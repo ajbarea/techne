@@ -11,7 +11,7 @@ phylax adds opt-in Claude Code hooks. Each is off until you switch it on in `/co
 - A repo or an employer bans attribution lines in commit messages and PR bodies.
 - A `COMMITS.md` scratchpad must never be committed.
 - You work with several Claude sessions and want a warning before committing in a main checkout that has linked worktrees.
-- Subagents should never silently run on your most expensive session model.
+- Every subagent call should name its model, so none silently inherits the session's.
 - You leave sessions open and want them moved onto an updated Claude Code without losing the conversation.
 
 ## Install

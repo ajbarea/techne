@@ -154,7 +154,7 @@ Each class has the same four fields:
 - **Symptom:** a new env var, preference or argument is interpolated into `rm`, `rsync --delete`, an overwrite or a shell string, so `.`, `..`, a real user folder or a quote destroys data or injects a command.
 - **Question:** which commands does this override reach, and what stops a dangerous value before each one?
 - **Guard:** an allow-list pattern plus a refusal of a non-empty foreign folder, with refusal tests for `.`, `..`, a real user folder and a quote, all in the same change as the override.
-- **Incidents:** klepsydra#31 (2026-10-20): `KLEPSYDRA_STAGE` in `scripts/build-windows.sh` could aim `rsync --delete` at a folder under `C:\Users`, and a `'` injected PowerShell.
+- **Incidents:** klepsydra#31 (2026-10-20): `KLEPSYDRA_STAGE` in `scripts/build-windows.sh` could aim `rsync --delete` at a real folder in the Windows user profile, and a `'` injected PowerShell.
 
 ### inconsistent-verdict-quantifier: Halves of one check use different quantifiers
 
@@ -179,7 +179,7 @@ Each class has the same four fields:
 
 ### green-exit-not-a-verdict: The exit code reports the last process, not the work
 
-- **Symptom:** a step reports success (exit 0, "completed", a finished watch) while the log says failure or nothing was produced; a verify piped to `tail` lets `&&` commit on red.
+- **Symptom:** a step reports success while the log says failure or nothing was produced. Seen on `gh run watch --exit-status` and `gh pr checks --watch` (exit 0 when checks finish, pass or fail), a verify piped to `tail` (`&&` commits on red), a backgrounded pipe or task notification (the wrapper's code, not the command's), `latexmk` with every citation `[?]`, `tar --strip-components` extracting nothing, `python -m` on a module with no `__main__` guard, and ugrep exiting 2 on a complex pattern that `if grep` reads as no match.
 - **Question:** was the exit code captured from the command itself, and does the output, or the count of produced artifacts, agree with it?
 - **Guard:** `cmd > log 2>&1; rc=$?`, then read the log; never put a verify left of a pipe or gate a commit on one; read `gh run view <id> --json conclusion` after a watch.
 - **Incidents:** pharos (2026-08-06): a notification said exit 0 for a run whose log said `MAKE_CI_EXIT=2`; makesense#673 (2026-07-04): `gh pr checks --watch` exited 0 while `lint-and-test (3.12)` failed.
@@ -209,7 +209,7 @@ Each class has the same four fields:
 
 - **Symptom:** a test compares two independently enqueued async results and passes only when both happen to reach the same stage; one CI leg reds now and then.
 - **Question:** does the test poll to a stable terminal state and then assert the whole record, or does it exclude the fields that race?
-- **Guard:** poll with a short interval and a timeout, then compare the full result, excluding only fields unique by construction (ids, timestamps); no rerun-until-green plugin.
+- **Guard:** poll with a short interval and a timeout, then compare the full result, excluding only fields unique by construction (ids, timestamps); sweep the suite for the same pattern; no rerun-until-green plugin.
 - **Incidents:** makesense#673 (2026-07-04): a submit-response comparison raced state, finished_at, cumulative_rows and result, and reded the 3.12 leg.
 
 ### sweepable-flag-fixed-constants: A sweep flag with fixed companion constants
@@ -237,8 +237,8 @@ Each class has the same four fields:
 
 - **Symptom:** names, emails, usernames or ids from mined sources appear in committed results, fixtures or example ids, while substring exclusions drop real people.
 - **Question:** is every tracked file scanned for identities before release, and are exclusions structural matches on the parsed local part and domain?
-- **Guard:** a release-time scan of every tracked file of every extension; structural exclusions, never substrings; the same substitution on both sides of any join key.
-- **Incidents:** sphragis (2026-09-21): the first guard watched `datasets/results/*.json` and missed a test fixture with three contributors' names and addresses; `rit.edu` as a substring also excluded `spy@rit.edu.cn`.
+- **Guard:** a release-time scan of every tracked file of every extension; structural exclusions, never substrings; redact the release, not the corpus, flag redacted rows, and recompute the verdicts to show no number moved; the same substitution on both sides of any join key.
+- **Incidents:** sphragis (2026-09-21): the first guard watched `datasets/results/*.json` and missed a test fixture with three contributors' names and addresses; a substring exclusion on `rit.edu` also matched an unrelated address on a `.edu.cn` domain.
 
 ### rejected-idea-returns: A design dead end reappears in the build
 

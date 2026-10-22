@@ -101,10 +101,29 @@ def test_unreadable_payload_does_not_block(stdin):
     assert len(proc.stderr.strip().splitlines()) == 1
 
 
-def test_non_object_tool_input_does_not_crash():
-    stdin = json.dumps({"tool_name": "Agent", "tool_input": "x"})
+@pytest.mark.parametrize("tool_input", ["x", None, [1], 5])
+def test_unreadable_tool_input_does_not_block(tool_input):
+    stdin = json.dumps({"tool_name": "Agent", "tool_input": tool_input})
     proc = run_guard(stdin)
-    assert proc.returncode == 0
+    assert (proc.returncode, proc.stdout) == (0, "")
+    assert len(proc.stderr.strip().splitlines()) == 1
+
+
+def test_missing_tool_input_does_not_block():
+    proc = run_guard(json.dumps({"tool_name": "Agent"}))
+    assert (proc.returncode, proc.stdout) == (0, "")
+    assert len(proc.stderr.strip().splitlines()) == 1
+
+
+def test_a_subagent_dispatching_a_subagent_is_checked():
+    stdin = json.loads(payload())
+    stdin.update(agent_id="a1", agent_type="general-purpose")
+    assert decision(run_guard(json.dumps(stdin)))
+
+
+def test_reason_says_how_to_fix_and_how_to_switch_off():
+    reason = decision(run_guard(payload()))
+    assert reason and "model:" in reason and OPTION in reason
 
 
 def test_handler_runs_the_guard_when_on():

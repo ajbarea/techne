@@ -91,7 +91,10 @@ def test_learned_classes_cite_a_dated_incident(classes):
 
 
 def test_parse_rejects_a_missing_field():
-    text = "## Learned\n\n### a-b: A\n\n- **Symptom:** s\n- **Guard:** g\n- **Incidents:** x (2026-10)\n"
+    text = (
+        "## Learned\n\n### a-b: A\n\n"
+        "- **Symptom:** s\n- **Guard:** g\n- **Incidents:** x (2026-10)\n"
+    )
     (entry,) = parse(text)
     assert tuple(name for name, _ in entry["fields"]) != FIELDS
 

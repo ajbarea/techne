@@ -9,6 +9,26 @@ how each skill was designed.
 If this file is more than ~50 lines, something queued or referential
 has crept in; extract it back to ROADMAP.
 
+## In flight: elenchus bug-class catalog + phylax model guard (branch `feat/elenchus-bug-classes`)
+
+Done (tests green, `make validate` before push):
+- `plugins/techne/skills/elenchus/references/bug-classes.md`: 9 core rubric classes plus the
+  learned classes (bug-lesson memories and the 10 classes from the claude-prefs rm-hook and
+  techne #189 loops), each with Symptom, Question, Guard, Incidents. `tests/test_bug_classes.py`
+  parses it and checks every `class \`slug\`` named in SKILL.md and the docs page exists.
+- elenchus SKILL.md: reader reads the catalog and ledger first, tags Blocking/Should-fix with a
+  class; recurring class escalates to a structural fix; deferred-findings ledger; 3-round budget
+  unless review-until-clean; After merge adds classes and incidents; reader dispatched with
+  `model: "opus"`; "Before you ask for review" pre-flight (catalog walk, differential test for
+  parsers, mutation check of guards).
+- phylax `require_subagent_model` (`hooks/model_guard.py`, matcher `Agent|Task`, exact-match
+  list): refuses an Agent call with no model, fork exempt, fails open with a stderr line on an
+  unreadable payload. Refusal, allow and malformed paths tested; hand mutation check 12/12 killed.
+
+Next: PR, `/code-review high` + opus dispatched reader (high tier: the guard can block every
+dispatch), merge. Then claude-prefs: CLAUDE.md model-routing section + catalog pointer, memory
+bug-lesson files become pointers to catalog entries, sync ~/.claude.
+
 ## Follow-up: sisters check 15 minors (PR #193 merged)
 
 Check 15 (`scripts/agents_md.py`) flags every CLAUDE.md, .claude/CLAUDE.md and CLAUDE.local.md

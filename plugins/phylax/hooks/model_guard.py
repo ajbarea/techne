@@ -6,8 +6,9 @@ require_subagent_model option is on, passing the PreToolUse JSON on stdin. A cal
 with no model would run on the session's model, so it is denied with a reason that
 says how to name one. A `fork` subagent always runs on the parent's model and
 ignores `model`, so it is exempt. The tool was named Task before Claude Code 2.1.63.
-A payload that cannot be read is reported on stderr and allowed, so a change in
-payload shape does not block every dispatch.
+A payload or tool input that cannot be read is reported on stderr and allowed: the
+guard sets a default rather than protecting data, so a change in payload shape must
+not block every dispatch.
 Runs on the system python3, so it stays compatible with 3.9 (macOS's).
 """
 
@@ -19,9 +20,8 @@ import sys
 TOOLS = ("Agent", "Task")
 REASON = (
     "phylax: this subagent call names no model, so it would run on this session's model. "
-    "Pass model: opus to plan or review, sonnet to implement or run a research sweep, "
-    "haiku only for mechanical edits; for an agent type whose definition sets a model, "
-    "pass that model. Switch require_subagent_model off in /config to allow it."
+    "Pass model: with the model this task needs (for an agent type whose definition sets "
+    "one, that model) and retry. Switch require_subagent_model off in /config to allow it."
 )
 
 
@@ -43,7 +43,8 @@ def main() -> int:
         return 0
     tool_input = data.get("tool_input")
     if not isinstance(tool_input, dict):
-        tool_input = {}
+        print("phylax model_guard: tool_input is not an object; allowing the call", file=sys.stderr)
+        return 0
     if tool_input.get("subagent_type") == "fork" or names_model(tool_input):
         return 0
     print(

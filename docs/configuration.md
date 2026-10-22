@@ -68,7 +68,7 @@ phylax's guards run from a [mod](https://code.claude.com/docs/en/plugins/mods/ov
 | `warn_main_checkout_commit` | Warns, without blocking, when `git commit` runs in a repo's main checkout while linked worktrees exist. |
 | `require_subagent_model` | Refuses an `Agent` call whose input names no `model`, so a subagent never silently runs on the session's model. A `fork` subagent is exempt. Runs from the `PreToolUse` command hook, needs `python3` only, and checks the `Agent` tool call only, so agents a Workflow script spawns are not covered. |
 
-A refusal tells Claude the reason, so it can fix the command and retry. A warning reaches Claude after the command's output and shows as a dim line in the transcript. The guards run before the permission check, so they apply in `bypassPermissions` mode. When a blocking guard is on and the check itself fails (it errors, git times out, or `python3` cannot start), the command is refused rather than run unchecked.
+A refusal tells Claude the reason, so it can fix the command and retry. A warning reaches Claude after the command's output and shows as a dim line in the transcript. The guards run before the permission check, so they apply in `bypassPermissions` mode. When a blocking git guard is on and the check itself fails (it errors, git times out, or `python3` cannot start), the command is refused rather than run unchecked. `require_subagent_model` sets a default rather than protecting data, so when its check cannot run (`python3` cannot start, or the call's input is not an object) the call goes ahead and the reason goes to stderr.
 
 What each guard reads:
 
