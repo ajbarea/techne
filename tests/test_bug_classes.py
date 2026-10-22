@@ -174,9 +174,9 @@ def test_a_missing_field_is_a_problem():
         "techne#1 (2026-10-01): x; the same day an undated second one",
         "; ".join(f"techne#{n} (2026-10-0{n}): x" for n in range(1, 5)),
         "private-repo#3 (2026-10-01): a private repo named by name",
-        "a scads-makesense installer (2026-06-30): an article in front of a private name",
-        "an claude-prefs rm hook r1 (2026-10-21): the same with `an`",
-        "techne#1 (2026-10-01): it echoed scads-makesense#534 in the text",
+        "a acme-internal installer (2026-06-30): an article in front of a private name",
+        "an acme-tools rm hook r1 (2026-10-21): the same with `an`",
+        "techne#1 (2026-10-01): it echoed acme-internal#534 in the text",
     ],
 )
 def test_a_malformed_or_unpublishable_incident_is_a_problem(incidents):

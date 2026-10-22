@@ -4,12 +4,13 @@
 The hooks.json PreToolUse hook (matcher Agent|Task) runs this when the
 require_subagent_model option is on, passing the PreToolUse JSON on stdin. Claude Code
 picks a subagent's model from the call's `model`, then the agent definition's, then
-settings that choose subagent models (SETTINGS), then the session's. The built-in types
-in INHERITING have no model of their own, so with no setting present a call to one
-that names no model runs on the session's model, and is refused. Every other type is
+CLAUDE_CODE_SUBAGENT_MODEL, then the session's. The built-in types in INHERITING run on
+the session's model when the call names none: general-purpose and claude have no model
+of their own, unless CLAUDE_CODE_SUBAGENT_MODEL names one; Explore and Plan pin
+`inherit`, which wins over that variable. Such a call is refused. Every other type is
 left to its definition: a call's `model` would override one the definition pins. While
-any setting in SETTINGS is present the guard stands down rather than re-implement how
-Claude Code reads them; some of them make it ignore, or withhold, the call's `model`.
+a setting in OVERRIDES is present Claude Code drops or withholds the call's `model`, so
+the guard stands down, whatever the value, rather than re-implement how it reads them.
 A `fork` always runs on the parent's model. The tool was named Task before Claude Code
 2.1.63. A payload or tool input that cannot be read is reported on stderr and allowed:
 the guard sets a default rather than protecting data, so a change in payload shape
@@ -24,11 +25,12 @@ import os
 import sys
 
 TOOLS = ("Agent", "Task")
-# Built-in agent types with no model of their own; an omitted type is general-purpose.
+# Built-in agent types that run on the session's model; an omitted type is general-purpose.
 INHERITING = ("general-purpose", "claude", "Explore", "Plan")
-# Settings that choose subagent models; any non-empty value stands the guard down.
-SETTINGS = (
-    "CLAUDE_CODE_SUBAGENT_MODEL",
+# The ones with no model of their own, which CLAUDE_CODE_SUBAGENT_MODEL reaches.
+NO_OWN_MODEL = ("general-purpose", "claude")
+# Settings under which Claude Code drops or withholds the call's model.
+OVERRIDES = (
     "CLAUDE_CODE_SUBAGENT_MODEL_FORCE",
     "CLAUDE_CODE_COORDINATOR_FORCE_WORKER_INHERIT_MODEL",
 )
@@ -47,7 +49,10 @@ def agent_type(tool_input: dict) -> str:
 
 def default_decides(kind: str) -> bool:
     """Whether something other than the session's model may decide an unnamed call to kind."""
-    return kind not in INHERITING or any(os.environ.get(name) for name in SETTINGS)
+    if kind not in INHERITING or any(os.environ.get(name) for name in OVERRIDES):
+        return True
+    default = os.environ.get("CLAUDE_CODE_SUBAGENT_MODEL", "")
+    return kind in NO_OWN_MODEL and default not in ("", "inherit")
 
 
 def names_model(tool_input: dict) -> bool:

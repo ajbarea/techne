@@ -23,21 +23,18 @@ Done (tests green):
   `CLAUDE_CODE_SUBAGENT_MODEL*` or coordinator setting is present (round 3 showed _FORCE can
   remove `model` from the Agent schema, so modelling the order failed three rounds running).
 
-Rounds: r1 `/code-review high` (10), r2 opus reader (4), r3 opus reader (1 Blocking, 1
-Should-fix, both recurring classes, both now fixed structurally). Ledger: #195, #196, #197.
-Budget of three rounds is spent: the r3 fixes (commit "model guard stands down...") are
-unreviewed. Live-fired on the final head: no setting -> refused, retry with haiku ran;
-CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 -> ran. Paused 2026-10-22 ~09:45 for the account limit.
+Rounds: r1 `/code-review high` (10), r2 opus reader (4), r3 (1 Blocking, 1 Should-fix), r4 scoped
+to the r3 fixes (1 Blocking: private repo names in the r3 test cases, now fictional; 2
+Should-fix: Explore/Plan pin `inherit`, so CLAUDE_CODE_SUBAGENT_MODEL must not stand the guard
+down for them, fixed and 15/15 mutants killed; the scrub grammar still lets a private name pass,
+ledgered as #198). r3 and r4 each found bugs the previous fix introduced, so the loop is paused
+per elenchus. Ledger: #195, #196, #197, #198.
 
-Exact next step on resume:
-1. Read the final gate: `grep -nE "VALIDATE_EXIT| passed| failed" <scratchpad>/validate6.log`
-   (session 51b37772 scratchpad); if gone or red, rerun `make validate` (Linux node first on
-   PATH: `export PATH="$HOME/.nvm/versions/node/v24.18.0/bin:$PATH"`), rc into the log.
-2. Ask AJ for the go-ahead on a fourth review round (opus dispatched reader, high tier, on the
-   r3 fixes only: `model_guard.py` stand-down and the incident grammar in
-   `tests/test_bug_classes.py`). On a clean round: `gh pr checks 194`, merge #194.
-3. Then claude-prefs #32 (merge after #194): one more opus reader round on its r1 fixes, merge,
-   back up `~/.claude/CLAUDE.md`, run `scripts/sync-from-repo.sh` per its README.
+Exact next step: AJ decides (a) whether the r4 fixes merge on green or get a fifth reader round,
+(b) whether to rewrite the public branch's history to drop the private names from commit
+f75d666 (it is on the PR branch; the squash merge keeps them off main). Then merge #194, then
+the companion private prefs PR (round 2 review running/landed), back up ~/.claude/CLAUDE.md,
+run its scripts/sync-from-repo.sh.
 
 ## Follow-up: sisters check 15 minors (PR #193 merged)
 

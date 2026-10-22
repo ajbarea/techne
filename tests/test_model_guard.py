@@ -94,30 +94,35 @@ def test_named_model_is_silent(model):
     assert decision(run_guard(payload(model=model))) is None
 
 
-# Any value, in any spelling Claude Code might read as true or false, stands the guard down:
-# the guard does not re-implement how Claude Code parses these settings.
-SPELLINGS = [
-    "1",
-    "true",
-    "TRUE",
-    "yes",
-    "on",
-    " 1",
-    "0",
-    "false",
-    "haiku",
-    "inherit",
-    "INHERIT",
-    "  ",
-]
+VAR, FORCE, COORDINATOR = DEFAULT_ENV
+# Under _FORCE or coordinator mode Claude Code drops or withholds the call's model, so any
+# value in any spelling stands the guard down; the guard does not parse them.
+SPELLINGS = ["1", "true", "TRUE", "yes", "on", " 1", "0", "false", "haiku", "inherit", "  "]
 INHERITING_TYPES = ["general-purpose", "claude", "Explore", "Plan"]
 
 
-@pytest.mark.parametrize("var", DEFAULT_ENV)
+@pytest.mark.parametrize("var", [FORCE, COORDINATOR])
 @pytest.mark.parametrize("value", SPELLINGS)
 @pytest.mark.parametrize("agent", INHERITING_TYPES)
-def test_any_subagent_model_setting_stands_the_guard_down(var, value, agent):
+def test_a_setting_that_overrides_the_call_stands_the_guard_down(var, value, agent):
     assert decision(run_guard(payload(subagent_type=agent), **{var: value})) is None
+
+
+# CLAUDE_CODE_SUBAGENT_MODEL alone reaches only the types with no model of their own;
+# Explore and Plan pin `inherit`, which Claude Code resolves before reading it.
+@pytest.mark.parametrize(
+    ("agent", "value", "refused"),
+    [
+        ("general-purpose", "haiku", False),
+        ("claude", "sonnet", False),
+        ("general-purpose", "inherit", True),
+        ("claude", "inherit", True),
+        ("Explore", "haiku", True),
+        ("Plan", "haiku", True),
+    ],
+)
+def test_the_subagent_model_default_reaches_only_types_without_a_model(agent, value, refused):
+    assert bool(decision(run_guard(payload(subagent_type=agent), **{VAR: value}))) is refused
 
 
 @pytest.mark.parametrize("var", DEFAULT_ENV)

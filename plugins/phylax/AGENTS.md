@@ -23,7 +23,7 @@ Explain each option, and ask which the user wants:
 - `block_attribution_trailers` refuses a commit or PR whose message or body carries a Claude-Session link, a Co-Authored-By: Claude trailer, or a Generated with Claude Code line.
 - `block_commits_md` refuses staging or committing a `COMMITS.md` scratchpad.
 - `warn_main_checkout_commit` warns when a commit runs in a repo's main checkout while linked worktrees exist.
-- `require_subagent_model` refuses an Agent call to a built-in agent type with no model of its own (`general-purpose`, `claude`, `Explore`, `Plan`) when it names no model. Plugin and user agents are left to their own definitions, and it stands down while a `CLAUDE_CODE_SUBAGENT_MODEL*` setting is present. It needs python3 only, not git or the mod.
+- `require_subagent_model` refuses an Agent call to a built-in agent type that runs on the session's model (`general-purpose`, `claude`, `Explore`, `Plan`) when it names no model. Plugin and user agents are left to their own definitions, and it stands down while `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` or coordinator mode overrides the call's model. It needs python3 only, not git or the mod.
 - `restart_on_update` moves an idle session onto a newly installed Claude Code in a new tmux window or Windows Terminal tab, keeping the conversation. It works on Linux and WSL only.
 
 The user switches them on in `/config`. Then they run `/reload-plugins`, and you run the setup skill again so the doctor sees the new values.
