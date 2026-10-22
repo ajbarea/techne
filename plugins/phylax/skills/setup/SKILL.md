@@ -1,6 +1,6 @@
 ---
 name: setup
-description: Check and set up phylax, the opt-in Claude Code hooks that block attribution lines in commits and PRs, block staging COMMITS.md, warn on main-checkout commits, refuse subagent calls that name no model, and restart idle sessions onto an updated Claude Code. Shows which options are on and checks what each needs: the Claude Code version for the guard mod, python3, git, and for restart_on_update tmux or Windows Terminal and its state folder. Use after installing phylax, when a guard or a restart does not seem to fire, or when asked how to switch phylax's options on.
+description: Check and set up phylax, the opt-in Claude Code hooks that block attribution lines in commits and PRs, block staging COMMITS.md, warn on main-checkout commits, refuse subagent calls that would silently inherit the session's model, and restart idle sessions onto an updated Claude Code. Shows which options are on and checks what each needs: the Claude Code version for the guard mod, python3, git, and for restart_on_update tmux or Windows Terminal and its state folder. Use after installing phylax, when a guard or a restart does not seem to fire, or when asked how to switch phylax's options on.
 ---
 
 # Set up phylax

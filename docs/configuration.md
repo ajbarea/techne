@@ -66,7 +66,7 @@ phylax's guards run from a [mod](https://code.claude.com/docs/en/plugins/mods/ov
 | `block_attribution_trailers` | Blanks the commit trailer and pull request footer Claude Code asks Claude to write, so neither is composed. Also refuses `git commit` and `gh pr create`, `gh pr edit` or `gh pr merge` when the message, title or body has a line matching `Claude-Session`, `claude.ai/code/session`, `Co-Authored-By: Claude` or `Generated with Claude Code`. |
 | `block_commits_md` | Refuses `git add` when it would stage a file named `COMMITS.md` (exact case, any directory), and `git commit` when the commit would include one. A commit that removes it passes. |
 | `warn_main_checkout_commit` | Warns, without blocking, when `git commit` runs in a repo's main checkout while linked worktrees exist. |
-| `require_subagent_model` | Refuses an `Agent` call whose input names no `model`, so a subagent never silently runs on the session's model. A `fork` subagent is exempt. Runs from the `PreToolUse` command hook, needs `python3` only, and checks the `Agent` tool call only, so agents a Workflow script spawns are not covered. |
+| `require_subagent_model` | Refuses an `Agent` call to a built-in agent type that runs on the session's model (`general-purpose`, `claude`, `Explore` or `Plan`, or no type) when it names no `model`. Other agent types are left to their own definitions, since a model named in the call would override one the definition pins. A user or project agent that reuses one of those names is checked as the built-in. Runs from the `PreToolUse` command hook, needs `python3` only, and checks the `Agent` tool call only, so agents a Workflow script spawns are not covered. |
 
 A refusal tells Claude the reason, so it can fix the command and retry. A warning reaches Claude after the command's output and shows as a dim line in the transcript. The guards run before the permission check, so they apply in `bypassPermissions` mode. When a blocking git guard is on and the check itself fails (it errors, git times out, or `python3` cannot start), the command is refused rather than run unchecked. `require_subagent_model` sets a default rather than protecting data, so when its check cannot run (`python3` cannot start, or the call's input is not an object) the call goes ahead and the reason goes to stderr.
 
@@ -76,7 +76,7 @@ What each guard reads:
 - The repo the command runs in. It follows `cd` (including `cd -`), `pushd`, `popd`, `git -C`, `env -C` and `sudo -D`, expanding variables from the environment or set earlier in the command, and drops a `cd` made inside `( ... )`. It looks through wrappers such as `time`, `sudo`, `nice`, `timeout` and `xargs`, and through `if`, `{ ... }`, `!` and loop keywords. `git stage` counts as `git add`, and `gh pr new` as `gh pr create`.
 - For `COMMITS.md`, `git add --dry-run` with your arguments, so `.`, `-A`, globs and directories are covered and exclude pathspecs such as `':!COMMITS.md'` are respected. At commit time it checks the index, plus the working tree for `-a` and pathspec commits.
 
-To turn an enabled guard off in one repo, set the option's camelCase name in that repo's git config:
+To turn an enabled git guard off in one repo, set the option's camelCase name in that repo's git config (`require_subagent_model` has no per-repo key):
 
 ```bash
 git config phylax.blockAttributionTrailers false

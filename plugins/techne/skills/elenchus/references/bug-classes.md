@@ -1,4 +1,4 @@
-<!-- budget: 4000 words -->
+<!-- budget: 4300 words -->
 # Bug-class catalog
 
 Every class of bug this fleet has already paid for once. Authors walk it before asking for review; readers walk it while reviewing and tag each Blocking or Should-fix finding with its class slug. A finding that fits no class is tagged `new: <short name>`, and the author adds it here after merge (see **After merge** in SKILL.md).
@@ -10,7 +10,7 @@ Each class has the same four fields:
 - **Symptom:** what you observe when the bug is present.
 - **Question:** the one question, asked of the diff, that catches it.
 - **Guard:** the test, check or structural fix that prevents it.
-- **Incidents:** where it bit, as `repo#PR round (date): what happened`, newest last.
+- **Incidents:** where it bit, as `repo#PR round (date): what happened`, newest last, at most three; adding a fourth drops the oldest, which git history keeps. A private repo is named by what it is, not by name.
 
 ## Core rubric
 
@@ -19,12 +19,12 @@ Each class has the same four fields:
 - **Symptom:** an `rm -rf`, overwrite, `DROP`, `truncate` or force-push runs on a target nobody meant: the source folder, the home directory, a sibling's data.
 - **Question:** for every destructive op, which exact input or invocation reaches it, and can that input resolve under the thing being wiped?
 - **Guard:** a refusal-path test per reachable input (the source inside the destination, `.`, `..`, `~`, a symlink, an empty variable), written in the same change as the op.
-- **Incidents:** makesense#534 (2026-06-30): `bash <dest>/plugin/install.sh` resolved its source folder under `<dest>`, which `rm -rf "$dest"` then wiped; claude-prefs feat/approve-rm-prompt r1 to r10 (2026-10-21): 16 path-protection gaps in an rm-approval hook.
+- **Incidents:** makesense#534 (2026-06-30): `bash <dest>/plugin/install.sh` resolved its source folder under `<dest>`, which `rm -rf "$dest"` then wiped; a private rm-approval hook r1 to r10 (2026-10-21): 16 path-protection gaps in an rm-approval hook.
 
 ### 2. unmirrored-parallel-guard: Parallel-path mirroring
 
 - **Symptom:** a new path that mirrors an existing one passes its tests, yet one input cell reaches a failure the sibling path guards against, because the structure was copied and the guard or its regression test was not.
-- **Question:** for every guard and regression test on the sibling path, does the new path have both, and which cell of the input matrix (type x location x state) is untested?
+- **Question:** for every guard and regression test on the sibling path, does the new path have both, and which cell of the input matrix (type x location x state) is untested? Test-first does not find it: it tests the behaviour someone specified, and nobody specified the missing cell.
 - **Guard:** one shared helper that every parallel path calls, so a guard cannot be added to one path alone; otherwise the input matrix written as a parametrized test over every path.
 - **Incidents:** makesense#534 (2026-06-30): the folder install lacked the ZIP path's guard and its test; techne#189 r1 to r18 (2026-10-21): one `GIT_*` env strip missed in five places and a UTF-16 decode missing on three read paths, hit in 15 of 18 passes until the reads shared one helper.
 
@@ -52,8 +52,8 @@ Each class has the same four fields:
 ### 6. looks-done-not-done: Looks done is not done
 
 - **Symptom:** lint and tests are green, but the value path was never run end to end: a test mocks the seam it claims to cover, or one config typo aborts the whole boot.
-- **Question:** what run, outside the unit tests, shows the feature working, and does any test mock the very wiring under test?
-- **Guard:** an end-to-end run of the shipped path (start the server, run the CLI, load the plugin) recorded in the PR; a test through the unmocked wiring.
+- **Question:** what run, outside the unit tests, shows the feature working, does any test mock the very wiring under test, and has each gate or detector been seen to fire?
+- **Guard:** an end-to-end run of the shipped path (start the server, run the CLI, load the plugin) recorded in the PR; a test through the unmocked wiring; a test where each gate fires (see class `vacuous-guard`).
 - **Incidents:** makesense (2026-06): a one-line config typo aborted the whole MCP server boot while tests passed.
 
 ### 7. flake-vs-real-red: Flake versus real red
@@ -84,42 +84,42 @@ Each class has the same four fields:
 - **Symptom:** a guard that parses a command line allows or denies a string bash runs differently: a comment, newline, quote, glob or expansion the parser reads one way and bash another.
 - **Question:** for each token rule in the parser, what does bash itself do with this string, and has a test asked bash rather than the parser's author?
 - **Guard:** a differential test that feeds generated strings to both the parser and the real shell and fails on any disagreement; after a second round of new corners, stop parsing and delegate to the real implementation, or deny the shape outright.
-- **Incidents:** claude-prefs feat/approve-rm-prompt r1 (2026-10-21): `rm -rf logs/a # note`, a newline, then `rm -rf ~`, where shlex's comment rule hid the second line; new bash corners in all 10 rounds until a 3,000-string differential against bash in r10.
+- **Incidents:** a private rm-approval hook r1 (2026-10-21): `rm -rf logs/a # note`, a newline, then `rm -rf ~`, where shlex's comment rule hid the second line; new bash corners in all 10 rounds until a 3,000-string differential against bash in r10.
 
 ### check-time-vs-run-time: Checked state is not the state at run time
 
 - **Symptom:** a guard validates a path or object, then the command acts on something else: a symlink created later in the same command, a file swapped between check and use, an env var the command sets.
 - **Question:** between the moment the guard reads the state and the moment the command acts, what can change it, including the command itself?
 - **Guard:** resolve once and act on the resolved value (a realpath, a file descriptor, a pinned SHA), or deny the shapes that create state mid-command; a test that creates the state inside the guarded command.
-- **Incidents:** claude-prefs feat/approve-rm-prompt r2 (2026-10-21): `ln -s ~ hl; rm -rf hl/` passed a check that saw no `hl` yet.
+- **Incidents:** a private rm-approval hook r2 (2026-10-21): `ln -s ~ hl; rm -rf hl/` passed a check that saw no `hl` yet.
 
 ### over-broad-trigger: The guard fires on commands it was not meant for
 
 - **Symptom:** a deny or rewrite note hits a benign command that shares a word with the dangerous one, so users learn to route around the guard or switch it off.
 - **Question:** which legitimate commands share this trigger's word or shape, and does each still pass with no note?
 - **Guard:** a table of benign look-alikes tested beside every trip case; deny notes that name a command the user can actually run.
-- **Incidents:** claude-prefs feat/approve-rm-prompt r5 (2026-10-21): `git rm --cached` denied with a rewrite note meant for `rm`.
+- **Incidents:** a private rm-approval hook r5 (2026-10-21): `git rm --cached` denied with a rewrite note meant for `rm`.
 
 ### unmodeled-host-config: The code assumes one host, version or config
 
 - **Symptom:** it works on the author's machine and crashes or silently skips on another OS, an older interpreter, a managed-settings path, or a config location the code never read.
 - **Question:** which OS, interpreter versions and config locations does this run under, and which of them has a test or a CI leg?
 - **Guard:** hook and doctor tests on the oldest supported interpreter (`make test-hooks-oldest`); every config path the platform defines listed and tested; an unknown host fails closed with a named reason.
-- **Incidents:** techne#189 r2 (2026-10-21): `tomllib` crashed on python 3.9; claude-prefs feat/approve-rm-prompt r9 (2026-10-21): the macOS managed-settings path was not read.
+- **Incidents:** techne#189 r2 (2026-10-21): `tomllib` crashed on python 3.9; a private rm-approval hook r9 (2026-10-21): the macOS managed-settings path was not read.
 
 ### hot-path-latency: Slow work on a path that runs on every call
 
 - **Symptom:** a hook or per-prompt check adds noticeable delay to every command: network calls, filesystem walks over 9P or NFS, sequential subprocesses.
 - **Question:** how often does this path run, and what is its worst-case wall time on the slowest supported filesystem and network?
 - **Guard:** return before any slow call when the trigger is absent; batch or cache the slow call; a test that times the hook against a budget.
-- **Incidents:** techne#189 r1 (2026-10-21): three sequential `gh` calls per run; claude-prefs feat/approve-rm-prompt r4 (2026-10-21): `/mnt` listed over 9P on every call.
+- **Incidents:** techne#189 r1 (2026-10-21): three sequential `gh` calls per run; a private rm-approval hook r4 (2026-10-21): `/mnt` listed over 9P on every call.
 
 ### order-nondeterminism: Output depends on iteration or scheduling order
 
 - **Symptom:** a verdict, file or test result changes between runs on the same input: set or dict order, `PYTHONHASHSEED`, directory listing order, thread timing.
 - **Question:** does any result depend on the order of a set, a directory listing, a hash or concurrent completion?
 - **Guard:** sort before deciding or emitting; run the test under several `PYTHONHASHSEED` values or shuffled inputs.
-- **Incidents:** claude-prefs feat/approve-rm-prompt r5 (2026-10-21): the hook's decision depended on `PYTHONHASHSEED`.
+- **Incidents:** a private rm-approval hook r5 (2026-10-21): the hook's decision depended on `PYTHONHASHSEED`.
 
 ### unenumerated-input-shape: An input shape the code never listed
 
@@ -168,14 +168,14 @@ Each class has the same four fields:
 - **Symptom:** a check passes everywhere, including on the case it was written to reject, while tests are green and the prose calls it enforced.
 - **Question:** what input makes this guard fail, and has anyone switched off the thing it protects and watched a test go red?
 - **Guard:** a mutation check: flip each guard condition in turn and confirm a test fails (mutmut for Python, Stryker for JS and TS, or by hand for a few conditions); assert that edit scripts changed the file.
-- **Incidents:** pharos (2026-08): an edit script's missing anchor made `str.replace` a no-op that printed "ok"; josue copy eval (2026-09-18): `\bmg\b` never matched "10mg"; claude-prefs feat/approve-rm-prompt r9 (2026-10-21): the tests stayed green with the place and guard logic switched off, until an r10 mutation check killed 62 of 62 mutants.
+- **Incidents:** pharos (2026-08): an edit script's missing anchor made `str.replace` a no-op that printed "ok"; a private copy eval (2026-09-18): `\bmg\b` never matched "10mg"; a private rm-approval hook r9 (2026-10-21): the tests stayed green with the place and guard logic switched off, until an r10 mutation check killed 62 of 62 mutants.
 
 ### instance-patch: The same fix again instead of a guard
 
 - **Symptom:** the same correction is made a second, third, fourth time (a widened regex, a re-stamped provenance, a re-typed table), and wrong output ships between fixes.
-- **Question:** is this the second time this fix was needed, and what structural change would make a third impossible?
+- **Question:** is this the second time this fix was needed (say so out loud), and what structural change would make a third impossible, or why is a guard not worth it?
 - **Guard:** on the second occurrence, build the guard (a canonical format instead of a wider regex, a generated table, a CI assert) and trip it before trusting it.
-- **Incidents:** pharos (2026-08-06): artifact provenance re-stamped four times before `tests/test_artifact_provenance.py`; techne#189 r2 to r10 (2026-10-21): an owner-marker regex widened round after round, 15 findings, until the canonical-marker redesign.
+- **Incidents:** pharos (2026-08-06): artifact provenance re-stamped four times before `tests/test_artifact_provenance.py`; pharos (2026-08-06): five hand-typed doc tables corrected before they became generated blocks; techne#189 r2 to r10 (2026-10-21): an owner-marker regex widened round after round, 15 findings, until the canonical-marker redesign.
 
 ### green-exit-not-a-verdict: The exit code reports the last process, not the work
 
@@ -195,14 +195,14 @@ Each class has the same four fields:
 
 - **Symptom:** a child process dies mid-suite with -15 or -9 and no signal from the test, and reads as a flake; a shared helper worktree vanishes mid-task.
 - **Question:** does every kill target a PID this command started, and does any cleanup touch something another session owns?
-- **Guard:** capture `$!` and kill that PID; bind port 0, not a fixed port; never `pkill` or `killall` by pattern; a shared helper worktree gets a named branch.
+- **Guard:** capture `$!` and kill that PID; bind port 0, not a fixed port; never `pkill` or `killall` by pattern; a shared helper worktree gets a named branch; never remove the worktree your own session stands in (a hook then starts in a deleted folder).
 - **Incidents:** techne (2026-10-17): a subagent's `pkill` of its http servers SIGTERMed another worktree's visual-QA subprocess; the same day a detached helper worktree was cleaned up while a sync agent used it.
 
 ### rebase-arms-live-test: A rebase turns a refusal-path test into a live request
 
 - **Symptom:** a test asserting "X is refused" through the real transport makes a real network call after a rebase changes its precondition; the suite hangs near 0% CPU with an ESTABLISHED socket.
 - **Question:** does any test rely on a host or path being absent that the merged-in branch now provides?
-- **Guard:** a suite-level socket guard in `conftest.py` with an allow-list of hosts; run the suite offline after every rebase (`unshare -rn`).
+- **Guard:** a suite-level socket guard in `conftest.py` with an allow-list of hosts; run the suite offline after every rebase (`unshare -rn sh -c 'ip link set lo up; <test command>'`); a hang near 0% CPU with an ESTABLISHED socket in `ss -tnp` is a live request.
 - **Incidents:** sphragis#39 (2026-09-23): a `fetch --org chromium` test, rebased onto a branch that added a REST host, queried chromium-review during a declared collection stop.
 
 ### async-flake-excluded-not-awaited: Racing async fields hidden by exclusion
@@ -252,4 +252,4 @@ Each class has the same four fields:
 - **Symptom:** a search, build or model job an agent started runs for many minutes or holds gigabytes, and the shared host (WSL, a CI runner) swaps or crashes, taking other sessions with it.
 - **Question:** what is the worst-case time and memory of this command on the largest input it can see, and how many like it run at once?
 - **Guard:** cap heavy jobs (`systemd-run --user -p MemoryMax=2G`, `timeout`); bound searches over minified or generated files (`grep -m`, `rg --max-columns`, never `.{0,N}` with a large N); one heavy job at a time.
-- **Incidents:** ajsoftworks WSL (2026-10-21): `grep -o '.\{0,6000\}'` over a minified bundle ran 23 min and held 3.8 GB; two concurrent 3.5 GB rembg jobs crashed WSL at 12:26.
+- **Incidents:** a WSL workstation (2026-10-21): `grep -o '.\{0,6000\}'` over a minified bundle ran 23 min and held 3.8 GB; two concurrent 3.5 GB rembg jobs crashed WSL at 12:26.

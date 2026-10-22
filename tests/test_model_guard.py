@@ -84,12 +84,31 @@ def test_fork_is_exempt_without_a_model():
     assert decision(run_guard(payload(subagent_type="fork"))) is None
 
 
+@pytest.mark.parametrize("agent", ["general-purpose", "claude", "Explore", "Plan"])
+def test_built_in_types_that_inherit_are_checked(agent):
+    assert decision(run_guard(payload(subagent_type=agent)))
+
+
+@pytest.mark.parametrize(
+    "agent",
+    [
+        "heuresis:scout-papers",  # a plugin agent whose definition may pin a model
+        "my-reviewer",  # a user or project agent
+        "statusline-setup",  # built-in, runs on its own model
+        "claude-code-guide",
+        "explore",  # names are exact: not the built-in Explore
+    ],
+)
+def test_types_whose_definition_decides_are_silent(agent):
+    assert decision(run_guard(payload(subagent_type=agent))) is None
+
+
 def test_other_tools_are_silent():
     stdin = json.dumps({"tool_name": "Bash", "tool_input": {"command": "ls"}})
     assert decision(run_guard(stdin)) is None
 
 
-def test_missing_subagent_type_is_still_checked():
+def test_missing_subagent_type_is_checked_as_general_purpose():
     stdin = json.dumps({"tool_name": "Agent", "tool_input": {"prompt": "p"}})
     assert decision(run_guard(stdin))
 
@@ -99,6 +118,11 @@ def test_unreadable_payload_does_not_block(stdin):
     proc = run_guard(stdin)
     assert (proc.returncode, proc.stdout) == (0, "")
     assert len(proc.stderr.strip().splitlines()) == 1
+
+
+@pytest.mark.parametrize("agent", [None, "", 5])
+def test_unnamed_or_odd_subagent_type_is_checked_as_general_purpose(agent):
+    assert decision(run_guard(payload(subagent_type=agent)))
 
 
 @pytest.mark.parametrize("tool_input", ["x", None, [1], 5])

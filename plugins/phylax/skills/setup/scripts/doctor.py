@@ -27,7 +27,8 @@ OPTIONS = (
     "require_subagent_model",
     "restart_on_update",
 )
-GUARDS = OPTIONS[:3]  # the git guards: they need git and may run from the mod
+# The git guards: they need git and may run from the mod.
+GUARDS = ("block_attribution_trailers", "block_commits_md", "warn_main_checkout_commit")
 MOD_ADDED = (2, 1, 287)
 # 2.1.288 fixed a mod's tool.call hook breaking Bash in subagents that run in a worktree.
 MOD_MINIMUM = (2, 1, 288)
