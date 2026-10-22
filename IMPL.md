@@ -9,6 +9,26 @@ how each skill was designed.
 If this file is more than ~50 lines, something queued or referential
 has crept in; extract it back to ROADMAP.
 
+## In flight: sisters check 15, AGENTS.md (branch `feat/sisters-agents-md`, PR #193)
+
+Done: `scripts/agents_md.py` flags every CLAUDE.md, .claude/CLAUDE.md, CLAUDE.local.md in a
+sister (any depth) or above it; the import parser is gone. Round 4 reproduced on Claude Code
+2.1.301 that a root CLAUDE.md with `@AGENTS.md` drops AGENTS.md for a `claude -p` session in a
+subdirectory (external import; docs memory#import-additional-files), so the rule tightened
+(d9a5dd0). Fleet run: 14/14 clean once pharos main was fast-forwarded.
+Stopped (review cap): round 5 reader found one Should-fix, reproduced. Next, in order:
+1. Should-fix: a nested CLAUDE.md that `.gitignore` names (`CLAUDE.md` rule + `sub/CLAUDE.md`)
+   is missed. List ignored with `git ls-files -z -o -i --exclude-standard --directory` (wholly
+   ignored dirs come back as one `dir/` entry), keep names CLAUDE.md/CLAUDE.local.md; test it
+   beside the node_modules cell.
+2. Minors: `.claude/CLAUDE.local.md` is not loaded (false flag); `above()` lacks the
+   file-or-symlink filter; nested CLAUDE.local.md gets the root local-file advice; decode git
+   output with `os.fsdecode`; filter names in Python (GIT_LITERAL_PATHSPECS=1 breaks `:(glob)`);
+   align SKILL.md row, ROADMAP, docstring, checks.md with ignored-file behaviour + test ignored
+   root CLAUDE.md; show git's error instead of "not a git repository".
+3. One opus reader on that delta, then CI green, re-read comments, squash-merge.
+Verify: `flock /tmp/fleet-heavy.lock timeout 600 uv run pytest tests/test_sisters_agents_md.py -q`.
+
 ## In flight: solo repos act, team repos ask (branch `feat/solo-act-team-ask`, PR #189)
 
 Done: `_shared/repo_kind.py` classifies solo/team (only GitHub facts make solo; unsettled is
