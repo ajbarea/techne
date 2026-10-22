@@ -68,7 +68,7 @@ Each class has the same four fields:
 - **Symptom:** the PR body, a docstring, a comment or a `Closes #N` says something the code does not do, and a `Closes` retires a gap that is still open.
 - **Question:** does each sentence of the description, each changed docstring and each closing keyword match what the code now does?
 - **Guard:** reread the description against the final diff after the last push; docs that state numbers read them from the code or a registry a test checks.
-- **Incidents:** techne#189 (2026-10-21): 11 distinct drift findings across the loop.
+- **Incidents:** techne#189 (2026-10-21): 11 distinct drift findings across the loop; techne#194 r2 to r5 (2026-10-22): each fix left the PR body or IMPL.md describing the guard it replaced.
 
 ### 9. wrong-altitude: DRY and right altitude
 
@@ -98,14 +98,14 @@ Each class has the same four fields:
 - **Symptom:** a deny or rewrite note hits a benign command that shares a word with the dangerous one, so users learn to route around the guard or switch it off.
 - **Question:** which legitimate commands share this trigger's word or shape, and does each still pass with no note?
 - **Guard:** a table of benign look-alikes tested beside every trip case; deny notes that name a command the user can actually run.
-- **Incidents:** a private rm-approval hook r5 (2026-10-21): `git rm --cached` denied with a rewrite note meant for `rm`.
+- **Incidents:** a private rm-approval hook r5 (2026-10-21): `git rm --cached` denied with a rewrite note meant for `rm`; techne#194 r1 to r3 (2026-10-22): a model guard refused agents that pin their own model, then calls whose `model` Claude Code drops, until it stood down instead of modelling the host.
 
 ### unmodeled-host-config: The code assumes one host, version or config
 
 - **Symptom:** it works on the author's machine and crashes or silently skips on another OS, an older interpreter, a managed-settings path, or a config location the code never read.
 - **Question:** which OS, interpreter versions and config locations does this run under, and which of them has a test or a CI leg?
 - **Guard:** hook and doctor tests on the oldest supported interpreter (`make test-hooks-oldest`); every config path the platform defines listed and tested; an unknown host fails closed with a named reason.
-- **Incidents:** techne#189 r2 (2026-10-21): `tomllib` crashed on python 3.9; a private rm-approval hook r9 (2026-10-21): the macOS managed-settings path was not read.
+- **Incidents:** techne#189 r2 (2026-10-21): `tomllib` crashed on python 3.9; a private rm-approval hook r9 (2026-10-21): the macOS managed-settings path was not read; techne#194 r4 (2026-10-22): Explore and Plan pin `inherit` in the Claude Code binary, which the docs did not say.
 
 ### hot-path-latency: Slow work on a path that runs on every call
 
@@ -238,7 +238,7 @@ Each class has the same four fields:
 - **Symptom:** names, emails, usernames or ids from mined sources appear in committed results, fixtures or example ids, while substring exclusions drop real people.
 - **Question:** is every tracked file scanned for identities before release, and are exclusions structural matches on the parsed local part and domain?
 - **Guard:** a release-time scan of every tracked file of every extension; structural exclusions, never substrings; redact the release, not the corpus, flag redacted rows, and recompute the verdicts to show no number moved; the same substitution on both sides of any join key.
-- **Incidents:** sphragis (2026-09-21): the first guard watched `datasets/results/*.json` and missed a test fixture with three contributors' names and addresses, and a substring exclusion on `rit.edu` also matched an unrelated address on a `.edu.cn` domain.
+- **Incidents:** sphragis (2026-09-21): the first guard watched `datasets/results/*.json` and missed a test fixture with three contributors' names and addresses, and a substring exclusion on `rit.edu` also matched an unrelated address on a `.edu.cn` domain; techne#194 r4 (2026-10-22): negative test cases written to keep private names out put two of them in.
 
 ### rejected-idea-returns: A design dead end reappears in the build
 
