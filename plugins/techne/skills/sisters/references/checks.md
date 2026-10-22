@@ -390,9 +390,10 @@ Claude Code reads `AGENTS.md` only when no `CLAUDE.md`, `.claude/CLAUDE.md` or `
 sits in the working directory or above it. A `CLAUDE.md` that imports `AGENTS.md` still breaks a
 session started in a subdirectory: the import is external there, so it loads only after an
 approval dialog, and `claude -p` skips it. The script flags every `CLAUDE.md`,
-`.claude/CLAUDE.md` and `CLAUDE.local.md` in the repo at any depth, tracked, untracked or ignored
-(an ignored `CLAUDE.md` is vendored and skipped; an ignored `CLAUDE.local.md` is flagged), and
-every one in a directory above the repo. The user's `~/.claude/CLAUDE.md` is not flagged. A
+`.claude/CLAUDE.md` and `CLAUDE.local.md` in the repo at any depth, tracked, untracked or ignored,
+except inside a wholly ignored folder such as `node_modules`, and every one in a directory above
+the repo. `.claude/CLAUDE.local.md` is not a file Claude Code reads, so it is not flagged. The
+user's `~/.claude/CLAUDE.md` is not flagged. A
 symlinked `CLAUDE.md` checks out on Windows as a one-line text file. Sources:
 <https://code.claude.com/docs/en/memory#agents-md>, <https://agents.md/>.
 

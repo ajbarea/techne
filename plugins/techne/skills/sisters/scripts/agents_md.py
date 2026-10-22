@@ -9,9 +9,11 @@ CLAUDE.local.md sits in the working directory or above it. A CLAUDE.md that
 imports @AGENTS.md does not help: for a session started in a subdirectory the
 import is external, so it loads only after an approval dialog, and `claude -p`
 skips it. The check therefore flags every such file in the repo, at any depth,
-whether tracked, untracked or ignored (an ignored CLAUDE.md is not listed, as it
-is vendored, but an ignored CLAUDE.local.md is), and every one in a directory
-above the repo. The user's ~/.claude/CLAUDE.md is not flagged.
+whether tracked, untracked or ignored, and every one in a directory above the
+repo. An ignored file is listed unless it sits in a wholly ignored folder, which
+holds vendored code such as node_modules. .claude/CLAUDE.local.md is not a file
+Claude Code reads, so it is not flagged. The user's ~/.claude/CLAUDE.md is not
+flagged.
 
 Prints one line per finding, or one passing line per repo. Always exits 0.
 """
@@ -34,29 +36,34 @@ def above(root: Path) -> list[str]:
     for parent in root.resolve().parents:
         for rel in ROOT_FILES:
             path = parent / rel
-            if os.path.lexists(path) and path != user:
+            if (os.path.islink(path) or os.path.isfile(path)) and path != user:
                 found.append(f"{path} sits above the repo and replaces AGENTS.md → move it out")
     return found
 
 
 def git_files(root: Path, *args: str) -> list[str] | None:
     out = subprocess.run(
-        ["git", "-C", str(root), "ls-files", "-z", *args], capture_output=True, check=False
+        ["git", "-C", str(root), "ls-files", "-z", *args],
+        capture_output=True,
+        check=False,
+        env={**os.environ, "GIT_LITERAL_PATHSPECS": "0"},
     )
     if out.returncode != 0:
         return None
-    return [p for p in out.stdout.decode("utf-8", "replace").split("\0") if p]
+    return [p for p in os.fsdecode(out.stdout).split("\0") if p]
 
 
 def candidates(root: Path, files: list[str]) -> list[str]:
     """Tracked, untracked and ignored CLAUDE-family files, as repo-relative paths."""
-    found = {p for p in files if Path(p).name in NAMES}
+    found = set()
     for args in (
         ("-o", "--exclude-standard", "--", ":(glob)**/CLAUDE.md", ":(glob)**/CLAUDE.local.md"),
-        ("-o", "-i", "--exclude-standard", "--", ":(glob)**/CLAUDE.local.md"),
+        ("-o", "-i", "--exclude-standard", "--directory"),
     ):
-        found |= set(git_files(root, *args) or [])
+        files = [*files, *(git_files(root, *args) or [])]
+    found = {p for p in files if Path(p.rstrip("/")).name in NAMES}
     found |= {p for p in ROOT_FILES if os.path.lexists(root / p)}
+    found = {p for p in found if not ("/" + p).endswith("/.claude/CLAUDE.local.md")}
     return sorted(p for p in found if os.path.islink(root / p) or os.path.isfile(root / p))
 
 

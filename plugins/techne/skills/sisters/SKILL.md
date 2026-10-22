@@ -44,7 +44,7 @@ Each check reports per repo; one broken repo never aborts the others.
 | 12 | README header | A solo repo with a hero asset whose README does not open Hero → Title → tagline → Badges | Align, or confirm it is intentional |
 | 13 | Worktree ignore | `.claude/worktrees/` not ignored by a committed `.gitignore` (unignored, or only in `.git/info/exclude`) | Add `.claude/worktrees/` to `.gitignore` |
 | 14 | Docs-site shared files | A site's copy of a shared docs-site file differs from techne's, or a `docs/` page is missing from the nav | Fix techne's copy and sync it; list or move the page |
-| 15 | Agent instruction file | No committed `AGENTS.md`; any `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md` in the repo (tracked, untracked or ignored, any depth) or above it; a symlinked `CLAUDE.md` | Move the content into `AGENTS.md` and delete the file; personal notes go to `~/.claude/CLAUDE.md` |
+| 15 | Agent instruction file | No committed `AGENTS.md`; any `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md` in the repo (tracked, untracked or ignored, at any depth, except inside a wholly ignored folder such as node_modules) or above it; a symlinked `CLAUDE.md` | Move the content into `AGENTS.md` and delete the file; personal notes go to `~/.claude/CLAUDE.md` |
 
 ## Output format
 
@@ -122,7 +122,7 @@ A single block, no preamble (concrete repo names below are illustrative — subs
 ### Agent instruction file
 - repo-a: AGENTS.md, nothing shadows it ✓
 - repo-b: no committed AGENTS.md → add one
-- repo-c: CLAUDE.md stops Claude Code reading AGENTS.md directly → move its content into AGENTS.md and delete it
+- repo-c: CLAUDE.md stops Claude Code reading AGENTS.md directly, and an @AGENTS.md import in it is external for a session started in a subdirectory → move its content into AGENTS.md and delete it
 
 ### Verdict
 

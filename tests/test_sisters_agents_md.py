@@ -137,6 +137,44 @@ def test_ignored_vendored_claude_md_is_not_flagged(am, tmp_path):
     assert am.check(root) == []
 
 
+def test_ignored_vendored_claude_local_md_is_not_flagged(am, tmp_path):
+    root = repo(
+        tmp_path,
+        {"AGENTS.md": "# a\n", ".gitignore": "node_modules/\n"},
+        {"node_modules/pkg/CLAUDE.local.md": "vendored\n"},
+    )
+    assert am.check(root) == []
+
+
+def test_ignored_nested_claude_md_is_flagged(am, tmp_path):
+    root = repo(
+        tmp_path,
+        {"AGENTS.md": "# a\n", ".gitignore": "CLAUDE.md\n"},
+        {"sub/CLAUDE.md": "x\n"},
+    )
+    assert am.check(root) == [nested("sub/CLAUDE.md", "sub")]
+
+
+def test_ignored_root_claude_md_is_flagged(am, tmp_path):
+    root = repo(
+        tmp_path,
+        {"AGENTS.md": "# a\n", ".gitignore": "CLAUDE.md\n"},
+        {"CLAUDE.md": "x\n"},
+    )
+    assert am.check(root) == ["CLAUDE.md" + ROOT]
+
+
+def test_dot_claude_local_md_is_not_flagged(am, tmp_path):
+    root = repo(tmp_path, {"AGENTS.md": "# a\n", ".claude/CLAUDE.local.md": "x\n"})
+    assert am.check(root) == []
+
+
+def test_literal_pathspecs_env_does_not_hide_files(am, tmp_path, monkeypatch):
+    monkeypatch.setenv("GIT_LITERAL_PATHSPECS", "1")
+    root = repo(tmp_path, {"AGENTS.md": "# a\n"}, {"sub/CLAUDE.md": "x\n"})
+    assert am.check(root) == [nested("sub/CLAUDE.md", "sub")]
+
+
 def test_directory_named_claude_md_is_not_flagged(am, tmp_path):
     root = repo(tmp_path, {"AGENTS.md": "# a\n", "CLAUDE.md/notes.txt": "x\n"})
     (root / "other" / "CLAUDE.local.md").mkdir(parents=True)
@@ -190,6 +228,12 @@ def test_claude_md_above_the_repo_is_flagged(am, tmp_path):
     assert am.check(root) == [
         f"{tmp_path / 'CLAUDE.md'} sits above the repo and replaces AGENTS.md → move it out"
     ]
+
+
+def test_directory_named_claude_md_above_the_repo_is_not_flagged(am, tmp_path):
+    root = repo(tmp_path, {"AGENTS.md": "# a\n"})
+    (tmp_path / "CLAUDE.md").mkdir()
+    assert am.check(root) == []
 
 
 def test_user_claude_md_is_not_above_the_repo(am, tmp_path, monkeypatch):
