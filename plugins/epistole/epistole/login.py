@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shlex
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -29,7 +30,7 @@ def _again(alias: str | None) -> str:
     """The retry command. A shell reads a leading `!` as history, so a terminal gets the path."""
     name = alias or "<alias>"
     path = os.environ.get("EPISTOLE_LOGIN")
-    terminal = f", or `{path} {name}` in a terminal" if path else ""
+    terminal = f", or `{shlex.quote(path)} {name}` in a terminal" if path else ""
     return f"run `!epistole-login {name}` in Claude Code{terminal}"
 
 

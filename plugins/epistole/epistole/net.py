@@ -15,7 +15,7 @@ import time
 from typing import Any
 
 ATTEMPT_DELAY = 0.25  # RFC 8305 section 5: the recommended Connection Attempt Delay
-RACE_TIMEOUT = 10.0  # past this with no winner, the addresses are returned unordered
+RACE_TIMEOUT = 3.0  # past this with no winner, the addresses come back in resolver order
 
 _IN_PROGRESS = {
     errno.EINPROGRESS,

@@ -88,6 +88,27 @@ def test_getaddrinfo_does_not_race_what_it_cannot_reorder(monkeypatch, host, por
     assert net.getaddrinfo(host, port, 0, 0, 0, flags) == rows
 
 
+def test_getaddrinfo_gives_up_within_the_race_timeout_when_every_address_hangs(monkeypatch):
+    rows = [info(BLACKHOLE), info(("192.0.2.2", 9))]
+    monkeypatch.setattr(net, "_original", lambda *a: list(rows))
+    start = time.monotonic()
+    assert net.getaddrinfo("example.com", 443) == rows
+    assert time.monotonic() - start < net.RACE_TIMEOUT + 1
+
+
+def test_race_starts_the_next_address_at_once_after_an_immediate_failure(monkeypatch, listener):
+    # A socket whose connect fails before it goes in flight, beside one still open.
+    real = socket.socket
+
+    class Unreachable(real):
+        def connect_ex(self, addr):
+            return 101 if addr == ("192.0.2.3", 9) else super().connect_ex(addr)
+
+    monkeypatch.setattr(net.socket, "socket", Unreachable)
+    rows = [info(BLACKHOLE), info(("192.0.2.3", 9)), info(listener)]
+    assert net.race(rows, delay=1, timeout=1.8) == listener
+
+
 def test_getaddrinfo_keeps_the_resolver_order_when_nothing_connects(monkeypatch):
     rows = [info(BLACKHOLE), info(("192.0.2.2", 9))]
     monkeypatch.setattr(net, "_original", lambda *a: list(rows))
@@ -122,4 +143,6 @@ def test_retry_hint_gives_a_terminal_the_full_path(monkeypatch):
     monkeypatch.setenv("EPISTOLE_LOGIN", "/opt/epistole/bin/epistole-login")
     msg = login._explain(ValueError(), "rit")
     assert "`/opt/epistole/bin/epistole-login rit` in a terminal" in msg
+    monkeypatch.setenv("EPISTOLE_LOGIN", "/Users/A B/bin/epistole-login")
+    assert "`'/Users/A B/bin/epistole-login' rit`" in login._explain(ValueError(), "rit")
     assert "sign-in failed (ValueError)" in msg
