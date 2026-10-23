@@ -19,7 +19,7 @@ import subprocess
 import time
 
 import pytest
-from conftest import HOOK_PYTHON, _load
+from conftest import HOOK_PYTHON, _load, hook_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "phylax"
@@ -106,12 +106,8 @@ def env(tmp_path, sr, monkeypatch):
     monkeypatch.setattr(sr, "STATE", state)
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
-    sub = {
-        k: v
-        for k, v in os.environ.items()
-        if not k.startswith(("CLAUDE_PLUGIN_OPTION_", "TMUX", "WT_", "WSL_", "ANTHROPIC_MODEL"))
-    }
-    sub.update(
+    sub = hook_env(
+        drop=("TMUX", "WT_", "WSL_", "ANTHROPIC_MODEL"),
         PATH=f"{bin_}:/usr/bin:/bin",
         HOME=str(home),
         PHYLAX_RESTART_SESSIONS=str(sessions),

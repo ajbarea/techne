@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from conftest import HOOK_PYTHON, ROOT
+from conftest import HOOK_PYTHON, ROOT, hook_env, hook_handlers, run_hook_handler
 
 PLUGIN = ROOT / "plugins" / "techne"
 SCRIPT = PLUGIN / "hooks" / "resume_brief.py"
@@ -204,25 +204,14 @@ def test_it_leaves_no_bytecode_in_the_plugin(repo):
 
 
 def _handler() -> dict:
-    groups = json.loads(HOOKS_JSON.read_text())["hooks"]["SessionStart"]
-    (handler,) = [h for g in groups for h in g["hooks"] if "resume_brief.py" in h["command"]]
+    handlers = hook_handlers("techne", "SessionStart")
+    (handler,) = [h for h in handlers if "resume_brief.py" in h["command"]]
     return handler
 
 
 def run_handler(cwd: Path, on: bool) -> str:
-    shell = _handler()["command"].replace("${CLAUDE_PLUGIN_ROOT}", str(PLUGIN))
-    shell = shell.replace("exec python3 ", f"exec {HOOK_PYTHON} ")
-    env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE_PLUGIN_OPTION_")}
-    if on:
-        env["CLAUDE_PLUGIN_OPTION_RESUME_BRIEF"] = "true"
-    proc = subprocess.run(
-        ["sh", "-c", shell],
-        input=json.dumps({"cwd": str(cwd)}),
-        capture_output=True,
-        text=True,
-        env=env,
-        check=False,
-    )
+    env = hook_env(["resume_brief"] if on else [])
+    proc = run_hook_handler("techne", _handler(), json.dumps({"cwd": str(cwd)}), env)
     assert (proc.returncode, proc.stderr) == (0, "")
     return proc.stdout
 
