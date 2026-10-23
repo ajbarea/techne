@@ -74,7 +74,7 @@ running arbitrary Claude jobs from the queue (heuresis jobs only).
 ### Repositories
 
 - **Plugin:** `techne/plugins/heuresis/`, listed in `techne/.claude-plugin/marketplace.json`.
-- **Store:** a new private repo `ajbarea/ideas`. Its `main` is a data store written by the plugin
+- **Store:** a new private repo `<owner>/ideas`. Its `main` is a data store written by the plugin
   and the Action, so it is not branch-protected.
 
 ### Plugin layout
@@ -271,13 +271,13 @@ run it now.
 ## Phone path
 
 - **Shortcut:** "New idea" on the iPhone home screen and share sheet. It takes dictated or typed
-  text (or shared text and URLs), then POSTs to `https://api.github.com/repos/ajbarea/ideas/issues`
-  with label `idea`, using a fine-grained token limited to Issues: write on `ajbarea/ideas`. The
+  text (or shared text and URLs), then POSTs to `https://api.github.com/repos/<owner>/ideas/issues`
+  with label `idea`, using a fine-grained token limited to Issues: write on `<owner>/ideas`. The
   spec ships the Shortcut's steps; AJ builds it once on the phone. Shortcuts is built into iOS and
   its Get Contents of URL action sends POST requests with a JSON body
   ([Apple guide](https://support.apple.com/guide/shortcuts/request-your-first-api-apd58d46713f/ios)),
   so the phone path needs no Apple Developer Program membership, App Store listing or TestFlight.
-- **Action:** `.github/workflows/triage.yml` in `ajbarea/ideas`, on `issues: [opened]` filtered to
+- **Action:** `.github/workflows/triage.yml` in `<owner>/ideas`, on `issues: [opened]` filtered to
   the `idea` label, with a per-issue concurrency group and a job timeout. It checks out `ideas` and
   the repos named in `context.toml` (read-only token in secrets), loads the techne marketplace and
   the heuresis plugin, and runs `/heuresis:idea --from-issue <n>` with `--max-turns` set.
@@ -321,7 +321,7 @@ run it now.
 
 Each phase gets its own implementation plan.
 
-1. **Store and terminal triage:** `ajbarea/ideas` repo, schema, board and log generation, the
+1. **Store and terminal triage:** `<owner>/ideas` repo, schema, board and log generation, the
    scout and judge agents, source adapters, `verify.py`, `/heuresis:idea --now` end to end in the
    terminal, shared retrieval with paper-review, unit tests and evals.
 2. **Evaluation:** gold set and the harness above, run before trusting verdicts.

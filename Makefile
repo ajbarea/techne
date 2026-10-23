@@ -60,7 +60,7 @@ GUARD_SKIP := ':!Makefile' ':!ROADMAP.md' ':!.claude/skill-context.md'
 
 # plugins/techne/_shared/ is the source for a file several plugins need; another plugin
 # carries a copy, since a plugin installs alone and can't read a sibling's files.
-guards:                 ## Stale-path + legacy-name + shared-copy + plugin-path + action-pin guards
+guards:                 ## Stale-path + legacy-name + shared-copy + plugin-path + action-pin + private-name guards
 	@for f in plugins/*/_shared/*; do \
 		src="plugins/techne/_shared/$${f##*/}"; \
 		[ -f "$$src" ] && [ "$$f" != "$$src" ] || continue; \
@@ -74,6 +74,7 @@ guards:                 ## Stale-path + legacy-name + shared-copy + plugin-path 
 		echo "FAIL: still references aj-* names"; exit 1; \
 	fi
 	@bash scripts/check_action_pins.sh
+	@uv run python scripts/check_private_names.py
 
 # End-to-end cases need TeX Live (latex), the typst wheel (pdf) and Playwright's Chromium
 # (web slides). Where one is absent, TECHNE_NO_TEX / TECHNE_NO_TYPST / TECHNE_NO_BROWSER
