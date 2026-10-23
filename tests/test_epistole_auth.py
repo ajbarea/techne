@@ -1,6 +1,7 @@
 import json
 import os
 import shutil
+import socket
 import stat
 import subprocess
 from pathlib import Path
@@ -11,6 +12,12 @@ from google.auth.exceptions import RefreshError
 from google.oauth2.credentials import Credentials
 
 TOML = '[accounts]\nschool = "user@example.edu"\n'
+
+
+@pytest.fixture(autouse=True)
+def restore_getaddrinfo(monkeypatch):
+    """login.main installs epistole's resolver for the process; undo it after each test."""
+    monkeypatch.setattr(socket, "getaddrinfo", socket.getaddrinfo)
 
 
 @pytest.fixture

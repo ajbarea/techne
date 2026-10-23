@@ -21,8 +21,9 @@ from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
-from epistole import audit, auth, config, ids, mime
+from epistole import audit, auth, config, ids, mime, net
 from epistole.gmail import DraftOutcomeUnknown, Mailbox, SendOutcomeUnknown, is_known_network
+from epistole.gmail import service as _service
 
 LIMIT = 50_000
 CONCISE = 4_000
@@ -41,19 +42,6 @@ INSTRUCTIONS = (
     "`!epistole-login <alias>` command themselves; first-time setup follows the "
     "/epistole:setup skill."
 )
-
-
-def _service(creds: Any, timeout: float | None = None) -> Any:
-    """A Gmail service for creds. With timeout, the HTTP client gives up after that many seconds."""
-    from googleapiclient.discovery import build as gbuild
-
-    if timeout is None:
-        return gbuild("gmail", "v1", credentials=creds, cache_discovery=False)
-    import google_auth_httplib2
-    import httplib2
-
-    http = google_auth_httplib2.AuthorizedHttp(creds, http=httplib2.Http(timeout=timeout))
-    return gbuild("gmail", "v1", http=http, cache_discovery=False)
 
 
 def _connect(base: Path, timeout: float | None = None) -> Callable[[str], Any]:
@@ -681,6 +669,7 @@ def build(base: Path | None = None, connect: Callable[[str], Any] | None = None)
 
 
 def main() -> None:
+    net.install()
     build().run("stdio")
 
 

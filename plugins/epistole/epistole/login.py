@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import argparse
+import os
+import shlex
 import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from epistole import auth, config
+from google.auth.exceptions import TransportError
+
+from epistole import auth, config, net
+from epistole.gmail import is_known_network
 
 USAGE = "usage: epistole-login --status | epistole-login [--client FILE] [alias]"
 
@@ -21,8 +26,16 @@ def _parser() -> argparse.ArgumentParser:
     return p
 
 
+def _again(alias: str | None) -> str:
+    """The retry command. A shell reads a leading `!` as history, so a terminal gets the path."""
+    name = alias or "<alias>"
+    path = os.environ.get("EPISTOLE_LOGIN")
+    terminal = f", or `{shlex.quote(path)} {name}` in a terminal" if path else ""
+    return f"run `!epistole-login {name}` in Claude Code{terminal}"
+
+
 def _explain(exc: Exception, alias: str | None) -> str:
-    again = f"run `!epistole-login {alias or '<alias>'}` again"
+    again = _again(alias)
     kind = type(exc).__name__
     if isinstance(exc, Warning):  # oauthlib: the granted scopes differ from the requested ones
         return (
@@ -33,6 +46,11 @@ def _explain(exc: Exception, alias: str | None) -> str:
         return f"timed out after 5 minutes waiting for the browser sign-in; {again}."
     if kind == "AccessDeniedError":
         return f"access was denied in the browser, so nothing was saved; {again} and allow access."
+    if isinstance(exc, TransportError) or is_known_network(exc):
+        return (
+            f"the browser step finished, but this computer could not reach Google ({kind}), "
+            f"so nothing was saved. Check the network, VPN or firewall, then {again}."
+        )
     return f"sign-in failed ({kind}); {again}. Nothing was saved."
 
 
@@ -50,6 +68,7 @@ def main(
     if args.status == given or not (args.status or given):
         print(USAGE, file=sys.stderr)
         return 2
+    net.install()
     try:
         base = config.home()
         if args.status:
