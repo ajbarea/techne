@@ -104,6 +104,10 @@ If `/mcp` shows epistole failed, or the `accounts` tool is missing, the server d
 
 If `epistole-login` says uv is not on PATH, install uv the same way, open a new terminal, and run the command again.
 
+If `!epistole-login` prints nothing until it times out, no browser opened and the sign-in URL was held back until the command ended. Run the full path that the timeout error names in a terminal, without the `!`, and open the URL it prints.
+
+If the browser says "Sign-in received" but the terminal says it could not reach Google, the machine reached Google's sign-in page but not its API. epistole starts a connection to each of Google's addresses a quarter second apart and uses the first that answers, so a broken IPv6 route alone does not cause this; check the VPN, proxy or firewall.
+
 ## Privacy
 
 See the [epistole page](https://ajbarea.github.io/techne/plugins/epistole/) and the [privacy policy](https://ajbarea.github.io/techne/epistole/#privacy).

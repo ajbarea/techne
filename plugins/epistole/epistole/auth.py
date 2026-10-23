@@ -47,6 +47,7 @@ def _hint(alias: str) -> str:
 
 
 STATUS_TIMEOUT = 10  # seconds per account for the token refresh a status check may trigger
+LOGIN_TIMEOUT = 30  # seconds for the address lookup that ends a sign-in
 
 
 def load_credentials(base: Path, alias: str, *, timeout: float | None = None) -> Credentials:
@@ -83,10 +84,10 @@ def _default_flow(base: Path, alias: str) -> Any:
 
 
 def _default_profile_email(creds: Any) -> str:
-    from googleapiclient.discovery import build
+    from epistole.gmail import service
 
-    service = build("gmail", "v1", credentials=creds, cache_discovery=False)
-    return service.users().getProfile(userId="me").execute()["emailAddress"]
+    gmail = service(creds, timeout=LOGIN_TIMEOUT)
+    return gmail.users().getProfile(userId="me").execute()["emailAddress"]
 
 
 def login(

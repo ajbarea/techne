@@ -9,4 +9,6 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export UV_PROJECT_ENVIRONMENT="${XDG_CACHE_HOME:-$HOME/.cache}/epistole/venv"
 # uv runs from the plugin root, so a relative --client path must resolve against this directory.
 export EPISTOLE_CWD="$PWD"
+# The full path, for retry hints printed to a terminal, where epistole-login is not on PATH.
+export EPISTOLE_LOGIN="$root/bin/epistole-login"
 exec uv run --quiet --directory "$root" python -m epistole.login "$@"

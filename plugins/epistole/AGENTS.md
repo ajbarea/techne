@@ -74,6 +74,10 @@ The user adds the line to `accounts.toml` in the epistole home themselves, for e
 - The Google login can differ from the mail address. Some universities sign in on a subdomain such as `g.example.edu`, or the mail address is an alias of the login. The recorded address is whatever Google returns, so use the account chooser and check the address in the output.
 - An administrator can block apps that Google has not verified, or restrict access to Gmail for third-party apps. Sign-in then ends on a Google page saying the app is blocked or that the administrator blocked access, and no code returns to the terminal. The login command gives up after 5 minutes and prints a timeout line. Nothing the user does in epistole fixes this. They ask their administrator to allow the client, or use a personal account.
 
+## Running the login in a terminal
+
+Claude Code shows a `!` command's output only when the command ends, so if no browser opens, the sign-in URL appears only after the 5-minute wait. To see it straight away, run the login in a terminal instead. There `epistole-login` is not on PATH and the leading `!` must be left off, because zsh and bash read it as history expansion (`event not found`): run `<plugin-root>/bin/epistole-login <alias>`. The error after a timed-out or failed browser sign-in names that full path.
+
 ## WSL and remote shells
 
 The login command prints the sign-in URL if no browser opens. The user opens it in any browser on the same machine. Google then redirects to `http://127.0.0.1:<port>`, which WSL forwards to the Linux side.

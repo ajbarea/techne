@@ -22,6 +22,19 @@ except ImportError:  # pragma: no cover
     httplib2 = None
 
 
+def service(creds: Any, timeout: float | None = None) -> Any:
+    """A Gmail service for creds. With timeout, the HTTP client gives up after that many seconds."""
+    from googleapiclient.discovery import build
+
+    if timeout is None:
+        return build("gmail", "v1", credentials=creds, cache_discovery=False)
+    import google_auth_httplib2
+
+    assert httplib2 is not None
+    http = google_auth_httplib2.AuthorizedHttp(creds, http=httplib2.Http(timeout=timeout))
+    return build("gmail", "v1", http=http, cache_discovery=False)
+
+
 class SendOutcomeUnknown(RuntimeError):
     """The send request failed after Gmail may have accepted it."""
 
