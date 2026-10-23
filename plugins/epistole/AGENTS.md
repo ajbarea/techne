@@ -76,7 +76,7 @@ The user adds the line to `accounts.toml` in the epistole home themselves, for e
 
 ## Running the login in a terminal
 
-Claude Code shows a `!` command's output only when the command ends, so if no browser opens, the sign-in URL appears only after the 5-minute wait. To see it straight away, run the login in a terminal instead. There `epistole-login` is not on PATH and the leading `!` must be left off, because zsh and bash read it as history expansion (`event not found`): run `<plugin-root>/bin/epistole-login <alias>`. The error after a timed-out or failed browser sign-in names that full path.
+Claude Code shows a `!` command's output only when the command ends, so if no browser opens, the sign-in URL appears only after the 5-minute wait. To see it straight away, run the login in a terminal instead. There `epistole-login` is not on PATH and the leading `!` must be left off, because zsh and bash read it as history expansion (`event not found`): run `bin/epistole-login <alias>` from the epistole plugin folder, by its full path. The error after a timed-out or failed browser sign-in prints that full path.
 
 ## WSL and remote shells
 
