@@ -67,6 +67,7 @@ def test_a_clean_repo_passes_and_says_what_it_checked(repo, gh_stub):
     result = run(repo, gh_stub)
     assert result.returncode == 0, result.stderr
     assert "OK" in result.stdout and "3 private repo names" in result.stdout
+    assert "OK: 2 text files" in result.stdout  # .gitignore and README.md
     # It asked for the owner's private repos, not the signed-in user's.
     assert ["repo", "list", "acme", "--visibility", "private"] == gh_stub.argvs()[1][:5]
 
@@ -78,6 +79,10 @@ def test_a_clean_repo_passes_and_says_what_it_checked(repo, gh_stub):
         "SECRET-PROJ in capitals\n",
         "secret proj with a space\n",
         "secret_proj with an underscore\n",
+        "SecretProj as a class name\n",
+        "secret.proj, secret  proj and secretproj\n",
+        "ab\n",
+        "a-b\n",
         "secret-proj-v2 as a prefix\n",
         "(secret-proj)\n",
         "a.b\n",
@@ -95,7 +100,7 @@ def test_a_private_name_in_a_tracked_file_fails(repo, gh_stub, text):
 
 @pytest.mark.parametrize(
     "text",
-    ["a secret-projector\n", "mysecret-proj\n", "axb\n", "a-b\n", "secretproj\n"],
+    ["a secret-projector\n", "mysecret-proj\n", "axb\n", "secretprojects\n"],
 )
 def test_a_longer_word_or_a_near_miss_passes(repo, gh_stub, text):
     write(repo, "docs/page.md", text)
@@ -111,6 +116,52 @@ def test_a_listed_word_passes_as_prose_and_fails_as_a_repo_reference(repo, gh_st
     result = run(repo, gh_stub)
     assert result.returncode == 1
     assert "docs/ref.md:1" in result.stdout and "docs/page.md" not in result.stdout
+
+
+@pytest.mark.parametrize(
+    "text", ["acme/widgets-site\n", "other/widgets#3\n", "foo-widgets#12\n", "acme/widgetsy\n"]
+)
+def test_a_listed_word_inside_another_slug_passes(repo, gh_stub, text):
+    words_file(repo, "widgets\n")
+    write(repo, "docs/page.md", text)
+    result = run(repo, gh_stub)
+    assert result.returncode == 0, result.stdout
+
+
+def test_the_words_file_matches_any_spelling_of_a_name(repo, gh_stub):
+    words_file(repo, "Secret Proj\n")
+    write(repo, "docs/page.md", "a secret proj in prose\n")
+    assert run(repo, gh_stub).returncode == 0
+    write(repo, "docs/ref.md", "acme/secret-proj\n")
+    assert run(repo, gh_stub).returncode == 1
+
+
+def test_a_longer_name_is_reported_as_itself(repo, gh_stub):
+    write(repo, "docs/page.md", "see foo-bar\n")
+    result = run(repo, gh_stub, _rules(["foo", "foo-bar"]))
+    assert result.returncode == 1
+    assert "'foo-bar'" in result.stdout and "'foo'" not in result.stdout
+
+
+def test_staged_content_is_scanned_when_the_working_tree_differs(repo, gh_stub):
+    write(repo, "docs/page.md", "acme/secret-proj\n")
+    (repo / "docs" / "page.md").write_text("clean\n")  # edited, not staged
+    assert run(repo, gh_stub).returncode == 1
+    (repo / "docs" / "page.md").unlink()  # deleted, not staged
+    result = run(repo, gh_stub)
+    assert result.returncode == 1 and "docs/page.md:1" in result.stdout
+
+
+def test_an_unstaged_edit_is_scanned(repo, gh_stub):
+    (repo / "README.md").write_text("# demo\n\nsee secret-proj\n")
+    result = run(repo, gh_stub)
+    assert result.returncode == 1 and "README.md:3" in result.stdout
+
+
+def test_line_numbers_count_newlines_only(repo, gh_stub):
+    write(repo, "LICENSE", "terms\x0cmore\rterms\u2028x\nsecret-proj\n")
+    result = run(repo, gh_stub)
+    assert "LICENSE:2" in result.stdout, result.stdout
 
 
 def test_an_unlisted_word_fails_and_the_message_names_the_words_file(repo, gh_stub):
@@ -208,14 +259,21 @@ def test_no_visible_private_repo_skips_loudly(repo, gh_stub):
 
 
 @pytest.mark.parametrize("failing", ["view", "list"])
-def test_another_gh_failure_fails_with_its_reason(repo, gh_stub, failing):
+def test_gh_unable_to_list_skips_with_its_reason(repo, gh_stub, failing):
+    # Offline, an outage, or a remote gh cannot resolve.
+    failure = {"match": ["repo", failing], "stderr": "error connecting to github\n", "exit": 1}
+    result = run(repo, gh_stub, [failure, *_rules()])
+    assert result.returncode == 0
+    assert "SKIP" in result.stderr and "error connecting to github" in result.stderr
+
+
+def test_a_listing_that_is_not_json_fails(repo, gh_stub):
     rules = [
-        {"match": ["repo", failing], "stderr": "HTTP 502: bad gateway\n", "exit": 1},
-        *_rules(),
+        {"match": ["repo", "view"], "stdout": "acme\n"},
+        {"match": ["repo", "list"], "stdout": "<html>"},
     ]
     result = run(repo, gh_stub, rules)
-    assert result.returncode == 2
-    assert "HTTP 502: bad gateway" in result.stderr
+    assert result.returncode == 2 and "FAIL" in result.stderr
 
 
 def test_outside_a_git_repo_fails(tmp_path, gh_stub):
