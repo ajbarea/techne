@@ -103,9 +103,9 @@ Each class has the same four fields:
 ### unmodeled-host-config: The code assumes one host, version or config
 
 - **Symptom:** it works on the author's machine and crashes or silently skips on another OS, an older interpreter, a managed-settings path, or a config location the code never read.
-- **Question:** which OS, interpreter versions and config locations does this run under, and which of them has a test or a CI leg?
+- **Question:** which OS, interpreter versions, networks and config locations does this run under, and which of them has a test or a CI leg?
 - **Guard:** hook and doctor tests on the oldest supported interpreter (`make test-hooks-oldest`); every config path the platform defines listed and tested; an unknown host fails closed with a named reason.
-- **Incidents:** techne#189 r2 (2026-10-21): `tomllib` crashed on python 3.9; a private rm-approval hook r9 (2026-10-21): the macOS managed-settings path was not read; techne#194 r4 (2026-10-22): Explore and Plan pin `inherit` in the Claude Code binary, which the docs did not say.
+- **Incidents:** a private rm-approval hook r9 (2026-10-21): the macOS managed-settings path was not read; techne#194 r4 (2026-10-22): Explore and Plan pin `inherit` in the Claude Code binary, which the docs did not say; techne#202 (2026-10-23): epistole, built on WSL2 (no IPv6 behind NAT), hung every Gmail call on a Mac whose IPv6 route dropped packets, because httplib2 and urllib3 try addresses in turn.
 
 ### hot-path-latency: Slow work on a path that runs on every call
 
