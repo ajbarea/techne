@@ -13,10 +13,10 @@ CamelCase part, any case, parts joined by any run of `-`, `_`, `.`, space or non
 `<git-common-dir>/info/private-words` (this clone: the three that are ordinary words) match
 only as slugs `owner/name` (also `.git` or a full stop after) and `name#N`. Any gh failure
 skips loudly (CI included); git, gh output or words-file failures exit 2.
-Review: code-review high (10 findings, 8 fixed, 2 declined); reader r1 (3 Should-fix, 4 Minor
-fixed); reader r2 (PR body drift fixed; a prefilter search per text cut the scan from 11.5 s
-to about 5 s; two untested halves got tests). Next: reader r3 (the cap), then merge.
-Open Minors: a spaced name wrapped across two lines; a history hit names no commit.
+Review: code-review high (10 findings, 8 fixed, 2 declined); readers r1 to r3 (the cap):
+r3's rename/empty-blob history hole, `name#N` test and wrapped-name miss fixed with tests.
+Open Minors: overlapping names report one; an acronym-boundary name is not split; tag
+messages and author names are not scanned. Next: CI green, re-read comments, merge.
 Verify: `flock /tmp/fleet-heavy.lock timeout 600 uv run pytest tests/test_private_names.py -q`
 and `uv run python scripts/check_private_names.py`.
 

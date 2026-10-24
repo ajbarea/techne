@@ -401,3 +401,43 @@ def test_pushed_history_is_not_scanned(repo, gh_stub, tmp_path):
     _git(repo, "fetch", "-q", "origin")
     result = run(repo, gh_stub)
     assert result.returncode == 0, result.stdout
+
+
+def test_a_renamed_file_name_in_an_unpushed_commit_is_scanned(repo, gh_stub):
+    write(repo, "docs/secret-proj-notes.md", "clean\n")
+    commit(repo, "add")
+    _git(repo, "mv", "docs/secret-proj-notes.md", "docs/notes.md")
+    commit(repo, "rename")
+    result = run(repo, gh_stub)
+    assert result.returncode == 1
+    assert "docs/secret-proj-notes.md (an unpushed commit): in its name" in result.stdout
+
+
+def test_a_deleted_empty_file_name_in_an_unpushed_commit_is_scanned(repo, gh_stub, tmp_path):
+    # The remote already has the empty blob, so only the commit's path list names the file.
+    write(repo, "__init__.py", "")
+    commit(repo, "base")
+    remote = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+    _git(repo, "remote", "add", "origin", str(remote))
+    _git(repo, "push", "-q", "origin", "HEAD:main")
+    _git(repo, "fetch", "-q", "origin")
+    write(repo, "secret_proj_stub.py", "")
+    commit(repo, "add")
+    (repo / "secret_proj_stub.py").unlink()
+    commit(repo, "remove")
+    result = run(repo, gh_stub)
+    assert result.returncode == 1 and "secret_proj_stub.py (an unpushed commit)" in result.stdout
+
+
+def test_a_listed_word_as_an_issue_reference_fails(repo, gh_stub):
+    words_file(repo, "widgets\n")
+    write(repo, "docs/page.md", "intro\nfixed in widgets#12\n")
+    result = run(repo, gh_stub)
+    assert result.returncode == 1 and "docs/page.md:2" in result.stdout
+
+
+def test_a_name_wrapped_across_two_lines_fails_at_its_first_line(repo, gh_stub):
+    write(repo, "docs/page.md", "intro\nmoved to the Secret\n  Proj repo\n")
+    result = run(repo, gh_stub)
+    assert result.returncode == 1 and "docs/page.md:2" in result.stdout

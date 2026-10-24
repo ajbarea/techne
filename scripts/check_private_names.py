@@ -3,10 +3,11 @@
 Names come from `gh repo list <owner> --visibility private`, so the list never enters the
 repo. Scanned: each index entry's staged content; each tracked or addable working-tree
 file (`git ls-files --cached --others --exclude-standard`); every blob, path and commit
-message in commits no remote has (`git rev-list HEAD --not --remotes`); the branch name;
-and every file name. A name matches as a whole word or CamelCase part, any case, its parts
-(split at `-`, `_`, `.`, spaces and case changes) joined by any run of `-`, `_`, `.` or
-space, or none (`secret-proj`, `Secret Proj`, `SecretProjClient`). Names listed in
+message in commits no remote has (`git rev-list HEAD --not --remotes`, plus every path
+those commits add, delete or rename); the branch name; and every file name. A name matches
+as a whole word or CamelCase part, any case, its parts (split at `-`, `_`, `.`, spaces and
+case changes) joined by any run of `-`, `_`, `.` or whitespace, a line break included, or
+none (`secret-proj`, `Secret Proj`, `SecretProjClient`). Names listed in
 `<git-common-dir>/info/private-words` (one per line, `#` comments, compared the same way)
 are ordinary words too, and match only as the slugs `owner/name` and `name#N`.
 
@@ -17,6 +18,7 @@ file fails. Pushed history is not scanned: it is already public.
 
 from __future__ import annotations
 
+import bisect
 import io
 import json
 import os
@@ -186,6 +188,12 @@ def unpushed() -> tuple[list[tuple[bytes, bytes | None]], list[tuple[str, bytes]
         (path, next(blobs) if blob else None)
         for (_, path), blob in zip(objects, is_blob, strict=True)
     ]
+    # rev-list names each object once, under one path: a renamed file's old name, or a file
+    # whose content a remote already has, appears only in the commits' path lists.
+    changed = git(
+        "log", "-z", "--format=", "--name-only", "--no-renames", "-m", "HEAD", "--not", "--remotes"
+    )
+    found += [(path.strip(b"\n"), None) for path in set(changed.split(b"\0")) if path.strip()]
     log = git("log", "-z", "--format=%h%n%B", "HEAD", "--not", "--remotes")
     messages = []
     for entry in log.split(b"\0"):
@@ -272,10 +280,13 @@ def main() -> int:
             hits[named(match)].add((label, 0))
         texts = [t for t in (lines(data) for data in contents) if t is not None]
         scanned += bool(texts)
-        for text in (t for t in texts if prefilter.search("\n".join(t))):
-            for number, line in enumerate(text, 1):
-                for match in regex.finditer(line):
-                    hits[named(match)].add((label, number))
+        for whole in ("\n".join(t) for t in texts):
+            if not prefilter.search(whole):
+                continue
+            # The whole text at once, so a name wrapped across lines still matches.
+            breaks = [m.start() for m in re.finditer("\n", whole)]
+            for match in regex.finditer(whole):
+                hits[named(match)].add((label, bisect.bisect_left(breaks, match.start()) + 1))
 
     if not hits:
         print(f"OK: {scanned} texts hold none of {owner}'s {len(names)} private repo names")
