@@ -117,6 +117,15 @@ def build_regex(owner: str, names: list[str], words: set[str]) -> re.Pattern[str
     return re.compile("|".join(alts), re.IGNORECASE)
 
 
+def build_prefilter(owner: str, names: list[str], words: set[str]) -> re.Pattern[str]:
+    """Each name without its edges, a listed word as `owner/name` or `name#`: every match of
+    build_regex holds one, and one search of a whole text is far faster than the edge checks
+    on each line."""
+    slug = re.escape(owner) + "/{0}|{0}#"
+    alts = [slug.format(re.escape(n)) if key(n) in words else name_pattern(n) for n in names]
+    return re.compile("|".join(alts), re.IGNORECASE)
+
+
 def read_blobs(shas: list[bytes]) -> list[bytes]:
     """The contents of SHAS, in order, through one `git cat-file --batch`."""
     if not shas:
@@ -249,7 +258,7 @@ def main() -> int:
         return fail(f"{e.cmd[0]} timed out")
     if not names:
         return skip(f"no private repo of {owner} is visible to this gh login")
-    regex = build_regex(owner, names, words)
+    regex, prefilter = build_regex(owner, names, words), build_prefilter(owner, names, words)
 
     # name -> {(label, line)}, line 0 for the label itself
     hits: dict[str, set[tuple[str, int]]] = defaultdict(set)
@@ -263,7 +272,7 @@ def main() -> int:
             hits[named(match)].add((label, 0))
         texts = [t for t in (lines(data) for data in contents) if t is not None]
         scanned += bool(texts)
-        for text in texts:
+        for text in (t for t in texts if prefilter.search("\n".join(t))):
             for number, line in enumerate(text, 1):
                 for match in regex.finditer(line):
                     hits[named(match)].add((label, number))

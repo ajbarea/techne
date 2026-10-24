@@ -294,6 +294,21 @@ def test_outside_a_git_repo_fails(tmp_path, gh_stub):
     assert "git" in result.stderr
 
 
+def test_a_commented_line_in_the_words_file_is_not_a_word(repo, gh_stub):
+    words_file(repo, "# secret-proj\n")
+    write(repo, "docs/page.md", "see secret-proj\n")
+    assert run(repo, gh_stub).returncode == 1
+
+
+def test_the_prefilter_holds_every_name_the_scan_matches(repo, gh_stub):
+    # A name the prefilter missed would pass silently: every match must survive it.
+    words_file(repo, "widgets\n")
+    write(repo, "a.md", "x\n" * 5000 + "SecretProjClient and acme/widgets.git\n")
+    result = run(repo, gh_stub)
+    assert result.returncode == 1
+    assert "a.md:5001" in result.stdout and "'widgets'" in result.stdout
+
+
 @pytest.mark.parametrize(
     "text", ["moved to acme/widgets.\n", "git clone git@github.com:acme/widgets.git\n"]
 )
@@ -378,7 +393,7 @@ def test_pushed_history_is_not_scanned(repo, gh_stub, tmp_path):
     write(repo, "docs/page.md", "acme/secret-proj\n")
     commit(repo, "add")
     (repo / "docs" / "page.md").write_text("clean\n")
-    commit(repo, "remove")
+    commit(repo, "drop the secret-proj page")
     remote = tmp_path / "remote.git"
     subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
     _git(repo, "remote", "add", "origin", str(remote))
