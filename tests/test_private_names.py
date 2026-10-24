@@ -67,7 +67,7 @@ def test_a_clean_repo_passes_and_says_what_it_checked(repo, gh_stub):
     result = run(repo, gh_stub)
     assert result.returncode == 0, result.stderr
     assert "OK" in result.stdout and "3 private repo names" in result.stdout
-    assert "OK: 2 text files" in result.stdout  # .gitignore and README.md
+    assert "OK: 2 texts" in result.stdout  # .gitignore and README.md
     # It asked for the owner's private repos, not the signed-in user's.
     assert ["repo", "list", "acme", "--visibility", "private"] == gh_stub.argvs()[1][:5]
 
@@ -80,6 +80,8 @@ def test_a_clean_repo_passes_and_says_what_it_checked(repo, gh_stub):
         "secret proj with a space\n",
         "secret_proj with an underscore\n",
         "SecretProj as a class name\n",
+        "class SecretProjClient:\n",
+        "newSecretProj = 1\n",
         "secret.proj, secret  proj and secretproj\n",
         "ab\n",
         "a-b\n",
@@ -100,7 +102,7 @@ def test_a_private_name_in_a_tracked_file_fails(repo, gh_stub, text):
 
 @pytest.mark.parametrize(
     "text",
-    ["a secret-projector\n", "mysecret-proj\n", "axb\n", "secretprojects\n"],
+    ["a secret-projector\n", "mysecret-proj\n", "axb\n", "secretprojects\n", "SecretProjector\n"],
 )
 def test_a_longer_word_or_a_near_miss_passes(repo, gh_stub, text):
     write(repo, "docs/page.md", text)
@@ -119,7 +121,17 @@ def test_a_listed_word_passes_as_prose_and_fails_as_a_repo_reference(repo, gh_st
 
 
 @pytest.mark.parametrize(
-    "text", ["acme/widgets-site\n", "other/widgets#3\n", "foo-widgets#12\n", "acme/widgetsy\n"]
+    "text",
+    [
+        "acme/widgets-site\n",
+        "acme/widgets.site\n",
+        "other/widgets#3\n",
+        "foo-widgets#12\n",
+        "acme/widgetsy\n",
+        "notacme/widgets\n",
+        "foo-acme/widgets\n",
+        "see widgets#readme\n",
+    ],
 )
 def test_a_listed_word_inside_another_slug_passes(repo, gh_stub, text):
     words_file(repo, "widgets\n")
@@ -280,3 +292,97 @@ def test_outside_a_git_repo_fails(tmp_path, gh_stub):
     result = run(tmp_path, gh_stub)
     assert result.returncode == 2
     assert "git" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "text", ["moved to acme/widgets.\n", "git clone git@github.com:acme/widgets.git\n"]
+)
+def test_a_listed_word_ending_a_sentence_or_a_clone_url_fails(repo, gh_stub, text):
+    words_file(repo, "widgets\n")
+    write(repo, "docs/page.md", text)
+    assert run(repo, gh_stub).returncode == 1
+
+
+def test_a_camel_case_name_matches_its_parts(repo, gh_stub):
+    write(repo, "docs/page.md", "see my-repo\n")
+    result = run(repo, gh_stub, _rules(["MyRepo"]))
+    assert result.returncode == 1 and "'MyRepo'" in result.stdout
+
+
+def test_a_utf16_file_is_read(repo, gh_stub):
+    (repo / "notes.txt").write_bytes("see secret-proj\r\n".encode("utf-16"))
+    _git(repo, "add", "notes.txt")
+    result = run(repo, gh_stub)
+    assert result.returncode == 1 and "notes.txt:1" in result.stdout
+
+
+@pytest.mark.parametrize("bad", ["latin-1", "folder"])
+def test_an_unreadable_words_file_fails(repo, gh_stub, bad):
+    target = repo / ".git" / "info" / "private-words"
+    target.parent.mkdir(exist_ok=True)
+    if bad == "folder":
+        target.mkdir()
+    else:
+        target.write_bytes("caf\xe9\n".encode("latin-1"))
+    result = run(repo, gh_stub)
+    assert result.returncode == 2 and "FAIL" in result.stderr
+
+
+def test_a_submodule_entry_is_skipped(repo, gh_stub):
+    sha = "0" * 39 + "1"
+    _git(repo, "update-index", "--add", "--cacheinfo", f"160000,{sha},vendor/lib")
+    result = run(repo, gh_stub)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def commit(repo: pathlib.Path, message: str) -> None:
+    _git(repo, "add", "-A")
+    _git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", message)
+
+
+def test_an_unpushed_commit_is_scanned_after_the_name_is_removed(repo, gh_stub):
+    write(repo, "docs/page.md", "acme/secret-proj\n")
+    commit(repo, "add")
+    (repo / "docs" / "page.md").write_text("clean\n")
+    commit(repo, "remove")
+    result = run(repo, gh_stub)
+    assert result.returncode == 1
+    assert "docs/page.md (an unpushed commit):1" in result.stdout
+
+
+def test_a_commit_message_and_a_branch_name_are_scanned(repo, gh_stub):
+    commit(repo, "init")
+    _git(repo, "checkout", "-q", "-b", "feat/secret-proj")
+    result = run(repo, gh_stub)
+    assert result.returncode == 1 and "branch feat/secret-proj: in its name" in result.stdout
+    _git(repo, "checkout", "-q", "-b", "feat/other")
+    _git(
+        repo,
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@t",
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        "fix",
+        "-m",
+        "port the secret-proj loader",
+    )
+    result = run(repo, gh_stub)
+    assert result.returncode == 1 and "message:3" in result.stdout
+
+
+def test_pushed_history_is_not_scanned(repo, gh_stub, tmp_path):
+    write(repo, "docs/page.md", "acme/secret-proj\n")
+    commit(repo, "add")
+    (repo / "docs" / "page.md").write_text("clean\n")
+    commit(repo, "remove")
+    remote = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+    _git(repo, "remote", "add", "origin", str(remote))
+    _git(repo, "push", "-q", "origin", "HEAD:main")
+    _git(repo, "fetch", "-q", "origin")
+    result = run(repo, gh_stub)
+    assert result.returncode == 0, result.stdout

@@ -7,13 +7,14 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 ## In flight: release scan for private repo names (#198, branch `feat/private-name-scan`)
 
 `scripts/check_private_names.py`, run last in `make guards`: owner's private repo names from
-`gh repo list <owner> --visibility private` at run time; every `git ls-files --cached --others
---exclude-standard` file and file name; whole word, any case, `-`/`_`/space interchangeable;
-names in `<git-common-dir>/info/private-words` (untracked, shared by worktrees) match only as
-`owner/name` or `name#N`. Skips loudly on no gh, exit 4 or no visible private repo (CI); other
-gh or git failures exit 2. Mutation check: 15 of 15 hand mutants killed.
-This clone's words file lists the three private names that are ordinary words. Fixed four real
-hits (`owner/name` shapes in the heuresis spec, ROADMAP, `test_board_hook.py`).
+`gh` at run time. Scans staged blobs, tracked and addable working-tree files, blobs, paths and
+messages of commits no remote has, the branch name, and file names. A name matches as a word or
+CamelCase part, any case, parts joined by any run of `-`, `_`, `.`, space or none. Names in
+`<git-common-dir>/info/private-words` (this clone: the three that are ordinary words) match
+only as slugs `owner/name` (also `.git` or a full stop after) and `name#N`. Any gh failure
+skips loudly (CI included); git, gh output or words-file failures exit 2.
+Review: code-review high (10 findings, 8 fixed, 2 declined), elenchus reader (8 of 8 fixes
+held; 3 Should-fix + 4 Minor fixed in round 2). Next: round-2 reader, then merge.
 Verify: `flock /tmp/fleet-heavy.lock timeout 600 uv run pytest tests/test_private_names.py -q`
 and `uv run python scripts/check_private_names.py`.
 
