@@ -4,38 +4,24 @@ The active TODO list for whatever's in flight **right now**: current PR, open de
 immediate next pickup. Queued specs and ordering live in [ROADMAP.md](./ROADMAP.md); landed work
 moves to its dated Shipped log. Over ~50 lines means something referential crept in.
 
-## In flight: release scan for private repo names (#198, branch `feat/private-name-scan`)
+## In flight
 
-`scripts/check_private_names.py`, run last in `make guards`: owner's private repo names from
-`gh` at run time. Scans staged blobs, tracked and addable working-tree files, blobs, paths and
-messages of commits no remote has, the branch name, and file names. A name matches as a word or
-CamelCase part, any case, parts joined by any run of `-`, `_`, `.`, space or none. Names in
-`<git-common-dir>/info/private-words` (this clone: the three that are ordinary words) match
-only as slugs `owner/name` (also `.git` or a full stop after) and `name#N`. Any gh failure
-skips loudly (CI included); git, gh output or words-file failures exit 2.
-Review: code-review high (10 findings, 8 fixed, 2 declined); readers r1 to r3 (the cap):
-r3's rename/empty-blob history hole, `name#N` test and wrapped-name miss fixed with tests.
-Open Minors: overlapping names report one; an acronym-boundary name is not split; tag
-messages and author names are not scanned. Next: CI green, re-read comments, merge.
-Verify: `flock /tmp/fleet-heavy.lock timeout 600 uv run pytest tests/test_private_names.py -q`
-and `uv run python scripts/check_private_names.py`.
+- **#204** (closes #197, branch `fix/model-guard-agent-overrides`): `require_subagent_model`
+  reads a managed, project or user definition named `general-purpose`, `claude`, `Explore` or
+  `Plan`, which replaces the built-in (Claude Code 2.1.302 layers definitions by name). The walk
+  starts at `CLAUDE_PROJECT_DIR`; anything unreadable allows the call. code-review high (10
+  findings, 8 fixed); reader r1 running. Verify: `flock /tmp/fleet-heavy.lock timeout 600 uv run
+  pytest tests/test_model_guard.py` and `make test-hooks-oldest`.
+- **#206** (closes #205): sisters check 15 minors; readers r1 and r2 done, merging.
 
-## Next, in order
+## Open Minors (recorded, not scheduled)
 
-1. #195 phylax doctor reads option values case-insensitively, hooks match only lowercase `true`.
-2. #196 share phylax hook env and handler-runner test helpers through `tests/conftest.py`.
-3. #197 user or project agent named Explore or Plan checked as the built-in (decide the cost).
-4. Sisters check 15 minors (from #193, `scripts/agents_md.py`):
-   - A wholly ignored non-vendored folder (`scratch/`, or `.claude/` ignored) hides a CLAUDE.md a
-     session started there loads. Fix: for each `dir/` entry of the `--directory` listing, also
-     check that folder's top level (`CLAUDE.md`, `.claude/CLAUDE.md`, `CLAUDE.local.md`, plus
-     `dir/CLAUDE.md` when dir is `.claude`); test beside node_modules.
-   - Non-UTF-8 path + strict UTF-8 stdout raises UnicodeEncodeError and aborts later repos. Fix:
-     `sys.stdout.reconfigure(errors="backslashreplace")` in main; test a bytes-named folder in a
-     subprocess with PYTHONIOENCODING=utf-8.
-   - Dead `found = set()` in `candidates()`; nested CLAUDE.local.md gets "move into AGENTS.md"
-     advice (should get the personal-notes advice); a corrupt index reads "not a git repository".
-   Verify: `flock /tmp/fleet-heavy.lock timeout 600 uv run pytest tests/test_sisters_agents_md.py -q`.
+- #198 scan: overlapping names report one; an acronym-boundary name (`ABCTool`) is not split;
+  tag messages and author names are not scanned.
+- #201: `hook_env` keeps `GIT_CONFIG_COUNT`/`KEY_n`/`VALUE_n`/`PARAMETERS`, and two in-process
+  git-guard tests read the developer's global git config.
+- #204: a cygwin or msys python3 looks for managed agents at the Linux path.
+- #208: check 15 keeps an inherited `GIT_DIR` or `GIT_INDEX_FILE` (hygiene.py strips them).
 
 ## Then
 

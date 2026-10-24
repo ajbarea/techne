@@ -391,7 +391,8 @@ sits in the working directory or above it. A `CLAUDE.md` that imports `AGENTS.md
 session started in a subdirectory: the import is external there, so it loads only after an
 approval dialog, and `claude -p` skips it. The script flags every `CLAUDE.md`,
 `.claude/CLAUDE.md` and `CLAUDE.local.md` in the repo at any depth, tracked, untracked or ignored,
-except inside a wholly ignored folder such as `node_modules`, and every one in a directory above
+except below the top level of a wholly ignored folder such as `node_modules` (its own top level
+is checked, unless it is a clone of another project), and every one in a directory above
 the repo. `.claude/CLAUDE.local.md` is not a file Claude Code reads, so it is not flagged. The
 user's `~/.claude/CLAUDE.md` is not flagged. A
 symlinked `CLAUDE.md` checks out on Windows as a one-line text file. Sources:
@@ -405,4 +406,5 @@ The script prints one line per finding and one passing line per clean sister, an
 0. Report each sister without a committed `AGENTS.md`, each `CLAUDE.md` or `.claude/CLAUDE.md`
 (fix: move the content into `AGENTS.md` and delete the file), each `CLAUDE.local.md` (fix: move
 it to `~/.claude/CLAUDE.md`, or set Project instructions to `claude-md-and-agents-md`), each
-symlink, and a sister that is not cloned.
+symlink, a sister that is not cloned, and a `git ls-files failed in <repo>: ...` line (git's own
+error).

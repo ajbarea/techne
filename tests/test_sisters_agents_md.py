@@ -7,6 +7,7 @@ git decides what is tracked, and asserts on the line the check prints.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -49,6 +50,13 @@ def nested(rel: str, where: str) -> str:
     )
 
 
+def nested_local(rel: str, where: str) -> str:
+    return (
+        f"{rel} stops Claude Code reading AGENTS.md for you in a session started in {where}/ → "
+        "move it to ~/.claude/CLAUDE.md, or set Project instructions to claude-md-and-agents-md"
+    )
+
+
 @pytest.mark.parametrize(
     "files",
     [
@@ -88,7 +96,7 @@ def test_no_agents(am, tmp_path):
         (
             {"AGENTS.md": "# a\n", ".gitignore": "CLAUDE.local.md\n"},
             {"sub/CLAUDE.local.md": "x\n"},
-            nested("sub/CLAUDE.local.md", "sub"),
+            nested_local("sub/CLAUDE.local.md", "sub"),
         ),
         (
             {"AGENTS.md": "# a\n", ".gitignore": "CLAUDE.local.md\n"},
@@ -189,11 +197,79 @@ def test_symlink_is_flagged(am, tmp_path):
     assert "symlink" in finding and "delete it" in finding
 
 
-def test_missing_and_non_git(am, tmp_path):
+def test_missing_and_non_git(am, tmp_path, monkeypatch):
+    monkeypatch.setenv("LC_ALL", "C")  # git's own message, untranslated
     assert am.check(tmp_path / "absent") == [f"not cloned at {tmp_path / 'absent'}"]
     plain = tmp_path / "plain"
     plain.mkdir()
     assert "not a git repository" in am.check(plain)[0]
+
+
+def test_a_corrupt_index_says_what_git_said(am, tmp_path):
+    root = repo(tmp_path, {"AGENTS.md": "# a\n"})
+    (root / ".git" / "index").write_bytes(b"not an index")
+    [finding] = am.check(root)
+    assert "not a git repository" not in finding
+    assert finding.startswith(f"git ls-files failed in {root}: ")
+    assert "index file" in finding.split(": ", 1)[1]  # git's own words, not the temp path
+
+
+@pytest.mark.parametrize(
+    ("rel", "expect"),
+    [
+        ("scratch/CLAUDE.md", nested("scratch/CLAUDE.md", "scratch")),
+        ("scratch/.claude/CLAUDE.md", nested("scratch/.claude/CLAUDE.md", "scratch")),
+        ("scratch/CLAUDE.local.md", nested_local("scratch/CLAUDE.local.md", "scratch")),
+        ("sub/.claude/CLAUDE.md", nested("sub/.claude/CLAUDE.md", "sub")),
+    ],
+)
+def test_a_wholly_ignored_folder_has_its_top_level_checked(am, tmp_path, rel, expect):
+    root = repo(
+        tmp_path,
+        {"AGENTS.md": "# a\n", ".gitignore": "scratch/\nsub/.claude/\nnode_modules/\n"},
+        {rel: "x\n", "sub/keep.txt": "x\n", "node_modules/pkg/CLAUDE.md": "vendored\n"},
+    )
+    assert am.check(root) == [expect]
+
+
+def test_an_ignored_clone_of_another_project_is_not_checked(am, tmp_path):
+    root = repo(tmp_path, {"AGENTS.md": "# a\n", ".gitignore": "upstream/\n"})
+    subprocess.run(["git", "init", "-q", str(root / "upstream")], check=True)
+    (root / "upstream" / "CLAUDE.md").write_text("theirs\n")
+    assert am.check(root) == []
+
+
+def test_a_wholly_ignored_folder_is_not_searched_below_its_top_level(am, tmp_path):
+    root = repo(
+        tmp_path,
+        {"AGENTS.md": "# a\n", ".gitignore": "scratch/\n"},
+        {"scratch/deep/CLAUDE.md": "x\n", "scratch/.claude/CLAUDE.local.md": "x\n"},
+    )
+    assert am.check(root) == []
+
+
+def test_a_path_that_is_not_utf8_prints_and_later_repos_still_run(tmp_path):
+    root = repo(tmp_path, {"AGENTS.md": "# a\n"})
+    odd = os.path.join(os.fsencode(root), b"caf\xe9")
+    try:
+        os.mkdir(odd)
+    except OSError:  # APFS refuses a name that is not UTF-8
+        pytest.skip("this filesystem refuses a file name that is not UTF-8")
+    with open(os.path.join(odd, b"CLAUDE.md"), "wb") as f:
+        f.write(b"x\n")
+    (tmp_path / "second").mkdir()
+    repo(tmp_path / "second", {"README.md": "x\n"})
+    (tmp_path / "s").symlink_to(tmp_path / "second" / "r")
+    out = subprocess.run(
+        ["python3", str(AGENTS_MD_SCRIPT), str(tmp_path), "r", "s"],
+        capture_output=True,
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        check=False,
+    )
+    assert out.returncode == 0, out.stderr
+    lines = out.stdout.decode("utf-8").splitlines()
+    assert lines[0].startswith("r: caf\\udce9/CLAUDE.md replaces AGENTS.md")
+    assert lines[1] == "s: no committed AGENTS.md → add one"
 
 
 def test_cli_prints_per_repo_and_exits_zero(tmp_path):
