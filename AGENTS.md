@@ -41,6 +41,7 @@ make build      # strict Zensical build of the docs site
 
 - Work in a git worktree, not the main checkout, and open a pull request; `main` is protected.
 - Never commit `site/` (build output) or `COMMITS.md` (a local scratchpad).
+- Name a private repo by what it is ("a private plugin installer"), never by its name. `make guards` checks everything a commit or push can carry against the owner's private repo names from `gh`; a name that is also an ordinary word goes in the clone's `.git/info/private-words`, after which it matches only as `owner/name` or `name#N`.
 - A skill's `SKILL.md` frontmatter `description:` is the canonical summary; README rows and `docs/skills/*.md` pages summarize it in their own words. A new skill needs its own page in the nav, titled with the skill's name, and each page's `description:` front matter is what `llms.txt` shows for it (`tests/test_docs_coverage.py` checks both).
 - Do not write skill or plugin counts into prose. README's per-skill tables carry the inventory.
 - `.claude/skill-context.md` holds the facts the techne skills read for this repo.

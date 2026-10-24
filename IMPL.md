@@ -1,116 +1,49 @@
 # techne — Implementation scratchpad
 
-The active TODO list for whatever's in flight **right now** — current
-PR, open design question blocking me, immediate next pickup. Queued
-specs, cross-skill themes, and "next up" ordering live in
-[ROADMAP.md](./ROADMAP.md). Git history is the permanent record of
-how each skill was designed.
+The active TODO list for whatever's in flight **right now**: current PR, open design question,
+immediate next pickup. Queued specs and ordering live in [ROADMAP.md](./ROADMAP.md); landed work
+moves to its dated Shipped log. Over ~50 lines means something referential crept in.
 
-If this file is more than ~50 lines, something queued or referential
-has crept in; extract it back to ROADMAP.
+## In flight: release scan for private repo names (#198, branch `feat/private-name-scan`)
 
-### Landed on main: elenchus bug-class catalog + phylax model guard (#194)
+`scripts/check_private_names.py`, run last in `make guards`: owner's private repo names from
+`gh` at run time. Scans staged blobs, tracked and addable working-tree files, blobs, paths and
+messages of commits no remote has, the branch name, and file names. A name matches as a word or
+CamelCase part, any case, parts joined by any run of `-`, `_`, `.`, space or none. Names in
+`<git-common-dir>/info/private-words` (this clone: the three that are ordinary words) match
+only as slugs `owner/name` (also `.git` or a full stop after) and `name#N`. Any gh failure
+skips loudly (CI included); git, gh output or words-file failures exit 2.
+Review: code-review high (10 findings, 8 fixed, 2 declined); readers r1 to r3 (the cap):
+r3's rename/empty-blob history hole, `name#N` test and wrapped-name miss fixed with tests.
+Open Minors: overlapping names report one; an acronym-boundary name is not split; tag
+messages and author names are not scanned. Next: CI green, re-read comments, merge.
+Verify: `flock /tmp/fleet-heavy.lock timeout 600 uv run pytest tests/test_private_names.py -q`
+and `uv run python scripts/check_private_names.py`.
 
-`elenchus/references/bug-classes.md` (tested by `tests/test_bug_classes.py`), loop rules,
-author pre-flight; phylax `require_subagent_model` (`hooks/model_guard.py`). Ledger, unassigned:
-#195 doctor/hook case mismatch, #196 shared hook-test helpers, #197 user agents named Explore
-or Plan, #198 release scan against private repo names (the structural fix for the scrub class).
+## Next, in order
 
-## Follow-up: sisters check 15 minors (PR #193 merged)
+1. #195 phylax doctor reads option values case-insensitively, hooks match only lowercase `true`.
+2. #196 share phylax hook env and handler-runner test helpers through `tests/conftest.py`.
+3. #197 user or project agent named Explore or Plan checked as the built-in (decide the cost).
+4. Sisters check 15 minors (from #193, `scripts/agents_md.py`):
+   - A wholly ignored non-vendored folder (`scratch/`, or `.claude/` ignored) hides a CLAUDE.md a
+     session started there loads. Fix: for each `dir/` entry of the `--directory` listing, also
+     check that folder's top level (`CLAUDE.md`, `.claude/CLAUDE.md`, `CLAUDE.local.md`, plus
+     `dir/CLAUDE.md` when dir is `.claude`); test beside node_modules.
+   - Non-UTF-8 path + strict UTF-8 stdout raises UnicodeEncodeError and aborts later repos. Fix:
+     `sys.stdout.reconfigure(errors="backslashreplace")` in main; test a bytes-named folder in a
+     subprocess with PYTHONIOENCODING=utf-8.
+   - Dead `found = set()` in `candidates()`; nested CLAUDE.local.md gets "move into AGENTS.md"
+     advice (should get the personal-notes advice); a corrupt index reads "not a git repository".
+   Verify: `flock /tmp/fleet-heavy.lock timeout 600 uv run pytest tests/test_sisters_agents_md.py -q`.
 
-Check 15 (`scripts/agents_md.py`) flags every CLAUDE.md, .claude/CLAUDE.md and CLAUDE.local.md
-in a sister (tracked, untracked or ignored, any depth, except inside a wholly ignored folder)
-or above it. Six review rounds; the last found no Blocking or Should-fix. Open Minors:
-1. A wholly ignored non-vendored folder (`scratch/`, or `.claude/` ignored) hides a CLAUDE.md
-   a session started there loads (probe: PLUM). Fix: for each `dir/` entry from the
-   `--directory` listing, also check that folder's top level (`CLAUDE.md`, `.claude/CLAUDE.md`,
-   `CLAUDE.local.md`, plus `dir/CLAUDE.md` when dir is `.claude`); test beside node_modules.
-2. Non-UTF-8 path + strict UTF-8 stdout raises UnicodeEncodeError and aborts later repos. Fix:
-   `sys.stdout.reconfigure(errors="backslashreplace")` in main; test a bytes-named folder in a
-   subprocess with PYTHONIOENCODING=utf-8 (kills the fsdecode-revert mutant).
-3. Dead `found = set()` in `candidates()`; nested CLAUDE.local.md gets "move into AGENTS.md"
-   advice (should get the personal-notes advice); a corrupt index reads "not a git repository".
-Fleet: velocity-fl (harvest-only) has no AGENTS.md; every other sister passes.
-Verify: `flock /tmp/fleet-heavy.lock timeout 600 uv run pytest tests/test_sisters_agents_md.py -q -rA`.
+## Then
 
-### Landed on main: one techne.toml reader (#192, closes #190)
-
-`_shared/techne_config.py` is the only reader of `~/.claude/techne.toml`: bounded
-`read_regular()` (also repo_kind's skill-context read), `load()` with one `ConfigError` family
-each caller maps, strict roster (`sisters()`, one-folder names), `required()`, `workspace_root()`
-(absolute or `~`), kind/status rules, `checkout()`, `matches()`. A guard test keeps every other
-techne script from parsing TOML or building a path to the file. Not changed on purpose:
-same-origin git call per team sister (~5 ms), `matches()` resolving per sister, board init's
-double parse.
-
-### Landed on main: solo repos act, team repos ask (#189)
-
-`_shared/repo_kind.py`: only GitHub facts make a repo solo; the canonical marker `- owner: team`
-under `## repo` or `kind = "team"` makes it team; unsettled reads team. docsync acts on solo
-repos; ci-audit `[PROPOSE→FIX]`. ldqis carries the canonical line (ldqis #200).
-
-## In flight: `techne:board` (branch `feat/board`)
-
-One user-owned GitHub Projects board, Status = Idea, Issue, In PR, Merged, Live, named by
-`[board] owner/number` in `~/.claude/techne.toml` (absent = every board feature is a no-op).
-
-Done:
-- `_shared/project_board.py` (imports on 3.9; config needs tomllib): trigger
-  detection, URL extraction, gh with one time budget, ID cache in `~/.cache/techne/`.
-- `hooks/board_add.py` + PostToolUse entry in `hooks/hooks.json` (`if: Bash(gh *)`).
-- `skills/board/` SKILL.md + `scripts/board.py`: show, sync, idea, live, init (init sets
-  Status via GraphQL `updateProjectV2Field.singleSelectOptions`, keeps IDs of kept options,
-  refuses to drop an option an item uses, prints the `[board]` table and workflow clicks).
-- Tests: `tests/test_board_hook.py` (in HOOK_TESTS, runs on 3.9), `tests/test_board_script.py`,
-  stub gh `tests/fixtures/gh_stub.py` + `gh_stub` fixture. Docs page, config schema, eval case.
-
-Review fixes (PR #186): the hook takes only URL-only lines and a top-level `html_url`, never
-moves an item already on the board (GraphQL `resource.projectItems` check before adding),
-matches `gh issue/pr new` and wrappers outside quotes and heredocs, reads techne.toml only with
-tomllib (no fallback; below 3.11 it is a silent no-op), and caps its failure line under 300.
-
-Not verified live: the token here lacks the `project` scope, so every gh project call is
-stub-tested only. After merge: `gh auth refresh -h github.com -s project`, then
-`/techne:board init --title ajsoftworks`, add the printed table, set the two workflows,
-`/techne:board sync`.
-
-Verify: `make validate`.
-
-### Landed on main: elenchus review tiers (#187)
-
-Three roles (author dispatches and relays, dispatched reader runs one round and writes nowhere,
-independent reader runs every phase) and two tiers (high: `/code-review high` on the PR or branch
-first, for a new subsystem, a destructive op added or fed, persisted state, a security, privacy,
-access or governance boundary, or a sensitive target; light: the reader alone; unsure is high).
-
-### Landed on main: elenchus says when the review loop ends (#185)
-
-`## When the review loop ends` in the elenchus SKILL.md and docs page: no fixed round count; one
-reproduction attempt per unproven finding before each report; continue while a reproduced
-Blocking/Should-fix finding is reachable, stop otherwise; open findings go in the Phase 5 comment
-or an existing linked issue; a long loop pauses for the user. Took five review rounds; the first
-draft's Porter et al. 1997 citation was dropped (two sessions beat one for one-person teams).
-
-## Then: commit guards on Git 2.54 hooks (#96)
-
-Config-based `commit-msg` and `pre-commit` hooks set through `CLAUDE_ENV_FILE`. Git 2.54 has shipped
-(2.56 is current), but WSL's Ubuntu 24.04 has 2.43; testing needs a 2.54 or newer git here.
+- #96 commit guards on Git 2.54 config hooks: needs git 2.54 or newer here (WSL has 2.43).
+- #129 onboarding follow-ups; #87 flaky behavior-deslop eval gate; #86 `make test` red on macOS;
+  #118 and #119 dokimasia matching bugs.
 
 ## Skill collection state
 
-Shipped plugins and skills by catalog dimension (the directory listing of `plugins/*/skills/` is the source of truth):
-
-| Plugin | Dimension | Skills |
-| --- | --- | --- |
-| `techne` | **Audit** | `audit`, `ci-audit` |
-| `techne` | **Drift** | `docsync`, `docs-site`, `research-grounded`, `sisters` |
-| `techne` | **Hygiene** | `auto-commit`, `deslop`, `reslop` |
-| `techne` | **Review** | `catchup`, `elenchus` |
-| `techne` | **Tracking** | `board` (and its PostToolUse hook) |
-| `techne` | **Observation** | `theoros` |
-| `techne`, `graphe`, `heuresis`, `phylax` | **Setup** | `setup` (a read-only doctor per plugin) |
-| `graphe` | **Document build** | `latex`, `pdf`, `paper`, `paper-review`, `slides` |
-| `dokimasia` | **Bibliography** | `check` |
-| `heuresis` | **Ideas** | `idea`, `setup` |
-| `epistole` | **Mail** | MCP server, setup |
-| `phylax` | **Hooks** | git guards (a mod, `hooks/register.ts`), `restart_on_update` (command hooks) |
+The directory listing of `plugins/*/skills/` is the source of truth; README's per-skill tables
+carry the inventory, and ROADMAP's Shipped log records each addition.

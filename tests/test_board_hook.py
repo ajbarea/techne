@@ -156,11 +156,11 @@ def test_malformed_board_config_says_so(gh_stub: GhStub):
 def test_several_urls_each_get_their_status(board: GhStub):
     out = (
         "https://github.com/ajbarea/techne/issues/1\n"
-        "https://github.com/ajbarea/papers/pull/2\n"
+        "https://github.com/ajbarea/kourai/pull/2\n"
         "https://github.com/other/repo/issues/4\n"
         "https://github.com/ajbarea/techne/issues/1\n"
     )
-    cmd = "gh issue create -t a -b a && gh pr create -R ajbarea/papers --fill"
+    cmd = "gh issue create -t a -b a && gh pr create -R ajbarea/kourai --fill"
     proc = run_hook(board, cmd, out)
     assert proc.returncode == 0 and proc.stdout == ""
     assert edits(board) == [("PVTI_1", "o_issue"), ("PVTI_2", "o_pr")]

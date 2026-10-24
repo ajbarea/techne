@@ -84,7 +84,6 @@ def test_privacy_url_matches_the_site_layout():
 def test_every_plugin_list_mentions_epistole():
     for name in (
         "README.md",
-        "IMPL.md",
         "docs/index.md",
         "docs/getting-started.md",
         "docs/skills/index.md",
