@@ -12,7 +12,7 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
   starts at `CLAUDE_PROJECT_DIR`; anything unreadable allows the call. code-review high (10
   findings, 8 fixed); reader r1 running. Verify: `flock /tmp/fleet-heavy.lock timeout 600 uv run
   pytest tests/test_model_guard.py` and `make test-hooks-oldest`.
-- **#206** (closes #205): sisters check 15 minors, reader r1 fixes in.
+- **#206** (closes #205): sisters check 15 minors; readers r1 and r2 done, merging.
 
 ## Open Minors (recorded, not scheduled)
 
@@ -21,6 +21,7 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 - #201: `hook_env` keeps `GIT_CONFIG_COUNT`/`KEY_n`/`VALUE_n`/`PARAMETERS`, and two in-process
   git-guard tests read the developer's global git config.
 - #204: a cygwin or msys python3 looks for managed agents at the Linux path.
+- #208: check 15 keeps an inherited `GIT_DIR` or `GIT_INDEX_FILE` (hygiene.py strips them).
 
 ## Then
 

@@ -210,7 +210,8 @@ def test_a_corrupt_index_says_what_git_said(am, tmp_path):
     (root / ".git" / "index").write_bytes(b"not an index")
     [finding] = am.check(root)
     assert "not a git repository" not in finding
-    assert "git ls-files failed" in finding and "index" in finding
+    assert finding.startswith(f"git ls-files failed in {root}: ")
+    assert "index file" in finding.split(": ", 1)[1]  # git's own words, not the temp path
 
 
 @pytest.mark.parametrize(
@@ -250,7 +251,10 @@ def test_a_wholly_ignored_folder_is_not_searched_below_its_top_level(am, tmp_pat
 def test_a_path_that_is_not_utf8_prints_and_later_repos_still_run(tmp_path):
     root = repo(tmp_path, {"AGENTS.md": "# a\n"})
     odd = os.path.join(os.fsencode(root), b"caf\xe9")
-    os.mkdir(odd)
+    try:
+        os.mkdir(odd)
+    except OSError:  # APFS refuses a name that is not UTF-8
+        pytest.skip("this filesystem refuses a file name that is not UTF-8")
     with open(os.path.join(odd, b"CLAUDE.md"), "wb") as f:
         f.write(b"x\n")
     (tmp_path / "second").mkdir()

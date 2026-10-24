@@ -406,4 +406,5 @@ The script prints one line per finding and one passing line per clean sister, an
 0. Report each sister without a committed `AGENTS.md`, each `CLAUDE.md` or `.claude/CLAUDE.md`
 (fix: move the content into `AGENTS.md` and delete the file), each `CLAUDE.local.md` (fix: move
 it to `~/.claude/CLAUDE.md`, or set Project instructions to `claude-md-and-agents-md`), each
-symlink, and a sister that is not cloned.
+symlink, a sister that is not cloned, and a `git ls-files failed in <repo>: ...` line (git's own
+error).

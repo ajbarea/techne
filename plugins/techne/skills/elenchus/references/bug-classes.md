@@ -68,7 +68,7 @@ Each class has the same four fields:
 - **Symptom:** the PR body, a docstring, a comment or a `Closes #N` says something the code does not do, and a `Closes` retires a gap that is still open.
 - **Question:** does each sentence of the description, each changed docstring and each closing keyword match what the code now does?
 - **Guard:** reread the description against the final diff after the last push; docs that state numbers read them from the code or a registry a test checks.
-- **Incidents:** techne#189 (2026-10-21): 11 distinct drift findings across the loop; techne#194 r2 to r5 (2026-10-22): each fix left the PR body or IMPL.md describing the guard it replaced.
+- **Incidents:** techne#189 (2026-10-21): 11 drift findings in one loop; techne#194 r2 to r5 (2026-10-22): each fix left the PR body or IMPL.md describing the guard it replaced; techne#200 r2 (2026-10-24): the PR body described the first commit.
 
 ### 9. wrong-altitude: DRY and right altitude
 
@@ -126,7 +126,7 @@ Each class has the same four fields:
 - **Symptom:** a valid but uncommon input (a bare repo, a worktree of a bare repo, a submodule, a detached HEAD, a path with spaces or a leading dash) takes a branch nobody wrote for it.
 - **Question:** what shapes can this input take in the wild, and is each one a test case or an explicit refusal?
 - **Guard:** the shape list written into the test module as a parametrized table before the code; an unknown shape fails closed with a named reason.
-- **Incidents:** techne#189 r4 (2026-10-21): a worktree of a bare repo, whose common dir is not `.git`, broke the repo-kind check, one of 21 repo-shape findings in that loop.
+- **Incidents:** techne#189 r4 (2026-10-21): a worktree of a bare repo, whose common dir is not `.git`, broke the repo-kind check; techne#200 r3 (2026-10-24): `rev-list --objects` names each blob once, so a renamed file's old name escaped the scan.
 
 ### asymmetric-signal: One source wins whoever set it
 
@@ -168,7 +168,7 @@ Each class has the same four fields:
 - **Symptom:** a check passes everywhere, including on the case it was written to reject, while tests are green and the prose calls it enforced.
 - **Question:** what input makes this guard fail, and has anyone switched off the thing it protects and watched a test go red?
 - **Guard:** a mutation check: flip each guard condition in turn and confirm a test fails (mutmut for Python, Stryker for JS and TS, or by hand for a few conditions); assert that edit scripts changed the file.
-- **Incidents:** pharos (2026-08): an edit script's missing anchor made `str.replace` a no-op that printed "ok"; a private copy eval (2026-09-18): `\bmg\b` never matched "10mg"; a private rm-approval hook r9 (2026-10-21): the tests stayed green with the place and guard logic switched off, until an r10 mutation check killed 62 of 62 mutants.
+- **Incidents:** a private copy eval (2026-09-18): `\bmg\b` never matched "10mg"; a private rm-approval hook r9 (2026-10-21): tests stayed green with the guard logic off until r10's mutation check; techne#201 r2 (2026-10-24): reverting two doctor `is True` gates to `bool` left every test green.
 
 ### instance-patch: The same fix again instead of a guard
 
