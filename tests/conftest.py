@@ -20,6 +20,7 @@ import json
 import os
 import pathlib
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -50,6 +51,57 @@ GOLD_RUNNER = ROOT / "scripts" / "heuresis_gold.py"
 # The doctors and hooks run on the user's system python3; `make test-hooks-oldest` sets this
 # to python3 3.9.
 HOOK_PYTHON = os.environ.get("TECHNE_GUARD_PYTHON", sys.executable)
+
+
+def hook_env(
+    on: Iterable[str] | Mapping[str, str] = (), drop: tuple[str, ...] = (), **extra: str
+) -> dict[str, str]:
+    """A plugin hook's environment: ours without any inherited CLAUDE_PLUGIN_OPTION_* or DROP
+    prefix and without the developer's global or system git config (where a phylax.* key
+    would switch a guard off), each ON option set ("true" for a key, or the value a mapping
+    gives), then EXTRA."""
+    if isinstance(on, str):
+        raise TypeError("hook_env takes a list of option keys or a mapping, not one string")
+    env = {
+        k: v for k, v in os.environ.items() if not k.startswith(("CLAUDE_PLUGIN_OPTION_", *drop))
+    }
+    env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+    values = on if isinstance(on, Mapping) else dict.fromkeys(on, "true")
+    env.update({f"CLAUDE_PLUGIN_OPTION_{key.upper()}": value for key, value in values.items()})
+    env.update(extra)
+    return env
+
+
+def hook_handlers(plugin: str, event: str, matcher: str | None = None) -> list[dict]:
+    """The handlers PLUGIN's hooks/hooks.json registers for EVENT, in groups matching MATCHER."""
+    config = json.loads((ROOT / "plugins" / plugin / "hooks" / "hooks.json").read_text())
+    groups = config["hooks"].get(event, [])
+    return [h for g in groups if matcher in (None, g.get("matcher")) for h in g["hooks"]]
+
+
+def hook_shell(plugin: str, handler: Mapping, python: str | None = HOOK_PYTHON) -> str:
+    """HANDLER's shell-form command with the plugin root filled in, and `exec python3` run on
+    PYTHON (None keeps the PATH lookup, for a test that python3 never starts)."""
+    shell = handler["command"].replace("${CLAUDE_PLUGIN_ROOT}", str(ROOT / "plugins" / plugin))
+    return (
+        shell if python is None else shell.replace("exec python3 ", f"exec {shlex.quote(python)} ")
+    )
+
+
+def run_hook_handler(
+    plugin: str, handler: Mapping, stdin: str, env: Mapping[str, str]
+) -> subprocess.CompletedProcess:
+    """Run HANDLER through sh, as Claude Code runs a shell-form hook."""
+    return subprocess.run(
+        ["sh", "-c", hook_shell(plugin, handler)],
+        input=stdin,
+        capture_output=True,
+        text=True,
+        env=dict(env),
+        check=False,
+        timeout=60,
+    )
+
 
 # One doctor output line: a check, an indented fix, or the closing result.
 DOCTOR_LINE = re.compile(

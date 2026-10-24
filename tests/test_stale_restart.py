@@ -19,7 +19,7 @@ import subprocess
 import time
 
 import pytest
-from conftest import HOOK_PYTHON, _load
+from conftest import HOOK_PYTHON, _load, hook_env, hook_handlers, hook_shell
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "phylax"
@@ -106,12 +106,8 @@ def env(tmp_path, sr, monkeypatch):
     monkeypatch.setattr(sr, "STATE", state)
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
-    sub = {
-        k: v
-        for k, v in os.environ.items()
-        if not k.startswith(("CLAUDE_PLUGIN_OPTION_", "TMUX", "WT_", "WSL_", "ANTHROPIC_MODEL"))
-    }
-    sub.update(
+    sub = hook_env(
+        drop=("TMUX", "WT_", "WSL_", "ANTHROPIC_MODEL"),
         PATH=f"{bin_}:/usr/bin:/bin",
         HOME=str(home),
         PHYLAX_RESTART_SESSIONS=str(sessions),
@@ -791,16 +787,11 @@ def test_hook_tolerates_bad_input(env, payload):
 # --- hooks.json and the manifest -----------------------------------------------
 
 
-def _handlers(event: str) -> list[dict]:
-    config = json.loads(HOOKS_JSON.read_text())
-    return [h for group in config["hooks"][event] for h in group["hooks"]]
-
-
 def test_hooks_json_wires_the_option_to_its_events():
     config = json.loads(HOOKS_JSON.read_text())
     assert config["hooks"]["Notification"][0]["matcher"] == "idle_prompt"
     for event in EVENTS:
-        (handler,) = _handlers(event)
+        (handler,) = hook_handlers("phylax", event)
         assert f"$CLAUDE_PLUGIN_OPTION_{OPTION.upper()}" in handler["command"]
         assert '"${CLAUDE_PLUGIN_ROOT}/hooks/stale_restart.py"' in handler["command"]
 
@@ -809,8 +800,8 @@ def test_hooks_json_skips_python_when_off(tmp_path):
     empty = tmp_path / "bin"
     empty.mkdir()
     for event in EVENTS:
-        (handler,) = _handlers(event)
-        shell = handler["command"].replace("${CLAUDE_PLUGIN_ROOT}", str(PLUGIN))
+        (handler,) = hook_handlers("phylax", event)
+        shell = hook_shell("phylax", handler, python=None)
         proc = subprocess.run(
             ["/bin/sh", "-c", shell],
             input="{}",

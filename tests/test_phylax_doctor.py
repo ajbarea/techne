@@ -76,7 +76,6 @@ def test_unset_options_in_every_form_read_as_off(tmp_path, env):
     argv = [
         "block_attribution_trailers=${user_config.block_attribution_trailers}",
         "block_commits_md=",
-        "warn_main_checkout_commit=maybe",
         "unknown_key=true",
         "not-an-assignment",
     ]
@@ -84,8 +83,18 @@ def test_unset_options_in_every_form_read_as_off(tmp_path, env):
     assert proc.returncode == 0
     for key in OPTIONS:
         assert found[key][0] == "n/a" and found[key][1].startswith("not set, so off"), key
-    proc, found = doctor(tmp_path, ["block_commits_md=TRUE"], env)
-    assert found["block_commits_md"] == ("ok", "on")
+
+
+@pytest.mark.parametrize("option", OPTIONS)
+@pytest.mark.parametrize("value", ["maybe", "TRUE", "True", " true", "x:true"])
+def test_a_value_the_hooks_do_not_read_as_true_is_named_and_off(tmp_path, env, option, value):
+    proc, found = doctor(tmp_path, [f"{option}={value}"], env)
+    assert proc.returncode == 0
+    status, detail = found[option]
+    assert status == "n/a" and detail.startswith(f"set to {value!r}") and "so off" in detail
+    # Nothing the option needs is checked, since it is off.
+    for name in ("mod", "python3", "git", "proc", "launcher", "claude", "state-dir"):
+        assert found[name][0] == "n/a", (option, name)
 
 
 def test_missing_arguments_read_as_off(tmp_path, env):

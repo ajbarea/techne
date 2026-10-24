@@ -113,7 +113,7 @@ GH_FILE = {"-F": "file", "--body-file": "file", "-T": "file", "--template": "fil
 
 
 def option_on(key: str) -> bool:
-    return os.environ.get(f"CLAUDE_PLUGIN_OPTION_{key.upper()}", "").strip().lower() == "true"
+    return os.environ.get(f"CLAUDE_PLUGIN_OPTION_{key.upper()}") == "true"
 
 
 def repo_key(key: str) -> str:

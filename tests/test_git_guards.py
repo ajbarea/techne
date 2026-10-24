@@ -15,7 +15,7 @@ import sys
 import time
 
 import pytest
-from conftest import HOOK_PYTHON
+from conftest import HOOK_PYTHON, hook_env, hook_handlers, hook_shell, run_hook_handler
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "phylax"
@@ -55,16 +55,13 @@ def repo(tmp_path):
 
 def run_hook(command: str, cwd: pathlib.Path, *, on=ALL) -> dict | None:
     """Run the guard as Claude Code would; return its JSON output, or None when silent."""
-    env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE_PLUGIN_OPTION_")}
-    for key in on:
-        env[f"CLAUDE_PLUGIN_OPTION_{key.upper()}"] = "true"
     payload = json.dumps({"cwd": str(cwd), "tool_input": {"command": command}})
     proc = subprocess.run(
         [HOOK_PYTHON, str(GUARDS)],
         input=payload,
         capture_output=True,
         text=True,
-        env=env,
+        env=hook_env(on),
         check=False,
     )
     assert proc.returncode == 0, proc.stderr
@@ -331,25 +328,14 @@ def test_unparseable_command_falls_back_to_raw_scan(repo):
 
 
 def _handlers() -> list[dict]:
-    config = json.loads(HOOKS_JSON.read_text())
-    groups = [g for g in config["hooks"]["PreToolUse"] if g["matcher"] == "Bash"]
-    return [h for group in groups for h in group["hooks"]]
+    return hook_handlers("phylax", "PreToolUse", "Bash")
 
 
 def run_handler(handler: dict, command: str, cwd: pathlib.Path, *, on, env_extra=None, **fields):
     """Run the hooks.json fallback through sh, as Claude Code does for a shell-form hook."""
-    shell = handler["command"].replace("${CLAUDE_PLUGIN_ROOT}", str(PLUGIN))
-    env = {
-        k: v
-        for k, v in os.environ.items()
-        if not k.startswith(("CLAUDE_PLUGIN_OPTION_", "PHYLAX_"))
-    }
-    env.update({f"CLAUDE_PLUGIN_OPTION_{key.upper()}": "true" for key in on})
-    env.update(env_extra or {})
+    env = hook_env(on, drop=("PHYLAX_",), **(env_extra or {}))
     payload = json.dumps({"cwd": str(cwd), "tool_input": {"command": command}, **fields})
-    proc = subprocess.run(
-        ["sh", "-c", shell], input=payload, capture_output=True, text=True, env=env, check=False
-    )
+    proc = run_hook_handler("phylax", handler, payload, env)
     assert proc.returncode == 0, proc.stderr
     return json.loads(proc.stdout) if proc.stdout.strip() else None
 
@@ -381,7 +367,7 @@ def test_fallback_runs_the_guard_when_one_option_is_on(repo, key):
 
 def test_fallback_skips_python_when_all_off(tmp_path):
     (handler,) = _handlers()
-    shell = handler["command"].replace("${CLAUDE_PLUGIN_ROOT}", str(PLUGIN))
+    shell = hook_shell("phylax", handler, python=None)
     empty = tmp_path / "bin"
     empty.mkdir()
     proc = subprocess.run(
@@ -424,12 +410,7 @@ def test_fallback_checks_every_call_the_mod_did_not(repo, fields):
 
 
 def run_raw(command: str, cwd: pathlib.Path, *, on, path_prefix: pathlib.Path | None = None):
-    env = {
-        k: v
-        for k, v in os.environ.items()
-        if not k.startswith(("CLAUDE_PLUGIN_OPTION_", "PHYLAX_"))
-    }
-    env.update({f"CLAUDE_PLUGIN_OPTION_{key.upper()}": "true" for key in on})
+    env = hook_env(on, drop=("PHYLAX_",))
     if path_prefix:
         env["PATH"] = f"{path_prefix}:{env['PATH']}"
     payload = json.dumps({"cwd": str(cwd), "tool_input": {"command": command}})
@@ -952,8 +933,7 @@ def test_a_folder_path_through_a_file_is_named(tmp_path):
 
 
 def test_input_with_no_folder_fails_closed():
-    env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE_PLUGIN_OPTION_")}
-    env[f"CLAUDE_PLUGIN_OPTION_{COMMITS_MD.upper()}"] = "true"
+    env = hook_env([COMMITS_MD])
     payload = json.dumps({"tool_input": {"command": "git commit -m x"}})
     proc = subprocess.run(
         [HOOK_PYTHON, str(GUARDS)], input=payload, capture_output=True, text=True, env=env
@@ -962,8 +942,7 @@ def test_input_with_no_folder_fails_closed():
 
 
 def test_a_gone_folder_with_only_the_warning_on_runs_and_says_why(tmp_path):
-    env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE_PLUGIN_OPTION_")}
-    env[f"CLAUDE_PLUGIN_OPTION_{MAIN_CHECKOUT.upper()}"] = "true"
+    env = hook_env([MAIN_CHECKOUT])
     payload = json.dumps(
         {"cwd": str(tmp_path / "gone"), "tool_input": {"command": "git commit -m x"}}
     )

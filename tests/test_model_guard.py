@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import json
-import os
 import pathlib
 import subprocess
 
 import pytest
-from conftest import HOOK_PYTHON
+from conftest import HOOK_PYTHON, hook_env, hook_handlers, hook_shell, run_hook_handler
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "phylax"
@@ -16,13 +15,6 @@ GUARD = PLUGIN / "hooks" / "model_guard.py"
 HOOKS_JSON = PLUGIN / "hooks" / "hooks.json"
 MANIFEST = PLUGIN / ".claude-plugin" / "plugin.json"
 OPTION = "require_subagent_model"
-
-
-def _env(on: str | None) -> dict:
-    env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE_PLUGIN_OPTION_")}
-    if on is not None:
-        env[f"CLAUDE_PLUGIN_OPTION_{OPTION.upper()}"] = on
-    return env
 
 
 def payload(tool="Agent", **tool_input) -> str:
@@ -42,14 +34,13 @@ DEFAULT_ENV = (
 
 
 def run_guard(stdin: str, **env_extra: str) -> subprocess.CompletedProcess:
-    env = {k: v for k, v in os.environ.items() if k not in DEFAULT_ENV}
     return subprocess.run(
         [HOOK_PYTHON, str(GUARD)],
         input=stdin,
         capture_output=True,
         text=True,
         check=False,
-        env={**env, **env_extra},
+        env=hook_env(drop=DEFAULT_ENV, **env_extra),
     )
 
 
@@ -64,17 +55,13 @@ def decision(proc: subprocess.CompletedProcess) -> str | None:
 
 
 def _handler() -> dict:
-    groups = json.loads(HOOKS_JSON.read_text())["hooks"]["PreToolUse"]
-    (group,) = [g for g in groups if g["matcher"] == "Agent|Task"]
-    (handler,) = group["hooks"]
+    (handler,) = hook_handlers("phylax", "PreToolUse", "Agent|Task")
     return handler
 
 
 def run_handler(stdin: str, on: str | None = "true") -> subprocess.CompletedProcess:
-    shell = _handler()["command"].replace("${CLAUDE_PLUGIN_ROOT}", str(PLUGIN))
-    return subprocess.run(
-        ["sh", "-c", shell], input=stdin, capture_output=True, text=True, env=_env(on), check=False
-    )
+    env = hook_env({} if on is None else {OPTION: on}, drop=DEFAULT_ENV)
+    return run_hook_handler("phylax", _handler(), stdin, env)
 
 
 MISSING = object()
@@ -222,7 +209,7 @@ def test_handler_is_silent_when_off(on):
 
 
 def test_handler_does_not_start_python_when_off(tmp_path):
-    shell = _handler()["command"].replace("${CLAUDE_PLUGIN_ROOT}", str(PLUGIN))
+    shell = hook_shell("phylax", _handler(), python=None)
     empty = tmp_path / "bin"
     empty.mkdir()
     env = {"PATH": str(empty), "CLAUDE_PLUGIN_OPTION_REQUIRE_SUBAGENT_MODEL": "false"}

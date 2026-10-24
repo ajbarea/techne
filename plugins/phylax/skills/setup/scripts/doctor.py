@@ -36,22 +36,28 @@ HOOK_FALLBACK = "the command hook runs the guards on any version"
 RESTART_OFF = "restart_on_update is off"
 
 
-def parse_options(argv: Sequence[str]) -> dict[str, bool | None]:
-    """KEY=VALUE pairs. Anything but true or false (an unset option arrives empty or as its
-    literal placeholder) reads as unset, which is off."""
-    values: dict[str, bool | None] = {key: None for key in OPTIONS}
+def parse_options(argv: Sequence[str]) -> dict[str, bool | str | None]:
+    """KEY=VALUE pairs, read as the hooks read them: on only for exactly `true`. An unset
+    option arrives empty or as its literal placeholder (None); any other value is kept as
+    text, so the report can name it, and is off."""
+    values: dict[str, bool | str | None] = {key: None for key in OPTIONS}
     for arg in argv:
         key, sep, value = arg.partition("=")
         if sep and key in values:
-            word = value.strip().lower()
-            values[key] = True if word == "true" else False if word == "false" else None
+            unset = value == "" or value.startswith("${user_config.")
+            values[key] = {"true": True, "false": False}.get(value, None if unset else value)
     return values
 
 
-def option_line(key: str, value: bool | None) -> d.Check:
+def option_line(key: str, value: bool | str | None) -> d.Check:
     if value is True:
         return d.Check(d.OK, key, "on")
-    state = "off" if value is False else "not set, so off"
+    if value is False:
+        state = "off"
+    elif value is None:
+        state = "not set, so off"
+    else:
+        state = f"set to {value!r}, which the hooks do not read as true, so off"
     return d.Check(d.NA, key, f"{state}; switch it on in /config under the phylax plugin's options")
 
 
@@ -151,10 +157,10 @@ def state_dir() -> d.Check:
     return d.Check(d.OK, "state-dir", str(path))
 
 
-def checks(platform: d.Platform, options: dict[str, bool | None]) -> list[d.Check]:
-    guards_on = any(options[key] for key in GUARDS)
-    model_on = bool(options["require_subagent_model"])
-    restart_on = bool(options["restart_on_update"])
+def checks(platform: d.Platform, options: dict[str, bool | str | None]) -> list[d.Check]:
+    guards_on = any(options[key] is True for key in GUARDS)
+    model_on = options["require_subagent_model"] is True
+    restart_on = options["restart_on_update"] is True
     found = [option_line(key, options[key]) for key in OPTIONS]
     found.append(d.guarded("mod", False, lambda: mod(platform, guards_on)))
     if guards_on or model_on or restart_on:
