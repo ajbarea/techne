@@ -12,7 +12,8 @@ skips it. The check therefore flags every such file in the repo, at any depth,
 whether tracked, untracked or ignored, and every one in a directory above the
 repo. An ignored file is listed unless it sits below the top level of a wholly
 ignored folder, which holds vendored code such as node_modules; that folder's own
-top level is checked, since a session can start there. .claude/CLAUDE.local.md is not a file
+top level is checked, since a session can start there, unless it is a clone of another
+project. .claude/CLAUDE.local.md is not a file
 Claude Code reads, so it is not flagged. The user's ~/.claude/CLAUDE.md is not
 flagged.
 
@@ -68,7 +69,9 @@ def candidates(root: Path, files: list[str]) -> list[str]:
     files = [*files, *untracked, *ignored]
     found = {p for p in files if Path(p.rstrip("/")).name in NAMES}
     found |= {p for p in ROOT_FILES if os.path.lexists(root / p)}
-    found |= {d + rel for d in ignored if d.endswith("/") for rel in ROOT_FILES}
+    # A wholly ignored folder's own top level, unless it is a clone of another project.
+    tops = [d for d in ignored if d.endswith("/") and not os.path.lexists(root / d / ".git")]
+    found |= {d + rel for d in tops for rel in ROOT_FILES}
     found = {p for p in found if not ("/" + p).endswith("/.claude/CLAUDE.local.md")}
     return sorted(p for p in found if os.path.islink(root / p) or os.path.isfile(root / p))
 

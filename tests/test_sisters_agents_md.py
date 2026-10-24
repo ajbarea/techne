@@ -197,7 +197,8 @@ def test_symlink_is_flagged(am, tmp_path):
     assert "symlink" in finding and "delete it" in finding
 
 
-def test_missing_and_non_git(am, tmp_path):
+def test_missing_and_non_git(am, tmp_path, monkeypatch):
+    monkeypatch.setenv("LC_ALL", "C")  # git's own message, untranslated
     assert am.check(tmp_path / "absent") == [f"not cloned at {tmp_path / 'absent'}"]
     plain = tmp_path / "plain"
     plain.mkdir()
@@ -228,6 +229,13 @@ def test_a_wholly_ignored_folder_has_its_top_level_checked(am, tmp_path, rel, ex
         {rel: "x\n", "sub/keep.txt": "x\n", "node_modules/pkg/CLAUDE.md": "vendored\n"},
     )
     assert am.check(root) == [expect]
+
+
+def test_an_ignored_clone_of_another_project_is_not_checked(am, tmp_path):
+    root = repo(tmp_path, {"AGENTS.md": "# a\n", ".gitignore": "upstream/\n"})
+    subprocess.run(["git", "init", "-q", str(root / "upstream")], check=True)
+    (root / "upstream" / "CLAUDE.md").write_text("theirs\n")
+    assert am.check(root) == []
 
 
 def test_a_wholly_ignored_folder_is_not_searched_below_its_top_level(am, tmp_path):
