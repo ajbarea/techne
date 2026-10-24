@@ -360,15 +360,113 @@ def test_the_session_project_dir_outranks_the_payload_cwd(tmp_path):
     assert decision(run_guard(json.dumps(stdin)))
 
 
-def test_a_symlinked_home_still_stops_the_walk(tmp_path):
+def test_a_symlinked_home_is_compared_as_written(tmp_path):
+    # Claude Code compares the home folder as a string, so a session in the real path behind a
+    # symlinked HOME walks on past it, as here.
     real = tmp_path / "real-home"
     (real / "loose" / "dir").mkdir(parents=True)
     link = tmp_path / "link-home"
     link.symlink_to(real, target_is_directory=True)
-    define(tmp_path / ".claude" / "agents", "Plan", "haiku")  # above home: never read
+    define(tmp_path / ".claude" / "agents", "Plan", "haiku")
     stdin = json.loads(payload(subagent_type="Plan"))
     stdin["cwd"] = str(real / "loose" / "dir")
+    assert decision(run_guard(json.dumps(stdin), HOME=str(link))) is None
+    stdin["cwd"] = str(link / "loose" / "dir")
     assert decision(run_guard(json.dumps(stdin), HOME=str(link)))
+
+
+def git(*args, cwd):
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
+
+
+@pytest.fixture
+def worktree(tmp_path):
+    """A main checkout with one commit and a linked worktree beside it."""
+    main = PLACES["home"] / "main"
+    main.mkdir(parents=True)
+    git("init", "-q", cwd=main)
+    git(
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@t",
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        "i",
+        cwd=main,
+    )
+    linked = PLACES["home"] / "linked"
+    git("worktree", "add", "-q", str(linked), "-b", "side", cwd=main)
+    return main, linked
+
+
+def test_a_linked_worktree_falls_back_to_the_main_checkout(worktree):
+    main, linked = worktree
+    define(main / ".claude" / "agents", "Explore", "haiku")  # untracked: not in the worktree
+    assert run_in(linked, subagent_type="Explore") is None
+    define(main / ".claude" / "agents", "Explore", "inherit")
+    assert run_in(linked, subagent_type="Explore")
+
+
+def test_a_worktree_with_its_own_agents_folder_does_not_fall_back(worktree):
+    main, linked = worktree
+    define(main / ".claude" / "agents", "Explore", "haiku")
+    (linked / ".claude" / "agents").mkdir(parents=True)  # present, even if empty
+    assert run_in(linked, subagent_type="Explore")
+
+
+def test_a_worktree_of_a_bare_repository_has_no_main_checkout():
+    bare = PLACES["home"] / "repos" / "proj.git"
+    bare.parent.mkdir(parents=True)
+    git("init", "-q", "--bare", str(bare), cwd=PLACES["home"])
+    linked = PLACES["home"] / "wt"
+    git(
+        "--git-dir",
+        str(bare),
+        "worktree",
+        "add",
+        "-q",
+        "--orphan",
+        "-b",
+        "x",
+        str(linked),
+        cwd=PLACES["home"],
+    )
+    define(bare.parent / ".claude" / "agents", "Explore", "haiku")  # beside the bare repository
+    assert run_in(linked, subagent_type="Explore")
+
+
+@pytest.mark.parametrize("model", ["Inherit", "INHERIT", "'inherit'"])
+def test_inherit_is_read_in_any_case(model):
+    define(place("project"), "Explore", model)
+    assert run_in(PLACES["repo"], subagent_type="Explore")
+
+
+@pytest.mark.parametrize(
+    "description", ["", "description:\n", "description: ''\n", "description: ~\n"]
+)
+def test_a_definition_without_a_description_is_dropped(description):
+    folder = place("project")
+    folder.mkdir(parents=True)
+    (folder / "e.md").write_text(f"---\nname: Explore\n{description}model: haiku\n---\n")
+    assert run_in(PLACES["repo"], subagent_type="Explore")  # the built-in decides
+
+
+def test_the_frontmatter_ends_at_the_first_marker_even_inside_a_value():
+    folder = place("project")
+    folder.mkdir(parents=True)
+    text = "---\nname: Explore\ndescription: fast --- read-only search\nmodel: haiku\n---\n"
+    (folder / "e.md").write_text(text)
+    assert run_in(PLACES["repo"], subagent_type="Explore")  # model: haiku is past the end
+
+
+def test_a_definition_over_a_mebibyte_is_skipped():
+    define(place("project"), "Explore", "haiku")
+    path = place("project") / "a.md"
+    path.write_text(path.read_text() + "x" * (1 << 20))
+    assert run_in(PLACES["repo"], subagent_type="Explore")
 
 
 def test_a_payload_without_cwd_walks_the_process_cwd():
@@ -438,7 +536,9 @@ def test_only_markdown_files_are_read():
 def test_a_byte_order_mark_before_the_frontmatter_is_read():
     folder = place("project")
     folder.mkdir(parents=True)
-    (folder / "e.md").write_bytes(b"\xef\xbb\xbf---\nname: Explore\nmodel: haiku\n---\n")
+    (folder / "e.md").write_bytes(
+        b"\xef\xbb\xbf---\nname: Explore\ndescription: d\nmodel: haiku\n---\n"
+    )
     assert run_in(PLACES["repo"], subagent_type="Explore") is None
 
 
@@ -453,7 +553,7 @@ def test_a_byte_order_mark_before_the_frontmatter_is_read():
 def test_a_model_value_the_reader_cannot_parse_allows_the_call(fields):
     folder = place("project")
     folder.mkdir(parents=True)
-    (folder / "e.md").write_text(f"---\nname: Explore\n{fields}---\n")
+    (folder / "e.md").write_text(f"---\nname: Explore\ndescription: d\n{fields}---\n")
     assert run_in(PLACES["repo"], subagent_type="Explore") is None
 
 
@@ -469,7 +569,9 @@ def test_reading_stops_at_the_closing_marker(mg, tmp_path, monkeypatch):
 def test_crlf_frontmatter_is_read():
     folder = place("project")
     folder.mkdir(parents=True)
-    (folder / "e.md").write_bytes(b"---\r\nname: Explore\r\nmodel: haiku\r\n---\r\nbody\r\n")
+    (folder / "e.md").write_bytes(
+        b"---\r\nname: Explore\r\ndescription: d\r\nmodel: haiku\r\n---\r\nbody\r\n"
+    )
     assert run_in(PLACES["repo"], subagent_type="Explore") is None
 
 

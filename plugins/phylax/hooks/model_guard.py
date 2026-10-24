@@ -46,6 +46,10 @@ MANAGED = {
 }.get(sys.platform, "/etc/claude-code")
 # Bytes read from each definition file; frontmatter sits at its top.
 HEAD = 65536
+# Claude Code skips a definition file larger than this.
+LIMIT = 1 << 20
+# Claude Code's frontmatter: from an opening `---` line to the next `---` anywhere.
+FRONTMATTER = re.compile(r"---\s*\n([\s\S]*?)---")
 # Definition files read per call at most, so a huge or looping folder cannot stall a dispatch.
 MAX_FILES = 2000
 KEY = re.compile(r"([A-Za-z_][A-Za-z0-9_-]*)[ \t]*:(?:[ \t]+(.*))?$")
@@ -90,45 +94,69 @@ def scalar(raw: str) -> object:
 
 
 def frontmatter(path: str) -> dict | None:
-    """The top-level `key: value` fields of a definition's frontmatter, or None when the file
-    does not open with `---` (after an optional byte-order mark) or never closes it within
-    HEAD bytes. A field given twice, or holding a block or flow value, is UNKNOWN."""
+    """The top-level `key: value` fields of a definition's frontmatter, or None when Claude Code
+    would skip the file: over LIMIT bytes, or not opening with `---` (after an optional
+    byte-order mark). As in Claude Code, the frontmatter ends at the first `---` after the
+    opening line, even one inside a value. A field given twice, or holding a block or flow
+    value, is UNKNOWN."""
     try:
         with open(path, "rb") as f:
-            first = f.readline(HEAD)
-            if first.removeprefix(b"\xef\xbb\xbf").rstrip() != b"---":
+            if os.fstat(f.fileno()).st_size > LIMIT:
                 return None
-            size = len(first)
-            fields: dict = {}
-            continued = None
-            while size < HEAD:
-                raw = f.readline(HEAD - size)
-                if not raw:
-                    return None
-                size += len(raw)
-                line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
-                if line.rstrip() == "---":
-                    return fields
-                match = KEY.match(line)
-                if match:
-                    key = match.group(1)
-                    fields[key] = UNKNOWN if key in fields else scalar(match.group(2) or "")
-                    continued = key
-                elif continued and line.strip() and not line.lstrip().startswith("#"):
-                    if line[:1] in " \t-":
-                        fields[continued] = UNKNOWN  # a multi-line, list or nested value
+            head = f.read(HEAD)
     except OSError:
         return None
-    return None
+    text = head.removeprefix(b"\xef\xbb\xbf").decode("utf-8", errors="replace")
+    block = FRONTMATTER.match(text)
+    if not block:
+        return None
+    fields: dict = {}
+    continued = None
+    for line in block.group(1).splitlines():
+        match = KEY.match(line)
+        if match:
+            key = match.group(1)
+            fields[key] = UNKNOWN if key in fields else scalar(match.group(2) or "")
+            continued = key
+        elif continued and line.strip() and not line.lstrip().startswith("#"):
+            if line[:1] in " \t-":
+                fields[continued] = UNKNOWN  # a multi-line, list or nested value
+    return fields
+
+
+def loaded(fields: dict | None) -> bool:
+    """Whether Claude Code keeps this definition: it drops one with no description."""
+    if not fields:
+        return False
+    described = fields.get("description")
+    return described is UNKNOWN or (isinstance(described, str) and bool(described.strip()))
 
 
 def same(a: str, b: str) -> bool:
-    return os.path.normcase(os.path.realpath(a)) == os.path.normcase(os.path.realpath(b))
+    # Claude Code compares the paths as written, without resolving symlinks.
+    return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+
+
+def main_checkout(root: str) -> str | None:
+    """The main checkout of the linked worktree at root, read from its `.git` file and the
+    `commondir` it points at; None for anything else (a plain clone, a bare repository)."""
+    try:
+        with open(os.path.join(root, ".git"), encoding="utf-8") as f:
+            line = f.readline().strip()
+        if not line.startswith("gitdir:"):
+            return None
+        gitdir = os.path.join(root, line[len("gitdir:") :].strip())
+        with open(os.path.join(gitdir, "commondir"), encoding="utf-8") as f:
+            common = os.path.normpath(os.path.join(gitdir, f.readline().strip()))
+    except (OSError, ValueError):
+        return None
+    return os.path.dirname(common) if os.path.basename(common) == ".git" else None
 
 
 def agent_dirs(start: str) -> list:
     """Folders whose definitions replace a built-in, highest priority first: managed, then
     each project folder from start up to its git root (stopping below the home folder), then
+    a linked worktree's main checkout when the worktree has no agents folder of its own, then
     the user's."""
     home = os.path.expanduser("~")
     dirs = [os.path.join(MANAGED, ".claude", "agents")]
@@ -136,7 +164,12 @@ def agent_dirs(start: str) -> list:
     while not same(here, home):
         dirs.append(os.path.join(here, ".claude", "agents"))
         parent = os.path.dirname(here)
-        if os.path.exists(os.path.join(here, ".git")) or parent == here:
+        if os.path.exists(os.path.join(here, ".git")):
+            checkout = main_checkout(here)
+            if checkout and not os.path.isdir(dirs[-1]):
+                dirs.append(os.path.join(checkout, ".claude", "agents"))
+            break
+        if parent == here:
             break
         here = parent
     config = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(home, ".claude")
@@ -165,7 +198,7 @@ def definitions(kind: str, start: str) -> list:
                 if budget < 0:
                     return [UNKNOWN]
                 fields = frontmatter(os.path.join(root, name))
-                if fields and fields.get("name") == kind:
+                if fields is not None and loaded(fields) and fields.get("name") == kind:
                     models.append(fields.get("model"))
         if models:
             return models
@@ -182,9 +215,10 @@ def default_decides(kind: str, start: str) -> bool:
     if not models:
         return kind in NO_OWN_MODEL and defaults
     for model in models:
-        if model not in (None, "", "inherit"):
+        inherit = isinstance(model, str) and model.lower() == "inherit"
+        if model not in (None, "") and not inherit:
             return True  # a model it names, or a value this reader cannot parse
-        if model != "inherit" and defaults:
+        if not inherit and defaults:
             return True
     return False
 
