@@ -60,7 +60,7 @@ def _handler() -> dict:
 
 
 def run_handler(stdin: str, on: str | None = "true") -> subprocess.CompletedProcess:
-    env = hook_env({} if on is None else {OPTION: on})
+    env = hook_env({} if on is None else {OPTION: on}, drop=DEFAULT_ENV)
     return run_hook_handler("phylax", _handler(), stdin, env)
 
 

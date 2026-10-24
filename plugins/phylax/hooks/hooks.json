@@ -10,7 +10,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "case \":$CLAUDE_PLUGIN_OPTION_BLOCK_ATTRIBUTION_TRAILERS:$CLAUDE_PLUGIN_OPTION_BLOCK_COMMITS_MD:$CLAUDE_PLUGIN_OPTION_WARN_MAIN_CHECKOUT_COMMIT:\" in *:true:*) exec python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/git_guards.py\" ;; esac",
+            "command": "for on in \"$CLAUDE_PLUGIN_OPTION_BLOCK_ATTRIBUTION_TRAILERS\" \"$CLAUDE_PLUGIN_OPTION_BLOCK_COMMITS_MD\" \"$CLAUDE_PLUGIN_OPTION_WARN_MAIN_CHECKOUT_COMMIT\"; do case \"$on\" in true) exec python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/git_guards.py\" ;; esac; done",
             "timeout": 60
           }
         ]

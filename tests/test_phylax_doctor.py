@@ -85,14 +85,16 @@ def test_unset_options_in_every_form_read_as_off(tmp_path, env):
         assert found[key][0] == "n/a" and found[key][1].startswith("not set, so off"), key
 
 
-@pytest.mark.parametrize("value", ["maybe", "TRUE", "True", " true"])
-def test_a_value_the_hooks_do_not_read_as_true_is_named_and_off(tmp_path, env, value):
-    proc, found = doctor(tmp_path, [f"block_commits_md={value}"], env)
+@pytest.mark.parametrize("option", OPTIONS)
+@pytest.mark.parametrize("value", ["maybe", "TRUE", "True", " true", "x:true"])
+def test_a_value_the_hooks_do_not_read_as_true_is_named_and_off(tmp_path, env, option, value):
+    proc, found = doctor(tmp_path, [f"{option}={value}"], env)
     assert proc.returncode == 0
-    status, detail = found["block_commits_md"]
+    status, detail = found[option]
     assert status == "n/a" and detail.startswith(f"set to {value!r}") and "so off" in detail
-    # Nothing a guard needs is checked, since no guard is on.
-    assert found["python3"][0] == "n/a"
+    # Nothing the option needs is checked, since it is off.
+    for name in ("mod", "python3", "git", "proc", "launcher", "claude", "state-dir"):
+        assert found[name][0] == "n/a", (option, name)
 
 
 def test_missing_arguments_read_as_off(tmp_path, env):

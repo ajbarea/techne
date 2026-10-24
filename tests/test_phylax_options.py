@@ -22,40 +22,62 @@ GUARDS = PLUGIN / "hooks" / "git_guards.py"
 DOCTOR = PLUGIN / "skills" / "setup" / "scripts" / "doctor.py"
 MANIFEST = PLUGIN / ".claude-plugin" / "plugin.json"
 OPTIONS = tuple(json.loads(MANIFEST.read_text())["userConfig"])
-VALUES = ["true", "True", "TRUE", " true", "true ", "1", "yes", "on", "false", "False", ""]
+VALUES = ["true", "True", "TRUE", " true", "true ", "x:true", "true:x", ":true:", "1", "yes", "on"]
+VALUES += ["false", "False", ""]
 OPTION_VAR = re.compile(r"\$CLAUDE_PLUGIN_OPTION_([A-Z_]+)")
 
 
-def handlers() -> list[tuple[str, dict]]:
-    config = json.loads((PLUGIN / "hooks" / "hooks.json").read_text())
-    return [(event, h) for event in config["hooks"] for h in hook_handlers("phylax", event)]
+# Every plugin whose hooks.json gates a handler on an option keeps the same rule.
+GATED = ("phylax", "techne")
 
 
-def handler_options() -> list[tuple[str, int, str]]:
-    """(event, index, option) for each option each handler's command reads."""
+def handlers() -> list[tuple[str, str, dict]]:
+    """(plugin, event, handler) for each handler that reads an option; phylax's all do."""
+    found = []
+    for plugin in GATED:
+        config = json.loads((ROOT / "plugins" / plugin / "hooks" / "hooks.json").read_text())
+        for event in config["hooks"]:
+            for h in hook_handlers(plugin, event):
+                assert plugin != "phylax" or OPTION_VAR.search(h["command"]), event
+                if OPTION_VAR.search(h["command"]):
+                    found.append((plugin, event, h))
+    return found
+
+
+def handler_options() -> list[tuple[str, str, int, str]]:
+    """(plugin, event, index, option) for each option each handler's command reads."""
     cases = []
-    for i, (event, handler) in enumerate(handlers()):
-        names = OPTION_VAR.findall(handler["command"])
-        assert names, f"{event} handler reads no option"
-        cases += [(event, i, name.lower()) for name in names]
+    for i, (plugin, event, handler) in enumerate(handlers()):
+        cases += [(plugin, event, i, n.lower()) for n in OPTION_VAR.findall(handler["command"])]
     return cases
 
 
 def test_every_option_has_a_hooks_json_handler():
-    assert set(OPTIONS) == {option for _, _, option in handler_options()}
+    read = {option for plugin, _, _, option in handler_options() if plugin == "phylax"}
+    assert set(OPTIONS) == read
+
+
+def test_techne_gates_its_option_handlers():
+    manifest = ROOT / "plugins" / "techne" / ".claude-plugin" / "plugin.json"
+    techne = json.loads(manifest.read_text())
+    options = {o for o, spec in techne.get("userConfig", {}).items() if spec["type"] == "boolean"}
+    read = {option for plugin, _, _, option in handler_options() if plugin == "techne"}
+    assert read and read <= options
 
 
 @pytest.mark.parametrize("value", VALUES)
-@pytest.mark.parametrize(("event", "index", "option"), handler_options())
-def test_a_handler_starts_python_only_for_exactly_true(tmp_path, event, index, option, value):
-    _, handler = handlers()[index]
+@pytest.mark.parametrize(("plugin", "event", "index", "option"), handler_options())
+def test_a_handler_starts_python_only_for_exactly_true(
+    tmp_path, plugin, event, index, option, value
+):
+    _, _, handler = handlers()[index]
     fake = tmp_path / "bin"
     fake.mkdir()
     (fake / "python3").write_text("#!/bin/sh\necho started\n")
     (fake / "python3").chmod(0o755)
     env = {"PATH": str(fake), f"CLAUDE_PLUGIN_OPTION_{option.upper()}": value}
     proc = subprocess.run(
-        ["/bin/sh", "-c", hook_shell("phylax", handler, python=None)],
+        ["/bin/sh", "-c", hook_shell(plugin, handler, python=None)],
         input="{}",
         capture_output=True,
         text=True,
@@ -64,7 +86,7 @@ def test_a_handler_starts_python_only_for_exactly_true(tmp_path, event, index, o
         timeout=30,
     )
     assert proc.returncode == 0, proc.stderr
-    assert (proc.stdout.strip() == "started") == (value == "true"), (event, option, value)
+    assert (proc.stdout.strip() == "started") == (value == "true"), (plugin, event, option, value)
 
 
 @pytest.fixture

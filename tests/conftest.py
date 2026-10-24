@@ -57,10 +57,15 @@ def hook_env(
     on: Iterable[str] | Mapping[str, str] = (), drop: tuple[str, ...] = (), **extra: str
 ) -> dict[str, str]:
     """A plugin hook's environment: ours without any inherited CLAUDE_PLUGIN_OPTION_* or DROP
-    prefix, each ON option set ("true" for a key, or the value a mapping gives), then EXTRA."""
+    prefix and without the developer's global or system git config (where a phylax.* key
+    would switch a guard off), each ON option set ("true" for a key, or the value a mapping
+    gives), then EXTRA."""
+    if isinstance(on, str):
+        raise TypeError("hook_env takes a list of option keys or a mapping, not one string")
     env = {
         k: v for k, v in os.environ.items() if not k.startswith(("CLAUDE_PLUGIN_OPTION_", *drop))
     }
+    env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
     values = on if isinstance(on, Mapping) else dict.fromkeys(on, "true")
     env.update({f"CLAUDE_PLUGIN_OPTION_{key.upper()}": value for key, value in values.items()})
     env.update(extra)
