@@ -12,10 +12,9 @@ skips it. The check therefore flags every such file in the repo, at any depth,
 whether tracked, untracked or ignored, and every one in a directory above the
 repo. An ignored file is listed unless it sits below the top level of a wholly
 ignored folder, which holds vendored code such as node_modules; that folder's own
-top level is checked, since a session can start there, unless it is a clone of another
-project. .claude/CLAUDE.local.md is not a file
-Claude Code reads, so it is not flagged. The user's ~/.claude/CLAUDE.md is not
-flagged.
+top level is checked, since a session can start there, unless the folder is a
+clone of another project. .claude/CLAUDE.local.md is not a file Claude Code reads,
+so it is not flagged. The user's ~/.claude/CLAUDE.md is not flagged.
 
 Prints one line per finding, or one passing line per repo. Always exits 0.
 """
