@@ -223,15 +223,17 @@ def home(tmp_path):
     return h
 
 
-def run(home, sub, stdin, data=None, limits=None, **extra):
-    """budget.py SUB under budget_mode, with LIMITS saved as the account's snapshot."""
+def run(home, sub, stdin, data=None, limits=None, role="background", **extra):
+    """budget.py SUB under budget_mode in a session of ROLE, with LIMITS saved as the
+    account's snapshot."""
     if limits is not None:
         path = home / ".claude" / "phylax-budget.json"
         path.write_text(json.dumps({"rate_limits": limits, "written_at": time.time()}))
     env = hook_env(
         ["budget_mode"],
-        drop=("CLAUDE_CONFIG_DIR", "CLAUDE_PLUGIN_DATA", "CLAUDE_PLUGIN_OPTION_"),
+        drop=("CLAUDE_CONFIG_DIR", "CLAUDE_PLUGIN_DATA", "CLAUDE_PLUGIN_OPTION_", "PHYLAX_BUDGET"),
         HOME=str(home),
+        **({"PHYLAX_BUDGET_ROLE": role} if role else {}),
         **({"CLAUDE_PLUGIN_DATA": str(data)} if data else {}),
         **extra,
     )
@@ -356,7 +358,10 @@ def agent(**tool_input):
     return json.dumps({"tool_name": "Agent", "tool_input": tool_input, "session_id": "s"})
 
 
-@pytest.mark.parametrize("model", ["opus", "Opus", "claude-opus-5-5", "opus[1m]", " opus "])
+@pytest.mark.parametrize(
+    "model",
+    ["opus", "Opus", "claude-opus-5-5", "opus[1m]", " opus ", "fable", "claude-fable-5-1", "best"],
+)
 def test_frugal_runs_an_opus_call_on_sonnet(home, model):
     found = out(run(home, "agent", agent(model=model), limits=FRUGAL))
     assert found and found["hookEventName"] == "PreToolUse"
@@ -377,7 +382,9 @@ def test_a_final_review_keeps_opus(home, description):
     )
 
 
-@pytest.mark.parametrize("model", ["sonnet", "haiku", "claude-sonnet-5-5", "", None, 5])
+@pytest.mark.parametrize(
+    "model", ["sonnet", "haiku", "claude-sonnet-5-5", "", None, 5, "bestest", "claude-opusx"]
+)
 def test_other_models_are_untouched(home, model):
     fields = {} if model is None else {"model": model}
     assert out(run(home, "agent", agent(**fields), limits=FRUGAL)) is None
@@ -494,7 +501,7 @@ def test_the_snapshot_never_breaks_the_status_line(home, tmp_path):
     raw = json.dumps(PAYLOAD).encode()
     proc = snap(raw, home, str(blocked / "b.json"))
     assert (proc.returncode, proc.stdout, proc.stderr) == (0, raw, b"")
-    assert not list(tmp_path.glob("**/.phylax-budget-*"))  # no temp file left behind
+    assert not list(tmp_path.glob("**/.phylax-*"))  # no temp file left behind
 
 
 def test_the_snapshot_and_the_reader_agree(bg, home, monkeypatch):
@@ -533,3 +540,171 @@ def test_the_recommended_chain_keeps_the_status_line_when_the_copy_is_missing(tm
         ["sh", "-c", line], input=raw, capture_output=True, text=True, check=False
     )
     assert proc.stdout == raw
+
+
+# --- who pays: the session's role and the overrides ---------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("role", "asked", "applies"),
+    [
+        ("background", "", True),
+        ("Background", "", True),
+        ("", "", False),  # an interactive session keeps normal routing
+        ("interactive", "", False),
+        ("", "on", True),  # unless it opts in
+        ("background", "normal", False),  # PHYLAX_BUDGET=normal exempts any session
+        ("", "normal", False),
+    ],
+)
+def test_who_budget_mode_routes(bg, tmp_path, role, asked, applies):
+    env = {"PHYLAX_BUDGET_ROLE": role, "PHYLAX_BUDGET": asked, "CLAUDE_CONFIG_DIR": str(tmp_path)}
+    assert bg.role(env, NOW).applies is applies
+
+
+def pause_file(tmp_path, until):
+    (tmp_path / "phylax-budget-override.json").write_text(json.dumps({"until": until}))
+
+
+def test_a_pause_returns_opted_in_sessions_to_normal_until_it_ends(bg, tmp_path):
+    env = {"PHYLAX_BUDGET": "on", "CLAUDE_CONFIG_DIR": str(tmp_path)}
+    pause_file(tmp_path, NOW + 60)
+    who = bg.role(env, NOW)
+    assert not who.applies and who.reason.startswith("paused until")
+    assert bg.role(env, NOW + 61).applies  # expired
+
+
+def test_a_pause_leaves_background_agents_paying(bg, tmp_path):
+    pause_file(tmp_path, NOW + 3600)
+    env = {"PHYLAX_BUDGET_ROLE": "background", "CLAUDE_CONFIG_DIR": str(tmp_path)}
+    assert bg.role(env, NOW).applies
+
+
+@pytest.mark.parametrize("content", ["not json", '{"until": "soon"}', "[]", '{"until": 1e999}'])
+def test_an_unreadable_pause_is_no_pause(bg, tmp_path, content):
+    (tmp_path / "phylax-budget-override.json").write_text(content)
+    env = {"PHYLAX_BUDGET": "on", "CLAUDE_CONFIG_DIR": str(tmp_path)}
+    assert bg.role(env, NOW).applies
+
+
+@pytest.mark.parametrize("sub", ["session", "agent"])
+def test_an_interactive_session_is_left_alone_whatever_the_level(home, tmp_path, sub):
+    stdin = session() if sub == "session" else agent(model="opus")
+    assert out(run(home, sub, stdin, data=tmp_path / "d", limits=FRUGAL, role="")) is None
+
+
+def pause_cli(home, *args, **extra):
+    env = hook_env(drop=("CLAUDE_CONFIG_DIR", "PHYLAX_BUDGET"), HOME=str(home), **extra)
+    return subprocess.run(
+        [HOOK_PYTHON, str(BUDGET), *args], capture_output=True, text=True, env=env, timeout=30
+    )
+
+
+def test_budget_off_pauses_for_four_hours_and_on_ends_it(home):
+    proc = pause_cli(home, "off", PHYLAX_BUDGET="on")
+    assert (
+        proc.returncode == 0 and "paused until" in proc.stdout and "normal routing" in proc.stdout
+    )
+    until = json.loads((home / ".claude" / "phylax-budget-override.json").read_text())["until"]
+    assert abs(until - time.time() - 4 * HOUR) < 60
+    proc = pause_cli(home, "on", PHYLAX_BUDGET="on")
+    assert "not paused" in proc.stdout and "routed by budget mode" in proc.stdout
+    assert not (home / ".claude" / "phylax-budget-override.json").exists()
+    assert pause_cli(home, "on").returncode == 0  # already on
+
+
+def test_budget_off_takes_hours(home):
+    pause_cli(home, "off", "1.5")
+    until = json.loads((home / ".claude" / "phylax-budget-override.json").read_text())["until"]
+    assert abs(until - time.time() - 1.5 * HOUR) < 60
+
+
+@pytest.mark.parametrize("hours", ["0", "-1", "abc", "169", "nan"])
+def test_budget_off_refuses_bad_hours(home, hours):
+    proc = pause_cli(home, "off", hours)
+    assert proc.returncode == 2 and "0 to 168" in proc.stdout
+    assert not (home / ".claude" / "phylax-budget-override.json").exists()
+
+
+def test_status_names_the_role(home):
+    proc = pause_cli(home, "status", PHYLAX_BUDGET_ROLE="background")
+    assert "this session is background, routed by budget mode" in proc.stdout
+
+
+def test_a_resumed_session_hears_the_level_fell(home, tmp_path):
+    data = tmp_path / "data"
+    assert out(run(home, "session", session(), data=data, limits=LEAN))
+    resumed = json.dumps(
+        {"session_id": "s1", "hook_event_name": "SessionStart", "source": "resume"}
+    )
+    back = out(run(home, "session", resumed, data=data, limits=NORMAL))
+    assert back and "back to normal" in back["additionalContext"]
+    fresh = json.dumps({"session_id": "s2", "hook_event_name": "SessionStart", "source": "startup"})
+    assert out(run(home, "session", fresh, data=data, limits=NORMAL)) is None
+
+
+# --- a hostile snapshot ------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        '{"rate_limits": {"seven_day": {"used_percentage": ' + "9" * 400 + ', "resets_at": 2e9}}}',
+    ],
+)
+def test_a_hostile_snapshot_reads_normal(bg, tmp_path, content):
+    path = tmp_path / "s.json"
+    path.write_text(content)
+    os.utime(path, (NOW, NOW))
+    assert level_of(bg, path).level == "normal"
+
+
+def test_a_fifo_snapshot_does_not_block(bg, tmp_path):
+    path = tmp_path / "s.json"
+    os.mkfifo(path)
+    os.utime(path, (NOW, NOW))
+    found = level_of(bg, path)
+    assert found.level == "normal" and "unreadable" in found.note
+
+
+def test_pruning_never_deletes_through_a_symlink(home, tmp_path):
+    data = tmp_path / "data"
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "precious").write_text("x")
+    ancient = time.time() - 30 * DAY
+    os.utime(elsewhere / "precious", (ancient, ancient))
+    data.mkdir()
+    (data / "budget-seen").symlink_to(elsewhere, target_is_directory=True)
+    run(home, "session", session(), data=data, limits=NORMAL)
+    assert (elsewhere / "precious").exists()
+
+
+def test_pruning_touches_only_session_files(home, tmp_path):
+    seen = tmp_path / "data" / "budget-seen"
+    seen.mkdir(parents=True)
+    (seen / "notes.txt").write_text("x")
+    (seen / "sub").mkdir()
+    ancient = time.time() - 30 * DAY
+    for name in ("notes.txt", "sub"):
+        os.utime(seen / name, (ancient, ancient))
+    run(home, "session", session(), data=tmp_path / "data", limits=NORMAL)
+    assert (seen / "notes.txt").exists() and (seen / "sub").exists()
+
+
+def test_a_deeply_nested_snapshot_reads_normal_on_the_hook_python(home):
+    # python3 3.9's json raises RecursionError here; later ones may parse it.
+    path = home / ".claude" / "phylax-budget.json"
+    path.write_text("[" * 32000 + "]" * 32000)
+    proc = run(home, "agent", agent(model="opus"))
+    assert (proc.returncode, proc.stdout) == (0, ""), proc.stderr
+
+
+def test_pruning_skips_a_file_that_is_not_a_session(home, tmp_path):
+    seen = tmp_path / "data" / "budget-seen"
+    seen.mkdir(parents=True)
+    (seen / "notes.txt").write_text("x")
+    ancient = time.time() - 30 * DAY
+    os.utime(seen / "notes.txt", (ancient, ancient))
+    run(home, "session", session(), data=tmp_path / "data", limits=NORMAL)
+    assert (seen / "notes.txt").exists()

@@ -153,7 +153,16 @@ Without it, the handoff sends the shell SIGHUP, and the tab stays open showing t
 }
 ```
 
-The snapshot passes the status line's input through unchanged, so whatever followed still renders, and `|| cat` keeps it rendering if the copy is ever missing. With no status line of your own, use the snapshot alone. An unchanged reading under five minutes old is not rewritten. It writes `phylax-budget.json` in the account's Claude config folder (`$CLAUDE_CONFIG_DIR`, or `~/.claude`), so two accounts keep two files. Pass a path argument, and set `budget_state_file` to the same path, to keep it elsewhere.
+The snapshot passes the status line's input through unchanged, so whatever followed still renders, and `|| cat` keeps it rendering if the copy is ever missing. With no status line of your own, use `python3 <copy> > /dev/null` so the payload is not printed. An unchanged reading under five minutes old is not rewritten. It writes `phylax-budget.json` in the account's Claude config folder (`$CLAUDE_CONFIG_DIR`, or `~/.claude`), so two accounts keep two files. Pass a path argument, and set `budget_state_file` to the same path, to keep it elsewhere.
+
+**Who pays.** The level routes only background agents: sessions the fleet launcher starts with `PHYLAX_BUDGET_ROLE=background`. Your own interactive sessions keep normal routing unless you opt one in with `PHYLAX_BUDGET=on`, so a deliberately heavy session keeps Opus while the background fleet sees the extra burn in the pace and gets leaner.
+
+| Setting | Effect |
+|---|---|
+| `PHYLAX_BUDGET_ROLE=background` at launch | The session is routed by the level. |
+| `PHYLAX_BUDGET=on` at launch | An interactive session opts in. |
+| `PHYLAX_BUDGET=normal` at launch | The session keeps normal routing, whatever its role. |
+| [`/phylax:budget off [hours]`](skills/phylax-budget.md) | Opted-in interactive sessions keep normal routing until the pause ends (4 hours by default); `on` ends it, `status` shows it. Background agents keep paying. |
 
 **Levels.** Each window gets a level from its pace, the percent used minus the percent of the window already gone, and the higher window decides. A seat that reports only the 5-hour window still gets a level.
 
@@ -161,9 +170,9 @@ The snapshot passes the status line's input through unchanged, so whatever follo
 |---|---|---|
 | normal | below both lean marks | Opus writes and reviews. Nothing is added. |
 | lean | pace 10 points ahead (`budget_lean_pace`), or 80% used (`budget_lean_used`) | Sonnet implements and runs research and the first review rounds; Opus reviews only the final round of a risky diff; Haiku does mechanical edits and digests. |
-| frugal | pace 25 points ahead (`budget_frugal_pace`), or 95% used (`budget_frugal_used`) | Lean, plus no parallel Opus subagents, review rounds capped at 2, and Haiku for every digest. An `Agent` call that names Opus runs on Sonnet unless its description contains "final review". |
+| frugal | pace 25 points ahead (`budget_frugal_pace`), or 95% used (`budget_frugal_used`) | Lean, plus no parallel Opus subagents, review rounds capped at 2, and Haiku for every digest. An `Agent` call that names Opus or Fable runs on Sonnet unless its description contains "final review". |
 
-A session hears the table at start when the level is lean or frugal, and again only when the level changes. The frugal rewrite changes the call's `model` through the hook's `updatedInput` and leaves the permission prompt as it was.
+A routed session hears the table at start when the level is lean or frugal, again only when the level changes, and when resumed after the level fell. Frugal moves a call that names a model above Sonnet (`opus`, `fable`, `best`, or a `claude-opus-` or `claude-fable-` ID) to Sonnet through the hook's `updatedInput` and leaves the permission prompt as it was; that `updatedInput` reaches the Agent tool without a permission decision was tested on Claude Code 2.1.302, which the docs do not state.
 
 **Limits.** A hook cannot change the main session's model; start sessions with `claude --model sonnet` from your launcher for that. The snapshot holds the last value the status line saw, so a level is as fresh as the last response in any session on that account; a snapshot over a day old, or a window past its reset, reads normal. `rate_limits` exists only on Pro and Max plans, after a session's first response.
 

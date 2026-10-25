@@ -26,7 +26,7 @@
 | `graphe` | Documents: LaTeX papers, markdown-to-PDF, talk decks, paper scaffolds and novelty review | Claude Code, Codex, Copilot CLI, Antigravity CLI |
 | `dokimasia` | Bibliography verification for LaTeX projects: lint a `.bib` or hand-written reference list, verify it against arXiv and Crossref, check every cited key rendered | Claude Code, Codex, Copilot CLI, Antigravity CLI, or one standalone Python file |
 | `heuresis` | Idea triage: capture an idea, search papers, patents, products and your own work for anything like it, and file it with a verdict grounded in checked records | Claude Code (needs `uv` and git; `gh` for GitHub search and the private remote) |
-| `phylax` | Opt-in git and PR guards (a mod), restart onto an updated Claude Code | Claude Code |
+| `phylax` | Opt-in git and PR guards (a mod), a model on every subagent call, restart onto an updated Claude Code, budget mode | Claude Code |
 | `epistole` | Gmail across accounts: search, read and draft in each configured account, and send a draft only after you approve it ([docs](https://ajbarea.github.io/techne/plugins/epistole/)) | Claude Code (MCP server, needs `uv`) |
 | `schole` | Brightspace (D2L) course sites, read-only: new announcements and content, what is due, what came due unsubmitted ([docs](https://ajbarea.github.io/techne/plugins/schole/)) | Claude Code (needs `uv` and Chromium) |
 | [`keryx`](https://github.com/ajbarea/keryx) | Speaks a short gist of each reply in a local voice (WSL2) | Claude Code |
@@ -191,6 +191,7 @@ techne (marketplace: ajbarea/techne)
 │   ├── courses           ── new, due and past-due on a Brightspace course site
 │   └── setup             ── one browser sign-in to the course site
 ├── phylax (plugin, plugins/phylax)
+│   ├── budget            ── pause or resume budget mode
 │   └── setup             ── shows the options, checks what they need
 └── keryx (plugin, ajbarea/keryx)    ── spoken gist of each reply
 ```

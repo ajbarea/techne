@@ -69,7 +69,7 @@ hide:
       </div>
       <div class="skill-card">
         <div class="skill-name"><a href="plugins/phylax/">phylax</a></div>
-        <p>Opt-in git guards (no attribution lines, no staged <code>COMMITS.md</code>, main-checkout warning) and restart onto an updated Claude Code.</p>
+        <p>Opt-in git guards (no attribution lines, no staged <code>COMMITS.md</code>, main-checkout warning) a model on every subagent call, restart onto an updated Claude Code, and budget mode.</p>
         <code class="plugin-install">/plugin install phylax@techne</code>
       </div>
       <div class="skill-card">

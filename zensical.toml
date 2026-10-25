@@ -63,6 +63,7 @@ nav = [
       ]},
       { "phylax" = [
         { "phylax:setup" = "skills/phylax-setup.md" },
+        { "phylax:budget" = "skills/phylax-budget.md" },
       ]},
       { "epistole" = [
         { "epistole:catch-me-up" = "skills/catch-me-up.md" },
@@ -188,6 +189,7 @@ markdown_description = """techne is a Claude Code plugin marketplace (ajbarea/te
   { "skills/idea.md" = "Capture an idea and triage it against papers, patents, products and your own work, then file it as trash, later, do or merged." },
   { "skills/heuresis-setup.md" = "heuresis:setup checks uv, git and gh, the ideas repository and repos folder, and which search API keys are set, and creates the private ideas repository when it does not exist." },
   { "skills/phylax-setup.md" = "phylax:setup shows which phylax options are on and checks what each needs: the Claude Code version for the guard mod, python3, git, and for the restart, tmux or Windows Terminal and its state folder." },
+  { "skills/phylax-budget.md" = "phylax:budget pauses budget mode for opted-in interactive sessions (off, for 4 hours by default), ends the pause (on), or shows any pause and whether this session is routed by budget mode (status)." },
   { "skills/catch-me-up.md" = "epistole:catch-me-up sweeps every Gmail account for mail since the last sweep, plus the course site when schole is installed, and reports what needs a reply or a decision. Read-only." },
   { "skills/epistole-setup.md" = "epistole:setup guides creating the Google OAuth client and signing each Gmail account in, and fixes an epistole server that did not start or an account that needs login." },
   { "skills/courses.md" = "schole:courses reports a Brightspace (D2L) course site's new announcements and content, what is due in the next two weeks, and what came due without a submission. Read-only, never marks anything read." },

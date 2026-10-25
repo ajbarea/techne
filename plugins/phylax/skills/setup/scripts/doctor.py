@@ -116,7 +116,7 @@ def mod(platform: d.Platform, guards_on: bool) -> d.Check:
 
 def budget_module():
     sys.path.insert(0, str(HOOKS))
-    import budget as module  # ty: ignore[unresolved-import]
+    import budget as module
 
     return module
 
@@ -131,6 +131,9 @@ def budget(values: dict[str, str]) -> d.Check:
     found = module.settings(env)
     notes = [f"{key} not a number from 0 to 100, so its default" for key in found.bad]
     notes += list(found.conflicts)
+    who = module.role(os.environ, time.time())
+    routed = "routed by budget mode" if who.applies else f"normal routing ({who.reason})"
+    notes.append(f"this session is {who.name}, {routed}")
     extra = "".join(f"; {note}" for note in notes)
     if reading.note == "no snapshot yet":
         config = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
@@ -140,7 +143,8 @@ def budget(values: dict[str, str]) -> d.Check:
         fix = (
             "fix: put the snapshot in front of your status line in settings.json (cat keeps it"
             f' rendering if the copy is missing): "command": "{{ python3 {copy}{target} || cat; }}'
-            ' | <your status line command>" (the copy appears at the next session start)'
+            ' | <your status line command>", or with no status line of your own'
+            f' "python3 {copy}{target} > /dev/null" (the copy appears at the next session start)'
         )
         detail = f"no snapshot yet at {reading.path}, so normal{extra}"
         return d.Check(d.OPTIONAL, "budget", detail, (fix,))
@@ -148,7 +152,13 @@ def budget(values: dict[str, str]) -> d.Check:
         fix = f"fix: check {reading.path} is the file the status line step writes"
         detail = f"{reading.note} at {reading.path}, so normal{extra}"
         return d.Check(d.OPTIONAL, "budget", detail, (fix,))
-    # A day-old snapshot or a window past its reset: normal until the next response.
+    if reading.note.startswith("snapshot "):
+        fix = (
+            "fix: check the status line step still runs; any response on this account refreshes it"
+        )
+        detail = f"{reading.note} at {reading.path}, so normal{extra}"
+        return d.Check(d.OPTIONAL, "budget", detail, (fix,))
+    # Every window past its reset: normal until the next response.
     shown = module.why(reading) or reading.note
     return d.Check(d.OK, "budget", f"{reading.level}: {shown}; read {reading.path}{extra}")
 

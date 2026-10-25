@@ -11,6 +11,8 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
   (copied to `${CLAUDE_PLUGIN_DATA}` at session start). Level per window from pace (used% minus
   elapsed%), higher window wins; frugal rewrites an Opus Agent call to Sonnet via
   `updatedInput` (live-tested on 2.1.302: honoured, no permissionDecision needed).
+  Background agents pay (`PHYLAX_BUDGET_ROLE=background`); interactive sessions opt in with
+  `PHYLAX_BUDGET=on`; `/phylax:budget off [hours]` pauses those. Reader r1 fixes in; r2 next.
   Owed by AJ: the global CLAUDE.md line naming the option (drafted in the PR).
   Verify: `flock /tmp/fleet-heavy.lock timeout 600 uv run pytest tests/test_budget.py
   tests/test_phylax_doctor.py` and `make test-hooks-oldest`.

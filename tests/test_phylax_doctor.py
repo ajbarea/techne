@@ -398,7 +398,7 @@ def test_budget_without_a_data_folder_names_the_default_copy(tmp_path, env):
     assert f"{{ python3 {copy} || cat; }}" in proc.stdout
 
 
-def test_a_stale_snapshot_reads_normal_without_asking_to_chain_again(tmp_path, env):
+def test_a_stale_snapshot_asks_whether_the_step_still_runs(tmp_path, env):
     import os
     import time
 
@@ -408,8 +408,8 @@ def test_a_stale_snapshot_reads_normal_without_asking_to_chain_again(tmp_path, e
     old = time.time() - 2 * 86400
     os.utime(state, (old, old))
     proc, found = doctor(tmp_path, budget_args(), env)
-    assert found["budget"][0] == "ok" and "h old" in found["budget"][1]
-    assert "status line" not in proc.stdout
+    assert found["budget"][0] == "optional" and "h old" in found["budget"][1]
+    assert "still runs" in proc.stdout and "|| cat" not in proc.stdout  # not asked to chain again
 
 
 def test_a_broken_snapshot_gets_its_own_fix(tmp_path, env):
@@ -424,3 +424,10 @@ def test_a_broken_snapshot_gets_its_own_fix(tmp_path, env):
 def test_crossed_thresholds_are_named(tmp_path, env):
     _, found = doctor(tmp_path, budget_args(budget_lean_pace="30"), env)
     assert "budget_lean_pace above budget_frugal_pace" in found["budget"][1]
+
+
+def test_budget_line_names_the_session_role(tmp_path, env):
+    _, found = doctor(tmp_path, budget_args(), {**env, "PHYLAX_BUDGET_ROLE": "background"})
+    assert "this session is background, routed by budget mode" in found["budget"][1]
+    _, found = doctor(tmp_path, budget_args(), env)
+    assert "this session is interactive, normal routing" in found["budget"][1]

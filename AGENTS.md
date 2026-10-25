@@ -14,7 +14,7 @@ Docs for agents: <https://ajbarea.github.io/techne/llms.txt> lists every page wi
 | Capture an idea and check it against prior work | `heuresis` | `/heuresis:setup` |
 | Search, read and draft Gmail across accounts, catch up on mail | `epistole` | `/epistole:setup` |
 | Check a Brightspace (D2L) course site for news and due work | `schole` | `/schole:setup` |
-| Block attribution lines, guard commits, restart idle sessions on update | `phylax` | `/phylax:setup` |
+| Block attribution lines, guard commits, require a model on subagent calls, restart idle sessions on update, route work to cheaper models while usage burns fast | `phylax` | `/phylax:setup` |
 | Hear a gist of each reply (WSL2) | `keryx` (own repo, `ajbarea/keryx`) | `keryx status` |
 
 ## Install and set up

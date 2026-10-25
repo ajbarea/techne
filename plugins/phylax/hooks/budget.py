@@ -26,6 +26,7 @@ import math
 import os
 import re
 import shutil
+import stat
 import sys
 import time
 from typing import NamedTuple
@@ -51,7 +52,11 @@ READ_LIMIT = 65536
 SEEN_MAX_AGE = 7 * 86400
 SEEN_MAX = 1000
 FINAL_REVIEW = re.compile(r"final\s+review", re.IGNORECASE)
-OPUS = re.compile(r"\s*(opus|claude-opus-)", re.IGNORECASE)
+# The models above Sonnet: Opus, Fable, and `best`, which resolves to the most capable one.
+TOP_TIER = re.compile(r"\s*(opus|fable|best\b|claude-(opus|fable)-)", re.IGNORECASE)
+OVERRIDE_NAME = "phylax-budget-override.json"
+DEFAULT_PAUSE_HOURS = 4.0
+SID = re.compile(r"[A-Za-z0-9_-]{1,128}")
 
 ROUTING = (
     "Sonnet implements, runs research and the first review rounds; Opus reviews only the "
@@ -130,7 +135,10 @@ def settings(environ) -> Settings:
 def number(value) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    return float(value) if math.isfinite(value) else None
+    try:
+        return float(value) if math.isfinite(value) else None
+    except OverflowError:  # an integer too large for a float
+        return None
 
 
 def window_state(name: str, data, now: float) -> tuple | None:
@@ -155,17 +163,24 @@ def classify(used: float, elapsed: float, s: Settings) -> str:
     return "normal"
 
 
+def read_json(path: str):
+    """A regular file's JSON; a FIFO or device would block, so it raises instead."""
+    info = os.stat(path)
+    if not stat.S_ISREG(info.st_mode):
+        raise OSError(f"{path} is not a regular file")
+    with open(path, "rb") as f:
+        return info, json.loads(f.read(READ_LIMIT))
+
+
 def read_limits(path: str, now: float) -> tuple:
     """(rate_limits, note): the snapshot's rate_limits, or None and why not."""
     try:
-        age = now - os.stat(path).st_mtime
-        if age > MAX_AGE:
-            return None, f"snapshot {age / 3600:.0f} h old"
-        with open(path, "rb") as f:
-            data = json.loads(f.read(READ_LIMIT))
+        if now - os.stat(path).st_mtime > MAX_AGE:
+            return None, f"snapshot {(now - os.stat(path).st_mtime) / 3600:.0f} h old"
+        _, data = read_json(path)
     except FileNotFoundError:
         return None, "no snapshot yet"
-    except (OSError, ValueError) as err:
+    except (OSError, ValueError, RecursionError, OverflowError) as err:
         return None, f"unreadable snapshot ({type(err).__name__})"
     limits = data.get("rate_limits") if isinstance(data, dict) else None
     if not isinstance(limits, dict) or not limits:
@@ -187,6 +202,57 @@ def level(environ, now: float) -> Reading:
     return Reading(LEVELS[worst], tuple(windows), s.path, note)
 
 
+def override_path(environ) -> str:
+    return os.path.join(os.path.dirname(snapshot.default_path(environ)), OVERRIDE_NAME)
+
+
+def paused_until(environ, now: float) -> float | None:
+    """When a /phylax:budget off pause ends, or None when none is running."""
+    try:
+        _, data = read_json(override_path(environ))
+    except (OSError, ValueError, RecursionError, OverflowError):
+        return None
+    until = number(data.get("until")) if isinstance(data, dict) else None
+    return until if until is not None and until > now else None
+
+
+class Role(NamedTuple):
+    applies: bool
+    name: str
+    reason: str
+
+
+def role(environ, now: float) -> Role:
+    """Whether budget mode routes this session. Background agents (PHYLAX_BUDGET_ROLE=
+    background) pay first; an interactive session keeps normal routing unless it opts in with
+    PHYLAX_BUDGET=on, and a /phylax:budget off pause sends opted-in sessions back to normal.
+    PHYLAX_BUDGET=normal exempts any session."""
+    asked = environ.get("PHYLAX_BUDGET", "").strip().lower()
+    background = environ.get("PHYLAX_BUDGET_ROLE", "").strip().lower() == "background"
+    name = "background" if background else "interactive" + (", opted in" if asked == "on" else "")
+    if asked == "normal":
+        return Role(False, name, "PHYLAX_BUDGET=normal")
+    if background:
+        return Role(True, name, "")
+    if asked != "on":
+        return Role(False, name, "interactive sessions keep normal routing")
+    until = paused_until(environ, now)
+    if until is not None:
+        return Role(
+            False, name, f"paused until {time.strftime('%Y-%m-%d %H:%M', time.localtime(until))}"
+        )
+    return Role(True, name, "")
+
+
+def session_level(environ, now: float) -> Reading:
+    """The level this session routes by: the account's level, or normal when its role is exempt
+    (then the snapshot is not read at all)."""
+    who = role(environ, now)
+    if not who.applies:
+        return Reading("normal", (), "", who.reason)
+    return level(environ, now)
+
+
 def why(reading: Reading) -> str:
     label = {"five_hour": "5-hour", "seven_day": "7-day"}
     return "; ".join(
@@ -199,7 +265,7 @@ def context(reading: Reading, previous: str = "normal") -> str | None:
     if reading.level == "normal":
         if previous == "normal":
             return None
-        reason = why(reading) or "no live reading"
+        reason = why(reading) or reading.note or "no live reading"
         return f"phylax budget mode: back to normal ({reason}). Opus writes and reviews again."
     text = f"phylax budget mode: {reading.level} ({why(reading)}). Until it eases: {ROUTING}"
     return text + FRUGAL_EXTRA if reading.level == "frugal" else text
@@ -212,7 +278,7 @@ def data_dir(environ) -> str | None:
 
 def seen_path(environ, payload: dict) -> str | None:
     folder, sid = data_dir(environ), payload.get("session_id")
-    if not folder or not isinstance(sid, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", sid):
+    if not folder or not isinstance(sid, str) or not SID.fullmatch(sid):
         return None
     return os.path.join(folder, "budget-seen", sid)
 
@@ -231,11 +297,16 @@ def prune_seen(environ, now: float) -> None:
     folder = data_dir(environ)
     if not folder:
         return
+    seen = os.path.join(folder, "budget-seen")
     try:
-        with os.scandir(os.path.join(folder, "budget-seen")) as entries:
+        if not stat.S_ISDIR(os.lstat(seen).st_mode):
+            return  # a symlink or a file: never delete through it
+        with os.scandir(seen) as entries:
             for count, entry in enumerate(entries):
                 if count >= SEEN_MAX:
                     break
+                if not (SID.fullmatch(entry.name) and entry.is_file(follow_symlinks=False)):
+                    continue
                 if now - entry.stat(follow_symlinks=False).st_mtime > SEEN_MAX_AGE:
                     os.unlink(entry.path)
     except OSError:
@@ -270,9 +341,13 @@ def on_session(payload: dict, environ, now: float) -> None:
     except OSError as err:
         print(f"phylax budget: could not copy budget_snapshot.py ({err})", file=sys.stderr)
     prune_seen(environ, now)
-    reading = level(environ, now)
-    remember(seen_path(environ, payload), reading.level)
-    text = context(reading)
+    path = seen_path(environ, payload)
+    # A resumed or compacted session still carries what it was last told.
+    resumed = payload.get("source") in ("resume", "compact")
+    previous = read_seen(path) if resumed else "normal"
+    reading = session_level(environ, now)
+    remember(path, reading.level)
+    text = context(reading, previous)
     if text:
         emit("SessionStart", additionalContext=text)
 
@@ -282,7 +357,7 @@ def on_prompt(payload: dict, environ, now: float) -> None:
     if path is None:
         return  # nowhere to remember what this session saw: SessionStart told it once
     previous = read_seen(path)
-    reading = level(environ, now)
+    reading = session_level(environ, now)
     if reading.level == previous:
         return
     remember(path, reading.level)
@@ -301,31 +376,63 @@ def remember(path: str | None, value: str) -> None:
 
 def rewrite(payload: dict, environ, now: float | None = None) -> dict | None:
     """The PreToolUse output that runs this Agent call on Sonnet, or None to leave it."""
+    now = time.time() if now is None else now
     if payload.get("tool_name") not in ("Agent", "Task"):
         return None
     tool_input = payload.get("tool_input")
     if not isinstance(tool_input, dict):
         return None
     model, description = tool_input.get("model"), tool_input.get("description")
-    if not isinstance(model, str) or not OPUS.match(model):
+    if not isinstance(model, str) or not TOP_TIER.match(model):
         return None
     if isinstance(description, str) and FINAL_REVIEW.search(description):
         return None
-    reading = level(environ, time.time() if now is None else now)
+    reading = session_level(environ, now)
     if reading.level != "frugal":
         return None
     return {
         "hookEventName": "PreToolUse",
         "updatedInput": {**tool_input, "model": "sonnet"},
         "additionalContext": (
-            f"phylax budget mode is frugal ({why(reading)}), so this Opus call ran on Sonnet."
-            ' Put "final review" in the description to keep Opus for a final review round.'
+            f"phylax budget mode is frugal ({why(reading)}), so this {model.strip()} call ran on"
+            ' Sonnet. Put "final review" in the description to keep it for a final review round.'
         ),
     }
 
 
+def pause(argv: list, environ, now: float) -> int:
+    """/phylax:budget off [hours], on, status: a pause for opted-in interactive sessions."""
+    path = override_path(environ)
+    if argv[0] == "off":
+        try:
+            hours = float(argv[1]) if len(argv) > 1 else DEFAULT_PAUSE_HOURS
+        except ValueError:
+            hours = math.nan
+        if not (math.isfinite(hours) and 0 < hours <= 7 * 24):
+            print(f"phylax budget: hours must be a number from 0 to 168, not {argv[1]!r}")
+            return 2
+        snapshot.write_atomic(path, json.dumps({"until": now + hours * 3600}).encode())
+    elif argv[0] == "on":
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
+    until = paused_until(environ, now)
+    who = role(environ, now)
+    state = (
+        f"paused until {time.strftime('%Y-%m-%d %H:%M', time.localtime(until))}"
+        if until
+        else "not paused"
+    )
+    routed = "routed by budget mode" if who.applies else f"normal routing ({who.reason})"
+    print(f"phylax budget: {state}; this session is {who.name}, {routed}")
+    return 0
+
+
 def main(argv: list) -> int:
     mode = argv[0] if argv else ""
+    if mode in ("off", "on", "status"):
+        return pause(argv, os.environ, time.time())
     if mode not in ("session", "prompt", "agent"):
         print(f"phylax budget: unknown mode {mode!r} (session, prompt or agent)", file=sys.stderr)
         return 2
