@@ -13,10 +13,12 @@ survives plugin updates; /phylax:setup prints the exact line. The file written i
 optional path argument, else ${CLAUDE_CONFIG_DIR:-~/.claude}/phylax-budget.json, one per
 account. A payload without rate_limits (before the session's first response, or an API-key
 login) leaves the file as it was. Every session's status line writes the one file, and an
-idle session re-renders with the usage of its last response, so each window keeps the newest
-reading: the later resets_at, and for the same resets_at the higher used_percentage. Nothing
-here may break the status line, so every error is dropped. Runs on the system python3, so it
-stays compatible with 3.9 (macOS's).
+idle session re-renders with the usage of its last response. An account has one live window
+of each kind, so a reading of a window already reset, or of the same window used less, is
+older and is dropped; a live window with another reset (the next one, or another account
+after a /login) replaces the stored one. A symlinked file is written through; a FIFO or other
+special file is left alone. Nothing here may break the status line, so every error is
+dropped. Runs on the system python3, so it stays compatible with 3.9 (macOS's).
 """
 
 from __future__ import annotations
@@ -54,13 +56,16 @@ def write_atomic(path: str, data: bytes) -> None:
         raise
 
 
-def previous(path: str) -> tuple:
-    """(rate_limits, mtime) of the file as it stands; ({}, 0.0) for a missing, unreadable or
-    non-regular one (a FIFO would block the status line)."""
+def previous(path: str):
+    """(rate_limits, mtime) of the file as it stands, ({}, 0.0) for a missing or unreadable
+    one, or None for a FIFO or other special file (opening one could block the status line)."""
     try:
         info = os.stat(path)
-        if not stat.S_ISREG(info.st_mode):
-            return {}, 0.0
+    except OSError:
+        return {}, 0.0
+    if not stat.S_ISREG(info.st_mode):
+        return None
+    try:
         with open(path, "rb") as f:
             limits = json.loads(f.read(65536)).get("rate_limits")
     except (OSError, ValueError, AttributeError, RecursionError):
@@ -77,15 +82,18 @@ def number(value):
         return None
 
 
-def newer(old, new) -> bool:
-    """Whether window reading NEW replaces OLD: a later reset, or the same one used more."""
-    if not isinstance(old, dict):
-        return True
+def newer(old, new, now: float) -> bool:
+    """Whether window reading NEW replaces OLD: any live window with another reset, or the
+    same window used at least as much."""
     if not isinstance(new, dict):
         return False
+    if not isinstance(old, dict):
+        return True
     old_reset, new_reset = number(old.get("resets_at")), number(new.get("resets_at"))
-    if old_reset is None or new_reset is None or old_reset != new_reset:
-        return new_reset is not None and (old_reset is None or new_reset > old_reset)
+    if new_reset is None or new_reset <= now:
+        return False
+    if old_reset != new_reset:
+        return True
     old_used, new_used = number(old.get("used_percentage")), number(new.get("used_percentage"))
     return old_used is None or (new_used is not None and new_used >= old_used)
 
@@ -96,9 +104,13 @@ def save(raw: bytes, path: str) -> None:
     if not isinstance(limits, dict) or not limits:
         return
     now = time.time()
-    old, written = previous(path)
+    path = os.path.realpath(path)
+    found = previous(path)
+    if found is None:
+        return
+    old, written = found
     merged = dict(old)
-    merged.update((name, win) for name, win in limits.items() if newer(old.get(name), win))
+    merged.update((name, win) for name, win in limits.items() if newer(old.get(name), win, now))
     # A re-render repeats the last response: an unchanged reading this recent is left alone.
     if merged == old and now - written < REWRITE_AFTER:
         return

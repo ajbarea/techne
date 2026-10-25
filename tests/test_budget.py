@@ -7,6 +7,7 @@ import json
 import math
 import os
 import pathlib
+import stat
 import subprocess
 import time
 
@@ -518,7 +519,7 @@ def test_an_unchanged_recent_reading_is_not_rewritten(home):
     first = target.stat().st_mtime_ns
     snap(raw, home)
     assert target.stat().st_mtime_ns == first
-    changed = {**PAYLOAD, "rate_limits": {"seven_day": {"used_percentage": 50, "resets_at": 1}}}
+    changed = {**PAYLOAD, "rate_limits": {"seven_day": {"used_percentage": 50, "resets_at": 2e9}}}
     snap(json.dumps(changed).encode(), home)
     assert json.loads(target.read_text())["rate_limits"]["seven_day"]["used_percentage"] == 50
 
@@ -757,9 +758,9 @@ def test_an_older_reading_never_lowers_a_newer_one(home):
     lower = {"seven_day": {"used_percentage": 40, "resets_at": 2e9}}
     snap(json.dumps({"rate_limits": lower}).encode(), home)
     assert reading_of(home)["seven_day"]["used_percentage"] == 70
-    earlier = {"seven_day": {"used_percentage": 90, "resets_at": 2e9 - 7 * DAY}}
-    snap(json.dumps({"rate_limits": earlier}).encode(), home)
-    assert reading_of(home) == first  # a window already past
+    past = {"seven_day": {"used_percentage": 90, "resets_at": time.time() - HOUR}}
+    snap(json.dumps({"rate_limits": past}).encode(), home)
+    assert reading_of(home) == first  # a window already reset
     later = {"seven_day": {"used_percentage": 3, "resets_at": 2e9 + 7 * DAY}}
     snap(json.dumps({"rate_limits": later}).encode(), home)
     assert reading_of(home)["seven_day"] == later["seven_day"]  # the next window
@@ -782,3 +783,37 @@ def test_a_fifo_at_the_snapshot_path_does_not_block_the_status_line(home):
     raw = json.dumps(PAYLOAD).encode()
     proc = snap(raw, home)
     assert (proc.returncode, proc.stdout) == (0, raw)
+
+
+def test_another_account_in_the_same_folder_replaces_the_reading(home):
+    # One account has one live window of each kind, so a live window with another reset is
+    # another account (a /login), never an older reading.
+    now = time.time()
+    a = {
+        "five_hour": {"used_percentage": 90, "resets_at": now + 4 * HOUR},
+        "seven_day": {"used_percentage": 96, "resets_at": now + 6 * DAY},
+    }
+    b = {
+        "five_hour": {"used_percentage": 2, "resets_at": now + HOUR},
+        "seven_day": {"used_percentage": 1, "resets_at": now + DAY},
+    }
+    snap(json.dumps({"rate_limits": a}).encode(), home)
+    snap(json.dumps({"rate_limits": b}).encode(), home)
+    assert reading_of(home) == b
+
+
+def test_the_snapshot_writes_through_a_symlink(home, tmp_path):
+    real = tmp_path / "dotfiles" / "phylax-budget.json"
+    real.parent.mkdir()
+    real.write_text("{}")
+    link = home / ".claude" / "phylax-budget.json"
+    link.symlink_to(real)
+    snap(json.dumps(PAYLOAD).encode(), home)
+    assert link.is_symlink() and json.loads(real.read_text())["rate_limits"]
+
+
+def test_the_snapshot_leaves_a_fifo_in_place(home):
+    target = home / ".claude" / "phylax-budget.json"
+    os.mkfifo(target)
+    snap(json.dumps(PAYLOAD).encode(), home)
+    assert stat.S_ISFIFO(os.lstat(target).st_mode)
