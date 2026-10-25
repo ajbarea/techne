@@ -140,6 +140,33 @@ Without it, the handoff sends the shell SIGHUP, and the tab stays open showing t
 - A session whose directory path contains `;` is not restarted under Windows Terminal, which reads `;` as a separator between its own commands.
 - `restart_on_update` works on Linux and WSL only, since it reads `/proc`. It needs `python3` 3.9 or newer, and `tmux`, or `wt.exe` under WSL. It keeps its state and a log in `$XDG_RUNTIME_DIR/phylax-restart-<uid>/`, or under `/tmp` when that is unset, and does nothing unless that directory is yours and private.
 
+## Budget mode
+
+`budget_mode` routes work to cheaper models while the usage allowance burns faster than time passes. Claude Code hands the 5-hour and 7-day `rate_limits` only to the [status line](https://code.claude.com/docs/en/statusline), never to hooks, so the status line saves them and the hooks read the saved copy.
+
+**Set it up.** Switch `budget_mode` on in `/config`, start a new session (its SessionStart hook copies `budget_snapshot.py` to the plugin's data folder, a path that survives plugin updates), and put the copy in front of your status line command in `settings.json`. `/phylax:setup` prints the line with the real path:
+
+```json
+"statusLine": {
+  "type": "command",
+  "command": "python3 ~/.claude/plugins/data/<phylax id>/budget_snapshot.py | <your status line command>"
+}
+```
+
+The snapshot passes the status line's input through unchanged, so whatever followed still renders; with no status line of your own, use the snapshot alone. It writes `phylax-budget.json` in the account's Claude config folder (`$CLAUDE_CONFIG_DIR`, or `~/.claude`), so two accounts keep two files. Pass a path argument, and set `budget_state_file` to the same path, to keep it elsewhere.
+
+**Levels.** Each window gets a level from its pace, the percent used minus the percent of the window already gone, and the higher window decides. A seat that reports only the 5-hour window still gets a level.
+
+| Level | When (defaults) | What sessions are told |
+|---|---|---|
+| normal | below both lean marks | Opus writes and reviews. Nothing is added. |
+| lean | pace 10 points ahead (`budget_lean_pace`), or 80% used (`budget_lean_used`) | Sonnet implements and runs research and the first review rounds; Opus reviews only the final round of a risky diff; Haiku does mechanical edits and digests. |
+| frugal | pace 25 points ahead (`budget_frugal_pace`), or 95% used (`budget_frugal_used`) | Lean, plus no parallel Opus subagents, review rounds capped at 2, and Haiku for every digest. An `Agent` call that names Opus runs on Sonnet unless its description contains "final review". |
+
+A session hears the table at start when the level is lean or frugal, and again only when the level changes. The frugal rewrite changes the call's `model` through the hook's `updatedInput` and leaves the permission prompt as it was.
+
+**Limits.** A hook cannot change the main session's model; start sessions with `claude --model sonnet` from your launcher for that. The snapshot holds the last value the status line saw, so a level is as fresh as the last response in any session on that account; a snapshot over a day old, or a window past its reset, reads normal. `rate_limits` exists only on Pro and Max plans, after a session's first response.
+
 ## Per-skill configuration
 
 Most skills read additional repo-local config when needed (e.g. `techne:audit` looks for a `Makefile`; `techne:docs-site` looks for `zensical.toml`). See each skill's page for specifics.

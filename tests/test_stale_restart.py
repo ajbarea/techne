@@ -791,7 +791,9 @@ def test_hooks_json_wires_the_option_to_its_events():
     config = json.loads(HOOKS_JSON.read_text())
     assert config["hooks"]["Notification"][0]["matcher"] == "idle_prompt"
     for event in EVENTS:
-        (handler,) = hook_handlers("phylax", event)
+        (handler,) = [
+            h for h in hook_handlers("phylax", event) if "stale_restart.py" in h["command"]
+        ]
         assert f"$CLAUDE_PLUGIN_OPTION_{OPTION.upper()}" in handler["command"]
         assert '"${CLAUDE_PLUGIN_ROOT}/hooks/stale_restart.py"' in handler["command"]
 
@@ -800,7 +802,9 @@ def test_hooks_json_skips_python_when_off(tmp_path):
     empty = tmp_path / "bin"
     empty.mkdir()
     for event in EVENTS:
-        (handler,) = hook_handlers("phylax", event)
+        (handler,) = [
+            h for h in hook_handlers("phylax", event) if "stale_restart.py" in h["command"]
+        ]
         shell = hook_shell("phylax", handler, python=None)
         proc = subprocess.run(
             ["/bin/sh", "-c", shell],

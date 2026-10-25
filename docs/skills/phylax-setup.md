@@ -30,6 +30,7 @@ The first lines are the options, one per option: `ok` is on, `n/a` is off or not
 | `python3` | Any option is on. 3.9 or newer. |
 | `git` | A guard is on. |
 | `proc`, `launcher`, `claude`, `state-dir` | `restart_on_update` is on: `/proc`, tmux or Windows Terminal, the `claude` on PATH, and a private state folder. |
+| `budget` | `budget_mode` is on: the level it reads now and the usage file, or the status line step to add when no snapshot exists yet. |
 
 ## Output
 

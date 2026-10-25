@@ -6,13 +6,16 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 
 ## In flight
 
-- **#204** (closes #197, branch `fix/model-guard-agent-overrides`): `require_subagent_model`
-  reads a managed, project or user definition named `general-purpose`, `claude`, `Explore` or
-  `Plan`, which replaces the built-in (Claude Code 2.1.302 layers definitions by name). The walk
-  starts at `CLAUDE_PROJECT_DIR`; anything unreadable allows the call. code-review high (10
-  findings, 8 fixed); reader r1 running. Verify: `flock /tmp/fleet-heavy.lock timeout 600 uv run
-  pytest tests/test_model_guard.py` and `make test-hooks-oldest`.
-- **#206** (closes #205): sisters check 15 minors; readers r1 and r2 done, merging.
+- **#207 budget mode** (branch `feat/phylax-budget-mode`): `hooks/budget.py` (session, prompt,
+  agent modes) reads the rate_limits `hooks/budget_snapshot.py` saves from the status line
+  (copied to `${CLAUDE_PLUGIN_DATA}` at session start). Level per window from pace (used% minus
+  elapsed%), higher window wins; frugal rewrites an Opus Agent call to Sonnet via
+  `updatedInput` (live-tested on 2.1.302: honoured, no permissionDecision needed). Rebase onto
+  #204 when it merges (both add to the Agent hook group and `tests/test_model_guard.py`).
+  Owed by AJ: the global CLAUDE.md line naming the option (drafted in the PR).
+  Verify: `flock /tmp/fleet-heavy.lock timeout 600 uv run pytest tests/test_budget.py
+  tests/test_phylax_doctor.py` and `make test-hooks-oldest`.
+- **#204** (closes #197): reader r2 found only Minors (fixed); merging on green CI.
 
 ## Open Minors (recorded, not scheduled)
 

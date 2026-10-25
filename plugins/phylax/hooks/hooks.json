@@ -1,5 +1,5 @@
 {
-  "description": "Opt-in guards on git commit, git add and gh pr, an opt-in refusal of a subagent call that would silently inherit the session's model, and an opt-in restart of idle sessions onto an updated Claude Code. The hooks module checks the main thread's git commands; the Bash PreToolUse hook checks subagents' and every call when the module did not load. Each is off until switched on in /config; a hook whose options are all off does not start python3.",
+  "description": "Opt-in guards on git commit, git add and gh pr, an opt-in refusal of a subagent call that would silently inherit the session's model, an opt-in restart of idle sessions onto an updated Claude Code, and an opt-in budget mode that routes work to cheaper models while the usage allowance burns too fast. The hooks module checks the main thread's git commands; the Bash PreToolUse hook checks subagents' and every call when the module did not load. Each is off until switched on in /config; a hook whose options are all off does not start python3.",
   "modules": [
     "./register.ts"
   ],
@@ -21,6 +21,11 @@
           {
             "type": "command",
             "command": "case \"$CLAUDE_PLUGIN_OPTION_REQUIRE_SUBAGENT_MODEL\" in true) exec python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/model_guard.py\" ;; esac",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "case \"$CLAUDE_PLUGIN_OPTION_BUDGET_MODE\" in true) exec python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/budget.py\" agent ;; esac",
             "timeout": 10
           }
         ]
@@ -56,6 +61,11 @@
             "type": "command",
             "command": "case \"$CLAUDE_PLUGIN_OPTION_RESTART_ON_UPDATE\" in true) exec python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/stale_restart.py\" ;; esac",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "case \"$CLAUDE_PLUGIN_OPTION_BUDGET_MODE\" in true) exec python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/budget.py\" prompt ;; esac",
+            "timeout": 10
           }
         ]
       }
@@ -66,6 +76,17 @@
           {
             "type": "command",
             "command": "case \"$CLAUDE_PLUGIN_OPTION_RESTART_ON_UPDATE\" in true) exec python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/stale_restart.py\" ;; esac",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "case \"$CLAUDE_PLUGIN_OPTION_BUDGET_MODE\" in true) exec python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/budget.py\" session ;; esac",
             "timeout": 10
           }
         ]
