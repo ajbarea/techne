@@ -89,7 +89,11 @@ def hook_shell(plugin: str, handler: Mapping, python: str | None = HOOK_PYTHON) 
 
 
 def run_hook_handler(
-    plugin: str, handler: Mapping, stdin: str, env: Mapping[str, str]
+    plugin: str,
+    handler: Mapping,
+    stdin: str,
+    env: Mapping[str, str],
+    cwd: pathlib.Path | None = None,
 ) -> subprocess.CompletedProcess:
     """Run HANDLER through sh, as Claude Code runs a shell-form hook."""
     return subprocess.run(
@@ -98,6 +102,7 @@ def run_hook_handler(
         capture_output=True,
         text=True,
         env=dict(env),
+        cwd=cwd,
         check=False,
         timeout=60,
     )
