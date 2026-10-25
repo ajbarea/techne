@@ -10,18 +10,9 @@ Done: `hooks/budget.py` (modes session, prompt, agent; off/on/status for `/phyla
 `hooks/budget_snapshot.py` (status line step, copied to `${CLAUDE_PLUGIN_DATA}`), options,
 doctor `budget` line, docs, `skills/budget`, marketplace description test. Live test: Agent
 honours `updatedInput` without permissionDecision (2.1.302). Reviews: code-review medium (8 of
-10 fixed, 2 declined in PR body), reader r1 (fixed), reader r2: HOLD. Round 3 is the cap.
-Next, fix r2 then run reader r3 (no /code-review high; medium or a reader only), then merge:
-1. Should-fix: doctor shows an active pause under every role (`doctor.py` budget(): append
-   `module.paused_until(os.environ, now)`); test a pause file under each of the four roles.
-2. Should-fix: `budget_snapshot.save()` merges per window: later `resets_at` wins, same
-   `resets_at` keeps the higher `used_percentage`; test 70 then 40 keeps 70, a later reset wins.
-3. Minors: pause `until` 1e300 -> OverflowError in `time.localtime` (guard like the snapshot);
-   `read_seen(None)` opens `./None` (return "normal" for None); test `compact` resume and the
-   SEEN_MAX cap; "Opus" text that should say Opus or Fable (`FRUGAL_EXTRA`, plugin.json,
-   phylax.md, phylax AGENTS.md); "beside the snapshot" wrong when `budget_state_file` is set;
-   `off 0` message says "from 0"; `on` with a folder at the pause path tracebacks;
-   docs/index.md comma after "warning)"; phylax-setup.md budget row should name the role.
+10 fixed, 2 declined in PR body), reader r1 (fixed), reader r2 (2 Should-fix + 8 Minors fixed
+in 540e149, failing tests first; 9 of 9 hand mutants on the new guards killed). Next: reader r3
+(the cap; no /code-review high), fix what it holds on, then merge.
 Then: update the PR body counts, re-read PR and issue comments, squash-merge, move #207 to
 ROADMAP's dated log, remove this worktree. Owed by AJ: the global CLAUDE.md line (drafted in
 the PR body) and the status line step `/phylax:setup` prints.
