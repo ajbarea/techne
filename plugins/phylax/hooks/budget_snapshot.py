@@ -25,11 +25,38 @@ import tempfile
 import time
 
 STATE_NAME = "phylax-budget.json"
+# A re-render repeats the last response; an unchanged reading this recent is not rewritten.
+REWRITE_AFTER = 300
 
 
-def default_path() -> str:
-    config = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude")
+def default_path(environ=os.environ) -> str:
+    """The snapshot file of the account whose Claude config folder this environment names."""
+    home = os.path.expanduser("~")
+    config = environ.get("CLAUDE_CONFIG_DIR") or os.path.join(home, ".claude")
     return os.path.join(config, STATE_NAME)
+
+
+def write_atomic(path: str, data: bytes) -> None:
+    folder = os.path.dirname(os.path.abspath(path))
+    os.makedirs(folder, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".phylax-", dir=folder)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.replace(tmp, path)
+    except BaseException:
+        os.unlink(tmp)
+        raise
+
+
+def unchanged(path: str, limits: dict, now: float) -> bool:
+    try:
+        if now - os.stat(path).st_mtime >= REWRITE_AFTER:
+            return False
+        with open(path, "rb") as f:
+            return json.loads(f.read(65536)).get("rate_limits") == limits
+    except (OSError, ValueError, AttributeError):
+        return False
 
 
 def save(raw: bytes, path: str) -> None:
@@ -37,16 +64,10 @@ def save(raw: bytes, path: str) -> None:
     limits = data.get("rate_limits") if isinstance(data, dict) else None
     if not isinstance(limits, dict) or not limits:
         return
-    folder = os.path.dirname(os.path.abspath(path))
-    os.makedirs(folder, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(prefix=".phylax-budget-", dir=folder)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump({"rate_limits": limits, "written_at": time.time()}, f)
-        os.replace(tmp, path)
-    except BaseException:
-        os.unlink(tmp)
-        raise
+    now = time.time()
+    if unchanged(path, limits, now):
+        return
+    write_atomic(path, json.dumps({"rate_limits": limits, "written_at": now}).encode())
 
 
 def main(argv: list) -> int:

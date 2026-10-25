@@ -303,6 +303,29 @@ def test_a_prompt_speaks_only_when_the_level_changes(home, tmp_path):
     assert out(run(home, "prompt", prompt, data=data, limits=NORMAL)) is None
 
 
+def test_without_a_place_to_remember_a_prompt_stays_quiet(home):
+    # SessionStart already named the level; repeating it on every prompt would cost tokens.
+    assert out(run(home, "prompt", session(event="UserPromptSubmit"), limits=LEAN)) is None
+
+
+def test_old_remembered_levels_are_pruned(home, tmp_path):
+    data = tmp_path / "data"
+    seen = data / "budget-seen"
+    seen.mkdir(parents=True)
+    (seen / "old").write_text("lean")
+    (seen / "recent").write_text("lean")
+    ancient = time.time() - 8 * DAY
+    os.utime(seen / "old", (ancient, ancient))
+    run(home, "session", session("now"), data=data, limits=NORMAL)
+    assert sorted(p.name for p in seen.iterdir()) == ["now", "recent"]
+
+
+def test_crossed_thresholds_are_reported(bg):
+    s = thresholds(bg, budget_lean_pace=30, budget_lean_used=99)
+    assert len(s.conflicts) == 2
+    assert not thresholds(bg).conflicts
+
+
 def test_a_prompt_in_a_session_never_seen_starts_from_normal(home, tmp_path):
     prompt = session("new", event="UserPromptSubmit")
     data = tmp_path / "data"
@@ -322,7 +345,7 @@ def test_an_odd_session_id_is_not_a_path(home, tmp_path, sid):
     data = tmp_path / "data"
     payload = json.dumps({"session_id": sid, "hook_event_name": "UserPromptSubmit"})
     proc = run(home, "prompt", payload, data=data, limits=LEAN)
-    assert proc.returncode == 0
+    assert (proc.returncode, proc.stdout) == (0, "")  # no record, so no repeat on each prompt
     assert not (tmp_path / "x").exists() and not (data / "x").exists()
 
 
@@ -479,3 +502,34 @@ def test_the_snapshot_and_the_reader_agree(bg, home, monkeypatch):
     snap(json.dumps(payload).encode(), home)
     monkeypatch.setenv("HOME", str(home))
     assert bg.level({}, time.time()).level == "frugal"
+
+
+def test_an_unchanged_recent_reading_is_not_rewritten(home):
+    raw = json.dumps(PAYLOAD).encode()
+    snap(raw, home)
+    target = home / ".claude" / "phylax-budget.json"
+    first = target.stat().st_mtime_ns
+    snap(raw, home)
+    assert target.stat().st_mtime_ns == first
+    changed = {**PAYLOAD, "rate_limits": {"seven_day": {"used_percentage": 50, "resets_at": 1}}}
+    snap(json.dumps(changed).encode(), home)
+    assert json.loads(target.read_text())["rate_limits"]["seven_day"]["used_percentage"] == 50
+
+
+def test_an_unchanged_old_reading_is_rewritten(home):
+    raw = json.dumps(PAYLOAD).encode()
+    snap(raw, home)
+    target = home / ".claude" / "phylax-budget.json"
+    old = time.time() - 600
+    os.utime(target, (old, old))
+    snap(raw, home)
+    assert target.stat().st_mtime > old + 60
+
+
+def test_the_recommended_chain_keeps_the_status_line_when_the_copy_is_missing(tmp_path):
+    raw = json.dumps(PAYLOAD)
+    line = f"{{ python3 {tmp_path / 'absent.py'} 2>/dev/null || cat; }} | cat"
+    proc = subprocess.run(
+        ["sh", "-c", line], input=raw, capture_output=True, text=True, check=False
+    )
+    assert proc.stdout == raw

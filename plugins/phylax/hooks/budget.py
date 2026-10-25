@@ -27,13 +27,14 @@ import os
 import re
 import shutil
 import sys
-import tempfile
 import time
 from typing import NamedTuple
 
 HOOKS = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HOOKS)
+import budget_snapshot as snapshot  # noqa: E402
+
 SNAPSHOT = os.path.join(HOOKS, "budget_snapshot.py")
-STATE_NAME = "phylax-budget.json"
 WINDOWS = {"five_hour": 5 * 3600, "seven_day": 7 * 86400}
 LEVELS = ("normal", "lean", "frugal")
 DEFAULTS = {
@@ -46,6 +47,9 @@ DEFAULTS = {
 MAX_AGE = 86400
 # Bytes read from a snapshot.
 READ_LIMIT = 65536
+# A session's remembered level is dropped after this long, and at most this many are kept.
+SEEN_MAX_AGE = 7 * 86400
+SEEN_MAX = 1000
 FINAL_REVIEW = re.compile(r"final\s+review", re.IGNORECASE)
 OPUS = re.compile(r"\s*(opus|claude-opus-)", re.IGNORECASE)
 
@@ -68,6 +72,7 @@ class Settings(NamedTuple):
     frugal_used: float
     path: str
     bad: tuple
+    conflicts: tuple
 
 
 class Window(NamedTuple):
@@ -105,11 +110,12 @@ def settings(environ) -> Settings:
             values[key] = default
             if raw:
                 bad.append(key)
-    path = option(environ, "budget_state_file")
-    if not path:
-        home = os.path.expanduser("~")
-        config = environ.get("CLAUDE_CONFIG_DIR") or os.path.join(home, ".claude")
-        path = os.path.join(config, STATE_NAME)
+    path = option(environ, "budget_state_file") or snapshot.default_path(environ)
+    conflicts = tuple(
+        f"budget_lean_{kind} above budget_frugal_{kind}, so lean never fires on {kind}"
+        for kind in ("pace", "used")
+        if values[f"budget_lean_{kind}"] > values[f"budget_frugal_{kind}"]
+    )
     return Settings(
         values["budget_lean_pace"],
         values["budget_lean_used"],
@@ -117,6 +123,7 @@ def settings(environ) -> Settings:
         values["budget_frugal_used"],
         os.path.expanduser(path),
         tuple(bad),
+        conflicts,
     )
 
 
@@ -219,17 +226,20 @@ def read_seen(path: str | None) -> str:
     return value if value in LEVELS else "normal"
 
 
-def write_atomic(path: str, data: bytes) -> None:
-    folder = os.path.dirname(path)
-    os.makedirs(folder, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(prefix=".phylax-", dir=folder)
+def prune_seen(environ, now: float) -> None:
+    """Drop remembered levels older than SEEN_MAX_AGE, looking at SEEN_MAX entries at most."""
+    folder = data_dir(environ)
+    if not folder:
+        return
     try:
-        with os.fdopen(fd, "wb") as f:
-            f.write(data)
-        os.replace(tmp, path)
-    except BaseException:
-        os.unlink(tmp)
-        raise
+        with os.scandir(os.path.join(folder, "budget-seen")) as entries:
+            for count, entry in enumerate(entries):
+                if count >= SEEN_MAX:
+                    break
+                if now - entry.stat(follow_symlinks=False).st_mtime > SEEN_MAX_AGE:
+                    os.unlink(entry.path)
+    except OSError:
+        pass
 
 
 def install_snapshot(environ) -> None:
@@ -246,7 +256,7 @@ def install_snapshot(environ) -> None:
                 return
     except OSError:
         pass
-    write_atomic(target, shipped)
+    snapshot.write_atomic(target, shipped)
     shutil.copymode(SNAPSHOT, target)
 
 
@@ -259,6 +269,7 @@ def on_session(payload: dict, environ, now: float) -> None:
         install_snapshot(environ)
     except OSError as err:
         print(f"phylax budget: could not copy budget_snapshot.py ({err})", file=sys.stderr)
+    prune_seen(environ, now)
     reading = level(environ, now)
     remember(seen_path(environ, payload), reading.level)
     text = context(reading)
@@ -268,6 +279,8 @@ def on_session(payload: dict, environ, now: float) -> None:
 
 def on_prompt(payload: dict, environ, now: float) -> None:
     path = seen_path(environ, payload)
+    if path is None:
+        return  # nowhere to remember what this session saw: SessionStart told it once
     previous = read_seen(path)
     reading = level(environ, now)
     if reading.level == previous:
@@ -281,7 +294,7 @@ def on_prompt(payload: dict, environ, now: float) -> None:
 def remember(path: str | None, value: str) -> None:
     if path:
         try:
-            write_atomic(path, value.encode())
+            snapshot.write_atomic(path, value.encode())
         except OSError as err:
             print(f"phylax budget: could not record the level ({err})", file=sys.stderr)
 

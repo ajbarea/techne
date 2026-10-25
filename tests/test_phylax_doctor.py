@@ -363,7 +363,10 @@ def test_budget_on_without_a_snapshot_says_how_to_chain_it(tmp_path, env):
     status, detail = found["budget"]
     assert status == "optional" and "no snapshot yet" in detail and "so normal" in detail
     assert str(tmp_path / ".claude" / "phylax-budget.json") in detail
-    assert "python3 /data/phylax/budget_snapshot.py | <your status line command>" in proc.stdout
+    assert (
+        "{ python3 /data/phylax/budget_snapshot.py || cat; } | <your status line command>"
+        in proc.stdout
+    )
     assert found["python3"][0] == "ok"  # the budget hooks run on python3
 
 
@@ -386,4 +389,38 @@ def test_budget_state_file_is_read_and_passed_to_the_snapshot(tmp_path, env):
     target = tmp_path / "elsewhere.json"
     proc, found = doctor(tmp_path, budget_args(budget_state_file=str(target)), env)
     assert str(target) in found["budget"][1]
-    assert f"budget_snapshot.py' {target} | <your status line command>" in proc.stdout
+    assert f"budget_snapshot.py {target} || cat; }} | <your status line command>" in proc.stdout
+
+
+def test_budget_without_a_data_folder_names_the_default_copy(tmp_path, env):
+    proc, _ = doctor(tmp_path, budget_args(), env)
+    copy = tmp_path / ".claude" / "plugins" / "data" / "phylax-techne" / "budget_snapshot.py"
+    assert f"{{ python3 {copy} || cat; }}" in proc.stdout
+
+
+def test_a_stale_snapshot_reads_normal_without_asking_to_chain_again(tmp_path, env):
+    import os
+    import time
+
+    state = tmp_path / ".claude" / "phylax-budget.json"
+    state.parent.mkdir(parents=True, exist_ok=True)
+    state.write_text('{"rate_limits": {"five_hour": {"used_percentage": 1, "resets_at": 1}}}')
+    old = time.time() - 2 * 86400
+    os.utime(state, (old, old))
+    proc, found = doctor(tmp_path, budget_args(), env)
+    assert found["budget"][0] == "ok" and "h old" in found["budget"][1]
+    assert "status line" not in proc.stdout
+
+
+def test_a_broken_snapshot_gets_its_own_fix(tmp_path, env):
+    state = tmp_path / ".claude" / "phylax-budget.json"
+    state.parent.mkdir(parents=True, exist_ok=True)
+    state.write_text("not json")
+    proc, found = doctor(tmp_path, budget_args(), env)
+    assert found["budget"][0] == "optional" and "unreadable" in found["budget"][1]
+    assert "is the file the status line step writes" in proc.stdout
+
+
+def test_crossed_thresholds_are_named(tmp_path, env):
+    _, found = doctor(tmp_path, budget_args(budget_lean_pace="30"), env)
+    assert "budget_lean_pace above budget_frugal_pace" in found["budget"][1]

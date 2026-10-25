@@ -149,11 +149,11 @@ Without it, the handoff sends the shell SIGHUP, and the tab stays open showing t
 ```json
 "statusLine": {
   "type": "command",
-  "command": "python3 ~/.claude/plugins/data/<phylax id>/budget_snapshot.py | <your status line command>"
+  "command": "{ python3 ~/.claude/plugins/data/phylax-techne/budget_snapshot.py || cat; } | <your status line command>"
 }
 ```
 
-The snapshot passes the status line's input through unchanged, so whatever followed still renders; with no status line of your own, use the snapshot alone. It writes `phylax-budget.json` in the account's Claude config folder (`$CLAUDE_CONFIG_DIR`, or `~/.claude`), so two accounts keep two files. Pass a path argument, and set `budget_state_file` to the same path, to keep it elsewhere.
+The snapshot passes the status line's input through unchanged, so whatever followed still renders, and `|| cat` keeps it rendering if the copy is ever missing. With no status line of your own, use the snapshot alone. An unchanged reading under five minutes old is not rewritten. It writes `phylax-budget.json` in the account's Claude config folder (`$CLAUDE_CONFIG_DIR`, or `~/.claude`), so two accounts keep two files. Pass a path argument, and set `budget_state_file` to the same path, to keep it elsewhere.
 
 **Levels.** Each window gets a level from its pace, the percent used minus the percent of the window already gone, and the higher window decides. A seat that reports only the 5-hour window still gets a level.
 

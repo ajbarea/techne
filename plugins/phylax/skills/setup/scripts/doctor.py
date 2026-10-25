@@ -122,28 +122,35 @@ def budget_module():
 
 
 def budget(values: dict[str, str]) -> d.Check:
-    """The level budget mode reads now, and the file it read it from."""
+    """The level budget mode reads now and the file it read, or what to do about the file."""
     module = budget_module()
     env = {f"CLAUDE_PLUGIN_OPTION_{k.upper()}": v for k, v in values.items() if k != "plugin_data"}
     if os.environ.get("CLAUDE_CONFIG_DIR"):
         env["CLAUDE_CONFIG_DIR"] = os.environ["CLAUDE_CONFIG_DIR"]
     reading = module.level(env, time.time())
-    bad = module.settings(env).bad
-    note = f"; {', '.join(bad)} not a number from 0 to 100, so its default" if bad else ""
-    if reading.note:
-        data = values.get("plugin_data") or "${CLAUDE_PLUGIN_DATA}"
+    found = module.settings(env)
+    notes = [f"{key} not a number from 0 to 100, so its default" for key in found.bad]
+    notes += list(found.conflicts)
+    extra = "".join(f"; {note}" for note in notes)
+    if reading.note == "no snapshot yet":
+        config = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+        data = values.get("plugin_data") or os.path.join(config, "plugins", "data", "phylax-techne")
         copy = shlex.quote(os.path.join(data, "budget_snapshot.py"))
-        target = "" if not values.get("budget_state_file") else f" {shlex.quote(reading.path)}"
+        target = f" {shlex.quote(reading.path)}" if values.get("budget_state_file") else ""
         fix = (
-            "fix: chain the snapshot in front of your status line in settings.json:"
-            f' "command": "python3 {copy}{target} | <your status line command>"'
-            " (the copy appears at the next session start)"
+            "fix: put the snapshot in front of your status line in settings.json (cat keeps it"
+            f' rendering if the copy is missing): "command": "{{ python3 {copy}{target} || cat; }}'
+            ' | <your status line command>" (the copy appears at the next session start)'
         )
-        detail = f"{reading.note} at {reading.path}, so normal{note}"
+        detail = f"no snapshot yet at {reading.path}, so normal{extra}"
         return d.Check(d.OPTIONAL, "budget", detail, (fix,))
-    return d.Check(
-        d.OK, "budget", f"{reading.level}: {module.why(reading)}; read {reading.path}{note}"
-    )
+    if reading.note.startswith(("unreadable", "no rate_limits")):
+        fix = f"fix: check {reading.path} is the file the status line step writes"
+        detail = f"{reading.note} at {reading.path}, so normal{extra}"
+        return d.Check(d.OPTIONAL, "budget", detail, (fix,))
+    # A day-old snapshot or a window past its reset: normal until the next response.
+    shown = module.why(reading) or reading.note
+    return d.Check(d.OK, "budget", f"{reading.level}: {shown}; read {reading.path}{extra}")
 
 
 def stale_restart():
