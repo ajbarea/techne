@@ -580,7 +580,9 @@ def test_a_pause_leaves_background_agents_paying(bg, tmp_path):
     assert bg.role(env, NOW).applies
 
 
-@pytest.mark.parametrize("content", ["not json", '{"until": "soon"}', "[]", '{"until": 1e999}'])
+@pytest.mark.parametrize(
+    "content", ["not json", '{"until": "soon"}', "[]", '{"until": 1e999}', '{"until": 1e300}']
+)
 def test_an_unreadable_pause_is_no_pause(bg, tmp_path, content):
     (tmp_path / "phylax-budget-override.json").write_text(content)
     env = {"PHYLAX_BUDGET": "on", "CLAUDE_CONFIG_DIR": str(tmp_path)}
@@ -622,7 +624,7 @@ def test_budget_off_takes_hours(home):
 @pytest.mark.parametrize("hours", ["0", "-1", "abc", "169", "nan"])
 def test_budget_off_refuses_bad_hours(home, hours):
     proc = pause_cli(home, "off", hours)
-    assert proc.returncode == 2 and "0 to 168" in proc.stdout
+    assert proc.returncode == 2 and "more than 0 and at most 168" in proc.stdout
     assert not (home / ".claude" / "phylax-budget-override.json").exists()
 
 
@@ -631,12 +633,11 @@ def test_status_names_the_role(home):
     assert "this session is background, routed by budget mode" in proc.stdout
 
 
-def test_a_resumed_session_hears_the_level_fell(home, tmp_path):
+@pytest.mark.parametrize("source", ["resume", "compact"])
+def test_a_resumed_session_hears_the_level_fell(home, tmp_path, source):
     data = tmp_path / "data"
     assert out(run(home, "session", session(), data=data, limits=LEAN))
-    resumed = json.dumps(
-        {"session_id": "s1", "hook_event_name": "SessionStart", "source": "resume"}
-    )
+    resumed = json.dumps({"session_id": "s1", "hook_event_name": "SessionStart", "source": source})
     back = out(run(home, "session", resumed, data=data, limits=NORMAL))
     assert back and "back to normal" in back["additionalContext"]
     fresh = json.dumps({"session_id": "s2", "hook_event_name": "SessionStart", "source": "startup"})
@@ -708,3 +709,76 @@ def test_pruning_skips_a_file_that_is_not_a_session(home, tmp_path):
     os.utime(seen / "notes.txt", (ancient, ancient))
     run(home, "session", session(), data=tmp_path / "data", limits=NORMAL)
     assert (seen / "notes.txt").exists()
+
+
+def test_a_pause_too_far_off_to_be_ours_does_not_break_status(home):
+    (home / ".claude" / "phylax-budget-override.json").write_text('{"until": 1e300}')
+    proc = pause_cli(home, "status", PHYLAX_BUDGET="on")
+    assert proc.returncode == 0 and "not paused" in proc.stdout, proc.stderr
+
+
+@pytest.mark.parametrize("sub", ["on", "off"])
+def test_a_folder_at_the_pause_path_is_reported_not_raised(home, sub):
+    (home / ".claude" / "phylax-budget-override.json").mkdir()
+    proc = pause_cli(home, sub)
+    assert proc.returncode == 1 and "Traceback" not in proc.stderr
+    assert "could not" in proc.stdout
+
+
+def test_no_seen_path_reads_normal_not_a_file_named_none(bg, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "None").write_text("frugal")
+    assert bg.read_seen(None) == "normal"
+
+
+def test_pruning_looks_at_seen_max_entries_at_most(bg, tmp_path, monkeypatch):
+    seen = tmp_path / "budget-seen"
+    seen.mkdir()
+    for n in range(5):
+        (seen / f"s{n}").write_text("lean")
+        os.utime(seen / f"s{n}", (NOW - 30 * DAY, NOW - 30 * DAY))
+    monkeypatch.setattr(bg, "SEEN_MAX", 2)
+    bg.prune_seen({"CLAUDE_PLUGIN_DATA": str(tmp_path)}, NOW)
+    assert len(list(seen.iterdir())) == 3
+
+
+def test_frugal_names_every_model_it_moves(bg):
+    assert "names Opus or Fable runs on Sonnet" in bg.FRUGAL_EXTRA
+
+
+def reading_of(home):
+    return json.loads((home / ".claude" / "phylax-budget.json").read_text())["rate_limits"]
+
+
+def test_an_older_reading_never_lowers_a_newer_one(home):
+    # An idle session re-renders its status line with the usage of its last response.
+    first = {"seven_day": {"used_percentage": 70, "resets_at": 2e9}}
+    snap(json.dumps({"rate_limits": first}).encode(), home)
+    lower = {"seven_day": {"used_percentage": 40, "resets_at": 2e9}}
+    snap(json.dumps({"rate_limits": lower}).encode(), home)
+    assert reading_of(home)["seven_day"]["used_percentage"] == 70
+    earlier = {"seven_day": {"used_percentage": 90, "resets_at": 2e9 - 7 * DAY}}
+    snap(json.dumps({"rate_limits": earlier}).encode(), home)
+    assert reading_of(home) == first  # a window already past
+    later = {"seven_day": {"used_percentage": 3, "resets_at": 2e9 + 7 * DAY}}
+    snap(json.dumps({"rate_limits": later}).encode(), home)
+    assert reading_of(home)["seven_day"] == later["seven_day"]  # the next window
+
+
+def test_a_window_missing_from_a_reading_is_kept(home):
+    both = {
+        "five_hour": {"used_percentage": 20, "resets_at": 2e9},
+        "seven_day": {"used_percentage": 30, "resets_at": 2e9},
+    }
+    snap(json.dumps({"rate_limits": both}).encode(), home)
+    one = {"seven_day": {"used_percentage": 31, "resets_at": 2e9}}
+    snap(json.dumps({"rate_limits": one}).encode(), home)
+    assert reading_of(home) == {**both, **one}
+
+
+def test_a_fifo_at_the_snapshot_path_does_not_block_the_status_line(home):
+    target = home / ".claude" / "phylax-budget.json"
+    os.mkfifo(target)
+    raw = json.dumps(PAYLOAD).encode()
+    proc = snap(raw, home)
+    assert (proc.returncode, proc.stdout) == (0, raw)

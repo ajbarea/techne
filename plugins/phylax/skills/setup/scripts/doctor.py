@@ -131,9 +131,13 @@ def budget(values: dict[str, str]) -> d.Check:
     found = module.settings(env)
     notes = [f"{key} not a number from 0 to 100, so its default" for key in found.bad]
     notes += list(found.conflicts)
-    who = module.role(os.environ, time.time())
+    now = time.time()
+    who = module.role(os.environ, now)
     routed = "routed by budget mode" if who.applies else f"normal routing ({who.reason})"
     notes.append(f"this session is {who.name}, {routed}")
+    until = module.paused_until(os.environ, now)
+    if until is not None and not who.reason.startswith("paused"):
+        notes.append(f"opted-in sessions paused until {module.clock(until)}")
     extra = "".join(f"; {note}" for note in notes)
     if reading.note == "no snapshot yet":
         config = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")

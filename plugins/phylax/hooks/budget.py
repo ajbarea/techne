@@ -56,6 +56,7 @@ FINAL_REVIEW = re.compile(r"final\s+review", re.IGNORECASE)
 TOP_TIER = re.compile(r"\s*(opus|fable|best\b|claude-(opus|fable)-)", re.IGNORECASE)
 OVERRIDE_NAME = "phylax-budget-override.json"
 DEFAULT_PAUSE_HOURS = 4.0
+MAX_PAUSE_HOURS = 7 * 24.0
 SID = re.compile(r"[A-Za-z0-9_-]{1,128}")
 
 ROUTING = (
@@ -65,7 +66,8 @@ ROUTING = (
 )
 FRUGAL_EXTRA = (
     " Also: no parallel Opus subagents, review rounds capped at 2, and Haiku for every "
-    "digest. An Agent call that names Opus runs on Sonnet unless its description contains "
+    "digest. An Agent call that names Opus or Fable runs on Sonnet unless its description "
+    "contains "
     '"final review".'
 )
 
@@ -132,22 +134,16 @@ def settings(environ) -> Settings:
     )
 
 
-def number(value) -> float | None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    try:
-        return float(value) if math.isfinite(value) else None
-    except OverflowError:  # an integer too large for a float
-        return None
-
-
 def window_state(name: str, data, now: float) -> tuple | None:
     """(used %, elapsed % of the window) for a live window; None for an unknown, malformed
     or already reset one."""
     length = WINDOWS.get(name)
     if length is None or not isinstance(data, dict):
         return None
-    used, resets = number(data.get("used_percentage")), number(data.get("resets_at"))
+    used, resets = (
+        snapshot.number(data.get("used_percentage")),
+        snapshot.number(data.get("resets_at")),
+    )
     if used is None or resets is None or resets <= now:
         return None
     elapsed = (now - (resets - length)) / length * 100
@@ -212,8 +208,15 @@ def paused_until(environ, now: float) -> float | None:
         _, data = read_json(override_path(environ))
     except (OSError, ValueError, RecursionError, OverflowError):
         return None
-    until = number(data.get("until")) if isinstance(data, dict) else None
-    return until if until is not None and until > now else None
+    until = snapshot.number(data.get("until")) if isinstance(data, dict) else None
+    # Further off than /phylax:budget off can set is no pause of ours.
+    if until is None or not now < until <= now + MAX_PAUSE_HOURS * 3600:
+        return None
+    return until
+
+
+def clock(when: float) -> str:
+    return time.strftime("%Y-%m-%d %H:%M", time.localtime(when))
 
 
 class Role(NamedTuple):
@@ -238,9 +241,7 @@ def role(environ, now: float) -> Role:
         return Role(False, name, "interactive sessions keep normal routing")
     until = paused_until(environ, now)
     if until is not None:
-        return Role(
-            False, name, f"paused until {time.strftime('%Y-%m-%d %H:%M', time.localtime(until))}"
-        )
+        return Role(False, name, f"paused until {clock(until)}")
     return Role(True, name, "")
 
 
@@ -284,10 +285,12 @@ def seen_path(environ, payload: dict) -> str | None:
 
 
 def read_seen(path: str | None) -> str:
+    if path is None:
+        return "normal"
     try:
-        with open(str(path), encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             value = f.read(16).strip()
-    except (OSError, TypeError):
+    except OSError:
         return "normal"
     return value if value in LEVELS else "normal"
 
@@ -408,22 +411,23 @@ def pause(argv: list, environ, now: float) -> int:
             hours = float(argv[1]) if len(argv) > 1 else DEFAULT_PAUSE_HOURS
         except ValueError:
             hours = math.nan
-        if not (math.isfinite(hours) and 0 < hours <= 7 * 24):
-            print(f"phylax budget: hours must be a number from 0 to 168, not {argv[1]!r}")
+        if not (math.isfinite(hours) and 0 < hours <= MAX_PAUSE_HOURS):
+            print(f"phylax budget: hours must be more than 0 and at most 168, not {argv[1]!r}")
             return 2
-        snapshot.write_atomic(path, json.dumps({"until": now + hours * 3600}).encode())
-    elif argv[0] == "on":
-        try:
-            os.unlink(path)
-        except FileNotFoundError:
-            pass
+    try:
+        if argv[0] == "off":
+            snapshot.write_atomic(path, json.dumps({"until": now + hours * 3600}).encode())
+        elif argv[0] == "on":
+            try:
+                os.unlink(path)
+            except FileNotFoundError:
+                pass
+    except OSError as err:
+        print(f"phylax budget: could not change the pause at {path} ({err})")
+        return 1
     until = paused_until(environ, now)
     who = role(environ, now)
-    state = (
-        f"paused until {time.strftime('%Y-%m-%d %H:%M', time.localtime(until))}"
-        if until
-        else "not paused"
-    )
+    state = f"paused until {clock(until)}" if until else "not paused"
     routed = "routed by budget mode" if who.applies else f"normal routing ({who.reason})"
     print(f"phylax budget: {state}; this session is {who.name}, {routed}")
     return 0

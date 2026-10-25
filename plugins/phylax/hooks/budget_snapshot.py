@@ -12,20 +12,25 @@ The budget_mode SessionStart hook keeps <copy> current at ${CLAUDE_PLUGIN_DATA},
 survives plugin updates; /phylax:setup prints the exact line. The file written is the
 optional path argument, else ${CLAUDE_CONFIG_DIR:-~/.claude}/phylax-budget.json, one per
 account. A payload without rate_limits (before the session's first response, or an API-key
-login) leaves the file as it was. Nothing here may break the status line, so every error
-is dropped. Runs on the system python3, so it stays compatible with 3.9 (macOS's).
+login) leaves the file as it was. Every session's status line writes the one file, and an
+idle session re-renders with the usage of its last response, so each window keeps the newest
+reading: the later resets_at, and for the same resets_at the higher used_percentage. Nothing
+here may break the status line, so every error is dropped. Runs on the system python3, so it
+stays compatible with 3.9 (macOS's).
 """
 
 from __future__ import annotations
 
 import json
+import math
 import os
+import stat
 import sys
 import tempfile
 import time
 
 STATE_NAME = "phylax-budget.json"
-# A re-render repeats the last response; an unchanged reading this recent is not rewritten.
+# Seconds an unchanged reading stays on disk unrewritten.
 REWRITE_AFTER = 300
 
 
@@ -49,14 +54,40 @@ def write_atomic(path: str, data: bytes) -> None:
         raise
 
 
-def unchanged(path: str, limits: dict, now: float) -> bool:
+def previous(path: str) -> tuple:
+    """(rate_limits, mtime) of the file as it stands; ({}, 0.0) for a missing, unreadable or
+    non-regular one (a FIFO would block the status line)."""
     try:
-        if now - os.stat(path).st_mtime >= REWRITE_AFTER:
-            return False
+        info = os.stat(path)
+        if not stat.S_ISREG(info.st_mode):
+            return {}, 0.0
         with open(path, "rb") as f:
-            return json.loads(f.read(65536)).get("rate_limits") == limits
-    except (OSError, ValueError, AttributeError):
+            limits = json.loads(f.read(65536)).get("rate_limits")
+    except (OSError, ValueError, AttributeError, RecursionError):
+        return {}, 0.0
+    return (limits, info.st_mtime) if isinstance(limits, dict) else ({}, 0.0)
+
+
+def number(value):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        return float(value) if math.isfinite(value) else None
+    except OverflowError:
+        return None
+
+
+def newer(old, new) -> bool:
+    """Whether window reading NEW replaces OLD: a later reset, or the same one used more."""
+    if not isinstance(old, dict):
+        return True
+    if not isinstance(new, dict):
         return False
+    old_reset, new_reset = number(old.get("resets_at")), number(new.get("resets_at"))
+    if old_reset is None or new_reset is None or old_reset != new_reset:
+        return new_reset is not None and (old_reset is None or new_reset > old_reset)
+    old_used, new_used = number(old.get("used_percentage")), number(new.get("used_percentage"))
+    return old_used is None or (new_used is not None and new_used >= old_used)
 
 
 def save(raw: bytes, path: str) -> None:
@@ -65,9 +96,13 @@ def save(raw: bytes, path: str) -> None:
     if not isinstance(limits, dict) or not limits:
         return
     now = time.time()
-    if unchanged(path, limits, now):
+    old, written = previous(path)
+    merged = dict(old)
+    merged.update((name, win) for name, win in limits.items() if newer(old.get(name), win))
+    # A re-render repeats the last response: an unchanged reading this recent is left alone.
+    if merged == old and now - written < REWRITE_AFTER:
         return
-    write_atomic(path, json.dumps({"rate_limits": limits, "written_at": now}).encode())
+    write_atomic(path, json.dumps({"rate_limits": merged, "written_at": now}).encode())
 
 
 def main(argv: list) -> int:

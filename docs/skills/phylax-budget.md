@@ -18,6 +18,6 @@ Before a session that should spend on purpose, or to see what budget mode is doi
 | `/phylax:budget on` | Ends the pause now. |
 | `/phylax:budget status` | Shows any pause and whether this session is routed by budget mode. |
 
-The pause is a file beside the usage snapshot in the account's Claude config folder, so it covers one account. `/phylax:setup` shows the current level and the file it read.
+The pause is a file, `phylax-budget-override.json`, in the account's Claude config folder, so it covers one account. `/phylax:setup` shows the current level and the file it read.
 
 [`SKILL.md` on GitHub](https://github.com/ajbarea/techne/blob/main/plugins/phylax/skills/budget/SKILL.md) holds the full instructions Claude follows for this skill.

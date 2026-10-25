@@ -153,7 +153,7 @@ Without it, the handoff sends the shell SIGHUP, and the tab stays open showing t
 }
 ```
 
-The snapshot passes the status line's input through unchanged, so whatever followed still renders, and `|| cat` keeps it rendering if the copy is ever missing. With no status line of your own, use `python3 <copy> > /dev/null` so the payload is not printed. An unchanged reading under five minutes old is not rewritten. It writes `phylax-budget.json` in the account's Claude config folder (`$CLAUDE_CONFIG_DIR`, or `~/.claude`), so two accounts keep two files. Pass a path argument, and set `budget_state_file` to the same path, to keep it elsewhere.
+The snapshot passes the status line's input through unchanged, so whatever followed still renders, and `|| cat` keeps it rendering if the copy is ever missing. With no status line of your own, use `python3 <copy> > /dev/null` so the payload is not printed. Every session on the account writes the one file, and an idle session re-renders with the usage of its last response, so each window keeps the newest reading: the later reset, and for the same reset the higher percent used. An unchanged reading under five minutes old is not rewritten. It writes `phylax-budget.json` in the account's Claude config folder (`$CLAUDE_CONFIG_DIR`, or `~/.claude`), so two accounts keep two files. Pass a path argument, and set `budget_state_file` to the same path, to keep it elsewhere.
 
 **Who pays.** The level routes only background agents: sessions the fleet launcher starts with `PHYLAX_BUDGET_ROLE=background`. Your own interactive sessions keep normal routing unless you opt one in with `PHYLAX_BUDGET=on`, so a deliberately heavy session keeps Opus while the background fleet sees the extra burn in the pace and gets leaner.
 

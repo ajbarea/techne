@@ -431,3 +431,23 @@ def test_budget_line_names_the_session_role(tmp_path, env):
     assert "this session is background, routed by budget mode" in found["budget"][1]
     _, found = doctor(tmp_path, budget_args(), env)
     assert "this session is interactive, normal routing" in found["budget"][1]
+
+
+@pytest.mark.parametrize(
+    "role",
+    [
+        {},
+        {"PHYLAX_BUDGET": "on"},
+        {"PHYLAX_BUDGET_ROLE": "background"},
+        {"PHYLAX_BUDGET": "normal"},
+    ],
+)
+def test_budget_line_shows_a_running_pause_under_every_role(tmp_path, env, role):
+    import json
+    import time
+
+    pause = tmp_path / ".claude" / "phylax-budget-override.json"
+    pause.parent.mkdir(parents=True, exist_ok=True)
+    pause.write_text(json.dumps({"until": time.time() + 3600}))
+    _, found = doctor(tmp_path, budget_args(), {**env, **role})
+    assert found["budget"][1].count("paused until") == 1, found["budget"][1]
