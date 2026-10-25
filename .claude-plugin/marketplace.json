@@ -27,7 +27,7 @@
     },
     {
       "name": "phylax",
-      "description": "Opt-in Claude Code hooks: refuse attribution lines in commits and PRs, refuse staging COMMITS.md, warn on commits in a main checkout, and restart idle sessions onto an updated Claude Code.",
+      "description": "Opt-in Claude Code hooks: refuse attribution lines in commits and PRs, refuse staging COMMITS.md, warn on commits in a main checkout, refuse a subagent call that would silently inherit the session's model, restart idle sessions onto an updated Claude Code, and route work to cheaper models while the usage allowance burns too fast.",
       "source": "./plugins/phylax",
       "category": "development"
     },
@@ -39,13 +39,13 @@
     },
     {
       "name": "heuresis",
-      "description": "Idea triage: capture an idea, search papers, patents, products and your own work, and file it with a verdict grounded in checked records.",
+      "description": "Idea triage: capture an idea in plain text, search papers, patents, products and your own work for anything like it, and file it with a verdict grounded in records a script has checked.",
       "source": "./plugins/heuresis",
       "category": "productivity"
     },
     {
       "name": "schole",
-      "description": "Read-only Brightspace (D2L) course sites: new announcements and content, what is due, and what came due unsubmitted, through the site's API after one browser sign-in.",
+      "description": "Read-only Brightspace (D2L) course sites for Claude Code: new announcements and content, what is due, and what came due unsubmitted, through the site's API after one browser sign-in.",
       "source": "./plugins/schole",
       "category": "productivity"
     },

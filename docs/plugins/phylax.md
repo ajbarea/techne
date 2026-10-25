@@ -1,5 +1,5 @@
 ---
-description: phylax plugin, opt-in Claude Code hooks. Block attribution lines in commits and PRs, block staging COMMITS.md, warn on main-checkout commits, refuse subagent calls that would silently inherit the session's model, and restart an idle session onto an updated Claude Code.
+description: phylax plugin, opt-in Claude Code hooks. Block attribution lines in commits and PRs, block staging COMMITS.md, warn on main-checkout commits, refuse subagent calls that would silently inherit the session's model, restart an idle session onto an updated Claude Code, and route work to cheaper models while usage burns too fast.
 ---
 
 # phylax
