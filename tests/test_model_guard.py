@@ -63,6 +63,7 @@ def run_guard(stdin: str, **env_extra: str) -> subprocess.CompletedProcess:
         capture_output=True,
         text=True,
         check=False,
+        timeout=60,
         cwd=PLACES["repo"],
         env=hook_env(
             drop=(*DEFAULT_ENV, *SESSION_ENV), **{"HOME": str(PLACES["home"]), **env_extra}
@@ -299,6 +300,10 @@ def run_in(cwd: pathlib.Path, **tool_input) -> str | None:
         ("inherit", True),
         ('"inherit"', True),
         ("inherit  # the session's", True),
+        ('"inherit "', True),  # Claude Code trims it
+        ('" "', True),  # blank once trimmed: no model
+        ("4", True),  # a number, not text: no model
+        ("true", True),
         (None, True),
         ("", True),
         ("~", True),
@@ -445,13 +450,27 @@ def test_inherit_is_read_in_any_case(model):
 
 
 @pytest.mark.parametrize(
-    "description", ["", "description:\n", "description: ''\n", "description: ~\n"]
+    "description",
+    ["", "description:\n", "description: ''\n", "description: ~\n", "description: 5\n"],
 )
 def test_a_definition_without_a_description_is_dropped(description):
     folder = place("project")
     folder.mkdir(parents=True)
     (folder / "e.md").write_text(f"---\nname: Explore\n{description}model: haiku\n---\n")
     assert run_in(PLACES["repo"], subagent_type="Explore")  # the built-in decides
+
+
+def test_a_blank_quoted_description_still_loads():
+    folder = place("project")
+    folder.mkdir(parents=True)
+    (folder / "e.md").write_text("---\nname: Explore\ndescription: '   '\nmodel: haiku\n---\n")
+    assert run_in(PLACES["repo"], subagent_type="Explore") is None
+
+
+def test_a_fifo_in_an_agents_folder_is_skipped_not_read():
+    define(place("project"), "Explore", "haiku")
+    os.mkfifo(place("project") / "pipe.md")
+    assert run_in(PLACES["repo"], subagent_type="Explore") is None  # returns, no hang
 
 
 def test_the_frontmatter_ends_at_the_first_marker_even_inside_a_value():
@@ -707,7 +726,7 @@ def test_the_frontmatter_reader_agrees_with_yaml(mg, tmp_path, value, after):
     if isinstance(expected, str) or expected is None:
         assert ours["model"] == expected, (value, after)
     else:
-        assert isinstance(ours["model"], str)  # YAML 1.1 bools and numbers stay text here
+        assert ours["model"] is mg.NOT_TEXT or isinstance(ours["model"], str)
 
 
 def test_a_multi_line_value_is_unknown(mg, tmp_path):

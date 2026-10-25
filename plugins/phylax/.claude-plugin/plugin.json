@@ -37,7 +37,7 @@
     "require_subagent_model": {
       "type": "boolean",
       "title": "Require a model on subagent calls",
-      "description": "Refuse an Agent call to a built-in agent type that runs on this session's model (general-purpose, claude, Explore, Plan) when it names no model. Plugin and user agents are left to their own definitions.",
+      "description": "Refuse an Agent call to a built-in agent type that runs on this session's model (general-purpose, claude, Explore, Plan) when it names no model. A managed, project or user agent that reuses one of those names decides with its own model; other agents are left to their own definitions.",
       "default": false
     },
     "restart_on_update": {

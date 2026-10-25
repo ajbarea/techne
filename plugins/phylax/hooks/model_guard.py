@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import stat
 import sys
 
 TOOLS = ("Agent", "Task")
@@ -55,6 +56,12 @@ MAX_FILES = 2000
 KEY = re.compile(r"([A-Za-z_][A-Za-z0-9_-]*)[ \t]*:(?:[ \t]+(.*))?$")
 # A frontmatter value this reader does not parse (block or flow), so it counts as unknown.
 UNKNOWN = object()
+# A plain value YAML's core schema reads as a number or a boolean, not as text.
+NOT_TEXT = object()
+TYPED = re.compile(
+    r"true|True|TRUE|false|False|FALSE|[-+]?[0-9]+|0o[0-7]+|0x[0-9a-fA-F]+"
+    r"|[-+]?(\.[0-9]+|[0-9]+(\.[0-9]*)?)([eE][-+]?[0-9]+)?|[-+]?\.(inf|Inf|INF)|\.(nan|NaN|NAN)"
+)
 REASON = (
     "phylax: this subagent call names no model, so it would fall back to a default "
     "rather than a model chosen for the task. "
@@ -70,7 +77,7 @@ def agent_type(tool_input: dict) -> str:
 
 def scalar(raw: str) -> object:
     """A frontmatter value as YAML reads a plain or quoted scalar: None for empty or null,
-    UNKNOWN for a block, flow or malformed value."""
+    NOT_TEXT for a number or boolean, UNKNOWN for a block, flow or malformed value."""
     raw = raw.strip()
     if raw[:1] == '"':
         end = re.match(r'"((?:[^"\\]|\\.)*)"[ \t]*(?:#.*)?$', raw)
@@ -90,7 +97,7 @@ def scalar(raw: str) -> object:
         return UNKNOWN
     if re.search(r":([ \t]|$)", raw):
         return UNKNOWN
-    return raw
+    return NOT_TEXT if TYPED.fullmatch(raw) else raw
 
 
 def frontmatter(path: str) -> dict | None:
@@ -100,9 +107,11 @@ def frontmatter(path: str) -> dict | None:
     opening line, even one inside a value. A field given twice, or holding a block or flow
     value, is UNKNOWN."""
     try:
+        info = os.stat(path)
+        # A FIFO or device would block the read; Claude Code skips anything but a file.
+        if not stat.S_ISREG(info.st_mode) or info.st_size > LIMIT:
+            return None
         with open(path, "rb") as f:
-            if os.fstat(f.fileno()).st_size > LIMIT:
-                return None
             head = f.read(HEAD)
     except OSError:
         return None
@@ -125,11 +134,12 @@ def frontmatter(path: str) -> dict | None:
 
 
 def loaded(fields: dict | None) -> bool:
-    """Whether Claude Code keeps this definition: it drops one with no description."""
+    """Whether Claude Code keeps this definition: it drops one whose description is missing,
+    empty or not text."""
     if not fields:
         return False
     described = fields.get("description")
-    return described is UNKNOWN or (isinstance(described, str) and bool(described.strip()))
+    return described is UNKNOWN or (isinstance(described, str) and described != "")
 
 
 def same(a: str, b: str) -> bool:
@@ -215,8 +225,13 @@ def default_decides(kind: str, start: str) -> bool:
     if not models:
         return kind in NO_OWN_MODEL and defaults
     for model in models:
+        # Claude Code takes a model only as text that is not blank once trimmed.
+        if isinstance(model, str):
+            model = model.strip() or None
+        elif model is NOT_TEXT:
+            model = None
         inherit = isinstance(model, str) and model.lower() == "inherit"
-        if model not in (None, "") and not inherit:
+        if model is not None and not inherit:
             return True  # a model it names, or a value this reader cannot parse
         if not inherit and defaults:
             return True
