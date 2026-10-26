@@ -13,7 +13,7 @@ are ordinary words too, and match only as the slugs `owner/name` and `name#N`.
 
 Exit 0 when clean or skipped (no gh, or gh cannot list the owner's private repos: signed
 out, offline, or CI's token), 1 when a name is found, 2 when git, gh's output or the words
-file fails. Pushed history is not scanned: it is already public.
+file fails. Pushed history is not scanned: it is already on a remote.
 """
 
 from __future__ import annotations
@@ -121,8 +121,8 @@ def build_regex(owner: str, names: list[str], words: set[str]) -> re.Pattern[str
 
 def build_prefilter(owner: str, names: list[str], words: set[str]) -> re.Pattern[str]:
     """Each name without its edges, a listed word as `owner/name` or `name#`: every match of
-    build_regex holds one, and one search of a whole text is far faster than the edge checks
-    on each line."""
+    build_regex holds one, so a search of the whole text is a first pass before the edge
+    checks on each line."""
     slug = re.escape(owner) + "/{0}|{0}#"
     alts = [slug.format(re.escape(n)) if key(n) in words else name_pattern(n) for n in names]
     return re.compile("|".join(alts), re.IGNORECASE)

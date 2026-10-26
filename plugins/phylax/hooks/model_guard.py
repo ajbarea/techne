@@ -8,17 +8,17 @@ CLAUDE_CODE_SUBAGENT_MODEL, then the session's. The built-in types in INHERITING
 the session's model when the call names none: general-purpose and claude have no model
 of their own, unless CLAUDE_CODE_SUBAGENT_MODEL names one; Explore and Plan pin
 `inherit`, which wins over that variable. Such a call is refused. A managed, project or
-user definition with one of those names replaces the built-in, so its `model` decides
-instead: a model it names allows the call, `inherit` refuses it, and none falls through
-to CLAUDE_CODE_SUBAGENT_MODEL. Definitions from `--agents` or an `--add-dir` folder are
-not visible to a hook and are not read. Every other type is
-left to its definition: a call's `model` would override one the definition pins. While
-a setting in OVERRIDES is present Claude Code drops or withholds the call's `model`, so
-the guard stands down, whatever the value, rather than re-implement how it reads them.
-A `fork` always runs on the parent's model. The tool was named Task before Claude Code
-2.1.63. A payload or tool input that cannot be read is reported on stderr and allowed:
-the guard sets a default rather than protecting data, so a change in payload shape
-must not block every dispatch.
+user definition with one of those names replaces the built-in (as read in the Claude
+Code 2.1.302 binary), so its `model` decides instead: a model it names allows the call,
+`inherit` refuses it, and none falls through to CLAUDE_CODE_SUBAGENT_MODEL. Definitions
+from `--agents` or an `--add-dir` folder are not visible to a hook and are not read.
+Every other type is left to its definition: a call's `model` would override one the
+definition pins. While a setting in OVERRIDES is present Claude Code drops or withholds
+the call's `model`, so the guard stands down, whatever the value, rather than
+re-implement how it reads them. A `fork` always runs on the parent's model. The tool was
+named Task before Claude Code 2.1.63. A payload or tool input that cannot be read is
+reported on stderr and allowed: the guard sets a default rather than protecting data, so
+a change in payload shape must not block every dispatch.
 Runs on the system python3, so it stays compatible with 3.9 (macOS's).
 """
 
@@ -51,7 +51,8 @@ HEAD = 65536
 LIMIT = 1 << 20
 # Claude Code's frontmatter: from an opening `---` line to the next `---` anywhere.
 FRONTMATTER = re.compile(r"---\s*\n([\s\S]*?)---")
-# Definition files read per call at most, so a huge or looping folder cannot stall a dispatch.
+# Definition files read per call at most, so a folder of many definitions cannot stall a
+# dispatch (a looping link is stopped by the realpaths already seen).
 MAX_FILES = 2000
 KEY = re.compile(r"([A-Za-z_][A-Za-z0-9_-]*)[ \t]*:(?:[ \t]+(.*))?$")
 # A frontmatter value this reader does not parse (block or flow), so it counts as unknown.

@@ -17,8 +17,9 @@ idle session re-renders with the usage of its last response. An account has one 
 of each kind, so a reading of a window already reset, or of the same window used less, is
 older and is dropped; a live window with another reset (the next one, or another account
 after a /login) replaces the stored one. A symlinked file is written through; a FIFO or other
-special file is left alone. Nothing here may break the status line, so every error is
-dropped. Runs on the system python3, so it stays compatible with 3.9 (macOS's).
+special file is left alone. Nothing here may break the status line, so a failed write to
+stdout and every error while saving are dropped. Runs on the system python3, so it stays
+compatible with 3.9 (macOS's).
 """
 
 from __future__ import annotations

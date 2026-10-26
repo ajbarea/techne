@@ -49,7 +49,7 @@
     "budget_mode": {
       "type": "boolean",
       "title": "Budget mode: cheaper models when the allowance burns too fast",
-      "description": "Read the 5-hour and 7-day usage your status line saves (see /phylax:setup) and, when it runs ahead of the time gone, tell each session to route work to Sonnet and Haiku; in frugal, run an Agent call that names Opus or Fable on Sonnet unless its description says final review.",
+      "description": "Read the 5-hour and 7-day usage your status line saves (see /phylax:setup) and, when it runs ahead of the time gone, tell background sessions, and interactive ones that opt in with PHYLAX_BUDGET=on, to route work to Sonnet and Haiku; in frugal, run an Agent call that names Opus or Fable on Sonnet unless its description says final review.",
       "default": false
     },
     "budget_lean_pace": {

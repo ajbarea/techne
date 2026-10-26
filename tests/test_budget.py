@@ -51,7 +51,7 @@ def window(used, elapsed_fraction, length=7 * DAY, now=NOW):
         (30, 14.3, "lean"),  # 30% used on day 1 of 7
         (38.99, 14, "lean"),  # pace 24.99
         (39, 14, "frugal"),  # pace 25: frugal starts at the margin
-        (66, 28.6, "frugal"),  # the 10-21 run after day 2
+        (66, 28.6, "frugal"),  # 66% used after day 2 of 7
         (79.99, 95, "normal"),  # behind pace and under the lean level
         (80, 95, "lean"),  # the lean level alone
         (94.99, 99, "lean"),
@@ -695,7 +695,7 @@ def test_pruning_touches_only_session_files(home, tmp_path):
 
 
 def test_a_deeply_nested_snapshot_reads_normal_on_the_hook_python(home):
-    # python3 3.9's json raises RecursionError here; later ones may parse it.
+    # json raises RecursionError here on 3.9 to 3.13; 3.14 parses it.
     path = home / ".claude" / "phylax-budget.json"
     path.write_text("[" * 32000 + "]" * 32000)
     proc = run(home, "agent", agent(model="opus"))

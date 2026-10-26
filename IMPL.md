@@ -6,7 +6,9 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 
 ## In flight
 
-Nothing. Owed by AJ from #209: the status line step `/phylax:setup` prints, and the global
+chore/deslop-since-10-23: comments, docstrings and docs prose in what merged since 10-23
+(behaviour unchanged; make validate green). Next: independent review (3 rounds max), merge,
+remove the worktree. Owed by AJ from #209: the status line step `/phylax:setup` prints, and the global
 CLAUDE.md routing line drafted in the PR body.
 
 ## Open Minors (recorded, not scheduled)
