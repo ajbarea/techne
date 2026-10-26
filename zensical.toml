@@ -63,6 +63,7 @@ nav = [
       ]},
       { "phylax" = [
         { "phylax:setup" = "skills/phylax-setup.md" },
+        { "phylax:budget" = "skills/phylax-budget.md" },
       ]},
       { "epistole" = [
         { "epistole:catch-me-up" = "skills/catch-me-up.md" },
@@ -157,7 +158,7 @@ markdown_description = """techne is a Claude Code plugin marketplace (ajbarea/te
   { "plugins/graphe.md" = "graphe plugin, the document skills for Claude Code. Build and gate LaTeX papers, render markdown to PDF, make talk decks, scaffold a paper and review it before submission." },
   { "plugins/dokimasia.md" = "dokimasia plugin, bibliography verification for LaTeX projects. Lint a .bib offline, verify entries against arXiv and Crossref, and check every cited key rendered." },
   { "plugins/heuresis.md" = "heuresis plugin, idea triage. Capture an idea, search papers, patents, products and your own work, name the closest existing work, and file the idea as trash, later, do or merged." },
-  { "plugins/phylax.md" = "phylax plugin, opt-in Claude Code hooks. Block attribution lines in commits and PRs, block staging COMMITS.md, warn on main-checkout commits, refuse subagent calls that would silently inherit the session's model, and restart an idle session onto an updated Claude Code." },
+  { "plugins/phylax.md" = "phylax plugin, opt-in Claude Code hooks. Block attribution lines in commits and PRs, block staging COMMITS.md, warn on main-checkout commits, refuse subagent calls that would silently inherit the session's model, restart an idle session onto an updated Claude Code, and route work to cheaper models while usage burns too fast." },
   { "plugins/epistole.md" = "epistole plugin, Gmail across accounts for Claude Code. Search, read and draft mail in every configured account, and send a draft only after you approve it. Local MCP server with your own Google OAuth client." },
   { "plugins/schole.md" = "schole plugin, a read-only Brightspace (D2L) course-site reader for Claude Code. Reports new announcements and content, what is due, and what came due unsubmitted after one browser sign-in." },
   { "plugins/keryx.md" = "keryx plugin, a spoken gist of each Claude Code reply in a local voice. Runs on WSL2 under Windows and lives in its own repository." },
@@ -188,6 +189,7 @@ markdown_description = """techne is a Claude Code plugin marketplace (ajbarea/te
   { "skills/idea.md" = "Capture an idea and triage it against papers, patents, products and your own work, then file it as trash, later, do or merged." },
   { "skills/heuresis-setup.md" = "heuresis:setup checks uv, git and gh, the ideas repository and repos folder, and which search API keys are set, and creates the private ideas repository when it does not exist." },
   { "skills/phylax-setup.md" = "phylax:setup shows which phylax options are on and checks what each needs: the Claude Code version for the guard mod, python3, git, and for the restart, tmux or Windows Terminal and its state folder." },
+  { "skills/phylax-budget.md" = "phylax:budget pauses budget mode for opted-in interactive sessions (off, for 4 hours by default), ends the pause (on), or shows any pause and whether this session is routed by budget mode (status)." },
   { "skills/catch-me-up.md" = "epistole:catch-me-up sweeps every Gmail account for mail since the last sweep, plus the course site when schole is installed, and reports what needs a reply or a decision. Read-only." },
   { "skills/epistole-setup.md" = "epistole:setup guides creating the Google OAuth client and signing each Gmail account in, and fixes an epistole server that did not start or an account that needs login." },
   { "skills/courses.md" = "schole:courses reports a Brightspace (D2L) course site's new announcements and content, what is due in the next two weeks, and what came due without a submission. Read-only, never marks anything read." },

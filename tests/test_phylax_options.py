@@ -21,7 +21,11 @@ PLUGIN = ROOT / "plugins" / "phylax"
 GUARDS = PLUGIN / "hooks" / "git_guards.py"
 DOCTOR = PLUGIN / "skills" / "setup" / "scripts" / "doctor.py"
 MANIFEST = PLUGIN / ".claude-plugin" / "plugin.json"
-OPTIONS = tuple(json.loads(MANIFEST.read_text())["userConfig"])
+# The on/off options, each gating a hooks.json handler; budget mode's thresholds and file are
+# numbers and a path, read by budget.py itself (test_budget.py).
+OPTIONS = tuple(
+    k for k, v in json.loads(MANIFEST.read_text())["userConfig"].items() if v["type"] == "boolean"
+)
 VALUES = ["true", "True", "TRUE", " true", "true ", "x:true", "true:x", ":true:", "1", "yes", "on"]
 VALUES += ["false", "False", ""]
 OPTION_VAR = re.compile(r"\$CLAUDE_PLUGIN_OPTION_([A-Z_]+)")

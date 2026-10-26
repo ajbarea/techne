@@ -82,7 +82,8 @@ def decision(proc: subprocess.CompletedProcess) -> str | None:
 
 
 def _handler() -> dict:
-    (handler,) = hook_handlers("phylax", "PreToolUse", "Agent|Task")
+    handlers = hook_handlers("phylax", "PreToolUse", "Agent|Task")
+    (handler,) = [h for h in handlers if "model_guard.py" in h["command"]]
     return handler
 
 

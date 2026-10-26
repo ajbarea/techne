@@ -11,6 +11,7 @@ import os
 import shlex
 import stat
 import sys
+import time
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -26,6 +27,16 @@ OPTIONS = (
     "warn_main_checkout_commit",
     "require_subagent_model",
     "restart_on_update",
+    "budget_mode",
+)
+# Budget mode's numbers and paths, passed through as text; plugin_data is ${CLAUDE_PLUGIN_DATA}.
+VALUES = (
+    "budget_lean_pace",
+    "budget_lean_used",
+    "budget_frugal_pace",
+    "budget_frugal_used",
+    "budget_state_file",
+    "plugin_data",
 )
 # The git guards: they need git and may run from the mod.
 GUARDS = ("block_attribution_trailers", "block_commits_md", "warn_main_checkout_commit")
@@ -47,6 +58,16 @@ def parse_options(argv: Sequence[str]) -> dict[str, bool | str | None]:
             unset = value == "" or value.startswith("${user_config.")
             values[key] = {"true": True, "false": False}.get(value, None if unset else value)
     return values
+
+
+def parse_values(argv: Sequence[str]) -> dict[str, str]:
+    """The VALUES keys' raw text; an unset one arrives empty or as its literal placeholder."""
+    found = dict.fromkeys(VALUES, "")
+    for arg in argv:
+        key, sep, value = arg.partition("=")
+        if sep and key in found and not value.startswith("${"):
+            found[key] = value
+    return found
 
 
 def option_line(key: str, value: bool | str | None) -> d.Check:
@@ -91,6 +112,59 @@ def mod(platform: d.Platform, guards_on: bool) -> d.Check:
         )
         return d.Check(d.OPTIONAL, "mod", detail, d.fix_lines(platform, d.FIXES["claude-update"]))
     return d.Check(d.OK, "mod", f"Claude Code {d.fmt_version(version)} loads the guard mod")
+
+
+def budget_module():
+    sys.path.insert(0, str(HOOKS))
+    import budget as module
+
+    return module
+
+
+def budget(values: dict[str, str]) -> d.Check:
+    """The level budget mode reads now and the file it read, or what to do about the file."""
+    module = budget_module()
+    env = {f"CLAUDE_PLUGIN_OPTION_{k.upper()}": v for k, v in values.items() if k != "plugin_data"}
+    if os.environ.get("CLAUDE_CONFIG_DIR"):
+        env["CLAUDE_CONFIG_DIR"] = os.environ["CLAUDE_CONFIG_DIR"]
+    reading = module.level(env, time.time())
+    found = module.settings(env)
+    notes = [f"{key} not a number from 0 to 100, so its default" for key in found.bad]
+    notes += list(found.conflicts)
+    now = time.time()
+    who = module.role(os.environ, now)
+    routed = "routed by budget mode" if who.applies else f"normal routing ({who.reason})"
+    notes.append(f"this session is {who.name}, {routed}")
+    until = module.paused_until(os.environ, now)
+    if until is not None and not who.reason.startswith("paused"):
+        notes.append(f"opted-in sessions paused until {module.clock(until)}")
+    extra = "".join(f"; {note}" for note in notes)
+    if reading.note == "no snapshot yet":
+        config = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+        data = values.get("plugin_data") or os.path.join(config, "plugins", "data", "phylax-techne")
+        copy = shlex.quote(os.path.join(data, "budget_snapshot.py"))
+        target = f" {shlex.quote(reading.path)}" if values.get("budget_state_file") else ""
+        fix = (
+            "fix: put the snapshot in front of your status line in settings.json (cat keeps it"
+            f' rendering if the copy is missing): "command": "{{ python3 {copy}{target} || cat; }}'
+            ' | <your status line command>", or with no status line of your own'
+            f' "python3 {copy}{target} > /dev/null" (the copy appears at the next session start)'
+        )
+        detail = f"no snapshot yet at {reading.path}, so normal{extra}"
+        return d.Check(d.OPTIONAL, "budget", detail, (fix,))
+    if reading.note.startswith(("unreadable", "no rate_limits")):
+        fix = f"fix: check {reading.path} is the file the status line step writes"
+        detail = f"{reading.note} at {reading.path}, so normal{extra}"
+        return d.Check(d.OPTIONAL, "budget", detail, (fix,))
+    if reading.note.startswith("snapshot "):
+        fix = (
+            "fix: check the status line step still runs; any response on this account refreshes it"
+        )
+        detail = f"{reading.note} at {reading.path}, so normal{extra}"
+        return d.Check(d.OPTIONAL, "budget", detail, (fix,))
+    # Every window past its reset: normal until the next response.
+    shown = module.why(reading) or reading.note
+    return d.Check(d.OK, "budget", f"{reading.level}: {shown}; read {reading.path}{extra}")
 
 
 def stale_restart():
@@ -157,13 +231,18 @@ def state_dir() -> d.Check:
     return d.Check(d.OK, "state-dir", str(path))
 
 
-def checks(platform: d.Platform, options: dict[str, bool | str | None]) -> list[d.Check]:
+def checks(
+    platform: d.Platform,
+    options: dict[str, bool | str | None],
+    values: dict[str, str] | None = None,
+) -> list[d.Check]:
     guards_on = any(options[key] is True for key in GUARDS)
     model_on = options["require_subagent_model"] is True
     restart_on = options["restart_on_update"] is True
+    budget_on = options["budget_mode"] is True
     found = [option_line(key, options[key]) for key in OPTIONS]
     found.append(d.guarded("mod", False, lambda: mod(platform, guards_on)))
-    if guards_on or model_on or restart_on:
+    if guards_on or model_on or restart_on or budget_on:
         found.append(
             d.program(
                 platform,
@@ -193,12 +272,16 @@ def checks(platform: d.Platform, options: dict[str, bool | str | None]) -> list[
         found += [
             d.Check(d.NA, name, RESTART_OFF) for name in ("proc", "launcher", "claude", "state-dir")
         ]
+    if budget_on:
+        found.append(d.guarded("budget", False, lambda: budget(values or parse_values(()))))
+    else:
+        found.append(d.Check(d.NA, "budget", "budget_mode is off"))
     return found
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    options = parse_options(sys.argv[1:] if argv is None else argv)
-    return d.report(checks(d.detect_platform(), options))
+    args = sys.argv[1:] if argv is None else argv
+    return d.report(checks(d.detect_platform(), parse_options(args), parse_values(args)))
 
 
 if __name__ == "__main__":

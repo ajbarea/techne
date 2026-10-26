@@ -1,6 +1,6 @@
 {
   "name": "phylax",
-  "description": "Opt-in Claude Code hooks: refuse attribution lines in commits and PRs, refuse staging COMMITS.md, warn on commits in a main checkout, refuse a subagent call that would silently inherit the session's model, and restart idle sessions onto an updated Claude Code.",
+  "description": "Opt-in Claude Code hooks: refuse attribution lines in commits and PRs, refuse staging COMMITS.md, warn on commits in a main checkout, refuse a subagent call that would silently inherit the session's model, restart idle sessions onto an updated Claude Code, and route work to cheaper models while the usage allowance burns too fast.",
   "author": {
     "name": "AJ",
     "email": "ajbareaa@gmail.com"
@@ -45,6 +45,50 @@
       "title": "Restart idle sessions onto an updated Claude Code",
       "description": "When Claude Code has updated on disk and this session is idle, open a new tmux window or Windows Terminal tab (WSL) that stops this session and resumes it on the new version. Any key during the 15 second countdown there cancels it.",
       "default": false
+    },
+    "budget_mode": {
+      "type": "boolean",
+      "title": "Budget mode: cheaper models when the allowance burns too fast",
+      "description": "Read the 5-hour and 7-day usage your status line saves (see /phylax:setup) and, when it runs ahead of the time gone, tell each session to route work to Sonnet and Haiku; in frugal, run an Agent call that names Opus or Fable on Sonnet unless its description says final review.",
+      "default": false
+    },
+    "budget_lean_pace": {
+      "type": "number",
+      "title": "Budget: lean at this many points ahead of pace",
+      "description": "Lean when a window's used percent minus the percent of it already gone reaches this.",
+      "default": 10,
+      "min": 0,
+      "max": 100
+    },
+    "budget_lean_used": {
+      "type": "number",
+      "title": "Budget: lean at this percent used",
+      "description": "Lean when a window reaches this percent used, whatever the pace.",
+      "default": 80,
+      "min": 0,
+      "max": 100
+    },
+    "budget_frugal_pace": {
+      "type": "number",
+      "title": "Budget: frugal at this many points ahead of pace",
+      "description": "Frugal when a window's used percent minus the percent of it already gone reaches this.",
+      "default": 25,
+      "min": 0,
+      "max": 100
+    },
+    "budget_frugal_used": {
+      "type": "number",
+      "title": "Budget: frugal at this percent used",
+      "description": "Frugal when a window reaches this percent used, whatever the pace.",
+      "default": 95,
+      "min": 0,
+      "max": 100
+    },
+    "budget_state_file": {
+      "type": "string",
+      "title": "Budget: usage snapshot file",
+      "description": "Where budget mode reads the saved usage. Empty means phylax-budget.json in this account's Claude config folder, where the status line step writes by default.",
+      "default": ""
     }
   }
 }

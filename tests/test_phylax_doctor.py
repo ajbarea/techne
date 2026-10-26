@@ -28,6 +28,7 @@ OPTIONS = (
     "warn_main_checkout_commit",
     "require_subagent_model",
     "restart_on_update",
+    "budget_mode",
 )
 STUBS = {
     "python3": "echo 3.9.6",
@@ -68,7 +69,7 @@ def test_all_off_is_ready_and_checks_nothing_else(tmp_path, env):
     proc, found = doctor(tmp_path, args(), env, stubs={})
     assert proc.returncode == 0
     assert all(found[k][0] == "n/a" for k in OPTIONS)
-    for name in ("mod", "python3", "git", "proc", "launcher", "claude", "state-dir"):
+    for name in ("mod", "python3", "git", "proc", "launcher", "claude", "state-dir", "budget"):
         assert found[name][0] == "n/a", name
 
 
@@ -93,7 +94,7 @@ def test_a_value_the_hooks_do_not_read_as_true_is_named_and_off(tmp_path, env, o
     status, detail = found[option]
     assert status == "n/a" and detail.startswith(f"set to {value!r}") and "so off" in detail
     # Nothing the option needs is checked, since it is off.
-    for name in ("mod", "python3", "git", "proc", "launcher", "claude", "state-dir"):
+    for name in ("mod", "python3", "git", "proc", "launcher", "claude", "state-dir", "budget"):
         assert found[name][0] == "n/a", (option, name)
 
 
@@ -350,3 +351,103 @@ def test_runbook_gives_every_sudo_fix_to_the_user():
         else:
             assert "after the user approves" in row(name), name
     assert "the fix line with `!`" not in row("claude")
+
+
+def budget_args(**values):
+    return [*args(budget_mode=True), *(f"{k}={v}" for k, v in values.items())]
+
+
+def test_budget_on_without_a_snapshot_says_how_to_chain_it(tmp_path, env):
+    proc, found = doctor(tmp_path, budget_args(plugin_data="/data/phylax"), env)
+    assert proc.returncode == 0
+    status, detail = found["budget"]
+    assert status == "optional" and "no snapshot yet" in detail and "so normal" in detail
+    assert str(tmp_path / ".claude" / "phylax-budget.json") in detail
+    assert (
+        "{ python3 /data/phylax/budget_snapshot.py || cat; } | <your status line command>"
+        in proc.stdout
+    )
+    assert found["python3"][0] == "ok"  # the budget hooks run on python3
+
+
+def test_budget_on_with_a_snapshot_names_the_level_and_the_file(tmp_path, env):
+    import json
+    import time
+
+    state = tmp_path / ".claude" / "phylax-budget.json"
+    state.parent.mkdir(parents=True, exist_ok=True)
+    resets = time.time() + 0.8 * 7 * 86400  # a fifth of the week gone
+    limits = {"seven_day": {"used_percentage": 40, "resets_at": resets}}
+    state.write_text(json.dumps({"rate_limits": limits}))
+    _, found = doctor(tmp_path, budget_args(budget_lean_pace="abc"), env)
+    status, detail = found["budget"]
+    assert status == "ok" and detail.startswith("lean: 7-day window 40% used with 20% of it gone")
+    assert str(state) in detail and "budget_lean_pace not a number" in detail
+
+
+def test_budget_state_file_is_read_and_passed_to_the_snapshot(tmp_path, env):
+    target = tmp_path / "elsewhere.json"
+    proc, found = doctor(tmp_path, budget_args(budget_state_file=str(target)), env)
+    assert str(target) in found["budget"][1]
+    assert f"budget_snapshot.py {target} || cat; }} | <your status line command>" in proc.stdout
+
+
+def test_budget_without_a_data_folder_names_the_default_copy(tmp_path, env):
+    proc, _ = doctor(tmp_path, budget_args(), env)
+    copy = tmp_path / ".claude" / "plugins" / "data" / "phylax-techne" / "budget_snapshot.py"
+    assert f"{{ python3 {copy} || cat; }}" in proc.stdout
+
+
+def test_a_stale_snapshot_asks_whether_the_step_still_runs(tmp_path, env):
+    import os
+    import time
+
+    state = tmp_path / ".claude" / "phylax-budget.json"
+    state.parent.mkdir(parents=True, exist_ok=True)
+    state.write_text('{"rate_limits": {"five_hour": {"used_percentage": 1, "resets_at": 1}}}')
+    old = time.time() - 2 * 86400
+    os.utime(state, (old, old))
+    proc, found = doctor(tmp_path, budget_args(), env)
+    assert found["budget"][0] == "optional" and "h old" in found["budget"][1]
+    assert "still runs" in proc.stdout and "|| cat" not in proc.stdout  # not asked to chain again
+
+
+def test_a_broken_snapshot_gets_its_own_fix(tmp_path, env):
+    state = tmp_path / ".claude" / "phylax-budget.json"
+    state.parent.mkdir(parents=True, exist_ok=True)
+    state.write_text("not json")
+    proc, found = doctor(tmp_path, budget_args(), env)
+    assert found["budget"][0] == "optional" and "unreadable" in found["budget"][1]
+    assert "is the file the status line step writes" in proc.stdout
+
+
+def test_crossed_thresholds_are_named(tmp_path, env):
+    _, found = doctor(tmp_path, budget_args(budget_lean_pace="30"), env)
+    assert "budget_lean_pace above budget_frugal_pace" in found["budget"][1]
+
+
+def test_budget_line_names_the_session_role(tmp_path, env):
+    _, found = doctor(tmp_path, budget_args(), {**env, "PHYLAX_BUDGET_ROLE": "background"})
+    assert "this session is background, routed by budget mode" in found["budget"][1]
+    _, found = doctor(tmp_path, budget_args(), env)
+    assert "this session is interactive, normal routing" in found["budget"][1]
+
+
+@pytest.mark.parametrize(
+    "role",
+    [
+        {},
+        {"PHYLAX_BUDGET": "on"},
+        {"PHYLAX_BUDGET_ROLE": "background"},
+        {"PHYLAX_BUDGET": "normal"},
+    ],
+)
+def test_budget_line_shows_a_running_pause_under_every_role(tmp_path, env, role):
+    import json
+    import time
+
+    pause = tmp_path / ".claude" / "phylax-budget-override.json"
+    pause.parent.mkdir(parents=True, exist_ok=True)
+    pause.write_text(json.dumps({"until": time.time() + 3600}))
+    _, found = doctor(tmp_path, budget_args(), {**env, **role})
+    assert found["budget"][1].count("paused until") == 1, found["budget"][1]

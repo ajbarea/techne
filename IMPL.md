@@ -6,13 +6,8 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 
 ## In flight
 
-- **#204** (closes #197, branch `fix/model-guard-agent-overrides`): `require_subagent_model`
-  reads a managed, project or user definition named `general-purpose`, `claude`, `Explore` or
-  `Plan`, which replaces the built-in (Claude Code 2.1.302 layers definitions by name). The walk
-  starts at `CLAUDE_PROJECT_DIR`; anything unreadable allows the call. code-review high (10
-  findings, 8 fixed); reader r1 running. Verify: `flock /tmp/fleet-heavy.lock timeout 600 uv run
-  pytest tests/test_model_guard.py` and `make test-hooks-oldest`.
-- **#206** (closes #205): sisters check 15 minors; readers r1 and r2 done, merging.
+Nothing. Owed by AJ from #209: the status line step `/phylax:setup` prints, and the global
+CLAUDE.md routing line drafted in the PR body.
 
 ## Open Minors (recorded, not scheduled)
 
@@ -22,6 +17,9 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
   git-guard tests read the developer's global git config.
 - #204: a cygwin or msys python3 looks for managed agents at the Linux path.
 - #208: check 15 keeps an inherited `GIT_DIR` or `GIT_INDEX_FILE` (hygiene.py strips them).
+- #209: `/phylax:budget off 1e-9` is accepted (a pause already over); two accounts active at
+  once in one config folder make the snapshot alternate; a symlink loop at the snapshot path
+  is replaced by a file.
 
 ## Then
 
