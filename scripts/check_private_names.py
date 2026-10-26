@@ -121,8 +121,8 @@ def build_regex(owner: str, names: list[str], words: set[str]) -> re.Pattern[str
 
 def build_prefilter(owner: str, names: list[str], words: set[str]) -> re.Pattern[str]:
     """Each name without its edges, a listed word as `owner/name` or `name#`: every match of
-    build_regex holds one, so a search of the whole text is a first pass before the edge
-    checks on each line."""
+    build_regex holds one, so a text this finds nothing in is skipped before build_regex
+    runs over it."""
     slug = re.escape(owner) + "/{0}|{0}#"
     alts = [slug.format(re.escape(n)) if key(n) in words else name_pattern(n) for n in names]
     return re.compile("|".join(alts), re.IGNORECASE)
