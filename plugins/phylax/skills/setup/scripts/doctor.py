@@ -162,7 +162,7 @@ def budget(values: dict[str, str]) -> d.Check:
         )
         detail = f"{reading.note} at {reading.path}, so normal{extra}"
         return d.Check(d.OPTIONAL, "budget", detail, (fix,))
-    # Every window past its reset: normal until the next response.
+    # A live reading, or every window past its reset (normal until the next response).
     shown = module.why(reading) or reading.note
     return d.Check(d.OK, "budget", f"{reading.level}: {shown}; read {reading.path}{extra}")
 

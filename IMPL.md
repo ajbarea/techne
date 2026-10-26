@@ -17,6 +17,7 @@ CLAUDE.md routing line drafted in the PR body.
   git-guard tests read the developer's global git config.
 - #204: a cygwin or msys python3 looks for managed agents at the Linux path.
 - #208: check 15 keeps an inherited `GIT_DIR` or `GIT_INDEX_FILE` (hygiene.py strips them).
+- #209: the frugal table text in budget.py says "Opus or Fable"; the guard also moves `best`.
 - #209: `/phylax:budget off 1e-9` is accepted (a pause already over); two accounts active at
   once in one config folder make the snapshot alternate; a symlink loop at the snapshot path
   is replaced by a file.

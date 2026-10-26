@@ -8,13 +8,18 @@ ahead or budget_lean_used% used, frugal at budget_frugal_pace or budget_frugal_u
 higher window decides. A missing, unreadable or day-old snapshot, and a window past its reset,
 read normal.
 
+Only a background session (PHYLAX_BUDGET_ROLE=background) or an interactive one that opts
+in (PHYLAX_BUDGET=on) is routed; every other session reads normal (see role()).
+
 Modes, run by hooks.json while budget_mode is on:
   session  SessionStart: keep the snapshot copy at ${CLAUDE_PLUGIN_DATA} current, and add the
-           routing table unless the level is normal.
-  prompt   UserPromptSubmit: add the routing table only when the level changed since this
-           session last saw it.
-  agent    PreToolUse on Agent: in frugal, run a call that names Opus on Sonnet instead,
-           unless its description says "final review". The permission flow is left alone.
+           routing table unless the level is normal; a resumed or compacted session that
+           last saw lean or frugal is told it is back to normal.
+  prompt   UserPromptSubmit: when the level changed since this session last saw it, add the
+           routing table, or a line saying it is back to normal.
+  agent    PreToolUse on Agent: in frugal, run a call that names Opus, Fable or `best` on
+           Sonnet instead, unless its description says "final review". The permission
+           flow is left alone.
 A cost guard must not block work, so an unreadable payload or snapshot is allowed through.
 Runs on the system python3, so it stays compatible with 3.9 (macOS's).
 """
@@ -46,13 +51,13 @@ DEFAULTS = {
 }
 # A snapshot older than this says nothing about now.
 MAX_AGE = 86400
-# Bytes read from a snapshot.
 READ_LIMIT = 65536
-# A session's remembered level is dropped after this long, and at most this many are kept.
+# A session's remembered level is dropped after this long; a prune looks at this many at most.
 SEEN_MAX_AGE = 7 * 86400
 SEEN_MAX = 1000
 FINAL_REVIEW = re.compile(r"final\s+review", re.IGNORECASE)
-# The models above Sonnet: Opus, Fable, and `best`, which resolves to the most capable one.
+# The models above Sonnet: Opus, Fable, and `best`, which resolves to Fable where it is
+# available and to Opus otherwise (code.claude.com/docs/en/model-config).
 TOP_TIER = re.compile(r"\s*(opus|fable|best\b|claude-(opus|fable)-)", re.IGNORECASE)
 OVERRIDE_NAME = "phylax-budget-override.json"
 DEFAULT_PAUSE_HOURS = 4.0
