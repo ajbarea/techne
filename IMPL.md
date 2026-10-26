@@ -4,21 +4,10 @@ The active TODO list for whatever's in flight **right now**: current PR, open de
 immediate next pickup. Queued specs and ordering live in [ROADMAP.md](./ROADMAP.md); landed work
 moves to its dated Shipped log. Over ~50 lines means something referential crept in.
 
-## In flight: #207 budget mode, PR #209 (branch `feat/phylax-budget-mode`, this worktree)
+## In flight
 
-Done: `hooks/budget.py` (modes session, prompt, agent; off/on/status for `/phylax:budget`),
-`hooks/budget_snapshot.py` (status line step, copied to `${CLAUDE_PLUGIN_DATA}`), options,
-doctor `budget` line, docs, `skills/budget`, marketplace description test. Live test: Agent
-honours `updatedInput` without permissionDecision (2.1.302). Reviews: code-review medium (8 of
-10 fixed, 2 declined in PR body), reader r1 (fixed), reader r2 (2 Should-fix + 8 Minors fixed
-in 540e149, failing tests first; 9 of 9 hand mutants on the new guards killed). Next: reader r3
-(the cap; no /code-review high), fix what it holds on, then merge.
-Then: update the PR body counts, re-read PR and issue comments, squash-merge, move #207 to
-ROADMAP's dated log, remove this worktree. Owed by AJ: the global CLAUDE.md line (drafted in
-the PR body) and the status line step `/phylax:setup` prints.
-Verify: `flock /tmp/fleet-heavy.lock timeout 600 uv run pytest tests/test_budget.py
-tests/test_phylax_doctor.py` and `flock /tmp/fleet-heavy.lock timeout 1200 make test-hooks-oldest`,
-`make lint`, `make guards build plugin-validate`.
+Nothing. Owed by AJ from #209: the status line step `/phylax:setup` prints, and the global
+CLAUDE.md routing line drafted in the PR body.
 
 ## Open Minors (recorded, not scheduled)
 
@@ -28,6 +17,9 @@ tests/test_phylax_doctor.py` and `flock /tmp/fleet-heavy.lock timeout 1200 make 
   git-guard tests read the developer's global git config.
 - #204: a cygwin or msys python3 looks for managed agents at the Linux path.
 - #208: check 15 keeps an inherited `GIT_DIR` or `GIT_INDEX_FILE` (hygiene.py strips them).
+- #209: `/phylax:budget off 1e-9` is accepted (a pause already over); two accounts active at
+  once in one config folder make the snapshot alternate; a symlink loop at the snapshot path
+  is replaced by a file.
 
 ## Then
 
