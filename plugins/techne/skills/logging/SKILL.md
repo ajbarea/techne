@@ -47,8 +47,9 @@ workflow annotations, for a CI step. Exit 2 means the path is not a git reposito
 | `ci-logs-not-uploaded` | a job writes a log file and uploads nothing when it fails |
 | `log-file-tracked` | a `.log` file is committed |
 
-A finding that is right for this repo anyway gets `logcheck: ignore[<rule>]` in a comment on
-that line, with the reason beside it, or a `- ignore:` line in `## logging`. Never add one to
+A line finding that is right for this repo anyway gets `logcheck: ignore[<rule>]` in a comment
+on that line, with the reason beside it. The repo-wide rules (`lint-*`, `log-file-tracked`)
+and whole folders are opted out in `## logging` (`- ignore:` or `- skip:`). Never add one to
 make the check pass.
 
 ## 2. Review what the check cannot judge

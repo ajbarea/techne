@@ -41,7 +41,7 @@ It reads tracked files only, skips vendored and build folders, and exits 0 when 
 
 Code-level rules (f-strings in log calls, root-logger calls, stray prints) are left to each stack's linter, which already runs in `make lint` and CI; the check makes sure those rules are on.
 
-A line with `logcheck: ignore[<rule>]` in a comment is skipped. A repo opts out of a rule, or skips a path, in the `## logging` section of `.claude/skill-context.md`:
+A line with `logcheck: ignore[<rule>]` in a comment is skipped. A repo opts out of a rule (including the repo-wide `lint-*` and `log-file-tracked`), or skips a path, in the `## logging` section of `.claude/skill-context.md`:
 
 ```
 ## logging

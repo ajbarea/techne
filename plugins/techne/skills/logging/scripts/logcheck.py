@@ -31,9 +31,12 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import os
 import re
+import stat
 import subprocess
 import sys
+import warnings
 from dataclasses import asdict, dataclass
 from itertools import pairwise
 from pathlib import Path, PurePosixPath
@@ -80,11 +83,13 @@ DESCRIBES = {
     "path", "paths", "file", "files", "dir", "url", "uri", "env", "var", "field", "label",
     "limit", "budget", "usage", "total", "prefix", "hint", "present", "exists", "missing",
     "set", "ok", "is", "has", "expiry", "expires", "ttl", "scope", "scopes", "id", "ids",
+    "per", "char", "chars",
 }  # fmt: skip
 # A call or method that turns a secret into something safe to log.
 SAFE_CALLS = {
     "len", "bool", "type", "isinstance", "hasattr", "id", "redact", "redacted", "mask",
     "masked", "fingerprint", "is_empty", "is_some", "is_none", "count", "length", "size",
+    "hash", "startswith", "endswith", "starts_with", "ends_with", "startsWith", "endsWith",
 }  # fmt: skip
 _CAMEL = re.compile(r"[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+|\d+")
 
@@ -178,13 +183,24 @@ def settings(root: Path) -> tuple[set[str], tuple[str, ...]]:
         m = re.match(r"\s*-\s*(ignore|skip)\s*:\s*(.*)", line)
         if not m:
             continue
+        if "<" in m.group(2):
+            warn(f"## logging: {line.strip()!r} is still the template's placeholder; left out")
+            continue
         value = re.split(r"\s+(?:—|--)\s+|\s+\(|\s+#", m.group(2), maxsplit=1)[0]
         items = [v for v in re.split(r"[,\s]+", value) if v]
         if m.group(1) == "ignore":
-            ignored |= {v for v in items if v in RULES}
+            for v in items:
+                if v in RULES:
+                    ignored.add(v)
+                else:
+                    warn(f"## logging: {v!r} is not a logcheck rule; left out")
         else:
-            skip += [v.lstrip("./") for v in items]
+            skip += [v.removeprefix("./") for v in items]
     return ignored, tuple(skip)
+
+
+def warn(message: str) -> None:
+    print(f"logcheck: {message}", file=sys.stderr)
 
 
 def tracked(root: Path, skip: tuple[str, ...]) -> list[str]:
@@ -213,8 +229,15 @@ def is_test(path: str) -> bool:
 
 
 def read(root: Path, path: str) -> str | None:
+    """The file's text, or None for a symlink, anything but a regular file, a file over
+    MAX_BYTES, or one that is not UTF-8."""
+    full = root / path
     try:
-        data = (root / path).read_bytes()
+        info = os.lstat(full)
+        if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_BYTES:
+            return None
+        with open(full, "rb") as handle:
+            data = handle.read(MAX_BYTES + 1)
     except OSError:
         return None
     if len(data) > MAX_BYTES:
@@ -424,6 +447,7 @@ def check_lint_js(root: Path, files: list[str], report: Report) -> None:
 
 
 RAW_STRING = re.compile(r'r(#*)"')
+RS_CHAR = re.compile(r"'(?:\\(?:x[0-9a-fA-F]{2}|u\{[0-9a-fA-F]{1,6}\}|.)|[^\\'\n])'")
 
 
 def mask(text: str, lang: str) -> tuple[str, list[tuple[int, int]]]:
@@ -464,11 +488,16 @@ def mask(text: str, lang: str) -> tuple[str, list[tuple[int, int]]]:
             strings.append((start, j))
             blank(start, j)
             i = j + 1 + len(hashes)
+        elif lang == "rs" and c == "'" and (char := RS_CHAR.match(text, i)):
+            blank(i + 1, char.end() - 1)
+            i = char.end()
         elif c == '"' or (lang == "js" and c in "'`"):
             quote = c
             j = i + 1
             seg = j
-            while j < n and text[j] != quote:
+            # A JS quote that is not closed on its line is markup or a regex, not a string.
+            line_bound = lang == "js" and quote != "`"
+            while j < n and text[j] != quote and not (line_bound and text[j] == "\n"):
                 if text[j] == "\\":
                     j += 2
                     continue
@@ -490,41 +519,73 @@ def mask(text: str, lang: str) -> tuple[str, list[tuple[int, int]]]:
     return "".join(out), strings
 
 
+CALL_REACH = 20_000  # the longest argument list read; unbalanced code stops here
+
+
 def close_paren(code: str, open_at: int) -> int:
     depth = 0
-    for k in range(open_at, len(code)):
+    for k in range(open_at, min(len(code), open_at + CALL_REACH)):
         if code[k] in "([{":
             depth += 1
         elif code[k] in ")]}":
             depth -= 1
             if depth == 0:
                 return k
-    return len(code)
+    return min(len(code), open_at + CALL_REACH)
 
 
 CHAIN = re.compile(r"[A-Za-z_$][\w$]*(?:\s*\.\s*[A-Za-z_$][\w$]*)*")
 
 
+NEXT = re.compile(r"\s*(\S?)(\S?)")
+VALUE_START = re.compile(r"\s*[%?&*]*\s*")
+
+
 def secret_names(code: str, raw_strings: list[str], inline: re.Pattern[str]) -> list[str]:
     """Secret-looking names in an argument list: code identifier chains and the names a
-    string interpolates (Rust `{name}`, JS template `${name}` is already code)."""
+    string interpolates (Rust `{name}`, JS template `${name}` is already code). A field
+    name (`token = %v`, `{token: v}`) counts only when its value is not a literal or a
+    safe call."""
     hits = []
     at = 0
     while m := CHAIN.search(code, at):
         at = m.end()
         parts = [p.strip() for p in m.group(0).split(".")]
-        rest = code[m.end() :].lstrip()
-        if rest.startswith("!"):  # a nested macro name
+        nxt = NEXT.match(code, m.end())
+        first, second = (nxt.group(1), nxt.group(2)) if nxt else ("", "")
+        if first == "!":  # a nested macro name
             continue
-        if rest.startswith("(") and parts[-1] in SAFE_CALLS:
+        if first == "(" and parts[-1] in SAFE_CALLS:
             # len(token), redact(&key), key.len(): the call's result is safe to log.
             at = close_paren(code, code.index("(", m.end())) + 1
             continue
-        if secret_like(parts[-1]) and not (len(parts) == 1 and rest.startswith("(")):
+        if (first == "=" and second != "=") or (first == ":" and second != ":"):
+            if (
+                len(parts) == 1
+                and secret_like(parts[0])
+                and not safe_value(code, nxt.start(1) if nxt else at)
+            ):
+                hits.append(parts[0])
+            continue
+        if secret_like(parts[-1]) and not (len(parts) == 1 and first == "("):
             hits.append(parts[-1])
     for s in raw_strings:
         hits += [name for name in inline.findall(s) if secret_like(name)]
     return hits
+
+
+def safe_value(code: str, eq: int) -> bool:
+    """The value after the `=` or `:` at eq is a literal (blanked string, number) or a safe
+    call."""
+    start = VALUE_START.match(code, eq + 1)
+    k = start.end() if start else eq + 1
+    if k >= len(code) or code[k] in "\"'`0123456789":
+        return True
+    call = CHAIN.match(code, k)
+    nxt = NEXT.match(code, call.end()) if call else None
+    return bool(
+        call and nxt and nxt.group(1) == "(" and call.group(0).split(".")[-1].strip() in SAFE_CALLS
+    )
 
 
 def line_of(text: str, offset: int) -> int:
@@ -539,12 +600,33 @@ RS_MACRO = re.compile(
 RS_INLINE = re.compile(r"(?<!\{)\{([A-Za-z_]\w*)[^}]*\}")
 
 
+def without_test_items(code: str) -> str:
+    """code with each item under #[cfg(test)] blanked: through its closing brace, or its
+    semicolon for `mod tests;`."""
+    out = list(code)
+    for m in re.finditer(r"#\[cfg\(test\)\]", code):
+        brace, semi = code.find("{", m.end()), code.find(";", m.end())
+        if brace == -1 and semi == -1:
+            continue
+        if brace == -1 or (semi != -1 and semi < brace):
+            end = semi
+        else:
+            depth, end = 0, len(code) - 1
+            for k in range(brace, len(code)):
+                depth += {"{": 1, "}": -1}.get(code[k], 0)
+                if depth == 0:
+                    end = k
+                    break
+        for k in range(m.start(), end + 1):
+            if out[k] != "\n":
+                out[k] = " "
+    return "".join(out)
+
+
 def scan_rust(path: str, text: str, report: Report) -> None:
-    cut = re.search(r"^\s*#\[cfg\(test\)\]", text, re.M)
-    if cut:
-        text = text[: cut.start()]
     lines = text.splitlines()
     code, strings = mask(text, "rs")
+    code = without_test_items(code)
     for m in RS_MACRO.finditer(code):
         open_at = m.end() - 1
         end = close_paren(code, open_at)
@@ -557,12 +639,17 @@ def scan_rust(path: str, text: str, report: Report) -> None:
         (r"\brolling\s*::\s*(daily|hourly|minutely|never)\s*\(", ROLLING_MSG),
         (r"\bRollingFileAppender\s*::\s*new\s*\(", ROLLING_MSG),
         (r"\bRotationStrategy\s*::\s*KeepAll\b", KEEPALL_MSG),
+        (r"\bRotation\s*::\s*NEVER\b", NEVER_MSG),
     )
     for pattern, message in unbounded:
         for m in re.finditer(pattern, code):
             line = line_of(text, m.start())
             report.add_line(path, lines, (line, line), "unbounded-log-file", message)
-    for m in re.finditer(r"\bRollingFileAppender\s*::\s*builder\s*\(\s*\)", code):
+    builders = (
+        r"\bRollingFileAppender\s*::\s*builder\s*\(\s*\)"
+        r"|\brolling\s*::\s*Builder\s*::\s*new\s*\(\s*\)"
+    )
+    for m in re.finditer(builders, code):
         stop = code.find(";", m.end())
         stop = len(code) if stop == -1 else stop
         if ".max_log_files" not in re.sub(r"\s+", "", code[m.end() : stop]):
@@ -576,12 +663,16 @@ ROLLING_MSG = (
     "RollingFileAppender::builder() with .max_log_files(n)"
 )
 BUILDER_MSG = "RollingFileAppender::builder() without .max_log_files(n) keeps every file"
+NEVER_MSG = (
+    "Rotation::NEVER writes one file that never rotates → use DAILY or HOURLY with "
+    ".max_log_files(n)"
+)
 KEEPALL_MSG = "RotationStrategy::KeepAll keeps every rotated file → use KeepSome(n)"
 
 # --- JS and TS -------------------------------------------------------------------------------
 
 JS_CALL = re.compile(
-    r"(?<![\w$.])([A-Za-z_$][\w$]*)\s*\.\s*(log|info|debug|warn|error|trace|fatal)\s*\("
+    r"(?<![\w$])([A-Za-z_$][\w$]*)\s*\.\s*(log|info|debug|warn|error|trace|fatal)\s*\("
 )
 
 
@@ -631,11 +722,17 @@ def is_py_log_call(call: ast.Call) -> bool:
     return func.attr == "write" and receiver in {"stderr", "stdout"}
 
 
+PREDICATE = re.compile(r"^(?:is|has)_|^(?:is|has)[A-Z]|^is(?:alnum|alpha|digit|lower|upper|space)$")
+
+
 def py_secret(node: ast.AST) -> bool:
-    if isinstance(node, ast.Compare):
+    if isinstance(node, ast.Compare | ast.Constant):
         return False
+    if isinstance(node, ast.IfExp):  # "set" if token else "unset": the test is not logged
+        return py_secret(node.body) or py_secret(node.orelse)
     if isinstance(node, ast.Call):
-        if terminal(node.func) in SAFE_CALLS:
+        name = terminal(node.func) or ""
+        if name in SAFE_CALLS or PREDICATE.match(name):
             return False
         receiver = [node.func.value] if isinstance(node.func, ast.Attribute) else []
         parts = [*receiver, *node.args, *(k.value for k in node.keywords)]
@@ -650,6 +747,14 @@ def py_secret(node: ast.AST) -> bool:
             return True
         return py_secret(node.value)
     return any(py_secret(child) for child in ast.iter_child_nodes(node))
+
+
+def safe_py_value(node: ast.expr) -> bool:
+    """A keyword's value is safe to log under a secret-looking name: a safe call or a
+    comparison."""
+    if isinstance(node, ast.Compare):
+        return True
+    return isinstance(node, ast.Call) and (terminal(node.func) or "") in SAFE_CALLS
 
 
 def _arg(call: ast.Call, name: str, position: int) -> ast.expr | None:
@@ -679,7 +784,9 @@ def handler_message(kind: str, get: dict[str, ast.expr | None]) -> str | None:
 
 def scan_python(path: str, text: str, report: Report) -> None:
     try:
-        tree = ast.parse(text)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            tree = ast.parse(text)
     except (SyntaxError, ValueError):
         return
     lines = text.splitlines()
@@ -688,7 +795,12 @@ def scan_python(path: str, text: str, report: Report) -> None:
         if isinstance(node, ast.Call):
             if is_py_log_call(node):
                 args = [*node.args, *(k.value for k in node.keywords)]
-                if any(py_secret(a) for a in args):
+                # structlog style: log.info("login", password=pw) logs the value under the name.
+                named = [k for k in node.keywords if k.arg and secret_like(k.arg)]
+                if any(py_secret(a) for a in args) or any(
+                    not isinstance(k.value, ast.Constant) and not safe_py_value(k.value)
+                    for k in named
+                ):
                     report.add_line(path, lines, span, "secret-in-log", SECRET_MSG)
             kind = terminal(node.func)
             if kind in HANDLERS:
@@ -735,6 +847,8 @@ ERROR_START = re.compile(
     r"^(?:-[neE]+\s+)*(?:\S+:\s*)?(?:error|fatal|fail|failed|failure|warn|warning)\s*:",
     re.I,
 )
+GROUP_TO_STDERR = re.compile(r"\}\s*(?:1?>&2|>\s*/dev/stderr)")
+HEREDOC = re.compile(r"(?<!<)<<-?\s*(['\"]?)([A-Za-z_]\w*)\1(?!<)")
 TO_STDERR = re.compile(r"(?:^|\s)(?:1?>&2|>\s*/dev/stderr)")
 TO_FILE = re.compile(r"(?:^|[^&\d])>>?\s*(?!&)(?!/dev/std(?:out|err))\S")
 EXPANSION = re.compile(r"\$\{?(?!#)([A-Za-z_][A-Za-z0-9_]*)")
@@ -815,22 +929,34 @@ def logical_lines(texts: dict[int, str]) -> list[tuple[str, tuple[int, int]]]:
 
 
 def scan_shell_line(
-    path: str, lines: list[str], line: str, span: tuple[int, int], workflow: bool, report: Report
+    path: str,
+    lines: list[str],
+    line: str,
+    span: tuple[int, int],
+    workflow: bool,
+    report: Report,
+    grouped: bool = False,
 ) -> None:
+    """grouped: the line sits in a `{ ...; } >&2` group, so all its output goes to stderr."""
+    if not grouped and GROUP_TO_STDERR.search(outside_quotes(line)):
+        grouped = True
     for cmd, op in commands(line):
         m = re.match(r"\s*(?:then\s+|do\s+|else\s+|\{\s*)?(echo|printf)\b(.*)", cmd)
         if not m or "::add-mask::" in cmd:
             continue
         rest = m.group(2)
         bare = outside_quotes(rest)
-        to_stderr = bool(TO_STDERR.search(bare))
+        to_stderr = grouped or bool(TO_STDERR.search(bare))
         if op == "|" or (TO_FILE.search(bare) and not to_stderr):
             continue
-        names = [n for n in EXPANSION.findall(outside_quotes(rest, True)) if secret_like(n)]
+        # Secrets reach a shell as environment variables, named in capitals; a lowercase
+        # $token is a local word (a parsed field, a platform name).
+        expanded = EXPANSION.findall(outside_quotes(rest, True))
+        names = [n for n in expanded if n.isupper() and secret_like(n)]
         if names or (workflow and GHA_SECRET.search(rest)):
             report.add_line(path, lines, span, "secret-in-log", SECRET_MSG)
         text = unquote(rest.strip())
-        if text.startswith("::") or to_stderr:
+        if text.startswith("::") or (to_stderr and not workflow):
             continue
         if ERROR_START.match(text):
             message = (
@@ -851,10 +977,39 @@ def is_shell(path: str, text: str) -> bool:
     )
 
 
+def shell_text(texts: dict[int, str]) -> tuple[dict[int, str], set[int]]:
+    """texts without heredoc bodies, and the lines inside a multi-line `{ ... } >&2` group."""
+    kept: dict[int, str] = {}
+    grouped: set[int] = set()
+    opened: list[int] = []
+    numbers = sorted(texts)
+    k = 0
+    while k < len(numbers):
+        n = numbers[k]
+        line = texts[n]
+        kept[n] = line
+        bare = outside_quotes(line).split(" #", 1)[0].rstrip()
+        if bare.endswith("{"):
+            opened.append(n)
+        elif bare.lstrip().startswith("}") and opened:
+            first = opened.pop()
+            if GROUP_TO_STDERR.search(bare):
+                grouped |= {m for m in numbers if first < m < n}
+        doc = HEREDOC.search(line)
+        if doc:
+            word = doc.group(2)
+            k += 1
+            while k < len(numbers) and texts[numbers[k]].strip() != word:
+                k += 1
+        k += 1
+    return kept, grouped
+
+
 def scan_shell(path: str, text: str, report: Report) -> None:
     lines = text.splitlines()
-    for line, span in logical_lines(dict(enumerate(lines, 1))):
-        scan_shell_line(path, lines, line, span, False, report)
+    kept, grouped = shell_text(dict(enumerate(lines, 1)))
+    for line, span in logical_lines(kept):
+        scan_shell_line(path, lines, line, span, False, report, span[0] in grouped)
 
 
 # --- workflows -------------------------------------------------------------------------------
@@ -923,6 +1078,8 @@ def jobs(lines: list[str]) -> list[tuple[str, int, int]]:
 
 
 def uploads_on_failure(lines: list[str], start: int, end: int) -> bool:
+    """An upload-artifact step under an if: failure(), always() or !cancelled() between line
+    index start (the first step that writes a log) and end."""
     for i in range(start, end):
         if not UPLOAD.search(lines[i]):
             continue
@@ -946,12 +1103,12 @@ def uploads_on_failure(lines: list[str], start: int, end: int) -> bool:
 
 def scan_workflow(path: str, text: str, report: Report) -> None:
     lines = text.splitlines()
-    shell = run_lines(lines)
+    shell, _ = shell_text(run_lines(lines))
     for line, span in logical_lines(shell):
         scan_shell_line(path, lines, line, span, True, report)
     for name, start, end in jobs(lines):
         writes = [n for n in shell if start < n <= end and WRITES_LOG.search(lines[n - 1])]
-        if writes and not uploads_on_failure(lines, start, end):
+        if writes and not uploads_on_failure(lines, writes[0], end):
             report.add_line(
                 path,
                 lines,
@@ -985,16 +1142,19 @@ def check(root: Path) -> list[Finding]:
         text = read(root, f)
         if text is None:
             continue
-        if workflow:
-            scan_workflow(f, text, report)
-        elif f.endswith(".py"):
-            scan_python(f, text, report)
-        elif f.endswith(".rs"):
-            scan_rust(f, text, report)
-        elif is_js_source(f):
-            scan_js(f, text, report)
-        elif is_shell(f, text):
-            scan_shell(f, text, report)
+        try:
+            if workflow:
+                scan_workflow(f, text, report)
+            elif f.endswith(".py"):
+                scan_python(f, text, report)
+            elif f.endswith(".rs"):
+                scan_rust(f, text, report)
+            elif is_js_source(f):
+                scan_js(f, text, report)
+            elif is_shell(f, text):
+                scan_shell(f, text, report)
+        except (RecursionError, ValueError, IndexError) as e:
+            warn(f"{f}: not checked ({type(e).__name__}: {e})")
     return sorted(report.items)
 
 
@@ -1037,7 +1197,11 @@ def summary_line(arg: str) -> str:
         root = toplevel(path)
     except NotARepo:
         return f"{path.name or arg}: not a git repository at {arg}"
-    found = check(root)
+    try:
+        found = check(root)
+    except Exception as e:  # one broken repo never stops the others
+        first = (str(e).splitlines() or [""])[0]
+        return f"{root.name}: check failed: {type(e).__name__}: {first}"
     if not found:
         return f"{root.name}: logging standard ✓"
     counts: dict[str, int] = {}

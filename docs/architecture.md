@@ -12,6 +12,8 @@ Techne is a collection of independent, composable skills that share conventions 
 
 **Documentation and prose.** `techne:docs-site` maintains the Zensical-built Pages workflow, link integrity, and asset hygiene. `techne:docsync` verifies prose claims (CLI commands, paths, signatures, config keys) against the actual codebase. `techne:deslop` flags AI-generated slop in comments and docstrings; `techne:reslop` rewrites docstrings grounded in the implementation rather than deleting them outright.
 
+**Logging.** `techne:logging` checks a repo's logging against one standard per stack (linter gates, secrets in log calls, uncapped log files, errors on stdout, CI logs lost on failure, committed log files) and fixes what falls short; `techne:sisters` runs the same check across the linked repos.
+
 **Planning and provenance.** `techne:research-grounded` audits design decisions in `IMPL.md` / `ROADMAP.md` for missing `# research(YYYY-MM):` provenance, then web-searches to ground each choice against current best practice before it hardens into code.
 
 **Versioning and observability.** `techne:auto-commit` groups working-tree changes into a structured commit plan at `COMMITS.md` for staged review before anything lands. `techne:theoros` starts an observed live dev session in a tmux pane; Claude drives the REPL, the human spectates read-only via `tmux attach -r`.

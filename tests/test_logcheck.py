@@ -679,3 +679,179 @@ def test_undecodable_file_is_skipped(tmp_path: Path) -> None:
     (root / "x.sh").write_bytes(b'#!/bin/sh\necho "error: \xff"\n')
     subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
     assert run(root).returncode == 0
+
+
+# --- review round 1: each case a reviewer reproduced ------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("path", "src"),
+    [
+        ("src/app.tsx", 'export const A = () => <p>Don\'t panic</p>;\nconsole.log("t", token);\n'),
+        ("src/app.ts", 'const r = /"/g;\nconsole.log("t", token);\n'),
+        ("src/lib.rs", 'pub fn f() {\n    let q = \'"\';\n    info!("{}", api_key);\n}\n'),
+    ],
+    ids=["jsx-apostrophe", "js-regex-quote", "rust-char-quote"],
+)
+def test_a_stray_quote_does_not_hide_later_calls(tmp_path: Path, path: str, src: str) -> None:
+    files = {**JS_OK, **RS_OK, path: src}
+    got = [(p, r) for p, _, r in findings(tmp_path, files)]
+    assert got == [(path, "secret-in-log")]
+
+
+def test_cfg_test_hides_only_the_item_it_marks(tmp_path: Path) -> None:
+    src = (
+        "#[cfg(test)]\nmod tests;\n\n#[cfg(test)]\nmod more {\n"
+        '    fn t() { info!("{}", password); }\n}\n'
+        'pub fn f() {\n    info!("{}", api_key);\n}\n'
+    )
+    assert findings(tmp_path, {**RS_OK, "src/lib.rs": src}) == [("src/lib.rs", 9, "secret-in-log")]
+
+
+def test_skip_keeps_a_leading_dot(tmp_path: Path) -> None:
+    wf = 'on: push\njobs:\n  a:\n    runs-on: x\n    steps:\n      - run: echo "error: x"\n'
+    files = {
+        ".github/workflows/ci.yml": wf,
+        ".claude/skill-context.md": "## logging\n\n- skip: .github/\n",
+    }
+    assert rules(tmp_path, files) == []
+
+
+def test_template_placeholders_and_unknown_rules_are_left_out_loudly(tmp_path: Path) -> None:
+    files = {
+        "out/run.sh": '#!/bin/sh\necho "error: x"\n',
+        ".claude/skill-context.md": (
+            "## logging\n- ignore: <rule>, ... (<why this repo opts out>)\n"
+            "- skip: <path prefix the check leaves out, e.g. legacy/>\n- ignore: no-such-rule\n"
+        ),
+    }
+    root = make_repo(tmp_path, files)
+    out = run(root)
+    assert "out/run.sh:2: stderr-for-errors" in out.stdout
+    assert "placeholder" in out.stderr
+    assert "'no-such-rule' is not a logcheck rule" in out.stderr
+
+
+@pytest.mark.parametrize(
+    ("line", "hit"),
+    [
+        ('print("set" if token else "unset")', False),
+        ('logger.info("%s", token.startswith("ghp_"))', False),
+        ('logger.info("%s", hash(token))', False),
+        ('logger.info("%d", CHARS_PER_TOKEN)', False),
+        ('log.info("login", password=pw)', True),
+        ('log.info("login", password="***")', False),
+        ('log.info("login", password=redact(pw))', False),
+    ],
+)
+def test_secret_in_log_python_round_one(tmp_path: Path, line: str, hit: bool) -> None:
+    files = {**PY_OK, "app.py": f"{line}\n"}
+    assert findings(tmp_path, files) == ([("app.py", 1, "secret-in-log")] if hit else [])
+
+
+@pytest.mark.parametrize(
+    ("path", "line", "hit"),
+    [
+        ("src/lib.rs", 'info!(token = %redact(t), "x");', False),
+        ("src/app.ts", "console.log({ token: redact(t) });", False),
+        ("src/app.ts", "console.log({ token: t });", True),
+        ("src/app.ts", "this.logger.info(token);", True),
+        ("src/app.ts", "this.log.debug(apiKey);", True),
+    ],
+)
+def test_field_names_and_member_loggers(tmp_path: Path, path: str, line: str, hit: bool) -> None:
+    body = f"pub fn f() {{\n    {line}\n}}\n" if path.endswith(".rs") else f"export {{}};\n{line}\n"
+    got = findings(tmp_path, {**JS_OK, **RS_OK, path: body})
+    assert got == ([(path, 2, "secret-in-log")] if hit else [])
+
+
+def test_shell_secret_names_are_environment_variables(tmp_path: Path) -> None:
+    src = '#!/bin/sh\nfor token in a b; do\n  echo "$token"\ndone\necho "$API_TOKEN"\n'
+    assert findings(tmp_path, {"run.sh": src}) == [("run.sh", 5, "secret-in-log")]
+
+
+def test_a_symlink_or_device_is_not_read(tmp_path: Path) -> None:
+    root = make_repo(tmp_path, {})
+    (root / "zero.sh").symlink_to("/dev/zero")
+    subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
+    out = subprocess.run(
+        [sys.executable, str(LOGCHECK_SCRIPT)], cwd=root, capture_output=True, text=True,
+        timeout=30, check=False,
+    )  # fmt: skip
+    assert out.returncode == 0
+
+
+def test_a_file_too_deep_to_parse_is_named_not_fatal(tmp_path: Path) -> None:
+    deep = "logger.info(" + " + ".join(["a"] * 5000) + ")\n"
+    root = make_repo(tmp_path, {**PY_OK, "deep.py": deep, "run.sh": '#!/bin/sh\necho "error: x"\n'})
+    out = run(root)
+    assert "run.sh:2: stderr-for-errors" in out.stdout
+    assert out.returncode == 1
+
+
+@pytest.mark.parametrize(
+    ("src", "hit"),
+    [
+        ('{ echo "error: x"; exit 1; } >&2', False),
+        ('{\n  echo "error: x"\n  exit 1\n} >&2', False),
+        ('cat <<EOT\necho "error: x"\nEOT', False),
+        ('cat <<\'EOT\'\necho "error: x"\nEOT\necho "error: y"', True),
+    ],
+    ids=["group-one-line", "group-multi-line", "heredoc", "after-heredoc"],
+)
+def test_stderr_groups_and_heredocs(tmp_path: Path, src: str, hit: bool) -> None:
+    got = rules(tmp_path, {"run.sh": f"#!/bin/sh\n{src}\n"})
+    assert got == (["stderr-for-errors"] if hit else [])
+
+
+def test_workflow_error_to_stderr_still_needs_an_annotation(tmp_path: Path) -> None:
+    wf = 'on: push\njobs:\n  a:\n    runs-on: x\n    steps:\n      - run: echo "error: x" >&2\n'
+    assert rules(tmp_path, {".github/workflows/ci.yml": wf}) == ["stderr-for-errors"]
+
+
+def test_upload_before_the_log_is_written_does_not_count(tmp_path: Path) -> None:
+    body = (
+        "  test:\n    runs-on: x\n    steps:\n" + upload("failure()") + WRITES.split("steps:\n")[1]
+    )
+    got = findings(tmp_path, {".github/workflows/ci.yml": WF_HEAD + body})
+    assert [r for _, _, r in got] == ["ci-logs-not-uploaded"]
+
+
+@pytest.mark.parametrize(
+    ("src", "hit"),
+    [
+        ('let a = rolling::Builder::new().rotation(Rotation::DAILY).build("l");', True),
+        (
+            "let a = rolling::Builder::new().rotation(Rotation::DAILY)"
+            '.max_log_files(3).build("l");',
+            False,
+        ),
+        (
+            "let a = RollingFileAppender::builder().rotation(Rotation::NEVER)"
+            '.max_log_files(5).build("l");',
+            True,
+        ),
+    ],
+)
+def test_unbounded_rust_round_one(tmp_path: Path, src: str, hit: bool) -> None:
+    files = {**RS_OK, "src/lib.rs": f"pub fn f() {{\n    {src}\n}}\n"}
+    assert rules(tmp_path, files) == (["unbounded-log-file"] if hit else [])
+
+
+def test_unbalanced_code_stays_fast(tmp_path: Path) -> None:
+    src = "export {};\n" + "console.log(a, (b;\n" * 2000
+    root = make_repo(tmp_path, {**JS_OK, "src/app.ts": src})
+    out = subprocess.run(
+        [sys.executable, str(LOGCHECK_SCRIPT)], cwd=root, capture_output=True, text=True,
+        timeout=20, check=False,
+    )  # fmt: skip
+    assert out.returncode == 0
+
+
+def test_a_symlink_to_a_file_outside_the_repo_is_not_followed(tmp_path: Path) -> None:
+    outside = tmp_path / "outside.sh"
+    outside.write_text('#!/bin/sh\necho "error: x"\n')
+    root = make_repo(tmp_path, {})
+    (root / "link.sh").symlink_to(outside)
+    subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
+    assert run(root).returncode == 0

@@ -44,8 +44,9 @@ vanish with the runner, and committed log files.
 
   An exception is logged once, where it is handled, with its traceback; a function that re-raises
   does not also log it.
-- **Never log a secret.** Passwords, tokens, API keys, session ids, connection strings, keys and
-  cookies are removed, masked or hashed before they reach a log call (OWASP; CWE-532). Log a
+- **Never log a secret.** Passwords, tokens, API keys, auth session tokens, connection strings,
+  keys and cookies are removed, masked or hashed before they reach a log call (OWASP; CWE-532).
+  A run or Claude Code session id is a correlation id, not a credential, and is logged. Log a
   length, a fingerprint or `set`/`unset` instead. Personal data (names, email addresses, file
   paths under a home folder) is logged only when the event needs it. User input is length-capped
   and has CR and LF escaped, which a JSON encoder does.
@@ -65,10 +66,10 @@ vanish with the runner, and committed log files.
 |---|---|---|
 | Linux, WSL | `$XDG_STATE_HOME/<app>/log`, default `~/.local/state/<app>/log` | same |
 | macOS | `~/Library/Logs/<app>` | same |
-| Windows | `%LOCALAPPDATA%\<app>\Logs` | `C:\Users\<user>\AppData\Local\<author>\<app>\Logs` |
+| Windows | `%LOCALAPPDATA%\<app>\Logs` | `%LOCALAPPDATA%\<author>\<app>\Logs` |
 
 The XDG spec names logs as state data. On WSL, a Linux program writes to the Linux file system,
-not `/mnt/c`, which is slower across the boundary (Microsoft's WSL guidance). A Tauri app's
+not the mounted Windows drive, which is slower across the boundary (Microsoft's WSL guidance). A Tauri app's
 `LogDir` target uses `%LOCALAPPDATA%\<bundle id>\logs` on Windows, `~/.local/share/<bundle
 id>/logs` on Linux and `~/Library/Logs/<bundle id>` on macOS. A repo's own development runs
 write to `logs/` in the repo (the dev-runner convention), ignored by git and pruned after 30
@@ -89,7 +90,8 @@ days by `make clean`.
   with `exc_info=False` (LOG007). → `lint-python`.
 - A file handler is `RotatingFileHandler(maxBytes=..., backupCount=...)`, with both set: if
   either is 0, it never rotates. `TimedRotatingFileHandler` needs `backupCount`. A plain
-  `FileHandler` or `basicConfig(filename=...)` grows without a cap. → `unbounded-log-file`.
+  `FileHandler` or `basicConfig(filename=...)` grows without a cap. `WatchedFileHandler` is
+  for a file that `logrotate` rotates. → `unbounded-log-file`.
 - A slow handler (network, email) sits behind `QueueHandler` and `QueueListener`.
 
 ## Rust
@@ -97,8 +99,8 @@ days by `make clean`.
 - `tracing` with `tracing-subscriber` (0.3.23): an `EnvFilter` read from `RUST_LOG`, a
   plain-text layer on stderr and a JSON layer for the file.
 - Files through `tracing-appender` (0.2.5): `RollingFileAppender::builder()` with a rotation and
-  `.max_log_files(n)`. The `rolling::daily()` style constructors keep every file, and the
-  appender has no size-based rotation. Keep the non-blocking writer's guard alive until exit, or
+  `.max_log_files(n)` and a rotation other than `Rotation::NEVER`. The `rolling::daily()` style
+  constructors keep every file, and the appender has no size-based rotation. Keep the non-blocking writer's guard alive until exit, or
   the last lines are lost. → `unbounded-log-file`.
 - A Tauri app may use `tauri-plugin-log` (2.10.1, built on the `log` crate) instead; then set
   `max_file_size` and `RotationStrategy::KeepSome(n)`, since `KeepAll` keeps every file.
@@ -123,7 +125,8 @@ days by `make clean`.
 - Error and warning text goes to stderr, `echo "error: ..." >&2`, through one `err()` helper
   (Google's shell style guide). → `stderr-for-errors`.
 - A script that runs in CI prints its own errors as annotations (below).
-- A secret is never echoed. Piping it to a command (`printf '%s' "$TOKEN" | gh auth login
+- A secret is never echoed. Shell secrets are environment variables, named in capitals; the
+  check reads only those. Piping one to a command (`printf '%s' "$TOKEN" | gh auth login
   --with-token`) or writing it to `$GITHUB_ENV` is fine. → `secret-in-log`.
 - `set -x` is off in any script that handles a secret.
 

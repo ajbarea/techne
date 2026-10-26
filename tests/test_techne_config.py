@@ -143,7 +143,12 @@ def test_matches_by_resolved_path_or_by_owner_slug(tc, tmp_path):
 def test_no_other_techne_script_parses_toml_itself():
     """Every reader of techne.toml goes through techne_config, so the failure rules stay one: no
     other script parses TOML, or builds a path to techne.toml (as a line-scanning reader would)."""
-    allowed = {TC, ROOT / "plugins/techne/skills/docs-site/templates/shared/tests/test_docs_nav.py"}
+    # logcheck.py parses a checked repo's pyproject.toml, ruff.toml and Cargo.toml, not techne.toml.
+    allowed = {
+        TC,
+        ROOT / "plugins/techne/skills/docs-site/templates/shared/tests/test_docs_nav.py",
+        ROOT / "plugins/techne/skills/logging/scripts/logcheck.py",
+    }
     offenders = [
         path
         for path in (ROOT / "plugins" / "techne").rglob("*.py")
