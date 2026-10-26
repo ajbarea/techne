@@ -40,6 +40,7 @@ nav = [
         { "techne:docs-site" = "skills/docs-site.md" },
         { "techne:docsync" = "skills/docsync.md" },
         { "techne:elenchus" = "skills/elenchus.md" },
+        { "techne:logging" = "skills/logging.md" },
         { "techne:research-grounded" = "skills/research-grounded.md" },
         { "techne:reslop" = "skills/reslop.md" },
         { "techne:setup" = "skills/techne-setup.md" },

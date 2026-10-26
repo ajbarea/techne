@@ -408,3 +408,20 @@ The script prints one line per finding and one passing line per clean sister, an
 it to `~/.claude/CLAUDE.md`, or set Project instructions to `claude-md-and-agents-md`), each
 symlink, a sister that is not cloned, and a `git ls-files failed in <repo>: ...` line (git's own
 error).
+
+## 16. Logging standard
+
+Each sister meets techne's logging standard (`techne:logging`'s
+`references/standard.md`): its linters reject stray prints and badly formed log calls, no
+secret reaches a log call, every log file has a cap, shell errors go to stderr, a CI job that
+writes a log file uploads it on failure, and no log file is committed. The script is the one
+`/techne:logging` runs, so the rules cannot drift between the two.
+
+```
+python3 <logcheck script> --summary $(for r in $SISTERS; do printf '%s ' "$WORKSPACE/$r"; done)   # the logcheck.py path SKILL.md names
+```
+
+It prints one line per sister, `<repo>: logging standard ✓` or `<repo>: N findings (<rule>
+<count>, ...) → run /techne:logging there`, or `<repo>: not a git repository at <path>`, and
+always exits 0. Report each line that is not ✓; the fix is a `/techne:logging` run in that
+repo, one PR per repo.

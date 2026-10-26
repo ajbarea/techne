@@ -6,8 +6,34 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 
 ## In flight
 
-Nothing. Owed by AJ from #209: the status line step `/phylax:setup` prints, and the global
-CLAUDE.md routing line drafted in the PR body.
+`techne:logging` (branch `feat/logging-standard`): the standard (`references/standard.md`),
+`logcheck.py` with tests, sisters check 16, a ci-audit section, docs page. Owed by AJ from #209:
+the status line step `/phylax:setup` prints, and the global CLAUDE.md routing line.
+
+## Logging rollout (stopped here 10-26; AJ moved sphragis and the MSR paper to the top)
+
+One PR per repo: `/techne:logging`, fix the check's findings and the review items, then
+reproduce one real failure and quote the log line that names it (before and after). Baseline
+from `logcheck.py --summary` on 10-26:
+
+1. klepsydra (wait until its other agent is done): lint-rust in `src-tauri` and
+   `src-tauri/fleet`, lint-js, lint-python. Backend logs with `eprintln!` plus the capped
+   `problem_log`: move to `tracing` with a `RollingFileAppender::builder().max_log_files(n)`
+   file in the OS log folder (or `tauri-plugin-log` with `KeepSome(n)`), front end through
+   `@tauri-apps/plugin-log`, hooks log the Claude `session_id` as the run id.
+2. sphragis: lint-python; its 834 committed `datasets/logs/` files are evidence, so add
+   `- skip: datasets/logs/` under `## logging`.
+3. keryx, ariadne, pharos, the coding-gym repo, phalanx-fl, papers, talks, the CSCI-739 class repo:
+   lint-python (select `G` and `LOG`, fix what ruff then reports), plus the review pass.
+4. ajbarea.github.io, periplus: lint-js.
+5. ldqis (team repo): propose lint-js and lint-python fixes in a PR, ask first.
+6. Left out: kourai-khryseai and velocity-fl (harvest-only since Aug 2026).
+
+## Back on the queue
+
+- docsync covers repo metadata (GitHub description, homepage, topics, README lead vs what the
+  repo does; solo applies with `gh repo edit`, team proposes; eval case; docs page).
+- Poppler on the CI runner so the 3 skipped web-deck tests run; confirm in the CI log.
 
 ## Open Minors (recorded, not scheduled)
 

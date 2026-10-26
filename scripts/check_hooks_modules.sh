@@ -18,7 +18,7 @@ for manifest in plugins/*/hooks/hooks.json; do
 	grep -q '"modules"' "$manifest" || continue
 	plugin="${manifest%/hooks/hooks.json}"
 	if ! compgen -G "$plugin/tests/*.test.ts" >/dev/null; then
-		echo "FAIL: $plugin ships a hooks module but no tests/*.test.ts"
+		echo "FAIL: $plugin ships a hooks module but no tests/*.test.ts" >&2
 		status=1
 		continue
 	fi
@@ -26,12 +26,12 @@ for manifest in plugins/*/hooks/hooks.json; do
 
 	stamp="$(head -n 1 scripts/mod-types/claude-code/index.d.ts 2>/dev/null || true)"
 	if [ "$stamp" != "// Written by Claude Code ${CLAUDE_CODE_VERSION}." ]; then
-		echo "FAIL: scripts/mod-types is from '${stamp#// }', not ${CLAUDE_CODE_VERSION}; run make mod-types"
+		echo "FAIL: scripts/mod-types is from '${stamp#// }', not ${CLAUDE_CODE_VERSION}; run make mod-types" >&2
 		status=1
 		continue
 	fi
 	if [ ! -f scripts/mod-types/claude-code-tools/index.d.ts ]; then
-		echo "FAIL: scripts/mod-types/claude-code-tools is missing; run make mod-types"
+		echo "FAIL: scripts/mod-types/claude-code-tools is missing; run make mod-types" >&2
 		status=1
 		continue
 	fi

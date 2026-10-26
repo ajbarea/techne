@@ -34,8 +34,8 @@ def test_variable_in_reference_file_fails(tmp_path: Path, var: str):
     write(tmp_path, "plugins/p/skills/s/references/r.md", f"python ${{{var}}}\n")
     result = run(tmp_path)
     assert result.returncode == 1
-    assert f"FAIL: plugins/p/skills/s/references/r.md uses ${{{var}}}" in result.stdout
-    assert "only in SKILL.md, agent and command bodies" in result.stdout
+    assert f"FAIL: plugins/p/skills/s/references/r.md uses ${{{var}}}" in result.stderr
+    assert "only in SKILL.md, agent and command bodies" in result.stderr
 
 
 def test_eval_fixtures_are_excluded(tmp_path: Path):
@@ -45,7 +45,7 @@ def test_eval_fixtures_are_excluded(tmp_path: Path):
 
 def test_repo_is_clean():
     result = subprocess.run(["bash", str(SCRIPT)], capture_output=True, text=True, cwd=ROOT)
-    assert result.returncode == 0, result.stdout
+    assert result.returncode == 0, result.stderr
 
 
 SKILL = "plugins/p/skills/s/SKILL.md"
@@ -63,7 +63,7 @@ def test_claude_variable_in_skill_body_fails(tmp_path: Path, var: str):
     write(tmp_path, SKILL, f"run ${{{var}}}/x.py\n")
     result = run(tmp_path)
     assert result.returncode == 1
-    assert f"FAIL: {SKILL} uses ${{{var}}}, which only Claude Code substitutes" in result.stdout
+    assert f"FAIL: {SKILL} uses ${{{var}}}, which only Claude Code substitutes" in result.stderr
 
 
 @pytest.mark.parametrize("marker", ["${user_config.repo}", "${CLAUDE_PLUGIN_DATA}/venv"])
@@ -83,7 +83,7 @@ def test_placeholders_resolve_against_skill_and_plugin(tmp_path: Path):
     )
     write(tmp_path, SKILL, body)
     result = run(tmp_path)
-    assert result.returncode == 0, result.stdout
+    assert result.returncode == 0, result.stderr
 
 
 @pytest.mark.parametrize(
@@ -97,7 +97,7 @@ def test_placeholder_path_must_ship(tmp_path: Path, ref: str, missing: str):
     write(tmp_path, SKILL, SKILL_DEF + ROOT_DEF + f"run {ref}\n")
     result = run(tmp_path)
     assert result.returncode == 1
-    assert f"FAIL: {SKILL} names {missing}, which plugins/p does not ship" in result.stdout
+    assert f"FAIL: {SKILL} names {missing}, which plugins/p does not ship" in result.stderr
 
 
 def test_skill_dir_resolves_from_its_own_skill(tmp_path: Path):
@@ -114,7 +114,7 @@ def test_placeholder_needs_its_definition(tmp_path: Path, name: str, definition:
     write(tmp_path, SKILL, definition + f"look in <{name}>\n")
     result = run(tmp_path)
     assert result.returncode == 1
-    assert f"FAIL: {SKILL} uses <{name}> without defining it" in result.stdout
+    assert f"FAIL: {SKILL} uses <{name}> without defining it" in result.stderr
 
 
 def test_placeholder_outside_skill_md_fails(tmp_path: Path):
@@ -123,7 +123,7 @@ def test_placeholder_outside_skill_md_fails(tmp_path: Path):
     result = run(tmp_path)
     assert result.returncode == 1
     assert "references/r.md uses <skill-dir> or <plugin-root>, which only a SKILL.md defines" in (
-        result.stdout
+        result.stderr
     )
 
 
@@ -132,7 +132,7 @@ def test_definition_must_come_before_first_use(tmp_path: Path):
     write(tmp_path, SKILL, "# S\n\nrun <plugin-root>/x.py\n\n" + ROOT_DEF)
     result = run(tmp_path)
     assert result.returncode == 1
-    assert "uses <plugin-root> on line 3, before its definition on line 5" in result.stdout
+    assert "uses <plugin-root> on line 3, before its definition on line 5" in result.stderr
 
 
 def test_portable_plugin_may_not_read_plugin_options(tmp_path: Path):
@@ -141,7 +141,7 @@ def test_portable_plugin_may_not_read_plugin_options(tmp_path: Path):
     result = run(tmp_path)
     assert result.returncode == 1
     assert f"FAIL: {skill} reads plugin options or plugin data, which graphe must not need" in (
-        result.stdout
+        result.stderr
     )
 
 
@@ -150,7 +150,7 @@ def test_unbraced_claude_variable_fails(tmp_path: Path):
     write(tmp_path, SKILL, "run $CLAUDE_SKILL_DIR/x.py\n")
     result = run(tmp_path)
     assert result.returncode == 1
-    assert "uses $CLAUDE_SKILL_DIR, which only Claude Code substitutes" in result.stdout
+    assert "uses $CLAUDE_SKILL_DIR, which only Claude Code substitutes" in result.stderr
 
 
 def test_placeholder_path_may_not_climb_out(tmp_path: Path):
@@ -159,7 +159,7 @@ def test_placeholder_path_may_not_climb_out(tmp_path: Path):
     result = run(tmp_path)
     assert result.returncode == 1
     assert (
-        "names <plugin-root>/../other/x.py, which climbs out of the path it names" in result.stdout
+        "names <plugin-root>/../other/x.py, which climbs out of the path it names" in result.stderr
     )
 
 
@@ -175,7 +175,7 @@ def test_definition_must_match_exactly(tmp_path: Path):
     write(tmp_path, SKILL, wrong + "run <skill-dir>/x.py\n")
     result = run(tmp_path)
     assert result.returncode == 1
-    assert f"FAIL: {SKILL} uses <skill-dir> without defining it" in result.stdout
+    assert f"FAIL: {SKILL} uses <skill-dir> without defining it" in result.stderr
 
 
 @pytest.mark.parametrize("marker", ["$CLAUDE_PLUGIN_DATA/venv", "${CLAUDE_PLUGIN_DATA:-/tmp}"])
@@ -184,4 +184,4 @@ def test_portable_plugin_may_not_read_plugin_data_in_any_spelling(tmp_path: Path
     write(tmp_path, skill, f"venv {marker}\n")
     result = run(tmp_path)
     assert result.returncode == 1
-    assert "reads plugin options or plugin data, which graphe must not need" in result.stdout
+    assert "reads plugin options or plugin data, which graphe must not need" in result.stderr

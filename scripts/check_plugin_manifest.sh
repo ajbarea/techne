@@ -11,13 +11,13 @@ status=0
 for target in plugins/*/ .; do
 	target="${target%/}"
 	if ! out=$("${claude_cmd[@]}" plugin validate "$target" 2>&1); then
-		echo "$out"
+		echo "$out" >&2
 		status=1
 		continue
 	fi
 	if ! grep -q 'Validation passed' <<<"$out"; then
-		echo "FAIL: claude plugin validate $target printed no pass line:"
-		echo "$out"
+		echo "FAIL: claude plugin validate $target printed no pass line:" >&2
+		echo "$out" >&2
 		status=1
 		continue
 	fi
@@ -25,8 +25,8 @@ for target in plugins/*/ .; do
 	found=$(sed -n 's/.*Found \([0-9][0-9]*\) warning.*/\1/p' <<<"$out" | awk '{n += $1} END {print n + 0}')
 	allowed=$(grep -cF 'version: No version specified' <<<"$out" || true)
 	if [ "$found" -ne "$allowed" ]; then
-		echo "FAIL: claude plugin validate $target warned beyond the missing version:"
-		echo "$out"
+		echo "FAIL: claude plugin validate $target warned beyond the missing version:" >&2
+		echo "$out" >&2
 		status=1
 	fi
 	# A hook that can refuse an action must refuse when it fails, which only a .catch does.
@@ -45,7 +45,7 @@ for part in parts:
 PY
 		) || uncaught="(could not read claude plugin validate --json)"
 		if [ -n "$uncaught" ]; then
-			echo "FAIL: $target has a gating hook without .catch: $uncaught"
+			echo "FAIL: $target has a gating hook without .catch: $uncaught" >&2
 			status=1
 		fi
 	fi

@@ -46,6 +46,7 @@ Install only the ones you use: every enabled plugin's skill list sits in the age
 | `techne:docs-site` | Maintains the Zensical-powered docs site: config, deploy pipeline, theming, link integrity. |
 | `techne:docsync` | Verifies documentation claims (CLI commands, paths, config keys, signatures) against the actual code. |
 | `techne:elenchus` | Adversarial pre-merge review: an independent reviewer sized to the change's risk (plus `/code-review` for risky changes) reproduces the load-bearing claim, traces every consumer across the whole repo, and walks a bug-class rubric for reachable destructive ops, unmirrored parallel-path guards, migration crashes, and dead-but-green features. |
+| `techne:logging` | Checks a repo's logging against techne's standard (linter gates, secrets in log calls, uncapped log files, errors on stdout, CI logs lost on failure) and fixes what falls short. |
 | `techne:research-grounded` | Flags decisions (technology, data release, study design, access rules, claim wording) in IMPL, ROADMAP and decision records that lack `# research(YYYY-MM):` provenance, then web-searches to ground them. |
 | `techne:reslop` | Rewrites docstrings grounded in the implementation rather than deleting them outright. |
 | `techne:sisters` | Cross-repo drift audit across the sister repos listed in `~/.claude/techne.toml`. |
@@ -167,6 +168,7 @@ techne (marketplace: ajbarea/techne)
 │   ├── docs-site         ── manages Zensical site + deploy
 │   ├── docsync           ── doc claims ↔ implementation
 │   ├── elenchus          ── adversarial pre-merge review (reproduce + trace + rubric)
+│   ├── logging           ── logs that name the cause, locally and in CI
 │   ├── research-grounded ── flags un-grounded design decisions
 │   ├── reslop            ── rewrites docstrings from code
 │   ├── sisters           ── cross-repo drift across sisters
