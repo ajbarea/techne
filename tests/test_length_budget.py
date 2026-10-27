@@ -1374,6 +1374,13 @@ def test_a_number_inside_a_line_is_kept_when_matching_heads(lb):
             _pages(["Body."] + [str(n) for n in range(1, 16)], ["16", "17", "18", "References"]),
             [(2, 4)],
         ),
+        # A heading may end in a full stop or a colon.
+        (_pages(["Body."], ["Reference List.", "[1] A."]), [(2, 1)]),
+        (_pages(["Body."], ["References:", "[1] A."]), [(2, 1)]),
+        # babel's \\bibname titles, as report and book classes print them.
+        (_pages(["Corps."], ["Bibliographie", "[1] A."]), [(2, 1)]),
+        (_pages(["Text."], ["Literaturverzeichnis", "[1] A."]), [(2, 1)]),
+        (_pages(["Testo."], ["Bibliografia", "[1] A."]), [(2, 1)]),
         # A ruler on full pages marks the copy, so the short last page drops its numbers too.
         (
             _pages(
@@ -1455,3 +1462,52 @@ def test_a_doubtful_body_and_an_uncounted_word_limit_both_ask(lb, monkeypatch, t
     assert [severity for severity, _m, _a in found] == [REVIEW, REVIEW]
     assert "references headings" in found[0][1]
     assert "texcount is not installed" in found[1][1]
+
+
+def test_reading_text_decodes_utf8_whatever_the_locale(lb, monkeypatch, tmp_path):
+    pdf = tmp_path / "doc.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n")
+    seen = {}
+
+    def run(cmd, **kwargs):
+        seen.update(kwargs)
+        return subprocess.CompletedProcess(cmd, 0, stdout="Références\n", stderr="")
+
+    monkeypatch.setattr(lb.prose_check.shutil, "which", lambda _tool: "/usr/bin/pdftotext")
+    monkeypatch.setattr(lb.prose_check.subprocess, "run", run)
+    assert lb.prose_check.reading_text(pdf) == "Références\n"
+    assert (seen.get("encoding"), seen.get("errors")) == ("utf-8", "replace")
+    assert "text" not in seen
+
+
+def test_every_limit_that_cannot_be_measured_is_named(lb, monkeypatch, tmp_path):
+    monkeypatch.setattr(lb, "page_texts", lambda _pdf, _reading=None: None)
+    monkeypatch.setattr(lb, "pdf_pages", lambda _pdf: None)
+    found = lb.assess(
+        "% budget: 7 pages, 6 body pages\n",
+        tmp_path / "doc.pdf",
+        hint="h",
+        source_name="doc.tex",
+        tex=tmp_path / "doc.tex",
+    )
+    messages = [message for _severity, message, _anchor in found]
+    assert len(messages) == 2
+    assert messages[0].startswith("body pages cannot be measured")
+    assert messages[1].startswith("could not measure the PDF")
+
+
+def test_an_uncounted_word_limit_and_an_unread_body_are_both_named(lb, monkeypatch, tmp_path):
+    monkeypatch.setattr(lb, "page_texts", lambda _pdf, _reading=None: None)
+    monkeypatch.setattr(lb, "pdf_pages", lambda _pdf: 3)
+    monkeypatch.setattr(lb, "tex_words", lambda _tex: (None, "texcount is not installed"))
+    found = lb.assess(
+        "% budget: 3000 words, 2 body pages\n",
+        tmp_path / "doc.pdf",
+        hint="h",
+        source_name="doc.tex",
+        tex=tmp_path / "doc.tex",
+    )
+    messages = [message for _severity, message, _anchor in found]
+    assert len(messages) == 2
+    assert messages[0].startswith("word limit cannot be measured")
+    assert messages[1].startswith("body pages cannot be measured")

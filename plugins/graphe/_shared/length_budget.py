@@ -19,8 +19,8 @@ alone; appendices placed before the references count as body. The real heading i
 earliest heading-like line or a later one, so the earliest alone may BLOCK, and the gate
 passes a body only when the PDF shows one such line or fits whole; several ask for a look
 (`references_starts`). A head the gate cannot confirm stays a line and can push a heading off
-line 1, a loud error the BLOCK message locates. Folios and running heads and feet are not
-lines (`references_starts`). A venue that counts only the pages before the references declares
+line 1, a loud error the BLOCK message locates. Folios and running heads above the text are
+not lines (`references_starts`). A venue that counts only the pages before the references declares
 body pages alone.
 Words come from the source, not the PDF: LaTeX through `texcount -inc -sum` (text, headers,
 `\\title` included, and captions, `\\input` followed, bibliography left out, as Overleaf
@@ -109,7 +109,7 @@ _CONTENTS_LINE = re.compile(r"^(?:(?=[A-Z])(?i:(?:table\s+of\s+)?c\s?ontents))$"
 _LONE_NUMBER = re.compile(r"^\d{1,4}$")
 _HAS_LETTER = re.compile(r"[^\W\d_]")
 _FOLIO_IN_HEAD = re.compile(r"^\d+(?=\s)|(?<=\s)\d+$")
-# Running heads and feet sit among a page's first or last lines.
+# Running heads sit among a page's first lines; edges of both ends confirm them.
 _EDGE = 2
 # A run of this many lines counting up by one marks a review copy's line-number ruler.
 _RULER = 20
@@ -393,21 +393,20 @@ def page_texts(pdf: pathlib.Path, reading: str | None = None) -> list[str] | Non
 def references_starts(pages: list[str]) -> list[tuple[int, int]]:
     """Page and line, both from 1, of every line that reads as a references heading, in order.
 
-    Lines are a page's non-blank lines without its folio, its running heads, and a
-    review copy's line-number ruler. A document with a run of `_RULER` lines counting up by
-    one carries a ruler, and its lone numbers go from every page first, since a two-column
-    ruler interleaves its counts (a numeric table in a review copy goes with them). Heads, feet and
-    folios sit among the first or last `_EDGE` lines. A folio is a lone number equal to its
+    Lines are a page's non-blank lines without its folio, its running heads, and a review copy's
+    line-number ruler. A document with a run of `_RULER` lines counting up by one carries a
+    ruler, and its lone numbers go from every page first, since a two-column ruler interleaves
+    its counts (a numeric table in a review copy goes with them). Heads and folios sit among the
+    first `_EDGE` lines; feet follow the text and stay. A folio is a lone number equal to its
     page's, or offset from it as on two other pages (roman front matter, a set first page). A
-    running line is one whose text, a leading or trailing number aside, also stands at the
-    edge of another page of its parity, or of every page after the first, in a headed
-    document: one whose every page after the first that has text shows such a line. Only the
-    first line that is no folio can be a head; a deeper top line must be on every page after
-    the first, three of them at least, so body that repeats at two page tops stays. A line
-    without letters and a heading-like line are never running. A heading on a page whose
-    first lines name it Contents is a contents entry. Every other heading-like line is
-    returned, so a caller can tell one heading from several (a section-name head, a contents
-    list run on, a column).
+    running line is one whose text, a leading or trailing number aside, also stands at the edge
+    of another page of its parity, or of every page after the first, in a headed document: one
+    whose every page after the first that has text shows such a line. Only the first line that
+    is no folio can be a head; a deeper top line must be on every page after the first, three of
+    them at least, so body that repeats at two page tops stays. A line without letters and a
+    heading-like line are never running. A heading on a page whose first lines name it Contents
+    is a contents entry. Every other heading-like line is returned, so a caller can tell one
+    heading from several (a section-name head, a contents list run on, a column).
     """
     content = [[line.strip() for line in page.splitlines() if line.strip()] for page in pages]
     if any(run >= _RULER for lines in content for run in _counting_runs(lines)):
