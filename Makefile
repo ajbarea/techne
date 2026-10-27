@@ -15,7 +15,7 @@ setup: check-env        ## Install dev dependencies (uv sync)
 
 manifests:              ## Verify plugin + marketplace manifest JSON (stdlib json.tool)
 	@for f in .claude-plugin/marketplace.json plugins/*/.claude-plugin/plugin.json; do \
-		uv run python -m json.tool "$$f" >/dev/null || { echo "FAIL: $$f"; exit 1; }; \
+		uv run python -m json.tool "$$f" >/dev/null || { echo "FAIL: $$f" >&2; exit 1; }; \
 	done
 
 # The Claude Code build plugin-validate and plugin-test run through npx, so local runs and CI
@@ -64,14 +64,14 @@ guards:                 ## Stale-path + legacy-name + shared-copy + plugin-path 
 	@for f in plugins/*/_shared/*; do \
 		src="plugins/techne/_shared/$${f##*/}"; \
 		[ -f "$$src" ] && [ "$$f" != "$$src" ] || continue; \
-		cmp -s "$$f" "$$src" || { echo "FAIL: $$f differs from $$src"; exit 1; }; \
+		cmp -s "$$f" "$$src" || { echo "FAIL: $$f differs from $$src" >&2; exit 1; }; \
 	done
 	@bash scripts/check_plugin_refs.sh
 	@if git grep -n --untracked -E '\.claude/skills/_shared' -- $(GUARD_SKIP); then \
-		echo "FAIL: still references the old absolute _shared path"; exit 1; \
+		echo "FAIL: still references the old absolute _shared path" >&2; exit 1; \
 	fi
 	@if git grep -n --untracked -E '\baj-($(SKILL_NAMES))\b' -- $(GUARD_SKIP); then \
-		echo "FAIL: still references aj-* names"; exit 1; \
+		echo "FAIL: still references aj-* names" >&2; exit 1; \
 	fi
 	@bash scripts/check_action_pins.sh
 	@uv run python scripts/check_private_names.py
@@ -105,7 +105,7 @@ HOOK_TESTS := tests/test_git_guards.py tests/test_model_guard.py tests/test_budg
 
 test-hooks-oldest:      ## Hook and doctor tests with the code under test run on the oldest python3
 	@py="$$(uv python find --no-project $(HOOKS_OLDEST_PYTHON) 2>/dev/null || { uv python install -q $(HOOKS_OLDEST_PYTHON) && uv python find --no-project $(HOOKS_OLDEST_PYTHON); })"; \
-	[ -n "$$py" ] || { echo "FAIL: no Python $(HOOKS_OLDEST_PYTHON) from uv"; exit 1; }; \
+	[ -n "$$py" ] || { echo "FAIL: no Python $(HOOKS_OLDEST_PYTHON) from uv" >&2; exit 1; }; \
 	TECHNE_GUARD_PYTHON="$$py" uv run pytest $(HOOK_TESTS)
 
 zizmor:                 ## zizmor GHA security scan (.github/workflows/)
@@ -140,7 +140,7 @@ evals:                  ## Routing + behavior evals (claude plugin eval; runs on
 		(cd "$$p" && claude plugin eval . --tag routing --ablation none --trust-plugin \
 			--no-publish -j 2 --threshold 0.9) || failed="$$failed $$p"; \
 	done; \
-	[ -z "$$failed" ] || { echo "FAIL: routing evals below threshold in:$$failed"; exit 1; }
+	[ -z "$$failed" ] || { echo "FAIL: routing evals below threshold in:$$failed" >&2; exit 1; }
 	@cd plugins/techne && claude plugin eval . --tag behavior --ablation none --trust-plugin \
 		--no-publish -j 2 --threshold 0.9 --scaffold
 

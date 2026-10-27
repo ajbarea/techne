@@ -96,3 +96,7 @@ feature_works_means:
 decision_docs:
   - <file, directory or glob audited in addition to IMPL.md and ROADMAP.md, e.g. docs/research-log.md>
 ```
+
+## logging
+- ignore: <rule>, ... (<why this repo opts out>)
+- skip: <path prefix the check leaves out, e.g. legacy/>

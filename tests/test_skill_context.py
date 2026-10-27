@@ -143,7 +143,9 @@ LOAD_LINE = (
     '2>/dev/null || echo "(no .claude/skill-context.md in this repo)"'
 )
 PLUGINS = ROOT / "plugins"
-LOADING_SKILLS = {"audit", "ci-audit", "deslop", "docs-site", "elenchus", "reslop", "theoros"}
+LOADING_SKILLS = {
+    "audit", "ci-audit", "deslop", "docs-site", "elenchus", "logging", "reslop", "theoros"
+}  # fmt: skip
 
 
 def _injection_lines() -> dict[str, list[str]]:

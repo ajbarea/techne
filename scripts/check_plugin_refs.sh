@@ -18,7 +18,7 @@ while IFS= read -r file; do
 	esac
 	var=$(grep -ohE '\$\{?CLAUDE_(PLUGIN_ROOT|PLUGIN_DATA|SKILL_DIR)\b\}?' "$file" | head -1) || true
 	if [ -n "$var" ]; then
-		echo "FAIL: $file uses $var, which Claude Code substitutes only in SKILL.md, agent and command bodies"
+		echo "FAIL: $file uses $var, which Claude Code substitutes only in SKILL.md, agent and command bodies" >&2
 		status=1
 	fi
 done < <(grep -rlE '\$\{?CLAUDE_(PLUGIN_ROOT|PLUGIN_DATA|SKILL_DIR)\b' plugins --include='*.md' \
@@ -34,7 +34,7 @@ for plugin in plugins/*/; do
 		rel="${ref#'${CLAUDE_PLUGIN_ROOT}/'}"
 		rel="${rel%.}"
 		if [ ! -e "$plugin/$rel" ]; then
-			echo "FAIL: $plugin names \${CLAUDE_PLUGIN_ROOT}/$rel, which it does not ship"
+			echo "FAIL: $plugin names \${CLAUDE_PLUGIN_ROOT}/$rel, which it does not ship" >&2
 			status=1
 		fi
 	done <<<"$refs"
@@ -51,7 +51,7 @@ claude_var='\$\{?CLAUDE_(PLUGIN_ROOT|SKILL_DIR)\b\}?'
 # The placeholders are defined relative to a SKILL.md; in any other file they mean nothing.
 while IFS= read -r file; do
 	[ -n "$file" ] || continue
-	echo "FAIL: $file uses <skill-dir> or <plugin-root>, which only a SKILL.md defines"
+	echo "FAIL: $file uses <skill-dir> or <plugin-root>, which only a SKILL.md defines" >&2
 	status=1
 done < <(grep -rlE '<(skill-dir|plugin-root)>' plugins --include='*.md' --exclude-dir=eval-fixtures \
 	| grep -v '/skills/[^/]*/SKILL\.md$' || true)
@@ -64,13 +64,13 @@ while IFS= read -r skill; do
 	exempt=0
 	grep -qE '\$\{?(user_config\.|CLAUDE_PLUGIN_DATA\b)' "$skill" && exempt=1
 	if [ "$exempt" -eq 1 ] && [[ $PORTABLE == *" $name "* ]]; then
-		echo "FAIL: $skill reads plugin options or plugin data, which $name must not need: the docs say it runs in other agent CLIs"
+		echo "FAIL: $skill reads plugin options or plugin data, which $name must not need: the docs say it runs in other agent CLIs" >&2
 		status=1
 	fi
 	if [ "$exempt" -eq 0 ]; then
 		var=$(grep -ohE "$claude_var" "$skill" | head -1) || true
 		if [ -n "$var" ]; then
-			echo "FAIL: $skill uses $var, which only Claude Code substitutes; write <plugin-root> or <skill-dir>"
+			echo "FAIL: $skill uses $var, which only Claude Code substitutes; write <plugin-root> or <skill-dir>" >&2
 			status=1
 		fi
 	fi
@@ -86,10 +86,10 @@ while IFS= read -r skill; do
 			base=$plugin
 		fi
 		if [ -z "$def_line" ]; then
-			echo "FAIL: $skill uses <$placeholder> without defining it"
+			echo "FAIL: $skill uses <$placeholder> without defining it" >&2
 			status=1
 		elif [ "$def_line" -gt "$first_use" ]; then
-			echo "FAIL: $skill uses <$placeholder> on line $first_use, before its definition on line $def_line"
+			echo "FAIL: $skill uses <$placeholder> on line $first_use, before its definition on line $def_line" >&2
 			status=1
 		fi
 		refs=$(grep -oE "<$placeholder>/[A-Za-z0-9_./-]+" "$skill" | sort -u) || true
@@ -98,10 +98,10 @@ while IFS= read -r skill; do
 			rel="${ref#"<$placeholder>/"}"
 			rel=$(printf '%s' "$rel" | sed 's/\.*$//')
 			if [[ /$rel/ == */../* ]]; then
-				echo "FAIL: $skill names <$placeholder>/$rel, which climbs out of the path it names"
+				echo "FAIL: $skill names <$placeholder>/$rel, which climbs out of the path it names" >&2
 				status=1
 			elif [ -n "$rel" ] && [ ! -e "$base/$rel" ]; then
-				echo "FAIL: $skill names <$placeholder>/$rel, which $plugin does not ship"
+				echo "FAIL: $skill names <$placeholder>/$rel, which $plugin does not ship" >&2
 				status=1
 			fi
 		done <<<"$refs"

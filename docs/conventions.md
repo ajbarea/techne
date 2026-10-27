@@ -121,6 +121,7 @@ The [template](https://github.com/ajbarea/techne/blob/main/plugins/techne/skills
 | `## paper-review` | `paper-review` | `lab_line`, `retrieval`, `mailto`, `report`. |
 | `## latex` | `latex` | `markers`, `overfull_pt`, `engine`. |
 | `## research_grounded` | `research-grounded` | `decision_docs`: files, directories or globs audited in addition to `IMPL.md` and `ROADMAP.md`. |
+| `## logging` | `logging`, `sisters` | `ignore` (rules this repo opts out of, each with its reason), `skip` (path prefixes the check leaves out). |
 | `## elenchus` | `elenchus` | `test_command`, `run_command`, `destructive_ops`, `load_bearing_surfaces`, `feature_works_means`; each is optional and sharpens one phase. |
 
 **Required for:** `techne:audit`, `techne:theoros`.

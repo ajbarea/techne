@@ -2,7 +2,7 @@
 name: ci-audit
 description: Audit the latest GitHub Actions workflow runs on the current branch/PR for warnings, errors, failures, deprecation notices, and other log noise — then fix what's fixable in-repo (workflow YAML, configs, source, tests). Hands commit + push back to the developer. Use after CI finishes and before merge, or whenever the user asks about failing/noisy CI — phrasings like "audit the PR", "why did CI fail", "check the workflow logs", "what's wrong with the build on GitHub", "fix the Actions warnings", "review the latest CI run", "clean up the green-with-warnings run", or names a specific check (Codecov, GitGuardian, Renovate) that's failing on the PR.
 disable-model-invocation: false
-allowed-tools: Bash(gh *) Bash(git branch --show-current) Bash(git rev-parse *) Bash(git log *) Bash(python3 *_shared/repo_kind.py*) Glob Grep Read Edit Write WebSearch WebFetch
+allowed-tools: Bash(gh *) Bash(git branch --show-current) Bash(git rev-parse *) Bash(git log *) Bash(python3 *_shared/repo_kind.py*) Bash(python3 *logging/scripts/logcheck.py*) Glob Grep Read Edit Write WebSearch WebFetch
 ---
 
 # CI Audit
@@ -82,6 +82,17 @@ gh run view <id> --log | grep -iE "warning|error|fail|deprecat" | head -100
 Expand context (`grep -A3 -B1`) around any hit you can't classify from one line.
 
 **Cross-reference `##[error]` with step `conclusion`.** A step with `conclusion: success` but an `##[error]` line in its output means `continue-on-error: true` swallowed a real failure. The runner still reported the error; the job is green only because of the policy flag. Don't file it under `[EXPECTED]` — the error is genuine, the step is just non-blocking. Surface it as `[FIX]` with the caveat that the step policy let the job pass. The user needs to know so they can either fix the underlying cause (usually), or promote the step to blocking once clean.
+
+### Logs that name the cause
+
+A failed step whose log does not say what failed, on which input, is a finding of its own,
+even once the failure is fixed. Look for: a failure with no `::error` annotation pointing at
+the file, a long tool output with no `::group::`, a job that wrote a log file and uploaded
+nothing on failure, a skip with no reason (pytest without `-rs`), a secret-looking value
+printed even if masked. Each is `[FIX]` in the workflow or the script it runs. The rules and
+their sources are in `<plugin-root>/skills/logging/references/standard.md`;
+`python3 "<plugin-root>/skills/logging/scripts/logcheck.py"` checks the workflow files for the
+missing upload, the printed secret and error text echoed without `::error::`.
 
 ## Classify every finding
 

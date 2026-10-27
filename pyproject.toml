@@ -40,7 +40,7 @@ target-version = "py312"
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "RUF"]
+select = ["E", "F", "I", "UP", "B", "RUF", "G", "LOG"]
 
 [tool.ty.environment]
 extra-paths = ["tests", "plugins/epistole", "plugins/heuresis", "plugins/schole"]
