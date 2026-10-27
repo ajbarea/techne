@@ -54,6 +54,14 @@ GOLD_RUNNER = ROOT / "scripts" / "heuresis_gold.py"
 # to python3 3.9.
 HOOK_PYTHON = os.environ.get("TECHNE_GUARD_PYTHON", sys.executable)
 
+# The PDF read-back tests (web deck export, markdown render) use poppler's pdftotext and pdfinfo.
+# A machine without it declares so with TECHNE_NO_POPPLER=1; test_slides_web.py fails otherwise.
+NO_POPPLER = os.environ.get("TECHNE_NO_POPPLER") == "1"
+HAVE_POPPLER = not NO_POPPLER and all(shutil.which(t) for t in ("pdftotext", "pdfinfo"))
+needs_poppler = pytest.mark.skipif(
+    not HAVE_POPPLER, reason="no poppler (declared by TECHNE_NO_POPPLER)"
+)
+
 
 def hook_env(
     on: Iterable[str] | Mapping[str, str] = (), drop: tuple[str, ...] = (), **extra: str

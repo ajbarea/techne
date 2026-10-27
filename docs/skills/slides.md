@@ -69,7 +69,7 @@ A PDF deck gets the gates its text can answer, read with `pdftotext`. A figure t
 
 ## Testing it
 
-`make test-unit` covers the `.pptx` gates against decks built in-test as minimal OOXML packages, and the web gates against copies of the starter deck in a real Chromium, each broken in one way: a missing heading, faint text, an image with no alt text, a missing file, a value with no data, an em-dash, a network font, a line wider than the slide, small text, motion that ignores reduced-motion settings, and a slide with no script. It also renders the starter and counts the slides, phone views and PDF pages. A machine without Chromium sets `TECHNE_NO_BROWSER=1` to say so; otherwise the suite fails rather than skipping those cases.
+`make test-unit` covers the `.pptx` gates against decks built in-test as minimal OOXML packages, and the web gates against copies of the starter deck in a real Chromium, each broken in one way: a missing heading, faint text, an image with no alt text, a missing file, a value with no data, an em-dash, a network font, a line wider than the slide, small text, motion that ignores reduced-motion settings, and a slide with no script. It also renders the starter and counts the slides, phone views and PDF pages, and reads the exported PDF text back with poppler, which CI installs. A machine without Chromium sets `TECHNE_NO_BROWSER=1` to say so, and one without poppler sets `TECHNE_NO_POPPLER=1`; otherwise the suite fails rather than skipping those cases.
 
 ## Full instructions
 

@@ -10,13 +10,12 @@ from __future__ import annotations
 
 import importlib.util
 import os
-import shutil
 
 import pytest
+from conftest import needs_poppler
 
 OPTED_OUT = os.environ.get("TECHNE_NO_TYPST") == "1"
 HAVE_TYPST = importlib.util.find_spec("typst") is not None
-HAVE_POPPLER = shutil.which("pdftotext") is not None
 
 needs_typst = pytest.mark.skipif(
     OPTED_OUT or not HAVE_TYPST,
@@ -60,7 +59,7 @@ def test_a_markdown_file_renders_to_a_real_pdf(rn, tmp_path):
 
 
 @needs_typst
-@pytest.mark.skipif(not HAVE_POPPLER, reason="pdftotext not installed")
+@needs_poppler
 def test_the_words_survive_the_round_trip(rn, tmp_path):
     """The skill's documented verification: diff the text, do not eyeball it."""
     import subprocess
@@ -127,7 +126,7 @@ def _line_tops(pdf) -> dict[str, list[float]]:
 
 
 @needs_typst
-@pytest.mark.skipif(not HAVE_POPPLER, reason="pdftotext not installed")
+@needs_poppler
 def test_tight_lists_sit_on_the_leading_and_loose_ones_take_paragraph_spacing(rn, tmp_path):
     """cmarker marks every list tight; the template has to tell a loose one apart."""
     src = tmp_path / "lists.md"
@@ -189,7 +188,7 @@ HEADERS = """# Table
 
 
 @needs_typst
-@pytest.mark.skipif(not HAVE_POPPLER, reason="pdftotext not installed")
+@needs_poppler
 def test_table_header_labels_keep_a_gap_between_columns(rn, tmp_path):
     """A function show rule on a header cell drops its inset and runs the labels together."""
     import re
