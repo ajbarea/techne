@@ -27,7 +27,7 @@ sys.dont_write_bytecode = True  # the plugin cache stays as installed
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "_shared"))
 import doctor_lib  # noqa: E402  # ty: ignore[unresolved-import]
 from git_env import github_slug, without_repo_overrides  # noqa: E402  # ty: ignore[unresolved-import]
-from repo_kind import TIMEOUT, decode, sh  # noqa: E402  # ty: ignore[unresolved-import]
+from repo_kind import TIMEOUT, as_directory, decode, sh  # noqa: E402  # ty: ignore[unresolved-import]
 
 MAX_PARAGRAPHS = 3
 # GitHub shows the README from .github/ first, then the root, then docs/ (docs.github.com,
@@ -56,7 +56,13 @@ _AUTOLINK = re.compile(r"<((?:https?|mailto):[^<>\s]+)>")
 # A tag has its name right after `<`, so `a < b and c > d` stays text.
 _TAG = re.compile(r"</?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>")
 _ADMONITION = re.compile(r"\[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]", re.IGNORECASE)
-_EMPHASIS = re.compile(r"(\*{1,3}|_{2,3})(\S(?:.*?\S)?)\1")
+_EMPHASIS = re.compile(r"(\*{1,3}|_{2,3})(\S(?:.*?\S)?)\1", re.DOTALL)
+_CODE_SPAN = re.compile(r"`[^`\n]*`")
+_HTML_HEADING_END = re.compile(r"</h[1-6]\s*>", re.IGNORECASE)
+_LABEL = re.compile(r"^[^:]{0,30}:\s*")
+_USERINFO = re.compile(r"//[^/@\s]+@")
+# A tagline under the title says something; a one- or two-word heading there is a section.
+TAGLINE_WORDS = 3
 _QUOTE = re.compile(r"^ {0,3}>[ \t]?", re.MULTILINE)
 
 
@@ -84,8 +90,8 @@ def is_lead(block: str, text: str) -> bool:
         return False
     no_images = _IMAGE.sub("", block)
     links = len(_LINK.findall(no_images)) + len(_AUTOLINK.findall(no_images))
-    bare = prose(_LINK.sub("", _AUTOLINK.sub("", no_images)))
-    return not (links >= 2 and len(re.findall(r"[^\W\d_]{2,}", bare)) <= 3)
+    bare = _LABEL.sub("", prose(_LINK.sub("", _AUTOLINK.sub("", no_images))))
+    return not (links and not any(c.isalpha() for c in bare))
 
 
 def opening(text: str) -> list[dict]:
@@ -113,7 +119,7 @@ def opening(text: str) -> list[dict]:
             return False
         if found:
             return True
-        if hero > 0 or level >= 3:
+        if (hero > 0 or level >= 3) and len(prose(words).split()) >= TAGLINE_WORDS:
             block.append((number, words))
             close()
             return False
@@ -139,8 +145,14 @@ def opening(text: str) -> list[dict]:
             details = max(0, details - len(_DETAILS_CLOSE.findall(line)))
             close()
             continue
-        hero = max(0, hero + len(_HERO_OPEN.findall(line)) - len(_HERO_CLOSE.findall(line)))
+        bare = _CODE_SPAN.sub("", line)
+        hero = max(0, hero + len(_HERO_OPEN.findall(bare)) - len(_HERO_CLOSE.findall(bare)))
         atx, tag = _ATX.match(line), _HTML_HEADING.match(line)
+        if tag and not _HTML_HEADING_END.search(line):
+            # A heading tag over several lines: its text runs to the closing tag.
+            while index < len(lines) and not _HTML_HEADING_END.search(lines[index - 1]):
+                line += " " + lines[index]
+                index += 1
         setext = bool(line.strip()) and not block and bool(_SETEXT.match(following))
         if atx or tag or (setext and not _BREAK.match(line)):
             if atx:
@@ -212,30 +224,28 @@ def stop(message: str) -> int:
 
 
 def main(argv: list[str]) -> int:
-    target = Path(argv[0] if argv else ".").absolute()
-    while not target.exists() and target != target.parent:
-        target = target.parent
-    where = str(target if target.is_dir() else target.parent)
+    where = str(as_directory(argv[0] if argv else "."))
     top = sh("git", "-C", where, "rev-parse", "--show-toplevel")
     if not top:
         return stop(f"{where} is not in a git repository")
     origin = sh("git", "-C", where, "remote", "get-url", "origin")
     slug = github_slug(origin or "")
     if not slug:
-        named = origin or "no origin remote"
+        named = _USERINFO.sub("//", origin) if origin else "no origin remote"
         return stop(f"{top} has no GitHub origin ({named}), so it has no About section")
     repo = "/".join(slug)
+    read = ("gh", "api", "--hostname", "github.com", f"repos/{repo}")
     code, out = doctor_lib.run(
-        ("gh", "api", "--hostname", "github.com", f"repos/{repo}"),
-        timeout=TIMEOUT,
-        env=without_repo_overrides(),
+        read, timeout=TIMEOUT, merge_stderr=False, env=without_repo_overrides()
     )
     try:
         info = json.loads(out) if code == 0 else None
     except json.JSONDecodeError:
         info = None
     if not isinstance(info, dict):
-        reason = out.strip().splitlines()[-1] if out.strip() else f"gh exited {code}"
+        # Asked again with stderr kept, for gh's own reason (404, rate limit, signed out).
+        _, said = doctor_lib.run(read, timeout=TIMEOUT, env=without_repo_overrides())
+        reason = said.strip().splitlines()[-1] if said.strip() else f"gh exited {code}"
         return stop(f"could not read {repo} on GitHub: {reason}")
     pages = sh("gh", "api", "--hostname", "github.com", f"repos/{repo}/pages", "--jq", ".html_url")
     root = Path(top)

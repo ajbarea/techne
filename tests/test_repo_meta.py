@@ -229,7 +229,8 @@ def test_a_folder_outside_git_stops_with_its_own_reason(meta, tmp_path, capsys):
 
 
 def test_a_failed_github_read_stops_with_a_reason(meta, repo, gh, capsys):
-    gh.register(REPO, returncode=1, stderr="gh: Not Found (HTTP 404)")
+    for _ in range(2):  # the second read keeps gh's stderr for the reason
+        gh.register(REPO, returncode=1, stderr="gh: Not Found (HTTP 404)")
     err = failure(meta, capsys, repo)
     assert f"could not read {SLUG} on GitHub: gh: Not Found (HTTP 404)" in err
 
@@ -258,7 +259,7 @@ def test_an_h2_inside_the_header_container_is_a_tagline(meta):
 
 
 def test_a_subtitle_right_under_the_title_is_kept_but_an_h2_ends_the_opening(meta):
-    assert texts(meta, "# T\n### A tool.\nLead.\n") == ["A tool.", "Lead."]
+    assert texts(meta, "# T\n### A small tool.\nLead.\n") == ["A small tool.", "Lead."]
     assert texts(meta, "# T\n\n## Install\n\nRun it.\n") == []
 
 
@@ -332,8 +333,51 @@ def test_the_script_runs_on_the_oldest_supported_python(tmp_path):
     assert out.returncode == 2 and "is not in a git repository" in out.stderr, out.stderr
     probe = (
         f"import sys; sys.path.insert(0, {str(REPO_META_SCRIPT.parent)!r}); import repo_meta; "
-        "print(repo_meta.opening('# T\\n\\n### Tagline.\\n\\nLead.\\n'))"
+        "print(repo_meta.opening('# T\\n\\n### A tagline here.\\n\\nLead.\\n'))"
     )
     run = subprocess.run([HOOK_PYTHON, "-c", probe], capture_output=True, text=True)
     assert run.returncode == 0, run.stderr
-    assert "'Tagline.'" in run.stdout and "'Lead.'" in run.stdout
+    assert "'A tagline here.'" in run.stdout and "'Lead.'" in run.stdout
+
+
+def test_a_lead_with_links_in_it_is_kept_but_a_link_row_is_not(meta):
+    assert texts(meta, "A [Flower](u) strategy for [PyTorch](v).\n") == [
+        "A Flower strategy for PyTorch."
+    ]
+    assert texts(meta, "**Docs:** [https://x.io/a/](https://x.io/a/)\n\nLead.\n") == ["Lead."]
+
+
+def test_a_short_section_heading_before_any_prose_is_not_a_tagline(meta):
+    assert texts(meta, "# T\n\n### Installation\n\npip install t\n") == []
+    assert texts(meta, "<div>\n\n# T\n\n## Install\n\nRun it.\n") == []
+
+
+def test_a_heading_tag_over_several_lines_is_one_heading(meta):
+    assert texts(meta, "<h1>\n  T\n</h1>\n\nLead.\n") == ["Lead."]
+
+
+def test_emphasis_across_lines_and_inline_code_html(meta):
+    assert texts(meta, "*The corpus spans\ntwo lines.*\n") == ["The corpus spans two lines."]
+    assert texts(meta, "Wrap it in `<div>` tags.\n") == ["Wrap it in `` tags."]
+    # A tag in a code span is not the header container, so the h2 below ends the opening.
+    assert texts(meta, "# Use `<div>` blocks\n\n## Install it on Linux\n\nRun it.\n") == []
+
+
+def test_a_fence_line_with_an_info_string_does_not_close_it(meta):
+    assert texts(meta, "```\ncode\n```python\nmore code\n```\n\nLead.\n") == ["Lead."]
+
+
+def test_a_thematic_break_ends_a_paragraph(meta):
+    assert texts(meta, "Lead one.\n***\nLead two.\n") == ["Lead one.", "Lead two."]
+
+
+def test_credentials_in_the_origin_are_not_printed(meta, tmp_path, capsys):
+    root = tmp_path / "gl"
+    root.mkdir()
+    git(root, "init", "-q")
+    secret = "x" * 12
+    # Built at run time, so no credential-shaped literal sits in the source for scanners.
+    origin = "https://" + ":".join(("oauth2", secret)) + "@gitlab.com/a/b.git"
+    git(root, "remote", "add", "origin", origin)
+    err = failure(meta, capsys, root)
+    assert secret not in err and "https://gitlab.com/a/b.git" in err
