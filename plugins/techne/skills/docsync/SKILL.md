@@ -1,6 +1,6 @@
 ---
 name: docsync
-description: Check a documentation file for drift against the actual codebase (CLI commands, file paths, config keys, function signatures, version numbers, environment variables) and correct it: applied directly on a solo repo, proposed for confirmation on a team repo. Use when the user wants to audit README.md, docs/*.md, or similar for claims that no longer match reality. Drift usually comes from refactors that forgot to update the docs.
+description: Check a documentation file, and the repo's GitHub description, homepage and topics, for drift against the actual codebase (CLI commands, file paths, config keys, function signatures, version numbers, environment variables, the feature set the README opening names) and correct it: applied directly on a solo repo, proposed for confirmation on a team repo. Use when the user wants to audit README.md, docs/*.md, or similar for claims that no longer match reality. Drift usually comes from refactors that forgot to update the docs.
 disable-model-invocation: false
 allowed-tools: Bash Glob Grep Read Edit Agent WebSearch WebFetch
 ---
@@ -43,6 +43,32 @@ A user-visible surface no doc mentions is drift too: the claim is missing, not w
 
 A doc that links a file holding the detail covers that detail: a skill page that links its `SKILL.md` covers the skill's internal steps, and a page that quotes `--help` covers the flags it lists. Propose the link, not a paraphrase, since a second copy drifts. Report each gap with the surface's source `file:line` and the doc where it belongs. Test-only knobs and internal helpers are not user surface.
 
+## Repo metadata
+
+The GitHub About section (description, homepage URL, topics) and the README's opening are the first thing a visitor reads, and they drift the same way prose does: the repo grows and they keep naming what it did first. Check them whenever the README is in scope:
+
+```bash
+python3 "<plugin-root>/skills/docsync/scripts/repo_meta.py" <target-doc>
+```
+
+It prints the About fields, the GitHub Pages URL, the README's opening paragraphs with their lines (a tagline heading in the header counts; badges, code, tables and link rows do not), and `problems` a rule settles: an empty description, no topics, an unset homepage while a Pages site is live, a `github.io` homepage off that site, no README or no opening. Exit 2 prints why (not a git repo, no GitHub origin, or gh's own error); say so in the report and check the rest.
+
+Then compare each field with the surface inventory from [Silence](#silence) and what the repo does today:
+
+- **Description and opening.** Drift when either names a narrower or older feature set than the code ships (the main features added since are absent), a feature or platform the code no longer has, or a different purpose than the README body. The description is the opening's one-sentence summary, so the two must agree. Put what the project does and for whom in its first ~100 characters, since search results and profile cards cut the rest ([SlateGit](https://slategit.com/blog/github-repo-description-character-limit-what-fits), an observed range, not a GitHub figure). Lead with the purpose, not the tools.
+- **Homepage.** Fetch it. A 4xx or 5xx, a page about something else, or a Pages site that moved is drift; a deployed site or docs page the field omits is a gap.
+- **Topics.** Drift when one names a language, framework or platform the repo no longer uses, or the main language, framework, platform or domain is missing. GitHub's limits: lowercase letters, numbers and hyphens, 50 characters each, 20 at most ([GitHub Docs](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/classifying-your-repository-with-topics)).
+
+Report each as a drift entry with `GitHub About` (or the README line) as the location. The fix is the exact command, which step 5 applies on a solo repo and proposes on a team repo:
+
+```bash
+gh repo edit <owner/name> --description '<text>' --homepage '<url>' --add-topic <a>,<b> --remove-topic <c>
+```
+
+Quote each value in single quotes and write a `'` inside one as `'\''`: a description lifted from README prose often holds backticks or `$`, which double quotes would run as commands.
+
+A README opening fix is an ordinary prose edit, shown before and after.
+
 ## Ignore
 
 - Prose / marketing copy that makes **no quantitative claim** ("X orchestrates federated learning runs"). Not a checkable claim.
@@ -55,7 +81,7 @@ A doc that links a file holding the detail covers that detail: a skill page that
 
 ## Workflow
 
-1. **Scope.** Input is one doc file or a directory. Default if the user didn't specify: `README.md` + every tracked file under `docs/**/*.md`. For directory scope, fan out (see [Fan-out pattern](#fan-out-pattern)).
+1. **Scope.** Input is one doc file or a directory. Default if the user didn't specify: `README.md` + every tracked file under `docs/**/*.md`. For directory scope, fan out (see [Fan-out pattern](#fan-out-pattern)). With the README in scope, the [repo metadata](#repo-metadata) is in scope too.
 
    Out of scope — hand off to `/techne:docs-site` instead: `zensical.toml` config drift, `.github/workflows/docs.yml` deploy wiring, `docs/stylesheets/` / `docs/javascripts/` asset maintenance, rendered-site link checks. `/techne:docsync` is claim verification inside markdown prose; docs-site infrastructure is a different skill.
 
@@ -81,8 +107,8 @@ A doc that links a file holding the detail covers that detail: a skill page that
    ```
 
 5. **Apply.** Run `python3 "<plugin-root>/_shared/repo_kind.py" <path>` once for each repo the audited docs live in, passing one audited doc's path in that repo (with the default scope, the target repo's `README.md`). It prints `solo: <why>` or `team: <why>`, and anything it cannot settle reads as team. Put that line at the top of the drift report, so the act-or-ask choice is visible.
-   - **Solo repo: act, don't ask.** In the same turn, apply every fix the evidence settles: the current code, config, lockfile or test, or, for a claim about a tool, version or service outside the repo, a web source you fetched and cite in the report. That covers single-token swaps and prose rewrites alike; the report shows each prose change as before and after, with its evidence. A claim that neither the code nor research settles stays as written and is listed as unresolved, with what you checked. It is not a question for the user.
-   - **Team repo: ask.** Single-token swaps (command names, paths, signatures, config values) batch-apply on the user's confirmation. Prose rewrites are shown as a full before/after diff first; never silently reword a sentence.
+   - **Solo repo: act, don't ask.** In the same turn, apply every fix the evidence settles: the current code, config, lockfile or test, or, for a claim about a tool, version or service outside the repo, a web source you fetched and cite in the report. That covers single-token swaps and prose rewrites alike; the report shows each prose change as before and after, with its evidence. A claim that neither the code nor research settles stays as written and is listed as unresolved, with what you checked. It is not a question for the user. A metadata fix runs its `gh repo edit` command; the report quotes the old and new values.
+   - **Team repo: ask.** Single-token swaps (command names, paths, signatures, config values) batch-apply on the user's confirmation. Prose rewrites are shown as a full before/after diff first; never silently reword a sentence. A metadata fix is shown as its `gh repo edit` command and runs on confirmation.
 
 ## Fan-out pattern
 
