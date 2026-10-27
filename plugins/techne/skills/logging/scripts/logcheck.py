@@ -98,8 +98,15 @@ def words(name: str) -> list[str]:
     return [w.lower() for part in re.split(r"[^A-Za-z0-9]+", name) for w in _CAMEL.findall(part)]
 
 
+def describes(name: str) -> bool:
+    """The name describes a value (token_count, api_key_set) rather than holding it."""
+    return any(w in DESCRIBES for w in words(name))
+
+
 def secret_like(name: str) -> bool:
     ws = words(name)
+    if ("id", "token") in pairwise(ws):
+        return True
     if any(w in DESCRIBES for w in ws):
         return False
     return any(w in SECRET_WORDS for w in ws) or any(p in SECRET_PAIRS for p in pairwise(ws))
@@ -172,9 +179,8 @@ def toplevel(path: Path) -> Path:
 
 def settings(root: Path) -> tuple[set[str], tuple[str, ...]]:
     """The ignored rules and skipped path prefixes from the skill-context `## logging` section."""
-    try:
-        text = (root / ".claude" / "skill-context.md").read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
+    text = read_path(root / ".claude" / "skill-context.md")
+    if text is None:
         return set(), ()
     section = re.search(r"^## logging[ \t]*\n(.*?)(?=^## |\Z)", text, re.M | re.S)
     ignored: set[str] = set()
@@ -229,9 +235,12 @@ def is_test(path: str) -> bool:
 
 
 def read(root: Path, path: str) -> str | None:
+    return read_path(root / path)
+
+
+def read_path(full: Path) -> str | None:
     """The file's text, or None for a symlink, anything but a regular file, a file over
-    MAX_BYTES, or one that is not UTF-8."""
-    full = root / path
+    MAX_BYTES, or one that is not UTF-8. Every file the check opens goes through here."""
     try:
         info = os.lstat(full)
         if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_BYTES:
@@ -257,9 +266,12 @@ def _table(data: object, key: str) -> dict:
 
 
 def _toml(path: Path) -> dict | None:
+    text = read_path(path)
+    if text is None:
+        return None
     try:
-        return tomllib.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+        return tomllib.loads(text)
+    except tomllib.TOMLDecodeError:
         return None
 
 
@@ -541,7 +553,13 @@ NEXT = re.compile(r"\s*(\S?)(\S?)")
 VALUE_START = re.compile(r"\s*[%?&*]*\s*")
 
 
-def secret_names(code: str, raw_strings: list[str], inline: re.Pattern[str]) -> list[str]:
+COMPARISON = re.compile(r"\s*(?:[=!]==?|[<>]=?)(?!>)")
+BEFORE_COMPARISON = re.compile(r"(?:[=!]==?|(?<![=\-<>])[<>]=?)\s*$")
+
+
+def secret_names(
+    code: str, raw_strings: list[str], inline: re.Pattern[str], lang: str = "rs"
+) -> list[str]:
     """Secret-looking names in an argument list: code identifier chains and the names a
     string interpolates (Rust `{name}`, JS template `${name}` is already code). A field
     name (`token = %v`, `{token: v}`) counts only when its value is not a literal or a
@@ -553,8 +571,14 @@ def secret_names(code: str, raw_strings: list[str], inline: re.Pattern[str]) -> 
         parts = [p.strip() for p in m.group(0).split(".")]
         nxt = NEXT.match(code, m.end())
         first, second = (nxt.group(1), nxt.group(2)) if nxt else ("", "")
-        if first == "!":  # a nested macro name
+        if lang == "rs" and first == "!":  # a nested macro name
             continue
+        if COMPARISON.match(code, m.end()) or BEFORE_COMPARISON.search(
+            code, max(0, m.start() - 8), m.start()
+        ):
+            continue  # token == expected, user.password === undefined: a boolean
+        if lang == "js" and first == "?" and second not in {".", "?"}:
+            continue  # token ? "set" : "unset": the test of a conditional
         if first == "(" and parts[-1] in SAFE_CALLS:
             # len(token), redact(&key), key.len(): the call's result is safe to log.
             at = close_paren(code, code.index("(", m.end())) + 1
@@ -582,10 +606,11 @@ def safe_value(code: str, eq: int) -> bool:
     if k >= len(code) or code[k] in "\"'`0123456789":
         return True
     call = CHAIN.match(code, k)
-    nxt = NEXT.match(code, call.end()) if call else None
-    return bool(
-        call and nxt and nxt.group(1) == "(" and call.group(0).split(".")[-1].strip() in SAFE_CALLS
-    )
+    if not call:
+        return False
+    # tokenCount, token.length, len(token), redact(t)
+    last = call.group(0).split(".")[-1].strip()
+    return describes(last) or last in SAFE_CALLS
 
 
 def line_of(text: str, offset: int) -> int:
@@ -685,7 +710,7 @@ def scan_js(path: str, text: str, report: Report) -> None:
             continue
         open_at = m.end() - 1
         end = close_paren(code, open_at)
-        if secret_names(code[open_at + 1 : end], [], RS_INLINE):
+        if secret_names(code[open_at + 1 : end], [], RS_INLINE, "js"):
             span = (line_of(text, m.start()), line_of(text, end))
             report.add_line(path, lines, span, "secret-in-log", SECRET_MSG)
 
@@ -741,6 +766,14 @@ def py_secret(node: ast.AST) -> bool:
         return secret_like(node.id)
     if isinstance(node, ast.Attribute):
         return secret_like(node.attr)
+    if isinstance(node, ast.Dict):  # extra={"token": tok}
+        for k, v in zip(node.keys, node.values, strict=True):
+            named = (
+                isinstance(k, ast.Constant) and isinstance(k.value, str) and secret_like(k.value)
+            )
+            if (named and not safe_py_value(v)) or py_secret(v):
+                return True
+        return False
     if isinstance(node, ast.Subscript):
         key = node.slice
         if isinstance(key, ast.Constant) and isinstance(key.value, str) and secret_like(key.value):
@@ -750,11 +783,18 @@ def py_secret(node: ast.AST) -> bool:
 
 
 def safe_py_value(node: ast.expr) -> bool:
-    """A keyword's value is safe to log under a secret-looking name: a safe call or a
-    comparison."""
-    if isinstance(node, ast.Compare):
+    """A value is safe to log under a secret-looking name: a literal, a comparison, a safe
+    call, a name that describes the secret (token_count), or an if-expression whose
+    branches are all safe."""
+    if isinstance(node, ast.Constant | ast.Compare):
         return True
-    return isinstance(node, ast.Call) and (terminal(node.func) or "") in SAFE_CALLS
+    if isinstance(node, ast.IfExp):
+        return safe_py_value(node.body) and safe_py_value(node.orelse)
+    if isinstance(node, ast.Call):
+        return (terminal(node.func) or "") in SAFE_CALLS
+    if isinstance(node, ast.Name | ast.Attribute):
+        return describes(terminal(node) or "")
+    return False
 
 
 def _arg(call: ast.Call, name: str, position: int) -> ast.expr | None:
@@ -798,8 +838,7 @@ def scan_python(path: str, text: str, report: Report) -> None:
                 # structlog style: log.info("login", password=pw) logs the value under the name.
                 named = [k for k in node.keywords if k.arg and secret_like(k.arg)]
                 if any(py_secret(a) for a in args) or any(
-                    not isinstance(k.value, ast.Constant) and not safe_py_value(k.value)
-                    for k in named
+                    not safe_py_value(k.value) for k in named
                 ):
                     report.add_line(path, lines, span, "secret-in-log", SECRET_MSG)
             kind = terminal(node.func)
@@ -848,7 +887,7 @@ ERROR_START = re.compile(
     re.I,
 )
 GROUP_TO_STDERR = re.compile(r"\}\s*(?:1?>&2|>\s*/dev/stderr)")
-HEREDOC = re.compile(r"(?<!<)<<-?\s*(['\"]?)([A-Za-z_]\w*)\1(?!<)")
+HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_]\w*)\1")
 TO_STDERR = re.compile(r"(?:^|\s)(?:1?>&2|>\s*/dev/stderr)")
 TO_FILE = re.compile(r"(?:^|[^&\d])>>?\s*(?!&)(?!/dev/std(?:out|err))\S")
 EXPANSION = re.compile(r"\$\{?(?!#)([A-Za-z_][A-Za-z0-9_]*)")
@@ -977,6 +1016,17 @@ def is_shell(path: str, text: str) -> bool:
     )
 
 
+ARITHMETIC = re.compile(r"\$?\(\([^)]*\)\)")
+HEREDOC_START = re.compile(r"(?<!<)<<-?(?!<)")
+
+
+def code_part(line: str) -> str:
+    """line with quoted text blanked (same length) and any comment cut off."""
+    bare = outside_quotes(line)
+    comment = re.search(r"(?:^|\s)#", bare)
+    return (bare[: comment.start()] if comment else bare).rstrip()
+
+
 def shell_text(texts: dict[int, str]) -> tuple[dict[int, str], set[int]]:
     """texts without heredoc bodies, and the lines inside a multi-line `{ ... } >&2` group."""
     kept: dict[int, str] = {}
@@ -988,14 +1038,17 @@ def shell_text(texts: dict[int, str]) -> tuple[dict[int, str], set[int]]:
         n = numbers[k]
         line = texts[n]
         kept[n] = line
-        bare = outside_quotes(line).split(" #", 1)[0].rstrip()
+        bare = code_part(line)
         if bare.endswith("{"):
             opened.append(n)
         elif bare.lstrip().startswith("}") and opened:
             first = opened.pop()
             if GROUP_TO_STDERR.search(bare):
                 grouped |= {m for m in numbers if first < m < n}
-        doc = HEREDOC.search(line)
+        # Find << in the code part (no quotes, comment or arithmetic), then read the
+        # delimiter, which may itself be quoted, from the line at the same place.
+        at = HEREDOC_START.search(ARITHMETIC.sub(lambda a: " " * len(a.group(0)), bare))
+        doc = HEREDOC.match(line, at.start()) if at else None
         if doc:
             word = doc.group(2)
             k += 1
@@ -1026,9 +1079,9 @@ def indent(line: str) -> int:
     return len(line) - len(line.lstrip(" "))
 
 
-def run_lines(lines: list[str]) -> dict[int, str]:
-    """The shell text of every `run:` key, by 1-based line number."""
-    found: dict[int, str] = {}
+def run_blocks(lines: list[str]) -> list[dict[int, str]]:
+    """The shell text of each `run:` key, by 1-based line number, one dict per key."""
+    blocks: list[dict[int, str]] = []
     i = 0
     while i < len(lines):
         m = RUN_KEY.match(lines[i])
@@ -1038,19 +1091,21 @@ def run_lines(lines: list[str]) -> dict[int, str]:
         value = m.group(2).strip()
         if re.fullmatch(r"[|>][+-]?\d*", value):
             key_indent = indent(lines[i])
+            found: dict[int, str] = {}
             j = i + 1
             while j < len(lines) and (not lines[j].strip() or indent(lines[j]) > key_indent):
                 if lines[j].strip():
                     found[j + 1] = lines[j]
                 j += 1
+            blocks.append(found)
             i = j
         else:
             if len(value) > 1 and value[0] == value[-1] and value[0] in "'\"":
                 value = value[1:-1]
             if value:
-                found[i + 1] = value
+                blocks.append({i + 1: value})
             i += 1
-    return found
+    return blocks
 
 
 def jobs(lines: list[str]) -> list[tuple[str, int, int]]:
@@ -1103,9 +1158,12 @@ def uploads_on_failure(lines: list[str], start: int, end: int) -> bool:
 
 def scan_workflow(path: str, text: str, report: Report) -> None:
     lines = text.splitlines()
-    shell, _ = shell_text(run_lines(lines))
-    for line, span in logical_lines(shell):
-        scan_shell_line(path, lines, line, span, True, report)
+    shell: dict[int, str] = {}
+    for block in run_blocks(lines):
+        kept, _ = shell_text(block)
+        shell.update(kept)
+        for line, span in logical_lines(kept):
+            scan_shell_line(path, lines, line, span, True, report)
     for name, start, end in jobs(lines):
         writes = [n for n in shell if start < n <= end and WRITES_LOG.search(lines[n - 1])]
         if writes and not uploads_on_failure(lines, writes[0], end):

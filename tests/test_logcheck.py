@@ -855,3 +855,81 @@ def test_a_symlink_to_a_file_outside_the_repo_is_not_followed(tmp_path: Path) ->
     (root / "link.sh").symlink_to(outside)
     subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
     assert run(root).returncode == 0
+
+
+# --- review round 2 ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "mask=$(( 1 << bits ))",
+        'y="a << EOF b"',
+        "# cat <<EOF",
+        'echo "usage <<file>>"',
+    ],
+    ids=["arithmetic", "quoted", "comment", "quoted-echo"],
+)
+def test_a_double_angle_that_is_not_a_heredoc(tmp_path: Path, line: str) -> None:
+    src = f'#!/bin/bash\n{line}\necho "error: x"\n'
+    assert findings(tmp_path, {"run.sh": src}) == [("run.sh", 3, "stderr-for-errors")]
+
+
+def test_a_heredoc_in_one_run_block_does_not_reach_the_next(tmp_path: Path) -> None:
+    wf = (
+        "on: push\njobs:\n  a:\n    runs-on: x\n    steps:\n"
+        "      - run: |\n          cat <<EOF\n          body\n"
+        '      - run: echo "error: bad"\n'
+    )
+    assert findings(tmp_path, {".github/workflows/ci.yml": wf}) == [
+        (".github/workflows/ci.yml", 9, "stderr-for-errors")
+    ]
+
+
+@pytest.mark.parametrize("target", ["Cargo.toml", ".claude/skill-context.md", "pyproject.toml"])
+def test_a_config_symlinked_to_a_device_is_not_read(tmp_path: Path, target: str) -> None:
+    root = make_repo(tmp_path, {"app.py": "x = 1\n", "src/lib.rs": "pub fn f() {}\n"})
+    (root / target).parent.mkdir(parents=True, exist_ok=True)
+    (root / target).symlink_to("/dev/zero")
+    subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
+    out = subprocess.run(
+        [sys.executable, str(LOGCHECK_SCRIPT)], cwd=root, capture_output=True, text=True,
+        timeout=30, check=False,
+    )  # fmt: skip
+    assert out.returncode in (0, 1)
+
+
+@pytest.mark.parametrize(
+    ("line", "hit"),
+    [
+        ('logger.info("n", token=token_count)', False),
+        ('logger.info("n", api_key=settings.api_key_set)', False),
+        ('logger.info("n", password=None if x else "***")', False),
+        ('logger.info("x", extra={"token": tok})', True),
+        ('logger.info("x", extra={"token": len(tok)})', False),
+        ('logger.info("%s", id_token)', True),
+    ],
+)
+def test_secret_in_log_python_round_two(tmp_path: Path, line: str, hit: bool) -> None:
+    files = {**PY_OK, "app.py": f"{line}\n"}
+    assert findings(tmp_path, files) == ([("app.py", 1, "secret-in-log")] if hit else [])
+
+
+@pytest.mark.parametrize(
+    ("line", "hit"),
+    [
+        ("console.log({ token: token.length });", False),
+        ("console.log({ token: tokenCount });", False),
+        ('console.log(token ? "set" : "unset");', False),
+        ("console.log(user.password === undefined);", False),
+        ("console.log(apiKey!);", True),
+    ],
+)
+def test_secret_in_log_js_round_two(tmp_path: Path, line: str, hit: bool) -> None:
+    files = {**JS_OK, "src/app.ts": f"export {{}};\n{line}\n"}
+    assert findings(tmp_path, files) == ([("src/app.ts", 2, "secret-in-log")] if hit else [])
+
+
+def test_rust_comparison_is_not_logged(tmp_path: Path) -> None:
+    src = 'pub fn f() {\n    info!("{}", token == expected);\n}\n'
+    assert rules(tmp_path, {**RS_OK, "src/lib.rs": src}) == []
