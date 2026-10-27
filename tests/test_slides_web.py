@@ -334,9 +334,16 @@ def test_render_writes_slides_phone_views_and_a_print_pdf(sl, web, tmp_path):
     assert len(sorted(out.glob("phone-[0-9]*.png"))) == count
     pdf = out / "index.pdf"
     assert pdf.read_bytes()[:5] == b"%PDF-"
-    if HAVE_POPPLER:  # page count read back unless poppler is declared absent
-        info = subprocess.run(["pdfinfo", str(pdf)], capture_output=True, text=True).stdout
-        assert re.search(rf"Pages:\s+{count}\b", info)
+
+
+@needs_browser
+@needs_poppler
+def test_render_prints_one_pdf_page_per_slide(sl, web, tmp_path):
+    out = tmp_path / "render"
+    assert sl.render(web.index, out) == 0
+    count = len(sl.html_slides(web.index))
+    info = subprocess.run(["pdfinfo", str(out / "index.pdf")], capture_output=True, text=True)
+    assert re.search(rf"Pages:\s+{count}\b", info.stdout)
 
 
 @needs_browser

@@ -777,7 +777,7 @@ def test_assess_reads_missing_unreadable_and_none(lb, tmp_path, monkeypatch):
 
 
 def _no_poppler(args, **_kw):
-    # pdf_checks shells out to pdfinfo and pdffonts, which CI does not install
+    # pdf_checks shells out to pdfinfo and pdffonts; stubbed so the outcome does not depend on them
     return subprocess.CompletedProcess(args, 0, "", "")
 
 
