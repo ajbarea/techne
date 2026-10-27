@@ -2,7 +2,8 @@
 
 Each case copies the starter deck and breaks one thing. Chromium comes from Playwright
 (`playwright install chromium`); a machine without it declares so with
-TECHNE_NO_BROWSER=1, or the suite fails rather than skipping every web case unseen.
+TECHNE_NO_BROWSER=1, or the suite fails rather than skipping every web case unseen. The PDF
+export cases read text back with poppler, declared absent the same way by TECHNE_NO_POPPLER=1.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ import shutil
 import subprocess
 
 import pytest
+from conftest import HAVE_POPPLER, NO_POPPLER, needs_poppler
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 STARTER = ROOT / "plugins" / "graphe" / "skills" / "slides" / "templates" / "web"
@@ -49,6 +51,15 @@ def test_the_browser_is_present_or_its_absence_is_declared():
         "Playwright's Chromium is not available and TECHNE_NO_BROWSER is unset: every web "
         "deck case would have skipped. Run `make test-unit` after `uv run --with "
         "playwright==1.63.0 playwright install chromium`, or set TECHNE_NO_BROWSER=1."
+    )
+
+
+def test_poppler_is_present_or_its_absence_is_declared():
+    """Green by absence is the failure this guards: the PDF read-back cases need poppler."""
+    assert HAVE_POPPLER or NO_POPPLER, (
+        "pdftotext or pdfinfo is not on PATH and TECHNE_NO_POPPLER is unset: every PDF "
+        "read-back case would have skipped. Install poppler (`sudo apt-get install poppler-utils`, "
+        "`brew install poppler`), or set TECHNE_NO_POPPLER=1."
     )
 
 
@@ -323,7 +334,7 @@ def test_render_writes_slides_phone_views_and_a_print_pdf(sl, web, tmp_path):
     assert len(sorted(out.glob("phone-[0-9]*.png"))) == count
     pdf = out / "index.pdf"
     assert pdf.read_bytes()[:5] == b"%PDF-"
-    if shutil.which("pdfinfo"):
+    if HAVE_POPPLER:  # page count read back unless poppler is declared absent
         info = subprocess.run(["pdfinfo", str(pdf)], capture_output=True, text=True).stdout
         assert re.search(rf"Pages:\s+{count}\b", info)
 
@@ -804,9 +815,6 @@ def test_pptx_alt_text_carries_the_body_and_skips_web_only_text(sl, web, tmp_pat
 
 def _pdf_text(pdf: pathlib.Path) -> str:
     return subprocess.run(["pdftotext", str(pdf), "-"], capture_output=True, text=True).stdout
-
-
-needs_poppler = pytest.mark.skipif(not shutil.which("pdftotext"), reason="no poppler")
 
 
 @needs_browser
