@@ -255,11 +255,15 @@ def _colours(image, box, scale):
 @needs_browser
 def test_generated_text_is_a_run_and_a_counter_stays_visible_in_the_background(export):
     edge = export.prs.slides[3]
-    assert "→ Kicker with arrow" in _shapes(edge)
+    kicker = _shapes(edge)["→ Kicker with arrow"]
+    assert kicker.left == pytest.approx(100 * EMU_PX, abs=2 * EMU_PX)
+    assert str(_run(edge, "→ ").font.color.rgb) == "B00020"
     assert "Measure first" in _shapes(edge)
     image = _background(edge)
     # "Step 1: " is drawn by a CSS counter, which the page cannot hand over as text.
     assert (0xB0, 0x00, 0x20) in _colours(image, (100, 200, 200, 236), image.width / 1600)
+    # A block with only generated text and whitespace keeps it in the background, visible.
+    assert (0xB0, 0x00, 0x20) in _colours(image, (600, 140, 700, 176), image.width / 1600)
     # The arrow became text, so the background has no glyph where it was.
     assert _colours(image, (100, 140, 125, 176), image.width / 1600) == {(255, 255, 255)}
 
@@ -299,6 +303,14 @@ def test_wrapped_text_gets_slack_and_one_line_text_does_not_wrap(export):
 def test_an_item_that_opens_with_a_paragraph_gets_its_bullet(export):
     item = _shapes(export.prs.slides[3])["Item in a paragraph"]
     assert item.text_frame.paragraphs[0]._p.pPr.find(f"{A}buChar") is not None
+
+
+@needs_browser
+def test_an_inside_marker_stays_where_the_text_starts_with_room_after_it(export):
+    item = _shapes(export.prs.slides[3])["Inside bullet"]
+    assert item.left == pytest.approx(600 * EMU_PX, abs=2 * EMU_PX)
+    ppr = item.text_frame.paragraphs[0]._p.pPr
+    assert int(ppr.get("marL")) > 0 and ppr.find(f"{A}buChar") is not None
 
 
 @needs_browser
@@ -359,6 +371,42 @@ def test_a_slide_larger_than_the_window_is_captured_whole(sl, tmp_path):
     image = _background(prs.slides[0])
     assert image.height / image.width == pytest.approx(1400 / 1600, abs=0.01)
     assert image.getpixel((800, image.height - 5)) == (0xC0, 0x00, 0x00)
+
+
+@needs_browser
+def test_a_centred_slide_wider_than_the_window_is_read_after_the_window_grows(sl, tmp_path):
+    from pptx import Presentation  # ty: ignore[unresolved-import]
+
+    deck = tmp_path / "wide.html"
+    deck.write_text(
+        "<!doctype html><title>t</title><style>body{margin:0}"
+        ".slide{position:absolute;left:50%;top:0;transform:translateX(-50%);width:2400px;"
+        "height:900px;background:#fff;font:40px Arial}p{position:absolute;margin:0}</style>"
+        '<section class="slide active"><p style="left:100px;top:100px">Wide left text</p>'
+        '<div style="position:absolute;right:0;bottom:0;width:200px;height:100px;'
+        'background:#c00000"></div></section>'
+    )
+    target = tmp_path / "wide.pptx"
+    assert sl.pptx_html(deck, target, editable=True) == 0
+    prs = Presentation(str(target))
+    text = _shapes(prs.slides[0])["Wide left text"]
+    assert text.left == pytest.approx(100 * 12192000 / 2400, abs=12192000 / 2400 * 2)
+    image = _background(prs.slides[0])
+    scale = image.width / 2400
+    assert image.getpixel((int(2350 * scale), int(880 * scale))) == (0xC0, 0x00, 0x00)
+    assert _colours(image, (100, 100, 400, 150), scale) == {(255, 255, 255)}
+
+
+@needs_browser
+def test_a_slide_that_never_fits_the_window_exits_with_its_reason(sl, tmp_path):
+    deck = tmp_path / "grows.html"
+    deck.write_text(
+        "<!doctype html><title>t</title><style>body{margin:0}"
+        ".slide{position:absolute;left:0;top:0;width:130vw;height:50px}</style>"
+        '<section class="slide active"><p>Always wider</p></section>'
+    )
+    with pytest.raises(SystemExit, match="does not fit on screen"):
+        sl.pptx_html(deck, tmp_path / "out.pptx", editable=True)
 
 
 # ---------------------------------------------------------- render check --

@@ -1952,6 +1952,10 @@ def _pptx_editable(deck: pathlib.Path, target: pathlib.Path, images: pathlib.Pat
     fonts = sorted(tally["fonts"], key=str.lower)
     if fonts:
         print(f"fonts: {', '.join(fonts)}")
+    for font in fonts:
+        generic = sorted(n for n in tally["fonts"][font] if n.lower() != font.lower())
+        if generic:
+            print(f"  {', '.join(generic)} has no font of that name in PowerPoint: set as {font}")
     missing = [f for f in fonts if f.lower() not in PORTABLE_FONTS]
     if missing:
         print(

@@ -321,8 +321,8 @@ READ = r"""(i) => {
     keep.push({el, which, color: st.color});
     return '';
   };
-  const runStyle = (el) => {
-    const st = getComputedStyle(el);
+  const runStyle = (el, which = null) => {
+    const st = getComputedStyle(el, which);
     const link = el.closest('a[href]');
     return {
       size: parseFloat(st.fontSize) * f.scale,
@@ -345,17 +345,23 @@ READ = r"""(i) => {
   // Runs of an inline group: text nodes with their element's style, <br> as a line break,
   // inline math as its TeX source, small media left to the background.
   const glyphs = new Set(), math = new Set(), listed = new Set();
-  const runsOf = (nodes) => {
+  // Marks are held until the block is kept, so a block that is dropped leaves its text
+  // in the background instead of erasing it.
+  const runsOf = (nodes, marks) => {
     const runs = [];
     const visit = (n) => {
       if (n.nodeType === 3) {
         const el = n.parentElement;
         if (!el || !shown(el) || !n.textContent) return;
+        if (!n.textContent.trim() && !/^pre/.test(getComputedStyle(el).whiteSpace)) {
+          runs.push({...runStyle(el), text: n.textContent});  // spacing only, no glyphs
+          return;
+        }
         // Text the browser paints through its background (background-clip: text) or not at
         // all has no colour of its own; it stays in the background picture.
         const css = getComputedStyle(el);
         if (rgba(css.webkitTextFillColor)[3] === 0 || rgba(css.color)[3] === 0) return;
-        glyphs.add(el);
+        marks.glyphs.push(el);
         const st = runStyle(el);
         runs.push({...st, text: cased(n.textContent, st.transform)});
         return;
@@ -368,15 +374,15 @@ READ = r"""(i) => {
       if (MEDIA.has(tag(n))) return;
       if (inlineMath(n)) {
         const source = texSource(n);
-        math.add(n);
+        marks.math.push(n);
         if (source != null) runs.push({...runStyle(n), tex: source, text: ''});
         else runs.push({...runStyle(n), text: n.textContent});
         return;
       }
       const before = pseudo(n, '::before'), after = pseudo(n, '::after');
-      if (before) { glyphs.add(n); runs.push({...runStyle(n), text: before}); }
+      if (before) { marks.glyphs.push(n); runs.push({...runStyle(n, '::before'), text: before}); }
       n.childNodes.forEach(visit);
-      if (after) { glyphs.add(n); runs.push({...runStyle(n), text: after}); }
+      if (after) { marks.glyphs.push(n); runs.push({...runStyle(n, '::after'), text: after}); }
     };
     nodes.forEach(visit);
     return runs;
@@ -398,8 +404,8 @@ READ = r"""(i) => {
     const room = li.getBoundingClientRect().left - list.getBoundingClientRect().left
       + (parseFloat(getComputedStyle(list).marginLeft) || 0) * f.scale;
     const inside = st.listStylePosition === 'inside';
-    return {ordered, number, type: st.listStyleType, color: rgba(st.color),
-            indent: inside ? 0 : Math.min(Math.max(room, em), em * 1.6)};
+    return {ordered, number, type: st.listStyleType, color: rgba(st.color), inside,
+            indent: inside ? em : Math.min(Math.max(room, em), em * 1.6)};
   };
   // The list item a block opens: the item itself, or its first child when the item's
   // content starts with a block (<li><p>...</p></li>).
@@ -414,13 +420,14 @@ READ = r"""(i) => {
     return null;
   };
   const textBlock = (container, nodes, first, last) => {
-    const runs = runsOf(nodes);
+    const marks = {glyphs: [], math: []};
+    const runs = runsOf(nodes, marks);
     // The block's own generated text opens its first line and closes its last.
     const before = first ? pseudo(container, '::before') : '';
     const after = last ? pseudo(container, '::after') : '';
-    if (before) runs.unshift({...runStyle(container), text: before});
-    if (after) runs.push({...runStyle(container), text: after});
-    if (before || after) glyphs.add(container);
+    if (before) runs.unshift({...runStyle(container, '::before'), text: before});
+    if (after) runs.push({...runStyle(container, '::after'), text: after});
+    if (before || after) marks.glyphs.push(container);
     if (!runs.some((r) => r.tex != null || r.text.trim())) return;
     const range = document.createRange();
     range.setStartBefore(nodes[0]);
@@ -429,12 +436,23 @@ READ = r"""(i) => {
     if (!inFrame(r)) return;
     const st = getComputedStyle(container);
     const lh = parseFloat(st.lineHeight);
+    marks.glyphs.forEach((el) => glyphs.add(el));
+    marks.math.forEach((el) => math.add(el));
     // The range is the glyphs' box; a line box adds half the leading above and below, and
     // PowerPoint sets exact line spacing the same way, so the text box takes the line box.
     const lines = [...range.getClientRects()].filter((q) => q.width > 0);
     const tall = lines.length ? lines[0].height : r.height;
     const half = Number.isFinite(lh) ? Math.max(0, (lh * f.scale - tall) / 2) : 0;
     const box = {x: r.left - f.left, y: r.top - f.top - half, w: r.width, h: r.height + 2 * half};
+    // The range starts at the first text node; generated text before it (a ::before box,
+    // an inside list marker) starts at the content edge.
+    const toEdge = (el) => {
+      const c = el.getBoundingClientRect(), cs = getComputedStyle(el);
+      const edge = c.left + ((parseFloat(cs.paddingLeft) || 0)
+        + (parseFloat(cs.borderLeftWidth) || 0)) * f.scale - f.left;
+      if (edge < box.x) { box.w += box.x - edge; box.x = edge; }
+    };
+    if (before) toEdge(container);
     // Lines the browser set: a rect that starts below the last line's bottom opens a new one.
     let count = 0, bottom = -Infinity;
     for (const q of lines.sort((a, b) => a.top - b.top)) {
@@ -452,7 +470,11 @@ READ = r"""(i) => {
     }
     const item = itemOf(container, first);
     const li = item && !listed.has(item) ? listInfo(item) : null;
-    if (li) { listed.add(item); glyphs.add(item); }
+    if (li) {
+      listed.add(item);
+      glyphs.add(item);
+      if (li.inside) toEdge(item);
+    }
     items.push({
       kind: 'text', ...box, runs,
       tag: tag(container).toLowerCase(),
@@ -475,8 +497,11 @@ READ = r"""(i) => {
       color: rgba(st[`border${k}Color`]), style: st[`border${k}Style`]});
     td.querySelectorAll('*').forEach((d) => glyphs.add(d));
     glyphs.add(td);
+    const marks = {glyphs: [], math: []};
+    const runs = runsOf([...td.childNodes], marks);
+    marks.math.forEach((el) => math.add(el));
     return {
-      ...px(r), runs: runsOf([...td.childNodes]), header: tag(td) === 'TH',
+      ...px(r), runs, header: tag(td) === 'TH',
       colspan: td.colSpan || 1, rowspan: td.rowSpan || 1, bg,
       align: st.textAlign, valign: st.verticalAlign,
       pad: ['Top', 'Right', 'Bottom', 'Left']
@@ -641,33 +666,47 @@ def _clip(box: dict, frame: dict) -> dict | None:
     return {"x": x0, "y": y0, "width": x1 - x0, "height": y1 - y0}
 
 
-def _read(page, i: int) -> dict:
-    """Show slide i and read it, with the window grown first when the slide is larger."""
-    for _ in range(2):
+GROWTHS = 6
+
+
+def _read(page, i: int, window: dict) -> dict:
+    """Show slide i in the original window and read it, growing the window until the whole
+    slide is on screen (a screenshot stops at the window's edge), then reading it again."""
+    if page.viewport_size != window:
+        page.set_viewport_size(window)
+    for _ in range(GROWTHS + 1):
         page.evaluate("(i) => __deckShow(i)", i)
         page.evaluate(
             "() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))"
         )
         read = page.evaluate(READ, i)
         f, view = read["frame"], page.viewport_size
-        need = (math.ceil(f["left"] + f["width"]), math.ceil(f["top"] + f["height"]))
-        if need[0] <= view["width"] and need[1] <= view["height"]:
+        left, top = f["left"], f["top"]
+        right, bottom = left + f["width"], top + f["height"]
+        if (
+            left >= -0.5
+            and top >= -0.5
+            and right <= view["width"] + 0.5
+            and (bottom <= view["height"] + 0.5)
+        ):
             return read
-        # A screenshot stops at the window's edge, so the window grows to hold the slide.
         page.evaluate(UNMARK, ALL_STYLES)
-        page.set_viewport_size(
-            {"width": max(view["width"], need[0]), "height": max(view["height"], need[1])}
-        )
-    return read
+        # A slide off the left or top edge is centred: grow by twice the overhang.
+        page.set_viewport_size({
+            "width": math.ceil(max(view["width"] + 2 * max(0, -left), right)),
+            "height": math.ceil(max(view["height"] + 2 * max(0, -top), bottom)),
+        })  # fmt: skip
+    raise ValueError(f"slide {i + 1} does not fit on screen however large the window grows")
 
 
 def capture(page, count: int, still: str, keep_images: bool = False) -> list[Captured]:
     """Show, read and photograph each slide. `still` is the style that stops motion."""
     page.add_style_tag(content=still)
     page.evaluate("document.fonts.ready.then(() => true)")
+    window = dict(page.viewport_size)
     out = []
     for i in range(count):
-        read = _read(page, i)
+        read = _read(page, i, window)
         frame = read["frame"]
         whole = _clip({"x": frame["left"], "y": frame["top"], "width": frame["width"],
                        "height": frame["height"]}, frame)  # fmt: skip
@@ -826,7 +865,7 @@ def _collapse(runs: list[dict]) -> list[dict]:
     return [r for r in out if r["text"]]
 
 
-def _fill_text(tf, runs: list[dict], pt_per_px: float, block: dict, fonts: set[str]) -> None:
+def _fill_text(tf, runs: list[dict], pt_per_px: float, block: dict, fonts: dict) -> None:
     """Write runs into a text frame: one paragraph, a line break per newline."""
     from pptx.util import Pt  # ty: ignore[unresolved-import]
 
@@ -854,7 +893,7 @@ def _fill_text(tf, runs: list[dict], pt_per_px: float, block: dict, fonts: set[s
             family = GENERIC_FAMILIES.get(r["family"].lower(), r["family"])
             if family:
                 font.name = family
-                fonts.add(family)
+                fonts.setdefault(family, set()).add(r["family"])
             if r["color"] and r["color"][3] > 0:
                 font.color.rgb = _rgb(r["color"])
                 if r["color"][3] < 1:
@@ -890,12 +929,12 @@ def _bullet(p, info: dict, pt_per_px: float, emu_per_px: float) -> None:
         etree.SubElement(ppr, qn("a:buChar"), {"char": _BULLET.get(info["type"], "•")})
 
 
-def _text_box(shapes, item: dict, geo: Geometry, fonts: set[str], placeholder=None):
+def _text_box(shapes, item: dict, geo: Geometry, fonts: dict, placeholder=None):
     from pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE  # ty: ignore[unresolved-import]
 
     x, y, w, h = item["x"], item["y"], item["w"], item["h"]
     bullet = item.get("bullet")
-    if bullet:
+    if bullet and not bullet.get("inside"):  # an outside marker hangs left of the text
         x -= bullet["indent"]
         w += bullet["indent"]
     one_line = item.get("lines") == 1
@@ -948,7 +987,7 @@ def _cell_border(cell, side: str, border: dict, geo: Geometry) -> None:
     tc_pr.insert(index, ln)
 
 
-def _table(shapes, item: dict, geo: Geometry, fonts: set[str]) -> None:
+def _table(shapes, item: dict, geo: Geometry, fonts: dict) -> None:
     from pptx.enum.text import MSO_ANCHOR  # ty: ignore[unresolved-import]
     from pptx.oxml.ns import qn  # ty: ignore[unresolved-import]
     from pptx.util import Emu  # ty: ignore[unresolved-import]
@@ -1060,7 +1099,7 @@ def build(slides: list[Captured], title_only_layout: int, alt_text) -> tuple[Any
     prs.slide_width = Emu(SLIDE_W_EMU)
     prs.slide_height = Emu(round(SLIDE_W_EMU * first["height"] / first["width"]))
     layout = prs.slide_layouts[title_only_layout]
-    tally = {"text": 0, "table": 0, "picture": 0, "solid": 0, "backdrop": 0, "fonts": set(),
+    tally = {"text": 0, "table": 0, "picture": 0, "solid": 0, "backdrop": 0, "fonts": {},
              "cut": []}  # fmt: skip
     aspect = first["height"] / first["width"]
     for number, cap in enumerate(slides, 1):

@@ -9,7 +9,7 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 graphe `slides.py pptx --editable` (branch `feat/slides-pptx-editable`): exporter in
 `slides/scripts/pptx_editable.py`, fixture deck `tests/fixtures/custom-deck/`, tests in
 `tests/test_slides_editable.py` (incl. a PowerPoint/LibreOffice render comparison; CI installs
-LibreOffice Impress, opt-out `TECHNE_NO_OFFICE`). Review round 1 fixed; round 2 next, then merge.
+LibreOffice Impress, opt-out `TECHNE_NO_OFFICE`). Review rounds 1 and 2 fixed; round 3 next, then merge.
 Verify: `make test`; export a real deck and `render` it, compare with `--images`.
 
 Done 10-26/27: #215 docsync checks the GitHub About section and README opening
