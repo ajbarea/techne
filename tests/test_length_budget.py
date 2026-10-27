@@ -982,6 +982,97 @@ def _pages(*pages: list[str]) -> list[str]:
             _pages(["Body."], ["Body.", "References"], ["[1] A."], ["References", "[9] Z."]),
             (2, 2),
         ),
+        # A content line repeated at two page edges is no head while other pages carry none.
+        (_pages(["Results.", "body"], ["body2"], ["Results.", "References"], ["more"]), (3, 2)),
+        # A lone number at the edge stays a line unless it is the page's own folio.
+        (
+            _pages(["a body", "1"], ["b body", "2"], ["c body", "3"], ["42", "References", "4"]),
+            (4, 2),
+        ),
+        # A contents page's entry is not the references.
+        (
+            _pages(
+                ["The title.", "Contents", "1 Introduction", "References", "Body."],
+                ["Body two."],
+                ["References", "[1] A."],
+            ),
+            (3, 1),
+        ),
+        # A review copy's line-number ruler is not lines.
+        (
+            _pages(
+                [f"{i:03d}" for i in range(30)] + ["Body one."],
+                [f"{i:03d}" for i in range(30, 60)] + ["Body two."],
+                [f"{i:03d}" for i in range(60, 90)] + ["References", "[1] A."],
+            ),
+            (3, 1),
+        ),
+        # The same head on every page after the first is a head in a three-page document.
+        (
+            _pages(["Title.", "Body."], ["Short head", "Body two."], ["Short head", "References"]),
+            (3, 1),
+        ),
+        # Under three pages no head can be confirmed, so the count leans loud.
+        (_pages(["Under review", "Body."], ["Under review", "References"]), (2, 2)),
+        (_pages(["Body."], ["Works cited", "[1] A."]), (2, 1)),
+        (_pages(["Body."], ["REFERENCES", "[1] A."]), (2, 1)),
+        # In a headed document a line repeated mid-page stays a line.
+        (
+            _pages(
+                ["Title.", "Body.", "x", "y", "z"],
+                ["Head A", "b2", "c2", "d2", "e2"],
+                ["Head B", "b3", "Same label.", "d3", "e3"],
+                ["Head A", "b4", "c4", "d4", "e4"],
+                ["Head B", "b5", "Same label.", "References", "e5", "f5"],
+            ),
+            (5, 3),
+        ),
+        # A references heading at the edge of two pages is never a running head.
+        (
+            _pages(
+                ["Title.", "Body."],
+                ["Head A", "b2"],
+                ["Head B", "References", "[1] A."],
+                ["Head A", "b4"],
+                ["Head B", "References", "[9] Z."],
+            ),
+            (3, 1),
+        ),
+        # One unheaded page after the first keeps every line, so a repeated line is no head.
+        (
+            _pages(
+                ["Title.", "b1"],
+                ["Head A", "b2"],
+                ["Results.", "x3"],
+                ["Head A", "b4"],
+                ["Results.", "References"],
+                ["Head A", "b6"],
+                ["plain7", "z7"],
+            ),
+            (5, 2),
+        ),
+        # A line without letters is never a running head.
+        (
+            _pages(
+                ["Title.", "b1"],
+                ["Head A", "b2"],
+                ["Head B", "* * *", "c3"],
+                ["Head A", "b4"],
+                ["Head B", "* * *", "References", "r5"],
+            ),
+            (5, 2),
+        ),
+        # A line repeated on a page of the other parity is no running head.
+        (
+            _pages(
+                ["Title.", "b1"],
+                ["Head A", "Note.", "b2"],
+                ["Head B", "Note.", "References"],
+                ["Head A", "b4"],
+                ["Head B", "b5"],
+            ),
+            (3, 2),
+        ),
         # Only a page's edge lines can be running; a repeated line mid-page stays a line.
         (
             _pages(
@@ -1006,7 +1097,7 @@ def test_the_references_start_at_their_first_heading_line(lb, pages, start):
     ],
 )
 def test_body_pages_end_where_the_references_start(lb, monkeypatch, pages, body, where):
-    monkeypatch.setattr(lb, "page_texts", lambda _pdf: pages)
+    monkeypatch.setattr(lb, "page_texts", lambda _pdf, _reading=None: pages)
     assert lb.body_pages(pathlib.Path("doc.pdf")) == (body, where)
 
 
@@ -1043,7 +1134,7 @@ def test_compare_reads_the_body_limit(lb, budget, pages, body, over, measured, u
     ],
 )
 def test_the_gate_blocks_a_body_past_its_pages(lb, monkeypatch, tmp_path, pages, expected, says):
-    monkeypatch.setattr(lb, "page_texts", lambda _pdf: pages)
+    monkeypatch.setattr(lb, "page_texts", lambda _pdf, _reading=None: pages)
     monkeypatch.setattr(lb, "pdf_pages", lambda _pdf: 3)
     (severity, message, anchor) = lb.assess(
         "% budget: 3 pages, 2 body pages\n",
@@ -1110,7 +1201,9 @@ def test_body_pages_read_a_real_pdf_through_pdftotext(lb, tmp_path, pages, body)
 
 
 def test_a_body_page_budget_alone_does_not_count_words(lb, monkeypatch, tmp_path):
-    monkeypatch.setattr(lb, "page_texts", lambda _pdf: _pages(["One."], ["References"]))
+    monkeypatch.setattr(
+        lb, "page_texts", lambda _pdf, _reading=None: _pages(["One."], ["References"])
+    )
     monkeypatch.setattr(lb, "pdf_pages", lambda _pdf: 2)
     monkeypatch.setattr(lb, "tex_words", lambda _tex: pytest.fail("texcount ran"))
     (severity, _message, _anchor) = lb.assess(
@@ -1124,7 +1217,9 @@ def test_a_body_page_budget_alone_does_not_count_words(lb, monkeypatch, tmp_path
 
 
 def test_only_a_body_overrun_names_where_the_references_start(lb, monkeypatch, tmp_path):
-    monkeypatch.setattr(lb, "page_texts", lambda _pdf: _pages(["One."], ["Two."], ["References"]))
+    monkeypatch.setattr(
+        lb, "page_texts", lambda _pdf, _reading=None: _pages(["One."], ["Two."], ["References"])
+    )
     monkeypatch.setattr(lb, "pdf_pages", lambda _pdf: 5)
     (severity, message, _anchor) = lb.assess(
         "% budget: 4 pages, 3 body pages\n",
@@ -1152,3 +1247,23 @@ def test_alternating_running_heads_in_a_real_pdf_are_not_body(lb, tmp_path):
         ],
     )
     assert lb.body_pages(pdf) == (4, "references start on page 5, line 1")
+
+
+def test_body_pages_reuse_text_the_caller_already_read(lb, monkeypatch):
+    monkeypatch.setattr(lb.shutil, "which", lambda _tool: pytest.fail("pdftotext ran"))
+    reading = "Body one.\n\fBody two.\n\fReferences\n[1] A.\n\f"
+    assert lb.body_pages(pathlib.Path("doc.pdf"), reading) == (
+        2,
+        "references start on page 3, line 1",
+    )
+
+
+def test_a_number_inside_a_line_is_kept_when_matching_heads(lb):
+    pages = _pages(
+        ["Title.", "b1"],
+        ["Head A", "Table 2 x"],
+        ["Head B", "Fig 3a", "c3"],
+        ["Head A", "b4"],
+        ["Head B", "Fig 5a", "References"],
+    )
+    assert lb.references_start(pages) == (5, 2)

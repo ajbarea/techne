@@ -95,13 +95,19 @@ _OBJ_STREAM = re.compile(rb"/Type\s*/ObjStm\b")
 _TEXCOUNT_TIMEOUT = 60
 _PDFTOTEXT_TIMEOUT = 60
 # A references heading as pdftotext prints it: alone on its line, perhaps numbered.
-# Matched with case, as prose_check spells each title, so a wrapped lowercase "references" is
-# not a heading.
+# A title that opens with a capital, any case after it, so a wrapped lowercase "references"
+# is not a heading.
 _REFERENCES_LINE = re.compile(
-    rf"^(?:(?:\d+(?:\.\d+)*|[IVXLC]+)\.?\s+)?(?:{prose_check.REFERENCES_TITLES})$"
+    rf"^(?:(?:\d+(?:\.\d+)*|[IVXLC]+)\.?\s+)?(?=[A-Z])(?i:{prose_check.REFERENCES_TITLES})$"
 )
+_CONTENTS_LINE = re.compile(r"^(?:(?=[A-Z])(?i:(?:table\s+of\s+)?c\s?ontents))$")
+_LONE_NUMBER = re.compile(r"^\d{1,4}$")
+_HAS_LETTER = re.compile(r"[^\W\d_]")
+_FOLIO_IN_HEAD = re.compile(r"^\d+(?=\s)|(?<=\s)\d+$")
 # Running heads and feet sit among a page's first or last lines.
 _EDGE = 2
+# Lone numbers on a page at or past this many are a review copy's line-number ruler.
+_RULER = 20
 
 
 class Budget(NamedTuple):
@@ -352,22 +358,26 @@ def _count_pages(data: bytes) -> int | None:
     return sum(len(_PAGE_OBJECT.findall(chunk)) for chunk in chunks) or None
 
 
-def page_texts(pdf: pathlib.Path) -> list[str] | None:
-    """Each page's text in reading order, through pdftotext; None without it or on a failure."""
-    if not pdf.is_file() or not shutil.which("pdftotext"):
-        return None
-    try:
-        proc = subprocess.run(
-            ["pdftotext", "-enc", "UTF-8", str(pdf), "-"],
-            capture_output=True,
-            text=True,
-            timeout=_PDFTOTEXT_TIMEOUT,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if proc.returncode:
-        return None
-    pages = proc.stdout.split("\f")
+def page_texts(pdf: pathlib.Path, reading: str | None = None) -> list[str] | None:
+    """Each page's text in reading order, from `reading` (pdftotext's output, pages split by
+    form feeds) when the caller already has it, else through pdftotext; None without it or on
+    a failure."""
+    if reading is None:
+        if not pdf.is_file() or not shutil.which("pdftotext"):
+            return None
+        try:
+            proc = subprocess.run(
+                ["pdftotext", "-enc", "UTF-8", str(pdf), "-"],
+                capture_output=True,
+                text=True,
+                timeout=_PDFTOTEXT_TIMEOUT,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if proc.returncode:
+            return None
+        reading = proc.stdout
+    pages = reading.split("\f")
     if pages and not pages[-1].strip():
         pages.pop()
     return pages
@@ -376,41 +386,66 @@ def page_texts(pdf: pathlib.Path) -> list[str] | None:
 def references_start(pages: list[str]) -> tuple[int, int] | None:
     """Page and line, both from 1, of the first references heading, or None.
 
-    Lines are the page's non-blank lines without its folio and its running heads and feet,
-    which sit among the first or last `_EDGE` lines. A folio is a lone number equal to the
-    page's own. A running line is one whose text, digits aside, stands at the edge of at
-    least half the pages of its parity, two of them at least, so a head that
-    alternates between odd and even pages, or carries the page number, is still found. The
-    references heading itself is never running. Anything else stays a line: a missed head
-    over-counts the body (a loud BLOCK), where a wrongly dropped line could hide an overrun.
+    Lines are a page's non-blank lines without its folio, its running heads and feet, and a
+    review copy's line-number ruler. Heads, feet and folios sit among the first or last
+    `_EDGE` lines. A folio is a lone number equal to the page's own. A running line is one
+    whose text, a leading or trailing number aside, also stands at the edge of another page
+    of its parity, or of every page after the first, in a headed document: one whose every
+    page after the first that has text shows such a line. So a head that alternates between
+    odd and even pages, or carries the page number, is found, while a content line repeated
+    at two page edges is not, unless every other page is headed too. A line without letters
+    and the references heading are never running. A page with `_RULER` lone numbers or more
+    carries a ruler, and its lone numbers are dropped. A heading on a contents page is a
+    contents entry. Anything else stays a line, so the errors lean loud: a head the rule
+    cannot confirm (a document under three pages, or one with an unheaded page) over-counts
+    the body and BLOCKs.
     """
     content = [[line.strip() for line in page.splitlines() if line.strip()] for page in pages]
+    count = len(content)
 
     def edges(lines: list[str]) -> set[int]:
-        n = len(lines)
-        return {i for i in range(n) if i < _EDGE or i >= n - _EDGE}
+        return {i for i in range(len(lines)) if i < _EDGE or i >= len(lines) - _EDGE}
 
     def key(line: str) -> str:
-        return re.sub(r"\d+", "#", line)
+        """The line with a folio-like number at its start or end set aside ("6 F. Author")."""
+        return _FOLIO_IN_HEAD.sub("#", line)
 
-    at_edge: dict[str, list[int]] = {}
+    at_edge: dict[str, set[int]] = {}
     for index, lines in enumerate(content):
         for i in edges(lines):
-            if not _REFERENCES_LINE.match(lines[i]):
-                at_edge.setdefault(key(lines[i]), []).append(index)
-    per_parity = [len(content[parity::2]) for parity in (0, 1)]
-    running = set()
-    for text, where in at_edge.items():
-        for parity in (0, 1):
-            hits = sum(1 for index in set(where) if index % 2 == parity)
-            if hits >= 2 and hits * 2 >= per_parity[parity]:
-                running.add((text, parity))
+            if _HAS_LETTER.search(lines[i]) and not _REFERENCES_LINE.match(lines[i]):
+                at_edge.setdefault(key(lines[i]), set()).add(index)
+
+    after_first = set(range(1, count))
+
+    def recurs(line: str, index: int) -> bool:
+        """At the edge of another page of this one's parity, or of every page after the first
+        (two or more), by `key`. `at_edge` holds no line without letters and no heading."""
+        pages_with = at_edge.get(key(line), set())
+        same = pages_with & set(range(index % 2, count, 2)) - {index}
+        return bool(same) or (len(after_first) >= 2 and pages_with >= after_first)
+
+    # Heads are stripped only from a headed document: one where every page after the first
+    # that has text shows a recurring edge line, so one repeated line cannot pass for a head.
+    headed = all(
+        any(recurs(lines[i], index) for i in edges(lines))
+        for index, lines in enumerate(content)
+        if index and lines
+    )
+
+    def running(line: str, index: int) -> bool:
+        return headed and recurs(line, index)
+
     for index, lines in enumerate(content):
+        if any(_CONTENTS_LINE.match(line) for line in lines):
+            continue
         page, edge = index + 1, edges(lines)
+        ruler = sum(1 for line in lines if _LONE_NUMBER.match(line)) >= _RULER
         kept = [
             line
             for i, line in enumerate(lines)
-            if not (i in edge and (line == str(page) or (key(line), index % 2) in running))
+            if not (ruler and _LONE_NUMBER.match(line))
+            and not (i in edge and (line == str(page) or running(line, index)))
         ]
         for number, line in enumerate(kept, 1):
             if _REFERENCES_LINE.match(line):
@@ -418,9 +453,9 @@ def references_start(pages: list[str]) -> tuple[int, int] | None:
     return None
 
 
-def body_pages(pdf: pathlib.Path) -> tuple[int | None, str]:
+def body_pages(pdf: pathlib.Path, reading: str | None = None) -> tuple[int | None, str]:
     """The pages before the references, and where they start; (None, why) when unread."""
-    pages = page_texts(pdf)
+    pages = page_texts(pdf, reading)
     if pages is None:
         return None, "pdftotext could not read the PDF" if shutil.which("pdftotext") else (
             "pdftotext is not installed"
@@ -493,11 +528,13 @@ def assess(
     source_name: str,
     tex: pathlib.Path | None = None,
     body: str | None = None,
+    reading: str | None = None,
 ) -> list[tuple[str, str, str]]:
     """The gates' shared verdict as (severity, message, anchor) triples.
 
     `source` holds the declaration. Markdown (no `tex`) counts the words of `body`, default
     `source`; LaTeX counts those of `tex` through texcount, only for a word limit or no limit.
+    `reading` is pdftotext's reading-order text of `pdf`, when the caller already has it.
     The anchor is `source_name` for a missing or
     unreadable budget and the PDF's name for a measurement. BLOCK is over budget or an
     unreadable line; REVIEW is no budget or a declared limit that could not be measured.
@@ -518,7 +555,7 @@ def assess(
     body_count: int | None = None
     where = ""
     if budget.body_pages is not None:
-        body_count, where = body_pages(pdf)
+        body_count, where = body_pages(pdf, reading)
     verdict = compare(budget, pages, words, body_count)
     if verdict.over:
         over = "; ".join(
