@@ -32,15 +32,17 @@ Patterns = list[tuple[str, re.Pattern[str]]]
 
 _BLOCK = re.compile(r"```prose-patterns\n(?P<body>.*?)```", re.S)
 _BACKTICKED = re.compile(r"`([^`]+)`")
+_PDFTOTEXT_TIMEOUT = 60
 # A reference list is citations, not prose. It ends at the next heading (an appendix) or the end.
 # A numbered heading is `7 References`, `VII. REFERENCES` or `## 5. References`; `3. References`
 # without `#` is a list item.
-# The titles a reference list goes by, spaced small caps included; length_budget reads them too.
-_PDFTOTEXT_TIMEOUT = 60
-
+# The titles a reference list goes by, spaced small caps and babel's translations included;
+# length_budget reads them too.
 REFERENCES_TITLES = (
     r"R\s?EFERENCES|References|Bibliography|BIBLIOGRAPHY"
     r"|W\s?ORKS\s+C\s?ITED|Works\s+Cited|L\s?ITERATURE\s+C\s?ITED|Literature\s+Cited"
+    r"|References\s+Cited|References\s+and\s+Notes|Reference\s+List"
+    r"|R\s?ÉFÉRENCES|Références|Literatur|L\s?ITERATUR|Referencias|Bibliografía|Referências"
 )
 _REFERENCES = re.compile(
     rf"^\s*(?:#{{1,6}}\s*(?:\d+(?:\.\d+)*\.?\s+)?|(?:\d+|[IVXLC]+\.)\s+)?(?:{REFERENCES_TITLES})\s*$",

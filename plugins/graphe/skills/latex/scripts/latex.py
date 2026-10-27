@@ -447,12 +447,13 @@ def main() -> int:
         elif ambiguous:
             found.append(Finding(INFO, "coverage", ambiguous))
 
-    reading = prose_check.pdf_text(pdf) if prose_check is not None and text else text
+    # Reading order, read once for the prose and budget checks; empty when the read failed.
+    reading = (prose_check.reading_text(pdf) or "") if prose_check is not None and text else None
     if not args.no_prose and text:
-        found += prose_findings(pdf, reading)
+        found += prose_findings(pdf, reading or "")
 
     if fresh:
-        found += budget_findings(tex, pdf, reading if prose_check is not None and text else None)
+        found += budget_findings(tex, pdf, reading)
 
     if code != 0 and not any(f.severity == ERROR for f in found):
         found.append(Finding(ERROR, "build", f"latexmk exited {code}, log says nothing"))

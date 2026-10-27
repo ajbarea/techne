@@ -1296,6 +1296,63 @@ def test_a_number_inside_a_line_is_kept_when_matching_heads(lb):
         (_pages(["Title", "Intro"], ["57", "References", "[1] x"]), [(2, 2)]),
         # One other page with the same offset is chance, not a folio sequence.
         (_pages(["Title", "Intro", "40"], ["Body.", "Text."], ["42", "References"]), [(3, 2)]),
+        # A body line that opens two even pages under one head is body, not a second head.
+        (
+            _pages(
+                ["Title page.", "Body one."],
+                ["The Head", "of the data.", "Body two."],
+                ["The Head", "Body three."],
+                ["The Head", "of the data.", "References", "[1] A."],
+            ),
+            [(4, 2)],
+        ),
+        # A table of lone numbers is no ruler, so it stays above the heading.
+        (
+            _pages(
+                ["Body one."] + [str(n) for n in (7, 3, 12, 9, 4, 15, 2, 8, 11, 6)] * 3,
+                [str(n) for n in (5, 14, 1, 10)] + ["References", "[1] A."],
+            ),
+            [(2, 5)],
+        ),
+        # A table cell that reads Contents does not hide its page's heading.
+        (_pages(["Body.", "Item", "Contents", "Size"], ["Text.", "References"]), [(2, 2)]),
+        (_pages(["Body."], ["References and Notes", "1. A."]), [(2, 1)]),
+        (_pages(["Body."], ["References Cited"]), [(2, 1)]),
+        (_pages(["Body."], ["Literatur", "[1] A."]), [(2, 1)]),
+        (_pages(["Corps."], ["Références", "[1] A."]), [(2, 1)]),
+        # A second head line on every page after the first goes too (ACM's conference line).
+        (
+            _pages(
+                ["Title page.", "Body one."],
+                ["Short Title", "Conf 27, Rome", "Body two."],
+                ["Short Title", "Conf 27, Rome", "Body three."],
+                ["Short Title", "Conf 27, Rome", "References", "[1] A."],
+            ),
+            [(4, 1)],
+        ),
+        # A line on every page but away from the edges is body.
+        (
+            _pages(
+                ["Title page.", "b1", "c1", "d1", "e1", "f1"],
+                ["Head", "a2", "Repeated mid.", "b2", "c2", "d2"],
+                ["Head", "a3", "Repeated mid.", "b3", "c3", "d3"],
+                ["Head", "a4", "Repeated mid.", "References", "e4", "f4"],
+            ),
+            [(4, 3)],
+        ),
+        # A letterless line at the top of two odd pages heads nothing.
+        (
+            _pages(
+                ["Title", "b1"],
+                ["Head A", "b2"],
+                ["~~~", "c3"],
+                ["Head A", "b4"],
+                ["~~~", "References"],
+            ),
+            [(5, 2)],
+        ),
+        # A Contents cell below the page's first lines leaves the page read.
+        (_pages(["Body."], ["Text.", "More.", "Item", "Contents", "Size", "References"]), [(2, 6)]),
         # A ruler on full pages marks the copy, so the short last page drops its numbers too.
         (
             _pages(
@@ -1348,6 +1405,32 @@ def test_the_gate_passes_a_body_only_when_it_is_sure(
     assert says in message
 
 
-def test_an_empty_reading_falls_back_to_reading_the_pdf(lb, monkeypatch):
+def test_an_empty_reading_is_a_read_that_failed(lb, monkeypatch):
+    monkeypatch.setattr(lb.prose_check, "reading_text", lambda _pdf: pytest.fail("read twice"))
+    assert lb.page_texts(pathlib.Path("doc.pdf"), "") is None
+    assert lb.body_pages(pathlib.Path("doc.pdf"), "")[0] is None
+
+
+def test_an_unread_pdf_is_read_once_for_the_budget(lb, monkeypatch):
     monkeypatch.setattr(lb.prose_check, "reading_text", lambda _pdf: "Body.\n\fReferences\n")
-    assert lb.page_texts(pathlib.Path("doc.pdf"), "") == ["Body.\n", "References\n"]
+    assert lb.page_texts(pathlib.Path("doc.pdf")) == ["Body.\n", "References\n"]
+
+
+def test_a_doubtful_body_and_an_uncounted_word_limit_both_ask(lb, monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        lb,
+        "page_texts",
+        lambda _pdf, _reading=None: _pages(["One."], ["References"], ["References"]),
+    )
+    monkeypatch.setattr(lb, "pdf_pages", lambda _pdf: 3)
+    monkeypatch.setattr(lb, "tex_words", lambda _tex: (None, "texcount is not installed"))
+    found = lb.assess(
+        "% budget: 3000 words, 2 body pages\n",
+        tmp_path / "doc.pdf",
+        hint="h",
+        source_name="doc.tex",
+        tex=tmp_path / "doc.tex",
+    )
+    assert [severity for severity, _m, _a in found] == [REVIEW, REVIEW]
+    assert "references headings" in found[0][1]
+    assert "texcount is not installed" in found[1][1]
