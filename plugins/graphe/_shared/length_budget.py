@@ -12,8 +12,12 @@ A document declares its budget on one comment line of its source, before draftin
 Pages count the whole PDF. Body pages are those before the references, read from the PDF's
 text through pdftotext: the body runs past N pages when the first references heading (a line
 of its own: References, Bibliography, Works Cited, Literature Cited) falls after the first line
-of page N + 1, the rule ACL's pubcheck applies (`check_page_num` in
-https://github.com/acl-org/aclpubcheck, read 2026-10). Folios and running heads and feet are not
+of page N + 1, the first-line rule of ACL's pubcheck (`check_page_num` in
+https://github.com/acl-org/aclpubcheck, read 2026-10), which also ends the body at
+Limitations, Acknowledgments or an ethics heading where this gate ends it at the references
+alone. The earliest heading-like line can only under-state the body, so it alone may BLOCK;
+the gate passes a body only when the PDF shows one such line or fits whole, and otherwise
+asks for a look (`references_starts`). Folios and running heads and feet are not
 lines (`references_start`). A venue that counts only the pages before the references declares
 body pages alone.
 Words come from the source, not the PDF: LaTeX through `texcount -inc -sum` (text, headers,
@@ -93,7 +97,6 @@ _PAGE_COUNT = re.compile(
 _STREAM = re.compile(rb"stream\r?\n(.*?)\r?\nendstream", re.S)
 _OBJ_STREAM = re.compile(rb"/Type\s*/ObjStm\b")
 _TEXCOUNT_TIMEOUT = 60
-_PDFTOTEXT_TIMEOUT = 60
 # A references heading as pdftotext prints it: alone on its line, perhaps numbered.
 # A title that opens with a capital, any case after it, so a wrapped lowercase "references"
 # is not a heading.
@@ -106,7 +109,7 @@ _HAS_LETTER = re.compile(r"[^\W\d_]")
 _FOLIO_IN_HEAD = re.compile(r"^\d+(?=\s)|(?<=\s)\d+$")
 # Running heads and feet sit among a page's first or last lines.
 _EDGE = 2
-# Lone numbers on a page at or past this many are a review copy's line-number ruler.
+# Lone numbers on one page at or past this many mark a review copy's line-number ruler.
 _RULER = 20
 
 
@@ -359,48 +362,38 @@ def _count_pages(data: bytes) -> int | None:
 
 
 def page_texts(pdf: pathlib.Path, reading: str | None = None) -> list[str] | None:
-    """Each page's text in reading order, from `reading` (pdftotext's output, pages split by
-    form feeds) when the caller already has it, else through pdftotext; None without it or on
-    a failure."""
-    if reading is None:
-        if not pdf.is_file() or not shutil.which("pdftotext"):
+    """Each page's text in reading order: `reading` when the caller already has it and it holds
+    text, else `prose_check.reading_text`; None when the PDF cannot be read."""
+    if reading is None or not reading.strip():
+        reading = prose_check.reading_text(pdf)
+        if reading is None:
             return None
-        try:
-            proc = subprocess.run(
-                ["pdftotext", "-enc", "UTF-8", str(pdf), "-"],
-                capture_output=True,
-                text=True,
-                timeout=_PDFTOTEXT_TIMEOUT,
-            )
-        except (OSError, subprocess.SubprocessError):
-            return None
-        if proc.returncode:
-            return None
-        reading = proc.stdout
     pages = reading.split("\f")
     if pages and not pages[-1].strip():
         pages.pop()
     return pages
 
 
-def references_start(pages: list[str]) -> tuple[int, int] | None:
-    """Page and line, both from 1, of the first references heading, or None.
+def references_starts(pages: list[str]) -> list[tuple[int, int]]:
+    """Page and line, both from 1, of every line that reads as a references heading, in order.
 
     Lines are a page's non-blank lines without its folio, its running heads and feet, and a
-    review copy's line-number ruler. Heads, feet and folios sit among the first or last
-    `_EDGE` lines. A folio is a lone number equal to the page's own. A running line is one
-    whose text, a leading or trailing number aside, also stands at the edge of another page
-    of its parity, or of every page after the first, in a headed document: one whose every
-    page after the first that has text shows such a line. So a head that alternates between
-    odd and even pages, or carries the page number, is found, while a content line repeated
-    at two page edges is not, unless every other page is headed too. A line without letters
-    and the references heading are never running. A page with `_RULER` lone numbers or more
-    carries a ruler, and its lone numbers are dropped. A heading on a contents page is a
-    contents entry. Anything else stays a line, so the errors lean loud: a head the rule
-    cannot confirm (a document under three pages, or one with an unheaded page) over-counts
-    the body and BLOCKs.
+    review copy's line-number ruler. A document with `_RULER` lone numbers on a page carries a
+    ruler, and its lone numbers go from every page before anything else is read. Heads, feet
+    and folios sit among the first or last `_EDGE` lines. A folio is a lone number equal to its
+    page's, or offset from it as on two other pages (roman front matter, a set first page). A
+    running line is one whose text, a leading or trailing number aside, also stands at the edge
+    of another page of its parity, or of every page after the first, in a headed document: one
+    whose every page after the first that has text shows such a line. So a head that alternates
+    between odd and even pages, or carries the page number, is found, while a content line
+    repeated at two page edges is not, unless every other page is headed too. A line without
+    letters and a heading-like line are never running. A heading on a contents page is a
+    contents entry. Every other heading-like line is returned, so a caller can tell one heading
+    from several (a section-name head, a contents list run on, a table column).
     """
     content = [[line.strip() for line in page.splitlines() if line.strip()] for page in pages]
+    if any(sum(1 for line in lines if _LONE_NUMBER.match(line)) >= _RULER for lines in content):
+        content = [[line for line in lines if not _LONE_NUMBER.match(line)] for lines in content]
     count = len(content)
 
     def edges(lines: list[str]) -> set[int]:
@@ -411,10 +404,19 @@ def references_start(pages: list[str]) -> tuple[int, int] | None:
         return _FOLIO_IN_HEAD.sub("#", line)
 
     at_edge: dict[str, set[int]] = {}
+    offsets: dict[int, set[int]] = {}
     for index, lines in enumerate(content):
         for i in edges(lines):
-            if _HAS_LETTER.search(lines[i]) and not _REFERENCES_LINE.match(lines[i]):
+            if _LONE_NUMBER.match(lines[i]):
+                offsets.setdefault(int(lines[i]) - index - 1, set()).add(index)
+            elif _HAS_LETTER.search(lines[i]) and not _REFERENCES_LINE.match(lines[i]):
                 at_edge.setdefault(key(lines[i]), set()).add(index)
+
+    def folio(line: str, index: int) -> bool:
+        if not _LONE_NUMBER.match(line):
+            return False
+        offset = int(line) - index - 1
+        return offset == 0 or len(offsets.get(offset, set()) - {index}) >= 2
 
     after_first = set(range(1, count))
 
@@ -432,39 +434,53 @@ def references_start(pages: list[str]) -> tuple[int, int] | None:
         for index, lines in enumerate(content)
         if index and lines
     )
-
-    def running(line: str, index: int) -> bool:
-        return headed and recurs(line, index)
-
+    found = []
     for index, lines in enumerate(content):
         if any(_CONTENTS_LINE.match(line) for line in lines):
             continue
-        page, edge = index + 1, edges(lines)
-        ruler = sum(1 for line in lines if _LONE_NUMBER.match(line)) >= _RULER
+        edge = edges(lines)
         kept = [
             line
             for i, line in enumerate(lines)
-            if not (ruler and _LONE_NUMBER.match(line))
-            and not (i in edge and (line == str(page) or running(line, index)))
+            if not (i in edge and (folio(line, index) or (headed and recurs(line, index))))
         ]
-        for number, line in enumerate(kept, 1):
-            if _REFERENCES_LINE.match(line):
-                return page, number
-    return None
+        found += [(index + 1, n) for n, line in enumerate(kept, 1) if _REFERENCES_LINE.match(line)]
+    return found
 
 
-def body_pages(pdf: pathlib.Path, reading: str | None = None) -> tuple[int | None, str]:
-    """The pages before the references, and where they start; (None, why) when unread."""
+def references_start(pages: list[str]) -> tuple[int, int] | None:
+    """The first of `references_starts`, or None."""
+    found = references_starts(pages)
+    return found[0] if found else None
+
+
+class BodyReading(NamedTuple):
+    body: int | None  # pages before the earliest heading-like line: the body is at least this
+    where: str
+    headings: int
+
+
+def body_pages(pdf: pathlib.Path, reading: str | None = None) -> BodyReading:
+    """The pages before the earliest references heading, where each heading-like line stands,
+    and how many there are; (None, why, 0) when the PDF cannot be read or shows none."""
     pages = page_texts(pdf, reading)
     if pages is None:
-        return None, "pdftotext could not read the PDF" if shutil.which("pdftotext") else (
-            "pdftotext is not installed"
+        why = (
+            "pdftotext could not read the PDF"
+            if shutil.which("pdftotext")
+            else ("pdftotext is not installed")
         )
-    start = references_start(pages)
-    if start is None:
-        return None, "no references heading found"
-    page, line = start
-    return (page - 1 if line == 1 else page), f"references start on page {page}, line {line}"
+        return BodyReading(None, why, 0)
+    found = references_starts(pages)
+    if not found:
+        return BodyReading(None, "no references heading found", 0)
+    page, line = found[0]
+    if len(found) == 1:
+        where = f"references start on page {page}, line {line}"
+    else:
+        shown = ", ".join(f"page {p} line {n}" for p, n in found[:4])
+        where = f"{len(found)} references headings ({shown}{', ...' if len(found) > 4 else ''})"
+    return BodyReading(page - 1 if line == 1 else page, where, len(found))
 
 
 class Verdict(NamedTuple):
@@ -517,6 +533,10 @@ MISSING = "no length budget declared; set one before drafting ({hint})"
 UNMEASURED = "could not measure the PDF against the declared limit ({measured}); check by eye"
 UNCOUNTED = "word limit cannot be measured: {why} ({measured}); check by eye"
 UNREAD_BODY = "body pages cannot be measured: {why} ({measured}); check by eye"
+UNSURE_BODY = (
+    "body pages are at least the count shown: {why} ({measured}); check which one starts the"
+    " references"
+)
 OVER = "over budget: {over}. Cut repeated results and retold material, not substance"
 
 
@@ -553,15 +573,23 @@ def assess(
         words, why = tex_words(tex)
     pages = pdf_pages(pdf)
     body_count: int | None = None
-    where = ""
+    where, unsure = "", False
     if budget.body_pages is not None:
-        body_count, where = body_pages(pdf, reading)
+        body_count, where, headings = body_pages(pdf, reading)
+        fits = pages is not None and pages <= budget.body_pages
+        if body_count is None and fits:
+            body_count, where = pages, f"{where}; the whole PDF fits"
+        # The earliest heading gives the least body, so it can show an overrun on its own;
+        # only one heading, or a PDF that fits whole, can show the body is inside.
+        unsure = headings > 1 and not fits
     verdict = compare(budget, pages, words, body_count)
     if verdict.over:
         over = "; ".join(
             f"{item} ({where})" if item.startswith("body ") else item for item in verdict.over
         )
         return [("BLOCK", OVER.format(over=over), pdf.name)]
+    if unsure:
+        return [("REVIEW", UNSURE_BODY.format(why=where, measured=verdict.measured), pdf.name)]
     if verdict.unmeasured:
         if budget.words is not None and words is None:
             return [("REVIEW", UNCOUNTED.format(why=why, measured=verdict.measured), pdf.name)]

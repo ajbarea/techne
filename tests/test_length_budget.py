@@ -1098,14 +1098,14 @@ def test_the_references_start_at_their_first_heading_line(lb, pages, start):
 )
 def test_body_pages_end_where_the_references_start(lb, monkeypatch, pages, body, where):
     monkeypatch.setattr(lb, "page_texts", lambda _pdf, _reading=None: pages)
-    assert lb.body_pages(pathlib.Path("doc.pdf")) == (body, where)
+    assert lb.body_pages(pathlib.Path("doc.pdf"))[:2] == (body, where)
 
 
 def test_body_pages_say_why_without_pdftotext(lb, monkeypatch, tmp_path):
     pdf = tmp_path / "doc.pdf"
     pdf.write_bytes(b"%PDF-1.7\n")
     monkeypatch.setattr(lb.shutil, "which", lambda _tool: None)
-    assert lb.body_pages(pdf) == (None, "pdftotext is not installed")
+    assert lb.body_pages(pdf) == (None, "pdftotext is not installed", 0)
 
 
 @pytest.mark.parametrize(
@@ -1246,7 +1246,7 @@ def test_alternating_running_heads_in_a_real_pdf_are_not_body(lb, tmp_path):
             ["A Short Title", "References", "[1] An entry."],
         ],
     )
-    assert lb.body_pages(pdf) == (4, "references start on page 5, line 1")
+    assert lb.body_pages(pdf) == (4, "references start on page 5, line 1", 1)
 
 
 def test_body_pages_reuse_text_the_caller_already_read(lb, monkeypatch):
@@ -1255,6 +1255,7 @@ def test_body_pages_reuse_text_the_caller_already_read(lb, monkeypatch):
     assert lb.body_pages(pathlib.Path("doc.pdf"), reading) == (
         2,
         "references start on page 3, line 1",
+        1,
     )
 
 
@@ -1267,3 +1268,86 @@ def test_a_number_inside_a_line_is_kept_when_matching_heads(lb):
         ["Head B", "Fig 5a", "References"],
     )
     assert lb.references_start(pages) == (5, 2)
+
+
+@pytest.mark.parametrize(
+    ("pages", "starts"),
+    [
+        # A head that names the section prints REFERENCES above the body that ends it.
+        (
+            _pages(
+                ["Body one."], ["Body two."], ["REFERENCES", "The last body line.", "REFERENCES"]
+            ),
+            [(3, 1), (3, 3)],
+        ),
+        # A contents list run on to a page without its "Contents" line.
+        (
+            _pages(["Contents", "Intro"], ["References", "Body."], ["Body."], ["References"]),
+            [(2, 1), (4, 1)],
+        ),
+        # A table column called References.
+        (_pages(["Tool", "References", "Year"], ["Body."], ["References"]), [(1, 2), (3, 1)]),
+        # Folios offset from the page index (a first page set to 101).
+        (
+            _pages(["Title", "Intro", "101"], ["Body.", "102"], ["103", "References", "[1] x"]),
+            [(3, 1)],
+        ),
+        # An offset seen once is no folio pattern, so the number stays a line.
+        (_pages(["Title", "Intro"], ["57", "References", "[1] x"]), [(2, 2)]),
+        # One other page with the same offset is chance, not a folio sequence.
+        (_pages(["Title", "Intro", "40"], ["Body.", "Text."], ["42", "References"]), [(3, 2)]),
+        # A ruler on full pages marks the copy, so the short last page drops its numbers too.
+        (
+            _pages(
+                [f"{i:03d}" for i in range(30)] + ["Body one."],
+                [f"{i:03d}" for i in range(30, 33)] + ["References", "[1] A."],
+            ),
+            [(2, 1)],
+        ),
+    ],
+)
+def test_every_heading_like_line_is_found(lb, pages, starts):
+    assert lb.references_starts(pages) == starts
+
+
+@pytest.mark.parametrize(
+    ("pages", "total", "expected", "says"),
+    [
+        # Several heading-like lines and room to doubt: a look, not a pass.
+        (
+            _pages(["One."], ["Two."], ["REFERENCES", "Three.", "REFERENCES"]),
+            3,
+            REVIEW,
+            "2 references headings (page 3 line 1, page 3 line 3)",
+        ),
+        # The earliest already runs over, so the body does too.
+        (
+            _pages(["One."], ["Two."], ["Three.", "References"], ["References"]),
+            4,
+            BLOCK,
+            "body 3 pages, budget 2",
+        ),
+        # A PDF no longer than the body limit cannot run over, heading or not.
+        (_pages(["One."], ["Two."]), 2, INFO, "body 2 of 2 pages"),
+        (_pages(["References"], ["References"]), 2, INFO, "body 0 of 2 pages"),
+    ],
+)
+def test_the_gate_passes_a_body_only_when_it_is_sure(
+    lb, monkeypatch, tmp_path, pages, total, expected, says
+):
+    monkeypatch.setattr(lb, "page_texts", lambda _pdf, _reading=None: pages)
+    monkeypatch.setattr(lb, "pdf_pages", lambda _pdf: total)
+    (severity, message, _anchor) = lb.assess(
+        "% budget: 2 body pages\n",
+        tmp_path / "doc.pdf",
+        hint="h",
+        source_name="doc.tex",
+        tex=tmp_path / "doc.tex",
+    )[0]
+    assert severity == expected, message
+    assert says in message
+
+
+def test_an_empty_reading_falls_back_to_reading_the_pdf(lb, monkeypatch):
+    monkeypatch.setattr(lb.prose_check, "reading_text", lambda _pdf: "Body.\n\fReferences\n")
+    assert lb.page_texts(pathlib.Path("doc.pdf"), "") == ["Body.\n", "References\n"]
