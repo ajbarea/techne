@@ -890,3 +890,176 @@ def test_texcount_input_is_utf8_whatever_the_locale(lb, monkeypatch, tmp_path):
     )
     words, why = lb.tex_words(tex)
     assert words is not None, why
+
+
+# ---------------------------------------------------------- body pages --
+
+
+@pytest.mark.parametrize(
+    ("source", "budget"),
+    [
+        ("% budget: 7 pages, 6 body pages\n", (7, None, 6)),
+        ("% budget: 6 body pages (MSR)\n", (None, None, 6)),
+        ("% budget: 1 body page\n", (None, None, 1)),
+        ("<!-- budget: 9 body pages, 8,000 words -->\n", (None, 8000, 9)),
+        ("% budget: 7 pages\n", (7, None, None)),
+    ],
+)
+def test_a_body_page_limit_is_read_beside_the_others(lb, source, budget):
+    assert lb.read(source, markdown=source.startswith("<!--")) == lb.Budget(*budget)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "% budget: 6 body pages, 7 body pages\n",
+        "% budget: 0 body pages\n",
+        "% budget: 6 bodypages\n",
+    ],
+)
+def test_a_body_page_limit_it_cannot_accept_is_an_error(lb, source):
+    with pytest.raises(ValueError):
+        lb.read(source)
+
+
+def _pages(*pages: list[str]) -> list[str]:
+    return ["\n".join(lines) + "\n" for lines in pages]
+
+
+@pytest.mark.parametrize(
+    ("pages", "start"),
+    [
+        (_pages(["Intro text."], ["More text."], ["References", "[1] A."]), (3, 1)),
+        (_pages(["Intro text."], ["Body.", "R EFERENCES", "[1] A."]), (2, 2)),
+        (_pages(["Body."], ["8 References", "[1] A."]), (2, 1)),
+        (_pages(["Body."], ["VIII. REFERENCES", "[1] A."]), (2, 1)),
+        (_pages(["Body."], ["Bibliography", "[1] A."]), (2, 1)),
+        (_pages(["Body."], ["References to the API are below.", "More."]), None),
+        (_pages(["Body."], ["Body."]), None),
+        # A running head and a folio ahead of the heading are not lines.
+        (
+            _pages(
+                ["Conf '27, Rome", "Body.", "1"],
+                ["Conf '27, Rome", "Body.", "2"],
+                ["Conf '27, Rome", "3", "References", "[1] A."],
+            ),
+            (3, 1),
+        ),
+        # Under three pages nothing counts as running, so a repeated line stays a line.
+        (_pages(["Same line.", "Body."], ["Same line.", "References"]), (2, 2)),
+    ],
+)
+def test_the_references_start_at_their_first_heading_line(lb, pages, start):
+    assert lb.references_start(pages) == start
+
+
+@pytest.mark.parametrize(
+    ("pages", "body", "where"),
+    [
+        (_pages(["Body."], ["References", "[1] A."]), 1, "references start on page 2, line 1"),
+        (_pages(["Body."], ["Body.", "References"]), 2, "references start on page 2, line 2"),
+        (_pages(["Body."], ["Body."]), None, "no references heading found"),
+    ],
+)
+def test_body_pages_end_where_the_references_start(lb, monkeypatch, pages, body, where):
+    monkeypatch.setattr(lb, "page_texts", lambda _pdf: pages)
+    assert lb.body_pages(pathlib.Path("doc.pdf")) == (body, where)
+
+
+def test_body_pages_say_why_without_pdftotext(lb, monkeypatch, tmp_path):
+    pdf = tmp_path / "doc.pdf"
+    pdf.write_bytes(b"%PDF-1.7\n")
+    monkeypatch.setattr(lb.shutil, "which", lambda _tool: None)
+    assert lb.body_pages(pdf) == (None, "pdftotext is not installed")
+
+
+@pytest.mark.parametrize(
+    ("budget", "pages", "body", "over", "measured", "unmeasured"),
+    [
+        ((7, None, 6), 7, 6, [], "7 of 7 pages, body 6 of 6 pages", False),
+        ((7, None, 6), 7, 7, ["body 7 pages, budget 6"], "7 of 7 pages, body 7 of 6 pages", False),
+        ((None, None, 6), 8, 6, [], "8 pages, body 6 of 6 pages", False),
+        ((None, None, 1), 2, None, [], "2 pages, body ? of 1 page", True),
+    ],
+)
+def test_compare_reads_the_body_limit(lb, budget, pages, body, over, measured, unmeasured):
+    assert lb.compare(lb.Budget(*budget), pages, None, body) == (over, measured, unmeasured)
+
+
+@pytest.mark.parametrize(
+    ("pages", "expected", "says"),
+    [
+        (_pages(["One."], ["Two."], ["References"]), INFO, "body 2 of 2 pages"),
+        (
+            _pages(["One."], ["Two."], ["Three.", "References"]),
+            BLOCK,
+            "body 3 pages, budget 2 (references start on page 3, line 2)",
+        ),
+        (_pages(["One."], ["Two."], ["Three."]), REVIEW, "no references heading found"),
+    ],
+)
+def test_the_gate_blocks_a_body_past_its_pages(lb, monkeypatch, tmp_path, pages, expected, says):
+    monkeypatch.setattr(lb, "page_texts", lambda _pdf: pages)
+    monkeypatch.setattr(lb, "pdf_pages", lambda _pdf: 3)
+    (severity, message, anchor) = lb.assess(
+        "% budget: 3 pages, 2 body pages\n",
+        tmp_path / "doc.pdf",
+        hint="h",
+        source_name="doc.tex",
+        tex=tmp_path / "doc.tex",
+    )[0]
+    assert (severity, anchor) == (expected, "doc.pdf")
+    assert says in message
+
+
+def _text_pdf(path: pathlib.Path, pages: list[list[str]]) -> None:
+    """A PDF whose pages print the given lines top to bottom, in Helvetica."""
+
+    def escape(text: str) -> str:
+        return text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    kids = []
+    for lines in pages:
+        shown = " T* ".join(f"({escape(line)}) Tj" for line in lines)
+        stream = f"BT /F1 12 Tf 72 720 Td 16 TL {shown} ET".encode()
+        objects.append(b"<< /Length %d >>\nstream\n%s\nendstream" % (len(stream), stream))
+        content = len(objects)
+        objects.append(
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+            b"/Resources << /Font << /F1 3 0 R >> >> /Contents %d 0 R >>" % content
+        )
+        kids.append(f"{len(objects)} 0 R")
+    objects[1] = f"<< /Type /Pages /Kids [{' '.join(kids)}] /Count {len(kids)} >>".encode()
+    out = bytearray(b"%PDF-1.4\n")
+    offsets = []
+    for number, body in enumerate(objects, 1):
+        offsets.append(len(out))
+        out += b"%d 0 obj\n%s\nendobj\n" % (number, body)
+    xref = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1)
+    out += b"".join(b"%010d 00000 n \n" % offset for offset in offsets)
+    out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (
+        len(objects) + 1,
+        xref,
+    )
+    path.write_bytes(bytes(out))
+
+
+@pytest.mark.skipif(shutil.which("pdftotext") is None, reason="pdftotext (poppler) not installed")
+@pytest.mark.parametrize(
+    ("pages", "body"),
+    [
+        ([["A body line."], ["Another body line."], ["References", "[1] An entry."]], 2),
+        ([["A body line."], ["Another body line."], ["The last body line.", "References"]], 3),
+    ],
+)
+def test_body_pages_read_a_real_pdf_through_pdftotext(lb, tmp_path, pages, body):
+    pdf = tmp_path / "doc.pdf"
+    _text_pdf(pdf, pages)
+    assert lb.pdf_pages(pdf) == len(pages)
+    assert lb.body_pages(pdf)[0] == body

@@ -21,8 +21,10 @@ draft that needs a separate concision pass was written in the wrong register.
 
 Set the length budget before the first sentence, and declare it on one comment
 line of the root `.tex`: `% budget: 4 pages`, `% budget: 3000 words`, or both
-joined by a comma. Pages count the whole PDF; when the venue's limit excludes the
-references, write `% budget: none`. Take it from the prompt or venue; a
+joined by a comma. Pages count the whole PDF; when the venue limits the pages before
+the references, add body pages (`% budget: 7 pages, 6 body pages` for six plus one of
+references, `% budget: 9 body pages` when references are free): the body runs over when the
+first references heading falls after the first line of the page past the limit. Take it from the prompt or venue; a
 revision takes the original's. A `budget:` comment is a declaration when its spec
 opens with a digit, a number word before `page(s)`/`word(s)` (`four pages`), a qualifier
 and number (`max 4 pages`, `~1200 words`), a `_` placeholder (`__BUDGET__`), or

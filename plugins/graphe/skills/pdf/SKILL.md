@@ -21,7 +21,8 @@ file lists and for sentences over 40 words; they never change the exit code.
 
 Set the length budget before the first sentence, and declare it on one line of
 the markdown: `<!-- budget: 1200 words -->`, `<!-- budget: 3 pages -->`, or
-both joined by a comma. Take it from the prompt or venue; a revision takes the
+both joined by a comma; `6 body pages` limits the pages before the references.
+Take it from the prompt or venue; a revision takes the
 original's. A document with no limit declares `<!-- budget: none -->`. The
 render prints `BLOCK budget` and exits 1 when the PDF is over it or the line
 cannot be read, and `REVIEW budget` when none is declared or a declared limit

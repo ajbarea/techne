@@ -6,9 +6,15 @@ A document declares its budget on one comment line of its source, before draftin
     % budget: 4 pages                LaTeX
     <!-- budget: 1200 words -->      markdown
     % budget: 4 pages, 3000 words    both limits
+    % budget: 7 pages, 6 body pages  6 pages before the references, 7 in all
     % budget: none                   no limit; the length is still reported
 
-Pages count the whole PDF; a venue whose limit leaves the references out declares `none`.
+Pages count the whole PDF. Body pages are those before the references, read from the PDF's
+text through pdftotext: the body runs past N pages when the first references heading (a line
+of its own: References, Bibliography, Works Cited, Literature Cited) falls after the first line
+of page N + 1, the rule ACL's pubcheck applies. Folios and lines on every page but at most one
+(running heads and feet) are not lines. A venue that counts only the pages before the
+references declares body pages alone.
 Words come from the source, not the PDF: LaTeX through `texcount -inc -sum` (text, headers,
 `\\title` included, and captions, `\\input` followed, bibliography left out, as Overleaf
 counts; text in `\\iffalse` or `comment` blocks of the root and its `\\input`/`\\include`
@@ -30,6 +36,7 @@ import re
 import shutil
 import subprocess
 import zlib
+from collections import Counter
 from typing import NamedTuple
 
 import prose_check
@@ -47,7 +54,8 @@ _NUMBER = rf"\d[\d,]*(?:\.\d+)?|(?:{_NUMBER_WORDS})(?:[ -]+(?:{_NUMBER_WORDS}))*
 # A leading digit always does, whatever follows (`4 sheets`, `1200 wrods`).
 _QUALIFIER = r"(?:max(?:imum)?\.?|up\s+to|at\s+most|about|under|[~<≤≈]=?)"
 _INTENT = re.compile(
-    rf"^(?:(?:{_QUALIFIER}\s*)?(?:\d|(?:{_NUMBER})\s*(?:pages?\b|words?\b|pp\b))|_)", re.I
+    rf"^(?:(?:{_QUALIFIER}\s*)?(?:\d|(?:{_NUMBER})\s*(?:(?:body\s+)?pages?\b|words?\b|pp\b))|_)",
+    re.I,
 )
 _NO_LIMIT = re.compile(r"^(?:none|unlimited|no\s+limit)[\s.,;:!]*$", re.I)
 _MD_INDENTED = re.compile(r"^(?: {4}|\t).*$", re.M)
@@ -66,7 +74,7 @@ _ELSE = re.compile(r"\\else(?![a-zA-Z@])")
 _NEWIF = re.compile(r"\\newif\s*\\[a-zA-Z@]+")
 _FI = re.compile(r"\\fi(?![a-zA-Z@])")
 _NOTE = re.compile(r"\s*\([^()]*\)[\s.]*$")
-_ITEM = re.compile(r"^(?P<n>\d{1,3}(?:,\d{3})+|\d+)\s+(?P<unit>pages?|words?)$", re.I)
+_ITEM = re.compile(r"^(?P<n>\d{1,3}(?:,\d{3})+|\d+)\s+(?P<unit>(?:body\s+)?pages?|words?)$", re.I)
 # A comma between digits is a thousands separator (3,000), not a list break.
 _SEPARATOR = re.compile(r"\s*;\s*|,\s+|(?<=\D),|\s+and\s+", re.I)
 _WORD = re.compile(r"[^\W_]")
@@ -85,11 +93,18 @@ _PAGE_COUNT = re.compile(
 _STREAM = re.compile(rb"stream\r?\n(.*?)\r?\nendstream", re.S)
 _OBJ_STREAM = re.compile(rb"/Type\s*/ObjStm\b")
 _TEXCOUNT_TIMEOUT = 60
+_PDFTOTEXT_TIMEOUT = 60
+# A references heading as pdftotext prints it: alone on its line, perhaps numbered.
+_REFERENCES_LINE = re.compile(
+    rf"^(?:(?:\d+|[IVXLC]+)\.?\s+)?(?:{prose_check.REFERENCES_TITLES})$", re.I
+)
+_FOLIO = re.compile(r"^(?:\d+|[ivxlc]+|[IVXLC]+)$")
 
 
 class Budget(NamedTuple):
     pages: int | None
     words: int | None
+    body_pages: int | None = None
 
 
 def read(source: str, markdown: bool = False) -> Budget | None:
@@ -117,16 +132,17 @@ def read(source: str, markdown: bool = False) -> Budget | None:
         match = _ITEM.match(item.strip())
         if not match:
             raise ValueError(
-                f"cannot read {item!r}; write `4 pages`, `1200 words`, a pair, or `none`"
+                f"cannot read {item!r}; write `4 pages`, `1200 words`, `6 body pages`, a pair, "
+                "or `none`"
             )
-        unit = match["unit"].lower().rstrip("s")
+        unit = " ".join(match["unit"].lower().split()).rstrip("s")
         n = int(match["n"].replace(",", ""))
         if unit in limits:
             raise ValueError(f"two {unit} limits")
         if n < 1:
             raise ValueError(f"a budget of {n} {unit}s")
         limits[unit] = n
-    return Budget(limits.get("page"), limits.get("word"))
+    return Budget(limits.get("page"), limits.get("word"), limits.get("body page"))
 
 
 def _spec(raw: str) -> str:
@@ -330,6 +346,62 @@ def _count_pages(data: bytes) -> int | None:
     return sum(len(_PAGE_OBJECT.findall(chunk)) for chunk in chunks) or None
 
 
+def page_texts(pdf: pathlib.Path) -> list[str] | None:
+    """Each page's text in reading order, through pdftotext; None without it or on a failure."""
+    if not pdf.is_file() or not shutil.which("pdftotext"):
+        return None
+    try:
+        proc = subprocess.run(
+            ["pdftotext", "-enc", "UTF-8", str(pdf), "-"],
+            capture_output=True,
+            text=True,
+            timeout=_PDFTOTEXT_TIMEOUT,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode:
+        return None
+    pages = proc.stdout.split("\f")
+    if pages and not pages[-1].strip():
+        pages.pop()
+    return pages
+
+
+def references_start(pages: list[str]) -> tuple[int, int] | None:
+    """Page and line, both from 1, of the first references heading, or None.
+
+    Lines are the page's non-blank lines without folios and without running heads and feet:
+    lines that recur on every page but at most one of a document of three pages or more.
+    """
+    content = [[line.strip() for line in page.splitlines() if line.strip()] for page in pages]
+    recurring = Counter(line for lines in content for line in set(lines))
+    running = (
+        {line for line, n in recurring.items() if n >= len(content) - 1}
+        if len(content) >= 3
+        else set()
+    )
+    for page, lines in enumerate(content, 1):
+        kept = [line for line in lines if not _FOLIO.match(line) and line not in running]
+        for number, line in enumerate(kept, 1):
+            if _REFERENCES_LINE.match(line):
+                return page, number
+    return None
+
+
+def body_pages(pdf: pathlib.Path) -> tuple[int | None, str]:
+    """The pages before the references, and where they start; (None, why) when unread."""
+    pages = page_texts(pdf)
+    if pages is None:
+        return None, "pdftotext could not read the PDF" if shutil.which("pdftotext") else (
+            "pdftotext is not installed"
+        )
+    start = references_start(pages)
+    if start is None:
+        return None, "no references heading found"
+    page, line = start
+    return (page - 1 if line == 1 else page), f"references start on page {page}, line {line}"
+
+
 class Verdict(NamedTuple):
     over: list[str]
     measured: str
@@ -340,9 +412,11 @@ def _plural(n: int | str, unit: str) -> str:
     return f"{n} {unit}" if str(n) == "1" else f"{n} {unit}s"
 
 
-def compare(budget: Budget, pages: int | None, words: int | None) -> Verdict:
+def compare(
+    budget: Budget, pages: int | None, words: int | None, body: int | None = None
+) -> Verdict:
     """Each limit the document is over, the measured length (`5 of 4 pages`), and whether
-    a declared limit could not be measured. `words` is None when not counted."""
+    a declared limit could not be measured. `words` and `body` are None when not counted."""
     over = []
     shown = "?" if pages is None else pages
     if budget.pages is None:
@@ -359,10 +433,17 @@ def compare(budget: Budget, pages: int | None, words: int | None) -> Verdict:
         if words is not None and words > budget.words:
             over.append(f"{_plural(words, 'word')}, budget {budget.words}")
     measured = page_part if budget.words is None and words is None else f"{page_part}, {word_part}"
-    if budget.pages is None and budget.words is None:
+    if budget.body_pages is not None:
+        shown_body = "?" if body is None else body
+        measured += f", body {shown_body} of {_plural(budget.body_pages, 'page')}"
+        if body is not None and body > budget.body_pages:
+            over.append(f"body {_plural(body, 'page')}, budget {budget.body_pages}")
+    if budget.pages is None and budget.words is None and budget.body_pages is None:
         measured += " (no limit declared)"
-    unmeasured = (budget.pages is not None and pages is None) or (
-        budget.words is not None and words is None
+    unmeasured = (
+        (budget.pages is not None and pages is None)
+        or (budget.words is not None and words is None)
+        or (budget.body_pages is not None and body is None)
     )
     return Verdict(over, measured, unmeasured)
 
@@ -370,6 +451,7 @@ def compare(budget: Budget, pages: int | None, words: int | None) -> Verdict:
 MISSING = "no length budget declared; set one before drafting ({hint})"
 UNMEASURED = "could not measure the PDF against the declared limit ({measured}); check by eye"
 UNCOUNTED = "word limit cannot be measured: {why} ({measured}); check by eye"
+UNREAD_BODY = "body pages cannot be measured: {why} ({measured}); check by eye"
 OVER = "over budget: {over}. Cut repeated results and retold material, not substance"
 
 
@@ -403,12 +485,19 @@ def assess(
     else:
         words, why = tex_words(tex)
     pages = pdf_pages(pdf)
-    verdict = compare(budget, pages, words)
+    body: int | None = None
+    where = ""
+    if budget.body_pages is not None:
+        body, where = body_pages(pdf)
+    verdict = compare(budget, pages, words, body)
     if verdict.over:
-        return [("BLOCK", OVER.format(over="; ".join(verdict.over)), pdf.name)]
+        over = "; ".join(verdict.over) + (f" ({where})" if body is not None else "")
+        return [("BLOCK", OVER.format(over=over), pdf.name)]
     if verdict.unmeasured:
         if budget.words is not None and words is None:
             return [("REVIEW", UNCOUNTED.format(why=why, measured=verdict.measured), pdf.name)]
+        if budget.body_pages is not None and body is None:
+            return [("REVIEW", UNREAD_BODY.format(why=where, measured=verdict.measured), pdf.name)]
         return [("REVIEW", UNMEASURED.format(measured=verdict.measured), pdf.name)]
     return [("INFO", verdict.measured, pdf.name)]
 
