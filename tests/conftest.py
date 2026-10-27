@@ -41,6 +41,7 @@ SLIDES_SCRIPT = DOC_SKILLS / "slides" / "scripts" / "slides.py"
 HYGIENE_SCRIPT = SKILLS / "sisters" / "scripts" / "hygiene.py"
 AGENTS_MD_SCRIPT = SKILLS / "sisters" / "scripts" / "agents_md.py"
 LOGCHECK_SCRIPT = SKILLS / "logging" / "scripts" / "logcheck.py"
+REPO_META_SCRIPT = SKILLS / "docsync" / "scripts" / "repo_meta.py"
 BOARD_SCRIPT = SKILLS / "board" / "scripts" / "board.py"
 PROSE_SCRIPT = ROOT / "plugins" / "graphe" / "_shared" / "prose_check.py"
 DOKIMASIA_SCRIPT = ROOT / "plugins" / "dokimasia" / "skills" / "check" / "scripts" / "dokimasia.py"
@@ -305,6 +306,11 @@ def sw() -> types.ModuleType:
 @pytest.fixture(scope="session")
 def rk() -> types.ModuleType:
     return _load("techne_repo_kind", REPO_KIND_SCRIPT)
+
+
+@pytest.fixture(scope="session")
+def meta() -> types.ModuleType:
+    return _load("techne_repo_meta", REPO_META_SCRIPT)
 
 
 @pytest.fixture(scope="session")
