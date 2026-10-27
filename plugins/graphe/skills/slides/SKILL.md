@@ -80,7 +80,8 @@ slide, the slide on screen marked with the class `active` (the export sets it),
 fragments revealed with `visible`, and notes in `<template class="speaker-notes">`
 or `<aside class="notes">`. Whatever is not inside the slide, such as the deck's
 own buttons, stays out. A slide larger than the browser window is captured
-whole. A .pptx has one slide size, taken from slide 1; the summary names any
+whole: the window grows until it fits. One that never fits (sized to the window,
+or pushed off its edge) is exported as far as it shows, and the summary names it. A .pptx has one slide size, taken from slide 1; the summary names any
 slide of another shape, whose content past the page's height is off the slide.
 `check`, `render`, `script` and `pdf` still need reveal.js. Render the result (`render <deck>.pptx`) and compare it with the
 browser before handing it over; `--images` writes the browser's pictures for that.

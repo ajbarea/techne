@@ -34,6 +34,7 @@ from typing import Any
 # PowerPoint's slide is 13.333 in wide: 12192000 EMU, 960 pt.
 SLIDE_W_EMU = 12192000
 SLIDE_W_PT = 960.0
+SLIDE_MIN_EMU, SLIDE_MAX_EMU = 914400, 51206400
 # "No Style, No Grid": a table with no theme style for Google Slides to repaint.
 NO_TABLE_STYLE = "{2D5ABB26-0587-4C30-8999-92F81FD0307C}"
 # Width slack for a wrapped text box, as a share of its width plus a fixed margin in slide
@@ -452,7 +453,16 @@ READ = r"""(i) => {
         + (parseFloat(cs.borderLeftWidth) || 0)) * f.scale - f.left;
       if (edge < box.x) { box.w += box.x - edge; box.x = edge; }
     };
-    if (before) toEdge(container);
+    if (before) {
+      // The ::before box comes before the first text node: measured in its own font, it
+      // widens the box leftwards (rightwards in right-to-left text) whatever the alignment.
+      const ps = getComputedStyle(container, '::before');
+      ctx.font = `${ps.fontStyle} ${ps.fontWeight} ${ps.fontSize} ${ps.fontFamily}`;
+      const spacing = ps.letterSpacing === 'normal' ? 0 : parseFloat(ps.letterSpacing) || 0;
+      const wide = (ctx.measureText(before).width + spacing * [...before].length) * f.scale;
+      if (st.direction === 'rtl') box.w += wide;
+      else { box.x -= wide; box.w += wide; }
+    }
     // Lines the browser set: a rect that starts below the last line's bottom opens a new one.
     let count = 0, bottom = -Infinity;
     for (const q of lines.sort((a, b) => a.top - b.top)) {
@@ -646,6 +656,7 @@ class Captured:
     background: bytes
     shots: dict = field(default_factory=dict)
     image: bytes | None = None
+    cut: bool = False  # part of the slide lay off screen however large the window grew
 
 
 def is_custom(page) -> bool:
@@ -666,37 +677,80 @@ def _clip(box: dict, frame: dict) -> dict | None:
     return {"x": x0, "y": y0, "width": x1 - x0, "height": y1 - y0}
 
 
-GROWTHS = 6
+GROWTHS = 4
+
+
+def _fits(read: dict, view: dict) -> bool:
+    f = read["frame"]
+    return (
+        f["left"] >= -0.5
+        and f["top"] >= -0.5
+        and f["left"] + f["width"] <= view["width"] + 0.5
+        and f["top"] + f["height"] <= view["height"] + 0.5
+    )
 
 
 def _read(page, i: int, window: dict) -> dict:
     """Show slide i in the original window and read it, growing the window until the whole
-    slide is on screen (a screenshot stops at the window's edge), then reading it again."""
+    slide is on screen (a screenshot stops at the window's edge). Each growth is twice the
+    overflow, which is exact for a centred slide and only generous for one pinned to an edge.
+    A slide that still does not fit is read as it shows, with `cut` set."""
     if page.viewport_size != window:
         page.set_viewport_size(window)
-    for _ in range(GROWTHS + 1):
+    for attempt in range(GROWTHS + 1):
         page.evaluate("(i) => __deckShow(i)", i)
         page.evaluate(
             "() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))"
         )
         read = page.evaluate(READ, i)
-        f, view = read["frame"], page.viewport_size
-        left, top = f["left"], f["top"]
-        right, bottom = left + f["width"], top + f["height"]
-        if (
-            left >= -0.5
-            and top >= -0.5
-            and right <= view["width"] + 0.5
-            and (bottom <= view["height"] + 0.5)
-        ):
+        view = page.viewport_size
+        if _fits(read, view) or attempt == GROWTHS:
+            read["cut"] = not _fits(read, view)
+            read["view"] = dict(view)
             return read
+        f = read["frame"]
+        over_x = max(0, -f["left"], f["left"] + f["width"] - view["width"])
+        over_y = max(0, -f["top"], f["top"] + f["height"] - view["height"])
         page.evaluate(UNMARK, ALL_STYLES)
-        # A slide off the left or top edge is centred: grow by twice the overhang.
         page.set_viewport_size({
-            "width": math.ceil(max(view["width"] + 2 * max(0, -left), right)),
-            "height": math.ceil(max(view["height"] + 2 * max(0, -top), bottom)),
+            "width": math.ceil(view["width"] + 2 * over_x),
+            "height": math.ceil(view["height"] + 2 * over_y),
         })  # fmt: skip
-    raise ValueError(f"slide {i + 1} does not fit on screen however large the window grows")
+    raise AssertionError("unreachable")
+
+
+def _on_screen(box: dict, frame: dict, view: dict) -> dict | None:
+    """box cut to the frame and the window."""
+    return _clip(box, {"left": max(frame["left"], 0), "top": max(frame["top"], 0),
+                       "width": min(frame["left"] + frame["width"], view["width"])
+                       - max(frame["left"], 0),
+                       "height": min(frame["top"] + frame["height"], view["height"])
+                       - max(frame["top"], 0)})  # fmt: skip
+
+
+def _pad(png: bytes, visible: dict, frame: dict) -> bytes:
+    """A picture of the visible part of a slide placed on a canvas the slide's size, the rest
+    filled with the colour at the visible part's corner."""
+    from PIL import Image  # ty: ignore[unresolved-import]
+
+    with Image.open(io.BytesIO(png)) as part:
+        scale = part.width / visible["width"]
+        size = (round(frame["width"] * scale), round(frame["height"] * scale))
+        canvas = Image.new("RGB", size, part.convert("RGB").getpixel((0, 0)))
+        at = (
+            round((visible["x"] - frame["left"]) * scale),
+            round((visible["y"] - frame["top"]) * scale),
+        )
+        canvas.paste(part.convert("RGB"), at)
+        out = io.BytesIO()
+        canvas.save(out, "PNG")
+        return out.getvalue()
+
+
+def _whole(page, whole: dict, read: dict) -> bytes:
+    """The slide at CSS pixels; padded to the slide's size when part of it was off screen."""
+    png = page.screenshot(clip=whole, scale="css")
+    return _pad(png, whole, read["frame"]) if read["cut"] else png
 
 
 def capture(page, count: int, still: str, keep_images: bool = False) -> list[Captured]:
@@ -707,12 +761,13 @@ def capture(page, count: int, still: str, keep_images: bool = False) -> list[Cap
     out = []
     for i in range(count):
         read = _read(page, i, window)
-        frame = read["frame"]
-        whole = _clip({"x": frame["left"], "y": frame["top"], "width": frame["width"],
-                       "height": frame["height"]}, frame)  # fmt: skip
+        frame, view = read["frame"], read["view"]
+        whole = _on_screen({"x": frame["left"], "y": frame["top"], "width": frame["width"],
+                            "height": frame["height"]}, frame, view)  # fmt: skip
         if whole is None:
             raise ValueError(f"slide {i + 1} has no area on screen")
-        image = page.screenshot(clip=whole, scale="css") if keep_images else None
+
+        image = _whole(page, whole, read) if keep_images else None
         # Text goes transparent first, so text laid over a figure is not in its picture.
         page.evaluate(STYLE, ["pptx-glyphs", GLYPH_STYLE + "\n" + read["keep"]])
         shots = {}
@@ -723,7 +778,7 @@ def capture(page, count: int, still: str, keep_images: bool = False) -> list[Cap
             for item in read["items"]:
                 if item.get("kind") != kind:
                     continue
-                clip = _clip(item["box"], frame)
+                clip = _on_screen(item["box"], frame, view)
                 if clip is None:
                     continue
                 shots[item["shot"]] = page.screenshot(clip=clip, omit_background=kind == "equation")
@@ -731,10 +786,10 @@ def capture(page, count: int, still: str, keep_images: bool = False) -> list[Cap
                             w=clip["width"], h=clip["height"])  # fmt: skip
         page.evaluate(DROP, ["pptx-clear"])
         page.evaluate(STYLE, ["pptx-placed", PLACED_STYLE])
-        background = page.screenshot(clip=whole, scale="css")
+        background = _whole(page, whole, read)
         page.evaluate(UNMARK, ALL_STYLES)
         notes = page.evaluate(NOTE_TEXT, read["notesHtml"]) if read["notesHtml"] else ""
-        out.append(Captured(frame, read["items"], notes, background, shots, image))
+        out.append(Captured(frame, read["items"], notes, background, shots, image, read["cut"]))
     return out
 
 
@@ -1097,10 +1152,12 @@ def build(slides: list[Captured], title_only_layout: int, alt_text) -> tuple[Any
     prs = Presentation()
     first = slides[0].frame
     prs.slide_width = Emu(SLIDE_W_EMU)
-    prs.slide_height = Emu(round(SLIDE_W_EMU * first["height"] / first["width"]))
+    # PowerPoint takes slide sides from 1 to 56 inches.
+    height = round(SLIDE_W_EMU * first["height"] / first["width"])
+    prs.slide_height = Emu(min(max(height, SLIDE_MIN_EMU), SLIDE_MAX_EMU))
     layout = prs.slide_layouts[title_only_layout]
     tally = {"text": 0, "table": 0, "picture": 0, "solid": 0, "backdrop": 0, "fonts": {},
-             "cut": []}  # fmt: skip
+             "cut": [], "offscreen": []}  # fmt: skip
     aspect = first["height"] / first["width"]
     for number, cap in enumerate(slides, 1):
         geo = Geometry(cap.frame["width"], cap.frame["height"])
@@ -1115,6 +1172,8 @@ def build(slides: list[Captured], title_only_layout: int, alt_text) -> tuple[Any
             tally["backdrop"] += 1
         if abs(cap.frame["height"] / cap.frame["width"] - aspect) > 0.01:
             tally["cut"].append(number)
+        if cap.cut:
+            tally["offscreen"].append(number)
         heading = slide.shapes.title
         titled = False
         # Pictures first, then tables, then text, so editable text is never under a picture;

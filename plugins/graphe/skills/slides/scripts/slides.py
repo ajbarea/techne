@@ -1949,6 +1949,12 @@ def _pptx_editable(deck: pathlib.Path, target: pathlib.Path, images: pathlib.Pat
             f"  slides {shown} have another shape than slide 1; a .pptx has one slide size, so "
             "they are placed to its width and anything past its height is off the slide"
         )
+    if tally["offscreen"]:
+        shown = ", ".join(str(n) for n in tally["offscreen"])
+        print(
+            f"  slides {shown} lie partly off screen however large the window grows; what "
+            "showed is exported, the rest of their background is filled with the edge colour"
+        )
     fonts = sorted(tally["fonts"], key=str.lower)
     if fonts:
         print(f"fonts: {', '.join(fonts)}")

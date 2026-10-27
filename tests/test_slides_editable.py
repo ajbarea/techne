@@ -255,6 +255,8 @@ def _colours(image, box, scale):
 @needs_browser
 def test_generated_text_is_a_run_and_a_counter_stays_visible_in_the_background(export):
     edge = export.prs.slides[3]
+    centred = _shapes(edge)["§ Centred"]
+    assert centred.left + centred.width / 2 == pytest.approx(750 * EMU_PX, abs=8 * EMU_PX)
     kicker = _shapes(edge)["→ Kicker with arrow"]
     assert kicker.left == pytest.approx(100 * EMU_PX, abs=2 * EMU_PX)
     assert str(_run(edge, "→ ").font.color.rgb) == "B00020"
@@ -398,15 +400,53 @@ def test_a_centred_slide_wider_than_the_window_is_read_after_the_window_grows(sl
 
 
 @needs_browser
-def test_a_slide_that_never_fits_the_window_exits_with_its_reason(sl, tmp_path):
+def test_a_slide_that_never_fits_is_exported_as_far_as_it_shows_and_named(sl, tmp_path, capsys):
     deck = tmp_path / "grows.html"
     deck.write_text(
         "<!doctype html><title>t</title><style>body{margin:0}"
-        ".slide{position:absolute;left:0;top:0;width:130vw;height:50px}</style>"
+        ".slide{position:absolute;left:0;top:0;width:130vw;height:600px;"
+        "background:linear-gradient(90deg,#ffffff,#000000)}</style>"
         '<section class="slide active"><p>Always wider</p></section>'
     )
-    with pytest.raises(SystemExit, match="does not fit on screen"):
-        sl.pptx_html(deck, tmp_path / "out.pptx", editable=True)
+    from pptx import Presentation  # ty: ignore[unresolved-import]
+
+    target = tmp_path / "out.pptx"
+    assert sl.pptx_html(deck, target, editable=True) == 0
+    assert "slides 1 lie partly off screen" in capsys.readouterr().out
+    prs = Presentation(str(target))
+    image = _background(prs.slides[0])
+    # The visible part keeps its place and the off-screen rest takes the edge colour (white
+    # here); stretching the visible part instead would end in the gradient's dark grey.
+    assert image.getpixel((image.width - 2, image.height // 2)) == (255, 255, 255)
+    assert sum(image.getpixel((int(image.width * 0.7), image.height // 2))) < 3 * 120
+
+
+@needs_browser
+def test_a_tall_slide_in_a_fit_to_window_deck_is_captured_whole(sl, tmp_path):
+    from pptx import Presentation  # ty: ignore[unresolved-import]
+
+    deck = tmp_path / "fit.html"
+    deck.write_text(
+        "<!doctype html><title>t</title><style>html,body{margin:0;height:100%}"
+        "#deck{position:absolute;left:50%;top:50%;width:1600px;height:900px;"
+        "transform-origin:0 0}"
+        ".slide{position:absolute;left:0;top:0;width:1600px;height:900px;display:none;"
+        "background:#fff;font:40px Arial}.slide.active{display:block}"
+        ".tall{height:1300px}p{position:absolute;margin:0}</style><div id=deck>"
+        '<section class="slide active"><p style="left:100px;top:100px">First</p></section>'
+        '<section class="slide tall"><p style="left:100px;top:1200px">Low text</p>'
+        '<div style="position:absolute;left:0;top:1250px;width:1600px;height:50px;'
+        'background:#c00000"></div></section></div><script>'
+        "const d=document.getElementById('deck');const fit=()=>{"
+        "const s=Math.min(innerWidth/1600,innerHeight/900);"
+        "d.style.transform=`scale(${s}) translate(-50%,-50%)`;};"
+        "addEventListener('resize',fit);fit();</script>"
+    )
+    target = tmp_path / "fit.pptx"
+    assert sl.pptx_html(deck, target, editable=True) == 0
+    tall = Presentation(str(target)).slides[1]
+    image = _background(tall)
+    assert image.getpixel((image.width // 2, image.height - 3)) == (0xC0, 0x00, 0x00)
 
 
 # ---------------------------------------------------------- render check --
