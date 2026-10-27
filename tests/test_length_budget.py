@@ -890,3 +890,624 @@ def test_texcount_input_is_utf8_whatever_the_locale(lb, monkeypatch, tmp_path):
     )
     words, why = lb.tex_words(tex)
     assert words is not None, why
+
+
+# ---------------------------------------------------------- body pages --
+
+
+@pytest.mark.parametrize(
+    ("source", "budget"),
+    [
+        ("% budget: 7 pages, 6 body pages\n", (7, None, 6)),
+        ("% budget: 6 body pages (MSR)\n", (None, None, 6)),
+        ("% budget: 1 body page\n", (None, None, 1)),
+        ("<!-- budget: 9 body pages, 8,000 words -->\n", (None, 8000, 9)),
+        ("% budget: 7 pages\n", (7, None, None)),
+    ],
+)
+def test_a_body_page_limit_is_read_beside_the_others(lb, source, budget):
+    assert lb.read(source, markdown=source.startswith("<!--")) == lb.Budget(*budget)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "% budget: 6 body pages, 7 body pages\n",
+        "% budget: 0 body pages\n",
+        "% budget: 6 bodypages\n",
+        "% budget: 7 pages, 9 body pages\n",
+    ],
+)
+def test_a_body_page_limit_it_cannot_accept_is_an_error(lb, source):
+    with pytest.raises(ValueError):
+        lb.read(source)
+
+
+def _pages(*pages: list[str]) -> list[str]:
+    return ["\n".join(lines) + "\n" for lines in pages]
+
+
+@pytest.mark.parametrize(
+    ("pages", "start"),
+    [
+        (_pages(["Intro text."], ["More text."], ["References", "[1] A."]), (3, 1)),
+        (_pages(["Intro text."], ["Body.", "R EFERENCES", "[1] A."]), (2, 2)),
+        (_pages(["Body."], ["8 References", "[1] A."]), (2, 1)),
+        (_pages(["Body."], ["VIII. REFERENCES", "[1] A."]), (2, 1)),
+        (_pages(["Body."], ["Bibliography", "[1] A."]), (2, 1)),
+        (_pages(["Body."], ["References to the API are below.", "More."]), None),
+        (_pages(["Body."], ["Body."]), None),
+        # A running head and a folio ahead of the heading are not lines.
+        (
+            _pages(
+                ["Conf '27, Rome", "Body.", "1"],
+                ["Conf '27, Rome", "Body.", "2"],
+                ["Conf '27, Rome", "3", "References", "[1] A."],
+            ),
+            (3, 1),
+        ),
+        # A line on one page of its parity is no running head, so it stays a line.
+        (_pages(["Same line.", "Body."], ["Same line.", "References"]), (2, 2)),
+        # Heads that alternate between odd and even pages, as acmart and twoside print them.
+        (
+            _pages(
+                ["The title.", "Body one."],
+                ["Author et al.", "Body two."],
+                ["A Short Title", "Body three."],
+                ["Author et al.", "Body four."],
+                ["A Short Title", "REFERENCES", "[1] A."],
+            ),
+            (5, 1),
+        ),
+        # Heads that carry the page number, as LNCS prints them.
+        (
+            _pages(
+                ["The title.", "Body one."],
+                ["2 F. Author", "Body two."],
+                ["Short Title 3", "Body three."],
+                ["4 F. Author", "Body four."],
+                ["Short Title 5", "Body five."],
+                ["6 F. Author", "References", "[1] A."],
+            ),
+            (6, 1),
+        ),
+        # A lone number that is not the page's folio stays a line.
+        (_pages(["Body."], ["Body two."], ["42", "References"]), (3, 2)),
+        # A wrapped lowercase word is not a heading.
+        (_pages(["Body."], ["Text about", "references", "more."], ["References"]), (3, 1)),
+        (_pages(["Body."], ["7.1 References", "[1] A."]), (2, 1)),
+        # A second references list later (an appendix's) never makes the first one running.
+        (_pages(["Body."], ["Body.", "References"], ["References", "[9] Z."]), (2, 2)),
+        (
+            _pages(["Body."], ["Body.", "References"], ["[1] A."], ["References", "[9] Z."]),
+            (2, 2),
+        ),
+        # A content line repeated at two page edges is no head while other pages carry none.
+        (_pages(["Results.", "body"], ["body2"], ["Results.", "References"], ["more"]), (3, 2)),
+        # A lone number at the edge stays a line unless it is the page's own folio.
+        (
+            _pages(["a body", "1"], ["b body", "2"], ["c body", "3"], ["42", "References", "4"]),
+            (4, 2),
+        ),
+        # A contents page's entry is not the references.
+        (
+            _pages(
+                ["The title.", "Contents", "1 Introduction", "References", "Body."],
+                ["Body two."],
+                ["References", "[1] A."],
+            ),
+            (3, 1),
+        ),
+        # A review copy's line-number ruler is not lines.
+        (
+            _pages(
+                [f"{i:03d}" for i in range(30)] + ["Body one."],
+                [f"{i:03d}" for i in range(30, 60)] + ["Body two."],
+                [f"{i:03d}" for i in range(60, 90)] + ["References", "[1] A."],
+            ),
+            (3, 1),
+        ),
+        # The same head on every page after the first is a head in a three-page document.
+        (
+            _pages(["Title.", "Body."], ["Short head", "Body two."], ["Short head", "References"]),
+            (3, 1),
+        ),
+        # Under three pages no head can be confirmed, so the count leans loud.
+        (_pages(["Under review", "Body."], ["Under review", "References"]), (2, 2)),
+        (_pages(["Body."], ["Works cited", "[1] A."]), (2, 1)),
+        (_pages(["Body."], ["REFERENCES", "[1] A."]), (2, 1)),
+        # In a headed document a line repeated mid-page stays a line.
+        (
+            _pages(
+                ["Title.", "Body.", "x", "y", "z"],
+                ["Head A", "b2", "c2", "d2", "e2"],
+                ["Head B", "b3", "Same label.", "d3", "e3"],
+                ["Head A", "b4", "c4", "d4", "e4"],
+                ["Head B", "b5", "Same label.", "References", "e5", "f5"],
+            ),
+            (5, 3),
+        ),
+        # A references heading at the edge of two pages is never a running head.
+        (
+            _pages(
+                ["Title.", "Body."],
+                ["Head A", "b2"],
+                ["Head B", "References", "[1] A."],
+                ["Head A", "b4"],
+                ["Head B", "References", "[9] Z."],
+            ),
+            (3, 1),
+        ),
+        # One unheaded page after the first keeps every line, so a repeated line is no head.
+        (
+            _pages(
+                ["Title.", "b1"],
+                ["Head A", "b2"],
+                ["Results.", "x3"],
+                ["Head A", "b4"],
+                ["Results.", "References"],
+                ["Head A", "b6"],
+                ["plain7", "z7"],
+            ),
+            (5, 2),
+        ),
+        # A line without letters is never a running head.
+        (
+            _pages(
+                ["Title.", "b1"],
+                ["Head A", "b2"],
+                ["Head B", "* * *", "c3"],
+                ["Head A", "b4"],
+                ["Head B", "* * *", "References", "r5"],
+            ),
+            (5, 2),
+        ),
+        # A line repeated on a page of the other parity is no running head.
+        (
+            _pages(
+                ["Title.", "b1"],
+                ["Head A", "Note.", "b2"],
+                ["Head B", "Note.", "References"],
+                ["Head A", "b4"],
+                ["Head B", "b5"],
+            ),
+            (3, 2),
+        ),
+        # Only a page's edge lines can be running; a repeated line mid-page stays a line.
+        (
+            _pages(
+                ["Top one.", "Text.", "Same label.", "Text.", "End one."],
+                ["Top two.", "Text two.", "End two."],
+                ["Top three.", "Text.", "Same label.", "References", "[1] A.", "End."],
+            ),
+            (3, 4),
+        ),
+    ],
+)
+def test_the_references_start_at_their_first_heading_line(lb, pages, start):
+    assert (lb.references_starts(pages) or [None])[0] == start
+
+
+@pytest.mark.parametrize(
+    ("pages", "body", "where"),
+    [
+        (_pages(["Body."], ["References", "[1] A."]), 1, "references start on page 2, line 1"),
+        (_pages(["Body."], ["Body.", "References"]), 2, "references start on page 2, line 2"),
+        (_pages(["Body."], ["Body."]), None, "no references heading found"),
+    ],
+)
+def test_body_pages_end_where_the_references_start(lb, monkeypatch, pages, body, where):
+    monkeypatch.setattr(lb, "page_texts", lambda _pdf, _reading=None: pages)
+    assert lb.body_pages(pathlib.Path("doc.pdf"))[:2] == (body, where)
+
+
+def test_body_pages_say_why_without_pdftotext(lb, monkeypatch, tmp_path):
+    pdf = tmp_path / "doc.pdf"
+    pdf.write_bytes(b"%PDF-1.7\n")
+    monkeypatch.setattr(lb.shutil, "which", lambda _tool: None)
+    assert lb.body_pages(pdf) == (None, "pdftotext is not installed", 0)
+
+
+@pytest.mark.parametrize(
+    ("budget", "pages", "body", "over", "measured", "unmeasured"),
+    [
+        ((7, None, 6), 7, 6, [], "7 of 7 pages, body 6 of 6 pages", False),
+        ((7, None, 6), 7, 7, ["body 7 pages, budget 6"], "7 of 7 pages, body 7 of 6 pages", False),
+        ((None, None, 6), 8, 6, [], "8 pages, body 6 of 6 pages", False),
+        ((None, None, 1), 2, None, [], "2 pages, body ? of 1 page", True),
+    ],
+)
+def test_compare_reads_the_body_limit(lb, budget, pages, body, over, measured, unmeasured):
+    assert lb.compare(lb.Budget(*budget), pages, None, body) == (over, measured, unmeasured)
+
+
+@pytest.mark.parametrize(
+    ("pages", "expected", "says"),
+    [
+        (_pages(["One."], ["Two."], ["References"]), INFO, "body 2 of 2 pages"),
+        (
+            _pages(["One."], ["Two."], ["Three.", "References"]),
+            BLOCK,
+            "body 3 pages, budget 2 (references start on page 3, line 2)",
+        ),
+        (_pages(["One."], ["Two."], ["Three."]), REVIEW, "no references heading found"),
+    ],
+)
+def test_the_gate_blocks_a_body_past_its_pages(lb, monkeypatch, tmp_path, pages, expected, says):
+    monkeypatch.setattr(lb, "page_texts", lambda _pdf, _reading=None: pages)
+    monkeypatch.setattr(lb, "pdf_pages", lambda _pdf: 3)
+    (severity, message, anchor) = lb.assess(
+        "% budget: 3 pages, 2 body pages\n",
+        tmp_path / "doc.pdf",
+        hint="h",
+        source_name="doc.tex",
+        tex=tmp_path / "doc.tex",
+    )[0]
+    assert (severity, anchor) == (expected, "doc.pdf")
+    assert says in message
+
+
+def _text_pdf(path: pathlib.Path, pages: list[list[str]]) -> None:
+    """A PDF whose pages print the given lines top to bottom, in Helvetica."""
+
+    def escape(text: str) -> str:
+        return text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    kids = []
+    for lines in pages:
+        shown = " T* ".join(f"({escape(line)}) Tj" for line in lines)
+        stream = f"BT /F1 12 Tf 72 720 Td 16 TL {shown} ET".encode()
+        objects.append(b"<< /Length %d >>\nstream\n%s\nendstream" % (len(stream), stream))
+        content = len(objects)
+        objects.append(
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+            b"/Resources << /Font << /F1 3 0 R >> >> /Contents %d 0 R >>" % content
+        )
+        kids.append(f"{len(objects)} 0 R")
+    objects[1] = f"<< /Type /Pages /Kids [{' '.join(kids)}] /Count {len(kids)} >>".encode()
+    out = bytearray(b"%PDF-1.4\n")
+    offsets = []
+    for number, body in enumerate(objects, 1):
+        offsets.append(len(out))
+        out += b"%d 0 obj\n%s\nendobj\n" % (number, body)
+    xref = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1)
+    out += b"".join(b"%010d 00000 n \n" % offset for offset in offsets)
+    out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (
+        len(objects) + 1,
+        xref,
+    )
+    path.write_bytes(bytes(out))
+
+
+@pytest.mark.skipif(shutil.which("pdftotext") is None, reason="pdftotext (poppler) not installed")
+@pytest.mark.parametrize(
+    ("pages", "body"),
+    [
+        ([["A body line."], ["Another body line."], ["References", "[1] An entry."]], 2),
+        ([["A body line."], ["Another body line."], ["The last body line.", "References"]], 3),
+    ],
+)
+def test_body_pages_read_a_real_pdf_through_pdftotext(lb, tmp_path, pages, body):
+    pdf = tmp_path / "doc.pdf"
+    _text_pdf(pdf, pages)
+    assert lb.pdf_pages(pdf) == len(pages)
+    assert lb.body_pages(pdf)[0] == body
+
+
+def test_a_body_page_budget_alone_does_not_count_words(lb, monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        lb, "page_texts", lambda _pdf, _reading=None: _pages(["One."], ["References"])
+    )
+    monkeypatch.setattr(lb, "pdf_pages", lambda _pdf: 2)
+    monkeypatch.setattr(lb, "tex_words", lambda _tex: pytest.fail("texcount ran"))
+    (severity, _message, _anchor) = lb.assess(
+        "% budget: 1 body page\n",
+        tmp_path / "doc.pdf",
+        hint="h",
+        source_name="doc.tex",
+        tex=tmp_path / "doc.tex",
+    )[0]
+    assert severity == INFO
+
+
+def test_only_a_body_overrun_names_where_the_references_start(lb, monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        lb, "page_texts", lambda _pdf, _reading=None: _pages(["One."], ["Two."], ["References"])
+    )
+    monkeypatch.setattr(lb, "pdf_pages", lambda _pdf: 5)
+    (severity, message, _anchor) = lb.assess(
+        "% budget: 4 pages, 3 body pages\n",
+        tmp_path / "doc.pdf",
+        hint="h",
+        source_name="doc.tex",
+        tex=tmp_path / "doc.tex",
+    )[0]
+    assert severity == BLOCK
+    assert "5 pages, budget 4" in message
+    assert "references start" not in message
+
+
+@pytest.mark.skipif(shutil.which("pdftotext") is None, reason="pdftotext (poppler) not installed")
+def test_alternating_running_heads_in_a_real_pdf_are_not_body(lb, tmp_path):
+    pdf = tmp_path / "doc.pdf"
+    _text_pdf(
+        pdf,
+        [
+            ["The title.", "Body one."],
+            ["Author et al.", "Body two."],
+            ["A Short Title", "Body three."],
+            ["Author et al.", "Body four."],
+            ["A Short Title", "References", "[1] An entry."],
+        ],
+    )
+    assert lb.body_pages(pdf) == (4, "references start on page 5, line 1", 1)
+
+
+def test_body_pages_reuse_text_the_caller_already_read(lb, monkeypatch):
+    monkeypatch.setattr(lb.shutil, "which", lambda _tool: pytest.fail("pdftotext ran"))
+    reading = "Body one.\n\fBody two.\n\fReferences\n[1] A.\n\f"
+    assert lb.body_pages(pathlib.Path("doc.pdf"), reading) == (
+        2,
+        "references start on page 3, line 1",
+        1,
+    )
+
+
+def test_a_number_inside_a_line_is_kept_when_matching_heads(lb):
+    pages = _pages(
+        ["Title.", "b1"],
+        ["Head A", "Table 2 x"],
+        ["Head B", "Fig 3a", "c3"],
+        ["Head A", "b4"],
+        ["Head B", "Fig 5a", "References"],
+    )
+    assert lb.references_starts(pages)[0] == (5, 2)
+
+
+@pytest.mark.parametrize(
+    ("pages", "starts"),
+    [
+        # A head that names the section prints REFERENCES above the body that ends it.
+        (
+            _pages(
+                ["Body one."], ["Body two."], ["REFERENCES", "The last body line.", "REFERENCES"]
+            ),
+            [(3, 1), (3, 3)],
+        ),
+        # A contents list run on to a page without its "Contents" line.
+        (
+            _pages(["Contents", "Intro"], ["References", "Body."], ["Body."], ["References"]),
+            [(2, 1), (4, 1)],
+        ),
+        # A table column called References.
+        (_pages(["Tool", "References", "Year"], ["Body."], ["References"]), [(1, 2), (3, 1)]),
+        # Folios offset from the page index (a first page set to 101).
+        (
+            _pages(["Title", "Intro", "101"], ["Body.", "102"], ["103", "References", "[1] x"]),
+            [(3, 1)],
+        ),
+        # An offset seen once is no folio pattern, so the number stays a line.
+        (_pages(["Title", "Intro"], ["57", "References", "[1] x"]), [(2, 2)]),
+        # One other page with the same offset is chance, not a folio sequence.
+        (_pages(["Title", "Intro", "40"], ["Body.", "Text."], ["42", "References"]), [(3, 2)]),
+        # A body line that opens two even pages under one head is body, not a second head.
+        (
+            _pages(
+                ["Title page.", "Body one."],
+                ["The Head", "of the data.", "Body two."],
+                ["The Head", "Body three."],
+                ["The Head", "of the data.", "References", "[1] A."],
+            ),
+            [(4, 2)],
+        ),
+        # A table of lone numbers is no ruler, so it stays above the heading.
+        (
+            _pages(
+                ["Body one."] + [str(n) for n in (7, 3, 12, 9, 4, 15, 2, 8, 11, 6)] * 3,
+                [str(n) for n in (5, 14, 1, 10)] + ["References", "[1] A."],
+            ),
+            [(2, 5)],
+        ),
+        # A table cell that reads Contents does not hide its page's heading.
+        (_pages(["Body.", "Item", "Contents", "Size"], ["Text.", "References"]), [(2, 2)]),
+        (_pages(["Body."], ["References and Notes", "1. A."]), [(2, 1)]),
+        (_pages(["Body."], ["References Cited"]), [(2, 1)]),
+        (_pages(["Body."], ["Literatur", "[1] A."]), [(2, 1)]),
+        (_pages(["Corps."], ["Références", "[1] A."]), [(2, 1)]),
+        # A second head line on every page after the first goes too (ACM's conference line).
+        (
+            _pages(
+                ["Title page.", "Body one."],
+                ["Short Title", "Conf 27, Rome", "Body two."],
+                ["Short Title", "Conf 27, Rome", "Body three."],
+                ["Short Title", "Conf 27, Rome", "References", "[1] A."],
+            ),
+            [(4, 1)],
+        ),
+        # A line on every page but away from the edges is body.
+        (
+            _pages(
+                ["Title page.", "b1", "c1", "d1", "e1", "f1"],
+                ["Head", "a2", "Repeated mid.", "b2", "c2", "d2"],
+                ["Head", "a3", "Repeated mid.", "b3", "c3", "d3"],
+                ["Head", "a4", "Repeated mid.", "References", "e4", "f4"],
+            ),
+            [(4, 3)],
+        ),
+        # A letterless line at the top of two odd pages heads nothing.
+        (
+            _pages(
+                ["Title", "b1"],
+                ["Head A", "b2"],
+                ["~~~", "c3"],
+                ["Head A", "b4"],
+                ["~~~", "References"],
+            ),
+            [(5, 2)],
+        ),
+        # A Contents cell below the page's first lines leaves the page read.
+        (_pages(["Body."], ["Text.", "More.", "Item", "Contents", "Size", "References"]), [(2, 6)]),
+        # Under three pages after the first, a deeper top line is body even on every page.
+        (
+            _pages(["Title", "b1"], ["Head", "work.", "b2"], ["Head", "work.", "References"]),
+            [(3, 2)],
+        ),
+        # A folio above the head leaves the head the first line that is no folio.
+        (
+            _pages(
+                ["Title", "b1"],
+                ["2", "Head A", "b2"],
+                ["3", "Head B", "c3"],
+                ["4", "Head A", "b4"],
+                ["5", "Head B", "References"],
+            ),
+            [(5, 1)],
+        ),
+        # A numbered list of fifteen is no ruler.
+        (
+            _pages(["Body."] + [str(n) for n in range(1, 16)], ["16", "17", "18", "References"]),
+            [(2, 4)],
+        ),
+        # A heading may end in a full stop or a colon.
+        (_pages(["Body."], ["Reference List.", "[1] A."]), [(2, 1)]),
+        (_pages(["Body."], ["References:", "[1] A."]), [(2, 1)]),
+        # babel's \\bibname titles, as report and book classes print them.
+        (_pages(["Corps."], ["Bibliographie", "[1] A."]), [(2, 1)]),
+        (_pages(["Text."], ["Literaturverzeichnis", "[1] A."]), [(2, 1)]),
+        (_pages(["Testo."], ["Bibliografia", "[1] A."]), [(2, 1)]),
+        # A ruler on full pages marks the copy, so the short last page drops its numbers too.
+        (
+            _pages(
+                [f"{i:03d}" for i in range(30)] + ["Body one."],
+                [f"{i:03d}" for i in range(30, 33)] + ["References", "[1] A."],
+            ),
+            [(2, 1)],
+        ),
+    ],
+)
+def test_every_heading_like_line_is_found(lb, pages, starts):
+    assert lb.references_starts(pages) == starts
+
+
+@pytest.mark.parametrize(
+    ("pages", "total", "expected", "says"),
+    [
+        # Several heading-like lines and room to doubt: a look, not a pass.
+        (
+            _pages(["One."], ["Two."], ["REFERENCES", "Three.", "REFERENCES"]),
+            3,
+            REVIEW,
+            "2 references headings (page 3 line 1, page 3 line 3)",
+        ),
+        # The earliest already runs over, so the body does too.
+        (
+            _pages(["One."], ["Two."], ["Three.", "References"], ["References"]),
+            4,
+            BLOCK,
+            "body 3 pages, budget 2",
+        ),
+        # A PDF no longer than the body limit cannot run over, heading or not.
+        (_pages(["One."], ["Two."]), 2, INFO, "body 2 of 2 pages"),
+        (_pages(["References"], ["References"]), 2, INFO, "body 0 of 2 pages"),
+    ],
+)
+def test_the_gate_passes_a_body_only_when_it_is_sure(
+    lb, monkeypatch, tmp_path, pages, total, expected, says
+):
+    monkeypatch.setattr(lb, "page_texts", lambda _pdf, _reading=None: pages)
+    monkeypatch.setattr(lb, "pdf_pages", lambda _pdf: total)
+    (severity, message, _anchor) = lb.assess(
+        "% budget: 2 body pages\n",
+        tmp_path / "doc.pdf",
+        hint="h",
+        source_name="doc.tex",
+        tex=tmp_path / "doc.tex",
+    )[0]
+    assert severity == expected, message
+    assert says in message
+
+
+def test_an_empty_reading_is_a_read_that_failed(lb, monkeypatch):
+    monkeypatch.setattr(lb.prose_check, "reading_text", lambda _pdf: pytest.fail("read twice"))
+    assert lb.page_texts(pathlib.Path("doc.pdf"), "") is None
+    assert lb.body_pages(pathlib.Path("doc.pdf"), "")[0] is None
+
+
+def test_an_unread_pdf_is_read_once_for_the_budget(lb, monkeypatch):
+    monkeypatch.setattr(lb.prose_check, "reading_text", lambda _pdf: "Body.\n\fReferences\n")
+    assert lb.page_texts(pathlib.Path("doc.pdf")) == ["Body.\n", "References\n"]
+
+
+def test_a_doubtful_body_and_an_uncounted_word_limit_both_ask(lb, monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        lb,
+        "page_texts",
+        lambda _pdf, _reading=None: _pages(["One."], ["References"], ["References"]),
+    )
+    monkeypatch.setattr(lb, "pdf_pages", lambda _pdf: 3)
+    monkeypatch.setattr(lb, "tex_words", lambda _tex: (None, "texcount is not installed"))
+    found = lb.assess(
+        "% budget: 3000 words, 2 body pages\n",
+        tmp_path / "doc.pdf",
+        hint="h",
+        source_name="doc.tex",
+        tex=tmp_path / "doc.tex",
+    )
+    assert [severity for severity, _m, _a in found] == [REVIEW, REVIEW]
+    assert "references headings" in found[0][1]
+    assert "texcount is not installed" in found[1][1]
+
+
+def test_reading_text_decodes_utf8_whatever_the_locale(lb, monkeypatch, tmp_path):
+    pdf = tmp_path / "doc.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n")
+    seen = {}
+
+    def run(cmd, **kwargs):
+        seen.update(kwargs)
+        return subprocess.CompletedProcess(cmd, 0, stdout="Références\n", stderr="")
+
+    monkeypatch.setattr(lb.prose_check.shutil, "which", lambda _tool: "/usr/bin/pdftotext")
+    monkeypatch.setattr(lb.prose_check.subprocess, "run", run)
+    assert lb.prose_check.reading_text(pdf) == "Références\n"
+    assert (seen.get("encoding"), seen.get("errors")) == ("utf-8", "replace")
+    assert "text" not in seen
+
+
+def test_every_limit_that_cannot_be_measured_is_named(lb, monkeypatch, tmp_path):
+    monkeypatch.setattr(lb, "page_texts", lambda _pdf, _reading=None: None)
+    monkeypatch.setattr(lb, "pdf_pages", lambda _pdf: None)
+    found = lb.assess(
+        "% budget: 7 pages, 6 body pages\n",
+        tmp_path / "doc.pdf",
+        hint="h",
+        source_name="doc.tex",
+        tex=tmp_path / "doc.tex",
+    )
+    messages = [message for _severity, message, _anchor in found]
+    assert len(messages) == 2
+    assert messages[0].startswith("body pages cannot be measured")
+    assert messages[1].startswith("could not measure the PDF")
+
+
+def test_an_uncounted_word_limit_and_an_unread_body_are_both_named(lb, monkeypatch, tmp_path):
+    monkeypatch.setattr(lb, "page_texts", lambda _pdf, _reading=None: None)
+    monkeypatch.setattr(lb, "pdf_pages", lambda _pdf: 3)
+    monkeypatch.setattr(lb, "tex_words", lambda _tex: (None, "texcount is not installed"))
+    found = lb.assess(
+        "% budget: 3000 words, 2 body pages\n",
+        tmp_path / "doc.pdf",
+        hint="h",
+        source_name="doc.tex",
+        tex=tmp_path / "doc.tex",
+    )
+    messages = [message for _severity, message, _anchor in found]
+    assert len(messages) == 2
+    assert messages[0].startswith("word limit cannot be measured")
+    assert messages[1].startswith("body pages cannot be measured")

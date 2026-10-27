@@ -334,14 +334,18 @@ def prose_findings(pdf: pathlib.Path, reading: str | None = None) -> list[Findin
     ]
 
 
-def budget_findings(tex: pathlib.Path, pdf: pathlib.Path) -> list[Finding]:
+def budget_findings(
+    tex: pathlib.Path, pdf: pathlib.Path, reading: str | None = None
+) -> list[Finding]:
     """BLOCK over the budget the source declares, REVIEW when it declares none or a
-    declared limit cannot be measured."""
+    declared limit cannot be measured. `reading` is the PDF's reading-order text, if read."""
     if length_budget is None:
         return [Finding(INFO, "budget", "budget check not installed (no _shared/length_budget.py)")]
     source = tex.read_text(encoding="utf-8-sig", errors="replace")
     hint = "`% budget: N pages` in the .tex"
-    results = length_budget.assess(source, pdf, hint=hint, source_name=tex.name, tex=tex)
+    results = length_budget.assess(
+        source, pdf, hint=hint, source_name=tex.name, tex=tex, reading=reading
+    )
     return [Finding(severity, "budget", message, where) for severity, message, where in results]
 
 
@@ -443,12 +447,13 @@ def main() -> int:
         elif ambiguous:
             found.append(Finding(INFO, "coverage", ambiguous))
 
-    reading = prose_check.pdf_text(pdf) if prose_check is not None and text else text
+    # Reading order, read once for the prose and budget checks; empty when the read failed.
+    reading = (prose_check.reading_text(pdf) or "") if prose_check is not None and text else None
     if not args.no_prose and text:
-        found += prose_findings(pdf, reading)
+        found += prose_findings(pdf, reading or "")
 
     if fresh:
-        found += budget_findings(tex, pdf)
+        found += budget_findings(tex, pdf, reading)
 
     if code != 0 and not any(f.severity == ERROR for f in found):
         found.append(Finding(ERROR, "build", f"latexmk exited {code}, log says nothing"))

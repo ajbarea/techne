@@ -126,7 +126,7 @@ Each class has the same four fields:
 - **Symptom:** a valid but uncommon input (a bare repo, a worktree of a bare repo, a submodule, a detached HEAD, a path with spaces or a leading dash) takes a branch nobody wrote for it.
 - **Question:** what shapes can this input take in the wild, and is each one a test case or an explicit refusal?
 - **Guard:** the shape list written into the test module as a parametrized table before the code; an unknown shape fails closed with a named reason.
-- **Incidents:** techne#189 r4 (2026-10-21): a worktree of a bare repo, whose common dir is not `.git`, broke the repo-kind check; techne#200 r3 (2026-10-24): `rev-list --objects` names each blob once, so a renamed file's old name escaped the scan.
+- **Incidents:** techne#189 r4 (2026-10-21): a bare repo's worktree (common dir not `.git`) broke the repo-kind check; techne#200 r3 (2026-10-24): a renamed file's old blob name escaped `rev-list --objects`; techne#222 r1 (2026-10-27): odd/even running heads went unrecognised.
 
 ### asymmetric-signal: One source wins whoever set it
 

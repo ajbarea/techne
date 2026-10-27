@@ -17,6 +17,7 @@ import argparse
 import functools
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
 from typing import NamedTuple
@@ -31,13 +32,19 @@ Patterns = list[tuple[str, re.Pattern[str]]]
 
 _BLOCK = re.compile(r"```prose-patterns\n(?P<body>.*?)```", re.S)
 _BACKTICKED = re.compile(r"`([^`]+)`")
+_PDFTOTEXT_TIMEOUT = 60
 # A reference list is citations, not prose. It ends at the next heading (an appendix) or the end.
 # A numbered heading is `7 References`, `VII. REFERENCES` or `## 5. References`; `3. References`
 # without `#` is a list item.
-# The titles a reference list goes by, spaced small caps included; length_budget reads them too.
+# The titles a reference list goes by, spaced small caps and babel's \refname and \bibname
+# translations included;
+# length_budget reads them too.
 REFERENCES_TITLES = (
     r"R\s?EFERENCES|References|Bibliography|BIBLIOGRAPHY"
     r"|W\s?ORKS\s+C\s?ITED|Works\s+Cited|L\s?ITERATURE\s+C\s?ITED|Literature\s+Cited"
+    r"|References\s+Cited|References\s+and\s+Notes|Reference\s+List"
+    r"|R\s?ÉFÉRENCES|Références|Literatur|L\s?ITERATUR|Referencias|Bibliografía|Referências"
+    r"|Bibliographie|Literaturverzeichnis|Bibliografia"
 )
 _REFERENCES = re.compile(
     rf"^\s*(?:#{{1,6}}\s*(?:\d+(?:\.\d+)*\.?\s+)?|(?:\d+|[IVXLC]+\.)\s+)?(?:{REFERENCES_TITLES})\s*$",
@@ -173,10 +180,28 @@ def check(
     return hits
 
 
+def reading_text(pdf: pathlib.Path) -> str | None:
+    """pdftotext's reading-order text, pages split by form feeds; None when pdftotext is
+    missing, fails or runs past `_PDFTOTEXT_TIMEOUT`. Reading order, not -layout: two-column
+    layout interleaves the sentences."""
+    if not pdf.is_file() or not shutil.which("pdftotext"):
+        return None
+    try:
+        proc = subprocess.run(
+            ["pdftotext", "-enc", "UTF-8", str(pdf), "-"],
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=_PDFTOTEXT_TIMEOUT,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return None if proc.returncode else proc.stdout
+
+
 def pdf_text(pdf: pathlib.Path) -> str:
-    """Reading order, not -layout: two-column layout interleaves the sentences."""
-    proc = subprocess.run(["pdftotext", str(pdf), "-"], capture_output=True, text=True)
-    return proc.stdout
+    """`reading_text`, or empty when the PDF cannot be read."""
+    return reading_text(pdf) or ""
 
 
 def main() -> int:
