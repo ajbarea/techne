@@ -6,17 +6,12 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 
 ## In flight
 
-graphe `slides.py pptx --editable` (branch `feat/slides-pptx-editable`): exporter in
-`slides/scripts/pptx_editable.py`, fixture deck `tests/fixtures/custom-deck/`, tests in
-`tests/test_slides_editable.py` (incl. a PowerPoint/LibreOffice render comparison; CI installs
-LibreOffice Impress, opt-out `TECHNE_NO_OFFICE`). Review rounds 1-3 fixed (round 3's blocking growth loop reproduced on the reviewer's decks: per-slide difference from the browser 0.001-0.007); merge on green CI.
-Verify: `make test`; export a real deck and `render` it, compare with `--images`.
+Nothing. The 10-26 techne batch is merged: #215 docsync repo metadata, #216 poppler on CI,
+#217 graphe `pptx --editable` (see ROADMAP Shipped). Next pickup: the logging rollout below.
 
-Done 10-26/27: #215 docsync checks the GitHub About section and README opening
-(`docsync/scripts/repo_meta.py`); #216 poppler on CI, the 3 web-deck PDF tests run.
-Owed by AJ from #209: the status line step `/phylax:setup` prints, and the global CLAUDE.md
-routing line. GitGuardian incident 39081601 (a fake test token, #215) wants marking false
-positive in the dashboard.
+Owed by AJ: from #209, the status line step `/phylax:setup` prints and the global CLAUDE.md
+routing line; GitGuardian incident 39081601 (a fake test token in #215, gone from the history)
+to mark as a false positive in the dashboard.
 
 ## Logging rollout (stopped here 10-26; AJ moved sphragis and the MSR paper to the top)
 
