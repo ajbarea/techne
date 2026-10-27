@@ -192,7 +192,7 @@ that drift class recurs.
 
 Detail lives in git history (`git log`) and the live skill code. This log is pruned once work is durably shipped.
 
-- 2026-10-27: **heuresis refuses a relative folder.** Every path argument must be absolute (exit 2), because `uv run --directory` resolves a relative one inside the plugin; commands that write a run folder also refuse an ideas folder without `ideas/<id>.md` (#219).
+- 2026-10-27: **heuresis refuses a relative folder.** Every path argument must be absolute (exit 2), because `uv run --directory` resolves a relative one inside the plugin; commands that write a run folder also refuse an ideas folder without `ideas/<id>.md` (#220). Open: `board` still writes into a folder that is not an ideas repository.
 - 2026-10-27: **graphe:slides `pptx --editable`.** A web deck exported for editing in PowerPoint or Google Slides: Chromium lays out each slide, and native text boxes (runs, bullets, inline TeX as Unicode), native tables and figure/equation pictures land where it put them, over a background picture taken with the glyphs transparent. Reads reveal.js and custom `section.slide` decks; a render comparison through PowerPoint or LibreOffice runs in CI (#217).
 - 2026-10-27: **Poppler on CI.** The three web-deck PDF tests run instead of skipping; `TECHNE_NO_POPPLER` declares its absence (#216).
 - 2026-10-27: **docsync checks repo metadata.** The GitHub description, homepage and topics and the README opening, against what the code ships; `repo_meta.py` reads them and flags what a rule settles (#215).
