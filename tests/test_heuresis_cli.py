@@ -259,6 +259,7 @@ def test_a_relative_ideas_path_cannot_write_outside_the_ideas_repo(
     [
         ["init", "ideas", "--repos-root", "/r"],
         ["init", "/i", "--repos-root", "repos"],
+        ["init", "/i", "--repos-root", "/r", "--techne-toml", "techne.toml"],
         ["context", "--ideas", "/i", "--repos-root", "repos"],
         ["verify", "--ideas", "/i", "--id", "2026-10-27-x", "--repos-root", "."],
         ["board", "--ideas", "./ideas"],
@@ -272,8 +273,11 @@ def test_every_path_argument_must_be_absolute(argv, tmp_path: Path, capsys, monk
     assert "must be an absolute path" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("command", ["add-record", "search", "pool"])
-def test_a_run_command_refuses_an_ideas_root_without_the_idea(
+@pytest.mark.parametrize(
+    "command",
+    ["add-record", "search", "pool", "verify", "apply", "restate", "override", "decline"],
+)
+def test_every_command_on_one_idea_refuses_an_ideas_root_without_it(
     tmp_path: Path, capsys, monkeypatch, command
 ):
     ideas = init_ideas(tmp_path)
@@ -286,10 +290,17 @@ def test_a_run_command_refuses_an_ideas_root_without_the_idea(
         "add-record": ["--group", "context", "--json", json.dumps(record)],
         "search": ["--group", "papers", "--query", "q"],
         "pool": [],
+        "verify": ["--repos-root", str(tmp_path)],
+        "apply": [],
+        "restate": ["--json", json.dumps({"restated": "r", "queries": ["q"]})],
+        "override": ["trash", "why"],
+        "decline": ["why"],
     }[command]
+    by_flag = command not in ("override", "decline")
     for root in (wrong, ideas):
         other = idea_id if root == wrong else "2026-01-01-not-captured"
-        assert cli.main([command, "--ideas", str(root), "--id", other, *extra]) == 2
+        which = ["--id", other] if by_flag else [other]
+        assert cli.main([command, "--ideas", str(root), *which, *extra]) == 2
         assert "has no ideas/" in capsys.readouterr().err
     assert not any(wrong.iterdir())
     assert not (ideas / "runs" / "2026-01-01-not-captured").exists()

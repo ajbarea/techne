@@ -42,21 +42,24 @@ def _check_id(idea_id: str) -> str:
     return idea_id
 
 
-def _run_dir(root: Path, idea_id: str) -> Path:
-    if not store.idea_path(root, _check_id(idea_id)).is_file():
+def _idea_file(root: Path, idea_id: str) -> Path:
+    path = store.idea_path(root, _check_id(idea_id))
+    if not path.is_file():
         raise UsageError(
             f"{root} has no ideas/{idea_id}.md; pass the ideas repository that holds it"
         )
+    return path
+
+
+def _run_dir(root: Path, idea_id: str) -> Path:
+    _idea_file(root, idea_id)
     path = root / "runs" / idea_id
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
 def _load_idea(root: Path, idea_id: str) -> Idea:
-    path = store.idea_path(root, _check_id(idea_id))
-    if not path.is_file():
-        raise store.StoreError(f"no idea {idea_id} in {root / 'ideas'}")
-    return store.load(path)
+    return store.load(_idea_file(root, idea_id))
 
 
 def build_parser() -> argparse.ArgumentParser:
