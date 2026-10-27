@@ -20,7 +20,7 @@ Skills ship as plugins: `techne` for work in a code repo, `graphe` for documents
 | [`techne:auto-commit`](auto-commit.md) | Groups working-tree changes into a structured `COMMITS.md` plan for staged review before anything lands. |
 | [`techne:deslop`](deslop.md) | Scans comments and docstrings for AI-generated slop and proposes tightened rewrites. |
 | [`techne:reslop`](reslop.md) | Rewrites docstrings grounded in the implementation rather than deleting them outright. |
-| [`techne:docsync`](docsync.md) | Verifies documentation claims (CLI commands, paths, config keys, signatures) against the actual code. |
+| [`techne:docsync`](docsync.md) | Verifies documentation claims (CLI commands, paths, config keys, signatures) and the GitHub description, homepage and topics against the actual code. |
 | [`techne:logging`](logging.md) | Checks a repo's logging against techne's standard (linter gates, secrets in log calls, uncapped log files, errors on stdout, CI logs lost on failure) and fixes what falls short. |
 | [`techne:research-grounded`](research-grounded.md) | Flags decisions (technology, data release, study design, access rules, claim wording) in `IMPL.md`, `ROADMAP.md` and decision records that lack `# research(YYYY-MM):` provenance, then web-searches to ground them. |
 

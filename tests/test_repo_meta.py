@@ -12,6 +12,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from conftest import HOOK_PYTHON, REPO_META_SCRIPT
 
 SLUG = "ajbarea/myrepo"
 REPO = ["gh", "api", "--hostname", "github.com", f"repos/{SLUG}"]
@@ -220,10 +221,119 @@ def test_no_github_origin_stops_with_a_reason(meta, tmp_path, capsys):
     root.mkdir()
     git(root, "init", "-q")
     err = failure(meta, capsys, root)
-    assert "no GitHub origin" in err
+    assert "no GitHub origin (no origin remote)" in err
+
+
+def test_a_folder_outside_git_stops_with_its_own_reason(meta, tmp_path, capsys):
+    assert "is not in a git repository" in failure(meta, capsys, tmp_path)
 
 
 def test_a_failed_github_read_stops_with_a_reason(meta, repo, gh, capsys):
     gh.register(REPO, returncode=1, stderr="gh: Not Found (HTTP 404)")
     err = failure(meta, capsys, repo)
-    assert f"could not read {SLUG} on GitHub" in err
+    assert f"could not read {SLUG} on GitHub: gh: Not Found (HTTP 404)" in err
+
+
+# ------------------------------------------------------ README shapes ----
+
+
+def texts(meta, text: str) -> list[str]:
+    return [p["text"] for p in meta.opening(text)]
+
+
+def test_a_tagline_heading_in_a_centred_header_is_kept(meta):
+    text = (
+        '<div align="center">\n\n# keryx\n\n### Gives Claude Code a voice.\n\n</div>\n\n'
+        "keryx speaks a short gist of each reply.\n\n## Install\n"
+    )
+    assert texts(meta, text) == [
+        "Gives Claude Code a voice.",
+        "keryx speaks a short gist of each reply.",
+    ]
+
+
+def test_an_h2_inside_the_header_container_is_a_tagline(meta):
+    text = '<p align="center">\n\n## A centred h2 tagline\n\n</p>\n\nLead.\n\n## Install\n'
+    assert texts(meta, text) == ["A centred h2 tagline", "Lead."]
+
+
+def test_a_subtitle_right_under_the_title_is_kept_but_an_h2_ends_the_opening(meta):
+    assert texts(meta, "# T\n### A tool.\nLead.\n") == ["A tool.", "Lead."]
+    assert texts(meta, "# T\n\n## Install\n\nRun it.\n") == []
+
+
+def test_fences_close_only_on_their_own_character_and_length(meta):
+    four = "````md\n```\n## not a heading\n````\n\nLead.\n"
+    tilde = "~~~\n```\n## not a heading\n~~~\n\nLead.\n"
+    assert texts(meta, four) == ["Lead."]
+    assert texts(meta, tilde) == ["Lead."]
+
+
+def test_front_matter_and_setext_headings(meta):
+    assert texts(meta, "---\ntitle: x\n---\n\nLead.\n") == ["Lead."]
+    assert texts(meta, "My Tool\n=======\n\nLead.\n\nUsage\n-----\n\nAfter.\n") == ["Lead."]
+
+
+def test_reference_badges_and_definitions_are_not_prose(meta):
+    text = "[![CI][ci]][run] [![PyPI][pypi]][pkg]\n\n[ci]: https://x/ci.svg\n\nLead.\n"
+    assert texts(meta, text) == ["Lead."]
+
+
+def test_angle_brackets_in_text_survive_and_autolinks_keep_their_address(meta):
+    assert texts(meta, "When a < b and c > d, it stops.\n") == ["When a < b and c > d, it stops."]
+    assert texts(meta, "Docs at <https://x.org/docs> for everyone.\n") == [
+        "Docs at https://x.org/docs for everyone."
+    ]
+
+
+def test_tables_code_details_labels_and_link_rows_are_not_the_opening(meta):
+    text = (
+        "| a | b |\n| - | - |\n\n    indented code\n\n<details>\n<summary>More</summary>\n\n"
+        "Hidden text.\n\n</details>\n\n**Docs:**\n\n[Docs](d) · [Explorer](e) · [Paper](p)\n\n"
+        "🚀 ✨\n\n> [!NOTE]\n> The real lead.\n"
+    )
+    assert texts(meta, text) == ["The real lead."]
+
+
+def test_bold_and_emphasis_markers_are_dropped(meta):
+    assert texts(meta, "**Sensemaking** for _nonatomic_ entities.\n") == [
+        "Sensemaking for _nonatomic_ entities."
+    ]
+
+
+def test_a_utf16_or_bom_readme_reads_as_text(meta, repo, gh, capsys):
+    (repo / "README.md").write_bytes("# T\n\nLead.\n".encode("utf-16"))
+    about(gh)
+    assert report(meta, capsys, repo)["opening"] == [{"line": 3, "text": "Lead."}]
+    (repo / "README.md").write_bytes("\ufeff# T\n\nLead.\n".encode())
+    about(gh)
+    assert report(meta, capsys, repo)["opening"] == [{"line": 3, "text": "Lead."}]
+
+
+def test_a_readme_link_that_leaves_the_repo_is_not_read(meta, repo, tmp_path):
+    (tmp_path / "outside.txt").write_text("secret", encoding="utf-8")
+    (repo / "README.md").symlink_to(tmp_path / "outside.txt")
+    assert meta.readme(repo) is None
+
+
+def test_a_sibling_path_is_not_under_the_pages_site(meta):
+    site = "https://ajbarea.github.io/myrepo/"
+    assert meta.under("https://ajbarea.github.io/myrepo", site)
+    assert meta.under("https://ajbarea.github.io/myrepo/docs/", site)
+    assert not meta.under("https://ajbarea.github.io/myrepo-old/", site)
+    assert not meta.under("https://ajbarea.github.io/myrepo2", site)
+
+
+def test_the_script_runs_on_the_oldest_supported_python(tmp_path):
+    """`make test-hooks-oldest` points HOOK_PYTHON at python3 3.9."""
+    out = subprocess.run(
+        [HOOK_PYTHON, str(REPO_META_SCRIPT), str(tmp_path)], capture_output=True, text=True
+    )
+    assert out.returncode == 2 and "is not in a git repository" in out.stderr, out.stderr
+    probe = (
+        f"import sys; sys.path.insert(0, {str(REPO_META_SCRIPT.parent)!r}); import repo_meta; "
+        "print(repo_meta.opening('# T\\n\\n### Tagline.\\n\\nLead.\\n'))"
+    )
+    run = subprocess.run([HOOK_PYTHON, "-c", probe], capture_output=True, text=True)
+    assert run.returncode == 0, run.stderr
+    assert "'Tagline.'" in run.stdout and "'Lead.'" in run.stdout

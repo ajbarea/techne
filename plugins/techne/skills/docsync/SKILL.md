@@ -51,7 +51,7 @@ The GitHub About section (description, homepage URL, topics) and the README's op
 python3 "<plugin-root>/skills/docsync/scripts/repo_meta.py" <target-doc>
 ```
 
-It prints the About fields, the GitHub Pages URL, the README's opening paragraphs with their lines, and `problems` a rule settles: an empty description, no topics, an unset homepage while a Pages site is live, a `github.io` homepage off that site, no README or no opening. Exit 2 means no GitHub origin or GitHub could not be read; say so and check the rest.
+It prints the About fields, the GitHub Pages URL, the README's opening paragraphs with their lines (a tagline heading in the header counts; badges, code, tables and link rows do not), and `problems` a rule settles: an empty description, no topics, an unset homepage while a Pages site is live, a `github.io` homepage off that site, no README or no opening. Exit 2 prints why (not a git repo, no GitHub origin, or gh's own error); say so in the report and check the rest.
 
 Then compare each field with the surface inventory from [Silence](#silence) and what the repo does today:
 
@@ -62,8 +62,10 @@ Then compare each field with the surface inventory from [Silence](#silence) and 
 Report each as a drift entry with `GitHub About` (or the README line) as the location. The fix is the exact command, which step 5 applies on a solo repo and proposes on a team repo:
 
 ```bash
-gh repo edit <owner/name> --description "<text>" --homepage "<url>" --add-topic <a>,<b> --remove-topic <c>
+gh repo edit <owner/name> --description '<text>' --homepage '<url>' --add-topic <a>,<b> --remove-topic <c>
 ```
+
+Quote each value in single quotes and write a `'` inside one as `'\''`: a description lifted from README prose often holds backticks or `$`, which double quotes would run as commands.
 
 A README opening fix is an ordinary prose edit, shown before and after.
 
