@@ -915,6 +915,7 @@ def test_a_body_page_limit_is_read_beside_the_others(lb, source, budget):
         "% budget: 6 body pages, 7 body pages\n",
         "% budget: 0 body pages\n",
         "% budget: 6 bodypages\n",
+        "% budget: 7 pages, 9 body pages\n",
     ],
 )
 def test_a_body_page_limit_it_cannot_accept_is_an_error(lb, source):
@@ -945,8 +946,51 @@ def _pages(*pages: list[str]) -> list[str]:
             ),
             (3, 1),
         ),
-        # Under three pages nothing counts as running, so a repeated line stays a line.
+        # A line on one page of its parity is no running head, so it stays a line.
         (_pages(["Same line.", "Body."], ["Same line.", "References"]), (2, 2)),
+        # Heads that alternate between odd and even pages, as acmart and twoside print them.
+        (
+            _pages(
+                ["The title.", "Body one."],
+                ["Author et al.", "Body two."],
+                ["A Short Title", "Body three."],
+                ["Author et al.", "Body four."],
+                ["A Short Title", "REFERENCES", "[1] A."],
+            ),
+            (5, 1),
+        ),
+        # Heads that carry the page number, as LNCS prints them.
+        (
+            _pages(
+                ["The title.", "Body one."],
+                ["2 F. Author", "Body two."],
+                ["Short Title 3", "Body three."],
+                ["4 F. Author", "Body four."],
+                ["Short Title 5", "Body five."],
+                ["6 F. Author", "References", "[1] A."],
+            ),
+            (6, 1),
+        ),
+        # A lone number that is not the page's folio stays a line.
+        (_pages(["Body."], ["Body two."], ["42", "References"]), (3, 2)),
+        # A wrapped lowercase word is not a heading.
+        (_pages(["Body."], ["Text about", "references", "more."], ["References"]), (3, 1)),
+        (_pages(["Body."], ["7.1 References", "[1] A."]), (2, 1)),
+        # A second references list later (an appendix's) never makes the first one running.
+        (_pages(["Body."], ["Body.", "References"], ["References", "[9] Z."]), (2, 2)),
+        (
+            _pages(["Body."], ["Body.", "References"], ["[1] A."], ["References", "[9] Z."]),
+            (2, 2),
+        ),
+        # Only a page's edge lines can be running; a repeated line mid-page stays a line.
+        (
+            _pages(
+                ["Top one.", "Text.", "Same label.", "Text.", "End one."],
+                ["Top two.", "Text two.", "End two."],
+                ["Top three.", "Text.", "Same label.", "References", "[1] A.", "End."],
+            ),
+            (3, 4),
+        ),
     ],
 )
 def test_the_references_start_at_their_first_heading_line(lb, pages, start):
@@ -1063,3 +1107,48 @@ def test_body_pages_read_a_real_pdf_through_pdftotext(lb, tmp_path, pages, body)
     _text_pdf(pdf, pages)
     assert lb.pdf_pages(pdf) == len(pages)
     assert lb.body_pages(pdf)[0] == body
+
+
+def test_a_body_page_budget_alone_does_not_count_words(lb, monkeypatch, tmp_path):
+    monkeypatch.setattr(lb, "page_texts", lambda _pdf: _pages(["One."], ["References"]))
+    monkeypatch.setattr(lb, "pdf_pages", lambda _pdf: 2)
+    monkeypatch.setattr(lb, "tex_words", lambda _tex: pytest.fail("texcount ran"))
+    (severity, _message, _anchor) = lb.assess(
+        "% budget: 1 body page\n",
+        tmp_path / "doc.pdf",
+        hint="h",
+        source_name="doc.tex",
+        tex=tmp_path / "doc.tex",
+    )[0]
+    assert severity == INFO
+
+
+def test_only_a_body_overrun_names_where_the_references_start(lb, monkeypatch, tmp_path):
+    monkeypatch.setattr(lb, "page_texts", lambda _pdf: _pages(["One."], ["Two."], ["References"]))
+    monkeypatch.setattr(lb, "pdf_pages", lambda _pdf: 5)
+    (severity, message, _anchor) = lb.assess(
+        "% budget: 4 pages, 3 body pages\n",
+        tmp_path / "doc.pdf",
+        hint="h",
+        source_name="doc.tex",
+        tex=tmp_path / "doc.tex",
+    )[0]
+    assert severity == BLOCK
+    assert "5 pages, budget 4" in message
+    assert "references start" not in message
+
+
+@pytest.mark.skipif(shutil.which("pdftotext") is None, reason="pdftotext (poppler) not installed")
+def test_alternating_running_heads_in_a_real_pdf_are_not_body(lb, tmp_path):
+    pdf = tmp_path / "doc.pdf"
+    _text_pdf(
+        pdf,
+        [
+            ["The title.", "Body one."],
+            ["Author et al.", "Body two."],
+            ["A Short Title", "Body three."],
+            ["Author et al.", "Body four."],
+            ["A Short Title", "References", "[1] An entry."],
+        ],
+    )
+    assert lb.body_pages(pdf) == (4, "references start on page 5, line 1")

@@ -12,9 +12,10 @@ A document declares its budget on one comment line of its source, before draftin
 Pages count the whole PDF. Body pages are those before the references, read from the PDF's
 text through pdftotext: the body runs past N pages when the first references heading (a line
 of its own: References, Bibliography, Works Cited, Literature Cited) falls after the first line
-of page N + 1, the rule ACL's pubcheck applies. Folios and lines on every page but at most one
-(running heads and feet) are not lines. A venue that counts only the pages before the
-references declares body pages alone.
+of page N + 1, the rule ACL's pubcheck applies (`check_page_num` in
+https://github.com/acl-org/aclpubcheck, read 2026-10). Folios and running heads and feet are not
+lines (`references_start`). A venue that counts only the pages before the references declares
+body pages alone.
 Words come from the source, not the PDF: LaTeX through `texcount -inc -sum` (text, headers,
 `\\title` included, and captions, `\\input` followed, bibliography left out, as Overleaf
 counts; text in `\\iffalse` or `comment` blocks of the root and its `\\input`/`\\include`
@@ -36,7 +37,6 @@ import re
 import shutil
 import subprocess
 import zlib
-from collections import Counter
 from typing import NamedTuple
 
 import prose_check
@@ -95,10 +95,13 @@ _OBJ_STREAM = re.compile(rb"/Type\s*/ObjStm\b")
 _TEXCOUNT_TIMEOUT = 60
 _PDFTOTEXT_TIMEOUT = 60
 # A references heading as pdftotext prints it: alone on its line, perhaps numbered.
+# Matched with case, as prose_check spells each title, so a wrapped lowercase "references" is
+# not a heading.
 _REFERENCES_LINE = re.compile(
-    rf"^(?:(?:\d+|[IVXLC]+)\.?\s+)?(?:{prose_check.REFERENCES_TITLES})$", re.I
+    rf"^(?:(?:\d+(?:\.\d+)*|[IVXLC]+)\.?\s+)?(?:{prose_check.REFERENCES_TITLES})$"
 )
-_FOLIO = re.compile(r"^(?:\d+|[ivxlc]+|[IVXLC]+)$")
+# Running heads and feet sit among a page's first or last lines.
+_EDGE = 2
 
 
 class Budget(NamedTuple):
@@ -142,7 +145,10 @@ def read(source: str, markdown: bool = False) -> Budget | None:
         if n < 1:
             raise ValueError(f"a budget of {n} {unit}s")
         limits[unit] = n
-    return Budget(limits.get("page"), limits.get("word"), limits.get("body page"))
+    body = limits.get("body page")
+    if body is not None and "page" in limits and body > limits["page"]:
+        raise ValueError(f"{body} body pages exceed the {limits['page']}-page limit")
+    return Budget(limits.get("page"), limits.get("word"), body)
 
 
 def _spec(raw: str) -> str:
@@ -370,18 +376,42 @@ def page_texts(pdf: pathlib.Path) -> list[str] | None:
 def references_start(pages: list[str]) -> tuple[int, int] | None:
     """Page and line, both from 1, of the first references heading, or None.
 
-    Lines are the page's non-blank lines without folios and without running heads and feet:
-    lines that recur on every page but at most one of a document of three pages or more.
+    Lines are the page's non-blank lines without its folio and its running heads and feet,
+    which sit among the first or last `_EDGE` lines. A folio is a lone number equal to the
+    page's own. A running line is one whose text, digits aside, stands at the edge of at
+    least half the pages of its parity, two of them at least, so a head that
+    alternates between odd and even pages, or carries the page number, is still found. The
+    references heading itself is never running. Anything else stays a line: a missed head
+    over-counts the body (a loud BLOCK), where a wrongly dropped line could hide an overrun.
     """
     content = [[line.strip() for line in page.splitlines() if line.strip()] for page in pages]
-    recurring = Counter(line for lines in content for line in set(lines))
-    running = (
-        {line for line, n in recurring.items() if n >= len(content) - 1}
-        if len(content) >= 3
-        else set()
-    )
-    for page, lines in enumerate(content, 1):
-        kept = [line for line in lines if not _FOLIO.match(line) and line not in running]
+
+    def edges(lines: list[str]) -> set[int]:
+        n = len(lines)
+        return {i for i in range(n) if i < _EDGE or i >= n - _EDGE}
+
+    def key(line: str) -> str:
+        return re.sub(r"\d+", "#", line)
+
+    at_edge: dict[str, list[int]] = {}
+    for index, lines in enumerate(content):
+        for i in edges(lines):
+            if not _REFERENCES_LINE.match(lines[i]):
+                at_edge.setdefault(key(lines[i]), []).append(index)
+    per_parity = [len(content[parity::2]) for parity in (0, 1)]
+    running = set()
+    for text, where in at_edge.items():
+        for parity in (0, 1):
+            hits = sum(1 for index in set(where) if index % 2 == parity)
+            if hits >= 2 and hits * 2 >= per_parity[parity]:
+                running.add((text, parity))
+    for index, lines in enumerate(content):
+        page, edge = index + 1, edges(lines)
+        kept = [
+            line
+            for i, line in enumerate(lines)
+            if not (i in edge and (line == str(page) or (key(line), index % 2) in running))
+        ]
         for number, line in enumerate(kept, 1):
             if _REFERENCES_LINE.match(line):
                 return page, number
@@ -480,23 +510,25 @@ def assess(
         return [("REVIEW", MISSING.format(hint=hint), source_name)]
     if tex is None:
         words, why = markdown_words(source if body is None else body), ""
-    elif budget.words is None and budget.pages is not None:
+    elif budget.words is None and (budget.pages is not None or budget.body_pages is not None):
         words, why = None, ""
     else:
         words, why = tex_words(tex)
     pages = pdf_pages(pdf)
-    body: int | None = None
+    body_count: int | None = None
     where = ""
     if budget.body_pages is not None:
-        body, where = body_pages(pdf)
-    verdict = compare(budget, pages, words, body)
+        body_count, where = body_pages(pdf)
+    verdict = compare(budget, pages, words, body_count)
     if verdict.over:
-        over = "; ".join(verdict.over) + (f" ({where})" if body is not None else "")
+        over = "; ".join(
+            f"{item} ({where})" if item.startswith("body ") else item for item in verdict.over
+        )
         return [("BLOCK", OVER.format(over=over), pdf.name)]
     if verdict.unmeasured:
         if budget.words is not None and words is None:
             return [("REVIEW", UNCOUNTED.format(why=why, measured=verdict.measured), pdf.name)]
-        if budget.body_pages is not None and body is None:
+        if budget.body_pages is not None and body_count is None:
             return [("REVIEW", UNREAD_BODY.format(why=where, measured=verdict.measured), pdf.name)]
         return [("REVIEW", UNMEASURED.format(measured=verdict.measured), pdf.name)]
     return [("INFO", verdict.measured, pdf.name)]
