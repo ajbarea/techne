@@ -40,12 +40,13 @@ jobs:
       - name: Install Chromium for the web deck tests
         run: uv run --no-project --with playwright==1.63.0 playwright install --with-deps chromium
 
-      # graphe:slides and graphe:pdf read their PDFs back with poppler (pdftotext, pdfinfo).
+      # graphe:slides and graphe:pdf read their PDFs back with poppler (pdftotext, pdfinfo), and
+      # graphe:slides compares its editable .pptx export with the browser through LibreOffice.
       # GitHub's runner docs: run apt-get update before every install.
-      - name: Install poppler for the PDF read-back tests
+      - name: Install poppler and LibreOffice Impress for the document tests
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends poppler-utils
+          sudo apt-get install -y --no-install-recommends poppler-utils libreoffice-impress
 
       - name: Structural checks + pytest
         run: make test
