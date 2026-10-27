@@ -24,7 +24,7 @@ B="uv run --no-project --quiet --with playwright==1.63.0 --with axe-playwright-p
 $B python <skill-dir>/scripts/slides.py check  <deck/index.html> [--jargon "term,term"] [--backup-from N]
 $B python <skill-dir>/scripts/slides.py render <deck/index.html> <out-dir>
 $B python <skill-dir>/scripts/slides.py script <deck/index.html> > <deck>-script.md
-$B python <skill-dir>/scripts/slides.py pptx   <deck/index.html> <deck>.pptx [--images <dir>]
+$B python <skill-dir>/scripts/slides.py pptx   <deck/index.html> <deck>.pptx [--images <dir>] [--editable]
 $B python <skill-dir>/scripts/slides.py pdf    <deck/index.html> <deck>.pdf
 ```
 
@@ -46,6 +46,54 @@ for a summary", with `class="web-only"` and the export hides it. It is for prese
 a file; the pictures cannot be edited, links in them do not work, and nothing
 animates. Build it, never commit it: it is regenerated from the web deck.
 `--images` also writes the slide PNGs to a folder render's rules govern.
+
+`pptx --editable` is for a deck someone will edit in PowerPoint or Google Slides.
+Chromium lays out each slide fully built, and the export places native shapes
+where the browser put them:
+
+- text becomes text boxes, one per block, keeping bold, italic, colour, size,
+  letter-spacing, links and native list bullets and numbers; inline TeX
+  (`data-tex`, KaTeX or MathJax source) becomes Unicode (`\alpha^{2}` reads α²);
+- tables become native tables with their fills, borders and alignment, and no
+  theme table style, so Google Slides does not repaint them;
+- figures (`img`, `svg`, `canvas`, `video`) and display equations become
+  pictures with alt text (an equation's alt text is its TeX), since slide math
+  renders blank outside PowerPoint;
+- everything else (cards, rules, decoration, icons inside text) is baked into
+  the slide background, taken with the text made transparent, so it cannot be
+  dragged by mistake; a background of one colour becomes a solid fill. Text the
+  page cannot hand over stays there too, still visible: CSS counters
+  (`content: counter(n)`) and gradient text (`background-clip: text`);
+- the first `h1` to `h3` fills the title placeholder where it stands, and the
+  notes carry over. Text sits above pictures and tables, so none is hidden
+  under a figure.
+
+Text boxes are about 6% wider than the browser's, and a line the browser did not
+wrap is set not to wrap, because PowerPoint and Google Slides set most fonts a
+little wider than Chromium; tables get the same slack. The summary lists the
+fonts the deck uses and names any PowerPoint does not ship: install those where
+the deck is presented, or text rewraps in a substitute font. Generic families
+(`sans-serif`, `monospace`) become Arial and Courier New.
+
+It reads a reveal.js deck or a custom one: one `<section class="slide">` per
+slide, the slide on screen marked with the class `active` (the export sets it),
+fragments revealed with `visible`, and notes in `<template class="speaker-notes">`
+or `<aside class="notes">`. Whatever is not inside the slide, such as the deck's
+own buttons, stays out. A slide larger than the browser window is captured
+whole: the window grows until it fits. One that never fits (sized to the window,
+or pushed off its edge) is exported as far as it shows, and the summary names it. A .pptx has one slide size, taken from slide 1; the summary names any
+slide of another shape, whose content past the page's height is off the slide.
+`check`, `render`, `script` and `pdf` still need reveal.js. Render the result (`render <deck>.pptx`) and compare it with the
+browser before handing it over; `--images` writes the browser's pictures for that.
+
+`# research(2026-10)` The choices follow what Microsoft's html2pptx hit in
+production ([GOTCHAS](https://github.com/microsoft/ResearchStudio/blob/main/ResearchStudio-Reel/skills/paper2poster/html2pptx/GOTCHAS.md)):
+colours read through a canvas so `oklab()` and `color-mix()` resolve (G5), blocks
+told apart by tag rather than CSS display (G6), native bullets with a hanging
+indent (G10), no wrap on a line the browser kept whole (G16), equations as
+pictures because slide math is blank outside PowerPoint (G19), hairline borders
+kept at one pixel (G20). Google Slides repaints a table that keeps a theme
+style; "No Style, No Grid" leaves it as drawn.
 
 `pdf` exports the same web deck as a PDF: reveal.js's `?print-pdf` layout printed by
 Chromium, one page per slide with every fragment shown (it sets

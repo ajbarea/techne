@@ -6,7 +6,7 @@
     python slides.py render <deck/index.html|deck.pptx|deck.pdf> <out-dir>
                             [--renderer auto|powerpoint|libreoffice] [--dpi 80]
     python slides.py script <deck/index.html|deck.pptx> [--wpm 140]
-    python slides.py pptx   <deck/index.html> <out.pptx> [--images <dir>]
+    python slides.py pptx   <deck/index.html> <out.pptx> [--images <dir>] [--editable]
     python slides.py pdf    <deck/index.html> <out.pdf>
 
 A reveal.js web deck (``.html``) is checked and rendered in Chromium through Playwright,
@@ -15,7 +15,9 @@ with axe-core for contrast and alt text; it needs ``playwright`` and
 Pillow. ``script`` reads a web deck in the same browser. ``pdf`` exports a web deck as a
 vector PDF, one page per slide with every fragment shown. ``pptx`` exports a web deck for
 PowerPoint, one picture per slide with every fragment shown and the script in the notes; it
-also needs ``python-pptx`` (pinned in PPTX below, and part of WITH_BROWSER).
+also needs ``python-pptx`` (pinned in PPTX below, and part of WITH_BROWSER). ``pptx
+--editable`` places native text and tables where Chromium lays them out instead (see
+pptx_editable.py), for a reveal.js deck or a custom deck of ``section.slide`` elements.
 
 A PDF (a Typst or Beamer deck, say) gets the gates its text can answer: titles, density,
 figures, em-dashes and jargon, read page by page with poppler's ``pdftotext``. Contrast, alt
@@ -49,6 +51,9 @@ from html.parser import HTMLParser
 sys.dont_write_bytecode = True  # a missing-tool exit leaves no file behind in the plugin cache
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "_shared"))
 import doctor_lib  # noqa: E402  # ty: ignore[unresolved-import]
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import pptx_editable  # noqa: E402
 
 SETUP = "/graphe:setup"
 
@@ -1784,7 +1789,12 @@ def _alt_text(title: str, text: str, number: int) -> str:
     return body[: ALT_MAX - 1].rsplit(" ", 1)[0].rstrip(".,;:") + "\u2026"
 
 
-def pptx_html(deck: pathlib.Path, target: pathlib.Path, images: pathlib.Path | None = None) -> int:
+def pptx_html(
+    deck: pathlib.Path,
+    target: pathlib.Path,
+    images: pathlib.Path | None = None,
+    editable: bool = False,
+) -> int:
     """Export a web deck as a .pptx: one picture per slide, every fragment shown, the script
     in the speaker notes.
 
@@ -1811,6 +1821,8 @@ def pptx_html(deck: pathlib.Path, target: pathlib.Path, images: pathlib.Path | N
         from pptx.util import Emu  # ty: ignore[unresolved-import]
     except ImportError:
         sys.exit(f"exporting a .pptx needs python-pptx: run this command through `{WITH_BROWSER}`")
+    if editable:
+        return _pptx_editable(deck, target, images)
     with _playwright()() as pw:
         browser = _launch(pw)
         try:
@@ -1857,6 +1869,105 @@ def pptx_html(deck: pathlib.Path, target: pathlib.Path, images: pathlib.Path | N
     print(f"pptx: {target}")
     size = f"{SCREEN['width']}x{SCREEN['height']}"
     print(f"slides: {len(shots)}, each a {size} picture, notes from the script")
+    if images is not None:
+        print(f"images: {images}")
+    return 0
+
+
+def _open_any(browser, deck: pathlib.Path, viewport: dict, **context):
+    """A reveal.js deck through _open, or a custom deck of section.slide elements; each with
+    __deckSlides, __deckShow, __deckFrame and __deckNotes defined. Raises DeckError."""
+    page = browser.new_context(viewport=viewport, bypass_csp=True, **context).new_page()
+    try:
+        page.goto(deck.resolve().as_uri())
+        custom = pptx_editable.is_custom(page)
+    except Exception as exc:
+        raise DeckError(f"the page did not load ({_first_line(exc)})") from exc
+    if custom:
+        page.evaluate(pptx_editable.CUSTOM_SLIDES)
+        return page
+    reveal = page.evaluate("!!document.querySelector('.reveal')")
+    page.context.close()
+    if not reveal:
+        raise DeckError(
+            'not a deck: no reveal.js (.reveal .slides) and no <section class="slide"> elements'
+        )
+    page, _ = _open(browser, deck, viewport, **context)
+    page.evaluate(pptx_editable.REVEAL_SLIDES)
+    return page
+
+
+def _pptx_editable(deck: pathlib.Path, target: pathlib.Path, images: pathlib.Path | None) -> int:
+    """Export a web deck as a .pptx whose text and tables can be edited: see pptx_editable."""
+    try:
+        import PIL  # noqa: F401  # ty: ignore[unresolved-import]
+    except ImportError:
+        sys.exit(f"--editable needs Pillow: run this command through `{WITH_BROWSER}`")
+    with _playwright()() as pw:
+        browser = _launch(pw)
+        try:
+            page = _open_any(browser, deck, SCREEN, device_scale_factor=pptx_editable.PICTURE_SCALE)
+            count = page.evaluate(_COUNT)
+            if not count:
+                raise DeckError("no slides")
+            slides = pptx_editable.capture(
+                page, count, _STILL + " " + _NO_NAVIGATION, keep_images=images is not None
+            )
+        except (DeckError, ValueError) as exc:
+            sys.exit(f"{deck}: {exc}")
+        except Exception as exc:  # a Playwright error mid-export
+            sys.exit(f"{deck}: the browser failed: {_first_line(exc)}")
+        finally:
+            browser.close()
+
+    try:
+        prs, tally = pptx_editable.build(
+            slides, _TITLE_ONLY, lambda words, number: _alt_text("", words, number)
+        )
+    except Exception as exc:  # python-pptx refusing a shape, never a bare traceback
+        sys.exit(f"{deck}: building the .pptx failed: {type(exc).__name__}: {exc}")
+    if images is not None:
+        prepare_out(images)
+        for number, cap in enumerate(slides, 1):
+            (images / f"slide-{number:02d}.png").write_bytes(cap.image or b"")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    partial = target.with_name(target.name + ".partial")
+    prs.save(str(partial))
+    partial.replace(target)
+    print(f"pptx: {target}")
+    print(
+        f"slides: {len(slides)}, editable: {tally['text']} text boxes, {tally['table']} tables, "
+        f"{tally['picture']} figures and equations as pictures"
+    )
+    print(
+        f"backgrounds: {tally['solid']} one colour, {tally['backdrop']} pictures "
+        "(cards, rules and decoration, behind the text)"
+    )
+    if tally["cut"]:
+        shown = ", ".join(str(n) for n in tally["cut"])
+        print(
+            f"  slides {shown} have another shape than slide 1; a .pptx has one slide size, so "
+            "they are placed to its width and anything past its height is off the slide"
+        )
+    if tally["offscreen"]:
+        shown = ", ".join(str(n) for n in tally["offscreen"])
+        print(
+            f"  slides {shown} lie partly off screen however large the window grows; what "
+            "showed is exported, the rest of their background is filled with the edge colour"
+        )
+    fonts = sorted(tally["fonts"], key=str.lower)
+    if fonts:
+        print(f"fonts: {', '.join(fonts)}")
+    for font in fonts:
+        generic = sorted(n for n in tally["fonts"][font] if n.lower() != font.lower())
+        if generic:
+            print(f"  {', '.join(generic)} has no font of that name in PowerPoint: set as {font}")
+    missing = [f for f in fonts if f.lower() not in PORTABLE_FONTS]
+    if missing:
+        print(
+            f"  not installed with PowerPoint: {', '.join(missing)}. Install them where the deck "
+            "is presented, or PowerPoint substitutes a font of other widths and lines rewrap."
+        )
     if images is not None:
         print(f"images: {images}")
     return 0
@@ -2107,6 +2218,12 @@ def main() -> int:
     x.add_argument(
         "--images", type=pathlib.Path, default=None, help="also write the slide PNGs here"
     )
+    x.add_argument(
+        "--editable",
+        action="store_true",
+        help="native text boxes and tables where the browser lays them out, figures and "
+        "equations as pictures; reads reveal.js and custom section.slide decks",
+    )
     f = sub.add_parser(
         "pdf",
         help="export a web deck as a PDF: one page per slide, every fragment shown, "
@@ -2122,7 +2239,7 @@ def main() -> int:
     if args.cmd == "render":
         return render(args.deck, args.out, args.renderer, args.dpi)
     if args.cmd == "pptx":
-        return pptx_html(args.deck, args.out, args.images)
+        return pptx_html(args.deck, args.out, args.images, args.editable)
     if args.cmd == "pdf":
         return pdf_html(args.deck, args.out)
     if args.cmd == "script":

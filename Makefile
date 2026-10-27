@@ -77,9 +77,10 @@ guards:                 ## Stale-path + legacy-name + shared-copy + plugin-path 
 	@uv run python scripts/check_private_names.py
 
 # End-to-end cases need TeX Live (latex), the typst wheel (pdf), Playwright's Chromium (web
-# slides) and poppler (PDF read-back). Where one is absent, TECHNE_NO_TEX / TECHNE_NO_TYPST /
-# TECHNE_NO_BROWSER / TECHNE_NO_POPPLER declares the opt-out; without the declaration the suite fails rather than skipping them
-# unnoticed. The wheels are pulled per-run at the pins the skills use, rather than held as
+# slides), poppler (PDF read-back) and PowerPoint or LibreOffice (the editable .pptx render
+# comparison). Where one is absent, TECHNE_NO_TEX / TECHNE_NO_TYPST / TECHNE_NO_BROWSER /
+# TECHNE_NO_POPPLER / TECHNE_NO_OFFICE declares the opt-out; without the declaration the suite
+# fails rather than skipping them unnoticed. The wheels are pulled per-run at the pins the skills use, rather than held as
 # dev dependencies.
 TEST_WITH := --with 'typst>=0.15,<0.16' --with playwright==1.63.0 --with axe-playwright-python==0.1.8 --with pillow --with python-pptx==1.0.2
 test-unit:              ## pytest over skill-shipped Python

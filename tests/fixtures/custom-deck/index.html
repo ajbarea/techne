@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Custom deck fixture</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #222; font-family: Arial, sans-serif; }
+  #deck { position: absolute; left: 50%; top: 50%; width: 1600px; height: 900px;
+          transform-origin: 0 0; }
+  .slide { position: absolute; inset: 0; display: none; box-sizing: border-box;
+           padding: 80px 100px; background: #ffffff; color: #1a1a1a; }
+  .slide.active { display: block; }
+  .slide.dark { background: #14181f; color: #f2f2f2; }
+  h1 { font-size: 72px; margin: 0 0 24px; }
+  h2 { font-size: 52px; margin: 0 0 28px; color: #0b5c63; }
+  p, li { font-size: 32px; line-height: 1.4; margin: 0 0 16px; }
+  .card { background: #e8f3f4; border-radius: 16px; padding: 24px 32px; width: 640px; }
+  .stat { font-size: 96px; font-weight: 700; color: #087c83; }
+  table { border-collapse: collapse; font-size: 28px; margin-top: 12px; }
+  th { background: #0b5c63; color: #ffffff; text-align: left; }
+  th, td { padding: 8px 20px; border-bottom: 2px solid #9aa5a8; }
+  td.num { text-align: right; }
+  .equation { font-size: 44px; text-align: center; font-style: italic; margin: 24px 0; }
+  .figure { width: 420px; height: 280px; object-fit: contain; position: absolute;
+            right: 100px; top: 200px; }
+  .fragment { opacity: 0; }
+  .fragment.visible { opacity: 1; }
+  .footer { position: absolute; bottom: 30px; left: 100px; font-size: 20px; color: #6b6b6b; }
+  .bar { position: absolute; bottom: 30px; left: 100px; right: 100px; display: flex;
+         justify-content: space-between; font-size: 20px; color: #6b6b6b; }
+  .eyebrow { font-size: 24px; letter-spacing: 0.2em; text-transform: uppercase; color: #4dc4bb; }
+  .numbers strong { display: block; font-size: 64px; }
+  .numbers span { display: block; font-size: 24px; }
+  .edge > * { position: absolute; margin: 0; font-size: 28px; line-height: 1.3; }
+  .kicker::before { content: "→ "; color: #b00020; }
+  .note::before { content: "Note:"; color: #b00020; }
+  .sect::before { content: "§ "; }
+  .steps { list-style: none; counter-reset: s; padding: 0; }
+  .steps li::before { counter-increment: s; content: "Step " counter(s) ": "; color: #b00020; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .grad { background: linear-gradient(90deg, #ff0000, #0000ff); -webkit-background-clip: text;
+          background-clip: text; color: transparent; font-weight: 700; }
+  .over { color: #ffffff; }
+  .spans td { border: 1px solid #999999; padding: 4px 10px; }
+  #controls { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+              font-size: 18px; background: #eeeeee; color: #333333; padding: 6px 12px; }
+</style>
+</head>
+<body>
+<div id="deck">
+
+<section class="slide dark active" aria-label="Slide 1">
+  <p class="eyebrow">Fixture kicker</p>
+  <h1>Editable export fixture</h1>
+  <p>A custom deck: <strong>bold words</strong>, <em>italic words</em> and
+     <a href="https://example.org/paper">a link</a>.</p>
+  <p class="stat">42%</p>
+  <div class="numbers"><strong>375</strong><span>solves</span></div>
+  <template class="speaker-notes"><p>Open with the number.</p><p>Then the plan.</p></template>
+</section>
+
+<section class="slide" aria-label="Slide 2">
+  <h2>Lists, a figure and inline math</h2>
+  <ul>
+    <li>First point with <span class="math" data-tex="\alpha^{2} \le \beta_{i}">α2 ≤ βi</span></li>
+    <li class="fragment">Second point, shown by a fragment</li>
+  </ul>
+  <ol start="3">
+    <li>Third, numbered</li>
+    <li>Fourth, numbered</li>
+  </ol>
+  <div class="card"><p>Text on a card keeps the card.</p></div>
+  <img class="figure" alt="A teal square figure"
+       src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Crect width='300' height='300' fill='%23087c83'/%3E%3C/svg%3E">
+  <p class="footer">Footer line</p>
+  <template class="speaker-notes">Walk the list, then point at the figure.</template>
+</section>
+
+<section class="slide" aria-label="Slide 3">
+  <h2>A table and an equation</h2>
+  <table>
+    <tr><th>Method</th><th>Error</th></tr>
+    <tr><td>Gradient descent</td><td class="num">0.031</td></tr>
+    <tr><td>Least squares</td><td class="num">0.007</td></tr>
+  </table>
+  <div class="equation" data-tex="m\ddot{x} + c\dot{x} + kx = F(t)">m x″ + c x′ + k x = F(t)</div>
+  <footer class="bar"><span>Group 1 · Fixture</span><span>03 / 03</span></footer>
+</section>
+
+
+<section class="slide edge" aria-label="Slide 4">
+  <h2 style="left:100px; top:40px; font-size:52px">Edge cases</h2>
+  <p class="kicker" style="left:100px; top:140px">Kicker with arrow</p>
+  <ol class="steps" style="left:100px; top:200px"><li>Measure first</li></ol>
+  <div style="display: contents"><p style="left:100px; top:260px">Inside contents</p></div>
+  <p style="left:100px; top:320px">Visible words<span class="sr-only"> hidden words</span></p>
+  <p style="left:100px; top:380px">Icon <svg width="28" height="28" viewBox="0 0 28 28" fill="currentColor"><rect width="28" height="28"/></svg> after</p>
+  <p class="grad" style="left:100px; top:440px">Gradient words</p>
+  <p class="long" style="left:100px; top:500px; width:520px">A paragraph long enough that the browser wraps it onto a second line.</p>
+  <ul style="left:100px; top:620px; padding-left:40px"><li><p>Item in a paragraph</p></li></ul>
+  <p class="note" style="left:600px; top:140px"> </p>
+  <p class="sect" style="left:600px; top:560px; width:300px; text-align:center">Centred</p>
+  <ul style="left:600px; top:690px; padding:0; list-style-position:inside"><li>Inside bullet</li></ul>
+  <p dir="rtl" style="left:100px; top:690px">שלום עולם</p>
+  <p style="left:100px; top:750px; color: rgba(0, 0, 0, 0.5)">Half ink</p>
+  <p class="over" style="left:1040px; top:250px; z-index:1">Over the figure</p>
+  <img class="figure" alt="Square under a caption" style="left:1000px; top:140px; right:auto"
+       src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Crect width='300' height='300' fill='%23087c83'/%3E%3C/svg%3E">
+  <table class="spans" style="left:1000px; top:520px">
+    <tr><td>A</td><td rowspan="2">B</td></tr>
+    <tr><td colspan="2">C</td></tr>
+  </table>
+</section>
+</div>
+<nav id="controls">Next slide</nav>
+<script>
+  // Fit the 1600x900 deck to the window, as hand-made decks do.
+  const deck = document.getElementById('deck');
+  const fit = () => {
+    const s = Math.min(innerWidth / 1600, innerHeight / 900);
+    deck.style.transform = `scale(${s}) translate(-50%, -50%)`;
+  };
+  addEventListener('resize', fit);
+  fit();
+</script>
+</body>
+</html>
