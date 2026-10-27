@@ -60,7 +60,7 @@ _EMPHASIS = re.compile(r"(\*{1,3}|_{2,3})(\S(?:.*?\S)?)\1", re.DOTALL)
 _CODE_SPAN = re.compile(r"`[^`\n]*`")
 _HTML_HEADING_END = re.compile(r"</h[1-6]\s*>", re.IGNORECASE)
 _LABEL = re.compile(r"^[^:]{0,30}:\s*")
-_USERINFO = re.compile(r"//[^/@\s]+@")
+_USERINFO = re.compile(r"//[^/\s]+@")  # to the last @ before the path
 # A tagline under the title says something; a one- or two-word heading there is a section.
 TAGLINE_WORDS = 3
 _QUOTE = re.compile(r"^ {0,3}>[ \t]?", re.MULTILINE)
@@ -150,7 +150,11 @@ def opening(text: str) -> list[dict]:
         atx, tag = _ATX.match(line), _HTML_HEADING.match(line)
         if tag and not _HTML_HEADING_END.search(line):
             # A heading tag over several lines: its text runs to the closing tag.
-            while index < len(lines) and not _HTML_HEADING_END.search(lines[index - 1]):
+            while (
+                index < len(lines)
+                and lines[index].strip()  # an unclosed tag ends at the paragraph's end
+                and not _HTML_HEADING_END.search(lines[index - 1])
+            ):
                 line += " " + lines[index]
                 index += 1
         setext = bool(line.strip()) and not block and bool(_SETEXT.match(following))

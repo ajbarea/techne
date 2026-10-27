@@ -354,6 +354,7 @@ def test_a_short_section_heading_before_any_prose_is_not_a_tagline(meta):
 
 def test_a_heading_tag_over_several_lines_is_one_heading(meta):
     assert texts(meta, "<h1>\n  T\n</h1>\n\nLead.\n") == ["Lead."]
+    assert texts(meta, '<h1 align="center">T\n\nLead.\n') == ["Lead."]
 
 
 def test_emphasis_across_lines_and_inline_code_html(meta):
@@ -375,7 +376,7 @@ def test_credentials_in_the_origin_are_not_printed(meta, tmp_path, capsys):
     root = tmp_path / "gl"
     root.mkdir()
     git(root, "init", "-q")
-    secret = "x" * 12
+    secret = "x@" * 6
     # Built at run time, so no credential-shaped literal sits in the source for scanners.
     origin = "https://" + ":".join(("oauth2", secret)) + "@gitlab.com/a/b.git"
     git(root, "remote", "add", "origin", origin)
