@@ -36,6 +36,15 @@ def test_skill_dispatches_every_agent_and_uses_the_plugin_venv():
     assert "${user_config.ideas_repo}" in text
 
 
+def test_every_agent_says_its_folders_are_absolute_paths():
+    # A relative --ideas once wrote scout records into the plugin cache.
+    for path in PLUGIN.glob("agents/*.md"):
+        _, text = front(path)
+        assert "`IDEAS` is an absolute path" in text or "`IDEAS` and `REPOS` are absolute" in text
+        if "REPOS" in text:
+            assert "`IDEAS` and `REPOS` are absolute paths" in text, path.name
+
+
 def test_no_agent_or_skill_text_uses_em_dashes():
     for path in [*PLUGIN.glob("agents/*.md"), *PLUGIN.glob("skills/*/SKILL.md")]:
         assert "—" not in path.read_text(), path

@@ -234,6 +234,78 @@ def test_add_record_rejects_unacceptable_urls(tmp_path: Path, capsys, url):
     assert not (ideas / "runs" / idea_id / "scout-context.json").exists()
 
 
+def test_a_relative_ideas_path_cannot_write_outside_the_ideas_repo(
+    tmp_path: Path, capsys, monkeypatch
+):
+    # The skill runs the CLI under `uv run --directory <plugin root>`, so a relative path
+    # resolves inside the plugin, not where the caller is.
+    ideas = init_ideas(tmp_path)
+    idea_id = _capture(ideas, capsys)
+    plugin = tmp_path / "plugin"
+    plugin.mkdir()
+    monkeypatch.chdir(plugin)
+    record = {"title": "T", "url": "https://t.example", "source": "web", "kind": "web"}
+    args = ["add-record", "--ideas", "ideas", "--id", idea_id, "--group", "context"]
+    with pytest.raises(SystemExit) as exc:
+        cli.main([*args, "--json", json.dumps(record)])
+    assert exc.value.code == 2
+    assert "argument --ideas: must be an absolute path" in capsys.readouterr().err
+    assert not any(plugin.iterdir())
+    assert not (ideas / "runs" / idea_id / "scout-context.json").exists()
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["init", "ideas", "--repos-root", "/r"],
+        ["init", "/i", "--repos-root", "repos"],
+        ["init", "/i", "--repos-root", "/r", "--techne-toml", "techne.toml"],
+        ["context", "--ideas", "/i", "--repos-root", "repos"],
+        ["verify", "--ideas", "/i", "--id", "2026-10-27-x", "--repos-root", "."],
+        ["board", "--ideas", "./ideas"],
+    ],
+)
+def test_every_path_argument_must_be_absolute(argv, tmp_path: Path, capsys, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit) as exc:
+        cli.main(argv)
+    assert exc.value.code == 2
+    assert "must be an absolute path" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["add-record", "search", "pool", "verify", "apply", "restate", "override", "decline"],
+)
+def test_every_command_on_one_idea_refuses_an_ideas_root_without_it(
+    tmp_path: Path, capsys, monkeypatch, command
+):
+    ideas = init_ideas(tmp_path)
+    idea_id = _capture(ideas, capsys)
+    wrong = tmp_path / "wrong"
+    wrong.mkdir()
+    monkeypatch.setattr(cli.sources, "run_queries", lambda *a: pytest.fail("searched"))
+    record = {"title": "T", "url": "https://t.example", "source": "web", "kind": "web"}
+    extra = {
+        "add-record": ["--group", "context", "--json", json.dumps(record)],
+        "search": ["--group", "papers", "--query", "q"],
+        "pool": [],
+        "verify": ["--repos-root", str(tmp_path)],
+        "apply": [],
+        "restate": ["--json", json.dumps({"restated": "r", "queries": ["q"]})],
+        "override": ["trash", "why"],
+        "decline": ["why"],
+    }[command]
+    by_flag = command not in ("override", "decline")
+    for root in (wrong, ideas):
+        other = idea_id if root == wrong else "2026-01-01-not-captured"
+        which = ["--id", other] if by_flag else [other]
+        assert cli.main([command, "--ideas", str(root), *which, *extra]) == 2
+        assert "has no ideas/" in capsys.readouterr().err
+    assert not any(wrong.iterdir())
+    assert not (ideas / "runs" / "2026-01-01-not-captured").exists()
+
+
 def test_verify_exits_3_when_the_closest_rival_fails(tmp_path: Path, capsys):
     ideas = init_ideas(tmp_path)
     idea_id = _capture(ideas, capsys)

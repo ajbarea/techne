@@ -17,6 +17,21 @@ from heuresis.model import FACETS, STATES, TYPES, Coverage, Idea, Record, Verdic
 EXIT_CLOSEST_DROPPED = 3
 
 
+class UsageError(Exception):
+    """A rejected argument: exit 2."""
+
+
+def _absolute_path(text: str) -> Path:
+    # The skill runs this CLI under `uv run --directory <plugin root>`, which resolves a
+    # relative path against the plugin folder rather than the caller's directory.
+    path = Path(text)
+    if not path.is_absolute():
+        raise argparse.ArgumentTypeError(
+            f"must be an absolute path, not {text!r}; pass the output of `realpath {text}`"
+        )
+    return path
+
+
 def _now() -> str:
     return dt.datetime.now().astimezone().isoformat(timespec="seconds")
 
@@ -27,17 +42,24 @@ def _check_id(idea_id: str) -> str:
     return idea_id
 
 
+def _idea_file(root: Path, idea_id: str) -> Path:
+    path = store.idea_path(root, _check_id(idea_id))
+    if not path.is_file():
+        raise UsageError(
+            f"{root} has no ideas/{idea_id}.md; pass the ideas repository that holds it"
+        )
+    return path
+
+
 def _run_dir(root: Path, idea_id: str) -> Path:
-    path = root / "runs" / _check_id(idea_id)
+    _idea_file(root, idea_id)
+    path = root / "runs" / idea_id
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
 def _load_idea(root: Path, idea_id: str) -> Idea:
-    path = store.idea_path(root, _check_id(idea_id))
-    if not path.is_file():
-        raise store.StoreError(f"no idea {idea_id} in {root / 'ideas'}")
-    return store.load(path)
+    return store.load(_idea_file(root, idea_id))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -46,12 +68,14 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("version", help="print the heuresis version")
 
     p = sub.add_parser("init", help="create an ideas repository")
-    p.add_argument("path", type=Path)
-    p.add_argument("--techne-toml", type=Path, default=Path.home() / ".claude" / "techne.toml")
-    p.add_argument("--repos-root", type=Path, required=True)
+    p.add_argument("path", type=_absolute_path)
+    p.add_argument(
+        "--techne-toml", type=_absolute_path, default=Path.home() / ".claude" / "techne.toml"
+    )
+    p.add_argument("--repos-root", type=_absolute_path, required=True)
 
     def ideas(p: argparse.ArgumentParser, with_id: bool = False) -> argparse.ArgumentParser:
-        p.add_argument("--ideas", type=Path, required=True)
+        p.add_argument("--ideas", type=_absolute_path, required=True)
         if with_id:
             p.add_argument("--id", required=True)
         return p
@@ -64,7 +88,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("words", nargs="*", metavar="text")
 
     p = ideas(sub.add_parser("context", help="list the user's research sources that exist"))
-    p.add_argument("--repos-root", type=Path, required=True)
+    p.add_argument("--repos-root", type=_absolute_path, required=True)
 
     p = ideas(sub.add_parser("similar", help="earlier ideas sharing words with TEXT"))
     p.add_argument("--k", type=int, default=5)
@@ -86,7 +110,7 @@ def build_parser() -> argparse.ArgumentParser:
     ideas(sub.add_parser("pool", help="merge scout files for the judge"), True)
 
     p = ideas(sub.add_parser("verify", help="check every quote the judge used"), True)
-    p.add_argument("--repos-root", type=Path, required=True)
+    p.add_argument("--repos-root", type=_absolute_path, required=True)
 
     p = ideas(sub.add_parser("apply", help="enforce the rules and record the verdict"), True)
     p.add_argument("--today", type=dt.date.fromisoformat, default=None)
@@ -154,9 +178,9 @@ def _merge_coverage(old: Coverage, new: Coverage) -> Coverage:
 
 
 def _search(args) -> int:
+    out = _run_dir(args.ideas, args.id) / f"scout-{args.group}.json"
     group = sources.REGISTRY[args.group]
     records, coverage = sources.run_queries(group, args.query, args.limit)
-    out = _run_dir(args.ideas, args.id) / f"scout-{args.group}.json"
     data = _load_json(out, dict) if out.exists() else {}
     merged: dict[str, Coverage] = {
         c["source"]: Coverage.from_dict(c) for c in data.get("coverage", [])
@@ -542,6 +566,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return _dispatch(args)
+    except UsageError as exc:
+        print(f"heuresis: {exc}", file=sys.stderr)
+        return 2
     except (store.StoreError, sync.SyncError, ValueError, FileNotFoundError) as exc:
         print(f"heuresis: {exc}", file=sys.stderr)
         return 1
