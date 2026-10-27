@@ -1085,7 +1085,7 @@ def _pages(*pages: list[str]) -> list[str]:
     ],
 )
 def test_the_references_start_at_their_first_heading_line(lb, pages, start):
-    assert lb.references_start(pages) == start
+    assert (lb.references_starts(pages) or [None])[0] == start
 
 
 @pytest.mark.parametrize(
@@ -1267,7 +1267,7 @@ def test_a_number_inside_a_line_is_kept_when_matching_heads(lb):
         ["Head A", "b4"],
         ["Head B", "Fig 5a", "References"],
     )
-    assert lb.references_start(pages) == (5, 2)
+    assert lb.references_starts(pages)[0] == (5, 2)
 
 
 @pytest.mark.parametrize(

@@ -20,7 +20,7 @@ earliest heading-like line or a later one, so the earliest alone may BLOCK, and 
 passes a body only when the PDF shows one such line or fits whole; several ask for a look
 (`references_starts`). A head the gate cannot confirm stays a line and can push a heading off
 line 1, a loud error the BLOCK message locates. Folios and running heads and feet are not
-lines (`references_start`). A venue that counts only the pages before the references declares
+lines (`references_starts`). A venue that counts only the pages before the references declares
 body pages alone.
 Words come from the source, not the PDF: LaTeX through `texcount -inc -sum` (text, headers,
 `\\title` included, and captions, `\\input` followed, bibliography left out, as Overleaf
@@ -103,7 +103,7 @@ _TEXCOUNT_TIMEOUT = 60
 # A title that opens with a capital, any case after it, so a wrapped lowercase "references"
 # is not a heading.
 _REFERENCES_LINE = re.compile(
-    rf"^(?:(?:\d+(?:\.\d+)*|[IVXLC]+)\.?\s+)?(?=[A-Z])(?i:{prose_check.REFERENCES_TITLES})$"
+    rf"^(?:(?:\d+(?:\.\d+)*|[IVXLC]+)\.?\s+)?(?=[A-Z])(?i:{prose_check.REFERENCES_TITLES})[.:]?$"
 )
 _CONTENTS_LINE = re.compile(r"^(?:(?=[A-Z])(?i:(?:table\s+of\s+)?c\s?ontents))$")
 _LONE_NUMBER = re.compile(r"^\d{1,4}$")
@@ -393,7 +393,7 @@ def page_texts(pdf: pathlib.Path, reading: str | None = None) -> list[str] | Non
 def references_starts(pages: list[str]) -> list[tuple[int, int]]:
     """Page and line, both from 1, of every line that reads as a references heading, in order.
 
-    Lines are a page's non-blank lines without its folio, its running heads and feet, and a
+    Lines are a page's non-blank lines without its folio, its running heads, and a
     review copy's line-number ruler. A document with a run of `_RULER` lines counting up by
     one carries a ruler, and its lone numbers go from every page first, since a two-column
     ruler interleaves its counts (a numeric table in a review copy goes with them). Heads, feet and
@@ -402,11 +402,12 @@ def references_starts(pages: list[str]) -> list[tuple[int, int]]:
     running line is one whose text, a leading or trailing number aside, also stands at the
     edge of another page of its parity, or of every page after the first, in a headed
     document: one whose every page after the first that has text shows such a line. Only the
-    outermost line that is no folio at each edge can be a head; a deeper one must be on every
-    page after the first, so body that repeats at two page edges stays. A line without letters
-    and a heading-like line are never running. A heading on a page whose first lines name it
-    Contents is a contents entry. Every other heading-like line is returned, so a caller can
-    tell one heading from several (a section-name head, a contents list run on, a column).
+    first line that is no folio can be a head; a deeper top line must be on every page after
+    the first, three of them at least, so body that repeats at two page tops stays. A line
+    without letters and a heading-like line are never running. A heading on a page whose
+    first lines name it Contents is a contents entry. Every other heading-like line is
+    returned, so a caller can tell one heading from several (a section-name head, a contents
+    list run on, a column).
     """
     content = [[line.strip() for line in page.splitlines() if line.strip()] for page in pages]
     if any(run >= _RULER for lines in content for run in _counting_runs(lines)):
@@ -436,15 +437,16 @@ def references_starts(pages: list[str]) -> list[tuple[int, int]]:
         return offset == 0 or len(offsets.get(offset, set()) - {index}) >= 2
 
     after_first = set(range(1, count))
+    parity = [set(range(0, count, 2)), set(range(1, count, 2))]
 
-    def everywhere(line: str) -> bool:
-        return len(after_first) >= 2 and at_edge.get(key(line), set()) >= after_first
+    def everywhere(line: str, least: int = 2) -> bool:
+        """At the edge of every page after the first, `least` pages of them at least."""
+        return len(after_first) >= least and at_edge.get(key(line), set()) >= after_first
 
     def recurs(line: str, index: int) -> bool:
         """At the edge of another page of this one's parity, or of every page after the first
         (two or more), by `key`. `at_edge` holds no line without letters and no heading."""
-        pages_with = at_edge.get(key(line), set())
-        same = pages_with & set(range(index % 2, count, 2)) - {index}
+        same = at_edge.get(key(line), set()) & parity[index % 2] - {index}
         return bool(same) or everywhere(line)
 
     # Heads are stripped only from a headed document: one where every page after the first
@@ -456,17 +458,18 @@ def references_starts(pages: list[str]) -> list[tuple[int, int]]:
     )
 
     def stripped(lines: list[str], index: int) -> set[int]:
-        """The folios, and the heads and feet: the outermost line that is no folio at each
-        edge when it recurs, a deeper edge line only when it is on every page after the
-        first. A deeper line that merely recurs is body that happens to repeat."""
-        edge = edges(lines)
-        folios = {i for i in edge if folio(lines[i], index)}
+        """The folios and heads above the page's text: the first line that is no folio when
+        it recurs, a deeper top line only when it is on every page after the first, three of
+        them at least. A deeper line that merely recurs is body that happens to repeat. Feet
+        follow the text in reading order, so they never move a heading and are left."""
+        top = {i for i in edges(lines) if i < _EDGE}
+        folios = {i for i in top if folio(lines[i], index)}
         rest = [i for i in range(len(lines)) if i not in folios]
-        outer = {rest[0], rest[-1]} if rest else set()
         heads = {
             i
-            for i in edge - folios
-            if headed and (recurs(lines[i], index) if i in outer else everywhere(lines[i]))
+            for i in top - folios
+            if headed
+            and (recurs(lines[i], index) if rest and i == rest[0] else everywhere(lines[i], 3))
         }
         return folios | heads
 
@@ -478,12 +481,6 @@ def references_starts(pages: list[str]) -> list[tuple[int, int]]:
         kept = [line for i, line in enumerate(lines) if i not in drop]
         found += [(index + 1, n) for n, line in enumerate(kept, 1) if _REFERENCES_LINE.match(line)]
     return found
-
-
-def references_start(pages: list[str]) -> tuple[int, int] | None:
-    """The first of `references_starts`, or None."""
-    found = references_starts(pages)
-    return found[0] if found else None
 
 
 class BodyReading(NamedTuple):
@@ -623,13 +620,12 @@ def assess(
     reviews = []
     if unsure:
         reviews.append(UNSURE_BODY.format(why=where, measured=verdict.measured))
-    if verdict.unmeasured:
-        if budget.words is not None and words is None:
-            reviews.append(UNCOUNTED.format(why=why, measured=verdict.measured))
-        elif budget.body_pages is not None and body_count is None:
-            reviews.append(UNREAD_BODY.format(why=where, measured=verdict.measured))
-        else:
-            reviews.append(UNMEASURED.format(measured=verdict.measured))
+    if budget.words is not None and words is None:
+        reviews.append(UNCOUNTED.format(why=why, measured=verdict.measured))
+    if budget.body_pages is not None and body_count is None:
+        reviews.append(UNREAD_BODY.format(why=where, measured=verdict.measured))
+    if budget.pages is not None and pages is None:
+        reviews.append(UNMEASURED.format(measured=verdict.measured))
     if reviews:
         return [("REVIEW", message, pdf.name) for message in reviews]
     return [("INFO", verdict.measured, pdf.name)]

@@ -36,13 +36,15 @@ _PDFTOTEXT_TIMEOUT = 60
 # A reference list is citations, not prose. It ends at the next heading (an appendix) or the end.
 # A numbered heading is `7 References`, `VII. REFERENCES` or `## 5. References`; `3. References`
 # without `#` is a list item.
-# The titles a reference list goes by, spaced small caps and babel's translations included;
+# The titles a reference list goes by, spaced small caps and babel's \refname and \bibname
+# translations included;
 # length_budget reads them too.
 REFERENCES_TITLES = (
     r"R\s?EFERENCES|References|Bibliography|BIBLIOGRAPHY"
     r"|W\s?ORKS\s+C\s?ITED|Works\s+Cited|L\s?ITERATURE\s+C\s?ITED|Literature\s+Cited"
     r"|References\s+Cited|References\s+and\s+Notes|Reference\s+List"
     r"|R\s?ÉFÉRENCES|Références|Literatur|L\s?ITERATUR|Referencias|Bibliografía|Referências"
+    r"|Bibliographie|Literaturverzeichnis|Bibliografia"
 )
 _REFERENCES = re.compile(
     rf"^\s*(?:#{{1,6}}\s*(?:\d+(?:\.\d+)*\.?\s+)?|(?:\d+|[IVXLC]+\.)\s+)?(?:{REFERENCES_TITLES})\s*$",
@@ -188,7 +190,8 @@ def reading_text(pdf: pathlib.Path) -> str | None:
         proc = subprocess.run(
             ["pdftotext", "-enc", "UTF-8", str(pdf), "-"],
             capture_output=True,
-            text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=_PDFTOTEXT_TIMEOUT,
         )
     except (OSError, subprocess.SubprocessError):
