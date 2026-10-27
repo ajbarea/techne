@@ -839,7 +839,8 @@ def test_unbounded_rust_round_one(tmp_path: Path, src: str, hit: bool) -> None:
 
 
 def test_unbalanced_code_stays_fast(tmp_path: Path) -> None:
-    src = "export {};\n" + "console.log(a, (b;\n" * 2000
+    # Both shapes: a call cut off by a `;`, and one never closed at all.
+    src = "export {};\n" + "console.log(a, (b;\n" * 10000 + "console.log(a, (b\n" * 10000
     root = make_repo(tmp_path, {**JS_OK, "src/app.ts": src})
     out = subprocess.run(
         [sys.executable, str(LOGCHECK_SCRIPT)], cwd=root, capture_output=True, text=True,

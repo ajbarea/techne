@@ -37,7 +37,9 @@ import stat
 import subprocess
 import sys
 import warnings
+from bisect import bisect_left, bisect_right
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 from itertools import pairwise
 from pathlib import Path, PurePosixPath
 
@@ -103,6 +105,7 @@ def describes(name: str) -> bool:
     return any(w in DESCRIBES for w in words(name))
 
 
+@lru_cache(maxsize=65536)
 def secret_like(name: str) -> bool:
     ws = words(name)
     # The "id" of id_token names the kind of token; it does not describe it as an id.
@@ -536,19 +539,38 @@ def mask(text: str, lang: str) -> tuple[str, list[tuple[int, int]]]:
     return "".join(out), strings
 
 
-CALL_REACH = 20_000  # the longest argument list read; unbalanced code stops here
+BRACKETS = re.compile(r"[()\[\]{};]")
 
 
-def close_paren(code: str, open_at: int) -> int:
-    depth = 0
-    for k in range(open_at, min(len(code), open_at + CALL_REACH)):
-        if code[k] in "([{":
-            depth += 1
-        elif code[k] in ")]}":
-            depth -= 1
-            if depth == 0:
-                return k
-    return min(len(code), open_at + CALL_REACH)
+def bracket_pairs(code: str) -> dict[int, int]:
+    """For each opening bracket in code, the index of the bracket that closes it, found in
+    one pass. A `(` still open at a `;` outside any `{}` or `[]` ends there, since no valid
+    argument list holds one; a bracket never closed ends at the end of its own line."""
+    pairs: dict[int, int] = {}
+    stack: list[int] = []
+    for m in BRACKETS.finditer(code):
+        k, c = m.start(), m.group(0)
+        if c in "([{":
+            stack.append(k)
+        elif c == ";":
+            while stack and code[stack[-1]] == "(":
+                pairs[stack.pop()] = k
+        elif stack:
+            pairs[stack.pop()] = k
+    for k in stack:
+        newline = code.find("\n", k)
+        pairs[k] = len(code) if newline == -1 else newline
+    return pairs
+
+
+class LineIndex:
+    """1-based line numbers of offsets in a text, by binary search."""
+
+    def __init__(self, text: str) -> None:
+        self.newlines = [m.start() for m in re.finditer("\n", text)]
+
+    def of(self, offset: int) -> int:
+        return bisect_left(self.newlines, offset) + 1
 
 
 CHAIN = re.compile(r"[A-Za-z_$][\w$]*(?:\s*\.\s*[A-Za-z_$][\w$]*)*")
@@ -563,30 +585,36 @@ BEFORE_COMPARISON = re.compile(r"(?:[=!]==?|(?<![=\-<>])[<>]=?)\s*$")
 
 
 def secret_names(
-    code: str, raw_strings: list[str], inline: re.Pattern[str], lang: str = "rs"
+    code: str,
+    span: tuple[int, int],
+    pairs: dict[int, int],
+    raw_strings: list[str],
+    inline: re.Pattern[str],
+    lang: str = "rs",
 ) -> list[str]:
     """Secret-looking names in an argument list: code identifier chains and the names a
     string interpolates (Rust `{name}`, JS template `${name}` is already code). A field
     name (`token = %v`, `{token: v}`) counts only when its value is not a literal or a
     safe call."""
     hits = []
-    at = 0
-    while m := CHAIN.search(code, at):
+    at, end = span
+    while m := CHAIN.search(code, at, end):
         at = m.end()
         parts = [p.strip() for p in m.group(0).split(".")]
-        nxt = NEXT.match(code, m.end())
+        nxt = NEXT.match(code, m.end(), end)
         first, second = (nxt.group(1), nxt.group(2)) if nxt else ("", "")
         if lang == "rs" and first == "!":  # a nested macro name
             continue
-        if COMPARISON.match(code, m.end()) or BEFORE_COMPARISON.search(
-            code, max(0, m.start() - 8), m.start()
+        if COMPARISON.match(code, m.end(), end) or BEFORE_COMPARISON.search(
+            code, max(span[0], m.start() - 8), m.start()
         ):
             continue  # token == expected, user.password === undefined: a boolean
         if lang == "js" and first == "?" and second not in {".", "?"}:
             continue  # token ? "set" : "unset": the test of a conditional
         if first == "(" and parts[-1] in SAFE_CALLS:
             # len(token), redact(&key), key.len(): the call's result is safe to log.
-            at = close_paren(code, code.index("(", m.end())) + 1
+            paren = code.index("(", m.end(), end)
+            at = pairs.get(paren, end) + 1
             continue
         if (first == "=" and second != "=") or (first == ":" and second != ":"):
             if (
@@ -616,10 +644,6 @@ def safe_value(code: str, eq: int) -> bool:
     # tokenCount, token.length, len(token), redact(t)
     last = call.group(0).split(".")[-1].strip()
     return describes(last) or last in SAFE_CALLS
-
-
-def line_of(text: str, offset: int) -> int:
-    return text.count("\n", 0, offset) + 1
 
 
 # --- Rust ------------------------------------------------------------------------------------
@@ -655,15 +679,18 @@ def without_test_items(code: str) -> str:
 
 def scan_rust(path: str, text: str, report: Report) -> None:
     lines = text.splitlines()
+    index = LineIndex(text)
     code, strings = mask(text, "rs")
     code = without_test_items(code)
+    pairs = bracket_pairs(code)
+    starts = [a for a, _ in strings]
     for m in RS_MACRO.finditer(code):
         open_at = m.end() - 1
-        end = close_paren(code, open_at)
-        args = code[open_at + 1 : end]
-        inside = [text[a:b] for a, b in strings if open_at < a < end]
-        if secret_names(args, inside, RS_INLINE):
-            span = (line_of(text, m.start()), line_of(text, end))
+        end = pairs.get(open_at, len(code))
+        inside = strings[bisect_right(starts, open_at) : bisect_left(starts, end)]
+        raw = [text[a:b] for a, b in inside]
+        if secret_names(code, (open_at + 1, end), pairs, raw, RS_INLINE):
+            span = (index.of(m.start()), index.of(end))
             report.add_line(path, lines, span, "secret-in-log", SECRET_MSG)
     unbounded = (
         (r"\brolling\s*::\s*(daily|hourly|minutely|never)\s*\(", ROLLING_MSG),
@@ -673,7 +700,7 @@ def scan_rust(path: str, text: str, report: Report) -> None:
     )
     for pattern, message in unbounded:
         for m in re.finditer(pattern, code):
-            line = line_of(text, m.start())
+            line = index.of(m.start())
             report.add_line(path, lines, (line, line), "unbounded-log-file", message)
     builders = (
         r"\bRollingFileAppender\s*::\s*builder\s*\(\s*\)"
@@ -683,7 +710,7 @@ def scan_rust(path: str, text: str, report: Report) -> None:
         stop = code.find(";", m.end())
         stop = len(code) if stop == -1 else stop
         if ".max_log_files" not in re.sub(r"\s+", "", code[m.end() : stop]):
-            span = (line_of(text, m.start()), line_of(text, stop))
+            span = (index.of(m.start()), index.of(stop))
             report.add_line(path, lines, span, "unbounded-log-file", BUILDER_MSG)
 
 
@@ -708,15 +735,17 @@ JS_CALL = re.compile(
 
 def scan_js(path: str, text: str, report: Report) -> None:
     lines = text.splitlines()
+    index = LineIndex(text)
     code, _ = mask(text, "js")
+    pairs = bracket_pairs(code)
     for m in JS_CALL.finditer(code):
         receiver = m.group(1)
         if receiver != "console" and not {"log", "logger"} & set(words(receiver)):
             continue
         open_at = m.end() - 1
-        end = close_paren(code, open_at)
-        if secret_names(code[open_at + 1 : end], [], RS_INLINE, "js"):
-            span = (line_of(text, m.start()), line_of(text, end))
+        end = pairs.get(open_at, len(code))
+        if secret_names(code, (open_at + 1, end), pairs, [], RS_INLINE, "js"):
+            span = (index.of(m.start()), index.of(end))
             report.add_line(path, lines, span, "secret-in-log", SECRET_MSG)
 
 
