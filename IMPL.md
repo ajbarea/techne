@@ -6,9 +6,7 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 
 ## In flight
 
-fix/heuresis-relative-ideas (#219): heuresis refuses relative paths and an ideas folder without the idea; PR open, review next.
-
-Before it: the 10-26 techne batch is merged: #215 docsync repo metadata, #216 poppler on CI,
+Nothing. #220 (heuresis refuses a relative folder, techne#219) and the 10-26 techne batch are merged: #215 docsync repo metadata, #216 poppler on CI,
 #217 graphe `pptx --editable` (see ROADMAP Shipped). Next pickup: the logging rollout below.
 
 Owed by AJ: from #209, the status line step `/phylax:setup` prints and the global CLAUDE.md
