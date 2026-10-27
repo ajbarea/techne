@@ -105,9 +105,11 @@ def describes(name: str) -> bool:
 
 def secret_like(name: str) -> bool:
     ws = words(name)
-    if ("id", "token") in pairwise(ws):
-        return True
-    if any(w in DESCRIBES for w in ws):
+    # The "id" of id_token names the kind of token; it does not describe it as an id.
+    ws_described = [
+        w for i, w in enumerate(ws) if not (w == "id" and ws[i + 1 : i + 2] == ["token"])
+    ]
+    if any(w in DESCRIBES for w in ws_described):
         return False
     return any(w in SECRET_WORDS for w in ws) or any(p in SECRET_PAIRS for p in pairwise(ws))
 
@@ -179,8 +181,11 @@ def toplevel(path: Path) -> Path:
 
 def settings(root: Path) -> tuple[set[str], tuple[str, ...]]:
     """The ignored rules and skipped path prefixes from the skill-context `## logging` section."""
-    text = read_path(root / ".claude" / "skill-context.md")
+    context = root / ".claude" / "skill-context.md"
+    text = read_path(context)
     if text is None:
+        if os.path.lexists(context):
+            warn(f"{context} is not a readable regular file; its ## logging section is left out")
         return set(), ()
     section = re.search(r"^## logging[ \t]*\n(.*?)(?=^## |\Z)", text, re.M | re.S)
     ignored: set[str] = set()
@@ -901,9 +906,15 @@ def unquote(text: str) -> str:
 def outside_quotes(text: str, keep_double: bool = False) -> str:
     """text with quoted contents blanked: single-quoted always, double-quoted unless
     keep_double (the shell expands $NAME inside double quotes, not inside single ones)."""
-    out, quote = [], ""
+    out, quote, escaped = [], "", False
     for c in text:
-        if quote:
+        if escaped:  # \' or \" outside quotes is a literal character
+            out.append(" ")
+            escaped = False
+        elif c == "\\" and not quote:
+            out.append(" ")
+            escaped = True
+        elif quote:
             out.append(c if quote == '"' and keep_double else " ")
             if c == quote:
                 quote = ""

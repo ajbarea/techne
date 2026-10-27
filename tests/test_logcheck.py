@@ -908,6 +908,7 @@ def test_a_config_symlinked_to_a_device_is_not_read(tmp_path: Path, target: str)
         ('logger.info("x", extra={"token": tok})', True),
         ('logger.info("x", extra={"token": len(tok)})', False),
         ('logger.info("%s", id_token)', True),
+        ('logger.info("%d", id_token_count)', False),
     ],
 )
 def test_secret_in_log_python_round_two(tmp_path: Path, line: str, hit: bool) -> None:
@@ -933,3 +934,8 @@ def test_secret_in_log_js_round_two(tmp_path: Path, line: str, hit: bool) -> Non
 def test_rust_comparison_is_not_logged(tmp_path: Path) -> None:
     src = 'pub fn f() {\n    info!("{}", token == expected);\n}\n'
     assert rules(tmp_path, {**RS_OK, "src/lib.rs": src}) == []
+
+
+def test_an_escaped_quote_does_not_hide_a_heredoc(tmp_path: Path) -> None:
+    src = '#!/bin/bash\necho don\\\'t && cat <<EOF\necho "error: body"\nEOF\n'
+    assert rules(tmp_path, {"run.sh": src}) == []
