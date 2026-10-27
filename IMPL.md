@@ -6,8 +6,8 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 
 ## In flight
 
-`techne:logging` (branch `feat/logging-standard`): the standard (`references/standard.md`),
-`logcheck.py` with tests, sisters check 16, a ci-audit section, docs page. Owed by AJ from #209:
+techne #214 `techne:logging` (branch `feat/logging-standard`): the standard, `logcheck.py`
+with tests, sisters check 16, a ci-audit section, docs page; 3 review rounds done. Owed by AJ from #209:
 the status line step `/phylax:setup` prints, and the global CLAUDE.md routing line.
 
 ## Logging rollout (stopped here 10-26; AJ moved sphragis and the MSR paper to the top)
@@ -36,6 +36,11 @@ from `logcheck.py --summary` on 10-26:
 - Poppler on the CI runner so the 3 skipped web-deck tests run; confirm in the CI log.
 
 ## Open Minors (recorded, not scheduled)
+
+- #214 logcheck: an awk `}'` line closes an enclosing `{ ... } >&2` group; a Rust appender
+  builder split over two statements is flagged; a JS ternary branch (`c ? token : "x"`) and a
+  TS arrow parameter (`(token: string) =>`) are read as object fields; `$(( (a) << b ))` and
+  `<<\EOF` are misread; `outside_quotes` ignores `\"` inside double quotes.
 
 - #198 scan: overlapping names report one; an acronym-boundary name (`ABCTool`) is not split;
   tag messages and author names are not scanned.
