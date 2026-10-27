@@ -1353,6 +1353,27 @@ def test_a_number_inside_a_line_is_kept_when_matching_heads(lb):
         ),
         # A Contents cell below the page's first lines leaves the page read.
         (_pages(["Body."], ["Text.", "More.", "Item", "Contents", "Size", "References"]), [(2, 6)]),
+        # Under three pages after the first, a deeper top line is body even on every page.
+        (
+            _pages(["Title", "b1"], ["Head", "work.", "b2"], ["Head", "work.", "References"]),
+            [(3, 2)],
+        ),
+        # A folio above the head leaves the head the first line that is no folio.
+        (
+            _pages(
+                ["Title", "b1"],
+                ["2", "Head A", "b2"],
+                ["3", "Head B", "c3"],
+                ["4", "Head A", "b4"],
+                ["5", "Head B", "References"],
+            ),
+            [(5, 1)],
+        ),
+        # A numbered list of fifteen is no ruler.
+        (
+            _pages(["Body."] + [str(n) for n in range(1, 16)], ["16", "17", "18", "References"]),
+            [(2, 4)],
+        ),
         # A ruler on full pages marks the copy, so the short last page drops its numbers too.
         (
             _pages(
