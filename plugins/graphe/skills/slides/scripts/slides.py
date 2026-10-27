@@ -1886,7 +1886,12 @@ def _open_any(browser, deck: pathlib.Path, viewport: dict, **context):
     if custom:
         page.evaluate(pptx_editable.CUSTOM_SLIDES)
         return page
+    reveal = page.evaluate("!!document.querySelector('.reveal')")
     page.context.close()
+    if not reveal:
+        raise DeckError(
+            'not a deck: no reveal.js (.reveal .slides) and no <section class="slide"> elements'
+        )
     page, _ = _open(browser, deck, viewport, **context)
     page.evaluate(pptx_editable.REVEAL_SLIDES)
     return page
@@ -1915,9 +1920,12 @@ def _pptx_editable(deck: pathlib.Path, target: pathlib.Path, images: pathlib.Pat
         finally:
             browser.close()
 
-    prs, tally = pptx_editable.build(
-        slides, _TITLE_ONLY, lambda words, number: _alt_text("", words, number)
-    )
+    try:
+        prs, tally = pptx_editable.build(
+            slides, _TITLE_ONLY, lambda words, number: _alt_text("", words, number)
+        )
+    except Exception as exc:  # python-pptx refusing a shape, never a bare traceback
+        sys.exit(f"{deck}: building the .pptx failed: {type(exc).__name__}: {exc}")
     if images is not None:
         prepare_out(images)
         for number, cap in enumerate(slides, 1):
@@ -1935,6 +1943,12 @@ def _pptx_editable(deck: pathlib.Path, target: pathlib.Path, images: pathlib.Pat
         f"backgrounds: {tally['solid']} one colour, {tally['backdrop']} pictures "
         "(cards, rules and decoration, behind the text)"
     )
+    if tally["cut"]:
+        shown = ", ".join(str(n) for n in tally["cut"])
+        print(
+            f"  slides {shown} have another shape than slide 1; a .pptx has one slide size, so "
+            "they are placed to its width and anything past its height is off the slide"
+        )
     fonts = sorted(tally["fonts"], key=str.lower)
     if fonts:
         print(f"fonts: {', '.join(fonts)}")

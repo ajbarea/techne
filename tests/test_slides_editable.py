@@ -97,7 +97,7 @@ def _run(slide, text: str):
 
 @needs_browser
 def test_every_slide_exports_with_a_16_by_9_page(export):
-    assert len(export.prs.slides) == 3
+    assert len(export.prs.slides) == 4
     assert (export.prs.slide_width, export.prs.slide_height) == (12192000, 6858000)
 
 
@@ -237,8 +237,128 @@ def test_the_starter_reveal_deck_exports_editable(sl, web, tmp_path):  # noqa: F
 def test_a_page_that_is_not_a_deck_is_refused(sl, tmp_path):
     page = tmp_path / "page.html"
     page.write_text("<!doctype html><title>t</title><h1>Hello</h1>")
-    with pytest.raises(SystemExit, match=r"not a reveal\.js deck"):
+    with pytest.raises(SystemExit, match=r"no <section class=\"slide\"> elements"):
         sl.pptx_html(page, tmp_path / "out.pptx", editable=True)
+
+
+def _picture(shape):
+    from PIL import Image  # ty: ignore[unresolved-import]
+
+    return Image.open(io.BytesIO(shape.image.blob)).convert("RGB")
+
+
+def _colours(image, box, scale):
+    crop = image.crop(tuple(int(v * scale) for v in box))
+    return {c for _, c in crop.getcolors(1 << 20)}
+
+
+@needs_browser
+def test_generated_text_is_a_run_and_a_counter_stays_visible_in_the_background(export):
+    edge = export.prs.slides[3]
+    assert "→ Kicker with arrow" in _shapes(edge)
+    assert "Measure first" in _shapes(edge)
+    image = _background(edge)
+    # "Step 1: " is drawn by a CSS counter, which the page cannot hand over as text.
+    assert (0xB0, 0x00, 0x20) in _colours(image, (100, 200, 200, 236), image.width / 1600)
+    # The arrow became text, so the background has no glyph where it was.
+    assert _colours(image, (100, 140, 125, 176), image.width / 1600) == {(255, 255, 255)}
+
+
+@needs_browser
+def test_display_contents_and_screen_reader_text(export):
+    edge = _shapes(export.prs.slides[3])
+    assert "Inside contents" in edge
+    assert "Visible words" in edge
+    assert not any("hidden words" in text for text in edge)
+
+
+@needs_browser
+def test_an_icon_in_currentcolor_and_gradient_text_stay_in_the_background(export):
+    edge = export.prs.slides[3]
+    image = _background(edge)
+    scale = image.width / 1600
+    # The icon sits after "Icon "; its pixels are the text colour, not transparent.
+    assert (0x1A, 0x1A, 0x1A) in _colours(image, (150, 380, 260, 420), scale)
+    assert not any("Gradient" in text for text in _shapes(edge))
+    assert len(_colours(image, (100, 440, 300, 476), scale)) > 10
+
+
+@needs_browser
+def test_wrapped_text_gets_slack_and_one_line_text_does_not_wrap(export):
+    edge = _shapes(export.prs.slides[3])
+    long = edge["A paragraph long enough that the browser wraps it onto a second line."]
+    assert long.text_frame.word_wrap is True
+    assert long.width > 520 * EMU_PX * 1.05
+    assert edge["Half ink"].text_frame.word_wrap is False
+    # One line set from several inline elements is still one line.
+    lead = _shapes(export.prs.slides[0])["A custom deck: bold words, italic words and a link."]
+    assert lead.text_frame.word_wrap is False
+
+
+@needs_browser
+def test_an_item_that_opens_with_a_paragraph_gets_its_bullet(export):
+    item = _shapes(export.prs.slides[3])["Item in a paragraph"]
+    assert item.text_frame.paragraphs[0]._p.pPr.find(f"{A}buChar") is not None
+
+
+@needs_browser
+def test_right_to_left_and_translucent_text(export):
+    edge = export.prs.slides[3]
+    assert _shapes(edge)["שלום עולם"].text_frame.paragraphs[0]._p.pPr.get("rtl") == "1"
+    alpha = _run(edge, "Half ink")._r.find(f".//{A}srgbClr/{A}alpha")
+    assert alpha is not None and alpha.get("val") == "50000"
+
+
+@needs_browser
+def test_text_over_a_figure_is_on_top_and_not_in_its_picture(export):
+    edge = export.prs.slides[3]
+    shapes = list(edge.shapes)
+    figure = next(s for s in shapes if s.shape_type == 13 and "caption" in
+                  s._element.nvPicPr.cNvPr.get("descr"))  # fmt: skip
+    caption = _shapes(edge)["Over the figure"]
+    assert shapes.index(caption) > shapes.index(figure)
+    image = _picture(figure)
+    # Inside the square, under the caption: teal only, no white glyphs.
+    scale = image.width / 420
+    assert _colours(image, (100, 115, 200, 140), scale) == {(0x08, 0x7C, 0x83)}
+
+
+@needs_browser
+def test_overlapping_table_spans_export_without_a_crash(export):
+    tables = [s for s in export.prs.slides[3].shapes if s.has_table]
+    assert len(tables) == 1
+
+
+@needs_browser
+def test_tablecell_borders_come_before_the_fill_as_the_schema_orders_them(export):
+    table = next(s for s in export.prs.slides[2].shapes if s.has_table).table
+    order = [child.tag.split("}")[1] for child in table.cell(0, 0)._tc.tcPr]
+    assert order[:5] == ["lnL", "lnR", "lnT", "lnB", "solidFill"]
+
+
+@needs_browser
+def test_a_slide_larger_than_the_window_is_captured_whole(sl, tmp_path):
+    from pptx import Presentation  # ty: ignore[unresolved-import]
+
+    deck = tmp_path / "tall.html"
+    deck.write_text(
+        "<!doctype html><title>t</title><style>body{margin:0}"
+        ".slide{position:relative;width:1600px;height:1400px;background:#fff;font:32px Arial}"
+        "p{position:absolute;margin:0}</style>"
+        '<section class="slide active"><h1>Tall</h1>'
+        '<p style="top:1300px;left:100px">Bottom line</p>'
+        '<div style="position:absolute;left:0;top:1350px;width:1600px;height:50px;'
+        'background:#c00000"></div></section>'
+    )
+    target = tmp_path / "tall.pptx"
+    assert sl.pptx_html(deck, target, editable=True) == 0
+    prs = Presentation(str(target))
+    assert prs.slide_height == round(12192000 * 1400 / 1600)
+    bottom = _shapes(prs.slides[0])["Bottom line"]
+    assert bottom.top == pytest.approx(1300 * EMU_PX, abs=4 * EMU_PX)
+    image = _background(prs.slides[0])
+    assert image.height / image.width == pytest.approx(1400 / 1600, abs=0.01)
+    assert image.getpixel((800, image.height - 5)) == (0xC0, 0x00, 0x00)
 
 
 # ---------------------------------------------------------- render check --
@@ -270,9 +390,9 @@ def test_each_slide_renders_in_office_as_the_browser_shows_it(sl, export, tmp_pa
     assert sl.render(export.path, out, "auto", 96) == 0
     office = [Image.open(p) for p in sorted(out.glob("slide-*.png"))]
     browser = [Image.open(p) for p in sorted(export.images.glob("slide-*.png"))]
-    assert len(office) == len(browser) == 3
+    assert len(office) == len(browser) == 4
     for number, (o, b) in enumerate(zip(office, browser, strict=True), 1):
         same = _distance(o, b)
-        other = _distance(o, browser[number % 3])
+        other = _distance(o, browser[number % 4])
         assert same < 0.03, f"slide {number} differs from the browser by {same:.3f}"
         assert same < other / 3, f"slide {number} is as close to another slide ({other:.3f})"

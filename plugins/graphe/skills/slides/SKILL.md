@@ -61,9 +61,12 @@ where the browser put them:
   renders blank outside PowerPoint;
 - everything else (cards, rules, decoration, icons inside text) is baked into
   the slide background, taken with the text made transparent, so it cannot be
-  dragged by mistake; a background of one colour becomes a solid fill;
+  dragged by mistake; a background of one colour becomes a solid fill. Text the
+  page cannot hand over stays there too, still visible: CSS counters
+  (`content: counter(n)`) and gradient text (`background-clip: text`);
 - the first `h1` to `h3` fills the title placeholder where it stands, and the
-  notes carry over.
+  notes carry over. Text sits above pictures and tables, so none is hidden
+  under a figure.
 
 Text boxes are about 6% wider than the browser's, and a line the browser did not
 wrap is set not to wrap, because PowerPoint and Google Slides set most fonts a
@@ -76,8 +79,10 @@ It reads a reveal.js deck or a custom one: one `<section class="slide">` per
 slide, the slide on screen marked with the class `active` (the export sets it),
 fragments revealed with `visible`, and notes in `<template class="speaker-notes">`
 or `<aside class="notes">`. Whatever is not inside the slide, such as the deck's
-own buttons, stays out. `check`, `render`, `script` and `pdf` still need
-reveal.js. Render the result (`render <deck>.pptx`) and compare it with the
+own buttons, stays out. A slide larger than the browser window is captured
+whole. A .pptx has one slide size, taken from slide 1; the summary names any
+slide of another shape, whose content past the page's height is off the slide.
+`check`, `render`, `script` and `pdf` still need reveal.js. Render the result (`render <deck>.pptx`) and compare it with the
 browser before handing it over; `--images` writes the browser's pictures for that.
 
 `# research(2026-10)` The choices follow what Microsoft's html2pptx hit in

@@ -25,6 +25,7 @@ the class `active`, notes in `<template class="speaker-notes">` or `<aside class
 from __future__ import annotations
 
 import io
+import math
 import re
 import unicodedata
 from dataclasses import dataclass, field
@@ -226,7 +227,7 @@ READ = r"""(i) => {
     ctx.fillStyle = c;
     ctx.fillRect(0, 0, 1, 1);
     const d = ctx.getImageData(0, 0, 1, 1).data;
-    return [d[0], d[1], d[2], +(d[3] / 255).toFixed(3)];
+    return [d[0], d[1], d[2], +(d[3] / 255).toFixed(2)];
   };
   const BLOCK = new Set(['ADDRESS', 'ARTICLE', 'ASIDE', 'BLOCKQUOTE', 'CAPTION', 'DD', 'DETAILS',
     'DIALOG', 'DIV', 'DL', 'DT', 'FIELDSET', 'FIGCAPTION', 'FIGURE', 'FOOTER', 'FORM', 'H1', 'H2',
@@ -239,14 +240,19 @@ READ = r"""(i) => {
   const px = (r) => ({x: r.left - f.left, y: r.top - f.top, w: r.width, h: r.height});
   const inFrame = (r) => r.width >= 1 && r.height >= 1 && r.right > f.left
     && r.bottom > f.top && r.left < f.left + f.width && r.top < f.top + f.height;
-  const shown = (el) => el.checkVisibility({opacityProperty: true, visibilityProperty: true});
-  // Screen-reader-only text: inside a box of 1px or less that clips what it holds.
+  // An element with display: contents has no box of its own; its children show for it.
+  const shown = (el) => (getComputedStyle(el).display === 'contents'
+    ? getComputedStyle(el).visibility !== 'hidden' && (!el.parentElement || shown(el.parentElement))
+    : el.checkVisibility({opacityProperty: true, visibilityProperty: true}));
+  // Screen-reader-only text: inside a box of 1px or less that clips what it holds, measured
+  // in the page's own pixels, since the deck may be scaled on screen.
   const srOnly = (el) => {
     for (let a = el; a && a !== s; a = a.parentElement) {
       const st = getComputedStyle(a), r = a.getBoundingClientRect();
       const clips = st.overflow !== 'visible' || (st.clip && st.clip !== 'auto')
         || st.clipPath !== 'none';
-      if (r.width <= 1 && r.height <= 1 && clips) return true;
+      const w = a.offsetWidth ?? r.width / f.scale, h = a.offsetHeight ?? r.height / f.scale;
+      if (w <= 1 && h <= 1 && clips) return true;
     }
     return false;
   };
@@ -296,11 +302,24 @@ READ = r"""(i) => {
     || (el.querySelector && el.querySelector('title') && el.querySelector('title').textContent)
     || '';
 
+  // Generated text: quoted strings and attr() become a run. Content the page cannot hand
+  // over (a counter, a quote mark, an image) stays in the background, drawn in its own colour.
+  const keep = [];
+  const unescape = (t) => t.replace(/\\([0-9a-fA-F]{1,6}) ?/g,
+    (_, h) => String.fromCodePoint(parseInt(h, 16))).replace(/\\(.)/g, '$1');
   const pseudo = (el, which) => {
-    const c = getComputedStyle(el, which).content;
-    const m = c && c.match(/^"(.*)"$/s);
-    return m ? m[1].replace(/\\([0-9a-fA-F]{1,6}) ?/g,
-      (_, h) => String.fromCodePoint(parseInt(h, 16))).replace(/\\(.)/g, '$1') : '';
+    const st = getComputedStyle(el, which), c = st.content;
+    if (!c || c === 'none' || c === 'normal') return '';
+    let out = '', whole = true;
+    const token = /"((?:[^"\\]|\\.)*)"|attr\(\s*([\w-]+)\s*\)|(\S+\([^)]*\)|\S+)/gs;
+    for (const m of c.matchAll(token)) {
+      if (m[1] !== undefined) out += unescape(m[1]);
+      else if (m[2]) out += el.getAttribute(m[2]) || '';
+      else whole = false;
+    }
+    if (whole) return out;
+    keep.push({el, which, color: st.color});
+    return '';
   };
   const runStyle = (el) => {
     const st = getComputedStyle(el);
@@ -325,13 +344,17 @@ READ = r"""(i) => {
     : how === 'capitalize' ? text.replace(/\b\w/g, (c) => c.toUpperCase()) : text;
   // Runs of an inline group: text nodes with their element's style, <br> as a line break,
   // inline math as its TeX source, small media left to the background.
-  const glyphs = new Set();
+  const glyphs = new Set(), math = new Set(), listed = new Set();
   const runsOf = (nodes) => {
     const runs = [];
     const visit = (n) => {
       if (n.nodeType === 3) {
         const el = n.parentElement;
         if (!el || !shown(el) || !n.textContent) return;
+        // Text the browser paints through its background (background-clip: text) or not at
+        // all has no colour of its own; it stays in the background picture.
+        const css = getComputedStyle(el);
+        if (rgba(css.webkitTextFillColor)[3] === 0 || rgba(css.color)[3] === 0) return;
         glyphs.add(el);
         const st = runStyle(el);
         runs.push({...st, text: cased(n.textContent, st.transform)});
@@ -345,8 +368,7 @@ READ = r"""(i) => {
       if (MEDIA.has(tag(n))) return;
       if (inlineMath(n)) {
         const source = texSource(n);
-        glyphs.add(n);
-        n.querySelectorAll('*').forEach((d) => glyphs.add(d));
+        math.add(n);
         if (source != null) runs.push({...runStyle(n), tex: source, text: ''});
         else runs.push({...runStyle(n), text: n.textContent});
         return;
@@ -370,12 +392,35 @@ READ = r"""(i) => {
       number = (list.start || 1) + siblings.indexOf(li);
       if (li.value) number = li.value;
     }
-    const pad = parseFloat(getComputedStyle(list).paddingLeft) || 0;
+    // The marker sits in the room left of the item: the list's padding, or its margin where
+    // a reset (reveal.js) zeroes the padding. At least 1em, so the bullet never touches text.
+    const em = parseFloat(st.fontSize) * f.scale;
+    const room = li.getBoundingClientRect().left - list.getBoundingClientRect().left
+      + (parseFloat(getComputedStyle(list).marginLeft) || 0) * f.scale;
+    const inside = st.listStylePosition === 'inside';
     return {ordered, number, type: st.listStyleType, color: rgba(st.color),
-            indent: Math.min(pad, parseFloat(st.fontSize) * 1.6) * f.scale};
+            indent: inside ? 0 : Math.min(Math.max(room, em), em * 1.6)};
   };
-  const textBlock = (container, nodes, first) => {
+  // The list item a block opens: the item itself, or its first child when the item's
+  // content starts with a block (<li><p>...</p></li>).
+  const itemOf = (c, first) => {
+    if (tag(c) === 'LI') return first ? c : null;
+    const li = c.parentElement;
+    if (!li || tag(li) !== 'LI') return null;
+    for (const k of li.childNodes) {
+      if (k === c) return li;
+      if (k.nodeType === 3 ? k.textContent.trim() : k.nodeType === 1 && !skipped(k)) return null;
+    }
+    return null;
+  };
+  const textBlock = (container, nodes, first, last) => {
     const runs = runsOf(nodes);
+    // The block's own generated text opens its first line and closes its last.
+    const before = first ? pseudo(container, '::before') : '';
+    const after = last ? pseudo(container, '::after') : '';
+    if (before) runs.unshift({...runStyle(container), text: before});
+    if (after) runs.push({...runStyle(container), text: after});
+    if (before || after) glyphs.add(container);
     if (!runs.some((r) => r.tex != null || r.text.trim())) return;
     const range = document.createRange();
     range.setStartBefore(nodes[0]);
@@ -386,18 +431,35 @@ READ = r"""(i) => {
     const lh = parseFloat(st.lineHeight);
     // The range is the glyphs' box; a line box adds half the leading above and below, and
     // PowerPoint sets exact line spacing the same way, so the text box takes the line box.
-    const lines = range.getClientRects();
+    const lines = [...range.getClientRects()].filter((q) => q.width > 0);
     const tall = lines.length ? lines[0].height : r.height;
     const half = Number.isFinite(lh) ? Math.max(0, (lh * f.scale - tall) / 2) : 0;
     const box = {x: r.left - f.left, y: r.top - f.top - half, w: r.width, h: r.height + 2 * half};
-    const li = first && tag(container) === 'LI' ? listInfo(container) : null;
-    if (li) glyphs.add(container);
+    // Lines the browser set: a rect that starts below the last line's bottom opens a new one.
+    let count = 0, bottom = -Infinity;
+    for (const q of lines.sort((a, b) => a.top - b.top)) {
+      if (q.top >= bottom - 1) {
+        count += 1;
+        bottom = q.bottom;
+      } else bottom = Math.max(bottom, q.bottom);
+    }
+    // Wrapped text was set to the container's width, not its longest line's.
+    if (count > 1) {
+      const c = container.getBoundingClientRect();
+      const inner = c.right - ((parseFloat(st.paddingRight) || 0)
+        + (parseFloat(st.borderRightWidth) || 0)) * f.scale;
+      box.w = Math.max(box.w, inner - r.left);
+    }
+    const item = itemOf(container, first);
+    const li = item && !listed.has(item) ? listInfo(item) : null;
+    if (li) { listed.add(item); glyphs.add(item); }
     items.push({
       kind: 'text', ...box, runs,
       tag: tag(container).toLowerCase(),
       align: st.textAlign,
       rtl: st.direction === 'rtl',
       lineHeight: Number.isFinite(lh) ? lh * f.scale : null,
+      lines: count,
       fontSize: parseFloat(st.fontSize) * f.scale,
       bullet: li,
     });
@@ -437,8 +499,8 @@ READ = r"""(i) => {
   const walk = (el) => {
     let group = [];
     let first = true;
-    const flush = () => {
-      if (group.length) { textBlock(el, group, first); first = false; }
+    const flush = (last = false) => {
+      if (group.length) { textBlock(el, group, first, last); first = false; }
       group = [];
     };
     for (const n of el.childNodes) {
@@ -468,30 +530,44 @@ READ = r"""(i) => {
       }
       group.push(n);
     }
-    flush();
+    flush(true);
   };
   walk(s);
 
   const heading = items.find((b) => b.kind === 'text' && /^h[1-3]$/.test(b.tag));
   if (heading) heading.title = true;
-  let n = 0;
-  for (const el of glyphs) el.setAttribute('data-pptx-glyphs', String(n++));
-  return {frame: f, items, notesHtml: __deckNotes(s)};
+  for (const el of glyphs) el.setAttribute('data-pptx-glyphs', '');
+  for (const el of math) el.setAttribute('data-pptx-math', '');
+  const rules = keep.map(({el, which, color}, k) => {
+    el.setAttribute(`data-pptx-keep-${which.slice(2)}`, String(k));
+    return `[data-pptx-keep-${which.slice(2)}="${k}"]${which} { color: ${color} !important;`
+      + ` -webkit-text-fill-color: ${color} !important; }`;
+  });
+  return {frame: f, items, notesHtml: __deckNotes(s), keep: rules.join('\n')};
 }"""
 
-# The background pass: glyphs transparent, and tables, figures and equations hidden.
-HIDE_STYLE = """
-[data-pptx-glyphs], [data-pptx-glyphs]::marker, [data-pptx-glyphs]::before,
-[data-pptx-glyphs]::after, [data-pptx-glyphs]::first-letter, [data-pptx-glyphs]::first-line {
-  color: transparent !important; -webkit-text-fill-color: transparent !important;
-  text-shadow: none !important; text-decoration-color: transparent !important;
+# Text made transparent, so figures and the background are taken without it. Only the glyph
+# fill goes: `color` stays, so an icon or border drawn in currentColor keeps its colour.
+# Inline math is drawn with borders and SVG in its colour, so it loses that colour too.
+# Figures and equations get their glyphs back for their own pictures.
+GLYPH_STYLE = """
+[data-pptx-glyphs], [data-pptx-glyphs]::before, [data-pptx-glyphs]::after,
+[data-pptx-glyphs]::first-letter, [data-pptx-glyphs]::first-line {
+  -webkit-text-fill-color: transparent !important; text-shadow: none !important;
+  text-decoration-color: transparent !important;
 }
+[data-pptx-glyphs]::marker, [data-pptx-math], [data-pptx-math] * {
+  color: transparent !important; -webkit-text-fill-color: transparent !important;
+}
+[data-pptx-shot], [data-pptx-shot] * { -webkit-text-fill-color: currentcolor !important; }"""
+# The background pass also hides the tables, figures and equations placed on their own.
+PLACED_STYLE = """
 [data-pptx-table], [data-pptx-table] *, [data-pptx-shot], [data-pptx-shot] * {
   visibility: hidden !important;
 }"""
-HIDE = """(css) => {
+STYLE = """([id, css]) => {
   const st = document.createElement('style');
-  st.id = 'pptx-hide';
+  st.id = id;
   st.textContent = css;
   document.head.appendChild(st);
 }"""
@@ -499,28 +575,29 @@ HIDE = """(css) => {
 CLEAR_STYLE = """
 [data-pptx-clear] { background: transparent !important; box-shadow: none !important; }
 .reveal .backgrounds { visibility: hidden !important; }"""
-CLEAR = """(css) => {
+CLEAR = """() => {
   for (const el of document.querySelectorAll('[data-pptx-shot]')) {
     for (let a = el; a; a = a.parentElement) a.setAttribute('data-pptx-clear', '');
   }
-  const st = document.createElement('style');
-  st.id = 'pptx-clear';
-  st.textContent = css;
-  document.head.appendChild(st);
 }"""
-UNCLEAR = """() => {
-  const st = document.getElementById('pptx-clear');
-  if (st) st.remove();
-  const mark = 'data-pptx-clear';
-  document.querySelectorAll(`[${mark}]`).forEach((el) => el.removeAttribute(mark));
+DROP = """(ids) => {
+  for (const id of ids) {
+    const st = document.getElementById(id);
+    if (st) st.remove();
+  }
 }"""
-UNMARK = """() => {
-  const st = document.getElementById('pptx-hide');
-  if (st) st.remove();
-  for (const a of ['data-pptx-glyphs', 'data-pptx-shot', 'data-pptx-table']) {
+UNMARK = """(ids) => {
+  for (const id of ids) {
+    const st = document.getElementById(id);
+    if (st) st.remove();
+  }
+  const marks = ['data-pptx-glyphs', 'data-pptx-math', 'data-pptx-shot', 'data-pptx-table',
+                 'data-pptx-clear', 'data-pptx-keep-before', 'data-pptx-keep-after'];
+  for (const a of marks) {
     document.querySelectorAll(`[${a}]`).forEach((el) => el.removeAttribute(a));
   }
 }"""
+ALL_STYLES = ["pptx-glyphs", "pptx-clear", "pptx-placed"]
 # A note's text with its paragraph breaks, laid out off-screen so innerText can read it.
 NOTE_TEXT = """(html) => {
   const scratch = document.createElement('div');
@@ -564,28 +641,46 @@ def _clip(box: dict, frame: dict) -> dict | None:
     return {"x": x0, "y": y0, "width": x1 - x0, "height": y1 - y0}
 
 
+def _read(page, i: int) -> dict:
+    """Show slide i and read it, with the window grown first when the slide is larger."""
+    for _ in range(2):
+        page.evaluate("(i) => __deckShow(i)", i)
+        page.evaluate(
+            "() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))"
+        )
+        read = page.evaluate(READ, i)
+        f, view = read["frame"], page.viewport_size
+        need = (math.ceil(f["left"] + f["width"]), math.ceil(f["top"] + f["height"]))
+        if need[0] <= view["width"] and need[1] <= view["height"]:
+            return read
+        # A screenshot stops at the window's edge, so the window grows to hold the slide.
+        page.evaluate(UNMARK, ALL_STYLES)
+        page.set_viewport_size(
+            {"width": max(view["width"], need[0]), "height": max(view["height"], need[1])}
+        )
+    return read
+
+
 def capture(page, count: int, still: str, keep_images: bool = False) -> list[Captured]:
     """Show, read and photograph each slide. `still` is the style that stops motion."""
     page.add_style_tag(content=still)
     page.evaluate("document.fonts.ready.then(() => true)")
     out = []
     for i in range(count):
-        page.evaluate("(i) => __deckShow(i)", i)
-        page.evaluate(
-            "() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))"
-        )
-        read = page.evaluate(READ, i)
+        read = _read(page, i)
         frame = read["frame"]
         whole = _clip({"x": frame["left"], "y": frame["top"], "width": frame["width"],
                        "height": frame["height"]}, frame)  # fmt: skip
         if whole is None:
             raise ValueError(f"slide {i + 1} has no area on screen")
         image = page.screenshot(clip=whole, scale="css") if keep_images else None
+        # Text goes transparent first, so text laid over a figure is not in its picture.
+        page.evaluate(STYLE, ["pptx-glyphs", GLYPH_STYLE + "\n" + read["keep"]])
         shots = {}
         for kind in ("figure", "equation"):
-            # An equation is taken without what lies behind it, so it can sit on any fill.
-            if kind == "equation":
-                page.evaluate(CLEAR, CLEAR_STYLE)
+            if kind == "equation":  # taken without what lies behind it, to sit on any fill
+                page.evaluate(CLEAR)
+                page.evaluate(STYLE, ["pptx-clear", CLEAR_STYLE])
             for item in read["items"]:
                 if item.get("kind") != kind:
                     continue
@@ -595,11 +690,10 @@ def capture(page, count: int, still: str, keep_images: bool = False) -> list[Cap
                 shots[item["shot"]] = page.screenshot(clip=clip, omit_background=kind == "equation")
                 item.update(x=clip["x"] - frame["left"], y=clip["y"] - frame["top"],
                             w=clip["width"], h=clip["height"])  # fmt: skip
-            if kind == "equation":
-                page.evaluate(UNCLEAR)
-        page.evaluate(HIDE, HIDE_STYLE)
+        page.evaluate(DROP, ["pptx-clear"])
+        page.evaluate(STYLE, ["pptx-placed", PLACED_STYLE])
         background = page.screenshot(clip=whole, scale="css")
-        page.evaluate(UNMARK)
+        page.evaluate(UNMARK, ALL_STYLES)
         notes = page.evaluate(NOTE_TEXT, read["notesHtml"]) if read["notesHtml"] else ""
         out.append(Captured(frame, read["items"], notes, background, shots, image))
     return out
@@ -610,6 +704,20 @@ def capture(page, count: int, still: str, keep_images: bool = False) -> list[Cap
 
 def _hex(c) -> str:
     return "".join(f"{v:02X}" for v in c[:3])
+
+
+def _alpha(srgb, alpha: float) -> None:
+    """Set a colour element's opacity (DrawingML counts it in thousandths of a percent)."""
+    from lxml import etree  # ty: ignore[unresolved-import]
+    from pptx.oxml.ns import qn  # ty: ignore[unresolved-import]
+
+    etree.SubElement(srgb, qn("a:alpha"), {"val": str(round(alpha * 100000))})
+
+
+def rpr_colour(run):
+    from pptx.oxml.ns import qn  # ty: ignore[unresolved-import]
+
+    return run._r.get_or_add_rPr().find(f"{qn('a:solidFill')}/{qn('a:srgbClr')}")
 
 
 def _rgb(c):
@@ -725,6 +833,8 @@ def _fill_text(tf, runs: list[dict], pt_per_px: float, block: dict, fonts: set[s
     tf.clear()
     p = tf.paragraphs[0]
     p.alignment = _alignment(block.get("align", "left"), block.get("rtl", False))
+    if block.get("rtl"):
+        p._p.get_or_add_pPr().set("rtl", "1")
     if block.get("lineHeight"):
         p.line_spacing = Pt(round(block["lineHeight"] * pt_per_px * 2) / 2)
     for r in _collapse(runs):
@@ -747,6 +857,8 @@ def _fill_text(tf, runs: list[dict], pt_per_px: float, block: dict, fonts: set[s
                 fonts.add(family)
             if r["color"] and r["color"][3] > 0:
                 font.color.rgb = _rgb(r["color"])
+                if r["color"][3] < 1:
+                    _alpha(rpr_colour(run), r["color"][3])
             rpr = run._r.get_or_add_rPr()
             if r["strike"]:
                 rpr.set("strike", "sngStrike")
@@ -786,7 +898,7 @@ def _text_box(shapes, item: dict, geo: Geometry, fonts: set[str], placeholder=No
     if bullet:
         x -= bullet["indent"]
         w += bullet["indent"]
-    one_line = item.get("lineHeight") and h <= item["lineHeight"] * 1.5
+    one_line = item.get("lines") == 1
     if not one_line:
         w = max(w, min(w * (1 + SLACK_SHARE) + SLACK_PX * geo.px_per_slide_px, geo.width - x))
     if placeholder is not None:
@@ -893,11 +1005,12 @@ def _table(shapes, item: dict, geo: Geometry, fonts: set[str]) -> None:
     for ri, ci, cell in placed:
         target = table.cell(ri, ci)
         if cell["rowspan"] > 1 or cell["colspan"] > 1:
-            target.merge(
-                table.cell(
-                    min(n_rows, ri + cell["rowspan"]) - 1, min(n_cols, ci + cell["colspan"]) - 1
-                )
-            )
+            corner = (min(n_rows, ri + cell["rowspan"]) - 1, min(n_cols, ci + cell["colspan"]) - 1)
+            try:
+                target.merge(table.cell(*corner))
+            except ValueError:
+                # HTML lets spans overlap; PowerPoint does not. The cell stays unmerged.
+                pass
         top, right, bottom, left = (geo.emu(v) for v in cell["pad"])
         target.margin_top, target.margin_right = Emu(top), Emu(right)
         target.margin_bottom, target.margin_left = Emu(bottom), Emu(left)
@@ -947,7 +1060,9 @@ def build(slides: list[Captured], title_only_layout: int, alt_text) -> tuple[Any
     prs.slide_width = Emu(SLIDE_W_EMU)
     prs.slide_height = Emu(round(SLIDE_W_EMU * first["height"] / first["width"]))
     layout = prs.slide_layouts[title_only_layout]
-    tally = {"text": 0, "table": 0, "picture": 0, "solid": 0, "backdrop": 0, "fonts": set()}
+    tally = {"text": 0, "table": 0, "picture": 0, "solid": 0, "backdrop": 0, "fonts": set(),
+             "cut": []}  # fmt: skip
+    aspect = first["height"] / first["width"]
     for number, cap in enumerate(slides, 1):
         geo = Geometry(cap.frame["width"], cap.frame["height"])
         slide = prs.slides.add_slide(layout)
@@ -959,12 +1074,21 @@ def build(slides: list[Captured], title_only_layout: int, alt_text) -> tuple[Any
         else:
             _set_background_picture(slide, cap.background)
             tally["backdrop"] += 1
+        if abs(cap.frame["height"] / cap.frame["width"] - aspect) > 0.01:
+            tally["cut"].append(number)
         heading = slide.shapes.title
         titled = False
-        for item in cap.items:
+        # Pictures first, then tables, then text, so editable text is never under a picture;
+        # within each kind, document order.
+        rank = {"figure": 0, "equation": 0, "table": 1, "text": 2}
+        for item in sorted(cap.items, key=lambda it: rank[it["kind"]]):
             if item["kind"] == "text":
                 holder = heading if item.get("title") and not titled else None
                 shape = _text_box(slide.shapes, item, geo, tally["fonts"], holder)
+                if holder is not None:  # the layout's placeholder moves up to its turn
+                    tree = shape._element.getparent()
+                    tree.remove(shape._element)
+                    tree.append(shape._element)
                 titled = titled or holder is not None
                 shape.name = "Title" if holder is not None else f"Text {tally['text'] + 1}"
                 tally["text"] += 1
