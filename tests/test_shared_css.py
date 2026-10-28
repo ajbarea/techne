@@ -96,12 +96,20 @@ def test_footer_brand_mark_takes_the_footer_text_color(bg, fg):
             assert box["height"] == pytest.approx(40, abs=1)
             assert box["width"] == pytest.approx(40 * 0.583, abs=1)
             assert mark.evaluate("e => getComputedStyle(e).backgroundColor") == fg
-            # The glyph paints: its box looks different with the mark hidden.
-            clip = page.locator(".md-copyright__highlight")
-            shown = clip.screenshot()
-            mark.evaluate("e => (e.style.visibility = 'hidden')")
-            assert clip.screenshot() != shown
-            mark.evaluate("e => (e.style.visibility = '')")
+            # The glyph is masked, not a filled box: on a transparent page only part of
+            # the mark's box paints (the brand image is about a third ink).
+            assert mark.evaluate("e => getComputedStyle(e).maskImage").startswith(
+                'url("data:image/png'
+            )
+            from io import BytesIO
+
+            from PIL import Image  # ty: ignore[unresolved-import]
+
+            page.evaluate("document.body.style.background = 'transparent'")
+            alpha = Image.open(BytesIO(mark.screenshot(omit_background=True))).getchannel("A")
+            counts = alpha.histogram()
+            painted = sum(counts[129:]) / sum(counts)
+            assert 0.05 < painted < 0.8, painted
             # Forced colors drop backgrounds; the mark keeps a system-color fill.
             page.emulate_media(forced_colors="active")
             fill = mark.evaluate("e => getComputedStyle(e).backgroundColor")
