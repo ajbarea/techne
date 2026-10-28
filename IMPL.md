@@ -70,3 +70,15 @@ from `logcheck.py --summary` on 10-26:
 
 The directory listing of `plugins/*/skills/` is the source of truth; README's per-skill tables
 carry the inventory, and ROADMAP's Shipped log records each addition.
+
+## Resume: shared footer brand mark (Review #2, 2026-10-28)
+
+- #224: the shared footer always draws the brand mark (`.footer-brand`, a currentColor mask
+  in shared.css); `extra.brand_mark` is retired. Root cause of the gap: only the partial was
+  shared, the image and its invert rule were per-site.
+- Sync PRs, merge after #224: ariadne#75, keryx#63, pharos#100, periplus#61, phalanx-fl#137,
+  Hackathon#13 (ajbarea fork; `gh pr create -R ajbarea/Hackathon`, its default is the lab's
+  upstream), sphragis (its commit hook runs the full suite; commit under the heavy lock).
+- kourai-khryseai and velocity-fl stay on the old partial (harvest-only, already show the mark).
+- Verify after deploy: each live site's inner page shows "2026 <mark> AJ Barea" and the GitHub
+  icon to its own repo, light and dark.
