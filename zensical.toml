@@ -214,7 +214,6 @@ markdown_description = """techne is a Claude Code plugin marketplace (ajbarea/te
 
 [project.extra]
 generator = false
-brand_mark = "assets/brand.png"
 
 [[project.extra.social]]
 icon = "fontawesome/brands/github"

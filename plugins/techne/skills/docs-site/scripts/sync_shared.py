@@ -11,7 +11,7 @@ unlisted page never deploys.
 
 Every shared file names techne as its canonical home, and a sync only replaces a file that
 does: a site's own hand-written version is refused unless --force is given, so its
-features are moved into config (extra.og_image, extra.brand_mark) or its own files first.
+features are moved into config (extra.og_image) or its own files first.
 """
 
 from __future__ import annotations

@@ -36,8 +36,8 @@ a:hover {
 * {
   transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
 }
-/* Brand mark in the footer copyright (inverted to light on the dark footer) */
-.md-copyright .brand-mark,
+/* Brand mark in the landing page's footer (inverted to light on the dark footer);
+   the content pages' footer mark comes from shared.css. */
 .landing-footer .brand-mark {
   height: 1em;
   width: auto;
@@ -46,8 +46,7 @@ a:hover {
   opacity: 0.75;
   filter: invert(1);
 }
-/* Light mode: brand mark stays dark on the (light) content-page footer */
-[data-md-color-scheme="default"] .md-copyright .brand-mark,
+/* Light mode: the landing footer's mark stays dark */
 [data-md-color-scheme="default"] .landing-footer .brand-mark {
   filter: none;
 }
