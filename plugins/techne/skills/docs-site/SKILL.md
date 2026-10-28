@@ -79,7 +79,7 @@ These files are the same on every sister docs site, and techne holds the canonic
   keyboard-focusable region.
 - `overrides/partials/copyright.html`: the footer, "2026 <brand mark> <copyright>", with the
   GitHub icon from `extra.social` beside it. `shared.css` draws the mark in the footer's text
-  color, so a site needs no image. `copyright` names AJ only, never the team.
+  color, so a site needs no image. `copyright` names the site owner only, never the team.
 - `docs/javascripts/reveal.js`: the `hero-page` class and reveal-on-scroll for
   `.landing-section`. A site's own effects (particles, hero art) go in their own file.
 - `tests/test_docs_nav.py`: fails when a `docs/` page is missing from the nav (skipped where
