@@ -78,7 +78,8 @@ carry the inventory, and ROADMAP's Shipped log records each addition.
   shared, the image and its invert rule were per-site.
 - Sync PRs, merge after #224: ariadne#75, keryx#63, pharos#100, periplus#61, phalanx-fl#137,
   Hackathon#13 (ajbarea fork; `gh pr create -R ajbarea/Hackathon`, its default is the lab's
-  upstream), sphragis (its commit hook runs the full suite; commit under the heavy lock).
+  upstream), sphragis#222. #224 review fixed; the footer test fails with the mask removed
+  (mutation run 10-28). Full Review #2 state: ajbarea.github.io IMPL.md on feat/pharos-card.
 - kourai-khryseai and velocity-fl stay on the old partial (harvest-only, already show the mark).
 - Verify after deploy: each live site's inner page shows "2026 <mark> AJ Barea" and the GitHub
   icon to its own repo, light and dark.
