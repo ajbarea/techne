@@ -25,6 +25,30 @@ routing line; GitGuardian incident 39081601 (a fake test token in #215, gone fro
 to mark as a false positive in the dashboard. Same for ariadne incident 39247473 and 39249419
 (fake Neo4j credentials in the #76 tests, squashed out of the PR before merge).
 
+## Resume: quality evals, hooks, review-loop ledger (techne-evals brief, 10-29)
+
+- ✅ #235 `scripts/review_loop_mine.py` + `quality/review-loop/2026-10-29.md`: 95.3% of
+  class-tagged review findings (60.8% of all) since the catalog existed were classes it
+  already held; no class added after its first commit. Five rounds + verify.
+- ✅ #237 phylax `email_greeting` (+ `email_timezone`): Good morning/afternoon/evening by
+  the clock, never Hi/Dear, on epistole and Gmail-connector drafts, sends and replies.
+- ✅ #238 elenchus findings ledger + `checklist` + daily `foldback.sh` (catalog PR, one
+  "Mechanical check" issue at 3 PRs/week, Retired field). Seven rounds. Timer installed on
+  this PC: `~/.config/systemd/user/elenchus-foldback.{service,timer}` (06:30) running
+  `~/.local/bin/elenchus-foldback`, which resolves the installed plugin path.
+- 📋 #236: two hook proposals (skipped git hooks; commits gated on a piped verify); AJ picks.
+- 🔄 #239 pre-registration of the budget-trial quality evals: `quality/` (PREREGISTRATION.md,
+  run.py, analyze.py, tasks.toml with 10 replayed PRs, judge.md, sandbox.json) and the
+  `quality-*` skill eval cases. Reviewed until clean (registered rules). `run.py
+  --check-tasks` (no model) and `--smoke` (Haiku, scratch output) validate the harness.
+- 📋 After #239 merges, in order: `make quality MODE=normal` (Opus baseline, 3 repeats,
+  judge pass, analysis) and `make quality-skills` (Opus) → commit results under
+  `quality/results/`; then techne#226 (fold-or-keep audit) measured on them. The
+  sonnet/opus comparison (pilot → sizing → confirmatory) runs only when AJ schedules the
+  budget trial. Stretch: 10 DeepSWE tasks on TIGRIS, never this PC.
+- 📋 #234 step 5: rerun `review_loop_mine.py` a week after #238 (from 2026-11-05), now
+  reading the ledger too, and report the change in repeat-class share.
+
 ## Open Minors (recorded, not scheduled)
 
 - #215 repo_meta: a 1-2 word subtitle under the title hides the lead; a 3+ word section heading
