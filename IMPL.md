@@ -6,10 +6,13 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 
 ## In flight
 
-Next: the Opus baseline (`make quality MODE=normal PHASE=baseline
-QUALITY_OUT=quality/results/2026-10-29-baseline`, resumes by rerunning the same command after
-a limit), then `make quality-skills`; commit both under `quality/results/`. #239 merged after
-ten review rounds (round 10 clean) plus a verify pass.
+Running (branch results/quality-baseline, worktree `.claude/worktrees/baseline`): the Opus
+baseline (`make quality MODE=normal PHASE=baseline QUALITY_OUT=quality/results/2026-10-29-baseline`)
+stopped at the 10-29 12:51 session limit and resumes from tmux `quality-resume`
+(`~/.local/state/techne-quality/resume.sh`, logs beside it) at 14:25, then runs
+`make quality-skills`. A skill suite with any "ended on an API error" run is invalid: delete
+its JSON and rerun. Commit both under `quality/results/` by PR. #239 merged after ten review
+rounds (round 10 clean) plus a verify pass.
 
 Before it: the logging rollout (10-28/29) is done, one PR per repo, each re-checked `logging standard ✓`
 on main with #230's check: sphragis #225, techne #230, pharos #102, ariadne #76, keryx #69,
