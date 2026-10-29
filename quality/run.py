@@ -368,6 +368,10 @@ def claude(
         str(TURNS),
         "--no-session-persistence",
     ]
+    if cwd == LIVE / "run" / "ws":  # a run's session may read back its own saved outputs
+        store = session_store(cwd)
+        store.mkdir(parents=True, exist_ok=True)
+        add_dirs = (*add_dirs, *dict.fromkeys((store, store.resolve())))
     for d in add_dirs:
         cmd += ["--add-dir", str(d)]
     if schema:

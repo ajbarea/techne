@@ -799,3 +799,26 @@ def test_a_symlinked_config_folder_keeps_the_saved_outputs_readable(tmp_path, mo
     saved = store.resolve() / "tool-results" / "out.txt"
     log = transcript(tmp_path, ("Read", {"file_path": str(saved)}))
     assert run.leaks(log, ws) == []
+
+
+@pytest.mark.parametrize("run_session", [True, False])
+def test_only_a_runs_own_sessions_may_read_back_their_saved_outputs(
+    tmp_path, monkeypatch, run_session
+):
+    monkeypatch.setattr(run, "WORK", tmp_path / "work")
+    monkeypatch.setattr(run, "LIVE", tmp_path / "work" / "live")
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setattr(run, "settings_file", lambda: tmp_path / "settings.json")
+    seen = []
+
+    def fake(cmd, **kw):
+        seen.append(cmd)
+        kw["stdout"].write(json.dumps({"type": "result", "subtype": "success"}) + "\n")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(run.subprocess, "run", fake)
+    cwd = run.LIVE / "run" / "ws" if run_session else tmp_path / "judge-cwd"
+    cwd.mkdir(parents=True)
+    run.claude("p", "m", cwd, tmp_path / "s.jsonl", "Read")
+    dirs = [seen[0][i + 1] for i, x in enumerate(seen[0]) if x == "--add-dir"]
+    assert (str(run.session_store(cwd)) in dirs) is run_session
