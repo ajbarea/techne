@@ -246,7 +246,11 @@ class HarnessError(RuntimeError):
 
 class UsageLimit(HarnessError):
     """The plan's usage or rate limit, or any API error: the whole set stops, to resume
-    later, so an outage never uses up runs' attempts."""
+    later, so an outage never uses up runs' attempts. KIND names which, for the discard log."""
+
+    def __init__(self, message: str, kind: str = "usage_limit") -> None:
+        super().__init__(message)
+        self.kind = kind
 
 
 # Text of a plan limit, read only from stderr or an API-error result, never from a model's
@@ -268,7 +272,7 @@ def classify(result: dict, err: str) -> None:
     status = result.get("api_error_status")
     notice = str(result.get("result", ""))
     if result.get("terminal_reason") == "api_error" or status is not None:
-        raise UsageLimit(f"API error {status}: {notice} {err}"[-800:])
+        raise UsageLimit(f"API error {status}: {notice} {err}"[-800:], "api_error")
     if "subtype" not in result:
         if err == "timeout":
             return
@@ -366,7 +370,7 @@ def claude(
             if rec.get("type") == "result":
                 result = rec
     if err == "timeout" and (last.get("type"), last.get("subtype")) == ("system", "api_retry"):
-        raise UsageLimit("timed out while Claude Code was retrying the API")
+        raise UsageLimit("timed out while Claude Code was retrying the API", "api_retry_timeout")
     classify(result, err)
     result.setdefault("is_error", True)
     if err:
@@ -564,6 +568,13 @@ def junit_results(path: pathlib.Path) -> tuple[set[str], set[str]]:
     return passed, failed
 
 
+def staged_diff(ws: pathlib.Path) -> bytes:
+    """Everything the run changed, as bytes: a file that is not UTF-8 must still apply."""
+    sh(["git", "add", "-A"], cwd=ws)
+    cmd = ["git", "diff", "--cached", "--binary", base_of(ws)]
+    return subprocess.run(cmd, cwd=ws, capture_output=True, check=True).stdout
+
+
 def hidden_tests(
     task: dict, ws: pathlib.Path, dest: pathlib.Path, require: Sequence[str] | None = None
 ) -> dict:
@@ -572,14 +583,13 @@ def hidden_tests(
     package, a virtualenv) never reach the score. A pass needs exit 0, no failed test in
     pytest's own JUnit report, and every test id in REQUIRE passed, so a change that makes
     pytest exit 0 without running the tests does not pass."""
-    sh(["git", "add", "-A"], cwd=ws)
-    diff = sh(["git", "diff", "--cached", "--binary", base_of(ws)], cwd=ws).stdout
+    diff = staged_diff(ws)
     workspace(task, dest)
     if diff.strip():
         applied = subprocess.run(
             ["git", "apply", "--whitespace=nowarn", "-"],
             cwd=dest,
-            input=diff.encode(),
+            input=diff,
             capture_output=True,
             check=False,
         )
@@ -689,10 +699,20 @@ def review(fmt: dict, ws: pathlib.Path, log: pathlib.Path, elenchus: pathlib.Pat
     return findings, usage, note
 
 
-def run_one(task: dict, mode: str, rep: int, out: pathlib.Path, elenchus: pathlib.Path) -> dict:
+def run_one(
+    task: dict,
+    mode: str,
+    rep: int,
+    out: pathlib.Path,
+    elenchus: pathlib.Path,
+    meta: dict | None = None,
+    total: dict | None = None,
+) -> dict:
     """Implement, review and fix, then score with the hidden tests and the cheat audit.
 
-    The blind judge runs later, over every mode's runs at once (`--judge`).
+    META (the set's phase, Claude Code version and input hashes) goes into the record. TOTAL
+    gathers the sessions' usage as they finish, so a run the set discards still shows what
+    it had spent. The blind judge runs later, over every mode's runs at once (`--judge`).
     """
     tag = f"{task['id']}/{mode}/r{rep}"
     base = LIVE / "run"
@@ -709,7 +729,7 @@ def run_one(task: dict, mode: str, rep: int, out: pathlib.Path, elenchus: pathli
         "test_command": task["test_command"],
         "elenchus_dir": str(elenchus),
     }
-    total: dict = {}
+    total = {} if total is None else total
     res = claude(
         (HERE / "prompts" / "implement.md").read_text().format(**fmt),
         MODELS[mode],
@@ -757,7 +777,8 @@ def run_one(task: dict, mode: str, rep: int, out: pathlib.Path, elenchus: pathli
         "implementer": MODELS[mode],
         "reviewer": REVIEWER,
         "judge": JUDGE,
-        "claude_code": sh(["claude", "--version"]).stdout.strip(),
+        "claude_code": claude_version(),
+        **(meta or {}),
         "resolved": None,  # set by the judge pass
         "tests": tests,
         "judge_verdict": None,
@@ -856,6 +877,7 @@ def judge_all(dirs: list[pathlib.Path], tasks: list[dict], again: bool) -> int:
         failed_before = path if session_failed else None
         run["judge_verdict"] = verdict or {"ok": False, "reason": "no diff to judge"}
         run["judge_verdict"]["pass"] = pid
+        run["judge_verdict"]["judge_prompt"] = digest(*(HERE / p for p in INPUTS["judge"]))
         run["judge_verdict"].setdefault("model", JUDGE)
         run["flags"] = [f for f in run["flags"] if not f.startswith("judge: ")]
         if run["judge_verdict"].get("cheated"):
@@ -867,7 +889,13 @@ def judge_all(dirs: list[pathlib.Path], tasks: list[dict], again: bool) -> int:
     return 0
 
 
-def failed_run(task: dict, mode: str, rep: int, errors: list[str]) -> dict:
+def claude_version() -> str:
+    return sh(["claude", "--version"]).stdout.strip()
+
+
+def failed_run(
+    task: dict, mode: str, rep: int, errors: list[str], meta: dict | None = None
+) -> dict:
     """A run the harness could not finish in ATTEMPTS tries: unresolved, and reported."""
     return {
         "task": task["id"],
@@ -877,7 +905,8 @@ def failed_run(task: dict, mode: str, rep: int, errors: list[str]) -> dict:
         "implementer": MODELS[mode],
         "reviewer": REVIEWER,
         "judge": JUDGE,
-        "claude_code": sh(["claude", "--version"]).stdout.strip(),
+        "claude_code": claude_version(),
+        **(meta or {}),
         "resolved": None,  # set by the judge pass, which stamps its pass id: unresolved
         "harness_failed": True,
         "tests": {"passed": False, "exit": None, "tail": ""},
@@ -908,6 +937,89 @@ def gold_tests(task: dict) -> list[str]:
     if not gold.get(task["id"]):
         raise RuntimeError(f"{task['id']} has no gold test ids: run --check-tasks first")
     return gold[task["id"]]
+
+
+PHASES = ("baseline", "pilot", "confirmatory")
+ELENCHUS = "plugins/techne/skills/elenchus"
+# Every file a run's outcome depends on besides the model; analyze.py refuses runs whose
+# hashes differ, so a changed prompt, task, gold list, judge or catalog never pools.
+INPUTS = {
+    "harness": ("run.py", "prompts", "sandbox.json"),
+    "tasks": ("tasks/tasks.toml", "tasks/gold-tests.json"),
+    "judge": ("judge.md",),
+}
+
+
+def digest(*roots: pathlib.Path) -> str:
+    """A hash of every file under ROOTS by name and bytes; a missing path hashes as missing."""
+    h = hashlib.sha256()
+    for root in roots:
+        files = (
+            sorted(p for p in root.rglob("*") if p.is_file() and "__pycache__" not in p.parts)
+            if root.is_dir()
+            else [root]
+        )
+        for p in files:
+            h.update(f"{p.relative_to(root.parent)}\0".encode())
+            h.update(p.read_bytes() if p.exists() else b"\0missing")
+            h.update(b"\0")
+    return h.hexdigest()[:16]
+
+
+def input_hashes(elenchus: pathlib.Path) -> dict[str, str]:
+    out = {k: digest(*(HERE / p for p in v)) for k, v in INPUTS.items()}
+    out["elenchus"] = digest(elenchus)
+    return out
+
+
+def dirty_inputs() -> str:
+    """Uncommitted changes to the trial's inputs: a set runs only from a commit."""
+    paths = [str(HERE.relative_to(ROOT)), ELENCHUS]
+    return sh(["git", "status", "--porcelain", "--", *paths], cwd=ROOT).stdout.strip()
+
+
+def pin_elenchus(commit: str, dest: pathlib.Path) -> None:
+    """The elenchus skill as it was at COMMIT, so a catalog fold-back mid-set changes nothing."""
+    if dest.exists():
+        shutil.rmtree(dest)
+    dest.mkdir(parents=True)
+    tar = subprocess.run(
+        ["git", "-C", str(ROOT), "archive", commit, ELENCHUS], capture_output=True, check=True
+    ).stdout
+    subprocess.run(
+        ["tar", "-x", "--strip-components", str(ELENCHUS.count("/") + 1), "-C", str(dest)],
+        input=tar,
+        check=True,
+    )
+
+
+def open_set(out: pathlib.Path, manifest: dict) -> str | None:
+    """Write OUT/set.json on a set's first start; on a resume, why the set differs, if it does.
+    The commit is where the elenchus copy comes from, so it is kept, not compared."""
+    path = out / "set.json"
+    if not path.exists():
+        if any(out.rglob("run.json")):
+            return f"{out} holds runs but no set.json: start the set in a new folder"
+        out.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
+        return None
+    have = json.loads(path.read_text(encoding="utf-8"))
+    manifest["commit"] = have.get("commit")
+    changed = sorted(k for k in manifest.keys() | have.keys() if manifest.get(k) != have.get(k))
+    if changed:
+        return (
+            f"{out} was started with another {', '.join(changed)}: resume it with the same"
+            " command and inputs, or start a new --out"
+        )
+    return None
+
+
+def discard(out: pathlib.Path, task: dict, mode: str, rep: int, kind: str, **info) -> None:
+    """A run thrown away without a record (a usage limit, an API error, a version change, two
+    harness failures in a row): logged, so the report counts them per mode."""
+    entry = {"task": task["id"], "mode": mode, "repeat": rep, "kind": kind, **info}
+    with (out / "discards.jsonl").open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(entry) + "\n")
 
 
 def check_tasks(tasks: list[dict]) -> int:
@@ -951,6 +1063,8 @@ def check_tasks(tasks: list[dict]) -> int:
         bad += not ok
         if ok:  # a gold pass has no failed test, so every test it ran passed
             gold_ids[task["id"]] = after["tests_run"]
+        else:  # a broken task keeps no ids, so no run is scored against stale ones
+            gold_ids.pop(task["id"], None)
         print(
             f"{task['id']}: parent {'passes' if before['passed'] else 'fails'}, "
             f"fix {'passes' if after['passed'] else 'fails'}, "
@@ -971,6 +1085,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--task", action="append", help="task id (repeatable; default: all)")
     ap.add_argument("--tasks", type=pathlib.Path, default=HERE / "tasks" / "tasks.toml")
     ap.add_argument("--out", type=pathlib.Path)
+    ap.add_argument("--phase", choices=PHASES, help="which part of the trial a run belongs to")
     ap.add_argument("--check-tasks", action="store_true", help="validate the task set, no model")
     ap.add_argument(
         "--judge", type=pathlib.Path, nargs="+", help="judge every run in these folders"
@@ -1004,23 +1119,35 @@ def main(argv: list[str] | None = None) -> int:
         return judge_all(args.judge, load_tasks(args.tasks), args.rejudge)
     if not args.out:
         ap.error("--out is required for a run")
+    phase = "smoke" if args.smoke else args.phase
+    if not phase:
+        ap.error("--phase is required for a run: " + ", ".join(PHASES))
+    if not args.smoke and (dirty := dirty_inputs()):
+        ap.error(f"commit the trial's inputs first; a set runs from a commit:\n{dirty}")
+    gold = json.loads(GOLD.read_text(encoding="utf-8")) if GOLD.exists() else {}
+    if missing := [t["id"] for t in tasks if not gold.get(t["id"])]:
+        ap.error(f"no gold test ids for {', '.join(missing)}: run --check-tasks first")
+    version = claude_version()
+    have = args.out / "set.json"
+    commit = json.loads(have.read_text())["commit"] if have.exists() else None
+    commit = commit or sh(["git", "rev-parse", "HEAD"], cwd=ROOT).stdout.strip()
     elenchus = WORK / "elenchus"
-    if elenchus.exists():
-        shutil.rmtree(elenchus)
-    shutil.copytree(ROOT / "plugins" / "techne" / "skills" / "elenchus", elenchus)
+    pin_elenchus(commit, elenchus)
+    manifest = {
+        "phase": phase,
+        "mode": args.mode,
+        "repeats": args.repeats,
+        "tasks": sorted(t["id"] for t in tasks),
+        "claude_code": version,
+        "inputs": input_hashes(elenchus),
+        "commit": commit,
+    }
+    if problem := open_set(args.out, manifest):
+        print(problem, file=sys.stderr)
+        return 3
+    meta = {"phase": phase, "claude_code": version, "inputs": manifest["inputs"]}
     order = [(t, r) for r in range(1, args.repeats + 1) for t in tasks]
     random.Random(SEED).shuffle(order)
-    version = sh(["claude", "--version"]).stdout.strip()
-    earlier = {json.loads(p.read_text()).get("claude_code") for p in args.out.rglob("run.json")} - {
-        version
-    }
-    if earlier:
-        print(
-            f"{args.out} holds runs on Claude Code {sorted(map(str, earlier))}, now {version}:"
-            " finish a set on one version",
-            file=sys.stderr,
-        )
-        return 3
     failed_before: pathlib.Path | None = None
     for task, rep in order:
         dest = args.out / task["id"] / args.mode / f"r{rep}"
@@ -1030,29 +1157,63 @@ def main(argv: list[str] | None = None) -> int:
         errors = json.loads(errfile.read_text()) if errfile.exists() else []
         while len(errors) < ATTEMPTS:
             started = time.time()
+            spent: dict = {}
             try:
-                run_one(task, args.mode, rep, args.out, elenchus)
-                failed_before = None
-                break
-            except UsageLimit as exc:  # the plan's limit: stop, and resume the set later
-                print(f"usage limit; rerun the same command to resume: {exc}", file=sys.stderr)
+                run_one(task, args.mode, rep, args.out, elenchus, meta, spent)
+                failed = None
+            except UsageLimit as exc:  # the plan's limit or the API: stop, resume the set later
+                discard(
+                    args.out,
+                    task,
+                    args.mode,
+                    rep,
+                    exc.kind,
+                    seconds=round(time.time() - started),
+                    usage=spent,
+                )
+                print(f"{exc.kind}; rerun the same command to resume: {exc}", file=sys.stderr)
                 return 3
             except Exception as exc:  # recorded, retried, then counted as unresolved
-                errors.append({"error": repr(exc)[:2000], "seconds": time.time() - started})
-                dest.mkdir(parents=True, exist_ok=True)
-                errfile.write_text(json.dumps(errors, indent=1))
-                print(f"{task['id']}/{args.mode}/r{rep}: harness error {exc!r}", file=sys.stderr)
+                failed = exc
+            if (now := claude_version()) != version:  # an update mid-run: nothing recorded
+                (dest / "run.json").unlink(missing_ok=True)
+                discard(
+                    args.out,
+                    task,
+                    args.mode,
+                    rep,
+                    "version_change",
+                    seconds=round(time.time() - started),
+                    usage=spent,
+                    now=now,
+                )
+                print(
+                    f"Claude Code changed from {version} to {now} during {task['id']}/r{rep}:"
+                    " finish the set on one version (a new --out on the new one)",
+                    file=sys.stderr,
+                )
+                return 3
+            if failed is None:
+                failed_before = None
+                break
+            errors.append({"error": repr(failed)[:2000], "seconds": time.time() - started})
+            dest.mkdir(parents=True, exist_ok=True)
+            errfile.write_text(json.dumps(errors, indent=1))
+            print(f"{task['id']}/{args.mode}/r{rep}: harness error {failed!r}", file=sys.stderr)
         else:
             if failed_before:  # two runs in a row: the harness, not the task; neither recorded
                 for f in (failed_before / "run.json", failed_before / "errors.json", errfile):
                     f.unlink(missing_ok=True)
+                prev = failed_before.relative_to(args.out).parts
+                for t_id, r_tag in ((prev[0], prev[2]), (task["id"], f"r{rep}")):
+                    discard(args.out, {"id": t_id}, args.mode, int(r_tag[1:]), "two_in_a_row")
                 print(
                     "two runs in a row failed in the harness; check Claude Code, then rerun",
                     file=sys.stderr,
                 )
                 return 3
             failed_before = dest
-            record = failed_run(task, args.mode, rep, [e["error"] for e in errors])
+            record = failed_run(task, args.mode, rep, [e["error"] for e in errors], meta)
             (dest / "run.json").write_text(json.dumps(record, indent=1) + "\n", encoding="utf-8")
     if args.smoke and any(
         json.loads(p.read_text()).get("harness_failed") for p in args.out.rglob("run.json")

@@ -425,21 +425,41 @@ def test_scoring_needs_every_gold_test_to_pass(tmp_path, monkeypatch, rc, cases,
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
     monkeypatch.setattr(run, "sh", fake_sh)
+    monkeypatch.setattr(run, "staged_diff", lambda ws: b"")
     task = {"hidden_tests": [], "hidden_command": "pytest", "id": "t"}
     monkeypatch.setattr(run, "base_of", lambda ws: "base")
     assert run.hidden_tests(task, tmp_path / "ws", dest, require)["passed"] is want
 
 
-def test_two_harness_failures_in_a_row_record_neither_run(tmp_path, monkeypatch):
+def harness(tmp_path, monkeypatch, ids=("a", "b", "c"), version="v1"):
+    """main()'s surroundings, faked: tasks IDS with gold ids, clean inputs, no seeds, a pinned
+    elenchus, and Claude Code at VERSION (a list is read one value per call)."""
     monkeypatch.setattr(run, "WORK", tmp_path / "work")
     monkeypatch.setattr(run, "prepare_seeds", lambda: None)
-    monkeypatch.setattr(run.shutil, "copytree", lambda *a, **k: None)
-    monkeypatch.setattr(run, "sh", lambda cmd, **k: subprocess.CompletedProcess(cmd, 0, "v1", ""))
-    tasks = tmp_path / "tasks.toml"
-    tasks.write_text(
-        '[[task]]\nid = "a"\nclone = "/x"\n[[task]]\nid = "b"\nclone = "/x"\n'
-        '[[task]]\nid = "c"\nclone = "/x"\n'
+    monkeypatch.setattr(run, "dirty_inputs", lambda: "")
+    monkeypatch.setattr(
+        run, "pin_elenchus", lambda commit, dest: dest.mkdir(parents=True, exist_ok=True)
     )
+    monkeypatch.setattr(run, "input_hashes", lambda e: {"harness": "h", "elenchus": "e"})
+    monkeypatch.setattr(run, "sh", lambda cmd, **k: subprocess.CompletedProcess(cmd, 0, "c0", ""))
+    versions = iter(version) if isinstance(version, list) else None
+    monkeypatch.setattr(run, "claude_version", lambda: next(versions) if versions else version)
+    gold = tmp_path / "gold.json"
+    gold.write_text(json.dumps({i: ["t::x"] for i in ids}))
+    monkeypatch.setattr(run, "GOLD", gold)
+    tasks = tmp_path / "tasks.toml"
+    tasks.write_text("".join(f'[[task]]\nid = "{i}"\nclone = "/x"\n' for i in ids))
+    return ["--tasks", str(tasks), "--repeats", "1", "--phase", "baseline"]
+
+
+def recorded(task, mode, rep, out, elenchus, meta=None, total=None):
+    dest = out / task["id"] / mode / f"r{rep}"
+    dest.mkdir(parents=True, exist_ok=True)
+    (dest / "run.json").write_text(json.dumps({"task": task["id"], **(meta or {})}))
+
+
+def test_two_harness_failures_in_a_row_record_neither_run(tmp_path, monkeypatch):
+    args = harness(tmp_path, monkeypatch)
 
     def boom(*a, **k):
         raise RuntimeError("harness")
@@ -447,8 +467,137 @@ def test_two_harness_failures_in_a_row_record_neither_run(tmp_path, monkeypatch)
     monkeypatch.setattr(run, "run_one", boom)
     monkeypatch.setattr(run, "failed_run", lambda *a: {"harness_failed": True})
     out = tmp_path / "out"
-    assert run.main(["--tasks", str(tasks), "--repeats", "1", "--out", str(out)]) == 3
+    assert run.main([*args, "--out", str(out)]) == 3
     assert not list(out.rglob("run.json")) and not list(out.rglob("errors.json"))
+    kinds = [json.loads(x)["kind"] for x in (out / "discards.jsonl").read_text().splitlines()]
+    assert kinds == ["two_in_a_row", "two_in_a_row"]
+
+
+def test_a_resume_with_another_phase_repeats_or_inputs_is_refused(tmp_path, monkeypatch):
+    args = harness(tmp_path, monkeypatch)
+    monkeypatch.setattr(run, "run_one", recorded)
+    out = tmp_path / "out"
+    assert run.main([*args, "--out", str(out)]) == 0
+    assert json.loads((out / "a/normal/r1/run.json").read_text())["phase"] == "baseline"
+    assert run.main([*args, "--out", str(out)]) == 0  # the same command resumes
+    pilot = [x if x != "baseline" else "pilot" for x in args]
+    assert run.main([*pilot, "--out", str(out)]) == 3
+    assert run.main([*args[:-4], "--repeats", "3", *args[-2:], "--out", str(out)]) == 3
+    monkeypatch.setattr(run, "input_hashes", lambda e: {"harness": "other", "elenchus": "e"})
+    assert run.main([*args, "--out", str(out)]) == 3
+
+
+def test_a_folder_with_runs_but_no_set_file_is_refused(tmp_path, monkeypatch):
+    args = harness(tmp_path, monkeypatch)
+    monkeypatch.setattr(run, "run_one", recorded)
+    out = tmp_path / "out"
+    (out / "a" / "normal" / "r1").mkdir(parents=True)
+    (out / "a" / "normal" / "r1" / "run.json").write_text("{}")
+    assert run.main([*args, "--out", str(out)]) == 3
+
+
+def test_a_run_needs_a_phase_clean_inputs_and_gold_ids_before_any_session(tmp_path, monkeypatch):
+    args = harness(tmp_path, monkeypatch)
+    calls = []
+    monkeypatch.setattr(run, "run_one", lambda *a, **k: calls.append(a))
+    out = str(tmp_path / "out")
+    with pytest.raises(SystemExit):
+        run.main([*args[:-2], "--out", out])  # no --phase
+    run.GOLD.write_text(json.dumps({"a": ["t::x"], "b": []}))
+    with pytest.raises(SystemExit):
+        run.main([*args, "--out", out])
+    run.GOLD.write_text(json.dumps({i: ["t::x"] for i in "abc"}))
+    monkeypatch.setattr(run, "dirty_inputs", lambda: " M quality/judge.md")
+    with pytest.raises(SystemExit):
+        run.main([*args, "--out", out])
+    assert calls == []
+
+
+def test_a_claude_code_update_mid_run_stops_the_set_without_a_record(tmp_path, monkeypatch):
+    args = harness(tmp_path, monkeypatch, ids=("a", "b"), version=["v1", "v1", "v2"])
+    monkeypatch.setattr(run, "run_one", recorded)
+    out = tmp_path / "out"
+    assert run.main([*args, "--out", str(out)]) == 3
+    assert len(list(out.rglob("run.json"))) == 1  # the run before the update stands
+    (entry,) = [json.loads(x) for x in (out / "discards.jsonl").read_text().splitlines()]
+    assert (entry["kind"], entry["now"]) == ("version_change", "v2")
+
+
+def test_a_usage_limit_logs_the_discarded_run_with_what_it_spent(tmp_path, monkeypatch):
+    args = harness(tmp_path, monkeypatch, ids=("a",))
+
+    def limited(task, mode, rep, out, elenchus, meta=None, total=None):
+        assert total is not None
+        total["cost_usd"] = 1.25
+        raise run.UsageLimit("API error 529: overloaded", "api_error")
+
+    monkeypatch.setattr(run, "run_one", limited)
+    out = tmp_path / "out"
+    assert run.main([*args, "--out", str(out)]) == 3
+    (entry,) = [json.loads(x) for x in (out / "discards.jsonl").read_text().splitlines()]
+    assert (entry["kind"], entry["usage"]) == ("api_error", {"cost_usd": 1.25})
+    assert not list(out.rglob("run.json"))
+
+
+def test_a_long_api_error_keeps_its_kind():
+    with pytest.raises(run.UsageLimit) as exc:
+        run.classify({"terminal_reason": "api_error", "result": "x" * 2000}, "")
+    assert exc.value.kind == "api_error"
+
+
+def test_input_hashes_follow_content_not_location(tmp_path):
+    for where in ("one", "two"):
+        d = tmp_path / where / "elenchus"
+        (d / "references").mkdir(parents=True)
+        (d / "SKILL.md").write_text("s")
+        (d / "references" / "bug-classes.md").write_text("c")
+    one, two = tmp_path / "one" / "elenchus", tmp_path / "two" / "elenchus"
+    assert run.digest(one) == run.digest(two)
+    (two / "references" / "bug-classes.md").write_text("c2")
+    assert run.digest(one) != run.digest(two)
+    assert run.digest(tmp_path / "absent.json") != run.digest(tmp_path / "one")
+
+
+def test_pin_elenchus_copies_the_skill_as_committed(tmp_path):
+    dest = tmp_path / "elenchus"
+    run.pin_elenchus("HEAD", dest)
+    assert (dest / "SKILL.md").read_bytes() == subprocess.run(
+        ["git", "-C", str(run.ROOT), "show", f"HEAD:{run.ELENCHUS}/SKILL.md"],
+        capture_output=True,
+        check=True,
+    ).stdout
+    assert (dest / "references" / "bug-classes.md").exists()
+
+
+def test_a_diff_with_bytes_that_are_not_utf8_still_applies(tmp_path, monkeypatch):
+    ws, dest = tmp_path / "ws", tmp_path / "score" / "run"
+    ws.mkdir()
+    for c in (
+        ["init", "-q"],
+        ["config", "user.email", "t@example.com"],
+        ["config", "user.name", "t"],
+    ):
+        subprocess.run(["git", "-C", str(ws), *c], check=True)
+    (ws / "data.txt").write_bytes(b"caf\xe9\n")
+    subprocess.run(["git", "-C", str(ws), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(ws), "commit", "-qm", "base"], check=True)
+    base = subprocess.run(
+        ["git", "-C", str(ws), "rev-parse", "HEAD"], capture_output=True, text=True
+    ).stdout.strip()
+    (ws / "data.txt").write_bytes(b"caf\xe9 fixed\n")
+
+    def rebuild(task, d):
+        subprocess.run(["git", "clone", "-q", str(ws), str(d)], check=True)
+
+    monkeypatch.setattr(run, "workspace", rebuild)
+    monkeypatch.setattr(run, "base_of", lambda w: base)
+    monkeypatch.setattr(run, "private_cache", lambda task, d: d)
+    monkeypatch.setattr(run, "tool_env", lambda cache: {})
+    monkeypatch.setenv("QUALITY_NO_LOCK", "1")
+    task = {"hidden_tests": [], "hidden_command": "true", "id": "t"}
+    out = run.hidden_tests(task, ws, dest)
+    assert out["tail"] != "the diff does not apply to a clean tree"
+    assert (dest / "data.txt").read_bytes() == b"caf\xe9 fixed\n"
 
 
 def test_a_timeout_while_retrying_the_api_stops_the_set(tmp_path, monkeypatch):

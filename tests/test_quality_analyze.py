@@ -135,7 +135,8 @@ def test_load_refuses_a_run_twice(tmp_path):
 def registered(runs):
     for r in runs:
         r.update(implementer=a.IMPLEMENTER[r["mode"]], reviewer=a.REVIEWER, judge=a.JUDGE)
-        r["judge_verdict"].update(model=a.JUDGE, **{"pass": "p1"})
+        r["judge_verdict"].update(model=a.JUDGE, judge_prompt="j1", **{"pass": "p1"})
+        r.update(phase="baseline", inputs={"harness": "h", "judge": "j1", "elenchus": "e"})
     return runs
 
 
@@ -175,3 +176,55 @@ def test_the_report_lists_retries_and_harness_failures_per_mode():
     md = a.report(a.decide(runs), "t")
     assert "- normal: 2 failed attempts; runs that failed 3 times: t0" in md
     assert "- budget: 0 failed attempts; runs that failed 3 times: none" in md
+
+
+def test_check_set_refuses_mixed_inputs_and_another_judge_prompt():
+    runs = registered(trial(lambda t, r: True))
+    runs[2]["inputs"] = {**runs[2]["inputs"], "elenchus": "e2"}
+    runs[7]["judge_verdict"]["judge_prompt"] = "j0"
+    problems = a.check_set(runs, [f"t{t}" for t in range(10)], a.REPEATS)
+    assert any("input hashes" in p for p in problems)
+    assert any("judge prompt" in p and "/r" in p for p in problems)
+
+
+def test_check_set_refuses_a_run_without_input_hashes():
+    runs = registered(trial(lambda t, r: True))
+    for r in runs:
+        r.pop("inputs")
+        r["judge_verdict"]["judge_prompt"] = None
+    problems = a.check_set(runs, [f"t{t}" for t in range(10)], a.REPEATS)
+    assert any("input hashes" in p for p in problems)
+
+
+@pytest.mark.parametrize(
+    ("phases", "pilot", "ok"),
+    [
+        ({"baseline"}, False, True),
+        ({"baseline", "confirmatory"}, False, True),
+        ({"baseline", "pilot"}, False, False),
+        ({"pilot"}, True, True),
+        ({"pilot", "confirmatory"}, True, False),
+        ({"smoke"}, False, False),
+    ],
+)
+def test_check_set_keeps_pilot_runs_apart(phases, pilot, ok):
+    runs = registered(trial(lambda t, r: True))
+    for i, r in enumerate(runs):
+        r["phase"] = sorted(phases)[i % len(phases)]
+    problems = a.check_set(runs, [f"t{t}" for t in range(10)], a.REPEATS, pilot)
+    assert (not any("phases" in p for p in problems)) is ok
+
+
+def test_the_report_shows_every_token_kind_and_discards_per_mode(tmp_path):
+    runs = trial(lambda t, r: True)
+    (tmp_path / "discards.jsonl").write_text(
+        json.dumps({"mode": "budget", "kind": "usage_limit", "usage": {"cost_usd": 0.5}})
+        + "\n"
+        + json.dumps({"mode": "budget", "kind": "version_change", "usage": {}})
+        + "\n"
+    )
+    result = a.decide(runs)
+    result["discards"] = a.discards(tmp_path)
+    md = a.report(result, "t")
+    assert "| 1 / 2 / 3 / 4 |" in md
+    assert "- budget: 2 runs discarded and rerun (usage_limit 1, version_change 1), $0.50" in md

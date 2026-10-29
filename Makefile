@@ -147,17 +147,22 @@ evals:                  ## Routing + behavior evals (claude plugin eval; runs on
 
 # The budget-mode quality trial (quality/PREREGISTRATION.md): the task replays and the skill
 # suites run on your login and draw on your plan's usage, so they stay out of validate.
-# MODE=normal|budget, REPEATS per task, QUALITY_OUT names the results folder; SUITE_MODEL
-# is the model the skill suites run on (the judge is always Opus).
+# MODE=normal|budget, REPEATS per task, PHASE=baseline|pilot|confirmatory, and QUALITY_OUT
+# names the results folder (required: a stopped set resumes by rerunning the same command);
+# SUITE_MODEL is the model the skill suites run on (the judge is always Opus).
 MODE ?= normal
 REPEATS ?= 3
-QUALITY_OUT ?= quality/results/$(shell date +%F)-$(MODE)
 SUITE_MODEL ?= claude-opus-5-5
 QUALITY_JUDGE := claude-opus-5-5
 quality:                ## Budget-trial task replays in MODE, then the analysis (uses your plan)
-	@uv run python quality/run.py --mode $(MODE) --repeats $(REPEATS) --out $(QUALITY_OUT)
+	@test -n "$(QUALITY_OUT)" && test -n "$(PHASE)" || { \
+		echo "set QUALITY_OUT=quality/results/<name> and PHASE=baseline|pilot|confirmatory" >&2; \
+		exit 2; }
+	@uv run python quality/run.py --mode $(MODE) --repeats $(REPEATS) --phase $(PHASE) \
+		--out $(QUALITY_OUT)
 	@uv run python quality/run.py --judge $(QUALITY_OUT)
-	@uv run python quality/analyze.py $(QUALITY_OUT) --out $(QUALITY_OUT)/report.md
+	@uv run python quality/analyze.py $(QUALITY_OUT) $(if $(filter pilot,$(PHASE)),--pilot) \
+		--out $(QUALITY_OUT)/report.md
 
 quality-skills:         ## Skill quality suites on SUITE_MODEL, judged by Opus (uses your plan)
 	@bash scripts/eval-plugin.sh >/dev/null
