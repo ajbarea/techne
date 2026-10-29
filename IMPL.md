@@ -7,20 +7,25 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 ## In flight
 
 Branch results/quality-baseline, worktree `.claude/worktrees/baseline`: techne#249. The first 4
-of 30 Opus baseline runs all failed hidden tests; 3 tasks checked names or wording their reports
-never gave (unwinnable for any mode). Done in the tree: interface notes completed on 8 tasks,
-`run.py` `interface_gaps` makes `--check-tasks` fail such a task (mutation-checked against the
-old reports), `quality/DEVIATIONS.md` records it, old runs moved to
-`quality/results/2026-10-29-baseline-void/`. Next: `--check-tasks` all ok → review rounds until
-clean → PR (links #249) → merge → restart the baseline from main's commit in a fresh folder
-`quality/results/2026-10-29-baseline-2` on RIT (`CLAUDE_CONFIG_DIR=/home/ajbar/.claude`; edit
-`~/.local/state/techne-quality/resume.sh`'s QUALITY_OUT first), in tmux `quality-resume`:
+of 30 Opus baseline runs failed hidden tests that checked names or wording their reports never
+gave. Done on the branch (3818b38, 8394e0b, 070ebc7, e2fd127): interface notes completed on 8
+tasks; `run.py` `interface_gaps` + `defines` make `--check-tasks` fail such a task (each filter
+mutation-checked; old reports flag artifacts, grants_file, _changed_code and the techne-206 and
+sphragis-149 wording, new reports flag nothing); `quality/DEVIATIONS.md` records it; old runs in
+`quality/results/2026-10-29-baseline-void/`. Review: r1 Opus reader (2 Should-fix, fixed), r2
+`/code-review medium` (4 Should-fix, fixed), r3 fresh reader running. Next: r3 clean and
+`--check-tasks` all ok (log `~/.local/state/techne-quality/check-tasks-4.log`) → PR (links #249)
+→ merge → restart the baseline from main's commit in `quality/results/2026-10-29-baseline-2` on
+RIT (`CLAUDE_CONFIG_DIR=/home/ajbar/.claude`; edit `~/.local/state/techne-quality/resume.sh`'s
+QUALITY_OUT and its `cd` first), in tmux `quality-resume`:
 `tmux new-session -d -s quality-resume -e CLAUDE_CONFIG_DIR=/home/ajbar/.claude "bash
 ~/.local/state/techne-quality/resume.sh"`. Rerunning resumes; always pass `-e CLAUDE_CONFIG_DIR`.
-Never wrap `run.py` or `make quality` in `flock /tmp/fleet-heavy.lock`: run.py takes that lock itself
-around test runs, so the wrapper deadlocks (cost two hours on 10-29). Progress: `grep tests= ~/.local/state/techne-quality/baseline.log`. A skill suite with any
-"ended on an API error" run is invalid: delete its JSON and rerun. Then commit results under
-`quality/results/` by PR and start techne#226.
+Never wrap `run.py` or `make quality` in `flock /tmp/fleet-heavy.lock`: run.py takes that lock
+itself, so the wrapper deadlocks. A lock held long after every job ended is likely an orphan that
+inherited the fd (klepsydra#193: a test tmux server held it 40 min on 10-29): `lsof
+/tmp/fleet-heavy.lock`. Progress: `grep tests= ~/.local/state/techne-quality/baseline.log`. A
+skill suite with any "ended on an API error" run is invalid: delete its JSON and rerun. Then
+commit results under `quality/results/` by PR and start techne#226.
 
 Before it: the logging rollout (10-28/29) is done, one PR per repo, each re-checked `logging standard ✓`
 on main with #230's check: sphragis #225, techne #230, pharos #102, ariadne #76, keryx #69,
