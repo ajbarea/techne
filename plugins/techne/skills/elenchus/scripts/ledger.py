@@ -91,8 +91,11 @@ def clean(rec: object) -> dict | None:
     return {
         "ts": when.isoformat(),
         "when": when,
-        # owner/name and name are one repo; GitHub compares names without case.
-        "repo": repo.strip().rsplit("/", 1)[-1].lower(),
+        # owner/name and name are one repo, and GitHub compares names without case: counting
+        # uses the lowercased key, while the plan keeps the name as written, whose case
+        # changes the private-name scan needs to find `Data Lab` for `DataLab`.
+        "repo": repo.strip().rsplit("/", 1)[-1],
+        "rkey": repo.strip().rsplit("/", 1)[-1].lower(),
         "pr": str(rec.get("pr", "")).lstrip("#"),
         "round": rnd,
         "class": cls,
@@ -132,7 +135,7 @@ def ladder(records: list[dict], only: set[str] | None = None) -> dict[str, dict]
     prs: dict[str, set[str]] = defaultdict(set)
     for r in records:
         if r["pr"].isdigit() and (only is None or r["class"] in only):
-            prs[r["class"]].add(f"{r['repo']}#{r['pr']}")
+            prs[r["class"]].add(f"{r['rkey']}#{r['pr']}")
     out = {}
     for cls, seen in sorted(prs.items(), key=lambda kv: (-len(kv[1]), kv[0])):
         if len(seen) >= CHECKLIST_AT:
@@ -203,7 +206,7 @@ def fold(args: argparse.Namespace) -> int:
             name = r["class"][5:]
             new_all[name].append({k: r[k] for k in ("repo", "pr", "round", "ts", "line")})
             if r["pr"].isdigit():
-                new_prs[name].add((r["repo"], r["pr"]))
+                new_prs[name].add((r["rkey"], r["pr"]))
     plan = {
         "since": since.isoformat(),
         "records": len(recent),

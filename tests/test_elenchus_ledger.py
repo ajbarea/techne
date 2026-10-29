@@ -320,3 +320,35 @@ def test_scan_from_another_folder_still_reads_the_word_list(tmp_path):
 def test_the_job_asks_git_for_an_absolute_word_list_path():
     text = (LEDGER.parent / "foldback.sh").read_text()
     assert "--path-format=absolute --git-path info/private-words" in text
+
+
+@pytest.mark.parametrize(
+    ("line", "blocked"),
+    [("DataLab#3 bit", True), ("data-lab#3 bit", True), ("Data Lab#3", True), ("datalab#3", True)],
+)
+def test_a_folded_camel_case_repo_keeps_its_spelling_variants(tmp_path, line, blocked):
+    catalog = tmp_path / "bug-classes.md"
+    catalog.write_text(CATALOG)
+    add(tmp_path, "OtherOrg/DataLab", 3, "boundary-input")
+    plan = tmp_path / "plan.json"
+    plan.write_text(run(tmp_path, "fold", "--catalog", str(catalog)).stdout)
+    out = subprocess.run(
+        [
+            HOOK_PYTHON,
+            str(LEDGER),
+            "scan",
+            "--plan",
+            str(plan),
+            "--public",
+            "techne",
+            "--checker",
+            str(CHECKER),
+            "--owner",
+            "acme",
+        ],
+        input=f"+++ b/x\n+{line}\n",
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (out.returncode == 1) is blocked, out.stdout + out.stderr
