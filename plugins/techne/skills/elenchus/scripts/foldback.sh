@@ -9,6 +9,8 @@ set -euo pipefail
 
 repo="${1:?usage: foldback.sh <techne clone>}"
 gh_repo="${ELENCHUS_GH_REPO:-ajbarea/techne}"
+# ELENCHUS_DRY_RUN=1 runs everything but the writes to GitHub, and keeps the window.
+dry="${ELENCHUS_DRY_RUN:-}"
 owner="${gh_repo%%/*}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 state="${XDG_STATE_HOME:-$HOME/.local/state}/elenchus"
@@ -59,21 +61,24 @@ for cls in $slugs; do
     title="Mechanical check: $cls"
     have="$(gh issue list -R "$gh_repo" --state open --limit 200 --search "\"$title\" in:title" \
         --json title --jq "[.[] | select(.title == \"$title\")] | length")"
-    if [ "$have" = 0 ]; then
+    if [ "$have" = 0 ] && [ -n "$dry" ]; then
+        echo "dry run: would open issue '$title'"
+    elif [ "$have" = 0 ]; then
         gh issue create -R "$gh_repo" --label enhancement --title "$title" --body \
 "Reviewers found class \`$cls\` in three or more PRs this week (elenchus ledger, $day). Per the escalation ladder, it gets a mechanical check (a lint rule, a test or a hook) so no review round is spent on it again. When the check lands and this issue is closed as completed, the next fold marks the class retired in the catalog."
     fi
 done
 
-# Mechanical-check issues the owner closed as completed inside this window.
-retired="$(gh issue list -R "$gh_repo" --state closed --author "$owner" --limit 200 \
-    --search '"Mechanical check:" in:title' --json title,stateReason,closedAt |
+# Mechanical-check issues the owner closed as completed inside this window (REST search:
+# gh issue list has no stateReason before gh 2.5x).
+retired="$(gh api -X GET search/issues --paginate \
+    -f q="repo:$gh_repo is:issue is:closed reason:completed author:$owner \"Mechanical check:\" in:title" \
+    --jq '.items[] | [.title, .closed_at] | @tsv' |
     python3 -c '
 import json, sys
 since = sys.argv[1]
-out = [i["title"].split(": ", 1)[1] for i in json.load(sys.stdin)
-       if i.get("stateReason") == "COMPLETED" and i.get("closedAt", "") >= since
-       and i["title"].startswith("Mechanical check: ")]
+out = [t.split(": ", 1)[1] for t, closed in (l.rstrip("\n").split("\t") for l in sys.stdin if l.strip())
+       if t.startswith("Mechanical check: ") and closed >= since]
 print(json.dumps(out))
 ' "$since")"
 records="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["records"])' "$plan")"
@@ -133,6 +138,11 @@ scan="$(cd "$wt" && uv run python scripts/check_private_names.py 2>&1)" || {
 if grep -q '^SKIP' <<<"$scan"; then
     echo "private-name scan skipped; nothing pushed: $scan"
     exit 1
+fi
+if [ -n "$dry" ]; then
+    echo "dry run: would commit, push and open a PR with:"
+    git -C "$wt" diff --stat
+    exit 0
 fi
 git -C "$wt" add "$catalog"
 git -C "$wt" commit -q -m "docs(elenchus): fold the findings ledger into the catalog ($day)"
