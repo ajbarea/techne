@@ -442,7 +442,7 @@ in every workflow (at the top or on every job, never `write-all` at either level
 [workflow dependency lockfiles](https://docs.github.com/en/actions/concepts/security/workflow-dependency-lockfiles).
 
 ```
-python3 <skill-dir>/scripts/security_floor.py "$WORKSPACE" $SISTERS
+python3 <security_floor script> "$WORKSPACE" $SISTERS   # the security_floor.py path SKILL.md names
 ```
 
 It prints one line per sister, `<repo>: security floor ✓` or `<repo>: N security floor gaps:
