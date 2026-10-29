@@ -228,3 +228,43 @@ def test_label_key(key: str, want: str) -> None:
 def test_implementers_are_not_review_rounds(tmp_path: pathlib.Path, prompt: str) -> None:
     a = transcript(tmp_path / "a.jsonl", prompt, "2026-10-23T00:00:00Z", "done")
     assert m.mine([a], "2026-10-22T00:00:00+00:00", [], KNOWN) == []
+
+
+def test_a_resumed_reviewer_yields_one_round_per_report(tmp_path: pathlib.Path) -> None:
+    path = tmp_path / "projects" / "p" / "s" / "subagents" / "a.jsonl"
+    path.parent.mkdir(parents=True)
+    r1 = "## Should-fix\n1. x [boundary-input]\n" + "detail " * 80
+    r2 = "## Should-fix\n1. y [vacuous-guard]\n2. z [boundary-input]\n" + "detail " * 80
+    recs = [
+        {
+            "type": "user",
+            "timestamp": "2026-10-23T00:00:00Z",
+            "message": {"content": "Review techne#1"},
+        },
+        {"type": "user", "message": {"content": "A background task finished."}},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": r1}]}},
+        {
+            "type": "user",
+            "timestamp": "2026-10-23T02:00:00Z",
+            "message": {"content": "Round 2 review"},
+        },
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": r2}]}},
+        {
+            "type": "user",
+            "timestamp": "2026-10-23T03:00:00Z",
+            "message": {"content": "Any change?"},
+        },
+        {
+            "type": "assistant",
+            "message": {"content": [{"type": "text", "text": "My findings stand."}]},
+        },
+    ]
+    path.write_text("\n".join(json.dumps(r) for r in recs) + "\n")
+    hist = [("2026-10-22T00:00:00+00:00", ["boundary-input", "vacuous-guard"])]
+    rounds = m.mine([path], "2026-10-22T00:00:00+00:00", hist, KNOWN)
+    assert [(r.pr, r.round, len(r.findings)) for r in rounds] == [("1", 1, 1), ("1", 2, 2)]
+
+
+def test_a_summary_line_opens_no_finding():
+    report = "**PR #217, round 3: one Blocking regression.**\n\n1. **Blocking** [boundary-input] x"
+    assert m.parse_findings(report, SLUGS) == [("blocking", "boundary-input")]

@@ -1,45 +1,50 @@
 {
-  "rounds": 214,
+  "rounds": 289,
   "rounds_without_a_repo": 48,
   "parser_check": {
-    "rounds_stating_counts": 109,
-    "parsed_counts_agree": 92
+    "rounds_stating_counts": 125,
+    "parsed_counts_agree": 109
   },
   "prs": 89,
-  "findings": 305,
-  "before_catalog": 41,
-  "tagged": 154,
-  "untagged": 110,
-  "already_catalogued": 149,
+  "findings": 383,
+  "before_catalog": 46,
+  "tagged": 215,
+  "untagged": 122,
+  "already_catalogued": 205,
   "not_yet_catalogued": 0,
-  "new_tagged": 5,
-  "already_catalogued_share": 0.968,
-  "already_catalogued_share_of_all": 0.564,
-  "rounds_all_catalogued": 51,
+  "new_tagged": 10,
+  "already_catalogued_share": 0.953,
+  "already_catalogued_share_of_all": 0.608,
+  "rounds_all_catalogued": 68,
   "class_counts": {
-    "claim-code-drift": 40,
-    "boundary-input": 24,
-    "unenumerated-input-shape": 18,
-    "unmirrored-parallel-guard": 14,
-    "looks-done-not-done": 12,
-    "vacuous-guard": 8,
+    "claim-code-drift": 54,
+    "boundary-input": 35,
+    "unenumerated-input-shape": 25,
+    "unmirrored-parallel-guard": 20,
+    "vacuous-guard": 15,
+    "looks-done-not-done": 13,
+    "unreached-surface": 6,
     "check-time-vs-run-time": 6,
-    "unreached-surface": 5,
+    "flake-vs-real-red": 6,
+    "undiagnosable-failure": 4,
     "wrong-altitude": 4,
-    "flake-vs-real-red": 4,
+    "unmodeled-host-config": 4,
+    "shell-semantics-mismatch": 3,
     "over-broad-trigger": 2,
-    "undiagnosable-failure": 2,
-    "shell-semantics-mismatch": 2,
-    "unmodeled-host-config": 2,
+    "hot-path-latency": 2,
+    "new: pseudo-geometry": 2,
     "instance-patch": 1,
     "asymmetric-signal": 1,
+    "ingestion-scrub-not-release-scrub": 1,
     "rebase-arms-live-test": 1,
     "new: stacked-wrapper-input-pollution": 1,
-    "new: pseudo-geometry": 1,
+    "new: list-indent-source": 1,
+    "new: z-order": 1,
+    "new: secret-in-diagnostic": 1,
     "new: retry-bypasses-confirm": 1,
+    "new: offer-connect-race": 1,
     "new: state-by-tint-only": 1,
     "new: dom-not-model": 1,
-    "hot-path-latency": 1,
     "kill-by-pattern": 1,
     "destructive-op-reachability": 1
   },
@@ -62,13 +67,13 @@
     },
     "keryx": {
       "prs": 6,
-      "median_rounds": 1.0,
-      "max_rounds": 1
+      "median_rounds": 2.0,
+      "max_rounds": 3
     },
     "klepsydra": {
       "prs": 33,
-      "median_rounds": 1,
-      "max_rounds": 9
+      "median_rounds": 2,
+      "max_rounds": 15
     },
     "ldqis": {
       "prs": 1,
@@ -83,17 +88,17 @@
     "sphragis": {
       "prs": 12,
       "median_rounds": 1.0,
-      "max_rounds": 4
+      "max_rounds": 5
     },
     "talks": {
       "prs": 1,
-      "median_rounds": 1,
-      "max_rounds": 1
+      "median_rounds": 4,
+      "max_rounds": 4
     },
     "techne": {
       "prs": 13,
-      "median_rounds": 2,
-      "max_rounds": 5
+      "median_rounds": 3,
+      "max_rounds": 9
     }
   }
 }

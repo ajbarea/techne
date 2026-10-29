@@ -107,9 +107,17 @@ def text_of(content: object) -> str:
     return ""
 
 
-def read_transcript(path: pathlib.Path) -> tuple[str, str, str] | None:
-    """(first prompt, its timestamp, last assistant text), or None when either is missing."""
-    first = started = last = ""
+# A follow-up shorter than this that restates the report ("my findings stand") is no round.
+MIN_REPORT = 400
+
+
+def read_segments(path: pathlib.Path) -> list[tuple[str, str, str]]:
+    """(prompt, its timestamp, last assistant text) per round in one transcript.
+
+    A reviewer resumed by message holds several rounds in one file: each later user text
+    message opens a new segment, whose report is the last assistant text before the next.
+    """
+    segs: list[list[str]] = []
     try:
         with path.open(encoding="utf-8") as fh:
             for line in fh:
@@ -118,17 +126,28 @@ def read_transcript(path: pathlib.Path) -> tuple[str, str, str] | None:
                 except json.JSONDecodeError:
                     continue
                 msg = rec.get("message") or {}
-                if rec.get("type") == "user" and not first:
-                    first = text_of(msg.get("content"))
-                    started = rec.get("timestamp", "")
-                elif rec.get("type") == "assistant":
-                    t = text_of(msg.get("content"))
-                    if t.strip():
-                        last = t
+                text = text_of(msg.get("content"))
+                if rec.get("type") == "user" and text.strip():
+                    # A message before any report (a notification mid-work) is the same round.
+                    if not segs or segs[-1][2]:
+                        segs.append([text, rec.get("timestamp", ""), ""])
+                elif rec.get("type") == "assistant" and text.strip() and segs:
+                    segs[-1][2] = text
     except OSError as exc:
         print(f"warning: cannot read {path}: {exc}", file=sys.stderr)
-        return None
-    return (first, started, last) if first and last else None
+        return []
+    out = []
+    for n, (prompt, when, report) in enumerate(segs):
+        if n and len(report) < MIN_REPORT:
+            continue  # a short follow-up that restates the report
+        out.append((prompt, when, report))
+    return out if out and out[0][2] else []
+
+
+def read_transcript(path: pathlib.Path) -> tuple[str, str, str] | None:
+    """(first prompt, its timestamp, last assistant text), or None when either is missing."""
+    segs = read_segments(path)
+    return (segs[0][0], segs[0][1], segs[-1][2]) if segs else None
 
 
 def identify(prompt: str, known: set[str]) -> tuple[str, str, str]:
@@ -251,7 +270,14 @@ def parse_findings(report: str, slugs: list[str]) -> list[tuple[str, str]]:
         if (lead or top_bullet) and other and names_own_severity(line, other):
             stops.add(i)  # a Minor or Nit item ends the finding above it
             continue
-        if sev and early and not negated and (lead or top_bullet or '"severity"' in line):
+        summary = STATED_RE.search(line)  # "one Blocking regression" counts, it opens none
+        if (
+            sev
+            and early
+            and not negated
+            and not summary
+            and (lead or top_bullet or '"severity"' in line)
+        ):
             if RESOLVED_RE.search(line):
                 stops.add(i)
             elif section:
@@ -352,10 +378,10 @@ def mine(
     rounds = []
     unplaced.clear()
     for path in sorted(paths):
-        got = read_transcript(path)
-        if not got:
+        segs = read_segments(path)
+        if not segs:
             continue
-        prompt, started, report = got
+        prompt, started, _ = segs[0]
         if not started or utc(started) < since:
             continue
         if not REVIEW_RE.search(prompt[:600]) or NOT_REVIEW_RE.search(prompt[:600]):
@@ -364,17 +390,19 @@ def mine(
         if not repo:
             unplaced.append(utc(started))
             continue
-        rnd = Round(str(path), utc(started), repo, owner, pr, round_of(prompt))
-        rnd.stated = stated_counts(report)
-        then = catalog_at(hist, rnd.started)
-        rnd.catalog_existed = bool(then)
-        for sev, cls in parse_findings(report, all_slugs):
-            slug = bool(cls) and not cls.startswith("new:")
-            catalogued = (cls in then) if slug and then else None
-            rnd.findings.append(Finding(sev, cls, catalogued))
-        if VERIFY_RE.search(prompt[:600]) and rnd.round is None:
-            rnd.round = -1  # numbered after the PR's other rounds
-        rounds.append(rnd)
+        for n, (asked, when, report) in enumerate(segs):
+            # A resumed round names its own round number; the repo and PR are the first's.
+            rnd = Round(f"{path}#{n}", utc(when or started), repo, owner, pr, round_of(asked))
+            rnd.stated = stated_counts(report)
+            then = catalog_at(hist, rnd.started)
+            rnd.catalog_existed = bool(then)
+            for sev, cls in parse_findings(report, all_slugs):
+                slug = bool(cls) and not cls.startswith("new:")
+                catalogued = (cls in then) if slug and then else None
+                rnd.findings.append(Finding(sev, cls, catalogued))
+            if VERIFY_RE.search(asked[:600]) and rnd.round is None:
+                rnd.round = -1  # numbered after the PR's other rounds
+            rounds.append(rnd)
     number_rounds(rounds)
     return rounds
 
@@ -392,7 +420,8 @@ def number_rounds(rounds: list[Round]) -> None:
 
 
 def key(r: Round) -> str:
-    return f"{r.repo}#{r.pr}" if r.pr else f"{r.repo}@{pathlib.Path(r.path).parent.parent.name}"
+    session = pathlib.Path(r.path.split("#", 1)[0]).parent.parent.name
+    return f"{r.repo}#{r.pr}" if r.pr else f"{r.repo}@{session}"
 
 
 def summarize(rounds: list[Round], public: set[str], current: set[str]) -> dict:
