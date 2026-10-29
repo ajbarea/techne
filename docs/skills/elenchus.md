@@ -84,8 +84,9 @@ The design follows shared lesson banks for code agents ([LessonL](https://arxiv.
 
 To run the fold daily, add a launcher that finds the installed plugin (its folder changes with each version) and two systemd user units, then run `systemctl --user enable --now elenchus-foldback.timer`:
 
+Save it as `~/.local/bin/elenchus-foldback` and `chmod +x` it:
+
 ```bash
-# ~/.local/bin/elenchus-foldback (chmod +x)
 #!/bin/bash
 set -euo pipefail
 root="$(python3 - <<'PY'
