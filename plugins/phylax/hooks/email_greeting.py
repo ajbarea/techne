@@ -132,7 +132,9 @@ def first_line(tool_input: dict) -> str | None:
 def verdict(line: str, minutes: int) -> str | None:
     """The refusal reason for a body's first line, or None when it fits."""
     if FOREIGN.match(line) or (
-        not line.isascii() and not INFORMAL.match(line) and not GREETING.match(line)
+        any(c.isalpha() and not c.isascii() for c in line)
+        and not INFORMAL.match(line)
+        and not GREETING.match(line)
     ):
         return None  # another language's greeting; the rule is for English mail
     fits = allowed(minutes)
