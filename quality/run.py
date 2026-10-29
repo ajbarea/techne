@@ -291,7 +291,9 @@ def read_denials(ws: pathlib.Path) -> list[str]:
     sandbox's denyRead binds only Bash: /root, /tmp, /mnt, the hidden harness folders, and
     everything under /home except the path down to this run's saved tool outputs, which a
     session reads back."""
-    store = session_store(ws)
+    # A rule binds a path and the file it resolves to, so the store stays open by both its
+    # own path and its target when a config folder links to another (.claude-rit/projects).
+    stores = {session_store(ws), session_store(ws).resolve()}
     out = ["/root", "/tmp", "/mnt", *(str(WORK / d) for d in HIDDEN)]
     todo = [HOMES]
     while todo:
@@ -302,9 +304,9 @@ def read_denials(ws: pathlib.Path) -> list[str]:
             out.append(str(folder))
             continue
         for child in children:
-            if child == store:
+            if child in stores or child.resolve() in stores:
                 continue
-            if store.is_relative_to(child):
+            if any(s.is_relative_to(child) or s.is_relative_to(child.resolve()) for s in stores):
                 todo.append(child)
             else:
                 out.append(str(child))
@@ -460,7 +462,10 @@ def tool_paths(name: str, inp: dict, ws: pathlib.Path) -> list[str]:
         return []
 
     def absolute(p: str, base: str) -> str:
-        p = os.path.expanduser(p)  # `~` is the harness's home, outside every allowed folder
+        if p == "~" or p.startswith("~/"):  # a session's home is its run's own home folder
+            p = str(LIVE / "run" / "home") + p[1:]
+        elif p.startswith("~"):  # ~user: that user's home
+            p = str(HOMES / p[1:])
         return p if os.path.isabs(p) else os.path.join(base, p)
 
     base = absolute(inp.get("path") or str(ws), str(ws))
@@ -478,6 +483,7 @@ def inside(path: str, ws: pathlib.Path) -> bool:
     """A path a session may read: its workspace, its run folder, the tools, the elenchus
     copy, and the outputs Claude Code saved for this run's sessions."""
     allowed = (ws, LIVE / "run", TOOLS, WORK / "elenchus", session_store(ws))
+    allowed += tuple(a.resolve() for a in allowed)  # the store may sit behind a symlink
     path = os.path.normpath(path)
     return any(path == str(a) or path.startswith(f"{a}/") for a in allowed)
 
@@ -918,8 +924,8 @@ def judge_all(dirs: list[pathlib.Path], tasks: list[dict], again: bool) -> int:
                     break
         if (now := claude_version()) != version:  # an update mid-pass: this verdict is dropped
             print(
-                f"Claude Code changed from {version} to {now} during the judge pass; rerun"
-                " --judge to finish it on one version",
+                f"Claude Code changed from {version} to {now} during the judge pass; judge"
+                " again on one version with --judge ... --rejudge",
                 file=sys.stderr,
             )
             return 3

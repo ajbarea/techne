@@ -228,3 +228,11 @@ def test_the_report_shows_every_token_kind_and_discards_per_mode(tmp_path):
     md = a.report(result, "t")
     assert "| 1 / 2 / 3 / 4 |" in md
     assert "- budget: 2 runs discarded and rerun (usage_limit 1, version_change 1), $0.50" in md
+
+
+def test_check_set_refuses_verdicts_on_two_claude_code_versions():
+    runs = registered(trial(lambda t, r: True))
+    for i, r in enumerate(runs):
+        r["judge_verdict"]["claude_code"] = "v2" if i == 4 else "v1"
+    problems = a.check_set(runs, [f"t{t}" for t in range(10)], a.REPEATS)
+    assert any("verdicts on Claude Code" in p for p in problems)

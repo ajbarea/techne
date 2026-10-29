@@ -166,7 +166,8 @@ quality:                ## Budget-trial task replays in MODE, then the analysis 
 	else echo "both modes' $(PHASE) folders are judged together: make quality-trial DIRS=..."; fi
 
 # A pilot or confirmatory comparison: one judge pass over both modes' folders (the normal runs
-# judged again), then the analysis. DIRS lists the folders, normal and budget.
+# judged again, so a baseline folder's own report.md is superseded by this one), then the
+# analysis. DIRS lists the folders, normal and budget.
 quality-trial:          ## Judge both modes' folders in one pass, then analyze (PHASE=pilot|confirmatory)
 	@test -n "$(DIRS)" && test -n "$(PHASE)" || { echo "set DIRS and PHASE" >&2; exit 2; }
 	@uv run python quality/run.py --judge $(DIRS) --rejudge

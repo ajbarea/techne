@@ -708,7 +708,7 @@ def test_results_and_unrelated_commits_never_block_a_resume(tmp_path, monkeypatc
         ("Grep", {"pattern": "fix", "path": "{tools}/../done"}),
         ("Glob", {"pattern": "../../../../home/**/*.py"}),
         ("Grep", {"pattern": "x", "glob": "../../../../home/**"}),
-        ("Read", {"file_path": "~/ajsoftworks/techne/README.md"}),
+        ("Read", {"file_path": "~ajbar/ajsoftworks/techne/README.md"}),
         ("Glob", {"pattern": "/home/ajbar/**"}),
         ("Bash", {"command": "cat {ws}/../../../done/t1/normal/r1/run.json"}),
     ],
@@ -729,6 +729,7 @@ def test_file_tools_that_climb_out_are_leaks(tmp_path, monkeypatch, tool, inp):
         ("Glob", {"pattern": "**/*.py"}),
         ("Grep", {"pattern": "/home/ajbar", "glob": "*.py"}),  # a regex that names a path
         ("Read", {"file_path": "{ws}/src/../tests/test_a.py"}),
+        ("Read", {"file_path": "~/.cache/notes.txt"}),  # the session's own home
     ],
 )
 def test_file_tools_inside_the_workspace_are_not_leaks(tmp_path, monkeypatch, tool, inp):
@@ -774,3 +775,27 @@ def test_a_claude_code_update_mid_judge_pass_keeps_no_verdict_from_it(tmp_path, 
     verdicts = [json.loads(p.read_text())["judge_verdict"] for p in tmp_path.rglob("run.json")]
     assert sorted(v is None for v in verdicts) == [False, True]
     assert [v["claude_code"] for v in verdicts if v] == ["v1"]
+
+
+def test_a_symlinked_config_folder_keeps_the_saved_outputs_readable(tmp_path, monkeypatch):
+    monkeypatch.setattr(run, "WORK", tmp_path / "work")
+    monkeypatch.setattr(run, "LIVE", tmp_path / "work" / "live")
+    homes = tmp_path / "home"
+    real, linked = homes / "aj" / ".claude", homes / "aj" / ".claude-rit"
+    (real / "projects" / "other").mkdir(parents=True)
+    linked.mkdir()
+    (linked / "projects").symlink_to(real / "projects")
+    (linked / ".credentials.json").write_text("{}")
+    monkeypatch.setattr(run, "HOMES", homes)
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(linked))
+    ws = run.LIVE / "run" / "ws"
+    store = run.session_store(ws)
+    (store / "tool-results").mkdir(parents=True)
+    under = [pathlib.Path(d) for d in run.read_denials(ws) if pathlib.Path(d).is_relative_to(homes)]
+    for s in (store, store.resolve()):
+        assert not any(s.is_relative_to(d) or d.is_relative_to(s) for d in under), s
+    assert real / "projects" / "other" in under or linked / "projects" / "other" in under
+    assert linked / ".credentials.json" in under
+    saved = store.resolve() / "tool-results" / "out.txt"
+    log = transcript(tmp_path, ("Read", {"file_path": str(saved)}))
+    assert run.leaks(log, ws) == []

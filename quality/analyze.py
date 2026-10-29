@@ -70,6 +70,11 @@ def check_set(
     versions = {r.get("claude_code") for r in runs}
     if len(versions) > 1:
         problems.append(f"Claude Code versions {sorted(map(str, versions))}: rerun on one version")
+    judged_on = {(r.get("judge_verdict") or {}).get("claude_code") for r in runs}
+    if len(judged_on) > 1:
+        problems.append(
+            f"verdicts on Claude Code {sorted(map(str, judged_on))}: judge again with --rejudge"
+        )
     phases = {r.get("phase") for r in runs}
     allowed = {"pilot"} if pilot else {"baseline", "confirmatory"}
     if not phases <= allowed:
