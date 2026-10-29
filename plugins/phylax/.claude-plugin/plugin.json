@@ -43,7 +43,7 @@
     "email_greeting": {
       "type": "boolean",
       "title": "Greet by the time of day in email drafts",
-      "description": "Refuse an epistole or Gmail connector draft, send or reply whose body does not open with Good morning, Good afternoon or Good evening for the local time (morning before 12:00, afternoon until 17:00, evening after), or opens with Hi, Hello, Hey or Dear. A first line in another language passes.",
+      "description": "Refuse an epistole or Gmail connector draft, send or reply whose body does not open with Good morning, Good afternoon or Good evening for the local time (morning before 12:00, afternoon until 17:00, evening after), or opens with Hi, Hello, Hey or Dear. A first line opening with a common Spanish, Portuguese, French, Italian or German greeting, or holding a non-ASCII letter, passes.",
       "default": false
     },
     "email_timezone": {

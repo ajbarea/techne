@@ -37,9 +37,9 @@ NOON, EVENING = 12 * 60, 17 * 60
 GREETINGS = ("Good morning", "Good afternoon", "Good evening")
 # Greetings in other languages open mail the rule does not cover.
 FOREIGN = re.compile(
-    r"^(hola|buen[oa]s?|saludos|estimad[oa]s?|bom dia|boa (tarde|noite)|ol[aá]|bonjour|bonsoir"
-    r"|salut|guten (morgen|tag|abend)|hallo|liebe[r]?|sehr geehrte[r]?|ciao|buongiorno"
-    r"|buonasera|gentile)\b",
+    r"^(hola|buen[oa]s?|saludos|estimad[oa]s?|querid[oa]s?|bom dia|boa (tarde|noite)|ol[aá]"
+    r"|prezad[oa]s?|bonjour|bonsoir|salut|cher|ch[eè]re|guten (morgen|tag|abend)|hallo|moin"
+    r"|liebe[r]?|sehr geehrte[r]?|ciao|salve|car[oa]|buon\w*|buona\s+sera|gentile)\b",
     re.I,
 )
 INFORMAL = re.compile(r"^(hi|hello|hey|dear)\b", re.I)
