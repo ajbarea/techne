@@ -15,6 +15,7 @@ Transcripts and workspaces stay under /var/tmp/techne-quality-<uid>; the results
 from __future__ import annotations
 
 import argparse
+import fcntl
 import hashlib
 import json
 import os
@@ -28,6 +29,7 @@ import sys
 import time
 import tomllib
 from collections.abc import Sequence
+from xml.etree import ElementTree
 
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -54,7 +56,8 @@ JUDGE_CWD = WORK / "judge-cwd"  # one neutral folder: Claude Code shows the judg
 def clean_env() -> dict[str, str]:
     """The harness's environment without the caller's virtualenv, which would point a task's
     commands at the wrong interpreter."""
-    return {k: v for k, v in os.environ.items() if k not in ("VIRTUAL_ENV", "PYTHONPATH")}
+    env = {k: v for k, v in os.environ.items() if k not in ("VIRTUAL_ENV", "PYTHONPATH")}
+    return {**env, "DISABLE_AUTOUPDATER": "1"}  # one Claude Code version for the whole set
 
 
 def prepare_seeds() -> None:
@@ -226,8 +229,6 @@ class lock:
     """The fleet's heavy-job lock, held around test runs and environment setup."""
 
     def __enter__(self):
-        import fcntl
-
         if os.environ.get("QUALITY_NO_LOCK"):
             self.fh = open(os.devnull)
             return
@@ -272,8 +273,10 @@ def classify(result: dict, err: str) -> None:
         if err == "timeout":
             return
         raise (UsageLimit if LIMIT.search(err) else HarnessError)(f"{err} no result"[-800:])
-    if result.get("is_error") and result.get("subtype") == "success" and LIMIT.search(notice):
-        raise UsageLimit(notice[-800:])  # Claude Code's own limit notice, not a model answer
+    if result.get("is_error") and result.get("subtype") == "success":
+        if LIMIT.search(notice):
+            raise UsageLimit(notice[-800:])  # Claude Code's own limit notice
+        raise HarnessError(f"an error result with no API error: {notice}"[-800:])
     if result["subtype"] not in MODEL_OUTCOMES:
         raise HarnessError(f"{result['subtype']}: {notice} {err}"[-800:])
 
@@ -352,13 +355,18 @@ def claude(
     except subprocess.TimeoutExpired:
         err = "timeout"  # the model ran out of time: the model's failure, scored as it stands
     result: dict = {}
+    last: dict = {}
     for line in log.read_text(encoding="utf-8").splitlines():
         try:
             rec = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if rec.get("type") == "result":
-            result = rec
+        if isinstance(rec, dict):
+            last = rec
+            if rec.get("type") == "result":
+                result = rec
+    if err == "timeout" and (last.get("type"), last.get("subtype")) == ("system", "api_retry"):
+        raise UsageLimit("timed out while Claude Code was retrying the API")
     classify(result, err)
     result.setdefault("is_error", True)
     if err:
@@ -405,7 +413,7 @@ def leaks(log: pathlib.Path, ws: pathlib.Path) -> list[str]:
             outside = [p for p in HOME_PATH.findall(command) if not inside(p, ws)]
             if command and (LEAK.search(command) or outside or ESCAPE.search(command)):
                 found.append(f"Bash: {command[:200]}")
-            path = inp.get("file_path") or inp.get("path") or ""
+            path = inp.get("file_path") or inp.get("path") or inp.get("pattern") or ""
             if path and os.path.isabs(path) and not inside(path, ws):
                 found.append(f"{part.get('name')}: {path}")
     return found
@@ -454,10 +462,11 @@ TEST_LINE = re.compile(
 SKIP = re.compile(r"pytest\.(?:skip|xfail)|@pytest\.mark\.(?:skip|xfail)|\.(?:skip|only)\(|\bxit\(")
 CONFIG_WEAKENING = re.compile(
     r"--deselect|--ignore|\s-k\s|(?:^|[\s'\"=\[,])-p\s*[\w.:]|collect_ignore|norecursedirs|skip|xfail"
+    r"|--co\b|--collect-only|--setup-plan|--setup-only|--fixtures"
 )
 # Any pytest hook added (one can pass a test unrun or rewrite the exit status), or a plugin
 # loaded to add one; in test code, a hard exit.
-RESULT_HOOK = re.compile(r"^\s*(?:async\s+)?def\s+pytest_\w+\s*\(|^\s*pytest_plugins\s*=")
+RESULT_HOOK = re.compile(r"^\s*(?:async\s+)?def\s+pytest_\w+\s*\(|^\s*pytest_\w+\s*=|\bhookimpl\b")
 HARD_EXIT = re.compile(r"\bos\._exit\s*\(")
 
 
@@ -532,10 +541,37 @@ def audit(task: dict, ws: pathlib.Path, diff: str, logs: list[pathlib.Path]) -> 
     return sorted(set(flags))
 
 
-def hidden_tests(task: dict, ws: pathlib.Path, dest: pathlib.Path) -> dict:
+GOLD = HERE / "tasks" / "gold-tests.json"  # per task, the test ids the gold fix passes
+
+
+def junit_results(path: pathlib.Path) -> tuple[set[str], set[str]]:
+    """The test ids that passed and that failed (failure or error) in a JUnit XML report."""
+    passed: set[str] = set()
+    failed: set[str] = set()
+    if not path.exists():
+        return passed, failed
+    try:
+        root = ElementTree.parse(path).getroot()
+    except ElementTree.ParseError:
+        return passed, failed
+    for case in root.iter("testcase"):
+        tid = f"{case.get('classname', '')}::{case.get('name', '')}"
+        tags = {child.tag for child in case}
+        if tags & {"failure", "error"}:
+            failed.add(tid)
+        elif "skipped" not in tags:
+            passed.add(tid)
+    return passed, failed
+
+
+def hidden_tests(
+    task: dict, ws: pathlib.Path, dest: pathlib.Path, require: Sequence[str] | None = None
+) -> dict:
     """Score a clean rebuild: the task's workspace, the run's diff applied, the hidden tests
     restored over it, then the test command offline. Edits git does not see (an installed
-    package, a virtualenv) never reach the score."""
+    package, a virtualenv) never reach the score. A pass needs exit 0, no failed test in
+    pytest's own JUnit report, and every test id in REQUIRE passed, so a change that makes
+    pytest exit 0 without running the tests does not pass."""
     sh(["git", "add", "-A"], cwd=ws)
     diff = sh(["git", "diff", "--cached", "--binary", base_of(ws)], cwd=ws).stdout
     workspace(task, dest)
@@ -557,7 +593,9 @@ def hidden_tests(task: dict, ws: pathlib.Path, dest: pathlib.Path) -> dict:
         target = dest / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(git(task["clone"], "show", f"{task['fix']}:{rel}"), encoding="utf-8")
-    cmd = f"ip link set lo up; {task['hidden_command']}"
+    junit = dest.parent / f"{dest.name}.junit.xml"
+    junit.unlink(missing_ok=True)
+    cmd = f"ip link set lo up; {task['hidden_command']} --junitxml={shlex.quote(str(junit))}"
     cache = dest.parent / f"{dest.name}.uv-cache"
     with lock():
         env = {
@@ -572,7 +610,16 @@ def hidden_tests(task: dict, ws: pathlib.Path, dest: pathlib.Path) -> dict:
             rc, tail = 124, "timeout"
         finally:
             shutil.rmtree(cache, ignore_errors=True)
-    return {"passed": rc == 0, "exit": rc, "tail": tail}
+    passed, failed = junit_results(junit)
+    junit.unlink(missing_ok=True)
+    missing = sorted(set(require or ()) - passed)
+    return {
+        "passed": rc == 0 and not failed and bool(passed) and not missing,
+        "exit": rc,
+        "tail": tail,
+        "tests_run": sorted(passed | failed),
+        "missing": missing[:20],
+    }
 
 
 def judge(task: dict, diff: str, changed: list[str], log: pathlib.Path) -> dict:
@@ -700,7 +747,7 @@ def run_one(task: dict, mode: str, rep: int, out: pathlib.Path, elenchus: pathli
     diff = sh(["git", "diff", "--cached", base_of(ws)], cwd=ws).stdout
     flags = audit(task, ws, diff, logs)
     score = SCORE / "run"
-    tests = hidden_tests(task, ws, score)
+    tests = hidden_tests(task, ws, score, gold_tests(task))
     shutil.rmtree(score, ignore_errors=True)
     record = {
         "task": task["id"],
@@ -767,6 +814,7 @@ def judge_all(dirs: list[pathlib.Path], tasks: list[dict], again: bool) -> int:
     paths = sorted(p for d in dirs for p in d.rglob("run.json"))
     random.Random(SEED).shuffle(paths)
     pid = pass_id(dirs)
+    failed_before: pathlib.Path | None = None
     for path in paths if again else ():
         run = json.loads(path.read_text(encoding="utf-8"))
         run["judge_verdict"], run["resolved"] = None, None
@@ -780,17 +828,32 @@ def judge_all(dirs: list[pathlib.Path], tasks: list[dict], again: bool) -> int:
         folder = path.parents[3].name
         log = WORK / "judge" / folder / f"{run['task']}-{run['mode']}-r{run['repeat']}.jsonl"
         verdict: dict = {}
+        session_failed = False
         if run.get("diff"):
             for _ in (1, 2):
                 try:
                     verdict = judge(task, strip_meta(run["diff"]), run.get("changed", []), log)
+                    session_failed = False
                 except UsageLimit as exc:
                     print(f"usage limit; rerun --judge to resume: {exc}", file=sys.stderr)
                     return 3
                 except HarnessError as exc:
                     verdict = {"ok": False, "reason": f"judge session failed: {exc}"[:300]}
+                    session_failed = True
                 if verdict["ok"]:
                     break
+        if session_failed and failed_before:
+            # Two runs in a row whose judge sessions failed: the harness, not the runs. Neither
+            # verdict stands; a rerun of --judge picks both up.
+            prev = json.loads(failed_before.read_text(encoding="utf-8"))
+            prev["judge_verdict"], prev["resolved"] = None, None
+            failed_before.write_text(json.dumps(prev, indent=1) + "\n", encoding="utf-8")
+            print(
+                "two judge sessions in a row failed; check Claude Code, then rerun --judge",
+                file=sys.stderr,
+            )
+            return 3
+        failed_before = path if session_failed else None
         run["judge_verdict"] = verdict or {"ok": False, "reason": "no diff to judge"}
         run["judge_verdict"]["pass"] = pid
         run["judge_verdict"].setdefault("model", JUDGE)
@@ -836,15 +899,23 @@ SANDBOX_BLOCKED = re.compile(r"Failed to initialize cache|Read-only file system[
 
 def blocked_sessions(folder: pathlib.Path) -> list[str]:
     """Transcripts under FOLDER where a command hit the sandbox: a smoke run fails on any."""
-    return sorted(
-        str(log) for log in folder.rglob("*.jsonl") if SANDBOX_BLOCKED.search(log.read_text())
-    )
+    logs = folder.glob("*/*/r*/*.jsonl")  # each run's session transcripts, not its workspace
+    return sorted(str(log) for log in logs if SANDBOX_BLOCKED.search(log.read_text()))
+
+
+def gold_tests(task: dict) -> list[str]:
+    gold = json.loads(GOLD.read_text(encoding="utf-8")) if GOLD.exists() else {}
+    if not gold.get(task["id"]):
+        raise RuntimeError(f"{task['id']} has no gold test ids: run --check-tasks first")
+    return gold[task["id"]]
 
 
 def check_tasks(tasks: list[dict]) -> int:
     """No model: each task's hidden tests fail on its workspace and pass with the gold patch,
-    and the gold patch raises no cheat flag."""
+    and the gold patch raises no cheat flag. Records the test ids the gold patch passes,
+    which every run must pass too."""
     bad = 0
+    gold_ids = json.loads(GOLD.read_text(encoding="utf-8")) if GOLD.exists() else {}
     for task in tasks:
         base = CHECK / task["id"]
         ws = base / "ws"
@@ -878,6 +949,8 @@ def check_tasks(tasks: list[dict]) -> int:
         )
         ok = not before["passed"] and after["passed"] and not flags
         bad += not ok
+        if ok:  # a gold pass has no failed test, so every test it ran passed
+            gold_ids[task["id"]] = after["tests_run"]
         print(
             f"{task['id']}: parent {'passes' if before['passed'] else 'fails'}, "
             f"fix {'passes' if after['passed'] else 'fails'}, "
@@ -887,6 +960,7 @@ def check_tasks(tasks: list[dict]) -> int:
         if not after["passed"]:
             print(after["tail"][-800:])
         shutil.rmtree(base, ignore_errors=True)
+    GOLD.write_text(json.dumps(gold_ids, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     return 1 if bad else 0
 
 
@@ -917,6 +991,12 @@ def main(argv: list[str] | None = None) -> int:
         global REVIEWER, JUDGE, MAX_REVIEWS
         MODELS[args.mode] = REVIEWER = JUDGE = "claude-haiku-5-5"
         MAX_REVIEWS = 1
+    WORK.mkdir(parents=True, exist_ok=True)
+    one_process = open(WORK / "run.lock", "a")  # held until the process exits
+    try:
+        fcntl.flock(one_process, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        ap.error("another quality/run.py is running; they share the live and score folders")
     prepare_seeds()
     if args.check_tasks:
         return check_tasks(tasks)
@@ -930,7 +1010,18 @@ def main(argv: list[str] | None = None) -> int:
     shutil.copytree(ROOT / "plugins" / "techne" / "skills" / "elenchus", elenchus)
     order = [(t, r) for r in range(1, args.repeats + 1) for t in tasks]
     random.Random(SEED).shuffle(order)
-    failed_before = False
+    version = sh(["claude", "--version"]).stdout.strip()
+    earlier = {json.loads(p.read_text()).get("claude_code") for p in args.out.rglob("run.json")} - {
+        version
+    }
+    if earlier:
+        print(
+            f"{args.out} holds runs on Claude Code {sorted(map(str, earlier))}, now {version}:"
+            " finish a set on one version",
+            file=sys.stderr,
+        )
+        return 3
+    failed_before: pathlib.Path | None = None
     for task, rep in order:
         dest = args.out / task["id"] / args.mode / f"r{rep}"
         if (dest / "run.json").exists():
@@ -941,7 +1032,7 @@ def main(argv: list[str] | None = None) -> int:
             started = time.time()
             try:
                 run_one(task, args.mode, rep, args.out, elenchus)
-                failed_before = False
+                failed_before = None
                 break
             except UsageLimit as exc:  # the plan's limit: stop, and resume the set later
                 print(f"usage limit; rerun the same command to resume: {exc}", file=sys.stderr)
@@ -952,15 +1043,22 @@ def main(argv: list[str] | None = None) -> int:
                 errfile.write_text(json.dumps(errors, indent=1))
                 print(f"{task['id']}/{args.mode}/r{rep}: harness error {exc!r}", file=sys.stderr)
         else:
-            if failed_before:  # two runs in a row: the harness, not the task; nothing recorded
+            if failed_before:  # two runs in a row: the harness, not the task; neither recorded
+                for f in (failed_before / "run.json", failed_before / "errors.json", errfile):
+                    f.unlink(missing_ok=True)
                 print(
                     "two runs in a row failed in the harness; check Claude Code, then rerun",
                     file=sys.stderr,
                 )
                 return 3
-            failed_before = True
+            failed_before = dest
             record = failed_run(task, args.mode, rep, [e["error"] for e in errors])
             (dest / "run.json").write_text(json.dumps(record, indent=1) + "\n", encoding="utf-8")
+    if args.smoke and any(
+        json.loads(p.read_text()).get("harness_failed") for p in args.out.rglob("run.json")
+    ):
+        print("a smoke run failed in the harness", file=sys.stderr)
+        return 4
     if args.smoke and (blocked := blocked_sessions(DONE / args.out.name)):
         print(
             "the sandbox blocked a session's command:\n  " + "\n  ".join(blocked), file=sys.stderr

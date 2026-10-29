@@ -326,8 +326,8 @@ def report(result: dict, title: str) -> str:
         rows = [r for r in result["tasks"] if r["mode"] == mode]
         failed = [r["task"] for r in rows if r["harness_failed"]]
         lines.append(
-            f"- {mode}: {sum(r['retries'] for r in rows)} retries; runs that failed 3 times:"
-            f" {', '.join(failed) or 'none'}"
+            f"- {mode}: {sum(r['retries'] for r in rows)} failed attempts;"
+            f" runs that failed 3 times: {', '.join(failed) or 'none'}"
         )
     lines += ["", "## Judge criterion scores (median, 0 to 3)", ""]
     lines += [

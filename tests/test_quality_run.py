@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import subprocess
 import sys
 
 import pytest
@@ -373,9 +374,136 @@ def test_clearing_the_session_store_refuses_any_other_folder(tmp_path, monkeypat
 
 
 def test_a_smoke_run_fails_only_on_a_blocked_uv_cache(tmp_path):
-    (tmp_path / "a.jsonl").write_text(
-        "OSError: [Errno 30] Read-only file system: '/var/crash/x.crash'"
-    )
+    r1 = tmp_path / "t1" / "normal" / "r1"
+    (r1 / "ws" / "fixtures").mkdir(parents=True)
+    (r1 / "implement.jsonl").write_text("Read-only file system: '/var/crash/x.crash'")
+    (r1 / "ws" / "fixtures" / "t.jsonl").write_text("Failed to initialize cache")
     assert run.blocked_sessions(tmp_path) == []
-    (tmp_path / "b.jsonl").write_text('error: Failed to initialize cache at "/x/uv-cache"')
-    assert run.blocked_sessions(tmp_path) == [str(tmp_path / "b.jsonl")]
+    (r1 / "review-1.1.jsonl").write_text('error: Failed to initialize cache at "/x/uv-cache"')
+    assert run.blocked_sessions(tmp_path) == [str(r1 / "review-1.1.jsonl")]
+
+
+def junit(path: pathlib.Path, cases: dict[str, str]) -> None:
+    body = "".join(
+        f'<testcase classname="t" name="{n}">' + (f"<{k}/>" if k else "") + "</testcase>"
+        for n, k in cases.items()
+    )
+    path.write_text(f"<testsuites><testsuite>{body}</testsuite></testsuites>")
+
+
+def test_junit_results(tmp_path):
+    junit(tmp_path / "j.xml", {"a": "", "b": "failure", "c": "error", "d": "skipped"})
+    assert run.junit_results(tmp_path / "j.xml") == ({"t::a"}, {"t::b", "t::c"})
+    assert run.junit_results(tmp_path / "none.xml") == (set(), set())
+    (tmp_path / "bad.xml").write_text("<oops")
+    assert run.junit_results(tmp_path / "bad.xml") == (set(), set())
+
+
+@pytest.mark.parametrize(
+    ("rc", "cases", "require", "want"),
+    [
+        (0, {"a": "", "b": ""}, ["t::a", "t::b"], True),
+        (0, {}, ["t::a"], False),  # --co, --setup-plan: exit 0 with no test run
+        (0, {"a": ""}, ["t::a", "t::b"], False),  # a gold test deselected
+        (0, {"a": "", "b": "failure"}, ["t::a"], False),  # an exit status rewritten to 0
+        (1, {"a": ""}, ["t::a"], False),
+    ],
+)
+def test_scoring_needs_every_gold_test_to_pass(tmp_path, monkeypatch, rc, cases, require, want):
+    dest = tmp_path / "score" / "run"
+    monkeypatch.setattr(run, "workspace", lambda task, d: d.mkdir(parents=True, exist_ok=True))
+    monkeypatch.setattr(run, "private_cache", lambda task, d: d)
+    monkeypatch.setattr(run, "tool_env", lambda cache: {})
+    monkeypatch.setenv("QUALITY_NO_LOCK", "1")
+
+    def fake_sh(cmd, cwd=None, **kw):
+        if cmd[:2] == ["git", "diff"]:
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        if cmd[0] == "unshare":
+            junit(dest.parent / "run.junit.xml", cases)
+            return subprocess.CompletedProcess(cmd, rc, "", "")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(run, "sh", fake_sh)
+    task = {"hidden_tests": [], "hidden_command": "pytest", "id": "t"}
+    monkeypatch.setattr(run, "base_of", lambda ws: "base")
+    assert run.hidden_tests(task, tmp_path / "ws", dest, require)["passed"] is want
+
+
+def test_two_harness_failures_in_a_row_record_neither_run(tmp_path, monkeypatch):
+    monkeypatch.setattr(run, "WORK", tmp_path / "work")
+    monkeypatch.setattr(run, "prepare_seeds", lambda: None)
+    monkeypatch.setattr(run.shutil, "copytree", lambda *a, **k: None)
+    monkeypatch.setattr(run, "sh", lambda cmd, **k: subprocess.CompletedProcess(cmd, 0, "v1", ""))
+    tasks = tmp_path / "tasks.toml"
+    tasks.write_text(
+        '[[task]]\nid = "a"\nclone = "/x"\n[[task]]\nid = "b"\nclone = "/x"\n'
+        '[[task]]\nid = "c"\nclone = "/x"\n'
+    )
+
+    def boom(*a, **k):
+        raise RuntimeError("harness")
+
+    monkeypatch.setattr(run, "run_one", boom)
+    monkeypatch.setattr(run, "failed_run", lambda *a: {"harness_failed": True})
+    out = tmp_path / "out"
+    assert run.main(["--tasks", str(tasks), "--repeats", "1", "--out", str(out)]) == 3
+    assert not list(out.rglob("run.json")) and not list(out.rglob("errors.json"))
+
+
+def test_a_timeout_while_retrying_the_api_stops_the_set(tmp_path, monkeypatch):
+    log = tmp_path / "s.jsonl"
+
+    def slow(cmd, **kw):
+        log.write_text(json.dumps({"type": "system", "subtype": "api_retry"}) + "\n")
+        raise subprocess.TimeoutExpired(cmd, 1)
+
+    monkeypatch.setattr(run.subprocess, "run", slow)
+    monkeypatch.setattr(run, "settings_file", lambda: tmp_path / "settings.json")
+    with pytest.raises(run.UsageLimit):
+        run.claude("p", "m", tmp_path, log, "")
+
+
+def test_only_one_harness_process_runs_at_a_time(tmp_path, monkeypatch):
+    monkeypatch.setattr(run, "WORK", tmp_path)
+    held = open(tmp_path / "run.lock", "a")
+    run.fcntl.flock(held, run.fcntl.LOCK_EX | run.fcntl.LOCK_NB)
+    try:
+        with pytest.raises(SystemExit):
+            run.main(["--check-tasks"])
+    finally:
+        held.close()
+
+
+def test_the_harness_pins_claude_code():
+    assert run.clean_env()["DISABLE_AUTOUPDATER"] == "1"
+
+
+def test_two_failed_judge_sessions_in_a_row_stop_the_pass_and_keep_neither(tmp_path, monkeypatch):
+    for n in (1, 2, 3):
+        path = tmp_path / "res" / f"t{n}" / "normal" / "r1" / "run.json"
+        path.parent.mkdir(parents=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "task": f"t{n}",
+                    "mode": "normal",
+                    "repeat": 1,
+                    "tests": {"passed": True},
+                    "diff": "+x",
+                    "flags": [],
+                    "judge_verdict": None,
+                    "resolved": None,
+                }
+            )
+        )
+
+    def fail(*a, **k):
+        raise run.HarnessError("judge down")
+
+    monkeypatch.setattr(run, "judge", fail)
+    monkeypatch.setattr(run, "WORK", tmp_path / "work")
+    tasks = [{"id": f"t{n}"} for n in (1, 2, 3)]
+    assert run.judge_all([tmp_path / "res"], tasks, again=False) == 3
+    verdicts = [json.loads(p.read_text())["judge_verdict"] for p in tmp_path.rglob("run.json")]
+    assert verdicts == [None, None, None]

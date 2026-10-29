@@ -173,5 +173,5 @@ def test_the_report_lists_retries_and_harness_failures_per_mode():
     runs = trial(lambda t, r: True)
     runs[0].update(retries=2, harness_failed=True)
     md = a.report(a.decide(runs), "t")
-    assert "- normal: 2 retries; runs that failed 3 times: t0" in md
-    assert "- budget: 0 retries; runs that failed 3 times: none" in md
+    assert "- normal: 2 failed attempts; runs that failed 3 times: t0" in md
+    assert "- budget: 0 failed attempts; runs that failed 3 times: none" in md
