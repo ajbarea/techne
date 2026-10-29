@@ -73,10 +73,24 @@ def test_details_comments_and_code_are_not_visible():
         + words_of(40)
         + " -->"
     )
-    assert body_gate.visible_words(body) == 3
+    assert body_gate.visible_words(body) == 4, "the summary line shows; the folded text does not"
     assert body_gate.visible_words("Top.\n<details>\n" + words_of(300)) == 1, (
         "unclosed hides the rest"
     )
+
+
+def test_what_github_shows_is_what_counts():
+    assert body_gate.visible_words("Top.\n<details open>\n" + words_of(200) + "\n</details>") == 201
+    hidden = "Folds depth into `<details>` sections. " + words_of(300)
+    assert body_gate.visible_words(hidden) == length_budget.markdown_words(hidden), (
+        "a tag in code is text"
+    )
+    fenced = "- item\n\n  ```bash\n  " + words_of(200) + "\n  ```\n"
+    assert body_gate.visible_words(fenced) == length_budget.markdown_words(fenced) == 1
+    # An entity and a tag are not words.
+    assert body_gate.visible_words("n<k and k>0 &nbsp; ok<br>") == 4
+    assert body_gate.check("PR", "graphe reads a `<!-- budget: 900 words -->` line.")[0] == []
+    assert body_gate.check("PR", "```\n% budget: 4 pages\n```")[0] == []
 
 
 def test_pr_issue_and_comment_budgets_allow_about_a_tenth_more():
@@ -156,6 +170,29 @@ SHORT = words_of(100)
 )
 def test_each_way_gh_writes_an_overlong_body_is_refused(repo, command):
     assert "visible words" in (refused(run_guard(command, repo)) or "")
+
+
+def test_each_gh_reads_its_own_heredoc_and_stdin_bodies_are_read(repo):
+    two = (
+        f"gh issue create --body \"$(cat <<'A'\n{words_of(250)}\nA\n)\" && "
+        f"gh pr create --body \"$(cat <<'B'\n{words_of(20)}\nB\n)\""
+    )
+    assert refused(run_guard(two, repo)) is None, "a 250-word issue and a 20-word PR both pass"
+    two_long_pr = (
+        f"gh issue create --body \"$(cat <<'A'\n{words_of(20)}\nA\n)\" && "
+        f"gh pr create --body \"$(cat <<'B'\n{LONG}\nB\n)\""
+    )
+    assert "PR body" in (refused(run_guard(two_long_pr, repo)) or "")
+    assert refused(
+        run_guard(f"gh api -X PATCH repos/o/r/pulls/1 -F body=@- <<'EOF'\n{LONG}\nEOF", repo)
+    )
+    payload = json.dumps({"body": LONG})
+    assert refused(
+        run_guard(f"gh api -X PATCH repos/o/r/pulls/1 --input - <<'EOF'\n{payload}\nEOF", repo)
+    )
+    (repo / "b.md").write_text(LONG)
+    assert refused(run_guard('B="$(cat b.md)"; gh pr create -t t --body "$B"', repo))
+    assert refused(run_guard(f"gh api repos/o/r/pulls/comments/9/replies -f body='{LONG}'", repo))
 
 
 def test_body_files_are_read(repo):

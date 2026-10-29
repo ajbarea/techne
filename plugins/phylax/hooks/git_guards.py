@@ -131,6 +131,8 @@ GH_BODY_KINDS = {
     ("pr", "review"): "comment",
 }
 GH_BODY_TEXT = {"-b", "--body"}
+# A heredoc's opener (`<<EOF`, `<<-'EOF'`), not a here-string (`<<<`).
+HEREDOC_OPEN_RE = re.compile(r"(?<!<)<<(?!<)")
 GH_BODY_FILE = {"-F", "--body-file"}
 # gh api flags that take a value, and the REST paths whose `body` field is an issue, PR or comment.
 GH_API_VALUE = {
@@ -158,6 +160,7 @@ GH_API_KINDS = (
         "comment",
     ),
     (re.compile(r"repos/[^/\s]+/[^/\s]+/pulls/\d+/reviews(?:/\d+)?/?$"), "comment"),
+    (re.compile(r"repos/[^/\s]+/[^/\s]+/pulls/(?:\d+/)?comments/\d+/replies/?$"), "comment"),
     (re.compile(r"repos/[^/\s]+/[^/\s]+/pulls(?:/\d+)?/?$"), "PR"),
     (re.compile(r"repos/[^/\s]+/[^/\s]+/issues(?:/\d+)?/?$"), "issue"),
 )
@@ -707,6 +710,9 @@ class Verdict:
 class Guards:
     def __init__(self, bodies: list[tuple[str, str]], who: str = ""):
         self.bodies = bodies
+        # How many heredocs the subcommands before the one being checked opened:
+        # the index of that one's own heredoc in `bodies`.
+        self.heredoc_at = 0
         # The agent the call came from ("" for the main thread), for the catch log.
         self.who = who
         # `git add` calls seen so far in this command, which a later commit would include.
@@ -1117,6 +1123,7 @@ class Guards:
                     self.check_gh(argv, run_cwd, env)
             except Exception as exc:  # one broken check must not skip the next subcommand
                 self.errors.append(f"{' '.join(argv)[:80]}: {exc}")
+            self.heredoc_at += sum(len(HEREDOC_OPEN_RE.findall(tok)) for tok in group)
 
     def note_created(self, group: list[str], argv: list[str], cwd: Path) -> None:
         """Record a COMMITS.md this subcommand creates; a dry run cannot see it yet."""
@@ -1185,19 +1192,24 @@ class Guards:
                 self.verdict.denies.extend(denies)
                 self.verdict.warnings.extend(warnings)
 
+    def own_heredoc(self) -> str | None:
+        """The heredoc the gh subcommand being checked opened: the next after those
+        the subcommands before it opened."""
+        if self.heredoc_at < len(self.bodies):
+            return self.bodies[self.heredoc_at][1]
+        return None
+
     def body_value(self, value: str, cwd: Path, env: dict[str, str]) -> str | None:
-        """A body flag's value as GitHub gets it: a heredoc this command line opens
-        with gh, a `$(cat FILE)`, or the text with the variables known here; None
-        when it cannot be known (stdin)."""
+        """A body flag's value as GitHub gets it: its own heredoc, a `$(cat FILE)`
+        (also through a variable set earlier), or the text with the variables
+        known here; None when it cannot be known."""
         if "<<" in value:
-            for opener, text in self.bodies:
-                if re.search(r"\bgh\b", opener):
-                    return text
-            return None
+            return self.own_heredoc()
+        value = expand(value, env, unknown=None)
         cat = CAT_SUBST_RE.search(value)
         if cat:
             return read_message_file(cat.group(1), cwd)
-        return expand(value, env, unknown=None)
+        return value
 
     def gh_body(self, args: list[str], cwd: Path, env: dict[str, str]) -> str | None:
         """The body `gh pr|issue create|edit|comment` writes, or None without one."""
@@ -1215,7 +1227,7 @@ class Guards:
                 if name in GH_BODY_TEXT:
                     body = self.body_value(value, cwd, env)
                 elif value == "-":
-                    body = self.body_value("<<", cwd, env)
+                    body = self.own_heredoc()
                 else:
                     body = read_message_file(value, cwd)
             i += 1
@@ -1240,13 +1252,16 @@ class Guards:
                 if name in {"-f", "--raw-field", "-F", "--field"}:
                     key, _, field = value.partition("=")
                     if key == "body":
-                        if name in {"-F", "--field"} and field.startswith("@"):
-                            body = None if field == "@-" else read_message_file(field[1:], cwd)
+                        if name in {"-F", "--field"} and field == "@-":
+                            body = self.own_heredoc()
+                        elif name in {"-F", "--field"} and field.startswith("@"):
+                            body = read_message_file(field[1:], cwd)
                         else:
                             body = self.body_value(field, cwd, env)
-                elif name == "--input" and value != "-":
+                elif name == "--input":
+                    raw = self.own_heredoc() if value == "-" else read_message_file(value, cwd)
                     try:
-                        loaded = json.loads(read_message_file(value, cwd) or "null")
+                        loaded = json.loads(raw or "null")
                     except ValueError:
                         loaded = None
                     if isinstance(loaded, dict) and isinstance(loaded.get("body"), str):

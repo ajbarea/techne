@@ -141,7 +141,7 @@ Nothing to do by hand. A daily job (`scripts/foldback.sh`, run by a systemd user
 
 ## Posting the summary (Phase 5)
 
-Default: after emitting the in-session report, post a **single** distilled comment to the PR. Write the body to a temp file and post with `gh pr comment <N> --body-file <file>` (a file, not inline `--body`, so multi-line Markdown survives). One comment per run — never inline per-line comments, never a multi-comment dump. Post even on a clean pass; the record that the change was scrutinized is the point.
+Default: after emitting the in-session report, post a **single** distilled comment to the PR, its visible text about 150 words (phylax's `block_long_bodies` holds comments to that), each finding's detail in a `<details>` section. Write the body to a temp file and post with `gh pr comment <N> --body-file <file>` (a file, not inline `--body`, so multi-line Markdown survives). One comment per run — never inline per-line comments, never a multi-comment dump. Post even on a clean pass; the record that the change was scrutinized is the point.
 
 Guard: only when `gh pr view --json number,url` resolves an **open** PR for the current branch. No PR (local or pre-PR review) → skip posting, keep the report in-session. Honor an explicit "keep it local" from the invoker.
 

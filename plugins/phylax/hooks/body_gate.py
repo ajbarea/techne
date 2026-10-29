@@ -13,39 +13,62 @@ from __future__ import annotations
 
 import re
 
-# AJ 10-29: at most about 150 visible words for a PR, 300 for an issue; a
-# comment is held to a PR's. "About" allows a tenth more.
+# The maintainer's rule (10-29): at most about 150 visible words for a PR, 300
+# for an issue; a comment is held to a PR's. "About" allows a tenth more.
 BUDGET = {"PR": 150, "issue": 300, "comment": 150}
 SLACK = 1.1
 LONG_SENTENCE = 25
 
-_DETAILS_OPEN = re.compile(r"<details\b[^>]*>", re.I)
-_DETAILS_TAG = re.compile(r"<(/?)details\b[^>]*>", re.I)
+_FOLD_TAG = re.compile(r"<(/?)(details|summary)\b([^>]*)>", re.I)
 _COMMENT = re.compile(r"<!--.*?-->", re.S)
-_FENCE = re.compile(r"^(?P<fence>`{3,}|~{3,})[^\n]*\n.*?(?:^(?P=fence)[ \t]*$|\Z)", re.S | re.M)
+# As graphe's prose_check.MD_FENCE: a fence may be indented (a list item's).
+_FENCE = re.compile(r"^[ \t]*(`{3,}|~{3,})[^\n]*\n.*?^[ \t]*\1[`~]*[ \t]*$", re.M | re.S)
 _INLINE_CODE = re.compile(r"`[^`\n]*`")
 _LINK_URL = re.compile(r"\]\([^)]*\)")
-_TAG = re.compile(r"</?[A-Za-z][^>]*>")
+# HTML tags a GitHub body uses; anything else in angle brackets is text.
+_TAG = re.compile(
+    r"</?(?:details|summary|br|hr|img|sub|sup|b|i|em|strong|code|kbd|p|a|span|div|ul|ol|li|table|tr|td|th)\b[^>]*>",
+    re.I,
+)
+_ENTITY = re.compile(r"&(?:[A-Za-z]{2,8}|#\d{1,6}|#x[0-9A-Fa-f]{1,6});")
 _WORD = re.compile(r"[^\W_]")
 _MARKER = re.compile(r"<!--\s*budget\s*:|^\s*%+\s*budget\s*:", re.I | re.M)
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n\s*\n|\n(?=\s*(?:[-*+]|\d+\.|\||#))")
 
 
+def blank_code(body: str) -> str:
+    """BODY with its fenced and inline code blanked: a tag or a marker shown as
+    code is text, not markup."""
+    return _INLINE_CODE.sub(" ", _FENCE.sub(" ", body))
+
+
 def visible(body: str) -> str:
-    """BODY without its <details> blocks (nested ones too) and HTML comments.
-    An unclosed <details> hides the rest, as GitHub renders it."""
-    body = _COMMENT.sub(" ", body)
+    """What GitHub shows of BODY folded: its text outside folded <details>
+    blocks (nested ones too; an unclosed one hides the rest, as GitHub renders
+    it), each folded block's <summary> line, an open block's content, and no
+    HTML comment or code."""
+    body = _COMMENT.sub(" ", blank_code(body))
     out: list[str] = []
-    depth = 0
+    shown: list[bool] = []  # one per open <details>: whether its content shows
+    summary = False
     pos = 0
-    for m in _DETAILS_TAG.finditer(body):
-        if depth == 0:
+    for m in _FOLD_TAG.finditer(body):
+        if all(shown) or summary:
             out.append(body[pos : m.start()])
-        depth = max(depth - 1, 0) if m.group(1) else depth + 1
+        closing, tag, attrs = m.group(1), m.group(2).lower(), m.group(3)
+        if tag == "details":
+            if closing:
+                if shown:
+                    shown.pop()
+            else:
+                shown.append(re.search(r"\bopen\b", attrs, re.I) is not None)
+        else:
+            # A folded block's summary shows when the blocks around it do.
+            summary = not closing and bool(shown) and all(shown[:-1])
         pos = m.end()
-    if depth == 0:
+    if all(shown) or summary:
         out.append(body[pos:])
-    return "".join(out)
+    return " ".join(out)
 
 
 def prose(text: str) -> str:
@@ -53,7 +76,7 @@ def prose(text: str) -> str:
     text = _FENCE.sub(" ", text)
     text = _INLINE_CODE.sub(" ", text)
     text = _LINK_URL.sub("]", text)
-    return _TAG.sub(" ", text)
+    return _ENTITY.sub(" ", _TAG.sub(" ", text))
 
 
 def words(text: str) -> int:
@@ -81,7 +104,7 @@ def check(kind: str, body: str) -> tuple[list[str], list[str]]:
     """The refusals and the warnings for a body of KIND (PR, issue or comment)."""
     denies: list[str] = []
     warnings: list[str] = []
-    if _MARKER.search(body):
+    if _MARKER.search(blank_code(body)):
         denies.append(
             f"phylax: this {kind} body carries a `budget:` marker. GitHub shows the raw text "
             "in mail and notifications, so a body never carries one: remove it and retry."
