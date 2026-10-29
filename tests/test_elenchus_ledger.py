@@ -352,3 +352,13 @@ def test_a_folded_camel_case_repo_keeps_its_spelling_variants(tmp_path, line, bl
         check=False,
     )
     assert (out.returncode == 1) is blocked, out.stdout + out.stderr
+
+
+def test_counting_ignores_owner_and_case_while_the_plan_keeps_the_name(tmp_path):
+    catalog = tmp_path / "bug-classes.md"
+    catalog.write_text(CATALOG)
+    add(tmp_path, "Org/Repo", 3, "boundary-input")
+    add(tmp_path, "repo", 3, "boundary-input")
+    assert "no class found" in run(tmp_path, "checklist").stdout  # one PR, not two
+    plan = json.loads(run(tmp_path, "fold", "--catalog", str(catalog)).stdout)
+    assert {i["repo"] for i in plan["incidents"]["boundary-input"]} == {"Repo", "repo"}
