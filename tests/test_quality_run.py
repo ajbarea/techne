@@ -436,6 +436,7 @@ def harness(tmp_path, monkeypatch, ids=("a", "b", "c"), version="v1"):
     elenchus, and Claude Code at VERSION (a list is read one value per call)."""
     monkeypatch.setattr(run, "WORK", tmp_path / "work")
     monkeypatch.setattr(run, "prepare_seeds", lambda: None)
+    monkeypatch.setattr(run, "PHASE_REPEATS", dict.fromkeys(run.PHASES, 1))
     monkeypatch.setattr(run, "dirty_inputs", lambda: "")
     monkeypatch.setattr(
         run, "pin_elenchus", lambda commit, dest: dest.mkdir(parents=True, exist_ok=True)
@@ -482,7 +483,9 @@ def test_a_resume_with_another_phase_repeats_or_inputs_is_refused(tmp_path, monk
     assert run.main([*args, "--out", str(out)]) == 0  # the same command resumes
     pilot = [x if x != "baseline" else "pilot" for x in args]
     assert run.main([*pilot, "--out", str(out)]) == 3
+    monkeypatch.setattr(run, "PHASE_REPEATS", dict.fromkeys(run.PHASES, 3))
     assert run.main([*args[:-4], "--repeats", "3", *args[-2:], "--out", str(out)]) == 3
+    monkeypatch.setattr(run, "PHASE_REPEATS", dict.fromkeys(run.PHASES, 1))
     monkeypatch.setattr(run, "input_hashes", lambda e: {"harness": "other", "elenchus": "e"})
     assert run.main([*args, "--out", str(out)]) == 3
 
@@ -656,3 +659,118 @@ def test_two_failed_judge_sessions_in_a_row_stop_the_pass_and_keep_neither(tmp_p
     assert run.judge_all([tmp_path / "res"], tasks, again=False) == 3
     verdicts = [json.loads(p.read_text())["judge_verdict"] for p in tmp_path.rglob("run.json")]
     assert verdicts == [None, None, None]
+
+
+@pytest.mark.parametrize(("phase", "repeats"), [("pilot", 3), ("baseline", 1), ("confirmatory", 2)])
+def test_a_phase_runs_only_its_registered_repeats(tmp_path, monkeypatch, phase, repeats):
+    args = harness(tmp_path, monkeypatch)
+    monkeypatch.setattr(run, "PHASE_REPEATS", {"baseline": 3, "pilot": 1, "confirmatory": 3})
+    monkeypatch.setattr(run, "run_one", recorded)
+    argv = [*args[:2], "--repeats", str(repeats), "--phase", phase, "--out", str(tmp_path / "o")]
+    with pytest.raises(SystemExit):
+        run.main(argv)
+
+
+def git_repo(root: pathlib.Path) -> None:
+    for rel in ("quality/run.py", f"{run.ELENCHUS}/SKILL.md", "IMPL.md"):
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text("x")
+    for c in (
+        ["init", "-q"],
+        ["add", "-A"],
+        ["-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-qm", "base"],
+    ):
+        subprocess.run(["git", "-C", str(root), *c], check=True)
+
+
+def test_results_and_unrelated_commits_never_block_a_resume(tmp_path, monkeypatch):
+    git_repo(tmp_path)
+    monkeypatch.setattr(run, "ROOT", tmp_path)
+    monkeypatch.setattr(run, "HERE", tmp_path / "quality")
+    (tmp_path / "quality" / "results" / "set-a").mkdir(parents=True)
+    (tmp_path / "quality" / "results" / "set-a" / "set.json").write_text("{}")
+    (tmp_path / "quality" / "__pycache__").mkdir()
+    (tmp_path / "quality" / "__pycache__" / "run.pyc").write_text("x")
+    (tmp_path / "IMPL.md").write_text("changed")
+    assert run.dirty_inputs() == ""
+    (tmp_path / "quality" / "run.py").write_text("edited")
+    assert "quality/run.py" in run.dirty_inputs()
+    (tmp_path / "quality" / "run.py").write_text("x")
+    (tmp_path / run.ELENCHUS / "references").mkdir()
+    (tmp_path / run.ELENCHUS / "references" / "bug-classes.md").write_text("new class")
+    assert run.ELENCHUS in run.dirty_inputs()
+
+
+@pytest.mark.parametrize(
+    ("tool", "inp"),
+    [
+        ("Read", {"file_path": "{ws}/../../../../../home/ajbar/x.py"}),
+        ("Grep", {"pattern": "fix", "path": "{tools}/../done"}),
+        ("Glob", {"pattern": "../../../../home/**/*.py"}),
+        ("Grep", {"pattern": "x", "glob": "../../../../home/**"}),
+        ("Read", {"file_path": "~/ajsoftworks/techne/README.md"}),
+        ("Glob", {"pattern": "/home/ajbar/**"}),
+        ("Bash", {"command": "cat {ws}/../../../done/t1/normal/r1/run.json"}),
+    ],
+)
+def test_file_tools_that_climb_out_are_leaks(tmp_path, monkeypatch, tool, inp):
+    monkeypatch.setattr(run, "WORK", tmp_path / "work")
+    monkeypatch.setattr(run, "LIVE", tmp_path / "work" / "live")
+    monkeypatch.setattr(run, "TOOLS", tmp_path / "work" / "tools")
+    ws = tmp_path / "work" / "live" / "run" / "ws"
+    fill = {k: v.format(ws=ws, tools=run.TOOLS) for k, v in inp.items()}
+    assert run.leaks(transcript(tmp_path, (tool, fill)), ws)
+
+
+@pytest.mark.parametrize(
+    ("tool", "inp"),
+    [
+        ("Read", {"file_path": "{ws}/src/a.py"}),
+        ("Glob", {"pattern": "**/*.py"}),
+        ("Grep", {"pattern": "/home/ajbar", "glob": "*.py"}),  # a regex that names a path
+        ("Read", {"file_path": "{ws}/src/../tests/test_a.py"}),
+    ],
+)
+def test_file_tools_inside_the_workspace_are_not_leaks(tmp_path, monkeypatch, tool, inp):
+    monkeypatch.setattr(run, "WORK", tmp_path / "work")
+    monkeypatch.setattr(run, "LIVE", tmp_path / "work" / "live")
+    ws = tmp_path / "work" / "live" / "run" / "ws"
+    fill = {k: v.format(ws=ws) for k, v in inp.items()}
+    assert run.leaks(transcript(tmp_path, (tool, fill)), ws) == []
+
+
+def test_file_tools_are_denied_home_except_the_runs_saved_outputs(tmp_path, monkeypatch):
+    monkeypatch.setattr(run, "WORK", tmp_path / "work")
+    monkeypatch.setattr(run, "LIVE", tmp_path / "work" / "live")
+    homes = tmp_path / "home"
+    config = homes / "aj" / ".claude"
+    monkeypatch.setattr(run, "HOMES", homes)
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
+    ws = run.LIVE / "run" / "ws"
+    store = run.session_store(ws)
+    for d in (store / "tool-results", config / "projects" / "other", homes / "aj" / "src"):
+        d.mkdir(parents=True)
+    (config / ".credentials.json").write_text("{}")
+    (homes / "bo").mkdir()
+    denied = set(run.read_denials(ws))
+    assert {"/tmp", "/mnt", "/root", str(run.WORK / "done"), str(run.WORK / "seeds")} <= denied
+    assert {str(config / "projects" / "other"), str(config / ".credentials.json")} <= denied
+    assert {str(homes / "aj" / "src"), str(homes / "bo")} <= denied
+    under = [pathlib.Path(d) for d in denied if pathlib.Path(d).is_relative_to(homes)]
+    assert not any(store.is_relative_to(d) or d.is_relative_to(store) for d in under)
+
+
+def test_a_claude_code_update_mid_judge_pass_keeps_no_verdict_from_it(tmp_path, monkeypatch):
+    for rep in (1, 2):
+        path = tmp_path / "set" / "t1" / "normal" / f"r{rep}" / "run.json"
+        path.parent.mkdir(parents=True)
+        base = {"task": "t1", "mode": "normal", "repeat": rep, "tests": {"passed": True}}
+        path.write_text(json.dumps({**base, "diff": "+x", "flags": [], "judge_verdict": None}))
+    versions = iter(["v1", "v1", "v2"])
+    monkeypatch.setattr(run, "claude_version", lambda: next(versions))
+    monkeypatch.setattr(run, "judge", lambda *a, **k: {"ok": True})
+    monkeypatch.setattr(run, "WORK", tmp_path / "work")
+    assert run.judge_all([tmp_path / "set"], [{"id": "t1"}], again=False) == 3
+    verdicts = [json.loads(p.read_text())["judge_verdict"] for p in tmp_path.rglob("run.json")]
+    assert sorted(v is None for v in verdicts) == [False, True]
+    assert [v["claude_code"] for v in verdicts if v] == ["v1"]

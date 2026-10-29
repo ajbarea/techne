@@ -49,6 +49,7 @@ TOOLS = WORK / "tools"  # uv and uv's Pythons: tasks' environments live here
 # gold fix, or a later task's parent (which can hold an earlier task's fix) to a session.
 SEEDS = WORK / "seeds"
 SEEDS_VERSION = "3"
+HOMES = pathlib.Path("/home")  # file tools may read none of it but this run's saved outputs
 HIDDEN = ("done", "score", "check", "judge", "seeds")
 JUDGE_CWD = WORK / "judge-cwd"  # one neutral folder: Claude Code shows the judge its cwd
 
@@ -285,6 +286,31 @@ def classify(result: dict, err: str) -> None:
         raise HarnessError(f"{result['subtype']}: {notice} {err}"[-800:])
 
 
+def read_denials(ws: pathlib.Path) -> list[str]:
+    """Where the file tools (Read, and best effort Glob and Grep) may not read, since the
+    sandbox's denyRead binds only Bash: /root, /tmp, /mnt, the hidden harness folders, and
+    everything under /home except the path down to this run's saved tool outputs, which a
+    session reads back."""
+    store = session_store(ws)
+    out = ["/root", "/tmp", "/mnt", *(str(WORK / d) for d in HIDDEN)]
+    todo = [HOMES]
+    while todo:
+        folder = todo.pop()
+        try:
+            children = sorted(folder.iterdir())
+        except OSError:
+            out.append(str(folder))
+            continue
+        for child in children:
+            if child == store:
+                continue
+            if store.is_relative_to(child):
+                todo.append(child)
+            else:
+                out.append(str(child))
+    return out
+
+
 def settings_file() -> pathlib.Path:
     """quality/sandbox.json with TMPDIR set to the live run's own temp folder, since the
     sandbox denies /tmp (other sessions' scratch can hold a task's fixed code), and the
@@ -294,6 +320,9 @@ def settings_file() -> pathlib.Path:
         (run / d).mkdir(parents=True, exist_ok=True)
     data = json.loads(SANDBOX.read_text(encoding="utf-8"))
     data["sandbox"]["filesystem"]["denyRead"] += [str(WORK / d) for d in HIDDEN]
+    data["permissions"]["deny"] = [
+        rule for p in read_denials(run / "ws") for rule in (f"Read(/{p})", f"Read(/{p}/**)")
+    ]
     # Claude Code sets a session's own TMPDIR below this folder; the uv cache needs it too.
     data["sandbox"]["filesystem"]["allowWrite"] = [str(run / "tmp")]
     data["env"] = {
@@ -417,16 +446,39 @@ def leaks(log: pathlib.Path, ws: pathlib.Path) -> list[str]:
             outside = [p for p in HOME_PATH.findall(command) if not inside(p, ws)]
             if command and (LEAK.search(command) or outside or ESCAPE.search(command)):
                 found.append(f"Bash: {command[:200]}")
-            path = inp.get("file_path") or inp.get("path") or inp.get("pattern") or ""
-            if path and os.path.isabs(path) and not inside(path, ws):
-                found.append(f"{part.get('name')}: {path}")
+            for path in tool_paths(part.get("name", ""), inp, ws):
+                if not inside(path, ws):
+                    found.append(f"{part.get('name')}: {path}")
     return found
+
+
+def tool_paths(name: str, inp: dict, ws: pathlib.Path) -> list[str]:
+    """Every path a file tool call names, made absolute against its base and normalized, so
+    `ws/../../home` or a Glob pattern that climbs out reads as where it lands. A Grep pattern
+    is a regex, not a path; its `glob` filter is one."""
+    if name == "Bash":
+        return []
+
+    def absolute(p: str, base: str) -> str:
+        p = os.path.expanduser(p)  # `~` is the harness's home, outside every allowed folder
+        return p if os.path.isabs(p) else os.path.join(base, p)
+
+    base = absolute(inp.get("path") or str(ws), str(ws))
+    paths = [base] if name in ("Glob", "Grep") or "path" in inp else []
+    for key in ("file_path", "notebook_path"):
+        if isinstance(inp.get(key), str) and inp[key]:
+            paths.append(absolute(inp[key], str(ws)))
+    rel = inp.get("pattern") if name == "Glob" else inp.get("glob") if name == "Grep" else None
+    if isinstance(rel, str) and rel:
+        paths.append(absolute(rel, base))
+    return [os.path.normpath(p) for p in paths]
 
 
 def inside(path: str, ws: pathlib.Path) -> bool:
     """A path a session may read: its workspace, its run folder, the tools, the elenchus
     copy, and the outputs Claude Code saved for this run's sessions."""
     allowed = (ws, LIVE / "run", TOOLS, WORK / "elenchus", session_store(ws))
+    path = os.path.normpath(path)
     return any(path == str(a) or path.startswith(f"{a}/") for a in allowed)
 
 
@@ -835,6 +887,7 @@ def judge_all(dirs: list[pathlib.Path], tasks: list[dict], again: bool) -> int:
     paths = sorted(p for d in dirs for p in d.rglob("run.json"))
     random.Random(SEED).shuffle(paths)
     pid = pass_id(dirs)
+    version = claude_version()
     failed_before: pathlib.Path | None = None
     for path in paths if again else ():
         run = json.loads(path.read_text(encoding="utf-8"))
@@ -863,6 +916,13 @@ def judge_all(dirs: list[pathlib.Path], tasks: list[dict], again: bool) -> int:
                     session_failed = True
                 if verdict["ok"]:
                     break
+        if (now := claude_version()) != version:  # an update mid-pass: this verdict is dropped
+            print(
+                f"Claude Code changed from {version} to {now} during the judge pass; rerun"
+                " --judge to finish it on one version",
+                file=sys.stderr,
+            )
+            return 3
         if session_failed and failed_before:
             # Two runs in a row whose judge sessions failed: the harness, not the runs. Neither
             # verdict stands; a rerun of --judge picks both up.
@@ -877,6 +937,7 @@ def judge_all(dirs: list[pathlib.Path], tasks: list[dict], again: bool) -> int:
         failed_before = path if session_failed else None
         run["judge_verdict"] = verdict or {"ok": False, "reason": "no diff to judge"}
         run["judge_verdict"]["pass"] = pid
+        run["judge_verdict"]["claude_code"] = version
         run["judge_verdict"]["judge_prompt"] = digest(*(HERE / p for p in INPUTS["judge"]))
         run["judge_verdict"].setdefault("model", JUDGE)
         run["flags"] = [f for f in run["flags"] if not f.startswith("judge: ")]
@@ -939,7 +1000,8 @@ def gold_tests(task: dict) -> list[str]:
     return gold[task["id"]]
 
 
-PHASES = ("baseline", "pilot", "confirmatory")
+PHASE_REPEATS = {"baseline": 3, "pilot": 1, "confirmatory": 3}
+PHASES = tuple(PHASE_REPEATS)
 ELENCHUS = "plugins/techne/skills/elenchus"
 # Every file a run's outcome depends on besides the model; analyze.py refuses runs whose
 # hashes differ, so a changed prompt, task, gold list, judge or catalog never pools.
@@ -974,7 +1036,8 @@ def input_hashes(elenchus: pathlib.Path) -> dict[str, str]:
 
 def dirty_inputs() -> str:
     """Uncommitted changes to the trial's inputs: a set runs only from a commit."""
-    paths = [str(HERE.relative_to(ROOT)), ELENCHUS]
+    here = str(HERE.relative_to(ROOT))
+    paths = [here, ELENCHUS, f":(exclude){here}/results", f":(exclude){here}/*__pycache__*"]
     return sh(["git", "status", "--porcelain", "--", *paths], cwd=ROOT).stdout.strip()
 
 
@@ -1122,6 +1185,8 @@ def main(argv: list[str] | None = None) -> int:
     phase = "smoke" if args.smoke else args.phase
     if not phase:
         ap.error("--phase is required for a run: " + ", ".join(PHASES))
+    if not args.smoke and args.repeats != PHASE_REPEATS[phase]:
+        ap.error(f"the {phase} phase registers {PHASE_REPEATS[phase]} repeats per task")
     if not args.smoke and (dirty := dirty_inputs()):
         ap.error(f"commit the trial's inputs first; a set runs from a commit:\n{dirty}")
     gold = json.loads(GOLD.read_text(encoding="utf-8")) if GOLD.exists() else {}
@@ -1129,7 +1194,7 @@ def main(argv: list[str] | None = None) -> int:
         ap.error(f"no gold test ids for {', '.join(missing)}: run --check-tasks first")
     version = claude_version()
     have = args.out / "set.json"
-    commit = json.loads(have.read_text())["commit"] if have.exists() else None
+    commit = json.loads(have.read_text()).get("commit") if have.exists() else None
     commit = commit or sh(["git", "rev-parse", "HEAD"], cwd=ROOT).stdout.strip()
     elenchus = WORK / "elenchus"
     pin_elenchus(commit, elenchus)
@@ -1149,6 +1214,7 @@ def main(argv: list[str] | None = None) -> int:
     order = [(t, r) for r in range(1, args.repeats + 1) for t in tasks]
     random.Random(SEED).shuffle(order)
     failed_before: pathlib.Path | None = None
+    failed_errors: list[dict] = []
     for task, rep in order:
         dest = args.out / task["id"] / args.mode / f"r{rep}"
         if (dest / "run.json").exists():
@@ -1205,14 +1271,26 @@ def main(argv: list[str] | None = None) -> int:
                 for f in (failed_before / "run.json", failed_before / "errors.json", errfile):
                     f.unlink(missing_ok=True)
                 prev = failed_before.relative_to(args.out).parts
-                for t_id, r_tag in ((prev[0], prev[2]), (task["id"], f"r{rep}")):
-                    discard(args.out, {"id": t_id}, args.mode, int(r_tag[1:]), "two_in_a_row")
+                for t_id, r_tag, errs in (
+                    (prev[0], prev[2], failed_errors),
+                    (task["id"], f"r{rep}", errors),
+                ):
+                    seconds = round(sum(e["seconds"] for e in errs))
+                    discard(
+                        args.out,
+                        {"id": t_id},
+                        args.mode,
+                        int(r_tag[1:]),
+                        "two_in_a_row",
+                        seconds=seconds,
+                        usage={"cost_known": 0},
+                    )
                 print(
                     "two runs in a row failed in the harness; check Claude Code, then rerun",
                     file=sys.stderr,
                 )
                 return 3
-            failed_before = dest
+            failed_before, failed_errors = dest, errors
             record = failed_run(task, args.mode, rep, [e["error"] for e in errors], meta)
             (dest / "run.json").write_text(json.dumps(record, indent=1) + "\n", encoding="utf-8")
     if args.smoke and any(

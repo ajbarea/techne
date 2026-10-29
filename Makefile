@@ -4,7 +4,7 @@
 ## that techne itself documents at docs/conventions.md.
 ##
 
-.PHONY: help check-env setup manifests citation plugin-validate plugin-test test-hooks-oldest frontmatter fix lint shellcheck guards test-unit test-sandboxed sandbox-warm zizmor test validate build ci clean docs evals evals-bash quality quality-skills install-probe heuresis-gold freshness mod-types
+.PHONY: help check-env setup manifests citation plugin-validate plugin-test test-hooks-oldest frontmatter fix lint shellcheck guards test-unit test-sandboxed sandbox-warm zizmor test validate build ci clean docs evals evals-bash quality quality-trial quality-skills install-probe heuresis-gold freshness mod-types
 .DEFAULT_GOAL := help
 
 check-env:              ## Verify required tools are on PATH
@@ -151,7 +151,7 @@ evals:                  ## Routing + behavior evals (claude plugin eval; runs on
 # names the results folder (required: a stopped set resumes by rerunning the same command);
 # SUITE_MODEL is the model the skill suites run on (the judge is always Opus).
 MODE ?= normal
-REPEATS ?= 3
+REPEATS ?= $(if $(filter pilot,$(PHASE)),1,3)
 SUITE_MODEL ?= claude-opus-5-5
 QUALITY_JUDGE := claude-opus-5-5
 quality:                ## Budget-trial task replays in MODE, then the analysis (uses your plan)
@@ -160,9 +160,18 @@ quality:                ## Budget-trial task replays in MODE, then the analysis 
 		exit 2; }
 	@uv run python quality/run.py --mode $(MODE) --repeats $(REPEATS) --phase $(PHASE) \
 		--out $(QUALITY_OUT)
-	@uv run python quality/run.py --judge $(QUALITY_OUT)
-	@uv run python quality/analyze.py $(QUALITY_OUT) $(if $(filter pilot,$(PHASE)),--pilot) \
-		--out $(QUALITY_OUT)/report.md
+	@if [ "$(PHASE)" = baseline ]; then \
+		uv run python quality/run.py --judge $(QUALITY_OUT) && \
+		uv run python quality/analyze.py $(QUALITY_OUT) --out $(QUALITY_OUT)/report.md; \
+	else echo "both modes' $(PHASE) folders are judged together: make quality-trial DIRS=..."; fi
+
+# A pilot or confirmatory comparison: one judge pass over both modes' folders (the normal runs
+# judged again), then the analysis. DIRS lists the folders, normal and budget.
+quality-trial:          ## Judge both modes' folders in one pass, then analyze (PHASE=pilot|confirmatory)
+	@test -n "$(DIRS)" && test -n "$(PHASE)" || { echo "set DIRS and PHASE" >&2; exit 2; }
+	@uv run python quality/run.py --judge $(DIRS) --rejudge
+	@uv run python quality/analyze.py $(DIRS) $(if $(filter pilot,$(PHASE)),--pilot) \
+		--out $(firstword $(DIRS))/report.md
 
 quality-skills:         ## Skill quality suites on SUITE_MODEL, judged by Opus (uses your plan)
 	@bash scripts/eval-plugin.sh >/dev/null
