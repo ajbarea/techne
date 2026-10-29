@@ -1,0 +1,193 @@
+# The budget-mode quality trial's fixed task set (quality/PREREGISTRATION.md).
+# Each report is the linked issue as filed before the fix, or with no issue the PR's problem
+# statement; `interface` names what the hidden tests call that the parent tree lacks.
+
+[[task]]
+id = "techne-220"
+clone = "~/ajsoftworks/techne"
+parent = "5f429ddda8e8c7d184c1785461f44f41b3c7d51d"
+fix = "7c450e8d668d4bcbe5b870a21d16087322d48009"
+risk = "security"
+setup = "uv sync -q"
+test_command = "uv run pytest -q -p no:cacheprovider tests/test_heuresis_cli.py"
+hidden_command = "uv run pytest -q -p no:cacheprovider tests/test_heuresis_cli.py"
+hidden_tests = ["tests/test_heuresis_cli.py"]
+report = """
+# heuresis: a relative --ideas path writes records into the plugin cache and reports success
+
+Every heuresis command runs under `uv run --directory ${CLAUDE_PLUGIN_ROOT}`, so its working directory is the plugin cache. A relative `--ideas` path therefore resolves inside the plugin, not where the caller is.
+
+**Seen 2026-10-27.** Two `scout-context` runs called `add-record --ideas ideas` from `~/ajsoftworks`. Both exited 0 and reported their records saved, but the files landed in `<plugin cache>/ideas/runs/<id>/scout-context.json`. `pool` would have run without any context records, and nothing warned. The records were found and moved by hand.
+
+Interface the tests use: A relative `--ideas` or `--repos-root` exits 2 with an error containing `argument --ideas: must be an absolute path` (or the `--repos-root` equivalent), the argparse way. A command on one idea whose `--ideas` root has no `ideas/` folder exits 2 with an error containing `has no ideas/`, writing nothing.
+"""
+
+[[task]]
+id = "techne-162"
+clone = "~/ajsoftworks/techne"
+parent = "ca681d9d09c0bc314af11ec3bf533725d7b41e7c"
+fix = "37ac68fbbb0f78432abba011f76c70e683a62550"
+risk = "security"
+setup = "uv sync -q"
+test_command = "uv run pytest -q -p no:cacheprovider tests/test_git_guards.py"
+hidden_command = "uv run pytest -q -p no:cacheprovider tests/test_git_guards.py"
+hidden_tests = ["tests/test_git_guards.py"]
+report = """
+# phylax: a removed worktree makes every later git command fail
+
+Removing the worktree a session stood in made every later git command fail with `phylax: the git guard failed ($.process.run(python3) failed to start: ENOENT ... posix_spawn 'python3')`, which reads as a PATH problem. Every git command was blocked, not only the guarded ones, and the message did not say why.
+
+Interface the tests use: `plugins/phylax/hooks/git_guards.py` refuses a guarded command (`git add`, `git commit`, a `gh pr` writer) only when the folder it will run in (the session folder, after any `cd` and `-C`, resolved as bash does) is not an existing folder. The refusal reason contains `runs in <folder>, which is not an existing folder` and `cd to an existing folder`. A command the enabled guards do not check runs as usual. Input that names no folder at all fails closed.
+"""
+
+[[task]]
+id = "techne-174"
+clone = "~/ajsoftworks/techne"
+parent = "28c3884b4f76d8e41b7ff11e194d4022153cde02"
+fix = "8a807caea61a4237123b33d63b657513d3b530c4"
+risk = "security"
+setup = "uv sync -q"
+test_command = "uv run pytest -q -p no:cacheprovider tests/test_git_env.py tests/test_sisters_hygiene.py"
+hidden_command = "uv run pytest -q -p no:cacheprovider tests/test_git_env.py tests/test_sisters_hygiene.py"
+hidden_tests = ["tests/test_git_env.py", "tests/test_sisters_hygiene.py"]
+report = """
+# sisters --auto overrides a repo's core.sshCommand and GIT_SSH
+
+`sisters --auto` (the session-start cleanup) sets `GIT_SSH_COMMAND="ssh -o BatchMode=yes"` for every git call unless `GIT_SSH_COMMAND` is already set. Two cases go wrong:
+
+- **A repo's `core.sshCommand` is overridden.** `GIT_SSH_COMMAND` outranks `core.sshCommand`, so a repo that names its own key (`ssh -i ~/.ssh/work`) fetches and deletes remote branches with the default key. The fetch fails and that repo is skipped.
+- **`GIT_SSH` is overridden** the same way.
+
+heuresis's `sync._env` already covers all three choices (`GIT_SSH_COMMAND`, `GIT_SSH`, `core.sshCommand`) and tests each one. The sisters copy mirrored only the first.
+
+Found while running `make test-unit` under Anthropic's sandbox-runtime (`srt`). It sets its own `GIT_SSH_COMMAND`, and `test_git_runs_with_a_timeout_and_without_prompts_under_auto` assumes the variable is unset, so the test fails in any shell that has it set.
+
+Interface the tests use: Tests load `plugins/techne/_shared/git_env.py`, which exposes `BATCH_SSH` (an ssh command containing `BatchMode=yes`) and `batch_ssh(env, repo)`: it returns a copy of `env` with `GIT_SSH_COMMAND` set to `BATCH_SSH` unless the caller chose ssh itself (`GIT_SSH_COMMAND`, `GIT_SSH`, or the repo's `core.sshCommand`), and never changes the dict it was given.
+"""
+
+[[task]]
+id = "techne-166"
+clone = "~/ajsoftworks/techne"
+parent = "dd95cb7103828b378a7d32e7e82333b070b34147"
+fix = "2db66c90f54e6003bc786c331edc5c6f80f6eac2"
+risk = "destructive-operation"
+setup = "uv sync -q"
+test_command = "uv run pytest -q -p no:cacheprovider tests/test_sisters_hygiene.py"
+hidden_command = "uv run pytest -q -p no:cacheprovider tests/test_sisters_hygiene.py"
+hidden_tests = ["tests/test_sisters_hygiene.py"]
+report = """
+# sisters clean: other sessions' work reported as held after merge, and Lighthouse profiles hold merged worktrees
+
+The first live run of the clean_finished_work hook listed, under "held after merge", two branches with no PR and uncommitted work: other sessions' work in progress. Claude would have been told to investigate them. The same run held a merged ldqis worktree for review because of two Chrome profiles that Lighthouse's chrome-launcher writes under WSL: each lands as one folder named after a Windows temp path, which git quotes.
+
+Interface the tests use: Only a branch or worktree whose PR merged is reported as held after merge. In `hygiene.py`, `regenerable(entry, worktree=None)` counts an untracked root-level folder named `lighthouse.` plus exactly 8 digits (also when git quotes it as a Windows path such as `"C:\\\\Users\\\\aj\\\\AppData\\\\Local\\\\lighthouse.80415069/"`) as build output only when `worktree` is given and that folder holds a Chrome profile's `Local State` file; without the worktree, never.
+"""
+
+[[task]]
+id = "techne-161"
+clone = "~/ajsoftworks/techne"
+parent = "5a2d873d062cb42a0d63d5ea0255bef034fc4f15"
+fix = "63e67e5a29c9f3cce3de8bb09a77c2e85bf8eee8"
+risk = "destructive-operation"
+setup = "uv sync -q"
+test_command = "uv run pytest -q -p no:cacheprovider tests/test_sisters_hygiene.py"
+hidden_command = "uv run pytest -q -p no:cacheprovider tests/test_sisters_hygiene.py"
+hidden_tests = ["tests/test_sisters_hygiene.py"]
+report = """
+# sisters clean: Astro, husky and test-report output hold worktrees
+
+The sisters survey held every ldqis worktree for review because of `.astro/` and `.husky/_/`, so finished worktrees were never cleaned. Playwright's `test-results/` and `playwright-report/` and Lighthouse CI's `.lighthouseci/` do the same. These are generated output, like the build folders the check already accepts. Only the repo-root folders are build output; deeper, the same name may be a person's folder. husky ignores its own files, so git lists each file under `.husky/_/` rather than the folder, while `.husky/pre-commit` itself is a tracked hook, not output.
+"""
+
+[[task]]
+id = "techne-206"
+clone = "~/ajsoftworks/techne"
+parent = "3a4cac8958f5f82c278f7720de43a3a7f3d69eba"
+fix = "52ef04bb1610014678f3ef0ee5ad1ab95606c5e6"
+risk = "ordinary"
+setup = "uv sync -q"
+test_command = "uv run pytest -q -p no:cacheprovider tests/test_sisters_agents_md.py"
+hidden_command = "uv run pytest -q -p no:cacheprovider tests/test_sisters_agents_md.py"
+hidden_tests = ["tests/test_sisters_agents_md.py"]
+report = """
+# sisters check 15: ignored folders, non-UTF-8 paths, nested CLAUDE.local.md advice
+
+Three Minor findings left open when #193 merged (sisters check 15, `plugins/techne/skills/sisters/scripts/agents_md.py`):
+
+1. A wholly ignored folder that is not vendored code (`scratch/`, or a nested `.claude/`) hides a `CLAUDE.md` a session started there loads. Check the top level of each folder the `--directory` listing reports (`CLAUDE.md`, `.claude/CLAUDE.md`, `CLAUDE.local.md`), still not below it, so node_modules stays quiet.
+2. A path that is not UTF-8 decodes to surrogates, and a strict UTF-8 stdout raises `UnicodeEncodeError`, aborting every later repo. Print with `errors="backslashreplace"`.
+3. Dead `found = set()` in `candidates()`; a nested `CLAUDE.local.md` gets the "move into AGENTS.md" advice instead of the personal-notes advice the docs give; a corrupt index reads "not a git repository" instead of git's own error.
+
+Classes: `boundary-input`, `undiagnosable-failure`, `claim-code-drift`.
+"""
+
+[[task]]
+id = "sphragis-149"
+clone = "~/ajsoftworks/sphragis"
+parent = "b2121298e827cc751ca7882749adb80f782d50ab"
+fix = "ff4c1c5f506dfcde58233d4fe955ee3221231e94"
+risk = "governance"
+setup = "uv sync --frozen -q"
+test_command = "uv run --no-sync --no-active pytest -q -p no:cacheprovider tests/unit/corpus/test_cli.py"
+hidden_command = "uv run --no-sync --no-active pytest -q -p no:cacheprovider tests/unit/corpus/test_cli.py"
+hidden_tests = ["tests/unit/corpus/test_cli.py", "tests/conftest.py"]
+report = """
+# corpus: a written grant applies to any clone
+
+Qt's and Chromium's REST grants answered one collector's request, from its stated address and with its User-Agent. `REST_PERMITTED` ships in this public repository, though, so any clone of it would read both hosts under the study's grant.
+
+Interface the tests use: `RestPermission` gains `written_grant: bool = False`; Qt and Chromium set it. A written-grant host is refused unless this machine lists it in the grants file: `SPHRAGIS_GRANTS` names it (default `~/.config/sphragis/grants`), one host a line, `#` comments, surrounding whitespace and case ignored. The check runs in the HTTP transport before any connection, and `resume_when_allowed.sh`'s lookup refuses the same hosts before its probes. No git-route host may be permitted until the git route gets the same check.
+"""
+
+[[task]]
+id = "sphragis-186"
+clone = "~/ajsoftworks/sphragis"
+parent = "d946f5424a3d77589d19a17c1b6385098d9a65a2"
+fix = "bb8ef1cbe96dcbe5cd382ae1c30ac02d8fe55c82"
+risk = "governance"
+setup = "uv sync --frozen -q"
+test_command = "uv run --no-sync --no-active pytest -q -p no:cacheprovider tests/unit/test_redact_jsonl.py"
+hidden_command = "uv run --no-sync --no-active pytest -q -p no:cacheprovider tests/unit/test_redact_jsonl.py"
+hidden_tests = ["tests/unit/test_redact_jsonl.py"]
+report = """
+# redact: .jsonl files are redacted as raw text, which breaks JSON escapes
+
+`make redact` (`scripts/redact_identities.py`) scans every file under `datasets/results/`, including gitignored inputs such as `contamination-inputs/`. `redact.redact_file` decodes JSON only for a `.json` suffix, so it treats a `.jsonl` file as raw text. On raw text the address pattern can start at the letter after a JSON backslash: `\\\\n\\\\n@decorator(` matches as `n@decorator`, and redacting it deletes the escape letter, leaving a lone backslash.
+
+Result: `contamination-inputs/openstack-post.jsonl` line 1090 and four lines of `openstack-pre.jsonl` (1361, 1376, 1510, 1794) no longer parse. Three of the five breaks are decorators that were not addresses, so code was rewritten too.
+"""
+
+[[task]]
+id = "sphragis-212"
+clone = "~/ajsoftworks/sphragis"
+parent = "ece4006a892ea291e01259caf8021c52e387f783"
+fix = "a857b7a94aa951c55b2d150c5962422a8b4ffedb"
+risk = "governance"
+setup = "uv sync --frozen -q"
+test_command = "uv run --no-sync --no-active pytest -q -p no:cacheprovider tests/unit/test_provenance.py"
+hidden_command = "uv run --no-sync --no-active pytest -q -p no:cacheprovider tests/unit/test_provenance.py"
+hidden_tests = ["tests/unit/test_provenance.py"]
+report = """
+# provenance: untracked files with quoted names drop out of uncommitted_code_sha256
+
+`_git_record` splits `git status --porcelain` lines on whitespace. Under `core.quotePath` an untracked path with non-ASCII or special characters arrives C-quoted (`?? "scripts/an\\303\\241lise.py"`), so `(top / path).is_file()` is False and its bytes never reach `uncommitted_code_sha256`: two runs whose untracked code differs can record the same digest. A staged rename records `old -> new` as the path.
+"""
+
+[[task]]
+id = "keryx-41"
+clone = "~/ajsoftworks/keryx"
+parent = "87ba34505289bf8eed58c7773ad6436ea2942216"
+fix = "5979d20425639ce25b2c0da0d4e8d2ae8ee65593"
+risk = "ordinary"
+setup = "uv sync -q"
+test_command = "uv run pytest -q -p no:cacheprovider tests/test_voices.py tests/test_daemon.py"
+hidden_command = "uv run pytest -q -p no:cacheprovider tests/test_voices.py tests/test_daemon.py"
+hidden_tests = ["tests/test_voices.py"]
+report = """
+# Hand out every character's voice before any blend
+
+On 10-21 three terminals got blends ("Aoede and Heart", "Heart and Isabella", "Heart and Emma"), so klepsydra showed letter medallions, while ten character voices sat free.
+
+## Cause
+`VoiceBook._first_free` first skips every voice that a repo heard in the last 14 days calls home, and only then reuses one. A home is only a reservation, held by repos that are not running (`voices.json` on 10-21: 5 voices held, 11 more reserved as homes, among them the test repos idleprobe, agentprobe and pingtest). With every single voice either held or reserved, a new terminal skipped straight to the blends. A repo whose home is a blend (pingtest) also returns to its blend while single voices are free.
+"""

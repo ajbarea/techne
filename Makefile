@@ -4,7 +4,7 @@
 ## that techne itself documents at docs/conventions.md.
 ##
 
-.PHONY: help check-env setup manifests citation plugin-validate plugin-test test-hooks-oldest frontmatter fix lint shellcheck guards test-unit test-sandboxed sandbox-warm zizmor test validate build ci clean docs evals evals-bash install-probe heuresis-gold freshness mod-types
+.PHONY: help check-env setup manifests citation plugin-validate plugin-test test-hooks-oldest frontmatter fix lint shellcheck guards test-unit test-sandboxed sandbox-warm zizmor test validate build ci clean docs evals evals-bash quality quality-skills install-probe heuresis-gold freshness mod-types
 .DEFAULT_GOAL := help
 
 check-env:              ## Verify required tools are on PATH
@@ -144,6 +144,35 @@ evals:                  ## Routing + behavior evals (claude plugin eval; runs on
 	[ -z "$$failed" ] || { echo "FAIL: routing evals below threshold in:$$failed" >&2; exit 1; }
 	@cd plugins/techne && claude plugin eval . --tag behavior --ablation none --trust-plugin \
 		--no-publish -j 2 --threshold 0.9 --scaffold
+
+# The budget-mode quality trial (quality/PREREGISTRATION.md): the task replays and the skill
+# suites run on your login and draw on your plan's usage, so they stay out of validate.
+# MODE=normal|budget, REPEATS per task, QUALITY_OUT names the results folder; SUITE_MODEL
+# is the model the skill suites run on (the judge is always Opus).
+MODE ?= normal
+REPEATS ?= 3
+QUALITY_OUT ?= quality/results/$(shell date +%F)-$(MODE)
+SUITE_MODEL ?= claude-opus-5-5
+QUALITY_JUDGE := claude-opus-5-5
+quality:                ## Budget-trial task replays in MODE, then the analysis (uses your plan)
+	@uv run python quality/run.py --mode $(MODE) --repeats $(REPEATS) --out $(QUALITY_OUT)
+	@uv run python quality/analyze.py $(QUALITY_OUT) --out $(QUALITY_OUT)/report.md
+
+quality-skills:         ## Skill quality suites on SUITE_MODEL, judged by Opus (uses your plan)
+	@bash scripts/eval-plugin.sh >/dev/null
+	@cd plugins/techne && claude plugin eval . --tag quality-elenchus --ablation none \
+		--trust-plugin --no-publish -j 2 --scaffold --model $(SUITE_MODEL) \
+		--judge-model $(QUALITY_JUDGE) --threshold 0 \
+		--allow-tools 'Bash(git *)' 'Bash(python3 *)' 'Bash(bash *)' \
+		--json ../../quality/results/skills-$(SUITE_MODEL)-techne.json
+	@cd plugins/graphe && claude plugin eval . --tag quality-writing --ablation none \
+		--trust-plugin --no-publish -j 2 --scaffold --model $(SUITE_MODEL) \
+		--judge-model $(QUALITY_JUDGE) --threshold 0 --allow-tools Write Edit \
+		--json ../../quality/results/skills-$(SUITE_MODEL)-graphe.json
+	@for p in epistole schole; do (cd plugins/$$p && claude plugin eval . --tag quality-read \
+		--ablation none --trust-plugin --no-publish -j 2 --scaffold --model $(SUITE_MODEL) \
+		--judge-model $(QUALITY_JUDGE) --threshold 0 \
+		--json ../../quality/results/skills-$(SUITE_MODEL)-$$p.json) || exit 1; done
 
 # The weekly freshness check (.github/workflows/freshness.yml), run here on your own login with
 # the same read-only tools, whatever your default permission mode. It prints the issue.

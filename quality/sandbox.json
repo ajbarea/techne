@@ -1,0 +1,19 @@
+{
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true,
+    "allowUnsandboxedCommands": false,
+    "network": {"allowedDomains": []},
+    "filesystem": {
+      "denyRead": [
+        "~/ajsoftworks",
+        "~/.claude",
+        "~/.claude-personal",
+        "~/.config/gh",
+        "~/.ssh",
+        "~/.git-credentials"
+      ]
+    }
+  },
+  "permissions": {"defaultMode": "acceptEdits"}
+}
