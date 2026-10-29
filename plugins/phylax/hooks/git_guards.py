@@ -480,7 +480,14 @@ _builtins: set[str] | None = None
 
 
 # Options git accepts at the start of an alias and still runs it; the bool says one value follows.
-ALIAS_OPTIONS = {"-p": False, "--paginate": False, "-P": False, "--no-pager": False, "-c": True}
+ALIAS_OPTIONS = {
+    "-p": False,
+    "--paginate": False,
+    "-P": False,
+    "--no-pager": False,
+    "-c": True,
+    "--config-env": True,
+}
 ALIAS_OPTION_PREFIXES = ("--config-env=", "--exec-path=")
 
 

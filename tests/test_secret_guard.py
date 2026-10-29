@@ -465,10 +465,18 @@ def test_aliases_deep_with_a_pager_flag_or_shadowing_a_non_builtin_command(repo,
         _git(repo, "config", f"alias.{name}", target)
     _git(repo, "config", "alias.pc", "-p commit")
     _git(repo, "config", "alias.cc", "-c user.name=x commit")
+    _git(repo, "config", "alias.ce", "--config-env user.name=HOME commit")
+    _git(repo, "config", "alias.ce2", "--config-env=user.name=HOME commit")
+    _git(repo, "config", "alias.bad", "-C /tmp commit")
     _git(repo, "config", "alias.filter-branch", "commit")
     leak(repo, "s.py")
     _git(repo, "add", "s.py")
     assert run_guard("git a1 -m s", repo, state), "a chain deeper than five is followed"
     assert run_guard("git pc -m s", repo, state), "a leading -p is skipped"
     assert run_guard("git cc -m s", repo, state), "a leading -c k=v is skipped"
+    assert run_guard("git ce -m s", repo, state), "--config-env and its value are skipped"
+    assert run_guard("git ce2 -m s", repo, state), "--config-env=... is skipped"
+    assert run_guard("git bad -m s", repo, state) is None, (
+        "git refuses -C before an alias's command"
+    )
     assert run_guard("git filter-branch --help", repo, state) is None, "git runs its own command"
