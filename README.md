@@ -41,7 +41,7 @@ Install only the ones you use: every enabled plugin's skill list sits in the age
 | `techne:auto-commit` | Groups working-tree changes into a structured `COMMITS.md` plan for staged review before anything lands. |
 | `techne:board` | Keeps one GitHub Projects board of every repo's work by stage (Idea, Issue, In PR, Merged, Live): shows it, syncs recent issues and PRs, adds ideas, marks deploys Live. A hook files each issue or PR a `gh` command opens. |
 | `techne:catchup` | Reads every comment, review, and state change on a repo's issues and PRs since you last participated, then reports who is blocked on whom. |
-| `techne:ci-audit` | Audits GitHub Actions runs on the current branch/PR: surfaces warnings, failures, and noise; fixes what's fixable in-repo. |
+| `techne:ci-audit` | Audits GitHub Actions runs on the current branch/PR: surfaces warnings, failures, and noise; fixes what's fixable in-repo. A report mode judges one run by id, read-only, for unattended callers. |
 | `techne:deslop` | Scans comments and docstrings for AI-generated slop and proposes tightened rewrites. |
 | `techne:docs-site` | Maintains the Zensical-powered docs site: config, deploy pipeline, theming, link integrity. |
 | `techne:docsync` | Verifies documentation claims (CLI commands, paths, config keys, signatures) and the GitHub description, homepage and topics against the actual code. |

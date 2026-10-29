@@ -6,7 +6,13 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 
 ## In flight
 
-Nothing. The logging rollout (10-28/29) is done, one PR per repo, each re-checked `logging standard ✓`
+techne#227 (PR #232, branch feat/ci-audit-report): ci-audit's unattended report mode by run id
+(`scripts/report.sh`, `ci_report.py`, `references/report-mode.md`). Three review rounds plus a
+final verify, all clean; 41 tests; evals `behavior-ci-audit-report-*` pass 6/6 under
+`make evals-bash`. Merge once CI is green; klepsydra#162's CI watch calls it. Follow-up: #233
+(skills with a repo-context block do not load in behavior cases under `make evals`).
+
+Before it: the logging rollout (10-28/29) is done, one PR per repo, each re-checked `logging standard ✓`
 on main with #230's check: sphragis #225, techne #230, pharos #102, ariadne #76, keryx #69,
 ajbarea.github.io #137, papers #115, phalanx-fl #139, periplus #62, talks #41, the coding-gym repo
 #7, the CSCI-739 class repo #22, ldqis #209 (klepsydra met it in #145). Left: kourai-khryseai's code
