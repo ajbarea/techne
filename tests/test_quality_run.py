@@ -565,6 +565,20 @@ def test_interface_gaps_read_wording_the_parent_kept_in_a_dict(tmp_path):
     assert run.interface_gaps(task, []) == []
 
 
+def test_interface_gaps_read_wording_the_parent_kept_in_a_comment(tmp_path):
+    parent = PARENT_CODE + "# a stops for you in a session started in b/ → go\n"
+    task = gap_task(tmp_path, "msg names the folder for a nested file.", parent_code=parent)
+    assert run.interface_gaps(task, []) == []
+
+
+def test_interface_gaps_skip_a_missing_file_the_parent_has(tmp_path):
+    task = gap_task(
+        tmp_path, STATED, parent_files={"data.json": "{}\n"}, fix_files={"data.json": "[]\n"}
+    )
+    failures = ["FileNotFoundError: No such file or directory: '/var/tmp/ws/data.json'"]
+    assert run.interface_gaps(task, failures) == []
+
+
 def test_interface_gaps_skip_a_name_the_parent_defines(tmp_path):
     report = "A nested one reads `<rel> stops for you in a session started in <where>/ → go`."
     failures = ["AttributeError: 'NoneType' object has no attribute 'msg'"]
@@ -855,7 +869,9 @@ def test_interface_gaps_skip_a_name_only_the_tests_add(tmp_path):
 def test_interface_gaps_read_every_unrecognized_flag(tmp_path):
     report = STATED + " It takes `--repos-root`."
     task = gap_task(tmp_path, report, fix_code=FIX_CODE + NAMES_CODE)
-    failures = ["error: unrecognized arguments: --repos-root /a --techne-toml /b -q --json"]
+    failures = [
+        "error: unrecognized arguments: --repos-root /tmp/pytest-of-x/p0 --techne-toml /b -q --json"
+    ]  # a dash inside a path value is no flag
     # argparse refused each one on the parent and the gold patch passes: the fix added all
     assert run.interface_gaps(task, failures) == [
         "name the report does not give: --json",

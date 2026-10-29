@@ -173,7 +173,8 @@ MISSING_NAME = re.compile(
     r"has no attribute '(\w+)'|cannot import name '(\w+)'|No module named '([\w.]+)'"
     r"|does not have the attribute '(\w+)'"  # mock.patch
 )
-# A name the parent refuses outright: with the gold patch passing, the fix added it.
+# A name the parent refuses outright: with the gold patch passing, the fix added it or
+# stopped passing it; either way the report must name it in a code span.
 REFUSED_NAME = re.compile(r"unexpected keyword argument '(\w+)'|invalid choice: '([\w-]+)'")
 UNRECOGNIZED = re.compile(r"unrecognized arguments: ([^\n]+)")  # argparse lists them all
 # A module a test loads by its path, which fails on the parent as a missing file.
@@ -912,13 +913,13 @@ def interface_gaps(task: dict, failures: Sequence[str]) -> list[str]:
     """What the hidden tests check that the bug report does not state, so that no fix could
     pass without the gold patch: a name or file a failure on the parent names that no code
     span in the report gives, being a keyword argument, CLI flag or choice the parent refused
-    (with the gold patch passing, the fix added it), a missing attribute, import or module
-    the fix adds to its code outside the tests (`defined`, by scope), or a file the fix adds
-    that a test loads or runs by path; or a string a test adds that shares a three-word run
-    with the strings the fix adds and also says something neither the parent's changed files
-    nor the report say. A rule stated only in prose, a new positional parameter, a name no
-    failure names, a message under three words, and the unquoted text of a file that is not
-    Python are beyond this check and stay a reading audit."""
+    (with the gold patch passing, the fix added it or stopped passing it), a missing
+    attribute, import or module the fix adds to its code outside the tests (`defined`, by
+    scope), or a file the fix adds that a test loads or runs by path; or a string a test adds
+    that shares a three-word run with the strings the fix adds and also says something neither
+    the parent's changed files nor the report say. A rule stated only in prose, a new
+    positional parameter, a name no failure names, a message under three words, and the
+    unquoted text of a file that is not Python are beyond this check and stay a reading audit."""
     report = task["report"].lower()
     # a name is given in code, as the notes write it, and in its own case
     code = re.findall(r"`([^`]+)`", task["report"])
