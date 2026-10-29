@@ -123,10 +123,10 @@ PUSH_ALL = {"--all", "--branches"}
 # A replayed add runs the repo's clean filters (git-lfs, git-crypt) on whole files.
 ADD_TIMEOUT = 20
 PUSH_DELETE = {"-d", "--delete"}
-# git subcommands that can create or move a ref before a later `git push` in the same command
-# line runs; the push scan then cannot know its range at hook time and widens.
 # Subcommands the guards act on or track; anything else may be an alias.
 KNOWN_SUBS = {"add", "stage", "commit", "push", "status", "diff", "log", "show"}
+# git subcommands that can create or move a ref before a later `git push` in the same command
+# line runs; the push scan then cannot know its range at hook time and widens.
 REF_MOVERS = {
     "checkout",
     "switch",
@@ -476,17 +476,30 @@ def parse_git(argv: list[str], cwd: Path, env: dict[str, str]) -> Command | None
     return None
 
 
+_builtins: set[str] | None = None
+
+
 def resolve_alias(cmd: Command) -> None:
     """Expand `git <alias>` to the command it stands for (`alias.ci = commit` makes `git ci`
-    a commit); a shell alias (`!...`) is left as it is."""
-    if not cmd.sub or cmd.sub in KNOWN_SUBS:
-        return
-    try:
-        alias = run_git(cmd.cwd, cmd.repo_args, "config", "--get", f"alias.{cmd.sub}")
-    except GitUnavailable:
-        return
-    words = shlex.split(alias or "") if alias and not alias.lstrip().startswith("!") else []
-    if words:
+    a commit), following an alias of an alias a few levels as git does. git ignores an alias
+    that shadows one of its own commands, and a shell alias (`!...`) is left as it is."""
+    global _builtins
+    seen: set[str] = set()
+    while cmd.sub and cmd.sub not in KNOWN_SUBS and cmd.sub not in seen and len(seen) < 5:
+        seen.add(cmd.sub)
+        try:
+            if _builtins is None:
+                _builtins = set((run_git(cmd.cwd, [], "--list-cmds=builtins") or "").split())
+            if cmd.sub in _builtins:
+                return
+            alias = run_git(cmd.cwd, cmd.repo_args, "config", "--get", f"alias.{cmd.sub}")
+        except GitUnavailable:
+            return
+        if not alias or alias.lstrip().startswith("!"):
+            return
+        words = shlex.split(alias)
+        if not words:
+            return
         cmd.sub, cmd.args = words[0], words[1:] + cmd.args
 
 

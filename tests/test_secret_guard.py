@@ -445,3 +445,14 @@ def test_an_alias_for_commit_is_scanned(repo, state):
     leak(repo, "s.py")
     why = run_guard("git add s.py && git ci -m s", repo, state)
     assert why and "this commit would add a secret" in why, why
+
+
+@needs_gitleaks
+def test_a_chained_alias_is_followed_and_one_shadowing_a_git_command_is_ignored(repo, state):
+    _git(repo, "config", "alias.ci", "commit")
+    _git(repo, "config", "alias.c", "ci")
+    _git(repo, "config", "alias.checkout", "commit")
+    leak(repo, "s.py")
+    _git(repo, "add", "s.py")
+    assert run_guard("git c -m s", repo, state)
+    assert run_guard("git checkout -q -b feat", repo, state) is None
