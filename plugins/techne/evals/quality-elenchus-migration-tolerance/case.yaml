@@ -1,0 +1,5 @@
+schema_version: "1.1"
+name: quality-elenchus-migration-tolerance
+tags: [quality-elenchus]
+context:
+  scaffold_script: scaffold.sh

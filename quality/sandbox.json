@@ -1,0 +1,21 @@
+{
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true,
+    "allowUnsandboxedCommands": false,
+    "network": {
+      "allowedDomains": []
+    },
+    "filesystem": {
+      "denyRead": [
+        "/home",
+        "/root",
+        "/tmp",
+        "/mnt"
+      ]
+    }
+  },
+  "permissions": {
+    "defaultMode": "acceptEdits"
+  }
+}
