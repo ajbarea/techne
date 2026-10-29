@@ -11,6 +11,7 @@ repo="${1:?usage: foldback.sh <techne clone>}"
 gh_repo="${ELENCHUS_GH_REPO:-ajbarea/techne}"
 # ELENCHUS_DRY_RUN=1 runs everything but the writes to GitHub, and keeps the window.
 dry="${ELENCHUS_DRY_RUN:-}"
+advance() { [ -n "$dry" ] || echo "$1" >"$state/last-fold"; }
 owner="${gh_repo%%/*}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 state="${XDG_STATE_HOME:-$HOME/.local/state}/elenchus"
@@ -40,6 +41,18 @@ if [ "$open_prs" != 0 ]; then
     exit 0
 fi
 
+# The last fold PR, now closed: merged moves the window to its end; closed unmerged keeps it.
+if [ -f "$state/pending" ]; then
+    read -r pend_until pend_branch <"$state/pending"
+    pend_state="$(gh pr view "$pend_branch" -R "$gh_repo" --json state --jq .state)"
+    if [ "$pend_state" = MERGED ]; then
+        advance "$pend_until"
+        since="$pend_until"
+    fi
+    [ -n "$dry" ] || rm -f -- "${state:?}/pending"
+fi
+find "${state:?}" -maxdepth 1 \( -name 'catalog-*.md' -o -name 'plan-*.json' \) -mtime +14 -delete
+
 git -C "$repo" fetch -q origin
 if [ -d "$wt" ] || git -C "$repo" rev-parse -q --verify "refs/heads/$branch" >/dev/null; then
     echo "$wt or branch $branch exists from an earlier run today: look at it, then remove both"
@@ -59,7 +72,8 @@ for cls, v in json.load(open(sys.argv[1]))["ladder"].items():
 ' "$plan")"
 for cls in $slugs; do
     title="Mechanical check: $cls"
-    have="$(gh issue list -R "$gh_repo" --state open --limit 200 --search "\"$title\" in:title" \
+    # Any issue with this title, open or closed, means the class was escalated once already.
+    have="$(gh issue list -R "$gh_repo" --state all --limit 200 --search "\"$title\" in:title" \
         --json title --jq "[.[] | select(.title == \"$title\")] | length")"
     if [ "$have" = 0 ] && [ -n "$dry" ]; then
         echo "dry run: would open issue '$title'"
@@ -76,15 +90,15 @@ retired="$(gh api -X GET search/issues --paginate \
     --jq '.items[] | [.title, .closed_at] | @tsv' |
     python3 -c '
 import json, sys
-since = sys.argv[1]
+since, until = sys.argv[1], sys.argv[2]
 out = [t.split(": ", 1)[1] for t, closed in (l.rstrip("\n").split("\t") for l in sys.stdin if l.strip())
-       if t.startswith("Mechanical check: ") and closed >= since]
+       if t.startswith("Mechanical check: ") and since <= closed < until]
 print(json.dumps(out))
-' "$since")"
+' "$since" "$until")"
 records="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["records"])' "$plan")"
 if [ "$records" = 0 ] && [ "$retired" = "[]" ]; then
     echo "no new findings or retirements since $since"
-    echo "$until" >"$state/last-fold"
+    advance "$until"
     exit 0
 fi
 python3 - "$plan" "$retired" <<'PY'
@@ -113,10 +127,10 @@ prompt="$(sed -e "s|{plan}|$plan|" -e "s|{public}|$public|" "$here/curate.md")"
     echo "curation session failed or timed out"
     exit 1
 }
-changed="$(git -C "$wt" status --porcelain)"
+changed="$(git -C "$wt" status --porcelain --ignored)"
 if [ -z "$changed" ]; then
     echo "curation changed nothing"
-    echo "$until" >"$state/last-fold"
+    advance "$until"
     exit 0
 fi
 if [ "$changed" != " M $catalog" ]; then
@@ -151,5 +165,7 @@ pushed=1
 gh pr create -R "$gh_repo" --head "$branch" --base main --label documentation \
     --assignee "$owner" --title "docs(elenchus): catalog fold-back, $day" --body \
 "The daily fold of the elenchus findings ledger from $since to $until: incidents for catalogued classes, new classes seen in two or more PRs, and classes whose mechanical check landed. Review the catalog diff before merging; the next fold waits until this PR is merged or closed."
-echo "$until" >"$state/last-fold"
+# The window moves only when this PR merges (checked at the next run), so findings in a
+# fold PR closed unmerged are folded again.
+printf '%s %s\n' "$until" "$branch" >"$state/pending"
 echo "== $(date -Is) fold-back done"

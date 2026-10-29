@@ -76,9 +76,9 @@ Each round is a fresh reader, handed the diff and the open findings, never a res
 Every reader appends each blocking or should-fix finding (class, repo, PR, round, one line) to a machine-wide, append-only ledger, `~/.local/state/elenchus/findings.jsonl`, so every session on the machine learns from every other one. It never leaves the machine, so it may name private repos.
 
 - **Before review**, `ledger.py checklist` lists the classes reviewers found in two or more PRs in the last week. The author walks those first.
-- **Once a day**, `foldback.sh` reads what the ledger gained and opens one catalog PR to techne. It adds a dated incident for each finding of a catalogued class, and a full entry for each `new:` class found in two or more PRs, deduplicated against the classes already there. It keeps each incident's source (`repo#PR rN`, date), and writes only what tests and `make guards` pass.
+- **Once a day**, `foldback.sh` reads what the ledger gained and opens one catalog PR to techne. It adds a dated incident for each finding of a catalogued class, and a full entry for each `new:` class found in two or more PRs, deduplicated against the classes already there. It keeps each incident's source (`repo#PR rN`, date).
 - **Three PRs in a week** opens a "Mechanical check: <class>" issue for a lint rule, test or hook (catalogued classes only, so no free-text name reaches a public issue). When it is closed as completed, the next fold marks the class **Retired**, and readers stop spending attention on it.
-- **Safety.** The curation session runs restricted, with no shell, settings, hooks or MCP servers, and edits only the catalog. The job pushes only when the catalog is the sole changed file, its tests pass and the private-name scan ran clean. While a fold PR is open, the next fold waits.
+- **Safety.** The curation session runs restricted, with no shell, settings, hooks or MCP servers, and edits only the catalog. The job pushes only when the catalog is the sole changed file, its tests pass and the private-name scan ran clean. While a fold PR is open, the next fold waits, and a fold PR closed unmerged leaves its findings to be folded again.
 
 The design follows shared lesson banks for code agents ([LessonL](https://arxiv.org/pdf/2505.23946)). Each memory carries its source, because stale memories were the main risk in [GitHub Copilot's cross-agent memory](https://github.blog/2026-01-09-building-an-agentic-memory-system-for-github-copilot). Curation is a separate pass that dedupes rather than appends ([SAP](https://arxiv.org/pdf/2608.00122): about half of raw contributions survive; [Spark](https://arxiv.org/pdf/2511.08301)).
 
@@ -88,6 +88,7 @@ To run the fold daily, install two systemd user units, then `systemctl --user en
 # ~/.config/systemd/user/elenchus-foldback.service
 [Unit]
 Description=Fold the elenchus findings ledger into one techne catalog PR
+Wants=network-online.target
 After=network-online.target
 
 [Service]

@@ -146,7 +146,10 @@ def ago(days: float) -> dt.datetime:
 
 
 def checklist(args: argparse.Namespace) -> int:
-    rungs = ladder(read(ago(args.days)))
+    retired = set()
+    if args.catalog and pathlib.Path(args.catalog).is_file():
+        retired = retired_slugs(pathlib.Path(args.catalog).read_text(encoding="utf-8"))
+    rungs = {c: v for c, v in ladder(read(ago(args.days))).items() if c not in retired}
     if not rungs:
         print(f"ledger: no class found in two or more PRs in the last {args.days:g} days")
         return 0
@@ -157,16 +160,20 @@ def checklist(args: argparse.Namespace) -> int:
     return 0
 
 
-def fold(args: argparse.Namespace) -> int:
-    text = pathlib.Path(args.catalog).read_text(encoding="utf-8")
-    known = set(CATALOG_SLUG.findall(text))
-    retired = {
+def retired_slugs(text: str) -> set[str]:
+    return {
         slug
         for slug, body in re.findall(
             r"^### (?:\d+\. )?([a-z0-9-]+): .*?\n(.*?)(?=^### |\Z)", text, re.M | re.S
         )
         if RETIRED.search(body)
     }
+
+
+def fold(args: argparse.Namespace) -> int:
+    text = pathlib.Path(args.catalog).read_text(encoding="utf-8")
+    known = set(CATALOG_SLUG.findall(text))
+    retired = retired_slugs(text)
     since = aware(dt.datetime.fromisoformat(args.since)) if args.since else ago(1)
     until = aware(dt.datetime.fromisoformat(args.until)) if args.until else None
     recent = read(since, until)
@@ -185,16 +192,18 @@ def fold(args: argparse.Namespace) -> int:
     for name in [n for n in new if n in known]:
         incidents[name] += new.pop(name)
     week = read(ago(args.days), until)
+    # A `new:` name counts PRs over the week, as the ladder does: two hits on different days
+    # are still two PRs. Only names seen in today's window are listed.
+    new_prs: dict[str, set[tuple[str, str]]] = defaultdict(set)
+    for r in week:
+        if r["class"].startswith("new: ") and r["pr"].isdigit():
+            new_prs[r["class"][5:]].add((r["repo"], r["pr"]))
     plan = {
         "since": since.isoformat(),
         "records": len(recent),
         "incidents": dict(sorted(incidents.items())),
-        "new_classes": {
-            n: v for n, v in sorted(new.items()) if len({(i["repo"], i["pr"]) for i in v}) >= 2
-        },
-        "new_seen_once": sorted(
-            n for n, v in new.items() if len({(i["repo"], i["pr"]) for i in v}) < 2
-        ),
+        "new_classes": {n: v for n, v in sorted(new.items()) if len(new_prs[n]) >= 2},
+        "new_seen_once": sorted(n for n in new if len(new_prs[n]) < 2),
         "unknown_slugs": dict(sorted(unknown.items())),
         # Only a catalogued, unretired slug escalates: a free-text `new:` name could carry a
         # private repo's name into a public issue title.
@@ -218,6 +227,7 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("--line", required=True, help="the finding in one line")
     c = sub.add_parser("checklist", help="classes found in two or more PRs lately")
     c.add_argument("--days", type=float, default=7)
+    c.add_argument("--catalog", help="bug-classes.md, so retired classes are left out")
     f = sub.add_parser("fold", help="the daily catalog plan, as JSON")
     f.add_argument("--catalog", required=True)
     f.add_argument("--since", help="ISO time; default 24 hours ago; no zone means UTC")

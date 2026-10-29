@@ -228,3 +228,25 @@ def test_until_bounds_the_window(tmp_path):
         ).stdout
     )
     assert plan["records"] == 0
+
+
+def test_a_new_class_counts_prs_across_the_week(tmp_path):
+    catalog = tmp_path / "bug-classes.md"
+    catalog.write_text(CATALOG)
+    earlier = (dt.datetime.now(dt.UTC) - dt.timedelta(days=3)).isoformat()
+    write(
+        tmp_path, {"ts": earlier, "repo": "a", "pr": "1", "round": 1, "class": "new: stale-cache"}
+    )
+    add(tmp_path, "b", 2, "new: stale cache")
+    plan = json.loads(run(tmp_path, "fold", "--catalog", str(catalog)).stdout)
+    assert list(plan["new_classes"]) == ["stale-cache"]
+    assert [i["pr"] for i in plan["new_classes"]["stale-cache"]] == ["2"]  # today's records
+
+
+def test_checklist_leaves_out_retired_classes(tmp_path):
+    catalog = tmp_path / "bug-classes.md"
+    catalog.write_text(CATALOG)
+    for pr in (1, 2):
+        add(tmp_path, "techne", pr, "vacuous-guard")
+    assert "vacuous-guard" in run(tmp_path, "checklist").stdout
+    assert "no class found" in run(tmp_path, "checklist", "--catalog", str(catalog)).stdout
