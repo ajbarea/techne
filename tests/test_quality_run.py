@@ -429,6 +429,7 @@ def test_strings_skip_docstrings_and_keep_placeholders():
     assert sorted(run.strings(src, "m.py")) == ["plain one", "{} stops here"]
     assert run.strings(src, "m.py", {1, 4}) == []
     assert run.strings('echo "a message"\n', "s.sh") == ["a message"]
+    assert run.strings('x = "abc"\ny = b"bytes here"\n', "m.py") == ["bytes here"]
     assert run.strings('echo "refused: \\"$h\\" needs"\n', "s.sh") == ['refused: \\"$h\\" needs']
 
 
@@ -455,7 +456,7 @@ NAMES_CODE = (
     "\n\nclass Permission:\n    written_grant: bool = False\n\n    def seen(self):\n"
     "        self.count = 1\n\n\ndef cli(p, mode=None):\n"
     '    p.add_argument("--repos-root")\n    p.add_argument("--techne-toml")\n'
-    '    p.add_argument("-q")\n'
+    '    p.add_argument("-q")\n    p.add_parser("restate")\n'
 )
 STATED = "A nested one reads `<rel> stops for you in a session started in <where>/ → go`."
 
@@ -574,6 +575,95 @@ def test_interface_gaps_flag_methods_attributes_and_fields_the_fix_adds(tmp_path
 def test_defined_reads_identifiers_and_flags_outside_python():
     assert run.defined('main() { grep --fixed x_y "$1"; }\n', "s.sh") >= {"main", "--fixed", "x_y"}
     assert run.defined("def broken(:\n", "b.py") >= {"def", "broken"}
+
+
+@pytest.mark.parametrize(
+    ("parent_extra", "fix_extra", "failure", "gap"),
+    [
+        # a parent local never hides a new top-level name
+        ("def scan():\n    artifacts = 1\n", "def artifacts():\n    pass\n", "'artifacts'", True),
+        # another function's parameter never hides a new one
+        (
+            "def other(timeout=5):\n    pass\n",
+            "def fetch(url, timeout=None):\n    pass\n",
+            "fetch() got an unexpected keyword argument 'timeout'",
+            True,
+        ),
+        ("def artifacts():\n    pass\n", "def artifacts():\n    pass\n", "'artifacts'", False),
+        ("", "def outer():\n    def inner():\n        pass\n", "'inner'", False),  # local
+        (
+            "",
+            'try:\n    from os import sep as SEP2\nexcept ImportError:\n    SEP2 = "/"\n',
+            "'SEP2'",
+            True,
+        ),
+        ("", "class D:\n    if True:\n        mode = 1\n", "'mode'", True),
+        (
+            "",
+            "try:\n    import zz_absent\nexcept ImportError:\n    FALLBACK = 1\n",
+            "'FALLBACK'",
+            True,
+        ),
+        (
+            "class E:\n    def seen(self):\n        pass\n",
+            "class E:\n    def seen(self, depth=0):\n        pass\n",
+            "seen() got an unexpected keyword argument 'depth'",
+            True,
+        ),
+    ],
+)
+def test_interface_gaps_read_where_a_name_is_defined(
+    tmp_path, parent_extra, fix_extra, failure, gap
+):
+    task = gap_task(
+        tmp_path,
+        STATED,
+        parent_code=PARENT_CODE + "\n\n" + parent_extra,
+        fix_code=FIX_CODE + "\n\n" + parent_extra + "\n\n" + fix_extra,
+    )
+    failure = failure if "argument" in failure else f"module 'm' has no attribute {failure}"
+    name = failure.rsplit("'", 2)[-2]
+    assert run.interface_gaps(task, [failure]) == (
+        [f"name the report does not give: {name}"] if gap else []
+    )
+
+
+def test_interface_gaps_flag_a_file_a_test_loads_by_path(tmp_path):
+    rel = "plugins/x/_shared/git_env.py"
+    failures = [
+        f"FileNotFoundError: [Errno 2] No such file or directory: '/var/tmp/ws/{rel}'",
+        "FileNotFoundError: [Errno 2] No such file or directory: '/var/tmp/ws/data.json'",
+    ]
+    task = gap_task(tmp_path, STATED, fix_files={rel: "BATCH = 1\n"})
+    assert run.interface_gaps(task, failures) == [f"file the report does not give: {rel}"]
+    task["report"] = STATED + f" Tests load `{rel}`."
+    assert run.interface_gaps(task, failures) == []
+
+
+@pytest.mark.parametrize(
+    ("files", "failure", "want"),
+    [
+        ({"README.md": "Each group is read.\n"}, "'NoneType' object has no attribute 'group'", []),
+        (
+            {"análise.py": "def novo():\n    pass\n"},  # a path git would C-quote
+            "module 'análise' has no attribute 'novo'",
+            ["name the report does not give: novo"],
+        ),
+        (
+            {"pkg2/__init__.py": ""},
+            "No module named 'pkg2'",
+            ["name the report does not give: pkg2"],
+        ),
+    ],
+)
+def test_interface_gaps_read_files_by_what_they_are(tmp_path, files, failure, want):
+    assert run.interface_gaps(gap_task(tmp_path, STATED, fix_files=files), [failure]) == want
+
+
+def test_interface_gaps_flag_a_new_subcommand(tmp_path):
+    task = gap_task(tmp_path, STATED, fix_code=FIX_CODE + NAMES_CODE)
+    failures = ["error: argument cmd: invalid choice: 'restate' (choose from 'init')"]
+    assert run.interface_gaps(task, failures) == ["name the report does not give: restate"]
 
 
 def test_interface_gaps_flag_a_new_module(tmp_path):
@@ -705,6 +795,35 @@ def test_scoring_needs_every_gold_test_to_pass(tmp_path, monkeypatch, rc, cases,
     task = {"hidden_tests": [], "hidden_command": "pytest", "id": "t"}
     monkeypatch.setattr(run, "base_of", lambda ws: "base")
     assert run.hidden_tests(task, tmp_path / "ws", dest, require)["passed"] is want
+
+
+@pytest.mark.parametrize("messages", [True, False])
+def test_hidden_tests_carry_the_failures_only_when_asked(tmp_path, monkeypatch, messages):
+    dest = tmp_path / "score" / "run"
+    monkeypatch.setattr(run, "workspace", lambda task, d: d.mkdir(parents=True, exist_ok=True))
+    monkeypatch.setattr(run, "private_cache", lambda task, d: d)
+    monkeypatch.setattr(run, "tool_env", lambda cache: {})
+    monkeypatch.setenv("QUALITY_NO_LOCK", "1")
+
+    def fake_sh(cmd, cwd=None, **kw):
+        if cmd[0] == "unshare":
+            (dest.parent / "run.junit.xml").write_text(
+                '<testsuites><testsuite><testcase classname="t" name="a">'
+                "<failure message=\"has no attribute 'x'\">trace</failure>"
+                "</testcase></testsuite></testsuites>"
+            )
+            return subprocess.CompletedProcess(cmd, 1, "", "")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(run, "sh", fake_sh)
+    monkeypatch.setattr(run, "staged_diff", lambda ws: b"")
+    monkeypatch.setattr(run, "base_of", lambda ws: "base")
+    task = {"hidden_tests": [], "hidden_command": "pytest", "id": "t"}
+    out = run.hidden_tests(task, tmp_path / "ws", dest, messages=messages)
+    if messages:
+        assert out["failures"] == ["has no attribute 'x'\ntrace"]
+    else:
+        assert "failures" not in out
 
 
 def harness(tmp_path, monkeypatch, ids=("a", "b", "c"), version="v1"):

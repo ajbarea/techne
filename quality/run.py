@@ -174,6 +174,10 @@ MISSING_NAME = re.compile(
     r"|unexpected keyword argument '(\w+)'|invalid choice: '([\w-]+)'"
 )
 UNRECOGNIZED = re.compile(r"unrecognized arguments: ([^\n]+)")  # argparse lists them all
+# A module a test loads by its path, which fails on the parent as a missing file.
+MISSING_FILE = re.compile(r"No such file or directory: '([^'\n]+)'")
+# Files whose words are prose, never names the code defines.
+CODE_SUFFIX = (".py", ".pyi", ".sh", ".bash", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".rs", ".go")
 FLAG = re.compile(r"(?<![\w-])--?[A-Za-z][\w-]*")
 # A quoted string in a file that is not Python, escapes included.
 QUOTED = re.compile(r""""((?:[^"\\\n]|\\.){4,})"|'((?:[^'\\\n]|\\.){4,})'""")
@@ -830,10 +834,13 @@ def strings(source: str, path: str, lines: set[int] | None = None) -> list[str]:
 
 
 def defined(source: str, path: str) -> set[str]:
-    """The names a code file defines: in Python, by its syntax tree, every function, class,
-    parameter, assigned name or attribute (`self.x`, a class field), import, and the option
-    strings and subcommands an `add_argument`/`add_parser` call adds; in any other file, or
-    Python that does not parse, every identifier and `--flag` it holds."""
+    """The interface a code file defines, each name keyed by its scope so that a name in one
+    scope never hides the same name in another: in Python, by its syntax tree, top-level
+    functions, classes, assignments and imports (`name`), a class's methods, fields and
+    `self.` attributes (`Class.name`), a function's or method's parameters (`func(name)`), and
+    the option strings and subcommands an `add_argument`/`add_parser` call adds. A local
+    variable is no interface. In any other file, or Python that does not parse, every
+    identifier and `--flag` it holds."""
     try:
         tree = ast.parse(source) if path.endswith(".py") else None
     except SyntaxError:
@@ -841,18 +848,55 @@ def defined(source: str, path: str) -> set[str]:
     if tree is None:
         return set(re.findall(r"--?[A-Za-z][\w-]*|[A-Za-z_]\w*", source))
     out = set()
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+
+    def params(fn: ast.FunctionDef | ast.AsyncFunctionDef, owner: str) -> None:
+        a = fn.args
+        for arg in (*a.posonlyargs, *a.args, *a.kwonlyargs, a.vararg, a.kwarg):
+            if arg is not None:
+                out.add(f"{owner}{fn.name}({arg.arg})")
+
+    def targets(node: ast.AST) -> list[ast.expr]:
+        if isinstance(node, ast.Assign):
+            return node.targets
+        if isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+            return [node.target]
+        return []
+
+    def flat(body: list[ast.stmt]):
+        """Statements at this level, through `if`, `try` and `with` blocks."""
+        for node in body:
+            yield node
+            if isinstance(node, (ast.If, ast.Try, ast.With)):
+                for handler in getattr(node, "handlers", []):
+                    yield from flat(handler.body)
+                for part in ("body", "orelse", "finalbody"):
+                    yield from flat(getattr(node, part, []))
+
+    for node in flat(tree.body):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             out.add(node.name)
-        elif isinstance(node, ast.arg):
-            out.add(node.arg)
-        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
-            out.add(node.id)
-        elif isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Store):
-            out.add(node.attr)
-        elif isinstance(node, ast.alias):
-            out.add((node.asname or node.name).rsplit(".", 1)[-1])
-        elif (
+            params(node, "")
+        elif isinstance(node, ast.ClassDef):
+            out.add(node.name)
+            for member in flat(node.body):
+                if isinstance(member, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    out.add(f"{node.name}.{member.name}")
+                    params(member, f"{node.name}.")
+                    for sub in ast.walk(member):  # self.x = ... in a method
+                        for tgt in targets(sub):
+                            if isinstance(tgt, ast.Attribute) and isinstance(tgt.value, ast.Name):
+                                out.add(f"{node.name}.{tgt.attr}")
+                for tgt in targets(member):
+                    if isinstance(tgt, ast.Name):
+                        out.add(f"{node.name}.{tgt.id}")
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            out |= {(a.asname or a.name).rsplit(".", 1)[-1] for a in node.names}
+        for tgt in targets(node):
+            for part in ast.walk(tgt):
+                if isinstance(part, ast.Name):
+                    out.add(part.id)
+    for node in ast.walk(tree):
+        if (
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
             and node.func.attr in ("add_argument", "add_parser")
@@ -863,12 +907,17 @@ def defined(source: str, path: str) -> set[str]:
     return out
 
 
+def leaf(key: str) -> str:
+    """The name a scoped key stands for: `C.x` and `f(x)` stand for `x`."""
+    return re.split(r"[.(]", key.rstrip(")"))[-1]
+
+
 def interface_gaps(task: dict, failures: Sequence[str]) -> list[str]:
     """What the hidden tests check that the bug report does not state, so that no fix could
-    pass without the gold patch: a name a failure on the parent names (a missing attribute,
-    import, module, keyword argument, CLI flag or choice) that the fix defines in its code
-    outside the tests where the parent's version of that file did not, and that no code span
-    in the report gives; or a string a test adds that shares a three-word run with the strings
+    pass without the gold patch: a name or file a failure on the parent names (a missing
+    attribute, import, module, keyword argument, CLI flag or choice, or a file loaded by path)
+    that the fix adds to its code outside the tests (`defined`, by scope), and that no code
+    span in the report gives; or a string a test adds that shares a three-word run with the strings
     the fix adds and also says something neither the parent's changed files nor the report
     say. A rule stated only in prose, a new positional parameter, a name no failure names,
     a message under three words, and the unquoted text of a file that is not Python are
@@ -879,9 +928,9 @@ def interface_gaps(task: dict, failures: Sequence[str]) -> list[str]:
     gaps = set()
     span = (task["parent"], task["fix"])
     plain = ("--no-color", "--no-ext-diff", "--no-renames")  # whatever the user's git config
-    changed = git(
-        task["clone"], "diff", "--name-only", *plain, "--diff-filter=AM", *span
-    ).splitlines()
+    # -z: a path git would C-quote (non-ASCII) arrives as it is
+    changed = git(task["clone"], "diff", "-z", "--name-only", *plain, "--diff-filter=AM", *span)
+    changed = [p for p in changed.split("\0") if p]
 
     def show(rev: str, path: str) -> str | None:
         out = sh(["git", "-C", str(task["clone"]), "show", f"{rev}:{path}"])
@@ -892,16 +941,25 @@ def interface_gaps(task: dict, failures: Sequence[str]) -> list[str]:
         return strings(show(task["fix"], path) or "", path, added_lines(diff))
 
     code_paths = [p for p in changed if p not in task["hidden_tests"] and not TEST_PATH.search(p)]
-    new_names = set()
-    for p in code_paths:
+    new_names, new_files = set(), []
+    for p in (p for p in code_paths if p.endswith(CODE_SUFFIX)):
         old = show(task["parent"], p)
-        new_names |= defined(show(task["fix"], p) or "", p) - defined(old or "", p)
+        new_names |= {
+            leaf(k) for k in defined(show(task["fix"], p) or "", p) - defined(old or "", p)
+        }
         if old is None:  # a new module
             stem = pathlib.PurePosixPath(p)
             new_names.add(stem.parent.name if stem.stem == "__init__" else stem.stem)
+            new_files.append(p)
     names = {next(g for g in m.groups() if g) for t in failures for m in MISSING_NAME.finditer(t)}
     names |= {f for t in failures for m in UNRECOGNIZED.finditer(t) for f in FLAG.findall(m[1])}
+    for m in (m for t in failures for m in MISSING_FILE.finditer(t)):
+        names |= {f for f in new_files if m[1].endswith("/" + f) or m[1] == f}
     for name in sorted(names):
+        if "/" in name:  # a file the fix adds: given when the report names its path or file
+            if not any(pathlib.PurePosixPath(name).name in span for span in code):
+                gaps.add(f"file the report does not give: {name}")
+            continue
         last = name.rsplit(".", 1)[-1] if not name.startswith("-") else name
         if last not in new_names:
             continue  # the fix adds no such name: the failure is the bug itself
