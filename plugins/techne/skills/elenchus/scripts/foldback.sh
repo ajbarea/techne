@@ -172,11 +172,18 @@ if [ -n "$dry" ]; then
 fi
 # check_private_names.py knows only the owner's private repos; any repo in the plan that is
 # not public (an org's or a teammate's) must not appear in the added lines either.
-words="$(git -C "$repo" rev-parse --git-common-dir)/info/private-words"
-leaked="$(git -C "$wt" diff -U0 -- "$catalog" |
-    python3 "$here/ledger.py" scan --plan "$plan" --public "$public" --private-words "$words")" || true
-if [ -n "$leaked" ]; then
+words="$(git -C "$repo" rev-parse --path-format=absolute --git-path info/private-words)"
+set +e
+leaked="$(git -C "$wt" diff -U0 -- "$catalog" | python3 "$here/ledger.py" scan --plan "$plan" \
+    --public "$public" --private-words "$words" --checker "$wt/scripts/check_private_names.py" \
+    --owner "$owner")"
+scan_rc=$?
+set -e
+if [ "$scan_rc" = 1 ]; then
     echo "the catalog edit names a repo that is not public; nothing pushed: $leaked"
+    exit 1
+elif [ "$scan_rc" != 0 ]; then
+    echo "the plan-repo scan failed ($scan_rc); nothing pushed"
     exit 1
 fi
 git -C "$wt" add "$catalog"

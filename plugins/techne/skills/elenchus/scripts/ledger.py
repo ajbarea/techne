@@ -221,40 +221,46 @@ def fold(args: argparse.Namespace) -> int:
     return 0
 
 
-def named_repos(plan: dict, public: set[str], words: set[str], added: str) -> list[str]:
-    """Non-public repos from PLAN that ADDED names. A name that is also an ordinary word
-    (listed in WORDS, as check_private_names.py reads .git/info/private-words) counts only as
-    `owner/name` or `name#N`; any other name counts as a whole word."""
-    repos = {
-        i["repo"]
-        for group in ("incidents", "new_classes", "unknown_slugs")
-        for items in plan.get(group, {}).values()
-        for i in items
-    }
-    found = []
-    for name in sorted(repos - public):
-        word = re.escape(name)
-        if name in words:
-            pattern = rf"(?<![\w.-])[\w.-]+/{word}(?![\w-])|(?<![\w.-]){word}#\d"
-        else:
-            pattern = rf"(?<![\w.-]){word}(?![\w-])"
-        if re.search(pattern, added, re.I):
-            found.append(name)
+def plan_repos(node: object) -> set[str]:
+    """Every `repo` string anywhere in a plan: incidents, new classes, unknown slugs, ladder."""
+    found: set[str] = set()
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if k == "repo" and isinstance(v, str):
+                found.add(v)
+            found |= plan_repos(v)
+    elif isinstance(node, list):
+        for v in node:
+            found |= plan_repos(v)
+    if isinstance(node, dict) and "prs" in node:  # the ladder lists `repo#N` strings
+        found |= {str(p).split("#", 1)[0] for p in node["prs"]}
     return found
 
 
 def scan(args: argparse.Namespace) -> int:
+    """Non-public plan repos the catalog diff on stdin names, matched by the repo's own
+    private-name scanner (check_private_names.py), so both read names and ordinary words
+    alike. Exit 1 with the names when one is found."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("check_private_names", args.checker)
+    if spec is None or spec.loader is None:
+        print(f"ledger: cannot load {args.checker}", file=sys.stderr)
+        return 2
+    cpn = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cpn)
     plan = json.loads(pathlib.Path(args.plan).read_text(encoding="utf-8"))
-    public = {p.strip().lower() for p in args.public.split(",") if p.strip()}
-    words: set[str] = set()
-    if args.private_words and pathlib.Path(args.private_words).is_file():
-        for line in pathlib.Path(args.private_words).read_text(encoding="utf-8").splitlines():
-            line = line.split("#", 1)[0].strip().lower()
-            if line:
-                words.add(line)
+    public = {cpn.key(p) for p in args.public.split(",") if p.strip()}
+    names = sorted(n for n in plan_repos(plan) if cpn.key(n) not in public)
+    if not names:
+        return 0
+    words = cpn.read_words(args.private_words) if args.private_words else set()
+    regex = cpn.build_regex(args.owner, names, words)
     diff = sys.stdin.read().splitlines()
     added = "\n".join(ln[1:] for ln in diff if ln.startswith("+") and not ln.startswith("+++"))
-    found = named_repos(plan, public, words, added)
+    found = sorted(
+        {names[int(g[1:])] for m in regex.finditer(added) for g, v in m.groupdict().items() if v}
+    )
     for name in found:
         print(name)
     return 1 if found else 0
@@ -282,6 +288,8 @@ def main(argv: list[str] | None = None) -> int:
     sc.add_argument("--plan", required=True)
     sc.add_argument("--public", required=True, help="comma-separated public repo names")
     sc.add_argument("--private-words", help="names that are also ordinary words, one a line")
+    sc.add_argument("--checker", required=True, help="the repo's scripts/check_private_names.py")
+    sc.add_argument("--owner", required=True, help="the GitHub owner, for owner/name slugs")
     args = ap.parse_args(argv)
     return {"append": append, "checklist": checklist, "fold": fold, "scan": scan}[args.cmd](args)
 

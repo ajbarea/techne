@@ -254,30 +254,21 @@ def test_checklist_leaves_out_retired_classes(tmp_path):
 
 SCAN_PLAN = {
     "incidents": {
-        "boundary-input": [{"repo": "brochure", "pr": "3"}, {"repo": "secretproj", "pr": "4"}]
+        "boundary-input": [{"repo": "brochure", "pr": "3"}, {"repo": "secret-proj", "pr": "4"}]
     },
     "new_classes": {},
     "unknown_slugs": {},
+    "ladder": {"boundary-input": {"prs": ["other-priv#9", "techne#5"], "rung": "checklist"}},
 }
+CHECKER = ROOT / "scripts" / "check_private_names.py"
 
 
-@pytest.mark.parametrize(
-    ("line", "found"),
-    [
-        ("secretproj#4 r1 (2026-10-29): x", ["secretproj"]),  # a private name: blocks
-        ("a private secretproj tool", ["secretproj"]),  # as a word too
-        ("a private brochure monorepo r1 (2026-10-29): x", []),  # an ordinary word: passes
-        ("brochure#3 r1 (2026-10-29): x", ["brochure"]),  # as a slug it blocks
-        ("acme/brochure had it", ["brochure"]),
-        ("techne#5 r1 (2026-10-29): x", []),  # public
-    ],
-)
-def test_scan_blocks_non_public_names_and_reads_ordinary_words_as_slugs(tmp_path, line, found):
+def scan(tmp_path, line: str, cwd: pathlib.Path | None = None) -> subprocess.CompletedProcess:
     plan = tmp_path / "plan.json"
     plan.write_text(json.dumps(SCAN_PLAN))
     words = tmp_path / "private-words"
     words.write_text("# ordinary words\nbrochure\n")
-    out = subprocess.run(
+    return subprocess.run(
         [
             HOOK_PYTHON,
             str(LEDGER),
@@ -288,11 +279,44 @@ def test_scan_blocks_non_public_names_and_reads_ordinary_words_as_slugs(tmp_path
             "techne, pharos",
             "--private-words",
             str(words),
+            "--checker",
+            str(CHECKER),
+            "--owner",
+            "acme",
         ],
         input=f"--- a/x\n+++ b/x\n+{line}\n",
         capture_output=True,
         text=True,
         check=False,
+        cwd=cwd,
     )
-    assert out.stdout.split() == found
+
+
+@pytest.mark.parametrize(
+    ("line", "found"),
+    [
+        ("secret-proj#4 r1 (2026-10-29): x", ["secret-proj"]),  # a private name blocks
+        ("a private Secret Proj tool", ["secret-proj"]),  # in any spelling the scanner reads
+        ("SecretProj#3", ["secret-proj"]),
+        ("a private brochure monorepo r1 (2026-10-29): x", []),  # an ordinary word passes
+        ("brochure#3 r1 (2026-10-29): x", ["brochure"]),  # as a slug it blocks
+        ("acme/brochure had it", ["brochure"]),
+        ("other-priv#9 r1 (2026-10-29): x", ["other-priv"]),  # a ladder-only repo is scanned
+        ("techne#5 r1 (2026-10-29): x", []),  # public
+    ],
+)
+def test_scan_blocks_non_public_names_and_reads_ordinary_words_as_slugs(tmp_path, line, found):
+    out = scan(tmp_path, line)
+    assert out.stdout.split() == found, out.stderr
     assert out.returncode == (1 if found else 0)
+
+
+def test_scan_from_another_folder_still_reads_the_word_list(tmp_path):
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    assert scan(tmp_path, "a private brochure monorepo", cwd=elsewhere).returncode == 0
+
+
+def test_the_job_asks_git_for_an_absolute_word_list_path():
+    text = (LEDGER.parent / "foldback.sh").read_text()
+    assert "--path-format=absolute --git-path info/private-words" in text
