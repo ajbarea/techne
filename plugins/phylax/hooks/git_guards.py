@@ -479,31 +479,34 @@ def parse_git(argv: list[str], cwd: Path, env: dict[str, str]) -> Command | None
 _builtins: set[str] | None = None
 
 
+# Options git accepts at the start of an alias and still runs it; the bool says one value follows.
+ALIAS_OPTIONS = {"-p": False, "--paginate": False, "-P": False, "--no-pager": False, "-c": True}
+ALIAS_OPTION_PREFIXES = ("--config-env=", "--exec-path=")
+
+
 def resolve_alias(cmd: Command) -> None:
     """Expand `git <alias>` to the command it stands for (`alias.ci = commit` makes `git ci`
     a commit), following an alias of an alias as git does, until a loop. git ignores an alias
-    that shadows one of its own commands, and a shell alias (`!...`) is left as it is."""
+    that shadows one of its own commands, and a shell alias (`!...`) is left as it is. A git
+    call that fails here raises GitUnavailable, so the check fails closed."""
     global _builtins
     seen: set[str] = set()
     while cmd.sub and cmd.sub not in KNOWN_SUBS and cmd.sub not in seen:
         seen.add(cmd.sub)
-        try:
-            if _builtins is None:
-                listed = run_git(cmd.cwd, [], "--list-cmds=builtins,main,others")
-                if listed is not None:
-                    _builtins = set(listed.split())
-            if cmd.sub in (_builtins or ()):
-                return
-            alias = run_git(cmd.cwd, cmd.repo_args, "config", "--get", f"alias.{cmd.sub}")
-        except GitUnavailable:
-            return
+        alias = run_git(cmd.cwd, cmd.repo_args, "config", "--get", f"alias.{cmd.sub}")
         if not alias or alias.lstrip().startswith("!"):
             return
-        words = shlex.split(alias)
-        while words and words[0] in {"-p", "--paginate", "-P", "--no-pager"}:
-            words = words[1:]
-        if not words:
+        if _builtins is None:
+            listed = run_git(cmd.cwd, [], "--list-cmds=builtins,main,others")
+            if listed is not None:
+                _builtins = set(listed.split())
+        if cmd.sub in (_builtins or ()):
             return
+        words = shlex.split(alias)
+        while words and (words[0] in ALIAS_OPTIONS or words[0].startswith(ALIAS_OPTION_PREFIXES)):
+            words = words[1 + ALIAS_OPTIONS.get(words[0], False) :]
+        if not words or words[0].startswith("-"):
+            return  # an option git refuses before an alias's command
         cmd.sub, cmd.args = words[0], words[1:] + cmd.args
 
 
