@@ -15,6 +15,7 @@ Transcripts and workspaces stay under /var/tmp/techne-quality-<uid>; the results
 from __future__ import annotations
 
 import argparse
+import ast
 import fcntl
 import hashlib
 import json
@@ -167,6 +168,12 @@ LEAK = re.compile(
 HOME_PATH = re.compile(r"(?<![\w.])/(?:home|root|tmp|mnt|var/tmp)(?:/[^\s'\";|&)]*)?")
 ESCAPE = re.compile(r"(?:^|[\s'\"=])(?:\.\./){2,}")
 LITERAL = re.compile(r"""(?:"([^"\\\n]{4,})"|'([^'\\\n]{4,})'|\b(\d{3,}(?:\.\d+)?)\b)""")
+# A name the parent tree lacks, as a hidden test's failure on it reads.
+MISSING_NAME = re.compile(
+    r"has no attribute '(\w+)'|cannot import name '(\w+)'|No module named '([\w.]+)'"
+    r"|unexpected keyword argument '(\w+)'"
+)
+WORD = re.compile(r"<?[^\W_][\w'.~$<>/-]*|→")
 
 
 def sh(cmd: Sequence[str], cwd: pathlib.Path | None = None, **kw) -> subprocess.CompletedProcess:
@@ -235,7 +242,17 @@ class lock:
             return
 
         self.fh = open("/tmp/fleet-heavy.lock", "a")
-        fcntl.flock(self.fh, fcntl.LOCK_EX)
+        try:
+            fcntl.flock(self.fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            # A caller that wraps run.py in `flock` on this file waits here forever.
+            print(
+                "waiting for /tmp/fleet-heavy.lock; run.py takes it itself, so never run it"
+                " under `flock` on that file",
+                file=sys.stderr,
+                flush=True,
+            )
+            fcntl.flock(self.fh, fcntl.LOCK_EX)
 
     def __exit__(self, *exc):
         self.fh.close()
@@ -630,6 +647,20 @@ def junit_results(path: pathlib.Path) -> tuple[set[str], set[str]]:
     return passed, failed
 
 
+def junit_failures(path: pathlib.Path) -> list[str]:
+    """The message and text of every failed or errored test in a JUnit XML report."""
+    try:
+        root = ElementTree.parse(path).getroot()
+    except (OSError, ElementTree.ParseError):
+        return []
+    return [
+        f"{child.get('message', '')}\n{child.text or ''}"
+        for case in root.iter("testcase")
+        for child in case
+        if child.tag in ("failure", "error")
+    ]
+
+
 def staged_diff(ws: pathlib.Path) -> bytes:
     """Everything the run changed, as bytes: a file that is not UTF-8 must still apply."""
     sh(["git", "add", "-A"], cwd=ws)
@@ -638,7 +669,11 @@ def staged_diff(ws: pathlib.Path) -> bytes:
 
 
 def hidden_tests(
-    task: dict, ws: pathlib.Path, dest: pathlib.Path, require: Sequence[str] | None = None
+    task: dict,
+    ws: pathlib.Path,
+    dest: pathlib.Path,
+    require: Sequence[str] | None = None,
+    messages: bool = False,
 ) -> dict:
     """Score a clean rebuild: the task's workspace, the run's diff applied, the hidden tests
     restored over it, then the test command offline. Edits git does not see (an installed
@@ -660,6 +695,7 @@ def hidden_tests(
                 "passed": False,
                 "exit": None,
                 "tail": "the diff does not apply to a clean tree",
+                **({"failures": []} if messages else {}),
             }
     for rel in task["hidden_tests"]:
         target = dest / rel
@@ -683,15 +719,148 @@ def hidden_tests(
         finally:
             shutil.rmtree(cache, ignore_errors=True)
     passed, failed = junit_results(junit)
+    failures = junit_failures(junit) if messages else []
     junit.unlink(missing_ok=True)
     missing = sorted(set(require or ()) - passed)
-    return {
+    out = {
         "passed": rc == 0 and not failed and bool(passed) and not missing,
         "exit": rc,
         "tail": tail,
         "tests_run": sorted(passed | failed),
         "missing": missing[:20],
     }
+    if messages:
+        out["failures"] = failures
+    return out
+
+
+def windows(text: str) -> set[tuple[str, ...]]:
+    """Every run of three words in TEXT, lower-cased; an f-string's placeholders and a regex's
+    `|` break a run."""
+    out = set()
+    for part in re.split(r"\{[^}]*\}|\|", text.lower()):
+        words = WORD.findall(part)
+        out |= {tuple(words[i : i + 3]) for i in range(len(words) - 2)}
+    return out
+
+
+def stated(run: tuple[str, ...], report: set[tuple[str, ...]]) -> bool:
+    """Whether the report says RUN, where a report word like `<where>/` stands for any word."""
+    return any(
+        all(r == w or (r.startswith("<") and ">" in r) for r, w in zip(said, run, strict=True))
+        for said in report
+    )
+
+
+def added_lines(diff: str) -> set[int]:
+    """The new-side line numbers a one-file diff adds."""
+    out, line, in_hunk = set(), 0, False
+    for ln in diff.splitlines():
+        hunk = re.match(r"@@ -\S+ \+(\d+)", ln)
+        if hunk:
+            line, in_hunk = int(hunk.group(1)), True
+        elif not in_hunk:
+            continue  # the file header, where `+++ b/path` is not an added line
+        elif ln.startswith("+"):
+            out.add(line)
+            line += 1
+        elif not ln.startswith("-") and not ln.startswith("\\"):
+            line += 1
+    return out
+
+
+def strings(source: str, path: str, lines: set[int] | None = None) -> list[str]:
+    """The string literals of a file, or of the given lines only. Python is read by its syntax
+    tree, so docstrings and comments are left out and an f-string keeps `{}` where each
+    placeholder was; any other file falls back to quoted text on each line."""
+    if path.endswith(".py"):
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            tree = None
+        if tree is not None:
+            skip = set()
+            for node in ast.walk(tree):
+                body = getattr(node, "body", None)
+                if (
+                    isinstance(body, list)
+                    and body
+                    and isinstance(body[0], ast.Expr)
+                    and isinstance(body[0].value, ast.Constant)
+                    and isinstance(body[0].value.value, str)
+                ):
+                    skip.add(id(body[0].value))  # a docstring
+            out = []
+            for node in ast.walk(tree):  # breadth first: an f-string before its parts
+                if id(node) in skip or not isinstance(node, (ast.JoinedStr, ast.Constant)):
+                    continue
+                if lines is not None and not lines & set(
+                    range(node.lineno, (node.end_lineno or node.lineno) + 1)
+                ):
+                    continue
+                if isinstance(node, ast.JoinedStr):
+                    skip |= {id(part) for part in node.values}
+                    out.append(
+                        "".join(
+                            v.value
+                            if isinstance(v, ast.Constant) and isinstance(v.value, str)
+                            else "{}"
+                            for v in node.values
+                        )
+                    )
+                elif isinstance(node.value, str):
+                    out.append(node.value)
+                elif isinstance(node.value, bytes):
+                    out.append(node.value.decode("utf-8", "replace"))
+            return [lit for lit in out if len(lit) >= 4]
+    return [
+        next(g for g in m.groups() if g)
+        for n, ln in enumerate(source.splitlines(), 1)
+        if lines is None or n in lines
+        for m in LITERAL.finditer(ln)
+    ]
+
+
+def interface_gaps(task: dict, failures: Sequence[str]) -> list[str]:
+    """What the hidden tests check that the bug report does not state, so that no fix could
+    pass without the gold patch: a name the parent tree lacks (from the tests' failures on it),
+    or a string a test adds that shares wording with the strings the fix adds and also says
+    something neither the parent's changed files nor the report say. A rule stated only in
+    prose is beyond this check and stays a reading audit."""
+    report = task["report"].lower()
+    gaps = set()
+    for text in failures:
+        for m in MISSING_NAME.finditer(text):
+            name = next(g for g in m.groups() if g)
+            if not re.search(rf"\b{re.escape(name.rsplit('.', 1)[-1].lower())}\b", report):
+                gaps.add(f"name the report does not give: {name}")
+    span = (task["parent"], task["fix"])
+    changed = git(task["clone"], "diff", "--name-only", "--diff-filter=AM", *span).splitlines()
+
+    def added_strings(path: str) -> list[str]:
+        new = sh(["git", "-C", str(task["clone"]), "show", f"{task['fix']}:{path}"]).stdout
+        return strings(new, path, added_lines(git(task["clone"], "diff", *span, "--", path)))
+
+    code_paths = [p for p in changed if p not in task["hidden_tests"] and not TEST_PATH.search(p)]
+    fix_strings = [lit for p in code_paths for lit in added_strings(p)]
+    added = set().union(set(), *(windows(lit) for lit in fix_strings))
+    vocabulary = {w for lit in fix_strings for w in WORD.findall(lit.lower())}
+    before = set()
+    for p in code_paths:
+        shown = sh(["git", "-C", str(task["clone"]), "show", f"{task['parent']}:{p}"])
+        before |= windows(shown.stdout) if not shown.returncode else set()
+    said_by_report = windows(report)
+    for p in (p for p in changed if p in task["hidden_tests"]):
+        for lit in added_strings(p):
+            said = windows(lit)
+            if not said & added:
+                continue  # shares no wording with the fix: fixture data, not a message
+            # A run made only of the fix's words, which the parent did not say: new wording,
+            # including a run that joins two of the fix's strings across a placeholder.
+            new = {w for w in said - before if set(w) <= vocabulary}
+            if any(not stated(w, said_by_report) for w in new):
+                gaps.add(f"wording the report does not give: {lit[:70]}")
+    return sorted(gaps)
 
 
 def judge(task: dict, diff: str, changed: list[str], log: pathlib.Path) -> dict:
@@ -1097,7 +1266,8 @@ def discard(out: pathlib.Path, task: dict, mode: str, rep: int, kind: str, **inf
 
 def check_tasks(tasks: list[dict]) -> int:
     """No model: each task's hidden tests fail on its workspace and pass with the gold patch,
-    and the gold patch raises no cheat flag. Records the test ids the gold patch passes,
+    the gold patch raises no cheat flag, and the report states every name and fix wording the
+    hidden tests check. Records the test ids the gold patch passes,
     which every run must pass too."""
     bad = 0
     gold_ids = json.loads(GOLD.read_text(encoding="utf-8")) if GOLD.exists() else {}
@@ -1105,7 +1275,8 @@ def check_tasks(tasks: list[dict]) -> int:
         base = CHECK / task["id"]
         ws = base / "ws"
         workspace(task, ws)
-        before = hidden_tests(task, ws, base / "score-parent")
+        before = hidden_tests(task, ws, base / "score-parent", messages=True)
+        gaps = interface_gaps(task, before["failures"])
         # The gold patch: the parent workspace plus the fix's changes outside the hidden tests,
         # so a hidden file the fix needs but the task does not list makes the task fail here.
         gold = base / "ws-gold"
@@ -1132,7 +1303,7 @@ def check_tasks(tasks: list[dict]) -> int:
         flags = audit(
             task, gold, sh(["git", "diff", "--cached", base_of(gold)], cwd=gold).stdout, []
         )
-        ok = not before["passed"] and after["passed"] and not flags
+        ok = not before["passed"] and after["passed"] and not flags and not gaps
         bad += not ok
         if ok:  # a gold pass has no failed test, so every test it ran passed
             gold_ids[task["id"]] = after["tests_run"]
@@ -1141,9 +1312,11 @@ def check_tasks(tasks: list[dict]) -> int:
         print(
             f"{task['id']}: parent {'passes' if before['passed'] else 'fails'}, "
             f"fix {'passes' if after['passed'] else 'fails'}, "
-            f"gold flags {flags or 'none'}: {'ok' if ok else 'BROKEN'}",
+            f"gold flags {flags or 'none'}, report gaps {len(gaps)}: {'ok' if ok else 'BROKEN'}",
             flush=True,
         )
+        for gap in gaps:
+            print(f"  {gap}")
         if not after["passed"]:
             print(after["tail"][-800:])
         shutil.rmtree(base, ignore_errors=True)

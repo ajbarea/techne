@@ -405,6 +405,141 @@ def test_junit_results(tmp_path):
     assert run.junit_results(tmp_path / "bad.xml") == (set(), set())
 
 
+def test_junit_failures_carry_the_message_and_text(tmp_path):
+    (tmp_path / "j.xml").write_text(
+        '<testsuites><testsuite><testcase classname="t" name="a">'
+        "<failure message=\"has no attribute 'x'\">trace</failure></testcase>"
+        '<testcase classname="t" name="b"/></testsuite></testsuites>'
+    )
+    assert run.junit_failures(tmp_path / "j.xml") == ["has no attribute 'x'\ntrace"]
+    assert run.junit_failures(tmp_path / "none.xml") == []
+
+
+def test_added_lines_counts_the_new_side():
+    diff = "--- a/f\n+++ b/f\n@@ -1,3 +1,4 @@\n a\n-b\n+c\n+d\n e\n@@ -9 +10,2 @@\n x\n+y\n"
+    assert run.added_lines(diff) == {2, 3, 11}
+
+
+def test_strings_skip_docstrings_and_keep_placeholders():
+    src = (
+        '"""Module doc."""\n\ndef f(x):\n    """Doc."""\n'
+        '    return f"{x} stops here", "plain one"\n'
+    )
+    assert sorted(run.strings(src, "m.py")) == ["plain one", "{} stops here"]
+    assert run.strings(src, "m.py", {1, 4}) == []
+    assert run.strings('echo "a message"\n', "s.sh") == ["a message"]
+
+
+PARENT_CODE = (
+    "def msg(rel, where):\n"
+    '    return f"{rel} stops for you → go; for a session started in {where}/"\n'
+)
+FIX_CODE = (
+    "def msg(rel, where, nested):\n"
+    '    scope = f" in a session started in {where}/" if nested else ""\n'
+    '    return f"{rel} stops for you{scope} → go"\n'
+)
+TEST_CODE = (
+    '"""Tests for the message, in a session started in a folder."""\n'
+    "def test_m():\n"
+    '    assert msg("a", "b", True) == "a stops for you in a session started in b/ → go"\n'
+    '    assert fixture("jane.doe@example.org wrote to us")\n'
+)
+
+
+def gap_task(tmp_path: pathlib.Path, report: str) -> dict:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    def commit(files: dict[str, str]) -> str:
+        for rel, body in files.items():
+            (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+            (repo / rel).write_text(body)
+        subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+        subprocess.run(["git", "commit", "-qm", "x"], cwd=repo, check=True)
+        return subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True, check=True
+        ).stdout.strip()
+
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=repo, check=True)
+    parent = commit({"m.py": PARENT_CODE, "tests/test_m.py": "def test_old(): pass\n"})
+    fix = commit({"m.py": FIX_CODE, "tests/test_m.py": TEST_CODE})
+    return {
+        "clone": repo,
+        "parent": parent,
+        "fix": fix,
+        "report": report,
+        "hidden_tests": ["tests/test_m.py"],
+    }
+
+
+def test_interface_gaps_name_new_wording_the_report_leaves_out(tmp_path):
+    task = gap_task(tmp_path, "msg names the folder for a nested file.")
+    assert run.interface_gaps(task, []) == [
+        "wording the report does not give: a stops for you in a session started in b/ → go"
+    ]
+
+
+def test_interface_gaps_accept_wording_the_report_states(tmp_path):
+    report = "A nested one reads `<rel> stops for you in a session started in <where>/ → go`."
+    assert run.interface_gaps(gap_task(tmp_path, report), []) == []
+
+
+def test_interface_gaps_name_what_the_parent_lacks_unless_the_report_does(tmp_path):
+    report = "Interface: a stops for you in a session started in b/ → go. `cli.grants_file()`."
+    task = gap_task(tmp_path, report)
+    failures = [
+        "AttributeError: module 'redact' has no attribute 'artifacts'",
+        "AttributeError: module 'cli' has no attribute 'grants_file'",
+    ]
+    assert run.interface_gaps(task, failures) == ["name the report does not give: artifacts"]
+
+
+@pytest.mark.parametrize(
+    ("report", "ok"), [("The fix adds `artifacts(results)`.", True), ("No name given.", False)]
+)
+def test_check_tasks_fails_a_task_whose_report_leaves_out_a_name(
+    tmp_path, monkeypatch, capsys, report, ok
+):
+    monkeypatch.setattr(run, "CHECK", tmp_path / "check")
+    monkeypatch.setattr(run, "GOLD", tmp_path / "gold.json")
+    monkeypatch.setattr(run, "workspace", lambda task, dest: dest.mkdir(parents=True))
+    monkeypatch.setattr(run, "git", lambda *a: "")
+    monkeypatch.setattr(run, "sh", lambda *a, **k: subprocess.CompletedProcess(a, 0, "", ""))
+    monkeypatch.setattr(run, "base_of", lambda ws: "base")
+    monkeypatch.setattr(run, "diff_files", lambda ws: [])
+    monkeypatch.setattr(run, "audit", lambda *a: [])
+
+    def scored(task, ws, dest, require=None, messages=False):
+        if dest.name == "score-parent":
+            assert messages  # the gap check reads the parent's failures
+            return {"passed": False, "failures": ["module 'x' has no attribute 'artifacts'"]}
+        return {"passed": True, "tests_run": ["t::a"]}
+
+    monkeypatch.setattr(run, "hidden_tests", scored)
+    task = {"id": "a", "clone": tmp_path, "parent": "p", "fix": "f", "report": report}
+    task["hidden_tests"] = ["tests/test_a.py"]
+    assert run.check_tasks([task]) == (0 if ok else 1)
+    out = capsys.readouterr().out
+    assert ("BROKEN" in out) is not ok
+    assert json.loads(run.GOLD.read_text()) == ({"a": ["t::a"]} if ok else {})
+
+
+def test_added_lines_reads_an_added_line_that_starts_with_two_pluses():
+    assert run.added_lines("--- a/f\n+++ b/f\n@@ -1 +1,3 @@\n a\n+++x\n+y\n") == {2, 3}
+
+
+def test_a_name_counts_as_given_only_as_a_whole_word(monkeypatch):
+    monkeypatch.setattr(run, "git", lambda *a: "")
+    task = {"report": "Uses spool.", "hidden_tests": [], "clone": ".", "parent": "p", "fix": "f"}
+    failures = ["module 'c' has no attribute 'pool'"]
+    assert run.interface_gaps(task, failures) == ["name the report does not give: pool"]
+    task["report"] = "Adds `cli.pool()`."
+    assert run.interface_gaps(task, failures) == []
+
+
 @pytest.mark.parametrize(
     ("rc", "cases", "require", "want"),
     [

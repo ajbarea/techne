@@ -6,17 +6,21 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 
 ## In flight
 
-Running (branch results/quality-baseline, worktree `.claude/worktrees/baseline`): the Opus
-baseline (`make quality MODE=normal PHASE=baseline QUALITY_OUT=quality/results/2026-10-29-baseline`)
-runs in tmux `quality-resume` (`~/.local/state/techne-quality/resume.sh`, logs beside it) on
-Personal (`CLAUDE_CONFIG_DIR=~/.claude-rit`; `fleet accounts` says which folder is which),
-then runs `make quality-skills`. To move it to RIT after its reset: `tmux kill-session -t
-quality-resume`, then `tmux new-session -d -s quality-resume -e CLAUDE_CONFIG_DIR=/home/ajbar/.claude
-"bash ~/.local/state/techne-quality/resume.sh"`; rerunning the same command resumes (the run
-cut off is discarded and redone). Always pass `-e CLAUDE_CONFIG_DIR`: tmux drops it and
-`claude -p` then uses `~/.claude`. Progress: `grep tests= ~/.local/state/techne-quality/baseline.log`
-(30 runs). A skill suite with any "ended on an API error" run is invalid: delete its JSON and
-rerun. Then commit both under `quality/results/` by PR and start techne#226.
+Branch results/quality-baseline, worktree `.claude/worktrees/baseline`: techne#249. The first 4
+of 30 Opus baseline runs all failed hidden tests; 3 tasks checked names or wording their reports
+never gave (unwinnable for any mode). Done in the tree: interface notes completed on 8 tasks,
+`run.py` `interface_gaps` makes `--check-tasks` fail such a task (mutation-checked against the
+old reports), `quality/DEVIATIONS.md` records it, old runs moved to
+`quality/results/2026-10-29-baseline-void/`. Next: `--check-tasks` all ok → review rounds until
+clean → PR (links #249) → merge → restart the baseline from main's commit in a fresh folder
+`quality/results/2026-10-29-baseline-2` on RIT (`CLAUDE_CONFIG_DIR=/home/ajbar/.claude`; edit
+`~/.local/state/techne-quality/resume.sh`'s QUALITY_OUT first), in tmux `quality-resume`:
+`tmux new-session -d -s quality-resume -e CLAUDE_CONFIG_DIR=/home/ajbar/.claude "bash
+~/.local/state/techne-quality/resume.sh"`. Rerunning resumes; always pass `-e CLAUDE_CONFIG_DIR`.
+Never wrap `run.py` or `make quality` in `flock /tmp/fleet-heavy.lock`: run.py takes that lock itself
+around test runs, so the wrapper deadlocks (cost two hours on 10-29). Progress: `grep tests= ~/.local/state/techne-quality/baseline.log`. A skill suite with any
+"ended on an API error" run is invalid: delete its JSON and rerun. Then commit results under
+`quality/results/` by PR and start techne#226.
 
 Before it: the logging rollout (10-28/29) is done, one PR per repo, each re-checked `logging standard ✓`
 on main with #230's check: sphragis #225, techne #230, pharos #102, ariadne #76, keryx #69,

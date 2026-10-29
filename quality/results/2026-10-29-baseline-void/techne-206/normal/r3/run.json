@@ -1,0 +1,121 @@
+{
+ "task": "techne-206",
+ "risk": "ordinary",
+ "mode": "normal",
+ "repeat": 3,
+ "implementer": "claude-opus-5-5",
+ "reviewer": "claude-opus-5-5",
+ "judge": "claude-opus-5-5",
+ "claude_code": "2.1.302 (Claude Code)",
+ "phase": "baseline",
+ "inputs": {
+  "harness": "368d14bf5ca7f4f5",
+  "tasks": "bef433742020746d",
+  "judge": "86560571c19d70a6",
+  "elenchus": "04809cf83b2d270d"
+ },
+ "resolved": null,
+ "tests": {
+  "passed": false,
+  "exit": 1,
+  "tail": "ex 0 diff: 'scratch/CLAUDE.local.md stops Claude Code reading AGENTS.md for you \u2192 move it to ~/.claude/CLAUDE.md, or set Project instructions to claude-md-and-agents-md' != 'scratch/CLAUDE.local.md stops Claude Code reading AGENTS.md for you in a session started in scratch/ \u2192 move it to ~/.claude/CLAUDE.md, or set Project instructions to claude-md-and-agents-md'\nE         Use -v to get more diff\n\ntests/test_sisters_agents_md.py:232: AssertionError\n___________ test_an_ignored_clone_of_another_project_is_not_checked ____________\n\nam = <module 'techne_agents_md' from '/var/tmp/techne-quality-1001/score/run/plugins/techne/skills/sisters/scripts/agents_md.py'>\ntmp_path = PosixPath('/tmp/pytest-of-ajbar/pytest-1128/test_an_ignored_clone_of_anoth0')\n\n    def test_an_ignored_clone_of_another_project_is_not_checked(am, tmp_path):\n        root = repo(tmp_path, {\"AGENTS.md\": \"# a\\n\", \".gitignore\": \"upstream/\\n\"})\n        subprocess.run([\"git\", \"init\", \"-q\", str(root / \"upstream\")], check=True)\n        (root / \"upstream\" / \"CLAUDE.md\").write_text(\"theirs\\n\")\n>       assert am.check(root) == []\nE       AssertionError: assert ['upstream/CL...nd delete it'] == []\nE         \nE         Left contains one more item: 'upstream/CLAUDE.md replaces AGENTS.md for a session started in upstream/ \u2192 move its content into AGENTS.md and delete it'\nE         Use -v to get more diff\n\ntests/test_sisters_agents_md.py:239: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_sisters_agents_md.py::test_flags[nested-local-ignored] - As...\nFAILED tests/test_sisters_agents_md.py::test_a_wholly_ignored_folder_has_its_top_level_checked[scratch/CLAUDE.local.md-scratch/CLAUDE.local.md stops Claude Code reading AGENTS.md for you in a session started in scratch/ \\u2192 move it to ~/.claude/CLAUDE.md, or set Project instructions to claude-md-and-agents-md]\nFAILED tests/test_sisters_agents_md.py::test_an_ignored_clone_of_another_project_is_not_checked\n",
+  "tests_run": [
+   "tests.test_sisters_agents_md::test_a_corrupt_index_says_what_git_said",
+   "tests.test_sisters_agents_md::test_a_path_that_is_not_utf8_prints_and_later_repos_still_run",
+   "tests.test_sisters_agents_md::test_a_wholly_ignored_folder_has_its_top_level_checked[scratch/.claude/CLAUDE.md-scratch/.claude/CLAUDE.md replaces AGENTS.md for a session started in scratch/ \\u2192 move its content into AGENTS.md and delete it]",
+   "tests.test_sisters_agents_md::test_a_wholly_ignored_folder_has_its_top_level_checked[scratch/CLAUDE.local.md-scratch/CLAUDE.local.md stops Claude Code reading AGENTS.md for you in a session started in scratch/ \\u2192 move it to ~/.claude/CLAUDE.md, or set Project instructions to claude-md-and-agents-md]",
+   "tests.test_sisters_agents_md::test_a_wholly_ignored_folder_has_its_top_level_checked[scratch/CLAUDE.md-scratch/CLAUDE.md replaces AGENTS.md for a session started in scratch/ \\u2192 move its content into AGENTS.md and delete it]",
+   "tests.test_sisters_agents_md::test_a_wholly_ignored_folder_has_its_top_level_checked[sub/.claude/CLAUDE.md-sub/.claude/CLAUDE.md replaces AGENTS.md for a session started in sub/ \\u2192 move its content into AGENTS.md and delete it]",
+   "tests.test_sisters_agents_md::test_a_wholly_ignored_folder_is_not_searched_below_its_top_level",
+   "tests.test_sisters_agents_md::test_an_ignored_clone_of_another_project_is_not_checked",
+   "tests.test_sisters_agents_md::test_claude_md_above_the_repo_is_flagged",
+   "tests.test_sisters_agents_md::test_clean_repo_prints_pass_line",
+   "tests.test_sisters_agents_md::test_cli_prints_per_repo_and_exits_zero",
+   "tests.test_sisters_agents_md::test_directory_named_claude_md_above_the_repo_is_not_flagged",
+   "tests.test_sisters_agents_md::test_directory_named_claude_md_is_not_flagged",
+   "tests.test_sisters_agents_md::test_dot_claude_local_md_is_not_flagged",
+   "tests.test_sisters_agents_md::test_flags[dot-claude-untracked]",
+   "tests.test_sisters_agents_md::test_flags[dot-claude]",
+   "tests.test_sisters_agents_md::test_flags[local-tracked]",
+   "tests.test_sisters_agents_md::test_flags[local-untracked]",
+   "tests.test_sisters_agents_md::test_flags[nested-dot-claude-untracked]",
+   "tests.test_sisters_agents_md::test_flags[nested-local-ignored]",
+   "tests.test_sisters_agents_md::test_flags[nested-tracked]",
+   "tests.test_sisters_agents_md::test_flags[nested-untracked]",
+   "tests.test_sisters_agents_md::test_flags[non-ascii-path]",
+   "tests.test_sisters_agents_md::test_flags[root-import]",
+   "tests.test_sisters_agents_md::test_flags[root-local-ignored]",
+   "tests.test_sisters_agents_md::test_flags[root-plain]",
+   "tests.test_sisters_agents_md::test_flags[root-untracked]",
+   "tests.test_sisters_agents_md::test_flags[space-in-path]",
+   "tests.test_sisters_agents_md::test_ignored_nested_claude_md_is_flagged",
+   "tests.test_sisters_agents_md::test_ignored_root_claude_md_is_flagged",
+   "tests.test_sisters_agents_md::test_ignored_vendored_claude_local_md_is_not_flagged",
+   "tests.test_sisters_agents_md::test_ignored_vendored_claude_md_is_not_flagged",
+   "tests.test_sisters_agents_md::test_literal_pathspecs_env_does_not_hide_files",
+   "tests.test_sisters_agents_md::test_missing_and_non_git",
+   "tests.test_sisters_agents_md::test_no_agents",
+   "tests.test_sisters_agents_md::test_passes[agents-only]",
+   "tests.test_sisters_agents_md::test_passes[nested-agents]",
+   "tests.test_sisters_agents_md::test_symlink_is_flagged",
+   "tests.test_sisters_agents_md::test_user_claude_md_is_not_above_the_repo"
+  ],
+  "missing": [
+   "tests.test_sisters_agents_md::test_a_wholly_ignored_folder_has_its_top_level_checked[scratch/CLAUDE.local.md-scratch/CLAUDE.local.md stops Claude Code reading AGENTS.md for you in a session started in scratch/ \\u2192 move it to ~/.claude/CLAUDE.md, or set Project instructions to claude-md-and-agents-md]",
+   "tests.test_sisters_agents_md::test_an_ignored_clone_of_another_project_is_not_checked",
+   "tests.test_sisters_agents_md::test_flags[nested-local-ignored]"
+  ]
+ },
+ "judge_verdict": null,
+ "flags": [],
+ "notes": [],
+ "reviews": [
+  {
+   "round": 1,
+   "ok": true,
+   "findings": [
+    {
+     "severity": "Should-fix",
+     "class": "claim-code-drift",
+     "anchor": "plugins/techne/skills/sisters/scripts/agents_md.py:15",
+     "scenario": "The rewrapped module docstring leaves line 15 at 116 characters. pyproject.toml sets line-length = 100 and selects E. CI's validate.yml step 'Lint (ruff check + format)' runs `make lint`, which runs `uv run ruff check scripts/ plugins/ tests/`. I ran `uv run --offline ruff check` on the file and it reports E501 'Found 1 error', so CI goes red on this change. The behaviour fixes themselves hold up. All 37 tests pass. I also ran the script on a scratch repo with node_modules/CLAUDE.md, node_modules/pkg/CLAUDE.md and an ignored nested repo vendor/lib/CLAUDE.md: it flagged only the top-level node_modules/CLAUDE.md, as the bug report intends.",
+     "fix": "Rewrap the docstring paragraph to 100 columns or fewer, e.g. put '.claude/CLAUDE.local.md is not a file Claude Code reads, so it is not flagged.' on one line and 'The user's ~/.claude/CLAUDE.md is not flagged.' on the next. Then rerun `make lint`."
+    }
+   ]
+  },
+  {
+   "round": 2,
+   "ok": true,
+   "findings": [
+    {
+     "severity": "Should-fix",
+     "class": "claim-code-drift",
+     "anchor": "plugins/techne/skills/sisters/SKILL.md:47",
+     "scenario": "The change makes check 15 look at the top level of each wholly ignored folder. Reproduced: with `node_modules/` ignored, the script now reports `node_modules/CLAUDE.md replaces AGENTS.md for a session started in node_modules/`. The scripts docstring and references/checks.md were updated to say \"except below the top level of a wholly ignored folder\". The SKILL.md check table, the summary the skill reads to explain check 15, still says \"except inside a wholly ignored folder such as node_modules\". So the skill tells users that a file it now flags is exempt.",
+     "fix": "Change the SKILL.md row-15 wording to match checks.md: \"except below the top level of a wholly ignored folder such as node_modules\"."
+    }
+   ]
+  },
+  {
+   "round": 3,
+   "ok": true,
+   "findings": []
+  }
+ ],
+ "usage": {
+  "cost_known": 1,
+  "cost_usd": 1.8291768000000004,
+  "input": 128,
+  "output": 34112,
+  "cache_read": 1208404,
+  "cache_write": 113093
+ },
+ "errors": [],
+ "changed": [
+  "plugins/techne/skills/sisters/SKILL.md",
+  "plugins/techne/skills/sisters/references/checks.md",
+  "plugins/techne/skills/sisters/scripts/agents_md.py",
+  "tests/test_sisters_agents_md.py"
+ ],
+ "diff": "diff --git a/plugins/techne/skills/sisters/SKILL.md b/plugins/techne/skills/sisters/SKILL.md\nindex 0d58b3e..b302f43 100644\n--- a/plugins/techne/skills/sisters/SKILL.md\n+++ b/plugins/techne/skills/sisters/SKILL.md\n@@ -44,7 +44,7 @@ Each check reports per repo; one broken repo never aborts the others.\n | 12 | README header | A solo repo with a hero asset whose README does not open Hero \u2192 Title \u2192 tagline \u2192 Badges | Align, or confirm it is intentional |\n | 13 | Worktree ignore | `.claude/worktrees/` not ignored by a committed `.gitignore` (unignored, or only in `.git/info/exclude`) | Add `.claude/worktrees/` to `.gitignore` |\n | 14 | Docs-site shared files | A site's copy of a shared docs-site file differs from techne's, or a `docs/` page is missing from the nav | Fix techne's copy and sync it; list or move the page |\n-| 15 | Agent instruction file | No committed `AGENTS.md`; any `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md` in the repo (tracked, untracked or ignored, at any depth, except inside a wholly ignored folder such as node_modules) or above it; a symlinked `CLAUDE.md` | Move the content into `AGENTS.md` and delete the file; personal notes go to `~/.claude/CLAUDE.md` |\n+| 15 | Agent instruction file | No committed `AGENTS.md`; any `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md` in the repo (tracked, untracked or ignored, at any depth, except below the top level of a wholly ignored folder such as node_modules) or above it; a symlinked `CLAUDE.md` | Move the content into `AGENTS.md` and delete the file; personal notes go to `~/.claude/CLAUDE.md` |\n \n ## Output format\n \ndiff --git a/plugins/techne/skills/sisters/references/checks.md b/plugins/techne/skills/sisters/references/checks.md\nindex 4ceac50..6f2c0d6 100644\n--- a/plugins/techne/skills/sisters/references/checks.md\n+++ b/plugins/techne/skills/sisters/references/checks.md\n@@ -391,7 +391,7 @@ sits in the working directory or above it. A `CLAUDE.md` that imports `AGENTS.md\n session started in a subdirectory: the import is external there, so it loads only after an\n approval dialog, and `claude -p` skips it. The script flags every `CLAUDE.md`,\n `.claude/CLAUDE.md` and `CLAUDE.local.md` in the repo at any depth, tracked, untracked or ignored,\n-except inside a wholly ignored folder such as `node_modules`, and every one in a directory above\n+except below the top level of a wholly ignored folder such as `node_modules`, and every one in a directory above\n the repo. `.claude/CLAUDE.local.md` is not a file Claude Code reads, so it is not flagged. The\n user's `~/.claude/CLAUDE.md` is not flagged. A\n symlinked `CLAUDE.md` checks out on Windows as a one-line text file. Sources:\ndiff --git a/plugins/techne/skills/sisters/scripts/agents_md.py b/plugins/techne/skills/sisters/scripts/agents_md.py\nindex 5a79e0c..6f7466b 100644\n--- a/plugins/techne/skills/sisters/scripts/agents_md.py\n+++ b/plugins/techne/skills/sisters/scripts/agents_md.py\n@@ -10,10 +10,10 @@ imports @AGENTS.md does not help: for a session started in a subdirectory the\n import is external, so it loads only after an approval dialog, and `claude -p`\n skips it. The check therefore flags every such file in the repo, at any depth,\n whether tracked, untracked or ignored, and every one in a directory above the\n-repo. An ignored file is listed unless it sits in a wholly ignored folder, which\n-holds vendored code such as node_modules. .claude/CLAUDE.local.md is not a file\n-Claude Code reads, so it is not flagged. The user's ~/.claude/CLAUDE.md is not\n-flagged.\n+repo. An ignored file is listed unless it sits below the top level of a wholly\n+ignored folder, which holds vendored code such as node_modules.\n+.claude/CLAUDE.local.md is not a file Claude Code reads, so it is not flagged.\n+The user's ~/.claude/CLAUDE.md is not flagged.\n \n Prints one line per finding, or one passing line per repo. Always exits 0.\n \"\"\"\n@@ -41,7 +41,11 @@ def above(root: Path) -> list[str]:\n     return found\n \n \n-def git_files(root: Path, *args: str) -> list[str] | None:\n+class GitError(Exception):\n+    pass\n+\n+\n+def git_files(root: Path, *args: str) -> list[str]:\n     out = subprocess.run(\n         [\"git\", \"-C\", str(root), \"ls-files\", \"-z\", *args],\n         capture_output=True,\n@@ -49,19 +53,20 @@ def git_files(root: Path, *args: str) -> list[str] | None:\n         env={**os.environ, \"GIT_LITERAL_PATHSPECS\": \"0\"},\n     )\n     if out.returncode != 0:\n-        return None\n+        error = out.stderr.decode(errors=\"backslashreplace\").strip()\n+        raise GitError(f\"git ls-files failed in {root}: {error}\")\n     return [p for p in os.fsdecode(out.stdout).split(\"\\0\") if p]\n \n \n def candidates(root: Path, files: list[str]) -> list[str]:\n     \"\"\"Tracked, untracked and ignored CLAUDE-family files, as repo-relative paths.\"\"\"\n-    found = set()\n-    for args in (\n-        (\"-o\", \"--exclude-standard\", \"--\", \":(glob)**/CLAUDE.md\", \":(glob)**/CLAUDE.local.md\"),\n-        (\"-o\", \"-i\", \"--exclude-standard\", \"--directory\"),\n-    ):\n-        files = [*files, *(git_files(root, *args) or [])]\n-    found = {p for p in files if Path(p.rstrip(\"/\")).name in NAMES}\n+    untracked = git_files(\n+        root, \"-o\", \"--exclude-standard\", \"--\", \":(glob)**/CLAUDE.md\", \":(glob)**/CLAUDE.local.md\"\n+    )\n+    ignored = git_files(root, \"-o\", \"-i\", \"--exclude-standard\", \"--directory\")\n+    found = {p for p in [*files, *untracked, *ignored] if Path(p.rstrip(\"/\")).name in NAMES}\n+    # A session started in a wholly ignored folder loads the files at its top level.\n+    found |= {d + rel for d in ignored if d.endswith(\"/\") for rel in ROOT_FILES}\n     found |= {p for p in ROOT_FILES if os.path.lexists(root / p)}\n     found = {p for p in found if not (\"/\" + p).endswith(\"/.claude/CLAUDE.local.md\")}\n     return sorted(p for p in found if os.path.islink(root / p) or os.path.isfile(root / p))\n@@ -70,14 +75,16 @@ def candidates(root: Path, files: list[str]) -> list[str]:\n def check(root: Path) -> list[str]:\n     if not root.is_dir():\n         return [f\"not cloned at {root}\"]\n-    files = git_files(root)\n-    if files is None:\n-        return [f\"{root} is not a git repository\"]\n+    try:\n+        files = git_files(root)\n+        found = candidates(root, files)\n+    except GitError as e:\n+        return [str(e)]\n     findings = []\n     if \"AGENTS.md\" not in files:\n         findings.append(\"no committed AGENTS.md \u2192 add one\")\n     findings += above(root)\n-    for rel in candidates(root, files):\n+    for rel in found:\n         path = root / rel\n         level = path.parent.parent if path.parent.name == \".claude\" else path.parent\n         if path.is_symlink():\n@@ -85,17 +92,17 @@ def check(root: Path) -> list[str]:\n                 f\"{rel} is a symlink, which a Windows clone checks out as a one-line \"\n                 \"text file \u2192 delete it; Claude Code reads AGENTS.md directly\"\n             )\n+        elif Path(rel).name == \"CLAUDE.local.md\":\n+            findings.append(\n+                f\"{rel} stops Claude Code reading AGENTS.md for you \u2192 move it to \"\n+                \"~/.claude/CLAUDE.md, or set Project instructions to claude-md-and-agents-md\"\n+            )\n         elif level != root:\n             where = level.relative_to(root).as_posix()\n             findings.append(\n                 f\"{rel} replaces AGENTS.md for a session started in {where}/ \u2192 \"\n                 \"move its content into AGENTS.md and delete it\"\n             )\n-        elif Path(rel).name == \"CLAUDE.local.md\":\n-            findings.append(\n-                f\"{rel} stops Claude Code reading AGENTS.md for you \u2192 move it to \"\n-                \"~/.claude/CLAUDE.md, or set Project instructions to claude-md-and-agents-md\"\n-            )\n         else:\n             findings.append(\n                 f\"{rel} stops Claude Code reading AGENTS.md directly, and an @AGENTS.md \"\n@@ -109,6 +116,7 @@ def main(argv: list[str]) -> int:\n     if len(argv) < 2:\n         print(__doc__.strip())\n         return 0\n+    sys.stdout.reconfigure(errors=\"backslashreplace\")\n     workspace = Path(argv[0]).expanduser()\n     for name in argv[1:]:\n         findings = check(workspace / name)\ndiff --git a/tests/test_sisters_agents_md.py b/tests/test_sisters_agents_md.py\nindex 9c57b16..2854b4c 100644\n--- a/tests/test_sisters_agents_md.py\n+++ b/tests/test_sisters_agents_md.py\n@@ -7,6 +7,7 @@ git decides what is tracked, and asserts on the line the check prints.\n \n from __future__ import annotations\n \n+import os\n import subprocess\n from pathlib import Path\n \n@@ -88,7 +89,7 @@ def test_no_agents(am, tmp_path):\n         (\n             {\"AGENTS.md\": \"# a\\n\", \".gitignore\": \"CLAUDE.local.md\\n\"},\n             {\"sub/CLAUDE.local.md\": \"x\\n\"},\n-            nested(\"sub/CLAUDE.local.md\", \"sub\"),\n+            \"sub/CLAUDE.local.md\" + LOCAL,\n         ),\n         (\n             {\"AGENTS.md\": \"# a\\n\", \".gitignore\": \"CLAUDE.local.md\\n\"},\n@@ -146,6 +147,29 @@ def test_ignored_vendored_claude_local_md_is_not_flagged(am, tmp_path):\n     assert am.check(root) == []\n \n \n+@pytest.mark.parametrize(\n+    (\"ignore\", \"rel\", \"where\"),\n+    [\n+        (\"scratch/\", \"scratch/CLAUDE.md\", \"scratch\"),\n+        (\"scratch/\", \"scratch/.claude/CLAUDE.md\", \"scratch\"),\n+        (\".claude/\", \"sub/.claude/CLAUDE.md\", \"sub\"),\n+    ],\n+    ids=[\"ignored-folder\", \"ignored-folder-dot-claude\", \"ignored-nested-dot-claude\"],\n+)\n+def test_top_of_ignored_folder_is_flagged(am, tmp_path, ignore, rel, where):\n+    root = repo(tmp_path, {\"AGENTS.md\": \"# a\\n\", \".gitignore\": ignore + \"\\n\"}, {rel: \"x\\n\"})\n+    assert am.check(root) == [nested(rel, where)]\n+\n+\n+def test_local_md_at_top_of_ignored_folder_gets_personal_advice(am, tmp_path):\n+    root = repo(\n+        tmp_path,\n+        {\"AGENTS.md\": \"# a\\n\", \".gitignore\": \"scratch/\\n\"},\n+        {\"scratch/CLAUDE.local.md\": \"x\\n\"},\n+    )\n+    assert am.check(root) == [\"scratch/CLAUDE.local.md\" + LOCAL]\n+\n+\n def test_ignored_nested_claude_md_is_flagged(am, tmp_path):\n     root = repo(\n         tmp_path,\n@@ -196,6 +220,33 @@ def test_missing_and_non_git(am, tmp_path):\n     assert \"not a git repository\" in am.check(plain)[0]\n \n \n+def test_corrupt_index_reports_git_error(am, tmp_path):\n+    root = repo(tmp_path, {\"AGENTS.md\": \"# a\\n\"})\n+    (root / \".git\" / \"index\").write_bytes(b\"garbage\")\n+    [finding] = am.check(root)\n+    assert finding.startswith(f\"git ls-files failed in {root}: \")\n+    assert \"index\" in finding and \"not a git repository\" not in finding\n+\n+\n+def test_cli_survives_non_utf8_path(tmp_path):\n+    root = repo(tmp_path, {\"AGENTS.md\": \"# a\\n\"})\n+    (root / os.fsdecode(b\"d\\xe9\")).mkdir()\n+    (root / os.fsdecode(b\"d\\xe9\") / \"CLAUDE.md\").write_text(\"x\\n\")\n+    (tmp_path / \"second\").mkdir()\n+    repo(tmp_path / \"second\", {\"README.md\": \"x\\n\"})\n+    out = subprocess.run(\n+        [\"python3\", str(AGENTS_MD_SCRIPT), str(tmp_path), \"r\", \"second/r\"],\n+        capture_output=True,\n+        env={**os.environ, \"PYTHONIOENCODING\": \"utf-8:strict\"},\n+        check=False,\n+    )\n+    assert out.returncode == 0\n+    assert out.stdout.decode().splitlines() == [\n+        \"r: \" + nested(\"d\\\\udce9/CLAUDE.md\", \"d\\\\udce9\"),\n+        \"second/r: no committed AGENTS.md \u2192 add one\",\n+    ]\n+\n+\n def test_cli_prints_per_repo_and_exits_zero(tmp_path):\n     repo(tmp_path, {\"README.md\": \"x\\n\"})\n     out = subprocess.run(\n@@ -241,3 +292,12 @@ def test_user_claude_md_is_not_above_the_repo(am, tmp_path, monkeypatch):\n     (tmp_path / \".claude\").mkdir()\n     (tmp_path / \".claude\" / \"CLAUDE.md\").write_text(\"user memory\\n\")\n     assert am.check(repo(tmp_path, {\"AGENTS.md\": \"# a\\n\"})) == []\n+\n+\n+def test_skill_table_states_the_ignored_folder_scope():\n+    # The check flags the top level of a wholly ignored folder, so the table\n+    # the skill explains check 15 from must not call such a folder exempt.\n+    skill = (AGENTS_MD_SCRIPT.parents[1] / \"SKILL.md\").read_text(encoding=\"utf-8\")\n+    row = next(line for line in skill.splitlines() if line.startswith(\"| 15 |\"))\n+    assert \"except below the top level of a wholly ignored folder\" in row\n+    assert \"inside a wholly ignored folder\" not in row\n"
+}

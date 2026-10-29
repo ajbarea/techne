@@ -1,0 +1,56 @@
+{
+ "task": "sphragis-186",
+ "risk": "governance",
+ "mode": "normal",
+ "repeat": 3,
+ "implementer": "claude-opus-5-5",
+ "reviewer": "claude-opus-5-5",
+ "judge": "claude-opus-5-5",
+ "claude_code": "2.1.302 (Claude Code)",
+ "phase": "baseline",
+ "inputs": {
+  "harness": "368d14bf5ca7f4f5",
+  "tasks": "bef433742020746d",
+  "judge": "86560571c19d70a6",
+  "elenchus": "04809cf83b2d270d"
+ },
+ "resolved": null,
+ "tests": {
+  "passed": false,
+  "exit": 1,
+  "tail": "...F                                                                     [100%]\n=================================== FAILURES ===================================\n___________________ test_an_ignored_input_is_not_an_artifact ___________________\n\ntmp_path = PosixPath('/tmp/pytest-of-ajbar/pytest-1141/test_an_ignored_input_is_not_a0')\n\n    def test_an_ignored_input_is_not_an_artifact(tmp_path: Path) -> None:\n        subprocess.run([\"git\", \"init\", \"-q\", str(tmp_path)], check=True)\n        (tmp_path / \".gitignore\").write_text(\"results/inputs/\\n\")\n        results = tmp_path / \"results\"\n        (results / \"inputs\").mkdir(parents=True)\n        _jsonl(results / \"inputs\" / \"window.jsonl\", PERSON)\n        (results / \"published.json\").write_text(json.dumps(PERSON))\n        (results / \"new.txt\").write_text(\"jane.doe@redhat.com\")  # untracked, not ignored\n>       assert script.artifacts(results) == [results / \"new.txt\", results / \"published.json\"]\n               ^^^^^^^^^^^^^^^^\nE       AttributeError: module 'redact_identities' has no attribute 'artifacts'\n\ntests/unit/test_redact_jsonl.py:63: AttributeError\n=========================== short test summary info ============================\nFAILED tests/unit/test_redact_jsonl.py::test_an_ignored_input_is_not_an_artifact\n",
+  "tests_run": [
+   "tests.unit.test_redact_jsonl::test_a_jsonl_file_keeps_its_escapes_and_its_untouched_lines",
+   "tests.unit.test_redact_jsonl::test_a_line_that_is_not_json_is_scanned_as_text",
+   "tests.unit.test_redact_jsonl::test_an_escaped_newline_before_a_decorator_is_not_an_address",
+   "tests.unit.test_redact_jsonl::test_an_ignored_input_is_not_an_artifact"
+  ],
+  "missing": [
+   "tests.unit.test_redact_jsonl::test_an_ignored_input_is_not_an_artifact"
+  ]
+ },
+ "judge_verdict": null,
+ "flags": [],
+ "notes": [],
+ "reviews": [
+  {
+   "round": 1,
+   "ok": true,
+   "findings": []
+  }
+ ],
+ "usage": {
+  "cost_known": 1,
+  "cost_usd": 0.6547415999999999,
+  "input": 44,
+  "output": 9808,
+  "cache_read": 467548,
+  "cache_write": 45612
+ },
+ "errors": [],
+ "changed": [
+  "sphragis/corpus/redact.py",
+  "tests/unit/test_redact_jsonl.py"
+ ],
+ "diff": "diff --git a/sphragis/corpus/redact.py b/sphragis/corpus/redact.py\nindex 7a667ab..790206b 100644\n--- a/sphragis/corpus/redact.py\n+++ b/sphragis/corpus/redact.py\n@@ -122,9 +122,19 @@ def addresses_in(path: pathlib.Path) -> set[str]:\n     except (UnicodeDecodeError, ValueError):\n         return third_party_addresses(path.read_bytes().decode(\"latin-1\", errors=\"replace\"))\n \n+    if path.suffix == \".jsonl\":\n+        # One document per line, so one malformed line falls back alone.\n+        found: set[str] = set()\n+        for line in text.splitlines():\n+            found |= _addresses_in_json(line)\n+        return found\n     if path.suffix != \".json\":\n         return third_party_addresses(text)\n+    return _addresses_in_json(text)\n \n+\n+def _addresses_in_json(text: str) -> set[str]:\n+    \"\"\"Addresses in the decoded string values of the JSON `text`, raw if it won't parse.\"\"\"\n     found: set[str] = set()\n \n     def walk(node: Any) -> None:\n@@ -191,6 +201,8 @@ def redact_file(path: pathlib.Path) -> tuple[set[str], str | None]:\n \n     original = path.read_text(errors=\"replace\")\n     trailing = \"\\n\" if original.endswith(\"\\n\") else \"\"\n+    if path.suffix == \".jsonl\":\n+        return found, \"\".join(_redact_json_line(line) for line in original.splitlines(True))\n     if path.suffix != \".json\":\n         return found, redact_text(original)\n     try:\n@@ -198,3 +210,15 @@ def redact_file(path: pathlib.Path) -> tuple[set[str], str | None]:\n     except ValueError:\n         return found, redact_text(original)\n     return found, json.dumps(_mark_redacted(_redact(data)), indent=2) + trailing\n+\n+\n+def _redact_json_line(line: str) -> str:\n+    \"\"\"One JSON Lines record redacted on its decoded values; untouched lines kept verbatim.\"\"\"\n+    body = line.rstrip(\"\\r\\n\")\n+    if not _addresses_in_json(body):\n+        return line\n+    try:\n+        data = json.loads(body)\n+    except ValueError:\n+        return redact_text(line)\n+    return json.dumps(_mark_redacted(_redact(data))) + line[len(body) :]\ndiff --git a/tests/unit/test_redact_jsonl.py b/tests/unit/test_redact_jsonl.py\nnew file mode 100644\nindex 0000000..8eec8a1\n--- /dev/null\n+++ b/tests/unit/test_redact_jsonl.py\n@@ -0,0 +1,46 @@\n+\"\"\"JSON Lines artifacts are redacted on their decoded values, not their raw text.\n+\n+Read raw, `\"\\\\n\\\\n@mock.patch(\"` offers the address regex `n@mock.patch`, and an\n+address abutting a JSON escape is replaced together with the escape letter, leaving a lone\n+backslash: the line stops parsing and code that was never an address is rewritten.\n+\"\"\"\n+\n+from __future__ import annotations\n+\n+import json\n+from pathlib import Path\n+\n+from sphragis.corpus.redact import PLACEHOLDER, addresses_in, redact_file\n+\n+\n+def test_jsonl_redaction_keeps_every_line_parseable(tmp_path: Path) -> None:\n+    records = [\n+        {\"id\": \"a\", \"text\": \"import x\\n\\n@mock.patch('y')\\ndef test(): pass\"},\n+        {\"id\": \"b\", \"text\": \"Maintainer:\\njane@redhat.com\\n\"},\n+        {\"id\": \"c\", \"text\": \"plain\"},\n+    ]\n+    original = \"\".join(json.dumps(r) + \"\\n\" for r in records)\n+    path = tmp_path / \"inputs.jsonl\"\n+    path.write_text(original)\n+\n+    found, redacted = redact_file(path)\n+\n+    assert found == {\"jane@redhat.com\"}\n+    assert redacted is not None\n+    lines = redacted.splitlines(keepends=True)\n+    assert len(lines) == 3 and redacted.endswith(\"\\n\")\n+    rows = [json.loads(line) for line in lines]\n+    assert rows[0] == records[0]\n+    assert rows[1][\"text\"] == f\"Maintainer:\\n{PLACEHOLDER}\\n\"\n+    assert rows[1][\"identities_redacted\"] is True\n+    # Lines with nothing to redact are left byte for byte.\n+    assert lines[0] == original.splitlines(keepends=True)[0]\n+    assert lines[2] == original.splitlines(keepends=True)[2]\n+\n+\n+def test_jsonl_decorator_is_not_an_address(tmp_path: Path) -> None:\n+    path = tmp_path / \"inputs.jsonl\"\n+    path.write_text(json.dumps({\"text\": \"\\n\\n@decorators.retry(3)\"}) + \"\\n\")\n+\n+    assert addresses_in(path) == set()\n+    assert redact_file(path) == (set(), None)\n"
+}
