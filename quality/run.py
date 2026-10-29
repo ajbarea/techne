@@ -939,13 +939,13 @@ def leaf(key: str) -> str:
 def interface_gaps(task: dict, failures: Sequence[str]) -> list[str]:
     """What the hidden tests check that the bug report does not state, so that no fix could
     pass without the gold patch: a name or file a failure on the parent names (a missing
-    attribute, import, module, keyword argument, CLI flag or choice, or a file loaded or run by path)
-    that the fix adds to its code outside the tests (`defined`, by scope), and that no code
-    span in the report gives; or a string a test adds that shares a three-word run with the strings
-    the fix adds and also says something neither the parent's changed files nor the report
-    say. A rule stated only in prose, a new positional parameter, a name no failure names,
-    a message under three words, and the unquoted text of a file that is not Python are
-    beyond this check and stay a reading audit."""
+    attribute, import, module, keyword argument, CLI flag or choice, or a file loaded or run
+    by path) that the fix adds to its code outside the tests (`defined`, by scope), and that
+    no code span in the report gives; or a string a test adds that shares a three-word run
+    with the strings the fix adds and also says something neither the parent's changed files
+    nor the report say. A rule stated only in prose, a new positional parameter, a name no
+    failure names, a message under three words, and the unquoted text of a file that is not
+    Python are beyond this check and stay a reading audit."""
     report = task["report"].lower()
     # a name is given in code, as the notes write it, and in its own case
     code = re.findall(r"`([^`]+)`", task["report"])
