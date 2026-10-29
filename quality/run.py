@@ -31,12 +31,41 @@ from collections.abc import Sequence
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parent
 SANDBOX = HERE / "sandbox.json"
-CACHE = pathlib.Path(os.environ.get("XDG_CACHE_HOME", pathlib.Path.home() / ".cache"))
-WORK = CACHE / "techne-quality"
+# Outside /home: the sandbox denies all of /home, where other tools keep clones of these
+# repos (and so their fixes). Private to this user.
+WORK = pathlib.Path(f"/var/tmp/techne-quality-{os.getuid()}")
 # Only the run in progress lives in LIVE; finished runs, score copies and task checks sit in
 # folders quality/sandbox.json denies to every agent's shell, so no run reads another's
 # answer or a restored hidden test.
 LIVE, DONE, SCORE, CHECK = (WORK / d for d in ("live", "done", "score", "check"))
+# What a session's shell may read under WORK: its own run, the tools, and the elenchus copy.
+TOOLS = WORK / "tools"  # uv, uv's Pythons and cache: tasks' environments live here
+HIDDEN = ("done", "score", "check", "judge")
+
+
+def clean_env() -> dict[str, str]:
+    """The harness's environment without the caller's virtualenv, which would point a task's
+    commands at the wrong interpreter."""
+    return {k: v for k, v in os.environ.items() if k not in ("VIRTUAL_ENV", "PYTHONPATH")}
+
+
+def tool_env() -> dict[str, str]:
+    """uv and its Pythons inside WORK, so environments built at setup still run when a
+    session's shell cannot read /home."""
+    (TOOLS / "bin").mkdir(parents=True, exist_ok=True)
+    uv = TOOLS / "bin" / "uv"
+    if not uv.exists():
+        found = shutil.which("uv")
+        if not found:
+            raise RuntimeError("uv is not on PATH")
+        shutil.copy2(found, uv)
+    return {
+        "UV_CACHE_DIR": str(TOOLS / "uv-cache"),
+        "UV_PYTHON_INSTALL_DIR": str(TOOLS / "python"),
+        "UV_PYTHON_PREFERENCE": "only-managed",
+    }
+
+
 MODELS = {"normal": "claude-opus-5-5", "budget": "claude-sonnet-5-5"}
 REVIEWER = JUDGE = "claude-opus-5-5"
 AGENT_TOOLS = "Read,Edit,Write,Glob,Grep,Bash"
@@ -85,19 +114,15 @@ TEST_CONFIG = re.compile(
     r"(^|/)(conftest\.py|pytest\.ini|tox\.ini|setup\.cfg|pyproject\.toml|__snapshots__/"
     r"|[^/]*\.snap)"
 )
-# Commands that reach past the workspace: network tools, git remotes, GitHub.
+# Commands that try to reach past the sandbox: network tools, git remotes, GitHub. A URL
+# alone is not one: the sandbox has no network, and a test may parse one.
 LEAK = re.compile(
     r"\b(?:gh|curl|wget|ssh|scp|nc)\s"
     r"|\bgit\b[^|;&\n]*?\s(?:fetch|clone|pull|push|remote|ls-remote)\b"
-    r"|https?://"
 )
-# A home-folder path in a shell command, and a climb out of the workspace.
-HOME_PATH = re.compile(
-    r"(?:~|\$HOME|(?<![\w.])/(?:home/[^/\s'\"]+|tmp|mnt|var/tmp|root))(?:/[^\s'\";|&)]*)?"
-)
+# An absolute path outside the system folders, and a climb out of the workspace.
+HOME_PATH = re.compile(r"(?<![\w.])/(?:home|root|tmp|mnt|var/tmp)(?:/[^\s'\";|&)]*)?")
 ESCAPE = re.compile(r"(?:^|[\s'\"=])(?:\.\./){2,}")
-# Home folders a test run may read: uv's interpreters and cache.
-TOOL_DIRS = (".cache/uv", ".local/share/uv", ".local/bin")
 LITERAL = re.compile(r"""(?:"([^"\\\n]{4,})"|'([^'\\\n]{4,})'|\b(\d{3,}(?:\.\d+)?)\b)""")
 
 
@@ -148,7 +173,8 @@ def workspace(task: dict, dest: pathlib.Path) -> None:
     (dest.parent / f"{dest.name}.base").write_text(base)
     if task.get("setup"):
         with lock():
-            out = sh(["bash", "-c", task["setup"]], cwd=dest, timeout=TEST_TIMEOUT)
+            env = {**clean_env(), **tool_env(), "PATH": f"{TOOLS / 'bin'}:{os.environ['PATH']}"}
+            out = sh(["bash", "-c", task["setup"]], cwd=dest, timeout=TEST_TIMEOUT, env=env)
         if out.returncode:
             raise RuntimeError(f"setup failed: {out.stderr[-500:]}")
 
@@ -184,10 +210,17 @@ LIMIT = re.compile(r"usage limit|rate limit|\b429\b|overloaded|credit balance", 
 def settings_file() -> pathlib.Path:
     """quality/sandbox.json with TMPDIR set to the live run's own temp folder, since the
     sandbox denies /tmp (other sessions' scratch can hold a task's fixed code)."""
-    tmp = LIVE / "run" / "tmp"
-    tmp.mkdir(parents=True, exist_ok=True)
+    run = LIVE / "run"
+    for d in ("tmp", "home"):
+        (run / d).mkdir(parents=True, exist_ok=True)
     data = json.loads(SANDBOX.read_text(encoding="utf-8"))
-    data["env"] = {"TMPDIR": str(tmp)}
+    data["sandbox"]["filesystem"]["denyRead"] += [str(WORK / d) for d in HIDDEN]
+    data["env"] = {
+        "TMPDIR": str(run / "tmp"),
+        "HOME": str(run / "home"),
+        "PATH": f"{TOOLS / 'bin'}:/usr/local/bin:/usr/bin:/bin",
+        **tool_env(),
+    }
     path = LIVE / "settings.json"
     path.write_text(json.dumps(data), encoding="utf-8")
     return path
@@ -233,6 +266,7 @@ def claude(
             proc = subprocess.run(
                 cmd,
                 cwd=cwd,
+                env=clean_env(),
                 stdout=fh,
                 stderr=subprocess.PIPE,
                 text=True,
@@ -251,9 +285,13 @@ def claude(
         if rec.get("type") == "result":
             result = rec
     result.setdefault("is_error", True)
-    if err and err != "timeout":
-        text = err + json.dumps(result)[-500:]
-        raise (UsageLimit if LIMIT.search(text) else HarnessError)(text[-800:])
+    text = err + json.dumps(result)[-500:]
+    if err and LIMIT.search(text):
+        raise UsageLimit(text[-800:])
+    # A session that ended with a result (out of turns, out of structured-output retries) is
+    # the model's outcome; only one that produced no result at all is the harness's failure.
+    if err and err != "timeout" and "subtype" not in result:
+        raise HarnessError(text[-800:])
     if err:
         result["harness_error"] = err
     return result
@@ -288,7 +326,9 @@ def leaks(log: pathlib.Path, ws: pathlib.Path) -> list[str]:
             rec = json.loads(line)
         except json.JSONDecodeError:
             continue
-        for part in (rec.get("message") or {}).get("content") or []:
+        msg = rec.get("message") if isinstance(rec, dict) else None
+        content = msg.get("content") if isinstance(msg, dict) else None
+        for part in content if isinstance(content, list) else []:
             if not isinstance(part, dict) or part.get("type") != "tool_use":
                 continue
             inp = part.get("input") or {}
@@ -302,12 +342,10 @@ def leaks(log: pathlib.Path, ws: pathlib.Path) -> list[str]:
     return found
 
 
-def inside(match: str, ws: pathlib.Path) -> bool:
-    """A home-folder path from a command is inside the workspace or a tool folder."""
-    home = str(pathlib.Path.home())
-    path = re.sub(r"^(?:~|\$HOME|/home/[^/]+)", home, match)
-    allowed = (str(ws), str(LIVE / "run" / "tmp"), str(WORK / "elenchus"))
-    return path.startswith(allowed) or any(path.startswith(f"{home}/{d}") for d in TOOL_DIRS)
+def inside(path: str, ws: pathlib.Path) -> bool:
+    """A path a session may read: its workspace, its run folder, the tools, the elenchus copy."""
+    allowed = (str(ws), str(LIVE / "run"), str(TOOLS), str(WORK / "elenchus"))
+    return path.startswith(allowed)
 
 
 def base_of(ws: pathlib.Path) -> str:
@@ -399,18 +437,35 @@ def audit(task: dict, ws: pathlib.Path, diff: str, logs: list[pathlib.Path]) -> 
 
 
 def hidden_tests(task: dict, ws: pathlib.Path, dest: pathlib.Path) -> dict:
-    """Restore the fix's test files over a copy of the final tree and run the test command."""
-    if dest.exists():
-        shutil.rmtree(dest)
-    shutil.copytree(ws, dest, symlinks=True)
+    """Score a clean rebuild: the task's workspace, the run's diff applied, the hidden tests
+    restored over it, then the test command offline. Edits git does not see (an installed
+    package, a virtualenv) never reach the score."""
+    sh(["git", "add", "-A"], cwd=ws)
+    diff = sh(["git", "diff", "--cached", "--binary", base_of(ws)], cwd=ws).stdout
+    workspace(task, dest)
+    if diff.strip():
+        applied = subprocess.run(
+            ["git", "apply", "--whitespace=nowarn", "-"],
+            cwd=dest,
+            input=diff.encode(),
+            capture_output=True,
+            check=False,
+        )
+        if applied.returncode:
+            return {
+                "passed": False,
+                "exit": None,
+                "tail": "the diff does not apply to a clean tree",
+            }
     for rel in task["hidden_tests"]:
         target = dest / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(git(task["clone"], "show", f"{task['fix']}:{rel}"), encoding="utf-8")
     cmd = f"ip link set lo up; {task['hidden_command']}"
+    env = {**clean_env(), **tool_env(), "PATH": f"{TOOLS / 'bin'}:{os.environ['PATH']}"}
     with lock():
         try:
-            out = sh(["unshare", "-rn", "bash", "-c", cmd], cwd=dest, timeout=TEST_TIMEOUT)
+            out = sh(["unshare", "-rn", "bash", "-c", cmd], cwd=dest, timeout=TEST_TIMEOUT, env=env)
             rc, tail = out.returncode, (out.stdout + out.stderr)[-2000:]
         except subprocess.TimeoutExpired:
             rc, tail = 124, "timeout"
@@ -602,10 +657,17 @@ def judge_all(dirs: list[pathlib.Path], tasks: list[dict], again: bool) -> int:
         verdict: dict = {}
         if run.get("diff"):
             for _ in (1, 2):
-                verdict = judge(task, strip_meta(run["diff"]), run.get("changed", []), log)
+                try:
+                    verdict = judge(task, strip_meta(run["diff"]), run.get("changed", []), log)
+                except UsageLimit as exc:
+                    print(f"usage limit; rerun --judge to resume: {exc}", file=sys.stderr)
+                    return 3
+                except HarnessError as exc:
+                    verdict = {"ok": False, "reason": f"judge session failed: {exc}"[:300]}
                 if verdict["ok"]:
                     break
         run["judge_verdict"] = verdict or {"ok": False, "reason": "no diff to judge"}
+        run["flags"] = [f for f in run["flags"] if not f.startswith("judge: ")]
         if run["judge_verdict"].get("cheated"):
             reason = run["judge_verdict"].get("cheated_reason", "")[:200]
             run["flags"] = sorted({*run["flags"], f"judge: {reason}"})
@@ -703,8 +765,19 @@ def main(argv: list[str] | None = None) -> int:
         "--judge", type=pathlib.Path, nargs="+", help="judge every run in these folders"
     )
     ap.add_argument("--rejudge", action="store_true", help="with --judge, judge judged runs again")
+    ap.add_argument(
+        "--smoke",
+        action="store_true",
+        help="harness check only: every session on Haiku, one review; never a result",
+    )
     args = ap.parse_args(argv)
     tasks = [t for t in load_tasks(args.tasks) if not args.task or t["id"] in args.task]
+    if args.smoke:
+        global REVIEWER, JUDGE, MAX_REVIEWS
+        MODELS[args.mode] = REVIEWER = JUDGE = "claude-haiku-5-5"
+        MAX_REVIEWS = 1
+        if args.out and "smoke" not in str(args.out):
+            ap.error("a smoke run's --out must name 'smoke', so it is never read as a result")
     if args.check_tasks:
         return check_tasks(tasks)
     if args.judge:

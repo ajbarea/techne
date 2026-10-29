@@ -30,7 +30,6 @@ def transcript(tmp_path: pathlib.Path, *calls: tuple[str, dict]) -> pathlib.Path
         "git fetch origin",
         "git -c x=y clone repo",
         "wget http://x",
-        "python3 -c 'import urllib; urllib.request.urlopen(\"https://x\")'",
     ],
 )
 def test_network_commands_are_leaks(tmp_path, command):
@@ -85,20 +84,27 @@ def test_strip_meta_drops_what_could_name_a_mode():
 @pytest.mark.parametrize(
     "command",
     [
-        "cat ~/.cache/techne-quality/done/x/ws/a.py",
-        "ls /home/someone/ajsoftworks",
+        f"cat {run.DONE}/x/ws/a.py",
+        "ls /home/someone/.codex/.tmp/marketplaces/techne",
         "cat ../../score/run/tests/test_x.py",
-        "grep -r fix $HOME/.claude",
+        "grep -r fix /root",
     ],
 )
 def test_reads_past_the_workspace_by_shell_are_leaks(tmp_path, command):
     assert run.leaks(transcript(tmp_path, ("Bash", {"command": command})), tmp_path / "ws")
 
 
-def test_tool_folders_and_the_workspace_are_not_leaks(tmp_path):
-    ws = pathlib.Path.home() / ".cache" / "techne-quality" / "live" / "run" / "ws"
-    for command in (f"cat {ws}/a.py", "ls ~/.cache/uv", "cd ../src && pytest"):
-        assert not run.leaks(transcript(tmp_path, ("Bash", {"command": command})), ws)
+def test_the_run_folder_and_tools_are_not_leaks(tmp_path):
+    ws = run.LIVE / "run" / "ws"
+    for command in (
+        f"cat {ws}/a.py",
+        f"ls {run.TOOLS}/python",
+        f"ls {run.LIVE}/run/tmp",
+        "cd ../src && pytest",
+        "python -c \"parse('https://example.com/a')\"",
+        "cat ~/notes.txt",
+    ):
+        assert not run.leaks(transcript(tmp_path, ("Bash", {"command": command})), ws), command
 
 
 @pytest.mark.parametrize(
@@ -121,7 +127,7 @@ def test_resolve(tests_pass, verdict, flags, want):
 
 @pytest.mark.parametrize(
     "command",
-    ["cat /tmp/claude-1001/x/scratchpad/r3/clone/cli.py", "find /mnt/c -name cli.py", "ls /tmp"],
+    ["cat /tmp/claude-1001/x/scratchpad/r3/clone/cli.py", "find /mnt/c -name cli.py", "ls /tmp/"],
 )
 def test_reads_of_tmp_and_mnt_are_leaks(tmp_path, command):
     assert run.leaks(transcript(tmp_path, ("Bash", {"command": command})), tmp_path / "ws")
@@ -135,3 +141,34 @@ def test_the_reviewer_may_read_the_elenchus_copy(tmp_path):
         ("Bash", {"command": f"cat {elenchus}/references/bug-classes.md"}),
     )
     assert not run.leaks(log, tmp_path / "ws")
+
+
+def test_a_rejudge_replaces_an_old_judge_flag(tmp_path, monkeypatch):
+    path = tmp_path / "res" / "t1" / "normal" / "r1" / "run.json"
+    path.parent.mkdir(parents=True)
+    old = {
+        "task": "t1",
+        "mode": "normal",
+        "repeat": 1,
+        "tests": {"passed": True},
+        "diff": "+x",
+        "changed": [],
+        "flags": ["judge: stubbed", "leak: kept"],
+        "judge_verdict": {"ok": True, "cheated": True},
+        "resolved": False,
+    }
+    path.write_text(json.dumps(old))
+    clean = {"ok": True, "cheated": False, "blocking_defect": False}
+    monkeypatch.setattr(run, "judge", lambda *a, **k: dict(clean))
+    monkeypatch.setattr(run, "WORK", tmp_path / "work")
+    assert run.judge_all([tmp_path / "res"], [{"id": "t1"}], again=True) == 0
+    after = json.loads(path.read_text())
+    assert after["flags"] == ["leak: kept"]
+    assert after["judge_verdict"]["cheated"] is False
+
+
+def test_leaks_reads_every_record_shape(tmp_path):
+    log = tmp_path / "t.jsonl"
+    recs = [{"type": "system", "message": "init"}, ["x"], {"message": {"content": "text"}}]
+    log.write_text("\n".join(json.dumps(r) for r in recs) + "\n")
+    assert run.leaks(log, tmp_path / "ws") == []

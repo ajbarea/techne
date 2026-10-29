@@ -8,16 +8,8 @@
     },
     "filesystem": {
       "denyRead": [
-        "~/ajsoftworks",
-        "~/.claude",
-        "~/.claude-personal",
-        "~/.config/gh",
-        "~/.ssh",
-        "~/.git-credentials",
-        "~/.cache/techne-quality/done",
-        "~/.cache/techne-quality/score",
-        "~/.cache/techne-quality/check",
-        "~/.cache/techne-quality/judge",
+        "/home",
+        "/root",
         "/tmp",
         "/mnt"
       ]
