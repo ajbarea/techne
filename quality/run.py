@@ -171,7 +171,8 @@ LITERAL = re.compile(r"""(?:"([^"\\\n]{4,})"|'([^'\\\n]{4,})'|\b(\d{3,}(?:\.\d+)
 # A name the parent tree lacks, as a hidden test's failure on it reads.
 MISSING_NAME = re.compile(
     r"has no attribute '(\w+)'|cannot import name '(\w+)'|No module named '([\w.]+)'"
-    r"|unexpected keyword argument '(\w+)'"
+    r"|unexpected keyword argument '(\w+)'|unrecognized arguments: (--[\w-]+)"
+    r"|invalid choice: '([\w-]+)'"
 )
 WORD = re.compile(r"<?[^\W_][\w'.~$<>/-]*|→")
 
@@ -734,13 +735,18 @@ def hidden_tests(
     return out
 
 
+def words(text: str) -> list[str]:
+    """TEXT's words, lower-cased, without a sentence's closing period."""
+    return [w.rstrip(".") or w for w in WORD.findall(text.lower())]
+
+
 def windows(text: str) -> set[tuple[str, ...]]:
     """Every run of three words in TEXT, lower-cased; an f-string's placeholders and a regex's
     `|` break a run."""
     out = set()
     for part in re.split(r"\{[^}]*\}|\|", text.lower()):
-        words = WORD.findall(part)
-        out |= {tuple(words[i : i + 3]) for i in range(len(words) - 2)}
+        seq = words(part)
+        out |= {tuple(seq[i : i + 3]) for i in range(len(seq) - 2)}
     return out
 
 
@@ -823,19 +829,25 @@ def strings(source: str, path: str, lines: set[int] | None = None) -> list[str]:
 
 def interface_gaps(task: dict, failures: Sequence[str]) -> list[str]:
     """What the hidden tests check that the bug report does not state, so that no fix could
-    pass without the gold patch: a name the parent tree lacks (from the tests' failures on it),
-    or a string a test adds that shares wording with the strings the fix adds and also says
-    something neither the parent's changed files nor the report say. A rule stated only in
-    prose is beyond this check and stays a reading audit."""
+    pass without the gold patch: a name the parent tree lacks, as a failure on it names it (a
+    missing attribute, import, module, keyword argument, CLI flag or choice), that no code span
+    in the report gives; or a string a test adds that shares a three-word run with the strings
+    the fix adds and also says something neither the parent's changed files nor the report
+    say. A rule stated only in prose, a new positional parameter, and a name no failure names
+    are beyond this check and stay a reading audit."""
     report = task["report"].lower()
+    code = re.findall(r"`([^`]+)`", report)  # a name is given in code, as the notes write it
     gaps = set()
     for text in failures:
         for m in MISSING_NAME.finditer(text):
             name = next(g for g in m.groups() if g)
-            if not re.search(rf"\b{re.escape(name.rsplit('.', 1)[-1].lower())}\b", report):
+            pattern = rf"(?<![\w-]){re.escape(name.rsplit('.', 1)[-1].lower())}(?![\w-])"
+            if not any(re.search(pattern, span) for span in code):
                 gaps.add(f"name the report does not give: {name}")
     span = (task["parent"], task["fix"])
-    changed = git(task["clone"], "diff", "--name-only", "--diff-filter=AM", *span).splitlines()
+    changed = git(
+        task["clone"], "diff", "--name-only", "--no-renames", "--diff-filter=AM", *span
+    ).splitlines()
 
     def added_strings(path: str) -> list[str]:
         new = sh(["git", "-C", str(task["clone"]), "show", f"{task['fix']}:{path}"]).stdout
@@ -844,7 +856,7 @@ def interface_gaps(task: dict, failures: Sequence[str]) -> list[str]:
     code_paths = [p for p in changed if p not in task["hidden_tests"] and not TEST_PATH.search(p)]
     fix_strings = [lit for p in code_paths for lit in added_strings(p)]
     added = set().union(set(), *(windows(lit) for lit in fix_strings))
-    vocabulary = {w for lit in fix_strings for w in WORD.findall(lit.lower())}
+    vocabulary = {w for lit in fix_strings for w in words(lit)}
     before = set()
     for p in code_paths:
         shown = sh(["git", "-C", str(task["clone"]), "show", f"{task['parent']}:{p}"])
@@ -1266,9 +1278,8 @@ def discard(out: pathlib.Path, task: dict, mode: str, rep: int, kind: str, **inf
 
 def check_tasks(tasks: list[dict]) -> int:
     """No model: each task's hidden tests fail on its workspace and pass with the gold patch,
-    the gold patch raises no cheat flag, and the report states every name and fix wording the
-    hidden tests check. Records the test ids the gold patch passes,
-    which every run must pass too."""
+    the gold patch raises no cheat flag, and `interface_gaps` finds nothing the report leaves
+    out. Records the test ids the gold patch passes, which every run must pass too."""
     bad = 0
     gold_ids = json.loads(GOLD.read_text(encoding="utf-8")) if GOLD.exists() else {}
     for task in tasks:
@@ -1277,6 +1288,8 @@ def check_tasks(tasks: list[dict]) -> int:
         workspace(task, ws)
         before = hidden_tests(task, ws, base / "score-parent", messages=True)
         gaps = interface_gaps(task, before["failures"])
+        if not before.get("tests_run"):
+            gaps.append("the parent's hidden tests wrote no results, so no name was checked")
         # The gold patch: the parent workspace plus the fix's changes outside the hidden tests,
         # so a hidden file the fix needs but the task does not list makes the task fail here.
         gold = base / "ws-gold"

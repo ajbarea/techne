@@ -447,7 +447,7 @@ TEST_CODE = (
 )
 
 
-def gap_task(tmp_path: pathlib.Path, report: str) -> dict:
+def gap_task(tmp_path: pathlib.Path, report: str, test_code: str = TEST_CODE) -> dict:
     repo = tmp_path / "repo"
     repo.mkdir()
 
@@ -465,7 +465,7 @@ def gap_task(tmp_path: pathlib.Path, report: str) -> dict:
     subprocess.run(["git", "config", "user.email", "t@t"], cwd=repo, check=True)
     subprocess.run(["git", "config", "user.name", "t"], cwd=repo, check=True)
     parent = commit({"m.py": PARENT_CODE, "tests/test_m.py": "def test_old(): pass\n"})
-    fix = commit({"m.py": FIX_CODE, "tests/test_m.py": TEST_CODE})
+    fix = commit({"m.py": FIX_CODE, "tests/test_m.py": test_code})
     return {
         "clone": repo,
         "parent": parent,
@@ -487,21 +487,51 @@ def test_interface_gaps_accept_wording_the_report_states(tmp_path):
     assert run.interface_gaps(gap_task(tmp_path, report), []) == []
 
 
+def test_windows_read_a_closing_period_as_punctuation():
+    said = run.windows("It reads `set but empty.` Then run.py stops.")
+    assert {("set", "but", "empty"), ("then", "run.py", "stops")} <= said
+
+
+@pytest.mark.parametrize(
+    "literal",
+    [
+        "session go stops in",  # only the fix's words, no three-word run of its strings
+        "stops for you → go",  # wording the parent already had
+    ],
+)
+def test_interface_gaps_leave_out_strings_that_add_no_wording(tmp_path, literal):
+    test_code = TEST_CODE + f'    assert fixture("{literal}")\n'
+    report = "A nested one reads `<rel> stops for you in a session started in <where>/ → go`."
+    assert run.interface_gaps(gap_task(tmp_path, report, test_code), []) == []
+
+
 def test_interface_gaps_name_what_the_parent_lacks_unless_the_report_does(tmp_path):
-    report = "Interface: a stops for you in a session started in b/ → go. `cli.grants_file()`."
+    report = (
+        "Interface: a stops for you in a session started in b/ → go. `cli.grants_file()`;"
+        " it writes artifacts to the results folder."
+    )
     task = gap_task(tmp_path, report)
     failures = [
         "AttributeError: module 'redact' has no attribute 'artifacts'",
         "AttributeError: module 'cli' has no attribute 'grants_file'",
+        "error: unrecognized arguments: --techne-toml /x",
     ]
-    assert run.interface_gaps(task, failures) == ["name the report does not give: artifacts"]
+    assert run.interface_gaps(task, failures) == [
+        "name the report does not give: --techne-toml",
+        "name the report does not give: artifacts",
+    ]
 
 
 @pytest.mark.parametrize(
-    ("report", "ok"), [("The fix adds `artifacts(results)`.", True), ("No name given.", False)]
+    ("report", "parent_ran", "ok"),
+    [
+        ("The fix adds `artifacts(results)`.", True, True),
+        ("No name given.", True, False),
+        ("The fix adds `artifacts(results)`.", False, False),  # a timeout: nothing was checked
+    ],
 )
 def test_check_tasks_fails_a_task_whose_report_leaves_out_a_name(
-    tmp_path, monkeypatch, capsys, report, ok
+    tmp_path, monkeypatch, capsys, report, parent_ran, ok
 ):
     monkeypatch.setattr(run, "CHECK", tmp_path / "check")
     monkeypatch.setattr(run, "GOLD", tmp_path / "gold.json")
@@ -515,7 +545,11 @@ def test_check_tasks_fails_a_task_whose_report_leaves_out_a_name(
     def scored(task, ws, dest, require=None, messages=False):
         if dest.name == "score-parent":
             assert messages  # the gap check reads the parent's failures
-            return {"passed": False, "failures": ["module 'x' has no attribute 'artifacts'"]}
+            return {
+                "passed": False,
+                "tests_run": ["t::a"] if parent_ran else [],
+                "failures": ["module 'x' has no attribute 'artifacts'"] if parent_ran else [],
+            }
         return {"passed": True, "tests_run": ["t::a"]}
 
     monkeypatch.setattr(run, "hidden_tests", scored)
