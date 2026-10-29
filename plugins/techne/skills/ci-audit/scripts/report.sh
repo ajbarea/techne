@@ -42,12 +42,14 @@ if [[ -e $raw ]]; then
   [[ -d $raw && ! -L $raw && -e $raw/$MARK ]] || { err "refusing to replace $raw"; exit 2; }
   rm -rf -- "${raw:?}"
 fi
+# Marked first, so a fetch that fails partway leaves a folder the next run may replace.
+mkdir -- "$raw"
+: >"$raw/$MARK"
 if (( $# == 5 )); then
-  cp -rL -- "$from" "$raw"
+  cp -rL -- "$from/." "$raw/"
 else
   python3 "$here/ci_report.py" fetch "$repo" "$run" "$raw"
 fi
-: >"$raw/$MARK"
 python3 "$here/ci_report.py" facts "$raw" >"$raw/facts.json"
 
 # Restricted and safe mode: no settings files, CLAUDE.md, skills, plugins or hooks;

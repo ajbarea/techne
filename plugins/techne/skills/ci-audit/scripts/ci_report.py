@@ -12,7 +12,9 @@ A recorded run is DIR/run.json, DIR/jobs.json (each job's steps with their times
 and conclusions), DIR/annotations.json and DIR/logs/<job id>.log. Logs come from
 the REST job-log endpoint, which serves any job; `gh run view --log` returns
 nothing for some runs on older gh. Log lines are assigned to steps by the
-markers the runner prints as each step starts, and by the steps' times.
+files of the run's log archive, one per step, where it has them (DIR/steps/<job
+id>/<step number>.txt); otherwise by the markers the runner prints as each step
+starts and by the steps' times.
 """
 
 import json
@@ -50,6 +52,36 @@ def gh(path: str) -> str:
     if got.returncode:
         raise GhError(f"gh api {path}: {got.stderr.strip()[:300] or f'exit {got.returncode}'}")
     return got.stdout
+
+
+def gh_bytes(path: str) -> bytes:
+    got = subprocess.run(["gh", "api", path], capture_output=True)
+    if got.returncode:
+        raise GhError(f"gh api {path}: {got.stderr.decode(errors='replace').strip()[:300]}")
+    return got.stdout
+
+
+def split_archive(data: bytes, jobs: list[dict]) -> dict[int, dict[int, str]]:
+    """The run's log archive as {job id: {step number: text}}. The archive holds
+    "<job name>/<n>_<step name>.txt" per step; a job whose name is shared or
+    absent is left out, and falls back to its whole log."""
+    import io
+    import zipfile
+
+    by_name: dict[str, list[dict]] = {}
+    for j in jobs:
+        by_name.setdefault(j["name"], []).append(j)
+    out: dict[int, dict[int, str]] = {}
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        for info in z.infolist():
+            folder, _, leaf = info.filename.rpartition("/")
+            m = re.match(r"(\d+)_", leaf)
+            owners = by_name.get(folder, [])
+            if not m or len(owners) != 1 or info.file_size > 50 << 20:
+                continue
+            text = z.read(info).decode("utf-8", errors="replace")
+            out.setdefault(owners[0]["id"], {})[int(m.group(1))] = text
+    return out
 
 
 def fetch(repo: str, run: str, out: Path) -> None:
@@ -101,6 +133,16 @@ def fetch(repo: str, run: str, out: Path) -> None:
             {k: a.get(k) for k in ("path", "start_line", "annotation_level", "title", "message")}
             for a in got
         ]
+    try:
+        steps = split_archive(gh_bytes(f"repos/{repo}/actions/runs/{run}/logs"), kept)
+    except (GhError, OSError, ValueError) as e:
+        steps = {}
+        errors.append({"job": None, "what": "log archive", "error": str(e)[:300]})
+    for job_id, texts in steps.items():
+        folder = out / "steps" / str(job_id)
+        folder.mkdir(parents=True, exist_ok=True)
+        for n, text in texts.items():
+            (folder / f"{n}.txt").write_text(text)
     (out / "jobs.json").write_text(json.dumps(kept, indent=1) + "\n")
     (out / "annotations.json").write_text(json.dumps(notes, indent=1) + "\n")
     (out / "errors.json").write_text(json.dumps(errors, indent=1) + "\n")
@@ -131,11 +173,18 @@ def by_step(job: dict, log: str) -> dict[int, list[str]]:
     out: dict[int, list[str]] = {s["number"]: [] for s in steps}
     ran = [s for s in steps if s.get("conclusion") != "skipped"]
     if not ran:
+        out[0] = [(STAMP.sub("", x))[:MAX_LINE] for x in log.splitlines()]
         return out
     span = {s["number"]: (second(s.get("started_at")), second(s.get("completed_at"))) for s in ran}
 
+    names = {s["name"] for s in steps}
+
+    def post(s: dict) -> bool:
+        """The runner's post step for a step of this job ("Post Run actions/checkout")."""
+        return s["name"].startswith("Post ") and s["name"][5:] in names
+
     def quiet(s: dict) -> bool:
-        return s["name"] in QUIET or s["name"].startswith("Post ")
+        return s["name"] in QUIET or post(s)
 
     def inside(s: dict, t: int) -> bool:
         lo, hi = span[s["number"]]
@@ -153,9 +202,9 @@ def by_step(job: dict, log: str) -> dict[int, list[str]]:
             if nxt and (t is None or ends is None or t >= ends):
                 current = nxt[0]
         elif text.startswith("Post job cleanup."):
-            nxt = [s for s in later if s["name"].startswith("Post ")]
+            nxt = [s for s in later if post(s)]
             current = nxt[0] if nxt else current
-        elif text.startswith("Stop and remove container"):
+        elif text.startswith(("Print service container logs", "Stop and remove container")):
             nxt = [s for s in later if s["name"] == "Stop containers"]
             current = nxt[0] if nxt else current
         elif text.startswith("Cleaning up orphan processes"):
@@ -187,7 +236,17 @@ def facts(d: Path) -> dict:
         log_path = d / "logs" / f"{job['id']}.log"
         if log_path.is_symlink():
             raise SystemExit(f"error: {log_path} is a symlink; a recorded log is a plain file")
-        lines = by_step(job, log_path.read_text(errors="replace") if log_path.exists() else "")
+        step_dir = d / "steps" / str(job["id"])
+        if step_dir.is_dir() and not step_dir.is_symlink():
+            lines = {
+                int(f.stem): [
+                    STAMP.sub("", x)[:MAX_LINE] for x in f.read_text(errors="replace").splitlines()
+                ]
+                for f in step_dir.glob("*.txt")
+                if f.stem.isdigit() and f.is_file() and not f.is_symlink()
+            }
+        else:
+            lines = by_step(job, log_path.read_text(errors="replace") if log_path.exists() else "")
         out_jobs.append(
             {
                 "name": job["name"],
@@ -308,7 +367,9 @@ SCHEMA = {
                 for k in ("repository", "id", "workflow", "branch", "head_sha", "conclusion", "url")
             },
         },
-        "verdict": {"enum": ["failure", "green-with-findings", "clean", "in-progress"]},
+        "verdict": {
+            "enum": ["failure", "green-with-findings", "clean", "in-progress", "cancelled"]
+        },
         "failing_step": {
             "anyOf": [
                 {"type": "null"},
@@ -416,8 +477,13 @@ def agree(report: dict, f: dict) -> list[str]:
             )
     if f["failing_steps"] and report["verdict"] != "failure":
         problems.append(f"verdict {report['verdict']!r} on a run with a failing step")
-    if not f["failing_steps"] and report["verdict"] == "failure":
-        problems.append("verdict 'failure' on a run with no failing step")
+    failed = f["run"].get("conclusion") in ("failure", "timed_out", "startup_failure")
+    if not f["failing_steps"] and not failed and report["verdict"] == "failure":
+        problems.append("verdict 'failure' on a run that neither failed nor has a failing step")
+    if failed and report["verdict"] in ("clean", "green-with-findings"):
+        problems.append(f"verdict {report['verdict']!r} on a run that failed")
+    if f["run"].get("conclusion") == "cancelled" and report["verdict"] != "cancelled":
+        problems.append("a cancelled run is reported as cancelled")
     if f["success_with_error"] and report["verdict"] == "clean":
         problems.append("verdict 'clean' on a run whose green step printed ##[error]")
     if f["run"].get("conclusion") is None and report["verdict"] != "in-progress":

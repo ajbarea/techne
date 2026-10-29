@@ -235,8 +235,13 @@ def test_the_runner_fetches_judges_checks_and_renders(tmp_path):
     assert "verdict **failure**" in (out / "report.md").read_text()
     calls = (tmp_path / "gh.calls").read_text().splitlines()
     assert all(c.startswith("api ") for c in calls), "gh only reads"
-    assert len([c for c in calls if c.endswith("/logs")]) == len(jobs)
-    assert ci_report.facts(out / "run") == want
+    assert len([c for c in calls if "/actions/jobs/" in c and c.endswith("/logs")]) == len(jobs)
+    assert any(c.endswith("/actions/runs/7/logs") for c in calls), (
+        "the per-step archive is asked for"
+    )
+    got_facts = ci_report.facts(out / "run")
+    assert [e["what"] for e in got_facts.pop("fetch_errors")] == ["log archive"]
+    assert got_facts == {k: v for k, v in want.items() if k != "fetch_errors"}
     args = (tmp_path / "claude.args").read_text().splitlines()
     assert args[args.index("--tools") + 1] == "Read,Grep,Glob", "read-only tools alone"
     assert args[args.index("--permission-mode") + 1] == "dontAsk"
@@ -258,8 +263,10 @@ def test_a_log_the_api_will_not_serve_is_recorded_as_such(tmp_path):
         [sys.executable, str(SCRIPT), "fetch", "a/b", "7", str(tmp_path / "r")], env=env, check=True
     )
     f = ci_report.facts(tmp_path / "r")
-    assert f["fetch_errors"] and all(
-        "410" in e["error"] and e["what"] == "log" for e in f["fetch_errors"]
+    logs = [e for e in f["fetch_errors"] if e["what"] == "log"]
+    assert logs and all("410" in e["error"] for e in logs)
+    assert [e["what"] for e in f["fetch_errors"] if e["what"] != "log"] == ["log archive"], (
+        "an archive the stub does not serve falls back to the whole logs, and says so"
     )
 
 
@@ -268,7 +275,11 @@ def test_a_log_the_api_will_not_serve_is_recorded_as_such(tmp_path):
     [
         ("failure", "clean", "verdict 'clean' on a run with a failing step"),
         ("hidden-error", "clean", "verdict 'clean' on a run whose green step printed ##[error]"),
-        ("warnings", "failure", "verdict 'failure' on a run with no failing step"),
+        (
+            "warnings",
+            "failure",
+            "verdict 'failure' on a run that neither failed nor has a failing step",
+        ),
     ],
 )
 def test_a_report_that_contradicts_the_facts_is_refused(tmp_path, case, verdict, why):
@@ -461,3 +472,115 @@ def test_a_run_folder_the_script_made_is_replaced_on_a_second_report(tmp_path):
     assert (out / "run" / ".ci-report-run").exists()
     got = runner(bin_dir, args[0], args[1], str(tmp_path), "--from", str(rec))
     assert got.returncode == 2, "OUT may not hold the recording it reads"
+
+
+def test_the_log_archive_splits_each_job_by_step_file():
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("1_test.txt", "whole job log")
+        z.writestr("test/1_Set up job.txt", "runner\n")
+        z.writestr("test/2_Post coverage comment.txt", "2026-01-01T00:00:01.0Z posted\n")
+        z.writestr("dup/1_Set up job.txt", "x")
+    jobs = [{"id": 10, "name": "test"}, {"id": 11, "name": "dup"}, {"id": 12, "name": "dup"}]
+    got = ci_report.split_archive(buf.getvalue(), jobs)
+    assert got == {10: {1: "runner\n", 2: "2026-01-01T00:00:01.0Z posted\n"}}, (
+        "a shared job name falls back"
+    )
+
+
+def test_facts_read_the_step_files_before_the_whole_log(tmp_path):
+    d = tmp_path / "r"
+    (d / "steps/1").mkdir(parents=True)
+    (d / "logs").mkdir()
+    (d / "run.json").write_text(json.dumps({"repository": "a/b", "id": 7, "conclusion": "failure"}))
+    job = {
+        "id": 1,
+        "name": "t",
+        "conclusion": "failure",
+        "steps": [
+            {"number": 1, "name": "Run pytest", "conclusion": "failure"},
+            {"number": 2, "name": "Post coverage comment", "conclusion": "success"},
+        ],
+    }
+    (d / "jobs.json").write_text(json.dumps([job]))
+    (d / "logs/1.log").write_text("misleading whole log\n")
+    (d / "steps/1/1.txt").write_text(
+        "2026-01-01T00:00:01.0Z E   assert 1 == 2 (tests/test_a.py:3)\n"
+    )
+    (d / "steps/1/2.txt").write_text("posted\n")
+    (f,) = ci_report.facts(d)["failing_steps"]
+    assert f["error_lines"] == [] or f["tail"] == ["E   assert 1 == 2 (tests/test_a.py:3)"]
+    assert f["tail"] == ["E   assert 1 == 2 (tests/test_a.py:3)"], (
+        "timestamps dropped, its own file"
+    )
+
+
+def test_the_fallback_split_knows_a_user_post_step_and_service_logs():
+    job = steps(
+        "Set up job",
+        "Initialize containers",
+        "Run tests",
+        "Post coverage comment",
+        "Post Run tests",
+        "Stop containers",
+        "Complete job",
+        times=[
+            ("00", "01"),
+            ("01", "05"),
+            ("05", "20"),
+            ("20", "21"),
+            ("21", "22"),
+            ("22", "30"),
+            ("30", "30"),
+        ],
+    )
+    log = "\n".join(
+        f"2026-01-01T00:00:{t}.5Z {x}"
+        for t, x in [
+            ("05", "##[group]Run make test"),
+            ("20", "##[group]Run gh pr comment"),
+            ("20", "comment failed"),
+            ("21", "Post job cleanup."),
+            ("22", "Print service container logs: postgres"),
+            ("23", "initdb: warning: enabling trust"),
+            ("29", "Stop and remove container: pg"),
+        ]
+    )
+    got = ci_report.by_step(job, log)
+    assert got[4] == ["##[group]Run gh pr comment", "comment failed"], (
+        "a user step named Post ... is a step"
+    )
+    assert got[5] == ["Post job cleanup."]
+    assert got[6] == [
+        "Print service container logs: postgres",
+        "initdb: warning: enabling trust",
+        "Stop and remove container: pg",
+    ]
+
+
+def test_a_job_with_no_steps_keeps_its_log():
+    got = ci_report.by_step({"steps": []}, "2026-01-01T00:00:01Z Error: workflow is not valid\n")
+    assert got == {0: ["Error: workflow is not valid"]}
+
+
+@pytest.mark.parametrize(
+    ("conclusion", "failing", "verdict", "refused"),
+    [
+        ("failure", False, "failure", False),
+        ("failure", False, "clean", True),
+        ("cancelled", False, "clean", True),
+        ("cancelled", False, "cancelled", False),
+        ("success", False, "failure", True),
+    ],
+)
+def test_the_facts_check_follows_the_runs_conclusion(conclusion, failing, verdict, refused):
+    f = {
+        "run": {"repository": "a/b", "id": 7, "conclusion": conclusion},
+        "failing_steps": [{"job": "j"}] if failing else [],
+        "success_with_error": [],
+    }
+    r = good_report() | {"run": f["run"], "verdict": verdict}
+    assert bool(ci_report.agree(r, f)) is refused
