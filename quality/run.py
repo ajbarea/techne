@@ -830,15 +830,19 @@ def strings(source: str, path: str, lines: set[int] | None = None) -> list[str]:
 
 
 def defines(task: dict, name: str) -> bool:
-    """Whether the parent's code outside the tests already defines NAME (a `def`, `class`,
-    assignment, import or option string), so a failure on it is the bug, not a missing name."""
+    """Whether the parent's code outside the tests already defines NAME (a top-level `def`,
+    `class`, assignment or import, a method, a `self.` attribute, or an option string), so a
+    failure on it is the bug, not a missing name. Prose and local variables do not count: a
+    name wrongly kept is a visible broken task, a name wrongly dropped is a silent one."""
     if name.startswith("-"):
         args = ["-F", "-e", f'"{name}"', "-e", f"'{name}'"]
     else:
         n = re.escape(name)
-        args = ["-E", "-e", rf"\b(def|class)\s+{n}\b", "-e", rf"\b{n}\s*(:[^:=]|=[^=])"]
-        args += ["-e", rf"\bimport\s.*\b{n}\b"]
-    hits = sh(["git", "-C", str(task["clone"]), "grep", "-l", *args, task["parent"], "--"])
+        args = ["-E", "-e", rf"^(async\s+)?(def|class)\s+{n}\b", "-e", rf"^{n}\s*(:[^:=]|=[^=])"]
+        args += ["-e", rf"^(from\s+\S+\s+)?import\s.*\b{n}\b", "-e", rf"^\s+(async\s+)?def\s+{n}\b"]
+        args += ["-e", rf"^\s*self\.{n}\s*(:[^:=]|=[^=])"]
+    code = [f"*.{x}" for x in ("py", "pyi", "sh", "bash", "js", "mjs", "ts", "rs")]
+    hits = sh(["git", "-C", str(task["clone"]), "grep", "-l", *args, task["parent"], "--", *code])
     paths = (ln.split(":", 1)[-1] for ln in hits.stdout.splitlines())
     return any(not TEST_PATH.search(p) for p in paths)
 

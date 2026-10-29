@@ -455,6 +455,7 @@ def gap_task(
     test_code: str = TEST_CODE,
     parent_code: str = PARENT_CODE,
     config: Sequence[tuple[str, str]] = (),
+    parent_files: dict[str, str] | None = None,
 ) -> dict:
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -474,7 +475,9 @@ def gap_task(
     subprocess.run(["git", "config", "user.name", "t"], cwd=repo, check=True)
     for key, value in config:
         subprocess.run(["git", "config", key, value], cwd=repo, check=True)
-    parent = commit({"m.py": parent_code, "tests/test_m.py": "def test_old(): pass\n"})
+    parent = commit(
+        {**(parent_files or {}), "m.py": parent_code, "tests/test_m.py": "def test_old(): pass\n"}
+    )
     fix = commit({"m.py": FIX_CODE, "tests/test_m.py": test_code})
     return {
         "clone": repo,
@@ -528,6 +531,16 @@ def test_interface_gaps_skip_a_name_the_parent_defines(tmp_path):
     report = "A nested one reads `<rel> stops for you in a session started in <where>/ → go`."
     failures = ["AttributeError: 'NoneType' object has no attribute 'msg'"]
     assert run.interface_gaps(gap_task(tmp_path, report), failures) == []
+
+
+def test_interface_gaps_keep_a_name_only_prose_or_a_local_variable_has(tmp_path):
+    report = "A nested one reads `<rel> stops for you in a session started in <where>/ → go`."
+    parent = PARENT_CODE + "def g():\n    artifacts = 1\n"
+    task = gap_task(
+        tmp_path, report, parent_code=parent, parent_files={"log.md": "artifacts: kept\n"}
+    )
+    failures = ["AttributeError: module 'm' has no attribute 'artifacts'"]
+    assert run.interface_gaps(task, failures) == ["name the report does not give: artifacts"]
 
 
 def test_interface_gaps_read_every_unrecognized_flag(tmp_path):
