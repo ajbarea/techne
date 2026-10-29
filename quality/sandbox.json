@@ -17,7 +17,9 @@
         "~/.cache/techne-quality/done",
         "~/.cache/techne-quality/score",
         "~/.cache/techne-quality/check",
-        "~/.cache/techne-quality/judge"
+        "~/.cache/techne-quality/judge",
+        "/tmp",
+        "/mnt"
       ]
     }
   },

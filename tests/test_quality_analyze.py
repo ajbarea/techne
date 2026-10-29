@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import pathlib
 import sys
@@ -118,3 +119,13 @@ def test_h2_without_any_known_cost_is_not_computable():
         x["usage"]["cost_known"] = 0
     out = a.decide(runs)
     assert out["h2"]["median_cost_ratio"] is None and not out["h2"]["cheaper"]
+
+
+def test_load_refuses_a_run_twice(tmp_path):
+    for folder in ("a", "b"):
+        path = tmp_path / folder / "t0" / "normal" / "r1" / "run.json"
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps(run("t0", "normal", 1, True)))
+    with pytest.raises(SystemExit, match="repeats"):
+        a.load(tmp_path / "a", tmp_path / "b")
+    assert len(a.load(tmp_path / "a")) == 1

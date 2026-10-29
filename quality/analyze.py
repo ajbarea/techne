@@ -28,11 +28,23 @@ RESAMPLES = 10_000
 SEED = 20261029
 MAX_TASKS = 12
 RISK_CLASSES = ("security", "destructive-operation", "governance")
+CRITERIA = ("root_cause", "inputs_covered", "no_regression", "regression_test", "scope")
 Z = statistics.NormalDist()
 
 
-def load(results: pathlib.Path) -> list[dict]:
-    return [json.loads(p.read_text(encoding="utf-8")) for p in sorted(results.rglob("run.json"))]
+def load(*folders: pathlib.Path) -> list[dict]:
+    """Every run under FOLDERS; one (task, mode, repeat) twice is an error, so a pilot or an
+    old baseline is never pooled into the analysis by accident."""
+    runs, seen = [], {}
+    for folder in folders:
+        for p in sorted(folder.rglob("run.json")):
+            run = json.loads(p.read_text(encoding="utf-8"))
+            key = (run["task"], run["mode"], run["repeat"])
+            if key in seen:
+                raise SystemExit(f"{p} repeats {seen[key]}: analyze one trial's folders only")
+            seen[key] = p
+            runs.append(run)
+    return runs
 
 
 def scores(runs: list[dict]) -> dict[str, dict[str, list[int]]]:
@@ -150,6 +162,10 @@ def task_rows(runs: list[dict]) -> list[dict]:
                     for k in ("input", "output", "cache_read", "cache_write")
                 },
                 "median_reviews": statistics.median(len(r["reviews"]) for r in rs),
+                "judge_scores": {
+                    c: statistics.median((r["judge_verdict"] or {}).get(c, 0) for r in rs)
+                    for c in CRITERIA
+                },
                 "flags": sorted({f for r in rs for f in r["flags"]}),
                 "disagreements": [
                     {
@@ -176,6 +192,7 @@ def decide(runs: list[dict], pilot: bool = False) -> dict:
     d = [mean(s[t]["budget"]) - mean(s[t]["normal"]) for t in paired]
     sd = statistics.stdev(d) if len(d) > 1 else 0.0
     out["paired_tasks"] = len(d)
+    out["differences"] = dict(zip(paired, d, strict=True))
     out["mean_difference"] = mean(d)
     out["sd_difference"] = sd
     if pilot:
@@ -262,6 +279,15 @@ def report(result: dict, title: str) -> str:
         f" {'finds' if x['judge_blocking'] else 'finds no'} blocking defect. {x['reason']}"
         for t, m, x in dis
     ] or ["None."]
+    lines += ["", "## Judge criterion scores (median, 0 to 3)", ""]
+    lines += [
+        f"- {r['task']} ({r['mode']}): "
+        + ", ".join(f"{c} {v:g}" for c, v in r["judge_scores"].items())
+        for r in result["tasks"]
+    ]
+    if "differences" in result:
+        lines += ["", "## Per-task differences (budget minus normal)", ""]
+        lines += [f"- {t}: {x:+.3f}" for t, x in result["differences"].items()]
     if "h1" in result:
         h1, h2 = result["h1"], result["h2"]
         lines += [
@@ -300,11 +326,11 @@ def report(result: dict, title: str) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
-    ap.add_argument("results", type=pathlib.Path)
+    ap.add_argument("results", type=pathlib.Path, nargs="+", help="one trial's result folders")
     ap.add_argument("--pilot", action="store_true")
     ap.add_argument("--out", type=pathlib.Path)
     args = ap.parse_args(argv)
-    runs = load(args.results)
+    runs = load(*args.results)
     if not runs:
         print(f"no run.json under {args.results}", file=sys.stderr)
         return 1
@@ -315,8 +341,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
     result = decide(runs, pilot=args.pilot)
-    md = report(result, f"Quality trial: {args.results.name}")
-    (args.results / "summary.json").write_text(json.dumps(result, indent=1) + "\n")
+    md = report(result, "Quality trial: " + ", ".join(r.name for r in args.results))
+    (args.results[0] / "summary.json").write_text(json.dumps(result, indent=1) + "\n")
     if args.out:
         args.out.write_text(md, encoding="utf-8")
     print(md)

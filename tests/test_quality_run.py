@@ -117,3 +117,21 @@ def test_resolve(tests_pass, verdict, flags, want):
         run.resolve({"tests": {"passed": tests_pass}, "judge_verdict": verdict, "flags": flags})
         is want
     )
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["cat /tmp/claude-1001/x/scratchpad/r3/clone/cli.py", "find /mnt/c -name cli.py", "ls /tmp"],
+)
+def test_reads_of_tmp_and_mnt_are_leaks(tmp_path, command):
+    assert run.leaks(transcript(tmp_path, ("Bash", {"command": command})), tmp_path / "ws")
+
+
+def test_the_reviewer_may_read_the_elenchus_copy(tmp_path):
+    elenchus = run.WORK / "elenchus"
+    log = transcript(
+        tmp_path,
+        ("Read", {"file_path": str(elenchus / "SKILL.md")}),
+        ("Bash", {"command": f"cat {elenchus}/references/bug-classes.md"}),
+    )
+    assert not run.leaks(log, tmp_path / "ws")
