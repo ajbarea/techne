@@ -3,7 +3,9 @@
     "enabled": true,
     "autoAllowBashIfSandboxed": true,
     "allowUnsandboxedCommands": false,
-    "network": {"allowedDomains": []},
+    "network": {
+      "allowedDomains": []
+    },
     "filesystem": {
       "denyRead": [
         "~/ajsoftworks",
@@ -11,9 +13,15 @@
         "~/.claude-personal",
         "~/.config/gh",
         "~/.ssh",
-        "~/.git-credentials"
+        "~/.git-credentials",
+        "~/.cache/techne-quality/done",
+        "~/.cache/techne-quality/score",
+        "~/.cache/techne-quality/check",
+        "~/.cache/techne-quality/judge"
       ]
     }
   },
-  "permissions": {"defaultMode": "acceptEdits"}
+  "permissions": {
+    "defaultMode": "acceptEdits"
+  }
 }

@@ -156,6 +156,7 @@ SUITE_MODEL ?= claude-opus-5-5
 QUALITY_JUDGE := claude-opus-5-5
 quality:                ## Budget-trial task replays in MODE, then the analysis (uses your plan)
 	@uv run python quality/run.py --mode $(MODE) --repeats $(REPEATS) --out $(QUALITY_OUT)
+	@uv run python quality/run.py --judge $(QUALITY_OUT)
 	@uv run python quality/analyze.py $(QUALITY_OUT) --out $(QUALITY_OUT)/report.md
 
 quality-skills:         ## Skill quality suites on SUITE_MODEL, judged by Opus (uses your plan)

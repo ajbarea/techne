@@ -11,6 +11,7 @@ differences and the task count needed for 80% power. Pure standard library.
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import math
 import pathlib
@@ -54,6 +55,7 @@ def bootstrap_lower(d: list[float], alpha: float = ALPHA, seed: int = SEED) -> f
     return means[max(0, math.floor(alpha * RESAMPLES) - 1)]
 
 
+@functools.lru_cache(maxsize=256)
 def t_quantile(p: float, df: int) -> float:
     """Student t quantile by bisection on the regularized incomplete beta (no SciPy)."""
 
@@ -113,16 +115,15 @@ def tasks_needed(sd: float, margin: float = -MARGIN) -> int:
     return math.ceil((z * sd / margin) ** 2) if sd > 0 else 2
 
 
-def simulated_power(d: list[float], n: int, trials: int = 2000, seed: int = SEED) -> float:
-    """Share of simulated trials of N tasks, resampling D centred at 0, that clear the margin."""
+def simulated_power(d: list[float], n: int, trials: int = 10_000, seed: int = SEED) -> float:
+    """Share of simulated trials of N tasks, resampling D centred at 0, whose t lower bound
+    clears the margin (the bootstrap bound is the costlier twin, so the t bound sizes it)."""
     rng = random.Random(seed)
     centred = [x - mean(d) for x in d]
     hits = 0
     for _ in range(trials):
         sample = [centred[rng.randrange(len(centred))] for _ in range(n)]
-        sd = statistics.stdev(sample) if n > 1 else 0.0
-        lower = mean(sample) - Z.inv_cdf(1 - ALPHA) * sd / math.sqrt(n)
-        hits += lower > MARGIN
+        hits += t_lower(sample) > MARGIN
     return hits / trials
 
 
@@ -179,22 +180,32 @@ def decide(runs: list[dict], pilot: bool = False) -> dict:
     out["sd_difference"] = sd
     if pilot:
         need = tasks_needed(sd)
+        power = simulated_power(d, max(need, 2)) if len(d) > 1 else None
         out["pilot"] = {
             "discordant_tasks": sum(x != 0 for x in d),
             "tasks_needed": need,
+            "simulated_power_at_needed": power,
             "simulated_power_at_max": simulated_power(d, MAX_TASKS) if len(d) > 1 else None,
-            "verdict": "proceed" if need <= MAX_TASKS else "inconclusive: normal mode stays",
+            "verdict": "proceed"
+            if need <= MAX_TASKS and power is not None and power >= POWER
+            else "inconclusive: normal mode stays",
         }
         return out
     boot, tl = bootstrap_lower(d), t_lower(d)
-    cost = {r["task"]: {} for r in runs}
+    cost: dict[str, dict[str, list[float]]] = {r["task"]: {} for r in runs}
+    unknown = {r["task"] for r in runs if not r["usage"].get("cost_known", 1)}
     for r in runs:
         cost[r["task"]].setdefault(r["mode"], []).append(r["usage"].get("cost_usd", 0.0))
+    # Per task, the median budget cost over the median normal cost; a task with a run whose
+    # cost is unknown (a timed-out session) or a zero normal cost is left out of H2.
     ratios = [
         statistics.median(cost[t]["budget"]) / statistics.median(cost[t]["normal"])
         for t in paired
-        if statistics.median(cost[t]["normal"]) > 0
+        if t not in unknown and statistics.median(cost[t]["normal"]) > 0
     ]
+    if not ratios:
+        out["h2"] = {"median_cost_ratio": None, "upper": None, "cheaper": False}
+        ratios = [math.nan]
     rng = random.Random(SEED)
     boot_medians = sorted(
         statistics.median(ratios[rng.randrange(len(ratios))] for _ in ratios)
@@ -207,11 +218,10 @@ def decide(runs: list[dict], pilot: bool = False) -> dict:
         "t_lower": tl,
         "non_inferior": boot > MARGIN and tl > MARGIN,
     }
-    out["h2"] = {
-        "median_cost_ratio": statistics.median(ratios),
-        "upper": upper,
-        "cheaper": upper < 1,
-    }
+    out.setdefault(
+        "h2",
+        {"median_cost_ratio": statistics.median(ratios), "upper": upper, "cheaper": upper < 1},
+    )
     out["h3"] = {
         c: {
             "tasks": [t for t in paired if risk[t] == c],
@@ -261,8 +271,13 @@ def report(result: dict, title: str) -> str:
             f"- Mean per-task difference (budget minus normal): {result['mean_difference']:+.3f}",
             f"- H1 lower bounds: bootstrap {h1['bootstrap_lower']:+.3f}, t {h1['t_lower']:+.3f};"
             f" margin {MARGIN:+.2f}: {'non-inferior' if h1['non_inferior'] else 'not shown'}",
-            f"- H2 median cost ratio {h2['median_cost_ratio']:.2f}, upper bound {h2['upper']:.2f}:"
-            f" {'cheaper' if h2['cheaper'] else 'not shown'}",
+            "- H2: "
+            + (
+                f"median cost ratio {h2['median_cost_ratio']:.2f}, one-sided 95% upper bound"
+                f" {h2['upper']:.2f}: {'cheaper' if h2['cheaper'] else 'not shown'}"
+                if h2["median_cost_ratio"] is not None
+                else "no task with every cost known: not computable"
+            ),
         ]
         for c, v in result["h3"].items():
             lines.append(
@@ -292,6 +307,12 @@ def main(argv: list[str] | None = None) -> int:
     runs = load(args.results)
     if not runs:
         print(f"no run.json under {args.results}", file=sys.stderr)
+        return 1
+    unjudged = [f"{r['task']}/{r['mode']}/r{r['repeat']}" for r in runs if r["resolved"] is None]
+    if unjudged:
+        print(
+            f"not judged yet (run quality/run.py --judge): {', '.join(unjudged)}", file=sys.stderr
+        )
         return 1
     result = decide(runs, pilot=args.pilot)
     md = report(result, f"Quality trial: {args.results.name}")

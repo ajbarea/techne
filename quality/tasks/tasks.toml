@@ -119,6 +119,8 @@ Three Minor findings left open when #193 merged (sisters check 15, `plugins/tech
 3. Dead `found = set()` in `candidates()`; a nested `CLAUDE.local.md` gets the "move into AGENTS.md" advice instead of the personal-notes advice the docs give; a corrupt index reads "not a git repository" instead of git's own error.
 
 Classes: `boundary-input`, `undiagnosable-failure`, `claim-code-drift`.
+
+Interface the tests use: A corrupt index reports `git ls-files failed in <root>: ` followed by git's own error, not "not a git repository".
 """
 
 [[task]]
@@ -136,7 +138,7 @@ report = """
 
 Qt's and Chromium's REST grants answered one collector's request, from its stated address and with its User-Agent. `REST_PERMITTED` ships in this public repository, though, so any clone of it would read both hosts under the study's grant.
 
-Interface the tests use: `RestPermission` gains `written_grant: bool = False`; Qt and Chromium set it. A written-grant host is refused unless this machine lists it in the grants file: `SPHRAGIS_GRANTS` names it (default `~/.config/sphragis/grants`), one host a line, `#` comments, surrounding whitespace and case ignored. The check runs in the HTTP transport before any connection, and `resume_when_allowed.sh`'s lookup refuses the same hosts before its probes. No git-route host may be permitted until the git route gets the same check.
+Interface the tests use: `RestPermission` gains `written_grant: bool = False`; Qt and Chromium set it. A written-grant host is refused unless this machine lists it in the grants file: `SPHRAGIS_GRANTS` names it (default `~/.config/sphragis/grants`), one host a line, `#` comments, surrounding whitespace and case ignored. The check runs in the HTTP transport before any connection, and `resume_when_allowed.sh`'s lookup refuses the same hosts before its probes. No git-route host may be permitted until the git route gets the same check. A refused written-grant host's error contains `written grant to this study's collector`.
 """
 
 [[task]]
@@ -182,7 +184,7 @@ risk = "ordinary"
 setup = "uv sync -q"
 test_command = "uv run pytest -q -p no:cacheprovider tests/test_voices.py tests/test_daemon.py"
 hidden_command = "uv run pytest -q -p no:cacheprovider tests/test_voices.py tests/test_daemon.py"
-hidden_tests = ["tests/test_voices.py"]
+hidden_tests = ["tests/test_voices.py", "tests/test_daemon.py"]
 report = """
 # Hand out every character's voice before any blend
 
@@ -190,4 +192,6 @@ On 10-21 three terminals got blends ("Aoede and Heart", "Heart and Isabella", "H
 
 ## Cause
 `VoiceBook._first_free` first skips every voice that a repo heard in the last 14 days calls home, and only then reuses one. A home is only a reservation, held by repos that are not running (`voices.json` on 10-21: 5 voices held, 11 more reserved as homes, among them the test repos idleprobe, agentprobe and pingtest). With every single voice either held or reserved, a new terminal skipped straight to the blends. A repo whose home is a blend (pingtest) also returns to its blend while single voices are free.
+
+Interface the tests use: in `VoiceBook`, a new terminal takes a free single voice that no repo calls home; failing that, a free single voice an idle repo calls home (borrowed, it never becomes that second repo's home); only then a blend. A repo whose home is a blend takes a free single voice instead, and that becomes its home. A terminal on a blend moves to a free single voice at its next line unless pinned, and one leaving a blend goes home first. Rotation order is `POOL`, then `SPECIALTY` (`af_nicole` joins rotation there, no longer pin-only), then blends; a specialty voice set in config does not lead the rotation.
 """

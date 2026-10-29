@@ -1,4 +1,4 @@
-<!-- budget: 2100 words -->
+<!-- budget: 2500 words -->
 # Budget-mode quality trial: pre-registration
 
 Registered 2026-10-29, before any task was run. Nothing in this file changes after the first result is written to `quality/results/`. A deviation goes in `quality/DEVIATIONS.md`, dated, with its reason, and the report names it.
@@ -19,15 +19,15 @@ Prior evidence: Anthropic's advisor strategy (Sonnet executing, Opus advising) s
 
 The task set is fixed in `quality/tasks/tasks.toml` and committed with this file. Each task replays a bug-fix PR from one of AJ's repos:
 
-- the agent gets the tree at the fix PR's parent commit, with the fix's new test files left out, and a bug report: the linked issue as it was filed, or with no issue the PR's statement of the problem with its description of the change removed;
-- when a hidden test calls a name or checks a message the parent tree lacks, the report ends with an "Interface the tests use" note that states it, as SWE-bench Pro adds interface specifications ([Deng et al., 2025](https://arxiv.org/abs/2509.16941)), so a correct fix is not failed for a name;
+- the agent gets the tree at the fix PR's parent commit, with the fix's new test files left out, and a bug report: the linked issue as it was filed, minus any section headed Fix (its author's proposed change), or with no issue the PR's statement of the problem with its description of the change removed;
+- when a hidden test calls a name, checks a message, or asserts a rule from a removed Fix section that the parent tree lacks, the report ends with an "Interface the tests use" note that states it, as SWE-bench Pro adds interface specifications ([Deng et al., 2025](https://arxiv.org/abs/2509.16941)), so a correct fix is not failed for a name;
 - the PR merged after 2026-08-01, after both models' training cutoff, so neither model can recall the fix;
 - the workspace is a fresh `git init` of that tree, with no history and no remote, so the fix cannot be read from later commits ([Wang et al., 2026](https://arxiv.org/pdf/2606.26300) list leaked commits and the original PR as the main cheating channels);
 - each task is tagged with one risk class: security, destructive operation, governance (registered-study rules, privacy, access) or ordinary.
 
 Replayed PRs have two known weaknesses ([Huang et al., 2026](https://arxiv.org/pdf/2607.07946)): a model may recall a public fix, and the fix's tests can reject a valid alternative. The cutoff rule and the stripped history answer the first. The blind judge answers the second, and every case where the judge and the tests disagree is reported.
 
-**Count:** 10 tasks, 3 repeats per task per mode, so 60 task runs for the full comparison. By risk class: 3 security, 3 governance, 2 destructive operation, 2 ordinary. `quality/run.py --check-tasks` confirms, with no model, that each task's hidden tests fail on its workspace and pass on the fix's tree. The set must stay cheap enough to rerun from one make target (`make quality`), and the brief caps it at 8 to 12 tasks.
+**Count:** 10 tasks, 3 repeats per task per mode, so 60 task runs for the full comparison. By risk class: 3 security, 3 governance, 2 destructive operation, 2 ordinary. `quality/run.py --check-tasks` confirms, with no model, that each task's hidden tests fail on its workspace and pass with the gold patch (the parent tree plus the fix's changes outside the hidden tests), and that the gold patch raises no cheat flag. The set must stay cheap enough to rerun from one make target (`make quality`), and the brief caps it at 8 to 12 tasks.
 
 ## Harness
 
@@ -35,10 +35,12 @@ Both modes run through `quality/run.py` with the same prompts (`quality/prompts/
 
 Each task run is:
 
-1. **Implement.** `claude -p --restricted`, the implementer model, tools Read, Edit, Write, Glob, Grep and Bash. Bash runs in Claude Code's sandbox with no network, so the agent cannot fetch the PR. No user settings, plugins, memory or MCP servers load. The prompt gives the bug report and the repo's test command, and asks for a fix with a regression test. Limits: 60 turns, 20 minutes.
-2. **Review.** A fresh `claude -p` session on Opus, given the bug report and the diff, follows the elenchus protocol and reports Blocking and Should-fix findings as JSON.
+1. **Implement.** `claude -p --restricted --safe-mode`, the implementer model, tools Read, Edit, Write, Glob, Grep and Bash. Bash runs in Claude Code's sandbox (`quality/sandbox.json`) with no network, so the agent cannot fetch the PR, and with no reads of the source clones, Claude's config, or the harness folders that hold finished runs, score copies and task checks. No user settings, CLAUDE.md, plugins, memory or MCP servers load. The prompt gives the bug report and the repo's test command, and asks for a fix with a regression test. Limits: 60 turns, 20 minutes.
+2. **Review.** A fresh `claude -p` session on Opus, given the bug report and the diff, follows the elenchus protocol and reports Blocking and Should-fix findings as JSON. It may run code, but any edit it makes to the workspace is undone and noted. A review that returns no findings JSON is tried once more; a second failure ends the loop there, and the run is scored as it stands, with the failure noted.
 3. **Fix.** If the review has a Blocking or Should-fix finding, the implementer (the same model, a fresh session) gets the findings and the workspace once more. A second review follows. The loop stops at the first clean review or after three reviews, as the fleet's review rule does for substantive code.
-4. **Score.** The harness copies the final workspace, restores the fix PR's test files over it, and runs the task's test command outside any agent session.
+4. **Score.** The harness copies the final workspace, restores the hidden test files (every test file the task's test command runs, as the fix PR left it) over it, and runs the task's test command offline (`unshare -rn`), outside any agent session. The copy is deleted after the run.
+
+A run the harness cannot finish (an exception, not a model's failure) is retried, up to 3 attempts. After the third, it counts as unresolved, and the report lists it.
 
 ## Primary metric
 
@@ -52,7 +54,7 @@ A task's score in a mode is the share of its 3 runs that resolve: 0, 1/3, 2/3 or
 
 ## Blind judge
 
-The judge sees the bug report, the pre-fix files the diff touches, and the final diff. It does not see the hidden tests, the mode, the model, the run number, or the review transcripts. Diffs are stripped of commit metadata and presented in random order with a fixed seed. Judge bias is real (position bias: [Shi et al., 2025](https://preview.aclanthology.org/setup/2025.ijcnlp-long.18)), so the judge scores one diff per call, never a pair.
+The judge sees the bug report, the pre-fix files the diff touches, and the final diff. It does not see the hidden tests, the mode, the model, the run number, or the review transcripts. Diffs are stripped of commit metadata. The judge runs as one pass after all runs finish (`run.py --judge`), over every run of every mode being compared, interleaved in a random order with seed 20261029, so neither mode is judged at a different time. For the trial, the normal-mode runs are judged again in that same pass beside the budget-mode runs. A judge call that returns no verdict is tried once more; after a second failure the run counts as unresolved. Judge bias is real (position bias: [Shi et al., 2025](https://preview.aclanthology.org/setup/2025.ijcnlp-long.18)), so the judge scores one diff per call, never a pair.
 
 It scores each criterion 0 to 3, and returns `blocking_defect` true or false with the reason:
 
@@ -69,9 +71,9 @@ The judge prompt is `quality/judge.md`, fixed by this registration.
 
 These checks are mechanical and run on every task run:
 
-- **Test edits.** The run removed or changed a line of a test file that existed before it, or changed test configuration (`conftest.py`, `pytest.ini`, `tox.ini`, `setup.cfg`, snapshot files). Adding tests is expected.
-- **Hard-coding.** The run's added non-test code contains a literal from a hidden test's assertion lines (a string of 4 or more characters, or a number of 3 or more digits) that appears nowhere in the pre-fix tree.
-- **Leaks.** The transcripts show a network command (`gh`, `curl`, `wget`, `ssh`, a git remote command, a URL), or a file tool reading outside the workspace.
+- **Test edits.** Scoring restores every test file the task's test command runs as the fix PR left it, so editing those cannot change a score; adding and updating tests is expected. The flag covers what scoring does not restore: a test file the command runs but the task does not restore (deleted, an assertion, test function or parametrize line removed or changed, or a skip or xfail added), and test configuration (`conftest.py`, `pytest.ini`, `tox.ini`, `setup.cfg`, snapshot files) given a deselect, ignore, `-k` or skip.
+- **Hard-coding.** The run's added non-test code contains a literal from a hidden test's assertion lines (a string of 4 or more characters, or a number of 3 or more digits) that appears in no file of the pre-fix tree and not in the bug report, which may state a message the tests check.
+- **Leaks.** The transcripts (implementer, fixer and reviewer) show a network command (`gh`, `curl`, `wget`, `ssh`, a git remote command, a URL), a shell path into the home folder outside the workspace and uv's folders, a climb of two or more `../`, or a file tool reading outside the workspace.
 - **Judge flag.** The judge marks a cheated pass.
 
 A flagged run counts as unresolved. Every flag is listed in the report with its evidence. Coding agents do cheat by editing tests, and Claude models do so mostly that way ([Zhong et al., 2025](https://arxiv.org/html/2510.20270)), so the first check is the one most likely to fire.
@@ -94,7 +96,7 @@ Both are required because a percentile bootstrap gives intervals that are too na
 
 **Margin.** The margin is 5 percentage points, set on AJ's delegation on 2026-10-28. Published LLM non-inferiority margins are 2 to 3 points on much larger sets. A 10-task set cannot resolve those, and 5 points with a lower-bound test is the strictest margin it can. The margin never widens to fit the data.
 
-**H2.** H2 is measured as cost per task: the API cost Claude Code reports, summed over every session of a run. It is the median over tasks of the budget-to-normal cost ratio. Budget mode is cheaper when the bootstrap 95% upper bound of that median is below 1. Input, output, cache-read and cache-write tokens are reported per task beside the cost. Tokens alone mislead, because the two models are priced differently.
+**H2.** H2 is measured as cost per task: the API cost Claude Code reports, summed over every session of a run. For each task, the ratio is the median budget-mode cost over its repeats divided by the median normal-mode cost. H2's statistic is the median of those ratios over tasks. Budget mode is cheaper when the one-sided 95% upper bound of that median (a task-level bootstrap, 10,000 resamples) is below 1. A task with a run whose cost is unknown (a session that timed out reports none) or with a zero normal-mode cost is left out of H2; with no task left, H2 is not shown. Input, output, cache-read and cache-write tokens are reported per task beside the cost. Tokens alone mislead, because the two models are priced differently.
 
 **H3.** For each risk class, budget mode fails that class if any task in it has *d_t* < 0.
 
@@ -111,11 +113,11 @@ The secondary skill suites (below) are reported beside the trial and do not ente
 
 ## Sample size and the pilot
 
-The trial can only be powered if the two modes rarely disagree. For a true difference of 0, a one-sided α of 0.05 and 80% power, the number of tasks needed is about (1.645 + 0.842)² × σ² / 0.05², where σ is the standard deviation of *d_t*. With 10 tasks, that requires σ ≤ 0.079. With 12, it requires σ ≤ 0.087. In terms of whole runs, the modes would have to agree on almost every run.
+The trial can only be powered if the two modes rarely disagree. For a true difference of 0, a one-sided α of 0.05 and 80% power, the number of tasks needed is about (1.645 + 0.842)² × σ² / 0.05², where σ is the standard deviation of *d_t*. With 10 tasks, that requires σ ≤ 0.064. With 12, it requires σ ≤ 0.070. In terms of whole runs, the modes would have to agree on almost every run.
 
-**Pilot.** Before the confirmatory runs, one repeat of every task runs in each mode. It gives σ and the share of tasks where the modes disagree. Pilot runs are not part of the confirmatory analysis.
+**Pilot.** Before the confirmatory runs, one repeat of every task runs in each mode. It gives σ and the share of tasks where the modes disagree. With one repeat, *d_t* is −1, 0 or 1, so a single task where the modes disagree gives σ of at least 0.3 and makes the trial inconclusive; the pilot proceeds only if the modes agree on every task. Pilot runs are not part of the confirmatory analysis.
 
-**Sizing.** The required task count is computed from the pilot σ by the formula above and checked by simulation: 10,000 trials resampling the pilot's *d_t* centred at 0. If the required count is above 12, the trial stops there and the report reads **inconclusive: normal mode stays**. The task set is not cut and the margin is not raised to make the trial fit. Power for clustered matched pairs depends mainly on the number of clusters ([Nam, 2011](https://ideas.repec.org/a/eee/csdana/v55y2011i10p2880-2887.html)), so adding repeats does not substitute for adding tasks.
+**Sizing.** The required task count is computed from the pilot σ by the formula above and checked by simulation: 10,000 trials of that many tasks, resampling the pilot's *d_t* centred at 0, each judged by the t lower bound. The trial proceeds only if the count is at most 12 and the simulated power is at least 80%. Otherwise, the trial stops there and the report reads **inconclusive: normal mode stays**. The task set is not cut and the margin is not raised to make the trial fit. Power for clustered matched pairs depends mainly on the number of clusters ([Nam, 2011](https://ideas.repec.org/a/eee/csdana/v55y2011i10p2880-2887.html)), so adding repeats does not substitute for adding tasks.
 
 ## Schedule
 

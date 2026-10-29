@@ -33,6 +33,10 @@ ROOT = HERE.parent
 SANDBOX = HERE / "sandbox.json"
 CACHE = pathlib.Path(os.environ.get("XDG_CACHE_HOME", pathlib.Path.home() / ".cache"))
 WORK = CACHE / "techne-quality"
+# Only the run in progress lives in LIVE; finished runs, score copies and task checks sit in
+# folders quality/sandbox.json denies to every agent's shell, so no run reads another's
+# answer or a restored hidden test.
+LIVE, DONE, SCORE, CHECK = (WORK / d for d in ("live", "done", "score", "check"))
 MODELS = {"normal": "claude-opus-5-5", "budget": "claude-sonnet-5-5"}
 REVIEWER = JUDGE = "claude-opus-5-5"
 AGENT_TOOLS = "Read,Edit,Write,Glob,Grep,Bash"
@@ -86,11 +90,19 @@ LEAK = re.compile(
     r"|\bgit\b[^|;&\n]*?\s(?:fetch|clone|pull|push|remote|ls-remote)\b"
     r"|https?://"
 )
+# A home-folder path in a shell command, and a climb out of the workspace.
+HOME_PATH = re.compile(r"(?:~|\$HOME|/home/[^/\s'\"]+)(?:/[^\s'\";|&)]*)?")
+ESCAPE = re.compile(r"(?:^|[\s'\"=])(?:\.\./){2,}")
+# Home folders a test run may read: uv's interpreters and cache.
+TOOL_DIRS = (".cache/uv", ".local/share/uv", ".local/bin")
 LITERAL = re.compile(r"""(?:"([^"\\\n]{4,})"|'([^'\\\n]{4,})'|\b(\d{3,}(?:\.\d+)?)\b)""")
 
 
 def sh(cmd: Sequence[str], cwd: pathlib.Path | None = None, **kw) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, check=False, **kw)
+    # A file the agent wrote in another encoding must not crash the harness.
+    return subprocess.run(
+        cmd, cwd=cwd, capture_output=True, text=True, errors="replace", check=False, **kw
+    )
 
 
 def git(repo: pathlib.Path, *args: str) -> str:
@@ -170,6 +182,7 @@ def claude(
         "--model",
         model,
         "--restricted",
+        "--safe-mode",
         "--tools",
         tools,
         "--settings",
@@ -218,6 +231,8 @@ def claude(
 def usage_of(result: dict) -> dict:
     u = result.get("usage") or {}
     return {
+        # A session with no result event (a timeout) reports no cost; the run's is unknown.
+        "cost_known": int(result.get("total_cost_usd") is not None),
         "cost_usd": result.get("total_cost_usd") or 0.0,
         "input": u.get("input_tokens", 0),
         "output": u.get("output_tokens", 0),
@@ -228,7 +243,10 @@ def usage_of(result: dict) -> dict:
 
 def add_usage(total: dict, part: dict) -> None:
     for k, v in part.items():
-        total[k] = total.get(k, 0) + v
+        if k == "cost_known":
+            total[k] = min(total.get(k, 1), v)
+        else:
+            total[k] = total.get(k, 0) + v
 
 
 def leaks(log: pathlib.Path, ws: pathlib.Path) -> list[str]:
@@ -243,50 +261,97 @@ def leaks(log: pathlib.Path, ws: pathlib.Path) -> list[str]:
             if not isinstance(part, dict) or part.get("type") != "tool_use":
                 continue
             inp = part.get("input") or {}
-            if part.get("name") == "Bash" and LEAK.search(inp.get("command", "")):
-                found.append(f"Bash: {inp['command'][:200]}")
+            command = inp.get("command", "") if part.get("name") == "Bash" else ""
+            outside = [p for p in HOME_PATH.findall(command) if not inside(p, ws)]
+            if command and (LEAK.search(command) or outside or ESCAPE.search(command)):
+                found.append(f"Bash: {command[:200]}")
             path = inp.get("file_path") or inp.get("path") or ""
             if path and os.path.isabs(path) and not path.startswith(str(ws)):
                 found.append(f"{part.get('name')}: {path}")
     return found
 
 
+def inside(match: str, ws: pathlib.Path) -> bool:
+    """A home-folder path from a command is inside the workspace or a tool folder."""
+    home = str(pathlib.Path.home())
+    path = re.sub(r"^(?:~|\$HOME|/home/[^/]+)", home, match)
+    return path.startswith(str(ws)) or any(path.startswith(f"{home}/{d}") for d in TOOL_DIRS)
+
+
 def diff_files(ws: pathlib.Path) -> list[tuple[str, str]]:
     sh(["git", "add", "-A"], cwd=ws)
-    out = sh(["git", "diff", "--cached", "--name-status", "HEAD"], cwd=ws).stdout
+    out = sh(["git", "diff", "--cached", "--no-renames", "--name-status", "HEAD"], cwd=ws).stdout
     return [tuple(line.split("\t", 1)) for line in out.splitlines() if "\t" in line]  # type: ignore[misc]
+
+
+# An existing test line whose removal or change weakens a test, and a skip added to one.
+TEST_LINE = re.compile(
+    r"^\s*(?:assert\b|self\.assert|(?:async\s+)?def test|@pytest\.mark\.parametrize"
+    r"|expect\(|it\(|test\()"
+)
+SKIP = re.compile(r"pytest\.(?:skip|xfail)|@pytest\.mark\.(?:skip|xfail)|\.(?:skip|only)\(|\bxit\(")
+CONFIG_WEAKENING = re.compile(r"--deselect|--ignore|\s-k\s|collect_ignore|norecursedirs|skip|xfail")
 
 
 def audit(task: dict, ws: pathlib.Path, diff: str, logs: list[pathlib.Path]) -> list[str]:
     """The pre-registered cheat flags, mechanical only."""
     flags = []
     for status, path in diff_files(ws):
-        if TEST_CONFIG.search(path):
-            flags.append(f"test config changed: {path}")
-        elif TEST_PATH.search(path) and status != "A":
-            removed = sh(["git", "diff", "--cached", "HEAD", "--", path], cwd=ws).stdout
-            if any(ln.startswith("-") and not ln.startswith("---") for ln in removed.splitlines()):
-                flags.append(f"existing test lines removed or changed: {path}")
-    added, in_test = [], False
+        body = sh(["git", "diff", "--cached", "HEAD", "--", path], cwd=ws).stdout.splitlines()
+        removed = [ln[1:] for ln in body if ln.startswith("-") and not ln.startswith("---")]
+        added = [ln[1:] for ln in body if ln.startswith("+") and not ln.startswith("+++")]
+        if TEST_CONFIG.search(path) and any(CONFIG_WEAKENING.search(ln) for ln in added):
+            flags.append(f"test config weakened: {path}")
+        elif (
+            TEST_PATH.search(path)
+            and path not in task["hidden_tests"]
+            and path in task["hidden_command"]
+        ):
+            # A test the scorer runs but does not restore: weakening it could pass the run.
+            # Restored files cannot change the score, and tests the scorer never runs cannot.
+            if status == "D":
+                flags.append(f"test file deleted: {path}")
+            elif any(TEST_LINE.match(ln) for ln in removed):
+                flags.append(f"existing test removed or changed: {path}")
+            if any(SKIP.search(ln) for ln in added):
+                flags.append(f"skip added to a test: {path}")
+    added_code, in_test = [], False
     for ln in diff.splitlines():
         if ln.startswith("+++ "):
             in_test = bool(TEST_PATH.search(ln[4:]))
         elif ln.startswith("+") and not in_test:
-            added.append(ln[1:])
-    added_code = "\n".join(added)
-    pre_tree = "\n".join(
-        git(task["clone"], "show", f"{task['parent']}:{p}")
-        for p in git(task["clone"], "ls-tree", "-r", "--name-only", task["parent"]).split("\n")
-        if p.endswith((".py", ".js", ".ts", ".sh", ".md", ".json", ".toml"))
-    )
+            added_code.append(ln[1:])
+    code = "\n".join(added_code)
     for rel in task["hidden_tests"]:
-        body = git(task["clone"], "show", f"{task['fix']}:{rel}")
-        for line in body.splitlines():
+        for line in git(task["clone"], "show", f"{task['fix']}:{rel}").splitlines():
             if "assert" not in line and "expect(" not in line:
                 continue
             for m in LITERAL.finditer(line):
                 lit = next(g for g in m.groups() if g)
-                if lit not in pre_tree and lit in added_code:
+                # An f-string literal is compared by its fixed parts around the placeholders.
+                parts = [f for f in re.split(r"\{[^}]*\}", lit) if len(f.strip()) >= 4] or [lit]
+                if not all(f in code for f in parts):
+                    continue
+                if all(f in task["report"] for f in parts):
+                    continue  # the report may state a message or name the tests check
+                in_tree = [
+                    sh(
+                        [
+                            "git",
+                            "-C",
+                            str(task["clone"]),
+                            "grep",
+                            "-q",
+                            "-F",
+                            "-e",
+                            f,
+                            task["parent"],
+                        ]
+                    ).returncode
+                    == 0
+                    for f in parts
+                ]
+                if not all(in_tree):
                     flags.append(f"hidden test literal in the fix: {lit[:60]}")
     for log in logs:
         flags += [f"leak: {x}" for x in leaks(log, ws)]
@@ -313,6 +378,7 @@ def hidden_tests(task: dict, ws: pathlib.Path, dest: pathlib.Path) -> dict:
 
 
 def judge(task: dict, diff: str, changed: list[str], log: pathlib.Path) -> dict:
+    """One blind judge call: the report, the touched files before the fix, and the diff."""
     before = []
     for path in changed:
         try:
@@ -344,9 +410,49 @@ def strip_meta(diff: str) -> str:
     )
 
 
+def tree(ws: pathlib.Path) -> str:
+    sh(["git", "add", "-A"], cwd=ws)
+    return sh(["git", "write-tree"], cwd=ws).stdout.strip()
+
+
+def review(fmt: dict, ws: pathlib.Path, log: pathlib.Path, elenchus: pathlib.Path):
+    """One review; a review that returns no findings JSON is tried once more.
+
+    The reviewer may run code but must not change the fix: an edit is undone and noted.
+    """
+    before = tree(ws)
+    usage: dict = {}
+    findings, note = None, ""
+    for attempt in (1, 2):
+        rv = claude(
+            (HERE / "prompts" / "review.md").read_text().format(**fmt),
+            REVIEWER,
+            ws,
+            log.with_suffix(f".{attempt}.jsonl"),
+            REVIEW_TOOLS,
+            FINDINGS_SCHEMA,
+            (elenchus,),
+        )
+        add_usage(usage, usage_of(rv))
+        if tree(ws) != before:
+            sh(["git", "read-tree", "-u", "--reset", before], cwd=ws)
+            sh(["git", "clean", "-fdq"], cwd=ws)
+            note = "the reviewer edited the workspace; its edits were undone"
+        findings = (rv.get("structured_output") or {}).get("findings")
+        if findings is not None:
+            break
+    return findings, usage, note
+
+
 def run_one(task: dict, mode: str, rep: int, out: pathlib.Path, elenchus: pathlib.Path) -> dict:
+    """Implement, review and fix, then score with the hidden tests and the cheat audit.
+
+    The blind judge runs later, over every mode's runs at once (`--judge`).
+    """
     tag = f"{task['id']}/{mode}/r{rep}"
-    base = WORK / "runs" / out.name / task["id"] / mode / f"r{rep}"
+    base = LIVE / "run"
+    if base.exists():
+        shutil.rmtree(base)
     ws, logs = base / "ws", []
     workspace(task, ws)
     fmt = {
@@ -365,23 +471,17 @@ def run_one(task: dict, mode: str, rep: int, out: pathlib.Path, elenchus: pathli
     logs.append(base / "implement.jsonl")
     add_usage(total, usage_of(res))
     errors = [res["harness_error"]] if res.get("harness_error") else []
-    reviews = []
+    reviews, notes = [], []
     for n in range(1, MAX_REVIEWS + 1):
-        rv = claude(
-            (HERE / "prompts" / "review.md").read_text().format(**fmt),
-            REVIEWER,
-            ws,
-            base / f"review-{n}.jsonl",
-            REVIEW_TOOLS,
-            FINDINGS_SCHEMA,
-            (elenchus,),
-        )
-        add_usage(total, usage_of(rv))
-        findings = (rv.get("structured_output") or {}).get("findings")
+        findings, usage, note = review(fmt, ws, base / f"review-{n}", elenchus)
+        add_usage(total, usage)
+        logs += sorted(base.glob(f"review-{n}.*.jsonl"))
+        notes += [note] if note else []
         reviews.append({"round": n, "ok": findings is not None, "findings": findings or []})
-        if not findings:
+        if findings is None:
+            notes.append(f"review {n} failed twice; the loop stopped there")
             break
-        if n == MAX_REVIEWS:
+        if not findings or n == MAX_REVIEWS:
             break
         fx = claude(
             (HERE / "prompts" / "fix.md")
@@ -394,16 +494,12 @@ def run_one(task: dict, mode: str, rep: int, out: pathlib.Path, elenchus: pathli
         )
         logs.append(base / f"fix-{n}.jsonl")
         add_usage(total, usage_of(fx))
-    changed_status = diff_files(ws)
+    changed = [p for _, p in diff_files(ws)]
     diff = sh(["git", "diff", "--cached", "HEAD"], cwd=ws).stdout
     flags = audit(task, ws, diff, logs)
-    tests = hidden_tests(task, ws, base / "score")
-    verdict = judge(task, strip_meta(diff), [p for _, p in changed_status], base / "judge.jsonl")
-    if verdict.get("cheated"):
-        flags.append(f"judge: {verdict.get('cheated_reason', '')[:200]}")
-    resolved = (
-        tests["passed"] and verdict.get("ok") and not verdict.get("blocking_defect") and not flags
-    )
+    score = SCORE / "run"
+    tests = hidden_tests(task, ws, score)
+    shutil.rmtree(score, ignore_errors=True)
     record = {
         "task": task["id"],
         "risk": task["risk"],
@@ -413,32 +509,101 @@ def run_one(task: dict, mode: str, rep: int, out: pathlib.Path, elenchus: pathli
         "reviewer": REVIEWER,
         "judge": JUDGE,
         "claude_code": sh(["claude", "--version"]).stdout.strip(),
-        "resolved": bool(resolved),
+        "resolved": None,  # set by the judge pass
         "tests": tests,
-        "judge_verdict": verdict,
+        "judge_verdict": None,
         "flags": flags,
+        "notes": notes,
         "reviews": reviews,
         "usage": total,
         "errors": errors,
+        "changed": changed,
         "diff": diff,
     }
     dest = out / task["id"] / mode / f"r{rep}"
     dest.mkdir(parents=True, exist_ok=True)
     (dest / "run.json").write_text(json.dumps(record, indent=1) + "\n", encoding="utf-8")
+    kept = DONE / out.name / task["id"] / mode / f"r{rep}"
+    shutil.rmtree(kept, ignore_errors=True)
+    kept.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(base), str(kept))
     print(
-        f"{tag}: resolved={record['resolved']} tests={tests['passed']} "
-        f"blocking={verdict.get('blocking_defect')} flags={len(flags)} "
+        f"{tag}: tests={tests['passed']} flags={len(flags)} reviews={len(reviews)} "
         f"cost=${total.get('cost_usd', 0):.2f}",
         flush=True,
     )
     return record
 
 
+def resolve(run: dict) -> bool:
+    """The primary metric: hidden tests pass, the judge finds no blocking defect, no flag."""
+    v = run["judge_verdict"] or {}
+    return bool(
+        run["tests"]["passed"]
+        and v.get("ok")
+        and not v.get("blocking_defect")
+        and not v.get("cheated")
+        and not run["flags"]
+    )
+
+
+def judge_all(dirs: list[pathlib.Path], tasks: list[dict], again: bool) -> int:
+    """The blind judge over every run in DIRS, all modes interleaved in one seeded order."""
+    by_id = {t["id"]: t for t in tasks}
+    paths = sorted(p for d in dirs for p in d.rglob("run.json"))
+    random.Random(SEED).shuffle(paths)
+    for path in paths:
+        run = json.loads(path.read_text(encoding="utf-8"))
+        if run.get("judge_verdict") is not None and not again:
+            continue
+        task = by_id[run["task"]]
+        log = WORK / "judge" / f"{run['task']}-{run['mode']}-r{run['repeat']}.jsonl"
+        verdict: dict = {}
+        if run.get("diff"):
+            for _ in (1, 2):
+                verdict = judge(task, strip_meta(run["diff"]), run.get("changed", []), log)
+                if verdict["ok"]:
+                    break
+        run["judge_verdict"] = verdict or {"ok": False, "reason": "no diff to judge"}
+        run["resolved"] = resolve(run)
+        path.write_text(json.dumps(run, indent=1) + "\n", encoding="utf-8")
+        print(f"judged {path.parent}: resolved={run['resolved']}", flush=True)
+    return 0
+
+
+def failed_run(task: dict, mode: str, rep: int, errors: list[str]) -> dict:
+    """A run the harness could not finish in ATTEMPTS tries: unresolved, and reported."""
+    return {
+        "task": task["id"],
+        "risk": task["risk"],
+        "mode": mode,
+        "repeat": rep,
+        "implementer": MODELS[mode],
+        "reviewer": REVIEWER,
+        "judge": JUDGE,
+        "resolved": False,
+        "harness_failed": True,
+        "tests": {"passed": False, "exit": None, "tail": ""},
+        "judge_verdict": {"ok": False},
+        "flags": ["harness error"],
+        "notes": [],
+        "reviews": [],
+        "usage": {"cost_known": False},
+        "errors": errors,
+        "changed": [],
+        "diff": "",
+    }
+
+
+ATTEMPTS = 3
+
+
 def check_tasks(tasks: list[dict]) -> int:
-    """No model: each task's hidden tests fail on its workspace and pass with the gold patch."""
+    """No model: each task's hidden tests fail on its workspace and pass with the gold patch,
+    and the gold patch raises no cheat flag."""
     bad = 0
     for task in tasks:
-        base = WORK / "check" / task["id"]
+        base = CHECK / task["id"]
         ws = base / "ws"
         workspace(task, ws)
         before = hidden_tests(task, ws, base / "score-parent")
@@ -464,14 +629,19 @@ def check_tasks(tasks: list[dict]) -> int:
                 ).stdout
                 (gold / rel).write_bytes(body)
         after = hidden_tests(task, gold, base / "score-fix")
-        ok = not before["passed"] and after["passed"]
+        diff_files(gold)
+        flags = audit(task, gold, sh(["git", "diff", "--cached", "HEAD"], cwd=gold).stdout, [])
+        ok = not before["passed"] and after["passed"] and not flags
         bad += not ok
         print(
             f"{task['id']}: parent {'passes' if before['passed'] else 'fails'}, "
-            f"fix {'passes' if after['passed'] else 'fails'}: {'ok' if ok else 'BROKEN'}"
+            f"fix {'passes' if after['passed'] else 'fails'}, "
+            f"gold flags {flags or 'none'}: {'ok' if ok else 'BROKEN'}",
+            flush=True,
         )
         if not after["passed"]:
             print(after["tail"][-800:])
+        shutil.rmtree(base, ignore_errors=True)
     return 1 if bad else 0
 
 
@@ -483,10 +653,16 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--tasks", type=pathlib.Path, default=HERE / "tasks" / "tasks.toml")
     ap.add_argument("--out", type=pathlib.Path)
     ap.add_argument("--check-tasks", action="store_true", help="validate the task set, no model")
+    ap.add_argument(
+        "--judge", type=pathlib.Path, nargs="+", help="judge every run in these folders"
+    )
+    ap.add_argument("--rejudge", action="store_true", help="with --judge, judge judged runs again")
     args = ap.parse_args(argv)
     tasks = [t for t in load_tasks(args.tasks) if not args.task or t["id"] in args.task]
     if args.check_tasks:
         return check_tasks(tasks)
+    if args.judge:
+        return judge_all(args.judge, load_tasks(args.tasks), args.rejudge)
     if not args.out:
         ap.error("--out is required for a run")
     elenchus = WORK / "elenchus"
@@ -496,18 +672,24 @@ def main(argv: list[str] | None = None) -> int:
     order = [(t, r) for r in range(1, args.repeats + 1) for t in tasks]
     random.Random(SEED).shuffle(order)
     for task, rep in order:
-        if (args.out / task["id"] / args.mode / f"r{rep}" / "run.json").exists():
+        dest = args.out / task["id"] / args.mode / f"r{rep}"
+        if (dest / "run.json").exists():
             continue  # resume a stopped run
-        started = time.time()
-        try:
-            run_one(task, args.mode, rep, args.out, elenchus)
-        except Exception as exc:  # one broken run must not stop the set; it is recorded
-            dest = args.out / task["id"] / args.mode / f"r{rep}"
-            dest.mkdir(parents=True, exist_ok=True)
-            (dest / "error.json").write_text(
-                json.dumps({"error": repr(exc)[:2000], "seconds": time.time() - started})
-            )
-            print(f"{task['id']}/{args.mode}/r{rep}: harness error {exc!r}", file=sys.stderr)
+        errfile = dest / "errors.json"
+        errors = json.loads(errfile.read_text()) if errfile.exists() else []
+        while len(errors) < ATTEMPTS:
+            started = time.time()
+            try:
+                run_one(task, args.mode, rep, args.out, elenchus)
+                break
+            except Exception as exc:  # recorded, retried, then counted as unresolved
+                errors.append({"error": repr(exc)[:2000], "seconds": time.time() - started})
+                dest.mkdir(parents=True, exist_ok=True)
+                errfile.write_text(json.dumps(errors, indent=1))
+                print(f"{task['id']}/{args.mode}/r{rep}: harness error {exc!r}", file=sys.stderr)
+        else:
+            record = failed_run(task, args.mode, rep, [e["error"] for e in errors])
+            (dest / "run.json").write_text(json.dumps(record, indent=1) + "\n", encoding="utf-8")
     return 0
 
 

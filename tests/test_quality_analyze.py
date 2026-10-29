@@ -99,3 +99,22 @@ def test_disagreements_are_listed_both_ways():
         (True, True),
         (False, False),
     ]
+
+
+def test_h2_leaves_out_unknown_and_zero_costs():
+    runs = trial(lambda t, r: True)
+    for x in runs:
+        if x["task"] == "t0":
+            x["usage"]["cost_known"] = 0
+        if x["task"] == "t1" and x["mode"] == "normal":
+            x["usage"]["cost_usd"] = 0.0
+    out = a.decide(runs)
+    assert out["h2"]["median_cost_ratio"] == 0.5
+
+
+def test_h2_without_any_known_cost_is_not_computable():
+    runs = trial(lambda t, r: True)
+    for x in runs:
+        x["usage"]["cost_known"] = 0
+    out = a.decide(runs)
+    assert out["h2"]["median_cost_ratio"] is None and not out["h2"]["cheaper"]

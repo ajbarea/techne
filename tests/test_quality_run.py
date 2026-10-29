@@ -80,3 +80,40 @@ def test_test_and_config_paths(path, test, config):
 def test_strip_meta_drops_what_could_name_a_mode():
     diff = "From abc\nAuthor: claude-sonnet\nDate: x\nindex 1..2 100644\n--- a/x\n+++ b/x\n+y"
     assert run.strip_meta(diff) == "--- a/x\n+++ b/x\n+y"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat ~/.cache/techne-quality/done/x/ws/a.py",
+        "ls /home/someone/ajsoftworks",
+        "cat ../../score/run/tests/test_x.py",
+        "grep -r fix $HOME/.claude",
+    ],
+)
+def test_reads_past_the_workspace_by_shell_are_leaks(tmp_path, command):
+    assert run.leaks(transcript(tmp_path, ("Bash", {"command": command})), tmp_path / "ws")
+
+
+def test_tool_folders_and_the_workspace_are_not_leaks(tmp_path):
+    ws = pathlib.Path.home() / ".cache" / "techne-quality" / "live" / "run" / "ws"
+    for command in (f"cat {ws}/a.py", "ls ~/.cache/uv", "cd ../src && pytest"):
+        assert not run.leaks(transcript(tmp_path, ("Bash", {"command": command})), ws)
+
+
+@pytest.mark.parametrize(
+    ("tests_pass", "verdict", "flags", "want"),
+    [
+        (True, {"ok": True, "blocking_defect": False, "cheated": False}, [], True),
+        (True, {"ok": True, "blocking_defect": True}, [], False),
+        (True, {"ok": True, "cheated": True}, [], False),
+        (True, {"ok": False}, [], False),
+        (True, {"ok": True}, ["leak: x"], False),
+        (False, {"ok": True}, [], False),
+    ],
+)
+def test_resolve(tests_pass, verdict, flags, want):
+    assert (
+        run.resolve({"tests": {"passed": tests_pass}, "judge_verdict": verdict, "flags": flags})
+        is want
+    )
