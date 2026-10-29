@@ -257,3 +257,88 @@ def test_ggshield_without_a_verdict_refuses(repo, state, tmp_path):
     env = {"PATH": only(bin_dir), "GITGUARDIAN_API_KEY": "placeholder"}
     why = run_guard("git commit -m x", repo, state, extra_env=env)
     assert why and "ggshield gave no verdict: Error: 401 Unauthorized" in why
+
+
+def commit_leak(repo: pathlib.Path, name: str = "cfg.py") -> None:
+    leak(repo, name)
+    _git(repo, "add", name)
+    _git(repo, "commit", "-qm", "leak")
+
+
+@needs_gitleaks
+def test_a_branch_named_like_a_folder_is_still_scanned(repo, state):
+    (repo / "docs").mkdir()
+    (repo / "docs" / "x.md").write_text("x\n")
+    _git(repo, "add", "docs")
+    _git(repo, "commit", "-qm", "docs")
+    _git(repo, "checkout", "-qb", "docs")
+    commit_leak(repo)
+    why = run_guard("git push origin docs", repo, state)
+    assert why and "would add a secret" in why, why
+
+
+@needs_gitleaks
+@pytest.mark.parametrize(
+    "key,value",
+    [("remote.origin.push", "refs/heads/*:refs/heads/*"), ("push.default", "matching")],
+)
+def test_a_bare_push_that_config_widens_scans_every_branch(repo, state, key, value):
+    _git(repo, "checkout", "-qb", "feat2")
+    commit_leak(repo)
+    _git(repo, "checkout", "-q", "main")
+    assert run_guard("git push origin", repo, state) is None
+    _git(repo, "config", key, value)
+    assert run_guard("git push origin", repo, state)
+    assert run_guard("git push", repo, state)
+
+
+@needs_gitleaks
+def test_a_first_push_to_a_new_remote_skips_what_another_remote_holds(repo, state, tmp_path):
+    # An old secret already on origin is not this push's doing; a new one still is.
+    commit_leak(repo, "old.py")
+    _git(repo, "push", "-q", "origin", "HEAD:main")
+    _git(repo, "fetch", "-q", "origin")
+    _git(tmp_path, "init", "-q", "--bare", str(tmp_path / "backup.git"))
+    _git(repo, "remote", "add", "backup", str(tmp_path / "backup.git"))
+    assert run_guard("git push backup main", repo, state) is None
+    commit_leak(repo)
+    assert run_guard("git push backup main", repo, state)
+
+
+@needs_gitleaks
+def test_a_mirror_push_scans_refs_beyond_branches(repo, state):
+    _git(repo, "checkout", "-qb", "side")
+    commit_leak(repo)
+    _git(repo, "tag", "t1")
+    _git(repo, "checkout", "-q", "main")
+    _git(repo, "branch", "-qD", "side")
+    assert run_guard("git push --mirror origin", repo, state)
+
+
+@needs_gitleaks
+def test_a_slow_clean_filter_does_not_refuse_the_commit(repo, state):
+    (repo / ".gitattributes").write_text("*.bin filter=slow\n")
+    _git(repo, "config", "filter.slow.clean", "sleep 6; cat")
+    _git(repo, "add", ".gitattributes")
+    _git(repo, "commit", "-qm", "attrs")
+    (repo / "big.bin").write_text("data\n")
+    assert run_guard("git add big.bin && git commit -m data", repo, state) is None
+
+
+def test_a_scanner_that_exits_0_with_an_error_refuses(repo, state, tmp_path):
+    bin_dir = fake(tmp_path, "gitleaks", "echo 'ERR [git] fatal: bad revision' >&2\nexit 0\n")
+    why = run_guard("git push", repo, state, extra_env={"PATH": only(bin_dir)})
+    assert why and "gitleaks reported an error: ERR [git] fatal: bad revision" in why
+
+
+def test_the_refusal_never_tells_the_agent_to_silence_the_scanner(repo, state, tmp_path):
+    found = '[{"File": "cfg.py", "StartLine": 1, "RuleID": "github-pat"}]'
+    body = f"""for a; do
+  case "$prev" in --report-path) printf '%s' '{found}' > "$a";; esac; prev=$a
+done
+exit 1
+"""
+    bin_dir = fake(tmp_path, "gitleaks", body)
+    why = run_guard("git commit -m x", repo, state, extra_env={"PATH": only(bin_dir)})
+    assert why and "cfg.py:1 (github-pat)" in why
+    assert "gitleaksignore" not in why and "git config" not in why and "ask the user" in why

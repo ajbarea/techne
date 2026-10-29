@@ -10,6 +10,12 @@ secrets redacted; nothing here prints or logs a secret's value.
 Runs on the system python3, so it stays compatible with 3.9 (macOS's).
 """
 
+# research(2026-10): plugin hooks fire inside subagents with agent_id/agent_type in the input
+# (code.claude.com/docs/en/hooks), so one guard covers every agent. gitleaks 8.19.0 added
+# `gitleaks git`; it exits 0 when its own git call fails (found in review, so stderr counts).
+# ggshield's commit-range takes one range per call (docs.gitguardian.com). Betterleaks, the
+# gitleaks author's 2026 successor, is not used yet: its recall figures are self-reported.
+
 from __future__ import annotations
 
 import json
@@ -109,7 +115,9 @@ def _gitleaks(
         str(top),
     ]
     proc = _run(argv, top, env)
-    if proc.returncode == 0:
+    # gitleaks exits 0 when its own `git log` or `git diff` fails; at --log-level error a
+    # clean scan writes nothing to stderr, so any line there means no verdict.
+    if proc.returncode == 0 and not proc.stderr.strip():
         return []
     try:
         rows = json.loads(report.read_text(encoding="utf-8"))
@@ -117,6 +125,8 @@ def _gitleaks(
         rows = None
     # gitleaks exits 1 for a leak and for its own errors alike; only a report with rows is a leak.
     if proc.returncode != 1 or not isinstance(rows, list) or not rows:
+        if proc.returncode == 0:
+            raise ScanError(f"gitleaks reported an error: {_tail(proc)}")
         raise ScanError(f"gitleaks gave no verdict: {_tail(proc)}")
     return [
         Finding(
@@ -166,7 +176,10 @@ def log_event(event: dict) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         if path.exists() and path.stat().st_size > LOG_MAX:
-            os.replace(path, path.with_suffix(".jsonl.1"))
+            try:
+                os.replace(path, path.with_suffix(".jsonl.1"))
+            except FileNotFoundError:
+                pass  # another agent rotated it first
         line = json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), **event})
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
         with os.fdopen(fd, "a", encoding="utf-8") as fh:

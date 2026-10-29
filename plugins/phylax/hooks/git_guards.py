@@ -119,7 +119,9 @@ GH_FILE = {"-F": "file", "--body-file": "file", "-T": "file", "--template": "fil
 # git add flags that pick hunks or only report; the temporary index takes whole paths instead.
 ADD_REPLAY_DROP = ADD_INTERACTIVE | {"-n", "--dry-run", "--ignore-missing"}
 PUSH_VALUE = {"--repo", "-o", "--push-option", "--receive-pack", "--exec"}
-PUSH_ALL = {"--all", "--branches", "--mirror"}
+PUSH_ALL = {"--all", "--branches"}
+# A replayed add runs the repo's clean filters (git-lfs, git-crypt) on whole files.
+ADD_TIMEOUT = 20
 PUSH_DELETE = {"-d", "--delete"}
 
 
@@ -147,10 +149,12 @@ def run_git(
     *args: str,
     check: bool = True,
     env: dict[str, str] | None = None,
+    timeout: float = GIT_TIMEOUT,
 ) -> str | None:
     """Stdout of a git call, or None when git exits non-zero; `check=False` keeps stdout on any
     exit; `env` adds variables such as GIT_INDEX_FILE. Raises GitUnavailable when git cannot
-    start or times out, so the check fails closed."""
+    start or times out, so the check fails closed. A call given its own `timeout` (a replayed
+    add, whose clean filters may be slow) does not mark git down for the calls after it."""
     global _git_down
     if _git_down is not None:
         raise GitUnavailable(_git_down)
@@ -160,12 +164,14 @@ def run_git(
             [*GIT_BASE, "-C", str(cwd), *repo_args, *args],
             capture_output=True,
             text=True,
-            timeout=GIT_TIMEOUT,
+            timeout=timeout,
             env=env,
         )
     except subprocess.TimeoutExpired as exc:
-        _git_down = f"git {args[0] if args else ''} timed out after {GIT_TIMEOUT}s"
-        raise GitUnavailable(_git_down) from exc
+        why = f"git {args[0] if args else ''} timed out after {timeout:g}s"
+        if timeout == GIT_TIMEOUT:
+            _git_down = why
+        raise GitUnavailable(why) from exc
     except OSError as exc:
         _git_down = f"git could not run: {exc}"
         raise GitUnavailable(_git_down) from exc
@@ -745,7 +751,9 @@ class Guards:
         """Scan what this commit would add, including the paths an earlier `git add` in this
         command, `-a`, or the commit's own pathspecs stage. Those are staged into a copy of the
         index (GIT_INDEX_FILE), so the real index is untouched and the scan sees only added lines.
-        Hunk-picking adds (`-p`) are taken as whole paths: a wider scan, never a narrower one."""
+        Hunk-picking adds (`-p`) are taken as whole paths: a wider scan, never a narrower one.
+        The replayed adds write blobs to the object store even when the commit is refused; they
+        stay local and `git gc` removes them."""
         if not self.enabled(SECRETS, cmd):
             return
         top = self.toplevel(cmd)
@@ -779,7 +787,15 @@ class Guards:
                 git_env["GIT_INDEX_FILE"] = str(index)
                 for add, args in replay:
                     # A path the real add would refuse fails it too; the rest still stage here.
-                    run_git(add.cwd, add.repo_args, "add", *args, check=False, env=git_env)
+                    run_git(
+                        add.cwd,
+                        add.repo_args,
+                        "add",
+                        *args,
+                        check=False,
+                        env=git_env,
+                        timeout=ADD_TIMEOUT,
+                    )
             self.scan_secrets("this commit", "commit", top, git_env, None, Path(tmp))
 
     def check_push_secrets(self, cmd: Command) -> None:
@@ -794,6 +810,8 @@ class Guards:
         if flags & PUSH_DELETE or flags & {"-n", "--dry-run"}:
             return
         srcs: list[str] = []
+        if "--mirror" in flags:
+            srcs.append("--all")
         if flags & PUSH_ALL:
             srcs.append("--branches")
         if "--tags" in flags:
@@ -804,15 +822,42 @@ class Guards:
                 srcs.append("--branches")
             elif src:
                 srcs.append(src)
+        known = (run_git(cmd.cwd, cmd.repo_args, "remote") or "").split()
+        if remote is None:
+            remote = self.default_remote(cmd)
         if not srcs and not refspecs:
-            srcs = ["HEAD"]
+            # A configured push refspec or push.default=matching sends more than HEAD.
+            def config(key: str) -> str:
+                return (run_git(cmd.cwd, cmd.repo_args, "config", "--get-all", key) or "").strip()
+
+            wide = remote in known and bool(config(f"remote.{remote}.push"))
+            wide = wide or config("push.default") == "matching"
+            srcs = ["--branches"] if wide else ["HEAD"]
         if not srcs:
             return  # only deletions (`:branch`)
-        known = (run_git(cmd.cwd, cmd.repo_args, "remote") or "").split()
-        theirs = f"--remotes={remote}" if remote in known else "--remotes"
-        log_opts = " ".join([*dict.fromkeys(srcs), "--not", theirs])
+        # A remote with no tracking refs yet (a first push) excludes what every remote holds,
+        # rather than scanning the whole history.
+        held = remote in known and bool(
+            run_git(cmd.cwd, cmd.repo_args, "for-each-ref", "--count=1", f"refs/remotes/{remote}/")
+        )
+        theirs = f"--remotes={remote}" if held else "--remotes"
+        # `--` ends the revisions, so a branch named like a folder is never read as a path.
+        log_opts = " ".join([*dict.fromkeys(srcs), "--not", theirs, "--"])
         with tempfile.TemporaryDirectory(prefix="phylax-secrets-") as tmp:
             self.scan_secrets("this push", "push", top, repo_env(cmd), log_opts, Path(tmp))
+
+    def default_remote(self, cmd: Command) -> str:
+        """The remote a bare `git push` uses: pushRemote, pushDefault, the branch's remote,
+        else origin."""
+        branch = (
+            run_git(cmd.cwd, cmd.repo_args, "symbolic-ref", "--short", "-q", "HEAD") or ""
+        ).strip()
+        keys = [f"branch.{branch}.pushRemote", "remote.pushDefault", f"branch.{branch}.remote"]
+        for key in keys if branch else keys[1:2]:
+            value = (run_git(cmd.cwd, cmd.repo_args, "config", "--get", key) or "").strip()
+            if value:
+                return value
+        return "origin"
 
     def scan_secrets(
         self,
@@ -830,8 +875,8 @@ class Guards:
             secret_scan.log_event({**event, "outcome": "no_verdict", "reason": str(exc)})
             self.verdict.denies.append(
                 f"phylax: {what} was not run because the secret scan gave no verdict: {exc}. "
-                f"Fix the scanner and retry, or run `git config {repo_key(SECRETS)} false` to "
-                "switch the secret guard off in this repo."
+                "Fix the scanner (the user can install gitleaks) and retry. Switching the guard "
+                f"off (`git config {repo_key(SECRETS)} false`) is the user's call, not yours."
             )
             return
         if not findings:
@@ -849,9 +894,9 @@ class Guards:
         self.verdict.denies.append(
             f"phylax: {what} would add a secret ({name}): {shown}{more}. Remove it and use a "
             "placeholder the scanner accepts or a value made at runtime (a test fixture included); "
-            "unstage with `git restore --staged <file>`. For a false positive, add its fingerprint "
-            "to .gitleaksignore. To switch the secret guard off in this repo, run "
-            f"`git config {repo_key(SECRETS)} false`."
+            "unstage with `git restore --staged <file>`, and for a pushed-to-be commit rewrite it "
+            "before pushing. Do not silence the scanner: GitHub's own scan would still flag it. "
+            "If you believe it is a false positive, stop and ask the user."
         )
 
     def check_main_checkout(self, cmd: Command) -> None:
