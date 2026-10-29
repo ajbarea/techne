@@ -171,9 +171,12 @@ LITERAL = re.compile(r"""(?:"([^"\\\n]{4,})"|'([^'\\\n]{4,})'|\b(\d{3,}(?:\.\d+)
 # A name the parent tree lacks, as a hidden test's failure on it reads.
 MISSING_NAME = re.compile(
     r"has no attribute '(\w+)'|cannot import name '(\w+)'|No module named '([\w.]+)'"
-    r"|unexpected keyword argument '(\w+)'|unrecognized arguments: (--[\w-]+)"
-    r"|invalid choice: '([\w-]+)'"
+    r"|unexpected keyword argument '(\w+)'|invalid choice: '([\w-]+)'"
 )
+UNRECOGNIZED = re.compile(r"unrecognized arguments: ([^\n]+)")  # argparse lists them all
+FLAG = re.compile(r"(?<![\w-])--?[A-Za-z][\w-]*")
+# A quoted string in a file that is not Python, escapes included.
+QUOTED = re.compile(r""""((?:[^"\\\n]|\\.){4,})"|'((?:[^'\\\n]|\\.){4,})'""")
 WORD = re.compile(r"<?[^\W_][\w'.~$<>/-]*|→")
 
 
@@ -246,10 +249,9 @@ class lock:
         try:
             fcntl.flock(self.fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            # A caller that wraps run.py in `flock` on this file waits here forever.
             print(
-                "waiting for /tmp/fleet-heavy.lock; run.py takes it itself, so never run it"
-                " under `flock` on that file",
+                "waiting for /tmp/fleet-heavy.lock, held by another job (run.py takes it"
+                " itself: under a `flock` on that file it would wait forever)",
                 file=sys.stderr,
                 flush=True,
             )
@@ -741,10 +743,10 @@ def words(text: str) -> list[str]:
 
 
 def windows(text: str) -> set[tuple[str, ...]]:
-    """Every run of three words in TEXT, lower-cased; an f-string's placeholders and a regex's
-    `|` break a run."""
+    """Every run of three words in TEXT, lower-cased; an f-string's placeholders (`{}`, as
+    `strings` renders them) and a regex's `|` break a run."""
     out = set()
-    for part in re.split(r"\{[^}]*\}|\|", text.lower()):
+    for part in re.split(r"\{\}|\|", text.lower()):
         seq = words(part)
         out |= {tuple(seq[i : i + 3]) for i in range(len(seq) - 2)}
     return out
@@ -823,8 +825,22 @@ def strings(source: str, path: str, lines: set[int] | None = None) -> list[str]:
         next(g for g in m.groups() if g)
         for n, ln in enumerate(source.splitlines(), 1)
         if lines is None or n in lines
-        for m in LITERAL.finditer(ln)
+        for m in QUOTED.finditer(ln)
     ]
+
+
+def defines(task: dict, name: str) -> bool:
+    """Whether the parent's code outside the tests already defines NAME (a `def`, `class`,
+    assignment, import or option string), so a failure on it is the bug, not a missing name."""
+    if name.startswith("-"):
+        args = ["-F", "-e", f'"{name}"', "-e", f"'{name}'"]
+    else:
+        n = re.escape(name)
+        args = ["-E", "-e", rf"\b(def|class)\s+{n}\b", "-e", rf"\b{n}\s*(:[^:=]|=[^=])"]
+        args += ["-e", rf"\bimport\s.*\b{n}\b"]
+    hits = sh(["git", "-C", str(task["clone"]), "grep", "-l", *args, task["parent"], "--"])
+    paths = (ln.split(":", 1)[-1] for ln in hits.stdout.splitlines())
+    return any(not TEST_PATH.search(p) for p in paths)
 
 
 def interface_gaps(task: dict, failures: Sequence[str]) -> list[str]:
@@ -838,29 +854,33 @@ def interface_gaps(task: dict, failures: Sequence[str]) -> list[str]:
     report = task["report"].lower()
     code = re.findall(r"`([^`]+)`", report)  # a name is given in code, as the notes write it
     gaps = set()
-    for text in failures:
-        for m in MISSING_NAME.finditer(text):
-            name = next(g for g in m.groups() if g)
-            pattern = rf"(?<![\w-]){re.escape(name.rsplit('.', 1)[-1].lower())}(?![\w-])"
-            if not any(re.search(pattern, span) for span in code):
-                gaps.add(f"name the report does not give: {name}")
+    names = {next(g for g in m.groups() if g) for t in failures for m in MISSING_NAME.finditer(t)}
+    names |= {f for t in failures for m in UNRECOGNIZED.finditer(t) for f in FLAG.findall(m[1])}
+    for name in sorted(names):
+        last = name.rsplit(".", 1)[-1] if not name.startswith("-") else name
+        pattern = rf"(?<![\w-]){re.escape(last.lower())}(?![\w-])"
+        if not any(re.search(pattern, span) for span in code) and not defines(task, last):
+            gaps.add(f"name the report does not give: {name}")
     span = (task["parent"], task["fix"])
+    plain = ("--no-color", "--no-ext-diff", "--no-renames")  # whatever the user's git config
     changed = git(
-        task["clone"], "diff", "--name-only", "--no-renames", "--diff-filter=AM", *span
+        task["clone"], "diff", "--name-only", *plain, "--diff-filter=AM", *span
     ).splitlines()
 
     def added_strings(path: str) -> list[str]:
         new = sh(["git", "-C", str(task["clone"]), "show", f"{task['fix']}:{path}"]).stdout
-        return strings(new, path, added_lines(git(task["clone"], "diff", *span, "--", path)))
+        diff = git(task["clone"], "diff", *plain, *span, "--", path)
+        return strings(new, path, added_lines(diff))
 
     code_paths = [p for p in changed if p not in task["hidden_tests"] and not TEST_PATH.search(p)]
     fix_strings = [lit for p in code_paths for lit in added_strings(p)]
-    added = set().union(set(), *(windows(lit) for lit in fix_strings))
+    added = set().union(*(windows(lit) for lit in fix_strings))
     vocabulary = {w for lit in fix_strings for w in words(lit)}
     before = set()
     for p in code_paths:
         shown = sh(["git", "-C", str(task["clone"]), "show", f"{task['parent']}:{p}"])
-        before |= windows(shown.stdout) if not shown.returncode else set()
+        if not shown.returncode:  # the implementer reads these files: all their wording counts
+            before |= windows(shown.stdout)
     said_by_report = windows(report)
     for p in (p for p in changed if p in task["hidden_tests"]):
         for lit in added_strings(p):
@@ -1290,6 +1310,7 @@ def check_tasks(tasks: list[dict]) -> int:
         gaps = interface_gaps(task, before["failures"])
         if not before.get("tests_run"):
             gaps.append("the parent's hidden tests wrote no results, so no name was checked")
+            print(before.get("tail", "")[-800:])
         # The gold patch: the parent workspace plus the fix's changes outside the hidden tests,
         # so a hidden file the fix needs but the task does not list makes the task fail here.
         gold = base / "ws-gold"

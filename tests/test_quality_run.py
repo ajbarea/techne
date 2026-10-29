@@ -6,6 +6,7 @@ import json
 import pathlib
 import subprocess
 import sys
+from collections.abc import Sequence
 
 import pytest
 
@@ -428,6 +429,7 @@ def test_strings_skip_docstrings_and_keep_placeholders():
     assert sorted(run.strings(src, "m.py")) == ["plain one", "{} stops here"]
     assert run.strings(src, "m.py", {1, 4}) == []
     assert run.strings('echo "a message"\n', "s.sh") == ["a message"]
+    assert run.strings('echo "refused: \\"$h\\" needs"\n', "s.sh") == ['refused: \\"$h\\" needs']
 
 
 PARENT_CODE = (
@@ -447,7 +449,13 @@ TEST_CODE = (
 )
 
 
-def gap_task(tmp_path: pathlib.Path, report: str, test_code: str = TEST_CODE) -> dict:
+def gap_task(
+    tmp_path: pathlib.Path,
+    report: str,
+    test_code: str = TEST_CODE,
+    parent_code: str = PARENT_CODE,
+    config: Sequence[tuple[str, str]] = (),
+) -> dict:
     repo = tmp_path / "repo"
     repo.mkdir()
 
@@ -464,7 +472,9 @@ def gap_task(tmp_path: pathlib.Path, report: str, test_code: str = TEST_CODE) ->
     subprocess.run(["git", "init", "-q", str(repo)], check=True)
     subprocess.run(["git", "config", "user.email", "t@t"], cwd=repo, check=True)
     subprocess.run(["git", "config", "user.name", "t"], cwd=repo, check=True)
-    parent = commit({"m.py": PARENT_CODE, "tests/test_m.py": "def test_old(): pass\n"})
+    for key, value in config:
+        subprocess.run(["git", "config", key, value], cwd=repo, check=True)
+    parent = commit({"m.py": parent_code, "tests/test_m.py": "def test_old(): pass\n"})
     fix = commit({"m.py": FIX_CODE, "tests/test_m.py": test_code})
     return {
         "clone": repo,
@@ -475,8 +485,11 @@ def gap_task(tmp_path: pathlib.Path, report: str, test_code: str = TEST_CODE) ->
     }
 
 
-def test_interface_gaps_name_new_wording_the_report_leaves_out(tmp_path):
-    task = gap_task(tmp_path, "msg names the folder for a nested file.")
+@pytest.mark.parametrize(
+    "config", [(), (("color.diff", "always"), ("color.ui", "always"))]
+)  # the user's git config must not hide the diff
+def test_interface_gaps_name_new_wording_the_report_leaves_out(tmp_path, config):
+    task = gap_task(tmp_path, "msg names the folder for a nested file.", config=config)
     assert run.interface_gaps(task, []) == [
         "wording the report does not give: a stops for you in a session started in b/ → go"
     ]
@@ -503,6 +516,28 @@ def test_interface_gaps_leave_out_strings_that_add_no_wording(tmp_path, literal)
     test_code = TEST_CODE + f'    assert fixture("{literal}")\n'
     report = "A nested one reads `<rel> stops for you in a session started in <where>/ → go`."
     assert run.interface_gaps(gap_task(tmp_path, report, test_code), []) == []
+
+
+def test_interface_gaps_read_wording_the_parent_kept_in_a_dict(tmp_path):
+    parent = PARENT_CODE + 'OLD = {"k": "a stops for you in a session started in b/ → go"}\n'
+    task = gap_task(tmp_path, "msg names the folder for a nested file.", parent_code=parent)
+    assert run.interface_gaps(task, []) == []
+
+
+def test_interface_gaps_skip_a_name_the_parent_defines(tmp_path):
+    report = "A nested one reads `<rel> stops for you in a session started in <where>/ → go`."
+    failures = ["AttributeError: 'NoneType' object has no attribute 'msg'"]
+    assert run.interface_gaps(gap_task(tmp_path, report), failures) == []
+
+
+def test_interface_gaps_read_every_unrecognized_flag(tmp_path):
+    report = "A nested one reads `<rel> stops for you in a session started in <where>/ → go`."
+    report += " It takes `--repos-root`."
+    failures = ["error: unrecognized arguments: --repos-root /a --techne-toml /b -q"]
+    assert run.interface_gaps(gap_task(tmp_path, report), failures) == [
+        "name the report does not give: --techne-toml",
+        "name the report does not give: -q",
+    ]
 
 
 def test_interface_gaps_name_what_the_parent_lacks_unless_the_report_does(tmp_path):
