@@ -1,5 +1,5 @@
 {
-  "description": "Opt-in guards on git commit, git add and gh pr, an opt-in refusal of a subagent call that would silently inherit the session's model, an opt-in restart of idle sessions onto an updated Claude Code, and an opt-in budget mode that routes work to cheaper models while the usage allowance burns too fast. The hooks module checks the main thread's git commands; the Bash PreToolUse hook checks subagents' and every call when the module did not load. Each is off until switched on in /config; a hook whose options are all off does not start python3.",
+  "description": "Opt-in guards on git commit, git add and gh pr, an opt-in refusal of a subagent call that would silently inherit the session's model, an opt-in check that an email draft opens with the greeting for the time of day, an opt-in restart of idle sessions onto an updated Claude Code, and an opt-in budget mode that routes work to cheaper models while the usage allowance burns too fast. The hooks module checks the main thread's git commands; the Bash PreToolUse hook checks subagents' and every call when the module did not load. Each is off until switched on in /config; a hook whose options are all off does not start python3.",
   "modules": [
     "./register.ts"
   ],
@@ -26,6 +26,16 @@
           {
             "type": "command",
             "command": "case \"$CLAUDE_PLUGIN_OPTION_BUDGET_MODE\" in true) exec python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/budget.py\" agent ;; esac",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "^(mcp__plugin_epistole_epistole__(create|update)_draft|mcp__claude_ai_Gmail(_[A-Za-z0-9]+)?__(create_draft|update_draft|send_message|reply))$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "case \"$CLAUDE_PLUGIN_OPTION_EMAIL_GREETING\" in true) exec python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/email_greeting.py\" ;; esac",
             "timeout": 10
           }
         ]

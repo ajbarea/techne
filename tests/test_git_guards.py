@@ -473,11 +473,17 @@ def test_a_failed_check_beside_a_warning_still_fails(repo, linked):
 def test_manifest_options_match_the_guard_and_default_off():
     options = json.loads(MANIFEST.read_text())["userConfig"]
     # restart_on_update belongs to stale_restart.py, tested in test_stale_restart.py;
-    # require_subagent_model to model_guard.py, tested in test_model_guard.py; budget_* to
-    # budget.py, tested in test_budget.py.
-    others = {"restart_on_update", "require_subagent_model"}
-    guards = {k for k in options if k not in others and not k.startswith("budget_")}
+    # require_subagent_model to model_guard.py, tested in test_model_guard.py; email_* to
+    # email_greeting.py, tested in test_email_greeting.py; budget_* to budget.py, tested in
+    # test_budget.py.
+    others = {"restart_on_update", "require_subagent_model", "email_greeting"}
+    guards = {k for k in options if k not in others and not k.startswith(("budget_", "email_"))}
     assert guards == set(ALL)
+    assert options["email_timezone"] == {
+        **options["email_timezone"],
+        "type": "string",
+        "default": "",
+    }
     for key in guards | others:
         assert options[key]["type"] == "boolean"
         assert options[key]["default"] is False

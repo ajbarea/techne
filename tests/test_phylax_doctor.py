@@ -451,3 +451,33 @@ def test_budget_line_shows_a_running_pause_under_every_role(tmp_path, env, role)
     pause.write_text(json.dumps({"until": time.time() + 3600}))
     _, found = doctor(tmp_path, budget_args(), {**env, **role})
     assert found["budget"][1].count("paused until") == 1, found["budget"][1]
+
+
+def _doctor_module():
+    return _load("phylax_doctor_timezone", DOCTOR)
+
+
+@pytest.mark.parametrize(
+    ("name", "status"),
+    [("", "ok"), ("America/New_York", "ok"), ("Mars/Olympus", "missing"), ("../etc", "missing")],
+)
+def test_email_timezone_check(name, status):
+    check = _doctor_module().timezone(name)
+    assert (check.name, check.status) == ("email-timezone", status)
+    assert status == "ok" or any("email_timezone" in f for f in check.fixes)
+
+
+def test_email_timezone_is_na_while_the_greeting_is_off():
+    m = _doctor_module()
+    platform = m.d.Platform("other", False)
+    found = {c.name: c for c in m.checks(platform, m.parse_options([]), m.parse_values([]))}
+    assert found["email-timezone"].status == "n/a"
+    padded = m.parse_values(["email_timezone=America/New_York "])
+    on = m.parse_options(["email_greeting=true"])
+    found = {c.name: c for c in m.checks(platform, on, padded)}
+    assert found["email-timezone"].status == "ok"  # the hook strips it too
+    on = m.parse_options(["email_greeting=true", "email_timezone=Mars/Olympus"])
+    found = {
+        c.name: c for c in m.checks(platform, on, m.parse_values(["email_timezone=Mars/Olympus"]))
+    }
+    assert found["email-timezone"].status == "missing"
