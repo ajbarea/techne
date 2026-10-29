@@ -2,5 +2,5 @@
 type: fixed
 ---
 client: ok
-  personal  aj@example.test  signed in  send-as aj@example.test
-  school  ajb@school.example.test  signed in  send-as ajb@school.example.test
+  personal  user@example.com  signed in  send-as user@example.com
+  school  student@school.example.edu  signed in  send-as student@school.example.edu
