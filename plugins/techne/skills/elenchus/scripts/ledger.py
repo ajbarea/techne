@@ -221,6 +221,45 @@ def fold(args: argparse.Namespace) -> int:
     return 0
 
 
+def named_repos(plan: dict, public: set[str], words: set[str], added: str) -> list[str]:
+    """Non-public repos from PLAN that ADDED names. A name that is also an ordinary word
+    (listed in WORDS, as check_private_names.py reads .git/info/private-words) counts only as
+    `owner/name` or `name#N`; any other name counts as a whole word."""
+    repos = {
+        i["repo"]
+        for group in ("incidents", "new_classes", "unknown_slugs")
+        for items in plan.get(group, {}).values()
+        for i in items
+    }
+    found = []
+    for name in sorted(repos - public):
+        word = re.escape(name)
+        if name in words:
+            pattern = rf"(?<![\w.-])[\w.-]+/{word}(?![\w-])|(?<![\w.-]){word}#\d"
+        else:
+            pattern = rf"(?<![\w.-]){word}(?![\w-])"
+        if re.search(pattern, added, re.I):
+            found.append(name)
+    return found
+
+
+def scan(args: argparse.Namespace) -> int:
+    plan = json.loads(pathlib.Path(args.plan).read_text(encoding="utf-8"))
+    public = {p.strip().lower() for p in args.public.split(",") if p.strip()}
+    words: set[str] = set()
+    if args.private_words and pathlib.Path(args.private_words).is_file():
+        for line in pathlib.Path(args.private_words).read_text(encoding="utf-8").splitlines():
+            line = line.split("#", 1)[0].strip().lower()
+            if line:
+                words.add(line)
+    diff = sys.stdin.read().splitlines()
+    added = "\n".join(ln[1:] for ln in diff if ln.startswith("+") and not ln.startswith("+++"))
+    found = named_repos(plan, public, words, added)
+    for name in found:
+        print(name)
+    return 1 if found else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -239,8 +278,12 @@ def main(argv: list[str] | None = None) -> int:
     f.add_argument("--since", help="ISO time; default 24 hours ago; no zone means UTC")
     f.add_argument("--until", help="ISO time the window ends (exclusive); default now")
     f.add_argument("--days", type=float, default=7)
+    sc = sub.add_parser("scan", help="non-public plan repos a catalog diff on stdin names")
+    sc.add_argument("--plan", required=True)
+    sc.add_argument("--public", required=True, help="comma-separated public repo names")
+    sc.add_argument("--private-words", help="names that are also ordinary words, one a line")
     args = ap.parse_args(argv)
-    return {"append": append, "checklist": checklist, "fold": fold}[args.cmd](args)
+    return {"append": append, "checklist": checklist, "fold": fold, "scan": scan}[args.cmd](args)
 
 
 if __name__ == "__main__":

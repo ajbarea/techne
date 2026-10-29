@@ -117,11 +117,11 @@ json.dump(p, open(sys.argv[1], "w"), indent=1)
 PY
 
 git -C "$repo" worktree add -q "$wt" -b "$branch" origin/main
-pushed=0
 cleanup() {
     rm -rf -- "${state:?}/curate-${day:?}"
     git -C "$repo" worktree remove --force "${wt:?}" 2>/dev/null || true
-    [ "$pushed" = 1 ] || git -C "$repo" branch -D "${branch:?}" >/dev/null 2>&1 || true
+    # The pushed branch lives on GitHub for its PR; the local copy is not kept.
+    git -C "$repo" branch -D "${branch:?}" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 public="$(gh repo list "$owner" --visibility public --limit 300 --json name --jq '[.[].name] | join(", ")')"
@@ -172,16 +172,9 @@ if [ -n "$dry" ]; then
 fi
 # check_private_names.py knows only the owner's private repos; any repo in the plan that is
 # not public (an org's or a teammate's) must not appear in the added lines either.
-leaked="$(git -C "$wt" diff -U0 -- "$catalog" | python3 -c '
-import json, re, sys
-plan, public = json.load(open(sys.argv[1])), {p.strip().lower() for p in sys.argv[2].split(",")}
-repos = {i["repo"] for group in ("incidents", "new_classes", "unknown_slugs")
-         for items in plan.get(group, {}).values() for i in items}
-added = "\n".join(l[1:] for l in sys.stdin if l.startswith("+") and not l.startswith("+++"))
-for name in sorted(repos - public):
-    if re.search(rf"(?<![\w.-]){re.escape(name)}(?![\w-])", added, re.I):
-        print(name)
-' "$plan" "$public")"
+words="$(git -C "$repo" rev-parse --git-common-dir)/info/private-words"
+leaked="$(git -C "$wt" diff -U0 -- "$catalog" |
+    python3 "$here/ledger.py" scan --plan "$plan" --public "$public" --private-words "$words")" || true
 if [ -n "$leaked" ]; then
     echo "the catalog edit names a repo that is not public; nothing pushed: $leaked"
     exit 1
@@ -189,7 +182,6 @@ fi
 git -C "$wt" add "$catalog"
 git -C "$wt" commit -q -m "docs(elenchus): fold the findings ledger into the catalog ($day)"
 git -C "$wt" push -q -u origin "$branch"
-pushed=1
 gh pr create -R "$gh_repo" --head "$branch" --base main --label documentation \
     --assignee "$owner" --title "docs(elenchus): catalog fold-back, $day" --body \
 "The daily fold of the elenchus findings ledger from $since to $until: incidents for catalogued classes, new classes seen in two or more PRs, and classes whose mechanical check landed. Review the catalog diff before merging; the next fold waits until this PR is merged or closed."

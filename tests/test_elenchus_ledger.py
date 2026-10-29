@@ -250,3 +250,49 @@ def test_checklist_leaves_out_retired_classes(tmp_path):
         add(tmp_path, "techne", pr, "vacuous-guard")
     assert "vacuous-guard" in run(tmp_path, "checklist").stdout
     assert "no class found" in run(tmp_path, "checklist", "--catalog", str(catalog)).stdout
+
+
+SCAN_PLAN = {
+    "incidents": {
+        "boundary-input": [{"repo": "brochure", "pr": "3"}, {"repo": "secretproj", "pr": "4"}]
+    },
+    "new_classes": {},
+    "unknown_slugs": {},
+}
+
+
+@pytest.mark.parametrize(
+    ("line", "found"),
+    [
+        ("secretproj#4 r1 (2026-10-29): x", ["secretproj"]),  # a private name: blocks
+        ("a private secretproj tool", ["secretproj"]),  # as a word too
+        ("a private brochure monorepo r1 (2026-10-29): x", []),  # an ordinary word: passes
+        ("brochure#3 r1 (2026-10-29): x", ["brochure"]),  # as a slug it blocks
+        ("acme/brochure had it", ["brochure"]),
+        ("techne#5 r1 (2026-10-29): x", []),  # public
+    ],
+)
+def test_scan_blocks_non_public_names_and_reads_ordinary_words_as_slugs(tmp_path, line, found):
+    plan = tmp_path / "plan.json"
+    plan.write_text(json.dumps(SCAN_PLAN))
+    words = tmp_path / "private-words"
+    words.write_text("# ordinary words\nbrochure\n")
+    out = subprocess.run(
+        [
+            HOOK_PYTHON,
+            str(LEDGER),
+            "scan",
+            "--plan",
+            str(plan),
+            "--public",
+            "techne, pharos",
+            "--private-words",
+            str(words),
+        ],
+        input=f"--- a/x\n+++ b/x\n+{line}\n",
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert out.stdout.split() == found
+    assert out.returncode == (1 if found else 0)
