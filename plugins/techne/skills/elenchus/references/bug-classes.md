@@ -1,7 +1,7 @@
-<!-- budget: 4300 words -->
+<!-- budget: 4400 words -->
 # Bug-class catalog
 
-Every class of bug this fleet has already paid for once. Authors walk it before asking for review; readers walk it while reviewing and tag each Blocking or Should-fix finding with its class slug. A finding that fits no class is tagged `new: <short name>`, and the author adds it here after merge (see **After merge** in SKILL.md).
+Every class of bug this fleet has already paid for once. Authors walk it before asking for review; readers walk it while reviewing and tag each Blocking or Should-fix finding with its class slug. A finding that fits no class is tagged `new: <short name>`, and the daily fold-back adds it here from the findings ledger (see **After merge** in SKILL.md).
 
 The **core rubric** (classes 1 to 9) is walked on every review: for each, find the falsifying case or clear it explicitly. The **learned classes** are walked where the diff touches their trigger: a parser, a hook, a destructive op, a test of async work, a released artifact, a sweep, a command the agent itself runs.
 
@@ -11,6 +11,8 @@ Each class has the same four fields:
 - **Question:** the one question, asked of the diff, that catches it.
 - **Guard:** the test, check or structural fix that prevents it.
 - **Incidents:** where it bit, as `repo#PR round (date): what happened`, joined by `; `, newest last, at most three; adding a fourth drops the oldest, which git history keeps. A private repo is named by what it is, not by name. When an addition would pass the word budget, merge overlapping classes or trim incidents first; raising the budget is a deliberate edit in that PR.
+
+A class whose guard became a mechanical check (a lint rule, test or hook) gets a fifth field last, **Retired:** the check and where it runs; readers skip it unless that check is missing.
 
 ## Core rubric
 
