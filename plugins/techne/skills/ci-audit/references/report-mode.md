@@ -16,9 +16,10 @@ The run directory holds:
 
 ## What to decide
 
-1. **Verdict.**
-   - `failure` when a step failed.
-   - `in-progress` when the run's conclusion is null, and `cancelled` when it was cancelled.
+1. **Verdict**, the first that holds:
+   - `in-progress` when the run's conclusion is null.
+   - `cancelled` when it was cancelled, even with a step that failed first.
+   - `failure` when the run failed or a step failed.
    - `green-with-findings` when the run passed but has a FIX, BUMP or PROPOSE finding, or a step that succeeded with an error in it.
    - `clean` otherwise.
 2. **Failing step.** Report the first failing step that is not just a downstream "exit code 1". Give its root cause in one line: what failed, on which input. Give the most specific `file:line` its error lines name: the test's or the source's, not the workflow's. If none is named, give `null` and say so in the root cause. Quote the deciding log line as evidence. For a green run, set it to `null`.

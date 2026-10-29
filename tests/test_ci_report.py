@@ -273,12 +273,12 @@ def test_a_log_the_api_will_not_serve_is_recorded_as_such(tmp_path):
 @pytest.mark.parametrize(
     ("case", "verdict", "why"),
     [
-        ("failure", "clean", "verdict 'clean' on a run with a failing step"),
-        ("hidden-error", "clean", "verdict 'clean' on a run whose green step printed ##[error]"),
+        ("failure", "clean", "verdict 'clean'; the facts allow ['failure']"),
+        ("hidden-error", "clean", "verdict 'clean'; the facts allow ['green-with-findings']"),
         (
             "warnings",
             "failure",
-            "verdict 'failure' on a run that neither failed nor has a failing step",
+            "verdict 'failure'; the facts allow ['clean', 'green-with-findings']",
         ),
     ],
 )
@@ -567,20 +567,68 @@ def test_a_job_with_no_steps_keeps_its_log():
 
 
 @pytest.mark.parametrize(
-    ("conclusion", "failing", "verdict", "refused"),
+    ("conclusion", "failing", "swallowed", "verdict", "refused"),
     [
-        ("failure", False, "failure", False),
-        ("failure", False, "clean", True),
-        ("cancelled", False, "clean", True),
-        ("cancelled", False, "cancelled", False),
-        ("success", False, "failure", True),
+        ("failure", False, False, "failure", False),
+        ("failure", False, False, "clean", True),
+        ("cancelled", True, False, "cancelled", False),
+        ("cancelled", True, False, "failure", True),
+        (None, True, False, "in-progress", False),
+        (None, True, False, "failure", True),
+        ("success", False, False, "failure", True),
+        ("success", False, True, "clean", True),
+        ("success", False, True, "green-with-findings", False),
+        ("success", False, False, "clean", False),
     ],
 )
-def test_the_facts_check_follows_the_runs_conclusion(conclusion, failing, verdict, refused):
+def test_one_precedence_decides_the_verdict(conclusion, failing, swallowed, verdict, refused):
     f = {
         "run": {"repository": "a/b", "id": 7, "conclusion": conclusion},
         "failing_steps": [{"job": "j"}] if failing else [],
-        "success_with_error": [],
+        "success_with_error": [{"job": "j"}] if swallowed else [],
     }
     r = good_report() | {"run": f["run"], "verdict": verdict}
     assert bool(ci_report.agree(r, f)) is refused
+
+
+def test_a_corrupt_archive_falls_back_to_the_whole_logs(tmp_path):
+    rec = recorded(tmp_path, "warnings")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    gh_stub(bin_dir, rec, tmp_path / "gh.calls")
+    real = (bin_dir / "gh").read_text()
+    stub(
+        bin_dir,
+        "gh",
+        real.replace("#!/bin/bash\n", "", 1).replace(
+            "case $2 in",
+            "case $2 in\n  repos/a/b/actions/runs/7/logs) printf 'PK\\003\\004broken' ;;",
+            1,
+        ),
+    )
+    env = os.environ | {"PATH": f"{bin_dir}:{os.environ['PATH']}"}
+    got = subprocess.run(
+        [sys.executable, str(SCRIPT), "fetch", "a/b", "7", str(tmp_path / "r")],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert got.returncode == 0, got.stderr
+    f = ci_report.facts(tmp_path / "r")
+    assert [e["what"] for e in f["fetch_errors"]] == ["log archive"]
+    assert any("ConjunctiveGraph" in w["line"] for w in f["warnings"]), "the whole logs still read"
+
+
+def test_a_trailing_slash_does_not_let_a_linked_out_through(tmp_path):
+    tree = tmp_path / "worktree"
+    tree.mkdir()
+    link = tmp_path / "out-link"
+    link.symlink_to(tree)
+    rec = recorded(tmp_path, "warnings")
+    got = subprocess.run(
+        ["bash", str(REPORT), "a/b", "7", f"{link}/", "--from", str(rec)],
+        capture_output=True,
+        text=True,
+    )
+    assert got.returncode == 2 and "symlink" in got.stderr
+    assert list(tree.iterdir()) == []

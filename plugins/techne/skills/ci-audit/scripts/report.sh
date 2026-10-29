@@ -17,6 +17,8 @@ repo=$1 run=$2 out=$3
 # another folder (a repo, a worktree), so none is allowed, and the run folder
 # is removed only when it carries the mark this script left when it made it.
 MARK=.ci-report-run
+# A trailing slash would have -L follow a link to the folder it names.
+while [[ $out == */ && $out != / ]]; do out=${out%/}; done
 [[ -L $out ]] && { err "OUT is a symlink; give a real folder"; exit 2; }
 if [[ -e $out ]]; then
   [[ -d $out ]] || { err "OUT is not a folder"; exit 2; }
@@ -46,7 +48,7 @@ fi
 mkdir -- "$raw"
 : >"$raw/$MARK"
 if (( $# == 5 )); then
-  cp -rL -- "$from/." "$raw/"
+  cp -rP -- "$from/." "$raw/"
 else
   python3 "$here/ci_report.py" fetch "$repo" "$run" "$raw"
 fi

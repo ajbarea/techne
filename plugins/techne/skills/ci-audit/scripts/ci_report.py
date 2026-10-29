@@ -21,6 +21,8 @@ import json
 import re
 import subprocess
 import sys
+import zipfile
+import zlib
 from datetime import datetime
 from pathlib import Path
 
@@ -66,7 +68,6 @@ def split_archive(data: bytes, jobs: list[dict]) -> dict[int, dict[int, str]]:
     "<job name>/<n>_<step name>.txt" per step; a job whose name is shared or
     absent is left out, and falls back to its whole log."""
     import io
-    import zipfile
 
     by_name: dict[str, list[dict]] = {}
     for j in jobs:
@@ -135,7 +136,7 @@ def fetch(repo: str, run: str, out: Path) -> None:
         ]
     try:
         steps = split_archive(gh_bytes(f"repos/{repo}/actions/runs/{run}/logs"), kept)
-    except (GhError, OSError, ValueError) as e:
+    except (GhError, OSError, ValueError, zipfile.BadZipFile, zlib.error) as e:
         steps = {}
         errors.append({"job": None, "what": "log archive", "error": str(e)[:300]})
     for job_id, texts in steps.items():
@@ -243,7 +244,7 @@ def facts(d: Path) -> dict:
                     STAMP.sub("", x)[:MAX_LINE] for x in f.read_text(errors="replace").splitlines()
                 ]
                 for f in step_dir.glob("*.txt")
-                if f.stem.isdigit() and f.is_file() and not f.is_symlink()
+                if f.stem.isascii() and f.stem.isdigit() and f.is_file() and not f.is_symlink()
             }
         else:
             lines = by_step(job, log_path.read_text(errors="replace") if log_path.exists() else "")
@@ -467,6 +468,22 @@ def check(report: dict) -> list[str]:
     return problems
 
 
+def expected(f: dict) -> set[str]:
+    """The verdicts FACTS allow, by one precedence: a run still going is in
+    progress, a cancelled run is cancelled, then a run that failed or has a
+    failing step is a failure; a green run is clean only without a swallowed error."""
+    conclusion = f["run"].get("conclusion")
+    if conclusion is None:
+        return {"in-progress"}
+    if conclusion == "cancelled":
+        return {"cancelled"}
+    if conclusion in ("failure", "timed_out", "startup_failure") or f["failing_steps"]:
+        return {"failure"}
+    if f["success_with_error"]:
+        return {"green-with-findings"}
+    return {"clean", "green-with-findings"}
+
+
 def agree(report: dict, f: dict) -> list[str]:
     """Where REPORT contradicts FACTS: a log line may have steered the judgement."""
     problems = []
@@ -475,19 +492,9 @@ def agree(report: dict, f: dict) -> list[str]:
             problems.append(
                 f"run.{k} is {report['run'].get(k)!r}, the facts say {f['run'].get(k)!r}"
             )
-    if f["failing_steps"] and report["verdict"] != "failure":
-        problems.append(f"verdict {report['verdict']!r} on a run with a failing step")
-    failed = f["run"].get("conclusion") in ("failure", "timed_out", "startup_failure")
-    if not f["failing_steps"] and not failed and report["verdict"] == "failure":
-        problems.append("verdict 'failure' on a run that neither failed nor has a failing step")
-    if failed and report["verdict"] in ("clean", "green-with-findings"):
-        problems.append(f"verdict {report['verdict']!r} on a run that failed")
-    if f["run"].get("conclusion") == "cancelled" and report["verdict"] != "cancelled":
-        problems.append("a cancelled run is reported as cancelled")
-    if f["success_with_error"] and report["verdict"] == "clean":
-        problems.append("verdict 'clean' on a run whose green step printed ##[error]")
-    if f["run"].get("conclusion") is None and report["verdict"] != "in-progress":
-        problems.append("a run with no conclusion yet is in progress")
+    allowed = expected(f)
+    if report["verdict"] not in allowed:
+        problems.append(f"verdict {report['verdict']!r}; the facts allow {sorted(allowed)}")
     return problems
 
 
