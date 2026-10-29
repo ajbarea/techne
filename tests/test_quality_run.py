@@ -449,6 +449,17 @@ TEST_CODE = (
 )
 
 
+NAMES_CODE = (
+    "\nfrom os import sep as SEP\n\n\ndef artifacts(results):\n    return []\n"
+    "\n\ndef grants_file():\n    return None\n"
+    "\n\nclass Permission:\n    written_grant: bool = False\n\n    def seen(self):\n"
+    "        self.count = 1\n\n\ndef cli(p, mode=None):\n"
+    '    p.add_argument("--repos-root")\n    p.add_argument("--techne-toml")\n'
+    '    p.add_argument("-q")\n'
+)
+STATED = "A nested one reads `<rel> stops for you in a session started in <where>/ → go`."
+
+
 def gap_task(
     tmp_path: pathlib.Path,
     report: str,
@@ -456,6 +467,8 @@ def gap_task(
     parent_code: str = PARENT_CODE,
     config: Sequence[tuple[str, str]] = (),
     parent_files: dict[str, str] | None = None,
+    fix_code: str = FIX_CODE,
+    fix_files: dict[str, str] | None = None,
 ) -> dict:
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -478,7 +491,7 @@ def gap_task(
     parent = commit(
         {**(parent_files or {}), "m.py": parent_code, "tests/test_m.py": "def test_old(): pass\n"}
     )
-    fix = commit({"m.py": FIX_CODE, "tests/test_m.py": test_code})
+    fix = commit({**(fix_files or {}), "m.py": fix_code, "tests/test_m.py": test_code})
     return {
         "clone": repo,
         "parent": parent,
@@ -503,6 +516,11 @@ def test_interface_gaps_accept_wording_the_report_states(tmp_path):
     assert run.interface_gaps(gap_task(tmp_path, report), []) == []
 
 
+def test_windows_break_at_a_placeholder_and_a_regex_bar():
+    said = run.windows("{} one two {} three four five|six seven")
+    assert said == {("three", "four", "five")}
+
+
 def test_windows_read_a_closing_period_as_punctuation():
     said = run.windows("It reads `set but empty.` Then run.py stops.")
     assert {("set", "but", "empty"), ("then", "run.py", "stops")} <= said
@@ -513,6 +531,7 @@ def test_windows_read_a_closing_period_as_punctuation():
     [
         "session go stops in",  # only the fix's words, no three-word run of its strings
         "stops for you → go",  # wording the parent already had
+        "stops for you jane",  # a run with a word the fix never says: fixture data
     ],
 )
 def test_interface_gaps_leave_out_strings_that_add_no_wording(tmp_path, literal):
@@ -533,21 +552,46 @@ def test_interface_gaps_skip_a_name_the_parent_defines(tmp_path):
     assert run.interface_gaps(gap_task(tmp_path, report), failures) == []
 
 
-def test_interface_gaps_keep_a_name_only_prose_or_a_local_variable_has(tmp_path):
-    report = "A nested one reads `<rel> stops for you in a session started in <where>/ → go`."
-    parent = PARENT_CODE + "def g():\n    artifacts = 1\n"
-    task = gap_task(
-        tmp_path, report, parent_code=parent, parent_files={"log.md": "artifacts: kept\n"}
-    )
+def test_interface_gaps_flag_a_name_the_fix_adds_though_another_file_has_it(tmp_path):
+    other = {"other.py": "def artifacts():\n    pass\n"}  # the shape of techne-174's BATCH_SSH
+    task = gap_task(tmp_path, STATED, parent_files=other, fix_code=FIX_CODE + NAMES_CODE)
     failures = ["AttributeError: module 'm' has no attribute 'artifacts'"]
     assert run.interface_gaps(task, failures) == ["name the report does not give: artifacts"]
 
 
+def test_interface_gaps_flag_methods_attributes_and_fields_the_fix_adds(tmp_path):
+    task = gap_task(tmp_path, STATED, fix_code=FIX_CODE + NAMES_CODE)
+    failures = [f"'Permission' object has no attribute '{n}'" for n in ("seen", "count")]
+    failures.append("TypeError: got an unexpected keyword argument 'written_grant'")
+    failures.append("TypeError: cli() got an unexpected keyword argument 'mode'")
+    failures.append("ImportError: cannot import name 'SEP' from 'm'")
+    assert run.interface_gaps(task, failures) == [
+        f"name the report does not give: {n}"
+        for n in ("SEP", "count", "mode", "seen", "written_grant")
+    ]
+
+
+def test_defined_reads_identifiers_and_flags_outside_python():
+    assert run.defined('main() { grep --fixed x_y "$1"; }\n', "s.sh") >= {"main", "--fixed", "x_y"}
+    assert run.defined("def broken(:\n", "b.py") >= {"def", "broken"}
+
+
+def test_interface_gaps_flag_a_new_module(tmp_path):
+    task = gap_task(tmp_path, STATED, fix_files={"pkg/grants.py": "X = 1\n"})
+    failures = ["ModuleNotFoundError: No module named 'pkg.grants'"]
+    assert run.interface_gaps(task, failures) == ["name the report does not give: pkg.grants"]
+
+
+def test_interface_gaps_skip_a_name_only_the_tests_add(tmp_path):
+    task = gap_task(tmp_path, STATED, fix_files={"tests/helpers.py": "def helper():\n    pass\n"})
+    assert run.interface_gaps(task, ["module 'helpers' has no attribute 'helper'"]) == []
+
+
 def test_interface_gaps_read_every_unrecognized_flag(tmp_path):
-    report = "A nested one reads `<rel> stops for you in a session started in <where>/ → go`."
-    report += " It takes `--repos-root`."
-    failures = ["error: unrecognized arguments: --repos-root /a --techne-toml /b -q"]
-    assert run.interface_gaps(gap_task(tmp_path, report), failures) == [
+    report = STATED + " It takes `--repos-root`."
+    task = gap_task(tmp_path, report, fix_code=FIX_CODE + NAMES_CODE)
+    failures = ["error: unrecognized arguments: --repos-root /a --techne-toml /b -q --json"]
+    assert run.interface_gaps(task, failures) == [
         "name the report does not give: --techne-toml",
         "name the report does not give: -q",
     ]
@@ -558,7 +602,7 @@ def test_interface_gaps_name_what_the_parent_lacks_unless_the_report_does(tmp_pa
         "Interface: a stops for you in a session started in b/ → go. `cli.grants_file()`;"
         " it writes artifacts to the results folder."
     )
-    task = gap_task(tmp_path, report)
+    task = gap_task(tmp_path, report, fix_code=FIX_CODE + NAMES_CODE)
     failures = [
         "AttributeError: module 'redact' has no attribute 'artifacts'",
         "AttributeError: module 'cli' has no attribute 'grants_file'",
@@ -601,6 +645,13 @@ def test_check_tasks_fails_a_task_whose_report_leaves_out_a_name(
         return {"passed": True, "tests_run": ["t::a"]}
 
     monkeypatch.setattr(run, "hidden_tests", scored)
+
+    def gaps(task, failures):
+        # the parent's failures reach the gap check
+        assert failures == (["module 'x' has no attribute 'artifacts'"] if parent_ran else [])
+        return [] if "`artifacts" in task["report"] else ["name the report does not give: x"]
+
+    monkeypatch.setattr(run, "interface_gaps", gaps)
     task = {"id": "a", "clone": tmp_path, "parent": "p", "fix": "f", "report": report}
     task["hidden_tests"] = ["tests/test_a.py"]
     assert run.check_tasks([task]) == (0 if ok else 1)
@@ -613,12 +664,14 @@ def test_added_lines_reads_an_added_line_that_starts_with_two_pluses():
     assert run.added_lines("--- a/f\n+++ b/f\n@@ -1 +1,3 @@\n a\n+++x\n+y\n") == {2, 3}
 
 
-def test_a_name_counts_as_given_only_as_a_whole_word(monkeypatch):
-    monkeypatch.setattr(run, "git", lambda *a: "")
-    task = {"report": "Uses spool.", "hidden_tests": [], "clone": ".", "parent": "p", "fix": "f"}
+def test_a_name_counts_as_given_only_as_a_whole_word(tmp_path):
+    fix = FIX_CODE + "\n\ndef pool():\n    pass\n"
+    task = gap_task(tmp_path, STATED + " Uses `spool`.", fix_code=fix)
     failures = ["module 'c' has no attribute 'pool'"]
     assert run.interface_gaps(task, failures) == ["name the report does not give: pool"]
-    task["report"] = "Adds `cli.pool()`."
+    task["report"] = STATED + " Adds `cli.Pool()`."  # names are case-sensitive
+    assert run.interface_gaps(task, failures) == ["name the report does not give: pool"]
+    task["report"] = STATED + " Adds `cli.pool()`."
     assert run.interface_gaps(task, failures) == []
 
 

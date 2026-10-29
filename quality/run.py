@@ -829,62 +829,92 @@ def strings(source: str, path: str, lines: set[int] | None = None) -> list[str]:
     ]
 
 
-def defines(task: dict, name: str) -> bool:
-    """Whether the parent's code outside the tests already defines NAME (a top-level `def`,
-    `class`, assignment or import, a method, a `self.` attribute, or an option string), so a
-    failure on it is the bug, not a missing name. Prose and local variables do not count: a
-    name wrongly kept is a visible broken task, a name wrongly dropped is a silent one."""
-    if name.startswith("-"):
-        args = ["-F", "-e", f'"{name}"', "-e", f"'{name}'"]
-    else:
-        n = re.escape(name)
-        args = ["-E", "-e", rf"^(async\s+)?(def|class)\s+{n}\b", "-e", rf"^{n}\s*(:[^:=]|=[^=])"]
-        args += ["-e", rf"^(from\s+\S+\s+)?import\s.*\b{n}\b", "-e", rf"^\s+(async\s+)?def\s+{n}\b"]
-        args += ["-e", rf"^\s*self\.{n}\s*(:[^:=]|=[^=])"]
-    code = [f"*.{x}" for x in ("py", "pyi", "sh", "bash", "js", "mjs", "ts", "rs")]
-    hits = sh(["git", "-C", str(task["clone"]), "grep", "-l", *args, task["parent"], "--", *code])
-    paths = (ln.split(":", 1)[-1] for ln in hits.stdout.splitlines())
-    return any(not TEST_PATH.search(p) for p in paths)
+def defined(source: str, path: str) -> set[str]:
+    """The names a code file defines: in Python, by its syntax tree, every function, class,
+    parameter, assigned name or attribute (`self.x`, a class field), import, and the option
+    strings and subcommands an `add_argument`/`add_parser` call adds; in any other file, or
+    Python that does not parse, every identifier and `--flag` it holds."""
+    try:
+        tree = ast.parse(source) if path.endswith(".py") else None
+    except SyntaxError:
+        tree = None
+    if tree is None:
+        return set(re.findall(r"--?[A-Za-z][\w-]*|[A-Za-z_]\w*", source))
+    out = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            out.add(node.name)
+        elif isinstance(node, ast.arg):
+            out.add(node.arg)
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            out.add(node.id)
+        elif isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Store):
+            out.add(node.attr)
+        elif isinstance(node, ast.alias):
+            out.add((node.asname or node.name).rsplit(".", 1)[-1])
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in ("add_argument", "add_parser")
+        ):
+            for arg in node.args:
+                if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                    out.add(arg.value)
+    return out
 
 
 def interface_gaps(task: dict, failures: Sequence[str]) -> list[str]:
     """What the hidden tests check that the bug report does not state, so that no fix could
-    pass without the gold patch: a name the parent tree lacks, as a failure on it names it (a
-    missing attribute, import, module, keyword argument, CLI flag or choice), that no code span
+    pass without the gold patch: a name a failure on the parent names (a missing attribute,
+    import, module, keyword argument, CLI flag or choice) that the fix defines in its code
+    outside the tests where the parent's version of that file did not, and that no code span
     in the report gives; or a string a test adds that shares a three-word run with the strings
     the fix adds and also says something neither the parent's changed files nor the report
-    say. A rule stated only in prose, a new positional parameter, and a name no failure names
-    are beyond this check and stay a reading audit."""
+    say. A rule stated only in prose, a new positional parameter, a name no failure names,
+    a message under three words, and the unquoted text of a file that is not Python are
+    beyond this check and stay a reading audit."""
     report = task["report"].lower()
-    code = re.findall(r"`([^`]+)`", report)  # a name is given in code, as the notes write it
+    # a name is given in code, as the notes write it, and in its own case
+    code = re.findall(r"`([^`]+)`", task["report"])
     gaps = set()
-    names = {next(g for g in m.groups() if g) for t in failures for m in MISSING_NAME.finditer(t)}
-    names |= {f for t in failures for m in UNRECOGNIZED.finditer(t) for f in FLAG.findall(m[1])}
-    for name in sorted(names):
-        last = name.rsplit(".", 1)[-1] if not name.startswith("-") else name
-        pattern = rf"(?<![\w-]){re.escape(last.lower())}(?![\w-])"
-        if not any(re.search(pattern, span) for span in code) and not defines(task, last):
-            gaps.add(f"name the report does not give: {name}")
     span = (task["parent"], task["fix"])
     plain = ("--no-color", "--no-ext-diff", "--no-renames")  # whatever the user's git config
     changed = git(
         task["clone"], "diff", "--name-only", *plain, "--diff-filter=AM", *span
     ).splitlines()
 
+    def show(rev: str, path: str) -> str | None:
+        out = sh(["git", "-C", str(task["clone"]), "show", f"{rev}:{path}"])
+        return None if out.returncode else out.stdout
+
     def added_strings(path: str) -> list[str]:
-        new = sh(["git", "-C", str(task["clone"]), "show", f"{task['fix']}:{path}"]).stdout
         diff = git(task["clone"], "diff", *plain, *span, "--", path)
-        return strings(new, path, added_lines(diff))
+        return strings(show(task["fix"], path) or "", path, added_lines(diff))
 
     code_paths = [p for p in changed if p not in task["hidden_tests"] and not TEST_PATH.search(p)]
+    new_names = set()
+    for p in code_paths:
+        old = show(task["parent"], p)
+        new_names |= defined(show(task["fix"], p) or "", p) - defined(old or "", p)
+        if old is None:  # a new module
+            stem = pathlib.PurePosixPath(p)
+            new_names.add(stem.parent.name if stem.stem == "__init__" else stem.stem)
+    names = {next(g for g in m.groups() if g) for t in failures for m in MISSING_NAME.finditer(t)}
+    names |= {f for t in failures for m in UNRECOGNIZED.finditer(t) for f in FLAG.findall(m[1])}
+    for name in sorted(names):
+        last = name.rsplit(".", 1)[-1] if not name.startswith("-") else name
+        if last not in new_names:
+            continue  # the fix adds no such name: the failure is the bug itself
+        pattern = rf"(?<![\w-]){re.escape(last)}(?![\w-])"
+        if not any(re.search(pattern, span) for span in code):
+            gaps.add(f"name the report does not give: {name}")
     fix_strings = [lit for p in code_paths for lit in added_strings(p)]
     added = set().union(*(windows(lit) for lit in fix_strings))
     vocabulary = {w for lit in fix_strings for w in words(lit)}
     before = set()
     for p in code_paths:
-        shown = sh(["git", "-C", str(task["clone"]), "show", f"{task['parent']}:{p}"])
-        if not shown.returncode:  # the implementer reads these files: all their wording counts
-            before |= windows(shown.stdout)
+        # the implementer reads these files: all their wording counts
+        before |= windows(show(task["parent"], p) or "")
     said_by_report = windows(report)
     for p in (p for p in changed if p in task["hidden_tests"]):
         for lit in added_strings(p):
