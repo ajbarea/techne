@@ -20,6 +20,8 @@ Run from the shell after the config preamble in `SKILL.md`, which sets `$SISTERS
 - [13. Worktree ignore](#13-worktree-ignore)
 - [14. Docs-site shared files and nav coverage](#14-docs-site-shared-files-and-nav-coverage)
 - [15. Agent instruction file](#15-agent-instruction-file)
+- [16. Logging standard](#16-logging-standard)
+- [17. Security floor](#17-security-floor)
 
 ## 1. Action-pin drift
 
@@ -425,3 +427,25 @@ It prints one line per sister, `<repo>: logging standard ✓` or `<repo>: N find
 <count>, ...) → run /techne:logging there`, or `<repo>: not a git repository at <path>`, and
 always exits 0. Report each line that is not ✓; the fix is a `/techne:logging` run in that
 repo, one PR per repo.
+
+## 17. Security floor
+
+Each sister meets the security floor (#241): secret scanning and push protection on (free on
+public repos; a private repo needs GitHub Secret Protection, a paid add-on, so it is the user's
+call), Dependabot alerts on, zizmor run in CI, every action pinned to a full commit SHA or
+covered by the workflow dependency lockfile `.github/workflows/actions.lock` (a reusable
+workflow call needs a SHA either way), and least-privilege `permissions:` in every workflow
+(at the top or on every job, never `write-all`). Sources: GitHub's
+[secure use reference](https://docs.github.com/en/actions/reference/security/secure-use) and
+[workflow dependency lockfiles](https://docs.github.com/en/actions/concepts/security/workflow-dependency-lockfiles).
+
+```
+python3 <skill-dir>/scripts/security_floor.py "$WORKSPACE" $SISTERS
+```
+
+It prints one line per sister, `<repo>: security floor ✓` or `<repo>: N security floor gaps:
+<gap>; ...`, with any note in parentheses (settings it could not read, a private repo's paid
+scanning), and always exits 0. The GitHub settings need `gh` signed in with admin access to
+the repo; without it the line says so and the workflow checks still run. Report each line
+that is not ✓; fix each repo by its own PR.
+

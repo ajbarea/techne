@@ -25,7 +25,7 @@ If `~/.claude/techne.toml` is missing or yields zero active sisters, stop and te
 
 ## What to check
 
-Run every check, in order, using the commands in [references/checks.md](references/checks.md). Check 15's script is `<skill-dir>/scripts/agents_md.py`; check 16's is `<plugin-root>/skills/logging/scripts/logcheck.py`.
+Run every check, in order, using the commands in [references/checks.md](references/checks.md). Check 15's script is `<skill-dir>/scripts/agents_md.py`; check 16's is `<plugin-root>/skills/logging/scripts/logcheck.py`; check 17's is `<skill-dir>/scripts/security_floor.py`.
 Each check reports per repo; one broken repo never aborts the others.
 
 | # | Check | Drift means | Recommend |
@@ -46,6 +46,7 @@ Each check reports per repo; one broken repo never aborts the others.
 | 14 | Docs-site shared files | A site's copy of a shared docs-site file differs from techne's, or a `docs/` page is missing from the nav | Fix techne's copy and sync it; list or move the page |
 | 15 | Agent instruction file | No committed `AGENTS.md`; any `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md` in the repo (tracked, untracked or ignored, at any depth; check 15 in `references/checks.md` covers ignored folders) or above it; a symlinked `CLAUDE.md` | Move the content into `AGENTS.md` and delete the file; personal notes go to `~/.claude/CLAUDE.md` |
 | 16 | Logging standard | A repo whose logging gates are off, or that logs a secret, writes an uncapped log file, prints errors to stdout, loses CI logs on failure or commits a log file (`techne:logging`'s check) | Run `/techne:logging` in that repo |
+| 17 | Security floor | Secret scanning or push protection off on a public repo, Dependabot alerts off, no zizmor in CI, an action not pinned to a full commit SHA (or the `actions.lock` lockfile), or a workflow without least-privilege `permissions:` | Fix by PR, one per repo; a private repo's secret scanning needs paid GitHub Secret Protection, so name it as the user's call |
 
 ## Output format
 
@@ -128,6 +129,10 @@ A single block, no preamble (concrete repo names below are illustrative — subs
 ### Logging standard
 - repo-a: logging standard ✓
 - repo-b: 3 findings (lint-python 1, stderr-for-errors 2) → run /techne:logging there
+
+### Security floor
+- repo-a: security floor ✓
+- repo-b: 2 security floor gaps: no zizmor in CI; no permissions: in ci.yml
 
 ### Verdict
 
