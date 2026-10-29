@@ -1,7 +1,7 @@
 <!-- budget: 4400 words -->
 # Bug-class catalog
 
-Every class of bug this fleet has already paid for once. Authors walk it before asking for review; readers walk it while reviewing and tag each Blocking or Should-fix finding with its class slug. A finding that fits no class is tagged `new: <short name>`, and the author adds it here after merge (see **After merge** in SKILL.md).
+Every class of bug this fleet has already paid for once. Authors walk it before asking for review; readers walk it while reviewing and tag each Blocking or Should-fix finding with its class slug. A finding that fits no class is tagged `new: <short name>`, and the daily fold-back adds it here from the findings ledger (see **After merge** in SKILL.md).
 
 The **core rubric** (classes 1 to 9) is walked on every review: for each, find the falsifying case or clear it explicitly. The **learned classes** are walked where the diff touches their trigger: a parser, a hook, a destructive op, a test of async work, a released artifact, a sweep, a command the agent itself runs.
 

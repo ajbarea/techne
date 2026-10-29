@@ -32,6 +32,7 @@ SEVERITIES = ("Blocking", "Should-fix")
 CATALOG_SLUG = re.compile(r"^### (?:\d+\. )?([a-z0-9]+(?:-[a-z0-9]+)*): ", re.M)
 RETIRED = re.compile(r"^- \*\*Retired:\*\*", re.M)
 CHECKLIST_AT, MECHANICAL_AT = 2, 3
+UTC = dt.timezone.utc  # noqa: UP017  # dt.UTC needs 3.11; this runs on 3.9
 
 
 def ledger_path() -> pathlib.Path:
@@ -53,7 +54,7 @@ def append(args: argparse.Namespace) -> int:
         print(f"ledger: class {args.cls!r} is not a catalog slug or `new: <name>`", file=sys.stderr)
         return 2
     rec = {
-        "ts": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
+        "ts": dt.datetime.now(UTC).isoformat(timespec="seconds"),
         "repo": args.repo.strip(),
         "pr": str(args.pr).lstrip("#"),
         "round": args.round,
@@ -70,32 +71,68 @@ def append(args: argparse.Namespace) -> int:
     return 0
 
 
-def read(since: dt.datetime | None = None) -> list[dict]:
-    """Every well-formed record at or after SINCE; a malformed line is skipped and counted."""
+def aware(when: dt.datetime) -> dt.datetime:
+    """A time with no zone is UTC, so every comparison is between aware times."""
+    return when if when.tzinfo else when.replace(tzinfo=UTC)
+
+
+def clean(rec: object) -> dict | None:
+    """A record with every field present and of its type, normalized; None when it is not."""
+    if not isinstance(rec, dict):
+        return None
+    try:
+        when = aware(dt.datetime.fromisoformat(str(rec["ts"])))
+        cls, repo = rec["class"], rec["repo"]
+        if not (isinstance(cls, str) and SLUG.match(cls) and isinstance(repo, str) and repo):
+            return None
+        rnd = int(rec.get("round", 0))
+    except (ValueError, KeyError, TypeError):
+        return None
+    return {
+        "ts": when.isoformat(),
+        "when": when,
+        # owner/name and name are one repo; GitHub compares names without case.
+        "repo": repo.strip().rsplit("/", 1)[-1].lower(),
+        "pr": str(rec.get("pr", "")).lstrip("#"),
+        "round": rnd,
+        "class": cls,
+        "line": str(rec.get("line", ""))[:300],
+    }
+
+
+def read(since: dt.datetime | None = None, until: dt.datetime | None = None) -> list[dict]:
+    """Every well-formed record in [SINCE, UNTIL); a malformed line is skipped and counted."""
     path = ledger_path()
     if not path.exists():
         return []
     out, bad = [], 0
     for line in path.read_text(encoding="utf-8").splitlines():
         try:
-            rec = json.loads(line)
-            when = dt.datetime.fromisoformat(rec["ts"])
-            rec["class"], rec["repo"], rec["pr"]  # required fields
-        except (ValueError, KeyError, TypeError):
+            rec = clean(json.loads(line))
+        except ValueError:
+            rec = None
+        if rec is None:
             bad += 1
             continue
-        if since is None or when >= since:
+        if (since is None or rec["when"] >= aware(since)) and (
+            until is None or rec["when"] < aware(until)
+        ):
             out.append(rec)
     if bad:
         print(f"ledger: skipped {bad} malformed line(s) in {path}", file=sys.stderr)
     return out
 
 
-def ladder(records: list[dict]) -> dict[str, dict]:
-    """Per class: the PRs it was found in, and its rung (checklist, mechanical)."""
+def ladder(records: list[dict], only: set[str] | None = None) -> dict[str, dict]:
+    """Per class: the numbered PRs it was found in, and its rung (checklist, mechanical).
+
+    A record made before its PR existed (a branch name) is left out, so one change is never
+    counted twice. With ONLY, classes outside it are left out too.
+    """
     prs: dict[str, set[str]] = defaultdict(set)
     for r in records:
-        prs[r["class"]].add(f"{r['repo']}#{r['pr']}")
+        if r["pr"].isdigit() and (only is None or r["class"] in only):
+            prs[r["class"]].add(f"{r['repo']}#{r['pr']}")
     out = {}
     for cls, seen in sorted(prs.items(), key=lambda kv: (-len(kv[1]), kv[0])):
         if len(seen) >= CHECKLIST_AT:
@@ -105,7 +142,7 @@ def ladder(records: list[dict]) -> dict[str, dict]:
 
 
 def ago(days: float) -> dt.datetime:
-    return dt.datetime.now(dt.UTC) - dt.timedelta(days=days)
+    return dt.datetime.now(UTC) - dt.timedelta(days=days)
 
 
 def checklist(args: argparse.Namespace) -> int:
@@ -130,8 +167,9 @@ def fold(args: argparse.Namespace) -> int:
         )
         if RETIRED.search(body)
     }
-    since = dt.datetime.fromisoformat(args.since) if args.since else ago(1)
-    recent = read(since)
+    since = aware(dt.datetime.fromisoformat(args.since)) if args.since else ago(1)
+    until = aware(dt.datetime.fromisoformat(args.until)) if args.until else None
+    recent = read(since, until)
     incidents: dict[str, list[dict]] = defaultdict(list)
     new: dict[str, list[dict]] = defaultdict(list)
     unknown: dict[str, list[dict]] = defaultdict(list)
@@ -146,7 +184,7 @@ def fold(args: argparse.Namespace) -> int:
     # A `new:` name already in the catalog is an incident of that class, not a new one.
     for name in [n for n in new if n in known]:
         incidents[name] += new.pop(name)
-    week = read(ago(args.days))
+    week = read(ago(args.days), until)
     plan = {
         "since": since.isoformat(),
         "records": len(recent),
@@ -158,7 +196,9 @@ def fold(args: argparse.Namespace) -> int:
             n for n, v in new.items() if len({(i["repo"], i["pr"]) for i in v}) < 2
         ),
         "unknown_slugs": dict(sorted(unknown.items())),
-        "ladder": ladder(week),
+        # Only a catalogued, unretired slug escalates: a free-text `new:` name could carry a
+        # private repo's name into a public issue title.
+        "ladder": ladder(week, known - retired),
         "retired_but_found": sorted(set(incidents) & retired),
     }
     json.dump(plan, sys.stdout, indent=1, ensure_ascii=False)
@@ -180,7 +220,8 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--days", type=float, default=7)
     f = sub.add_parser("fold", help="the daily catalog plan, as JSON")
     f.add_argument("--catalog", required=True)
-    f.add_argument("--since", help="ISO time; default 24 hours ago")
+    f.add_argument("--since", help="ISO time; default 24 hours ago; no zone means UTC")
+    f.add_argument("--until", help="ISO time the window ends (exclusive); default now")
     f.add_argument("--days", type=float, default=7)
     args = ap.parse_args(argv)
     return {"append": append, "checklist": checklist, "fold": fold}[args.cmd](args)

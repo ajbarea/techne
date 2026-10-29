@@ -165,3 +165,66 @@ def test_fold_reads_only_since_the_last_fold(tmp_path):
     later = (dt.datetime.now(dt.UTC) + dt.timedelta(seconds=5)).isoformat()
     plan = json.loads(run(tmp_path, "fold", "--catalog", str(catalog), "--since", later).stdout)
     assert plan["records"] == 0 and plan["incidents"] == {}
+
+
+def write(state: pathlib.Path, *recs: object) -> None:
+    path = state / "elenchus" / "findings.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(json.dumps(r) + "\n" for r in recs))
+
+
+def test_malformed_records_are_skipped_not_fatal(tmp_path):
+    now = dt.datetime.now(dt.UTC).replace(tzinfo=None).isoformat()  # naive: UTC
+    write(
+        tmp_path,
+        {"ts": now, "repo": "techne", "pr": "1", "class": "boundary-input"},  # no round, line
+        {"ts": now, "repo": "techne", "pr": "2", "round": 1, "class": 5},
+        {"ts": now, "repo": "techne", "pr": "3", "round": "x", "class": "boundary-input"},
+        ["not", "a", "record"],
+    )
+    catalog = tmp_path / "bug-classes.md"
+    catalog.write_text(CATALOG)
+    out = run(tmp_path, "fold", "--catalog", str(catalog), "--since", "2000-01-01")
+    assert out.returncode == 0, out.stderr
+    assert json.loads(out.stdout)["records"] == 1
+    assert "skipped 3 malformed" in out.stderr
+
+
+def test_one_pr_is_counted_once_across_owner_case_and_branch(tmp_path):
+    for repo, pr in (("ajbarea/techne", "238"), ("techne", "#238"), ("Techne", "238")):
+        add(tmp_path, repo, pr, "vacuous-guard")
+    add(tmp_path, "techne", "feat/elenchus-ledger", "vacuous-guard")  # before the PR existed
+    assert "no class found" in run(tmp_path, "checklist").stdout
+
+
+def test_only_catalogued_unretired_slugs_escalate(tmp_path):
+    catalog = tmp_path / "bug-classes.md"
+    catalog.write_text(CATALOG)
+    for pr in (1, 2, 3):
+        add(tmp_path, "techne", pr, "new: secretproj folder wipe")
+        add(tmp_path, "techne", pr, "boundary-input")
+        add(tmp_path, "techne", pr, "vacuous-guard")  # retired in CATALOG
+    plan = json.loads(run(tmp_path, "fold", "--catalog", str(catalog)).stdout)
+    assert list(plan["ladder"]) == ["boundary-input"]
+    assert plan["ladder"]["boundary-input"]["rung"] == "mechanical"
+    # The local checklist still shows every class.
+    assert "new: secretproj-folder-wipe" in run(tmp_path, "checklist").stdout
+
+
+def test_until_bounds_the_window(tmp_path):
+    catalog = tmp_path / "bug-classes.md"
+    catalog.write_text(CATALOG)
+    add(tmp_path, "techne", 1, "boundary-input")
+    plan = json.loads(
+        run(
+            tmp_path,
+            "fold",
+            "--catalog",
+            str(catalog),
+            "--since",
+            "2000-01-01",
+            "--until",
+            "2001-01-01",
+        ).stdout
+    )
+    assert plan["records"] == 0
