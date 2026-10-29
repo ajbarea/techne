@@ -13,6 +13,6 @@ A fix is already in the working tree (`git diff {base}` shows it, new files incl
 Fix each finding that is correct, with a regression test where the finding is testable. If you judge a finding wrong, leave the code as it is and say why in your reply.
 
 The repository's test command is: `{test_command}`
-Run it before you finish. The machine has no network access; the dependencies are already installed.
+Run it before you finish. The machine has no network access; the dependencies are already installed. Work only in the current directory and `$TMPDIR`.
 
 When you are done, reply with one line per finding: fixed, or not fixed and why.

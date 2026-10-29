@@ -370,3 +370,12 @@ def test_clearing_the_session_store_refuses_any_other_folder(tmp_path, monkeypat
     (run.session_store(ws) / "s1").mkdir(parents=True)
     run.clear_session_store(ws)
     assert not run.session_store(ws).exists()
+
+
+def test_a_smoke_run_fails_only_on_a_blocked_uv_cache(tmp_path):
+    (tmp_path / "a.jsonl").write_text(
+        "OSError: [Errno 30] Read-only file system: '/var/crash/x.crash'"
+    )
+    assert run.blocked_sessions(tmp_path) == []
+    (tmp_path / "b.jsonl").write_text('error: Failed to initialize cache at "/x/uv-cache"')
+    assert run.blocked_sessions(tmp_path) == [str(tmp_path / "b.jsonl")]

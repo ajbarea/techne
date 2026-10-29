@@ -831,7 +831,7 @@ def failed_run(task: dict, mode: str, rep: int, errors: list[str]) -> dict:
 
 ATTEMPTS = 3
 # What a session prints when the sandbox keeps it from writing what the task needs.
-SANDBOX_BLOCKED = re.compile(r"Read-only file system|Failed to initialize cache")
+SANDBOX_BLOCKED = re.compile(r"Failed to initialize cache|Read-only file system[^\n]*uv-cache")
 
 
 def blocked_sessions(folder: pathlib.Path) -> list[str]:
