@@ -1,11 +1,11 @@
 {
-  "rounds": 218,
-  "rounds_without_a_repo": 51,
+  "rounds": 214,
+  "rounds_without_a_repo": 48,
   "parser_check": {
     "rounds_stating_counts": 109,
     "parsed_counts_agree": 92
   },
-  "prs": 91,
+  "prs": 89,
   "findings": 305,
   "before_catalog": 41,
   "tagged": 154,
@@ -47,7 +47,7 @@
   "rounds_per_pr_by_repo": {
     "ajbarea.github.io": {
       "prs": 9,
-      "median_rounds": 2,
+      "median_rounds": 1,
       "max_rounds": 2
     },
     "ariadne": {
@@ -66,8 +66,8 @@
       "max_rounds": 1
     },
     "klepsydra": {
-      "prs": 32,
-      "median_rounds": 1.0,
+      "prs": 33,
+      "median_rounds": 1,
       "max_rounds": 9
     },
     "ldqis": {
@@ -76,8 +76,8 @@
       "max_rounds": 1
     },
     "private repos": {
-      "prs": 14,
-      "median_rounds": 2.0,
+      "prs": 11,
+      "median_rounds": 2,
       "max_rounds": 5
     },
     "sphragis": {

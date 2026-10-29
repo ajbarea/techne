@@ -36,7 +36,8 @@ REVIEW_RE = re.compile(
 )
 # Implementers of review fixes and other non-review agents that mention a review.
 NOT_REVIEW_RE = re.compile(
-    r"^\s*IDEAS=|heuresis|\bscout\b|\byou (?:implement|are the implementer|fix)\b|\bfix round\b",
+    r"^\s*IDEAS=|heuresis|\bscout\b|\byou (?:implement|are the implementer|fix|are writing)\b"
+    r"|\bfix round\b|^\s*fix (?:the )?review findings",
     re.I,
 )
 PR_URL_RE = re.compile(r"github\.com/([\w.-]+)/([\w.-]+)/pull/(\d+)")
@@ -48,6 +49,8 @@ SLUG_PR_RE = re.compile(
 PR_THEN_REPO_RE = re.compile(
     r"\b(?:PR|pull request)\s+#(\d+)\b[^\n]{0,80}?(?<![/\w.-])([\w.-]+)/([A-Za-z][\w.-]*)(?![/\w])"
 )
+# A repo page named outright: github.com/owner/name, not a PR URL.
+GH_REPO_RE = re.compile(r"github\.com/([\w.-]+)/([\w-]+(?:\.[\w-]+)*?)(?:\.git)?(?![\w./-])")
 # A worktree path names the repo the reviewer stands in; a bare repo path is the fallback,
 # so the elenchus SKILL.md path inside techne does not claim the review.
 WORKTREE_RE = re.compile(r"/ajsoftworks/([\w.-]+)/\.claude/worktrees/")
@@ -143,8 +146,12 @@ def identify(prompt: str, known: set[str]) -> tuple[str, str, str]:
         for m in SLUG_PR_RE.finditer(head)
         if m.group(1) or m.group(2).lower() in known
     ]
+    pr_only = re.search(r"\b(?:PR|pull request)\s+#(\d+)\b", head)
+    if not slugs and pr_only and (m := GH_REPO_RE.search(head)):
+        slugs = [(m.group(1), m.group(2).lower(), pr_only.group(1))]
     if not slugs and (m := PR_THEN_REPO_RE.search(head)):
-        slugs = [(m.group(2), m.group(3).lower(), m.group(1))]
+        if not re.search(r"\bbranch\s*$", head[: m.start(2)]):  # a branch like perf/audit
+            slugs = [(m.group(2), m.group(3).lower(), m.group(1))]
     wt = WORKTREE_RE.search(head)
     if not wt:
         paths = [
@@ -355,7 +362,7 @@ def mine(
             continue
         owner, repo, pr = identify(prompt, known)
         if not repo:
-            unplaced.append(str(path))
+            unplaced.append(utc(started))
             continue
         rnd = Round(str(path), utc(started), repo, owner, pr, round_of(prompt))
         rnd.stated = stated_counts(report)
@@ -560,6 +567,7 @@ def main(argv: list[str] | None = None) -> int:
     hist = catalog_history(ROOT)
     known = {p.name.lower() for p in args.workspace.iterdir() if p.is_dir()}
     rounds = [r for r in mine(paths, since, hist, known) if not until or r.started < until]
+    unplaced[:] = [t for t in unplaced if not until or t < until]
     current = set(hist[-1][1]) if hist else set()
     public = {p.strip() for p in args.public.split(",") if p.strip()}
     summary = summarize(rounds, public, current)

@@ -99,6 +99,15 @@ def test_parse_findings(report: str, want: list[tuple[str, str]]) -> None:
             ("acme", "other-tool", "32"),
         ),
         ("Review Techne#5", ("", "techne", "5")),
+        (
+            "review of PR #147 on github.com/ajbarea/klepsydra (branch perf/audit; "
+            "worktree /home/u/ajsoftworks/klepsydra/.claude/worktrees/p)",
+            ("ajbarea", "klepsydra", "147"),
+        ),
+        (
+            "PR #9 is on branch feat/x-y in /home/u/ajsoftworks/techne/.claude/worktrees/q",
+            ("", "techne", "9"),
+        ),
         # Shapes seen in the fleet's prompts; each must yield its PR number.
         (
             "Review pull request #212 in the GitHub repo ajbarea/sphragis",
@@ -209,7 +218,12 @@ def test_label_key(key: str, want: str) -> None:
 
 @pytest.mark.parametrize(
     "prompt",
-    ["You implement review fixes on klepsydra PR #91", "Fix round 4 for techne#5 after review"],
+    [
+        "You implement review fixes on klepsydra PR #91",
+        "Fix round 4 for techne#5 after review",
+        "Fix review findings on klepsydra PR #72",
+        "You are writing one PR for techne#14; a reviewer reads it later",
+    ],
 )
 def test_implementers_are_not_review_rounds(tmp_path: pathlib.Path, prompt: str) -> None:
     a = transcript(tmp_path / "a.jsonl", prompt, "2026-10-23T00:00:00Z", "done")
