@@ -42,7 +42,7 @@ Restoring it means a fresh review subagent (the `Agent` tool, never a fork, whic
 
 The author's pre-flight, before the first round:
 
-1. **Walk the catalog against the diff.** Ask every core class's question, and each learned class's question wherever the diff touches its trigger. Fix what it finds before a reader spends a round on it.
+1. **Walk the catalog against the diff, recent repeats first.** Run `python3 "<plugin-root>/skills/elenchus/scripts/ledger.py" checklist`: it lists the classes reviewers found in two or more PRs this week, across every repo on this machine. Ask those questions first, then every core class's question, and each learned class's question wherever the diff touches its trigger. Skip a class marked **Retired**: a mechanical check now catches it. Fix what the walk finds before a reader spends a round on it.
 2. **Code that parses another language or format** (bash, a regex, TOML, YAML, paths, a URL, a CLI's argv) gets a differential or property test against the real implementation: generated inputs fed to both your parser and the real one (bash, `tomllib`, `os.path.realpath`, the program itself), failing on any disagreement. A hand-picked example list only proves the cases its author thought of (class `shell-semantics-mismatch`).
 3. **Mutation-check the guards.** Flip each guard condition in turn (invert it, drop a branch, widen an allow-list) and confirm a test goes red; restore it after. mutmut (Python) or Stryker (JS and TS) automate this; a handful of conditions can be flipped by hand. A guard no test can fail is unguarded (class `vacuous-guard`).
 4. **Start the deferred-findings ledger** in the PR body, or in IMPL.md before a PR exists: one line per finding the author chose not to fix in this change, with its class, why, and the issue that tracks it. Readers read it and do not re-report its items.
@@ -83,6 +83,16 @@ Walk the [bug-class catalog](references/bug-classes.md): every core class (1 to 
 
 ### Phase 4 — Report
 Emit the structured report (format below). End with an explicit merge verdict and what you are holding on, if anything.
+
+Then record each Blocking and Should-fix finding in the machine-wide findings ledger, one call per finding, so every later review and author on this machine learns from it:
+
+```bash
+python3 "<plugin-root>/skills/elenchus/scripts/ledger.py" append --repo <owner/name> \
+  --pr <number, or the branch before a PR exists> --round <n> --severity <Blocking|Should-fix> \
+  --class <slug or "new: <short name>"> --line "<the finding in one line>"
+```
+
+The ledger stays on this machine (`~/.local/state/elenchus/findings.jsonl`), so a private repo's name is fine there; it never reaches the catalog.
 
 ### Phase 5 — Post the distilled summary
 If an open PR exists for the branch under review **and someone else opened it**, post the distilled summary (contract in **Posting the summary** below) as a **single** `gh pr comment`. This is default behavior, not opt-in — the review of record belongs on the PR. Skip when there is no PR, when the account owner opened it, or when the invoker explicitly said to keep it local; the report then stays in-session (Blocking or Should-fix findings still open when the review loop ends go to its linked issue, when one exists; see **When the review loop ends**).
@@ -127,7 +137,7 @@ A change often takes several rounds: review, fix, review again. The author's ses
 
 ## After merge
 
-The author adds to the catalog, in the same PR or a follow-up: each `new:` class from the loop as a full entry, and each finding of an existing class as a dated incident on that entry (`repo#PR rN (YYYY-MM-DD): what happened`). A class that cost a round belongs in the catalog before the next change can relearn it.
+Nothing to do by hand. A daily job (`scripts/foldback.sh`, run by a systemd user timer; see the docs page) reads the ledger and opens one catalog PR to techne: a dated incident (`repo#PR rN (YYYY-MM-DD): what happened`) for each finding of a catalogued class, a full entry for each `new:` class found in two or more PRs, deduplicated against the classes already there. It also runs the escalation ladder: a class found in two or more PRs in a week is on the author's checklist above, and one found in three or more gets a "Mechanical check: <class>" issue for a lint rule, test or hook. When that issue closes, the next fold marks the class **Retired**. On a machine without the timer, the author folds the ledger by hand: run `ledger.py fold --catalog <bug-classes.md>` and add what it lists.
 
 ## Posting the summary (Phase 5)
 

@@ -21,6 +21,8 @@ DOCS_PAGE = ROOT / "docs" / "skills" / "elenchus.md"
 HEADING_RE = re.compile(r"^### (?:(\d+)\. )?([a-z0-9]+(?:-[a-z0-9]+)*): (\S.*)$")
 FIELD_RE = re.compile(r"^- \*\*(\w+):\*\* (\S.*)$")
 FIELDS = ("Symptom", "Question", "Guard", "Incidents")
+# A class whose guard became a mechanical check also says which check, last.
+RETIRED = "Retired"
 DATE_RE = re.compile(r"\b20\d\d-\d\d(?:-\d\d)?\b")
 # Incidents are `where (YYYY-MM[-DD]): what happened`, joined by "; ".
 INCIDENT_RE = re.compile(r"^(?P<where>[^;():]+?) \((?P<date>20\d\d-\d\d(?:-\d\d)?)\): \S")
@@ -84,8 +86,8 @@ def problems(entry: dict) -> list[str]:
     """What is wrong with one parsed class; empty when it is well formed."""
     found = []
     names = tuple(name for name, _ in entry["fields"])
-    if names != FIELDS:
-        found.append(f"fields {names} are not {FIELDS}")
+    if names not in (FIELDS, (*FIELDS, RETIRED)):
+        found.append(f"fields {names} are not {FIELDS}, optionally then {RETIRED}")
     incidents = dict(entry["fields"]).get("Incidents", "")
     if incidents == NONE_RECORDED:
         if entry["number"] is None:
@@ -164,6 +166,12 @@ def test_a_well_formed_class_has_no_problems():
 def test_a_missing_field_is_a_problem():
     fields = {k: v for k, v in GOOD.items() if k != "Question"}
     assert problems(_entry(**fields))
+
+
+def test_a_retired_line_is_allowed_last_only():
+    assert problems(_entry(**GOOD, Retired="ruff rule X in make lint")) == []
+    first = {"Retired": "x", **GOOD}
+    assert problems(_entry(**first))
 
 
 @pytest.mark.parametrize(

@@ -69,7 +69,45 @@ Skipped when there is no open PR, or when you say to keep the review local.
 
 ## When the review loop ends
 
-Each round is a fresh reader, handed the diff and the open findings, never a resumed one. Review, fix and review again while a round has a reproduced blocking or should-fix finding on an input that a caller in the repo or a documented usage can produce. The PR's owner makes each fix, with a regression test in CI where the finding is testable. Each round tries once to reproduce every unproven blocking or should-fix finding; one that still fails is recorded as open and holds the merge. Open findings go in the review comment on someone else's PR, or in the linked issue on your own when one exists, so a waiting PR says why it waits; "keep it local" keeps them in the session. A class that comes back in a later round is not patched again: the fix becomes structural (one shared helper, a canonical format, delegating to the real parser), with a test that sweeps the class. A long loop pauses for your go-ahead: past the budget you set, in rounds or reviewer working time (unset, it follows the stakes: three rounds for docs and small edits, the first clean round within five for substantive code and paper changes, until clean for registered study rules, governance, security, destructive operations and whatever you ask; fixes made after the last round get one verify round), or when two rounds in a row find only bugs the previous fix introduced. After merge, the author adds each new class and each incident to the catalog, in the same PR or a follow-up.
+Each round is a fresh reader, handed the diff and the open findings, never a resumed one. Review, fix and review again while a round has a reproduced blocking or should-fix finding on an input that a caller in the repo or a documented usage can produce. The PR's owner makes each fix, with a regression test in CI where the finding is testable. Each round tries once to reproduce every unproven blocking or should-fix finding; one that still fails is recorded as open and holds the merge. Open findings go in the review comment on someone else's PR, or in the linked issue on your own when one exists, so a waiting PR says why it waits; "keep it local" keeps them in the session. A class that comes back in a later round is not patched again: the fix becomes structural (one shared helper, a canonical format, delegating to the real parser), with a test that sweeps the class. A long loop pauses for your go-ahead: past the budget you set, in rounds or reviewer working time (unset, it follows the stakes: three rounds for docs and small edits, the first clean round within five for substantive code and paper changes, until clean for registered study rules, governance, security, destructive operations and whatever you ask; fixes made after the last round get one verify round), or when two rounds in a row find only bugs the previous fix introduced. After merge, the catalog learns from the review without anyone folding it in by hand (next section).
+
+## The findings ledger
+
+Every reader appends each blocking or should-fix finding (class, repo, PR, round, one line) to a machine-wide, append-only ledger, `~/.local/state/elenchus/findings.jsonl`, so every session on the machine learns from every other one. It never leaves the machine, so it may name private repos.
+
+- **Before review**, `ledger.py checklist` lists the classes reviewers found in two or more PRs in the last week. The author walks those first.
+- **Once a day**, `foldback.sh` reads what the ledger gained and opens one catalog PR to techne. It adds a dated incident for each finding of a catalogued class, and a full entry for each `new:` class found in two or more PRs, deduplicated against the classes already there. It keeps each incident's source (`repo#PR rN`, date), and writes only what tests and `make guards` pass.
+- **Three PRs in a week** opens a "Mechanical check: <class>" issue for a lint rule, test or hook. When it closes, the next fold marks the class **Retired**, and readers stop spending attention on it.
+
+The design follows shared lesson banks for code agents ([LessonL](https://arxiv.org/pdf/2505.23946)). Each memory carries its source, because stale memories were the main risk in [GitHub Copilot's cross-agent memory](https://github.blog/2026-01-09-building-an-agentic-memory-system-for-github-copilot). Curation is a separate pass that dedupes rather than appends ([SAP](https://arxiv.org/pdf/2608.00122): about half of raw contributions survive; [Spark](https://arxiv.org/pdf/2511.08301)).
+
+To run the fold daily, install two systemd user units, then `systemctl --user enable --now elenchus-foldback.timer`:
+
+```ini
+# ~/.config/systemd/user/elenchus-foldback.service
+[Unit]
+Description=Fold the elenchus findings ledger into one techne catalog PR
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash -lc 'exec bash "$(ls -td "$HOME"/.claude/plugins/cache/techne/techne/*/skills/elenchus/scripts | head -1)/foldback.sh" "$HOME/<your techne clone>"'
+```
+
+```ini
+# ~/.config/systemd/user/elenchus-foldback.timer
+[Unit]
+Description=Fold the elenchus findings ledger daily
+
+[Timer]
+OnCalendar=*-*-* 06:30
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+The job logs to `~/.local/state/elenchus/foldback.log`. It needs `gh` signed in, `uv` and `claude`.
 
 ## Configuration
 
