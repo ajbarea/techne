@@ -12,23 +12,42 @@ err() { printf 'error: %s\n' "$*" >&2; }
 [[ $# == 3 || ($# == 5 && $4 == --from) ]] || { err "usage: report.sh OWNER/REPO RUN_ID OUT [--from DIR]"; exit 2; }
 repo=$1 run=$2 out=$3
 [[ $repo =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ && $run =~ ^[0-9]+$ ]] || { err "a repo is OWNER/NAME and a run id is a number"; exit 2; }
-# OUT is a folder of the report's own: the session may read all of it.
+# OUT is a folder of the report's own: the session may read all of it, and the
+# run folder in it is replaced. A symlink anywhere in it could point that at
+# another folder (a repo, a worktree), so none is allowed, and the run folder
+# is removed only when it carries the mark this script left when it made it.
+MARK=.ci-report-run
+[[ -L $out ]] && { err "OUT is a symlink; give a real folder"; exit 2; }
 if [[ -e $out ]]; then
+  [[ -d $out ]] || { err "OUT is not a folder"; exit 2; }
   extra=$(find "$out" -mindepth 1 -maxdepth 1 ! -name run ! -name report.json ! -name report.md \
     ! -name claude.json ! -name claude.err -printf '%f ' 2>/dev/null)
   [[ -z $extra ]] || { err "OUT holds other files ($extra); give a new or empty folder"; exit 2; }
+  links=$(find "$out" -mindepth 1 -maxdepth 1 -type l -printf '%f ' 2>/dev/null)
+  [[ -z $links ]] || { err "OUT holds symlinks ($links); give a new or empty folder"; exit 2; }
+  if [[ -e $out/run && ! -e $out/run/$MARK ]]; then
+    err "OUT/run was not made by report.sh; give a new or empty folder"
+    exit 2
+  fi
 fi
 mkdir -p -- "$out"
-out=$(cd -- "$out" && pwd)
+out=$(cd -- "$out" && pwd -P)
 raw=$out/run
 if (( $# == 5 )); then
-  from=$(cd -- "$5" 2>/dev/null && pwd) || { err "no recorded run at $5"; exit 2; }
-  [[ $from != "$raw" && $from != "$raw"/* && $from != "$out" ]] || { err "--from must be outside OUT's run folder"; exit 2; }
+  from=$(cd -- "$5" 2>/dev/null && pwd -P) || { err "no recorded run at $5"; exit 2; }
+  [[ $from != "$raw" && $from != "$raw"/* && $from != "$out" && $out != "$from"/* ]] ||
+    { err "--from and OUT must not hold each other"; exit 2; }
+fi
+if [[ -e $raw ]]; then
+  [[ -d $raw && ! -L $raw && -e $raw/$MARK ]] || { err "refusing to replace $raw"; exit 2; }
   rm -rf -- "${raw:?}"
+fi
+if (( $# == 5 )); then
   cp -rL -- "$from" "$raw"
 else
   python3 "$here/ci_report.py" fetch "$repo" "$run" "$raw"
 fi
+: >"$raw/$MARK"
 python3 "$here/ci_report.py" facts "$raw" >"$raw/facts.json"
 
 # Restricted and safe mode: no settings files, CLAUDE.md, skills, plugins or hooks;

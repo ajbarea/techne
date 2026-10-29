@@ -311,7 +311,7 @@ def test_the_runner_refuses_bad_arguments_and_folders_it_could_harm(tmp_path):
             capture_output=True,
             text=True,
         )
-        assert got.returncode == 2 and "outside" in got.stderr, inside
+        assert got.returncode == 2, inside
     assert (out / "run" / "keep").read_text() == "recording", "nothing was wiped"
 
 
@@ -415,3 +415,49 @@ def test_a_cancelled_step_of_a_failed_job_and_a_job_with_no_steps_are_failures(t
 def test_ordinary_test_output_is_neither_an_error_nor_a_warning(line):
     assert not ci_report.ERROR.search(line)
     assert not ci_report.WARNING.search(line) or ci_report.PASSED.search(line)
+
+
+def test_no_symlink_lets_the_run_folder_be_replaced_outside_out(tmp_path):
+    """A worktree stand-in reached through a link: OUT itself, OUT/run or a report file."""
+    tree = tmp_path / "worktree"
+    (tree / "run").mkdir(parents=True)
+    (tree / "run" / "work.py").write_text("uncommitted")
+    (tree / "notes.md").write_text("uncommitted")
+    rec = recorded(tmp_path, "warnings")
+    cases = {}
+    cases["OUT is a link"] = tmp_path / "out-link"
+    cases["OUT is a link"].symlink_to(tree)
+    out = tmp_path / "out-run-link"
+    out.mkdir()
+    (out / "run").symlink_to(tree / "run")
+    cases["OUT/run is a link"] = out
+    out = tmp_path / "out-report-link"
+    out.mkdir()
+    (out / "report.json").symlink_to(tree / "notes.md")
+    cases["a report file is a link"] = out
+    for why, out in cases.items():
+        got = subprocess.run(
+            ["bash", str(REPORT), "a/b", "7", str(out), "--from", str(rec)],
+            capture_output=True,
+            text=True,
+        )
+        assert got.returncode == 2, (why, got.stderr)
+    assert (tree / "run" / "work.py").read_text() == "uncommitted"
+    assert (tree / "notes.md").read_text() == "uncommitted"
+    assert sorted(p.name for p in tree.iterdir()) == ["notes.md", "run"]
+
+
+def test_a_run_folder_the_script_made_is_replaced_on_a_second_report(tmp_path):
+    rec = recorded(tmp_path, "warnings")
+    facts = json.loads((rec / "facts.json").read_text())
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    claude_stub(bin_dir, report_for(facts, "clean"), tmp_path / "claude.args")
+    out = tmp_path / "o"
+    args = (facts["run"]["repository"], str(facts["run"]["id"]), str(out), "--from", str(rec))
+    for _ in range(2):
+        got = runner(bin_dir, *args)
+        assert got.returncode == 0, got.stderr
+    assert (out / "run" / ".ci-report-run").exists()
+    got = runner(bin_dir, args[0], args[1], str(tmp_path), "--from", str(rec))
+    assert got.returncode == 2, "OUT may not hold the recording it reads"
