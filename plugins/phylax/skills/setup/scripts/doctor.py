@@ -26,6 +26,7 @@ OPTIONS = (
     "block_commits_md",
     "warn_main_checkout_commit",
     "require_subagent_model",
+    "email_greeting",
     "restart_on_update",
     "budget_mode",
 )
@@ -36,6 +37,7 @@ VALUES = (
     "budget_frugal_pace",
     "budget_frugal_used",
     "budget_state_file",
+    "email_timezone",
     "plugin_data",
 )
 # The git guards: they need git and may run from the mod.
@@ -231,6 +233,24 @@ def state_dir() -> d.Check:
     return d.Check(d.OK, "state-dir", str(path))
 
 
+def timezone(name: str) -> d.Check:
+    """email_greeting reads the clock in this zone; an unknown name refuses every draft."""
+    if not name:
+        return d.Check(d.OK, "email-timezone", "this machine's local time")
+    try:
+        from zoneinfo import ZoneInfo
+
+        ZoneInfo(name)
+    except Exception as exc:  # zoneinfo raises several types for a bad key
+        return d.Check(
+            d.MISSING,
+            "email-timezone",
+            f"{name!r} is not a time zone this system knows ({type(exc).__name__})",
+            ("fix: set email_timezone in /config to an IANA name such as America/New_York",),
+        )
+    return d.Check(d.OK, "email-timezone", name)
+
+
 def checks(
     platform: d.Platform,
     options: dict[str, bool | str | None],
@@ -238,11 +258,12 @@ def checks(
 ) -> list[d.Check]:
     guards_on = any(options[key] is True for key in GUARDS)
     model_on = options["require_subagent_model"] is True
+    greeting_on = options["email_greeting"] is True
     restart_on = options["restart_on_update"] is True
     budget_on = options["budget_mode"] is True
     found = [option_line(key, options[key]) for key in OPTIONS]
     found.append(d.guarded("mod", False, lambda: mod(platform, guards_on)))
-    if guards_on or model_on or restart_on or budget_on:
+    if guards_on or model_on or greeting_on or restart_on or budget_on:
         found.append(
             d.program(
                 platform,
@@ -272,6 +293,10 @@ def checks(
         found += [
             d.Check(d.NA, name, RESTART_OFF) for name in ("proc", "launcher", "claude", "state-dir")
         ]
+    if greeting_on:
+        found.append(timezone((values or parse_values(()))["email_timezone"].strip()))
+    else:
+        found.append(d.Check(d.NA, "email-timezone", "email_greeting is off"))
     if budget_on:
         found.append(d.guarded("budget", False, lambda: budget(values or parse_values(()))))
     else:

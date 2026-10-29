@@ -40,6 +40,18 @@
       "description": "Refuse an Agent call to a built-in agent type that runs on this session's model (general-purpose, claude, Explore, Plan) when it names no model. A managed, project or user agent that reuses one of those names decides with its own model; other agents are left to their own definitions.",
       "default": false
     },
+    "email_greeting": {
+      "type": "boolean",
+      "title": "Greet by the time of day in email drafts",
+      "description": "Refuse an epistole or Gmail connector draft, send or reply whose body does not open with Good morning, Good afternoon or Good evening for the local time (morning before 12:00, afternoon until 17:00, evening after), or opens with Hi, Hello, Hey or Dear. A first line in another language passes.",
+      "default": false
+    },
+    "email_timezone": {
+      "type": "string",
+      "title": "Email greeting: time zone",
+      "description": "The IANA time zone email_greeting reads the clock in, such as America/New_York. Empty means this machine's local time.",
+      "default": ""
+    },
     "restart_on_update": {
       "type": "boolean",
       "title": "Restart idle sessions onto an updated Claude Code",
