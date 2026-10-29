@@ -6,11 +6,11 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 
 ## In flight
 
-techne#227 (PR #232, branch feat/ci-audit-report): ci-audit's unattended report mode by run id
-(`scripts/report.sh`, `ci_report.py`, `references/report-mode.md`). Three review rounds plus a
-final verify, all clean; 41 tests; evals `behavior-ci-audit-report-*` pass 6/6 under
-`make evals-bash`. Merge once CI is green; klepsydra#162's CI watch calls it. Follow-up: #233
-(skills with a repo-context block do not load in behavior cases under `make evals`).
+#244 / PR #239 (branch feat/quality-prereg, worktree `.claude/worktrees/prereg`): the
+budget-trial pre-registration and harness. Round 7 review running; rounds 4 to 6 fixed a judge
+that could see the mode, uv caches that leaked fixes across runs, read-only session caches,
+API errors misread, and a scorer that trusted pytest's exit code (now JUnit + gold test ids in
+`quality/tasks/gold-tests.json`, written by `--check-tasks`). Merge only after a clean round.
 
 Before it: the logging rollout (10-28/29) is done, one PR per repo, each re-checked `logging standard ✓`
 on main with #230's check: sphragis #225, techne #230, pharos #102, ariadne #76, keryx #69,
@@ -24,6 +24,31 @@ Owed by AJ: from #209, the status line step `/phylax:setup` prints and the globa
 routing line; GitGuardian incident 39081601 (a fake test token in #215, gone from the history)
 to mark as a false positive in the dashboard. Same for ariadne incident 39247473 and 39249419
 (fake Neo4j credentials in the #76 tests, squashed out of the PR before merge).
+
+## Resume: quality evals, hooks, review-loop ledger (techne-evals brief, 10-29)
+
+- ✅ #235 `scripts/review_loop_mine.py` + `quality/review-loop/2026-10-29.md`: 95.3% of
+  class-tagged review findings (60.8% of all) since the catalog existed were classes it
+  already held; no class added after its first commit. Five rounds + verify.
+- ✅ #237 phylax `email_greeting` (+ `email_timezone`): Good morning/afternoon/evening by
+  the clock, never Hi/Dear, on epistole and Gmail-connector drafts, sends and replies.
+- ✅ #238 elenchus findings ledger + `checklist` + daily `foldback.sh` (catalog PR, one
+  "Mechanical check" issue at 3 PRs/week, Retired field). Seven rounds. Timer installed on
+  this PC: `~/.config/systemd/user/elenchus-foldback.{service,timer}` (06:30) running
+  `~/.local/bin/elenchus-foldback`, which resolves the installed plugin path.
+- 📋 #236: two hook proposals (skipped git hooks; commits gated on a piped verify); AJ picks.
+- 🔄 #239 (issue #244) pre-registration of the budget-trial quality evals: `quality/`
+  (PREREGISTRATION.md, run.py, analyze.py, tasks.toml with 10 replayed PRs, gold-tests.json,
+  judge.md, sandbox.json) and the `quality-*` skill eval cases. Reviewed until clean.
+  `run.py --check-tasks` (no model, ~1.5 h with lock waits) and `--smoke` (Haiku, out
+  folder named smoke) validate the harness; only one run.py process at a time.
+- 📋 After #239 merges, in order: `make quality MODE=normal` (Opus baseline, 3 repeats,
+  judge pass, analysis) and `make quality-skills` (Opus) → commit results under
+  `quality/results/`; then techne#226 (fold-or-keep audit) measured on them. The
+  sonnet/opus comparison (pilot → sizing → confirmatory) runs only when AJ schedules the
+  budget trial. Stretch: 10 DeepSWE tasks on TIGRIS, never this PC.
+- 📋 #234 step 5: rerun `review_loop_mine.py` a week after #238 (from 2026-11-05), now
+  reading the ledger too, and report the change in repeat-class share.
 
 ## Open Minors (recorded, not scheduled)
 

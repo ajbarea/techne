@@ -82,7 +82,21 @@ Every reader appends each blocking or should-fix finding (class, repo, PR, round
 
 The design follows shared lesson banks for code agents ([LessonL](https://arxiv.org/pdf/2505.23946)). Each memory carries its source, because stale memories were the main risk in [GitHub Copilot's cross-agent memory](https://github.blog/2026-01-09-building-an-agentic-memory-system-for-github-copilot). Curation is a separate pass that dedupes rather than appends ([SAP](https://arxiv.org/pdf/2608.00122): about half of raw contributions survive; [Spark](https://arxiv.org/pdf/2511.08301)).
 
-To run the fold daily, install two systemd user units, then `systemctl --user enable --now elenchus-foldback.timer`:
+To run the fold daily, add a launcher that finds the installed plugin (its folder changes with each version) and two systemd user units, then run `systemctl --user enable --now elenchus-foldback.timer`:
+
+Save it as `~/.local/bin/elenchus-foldback` and `chmod +x` it:
+
+```bash
+#!/bin/bash
+set -euo pipefail
+root="$(python3 - <<'PY'
+import json, os
+data = json.load(open(os.path.expanduser("~/.claude/plugins/installed_plugins.json")))
+print(data["plugins"]["techne@techne"][0]["installPath"])
+PY
+)"
+exec bash "$root/skills/elenchus/scripts/foldback.sh" "$HOME/<your techne clone>"
+```
 
 ```ini
 # ~/.config/systemd/user/elenchus-foldback.service
@@ -93,7 +107,8 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/bash -lc 'exec bash "$(ls -td "$HOME"/.claude/plugins/cache/techne/techne/*/skills/elenchus/scripts | head -1)/foldback.sh" "$HOME/<your techne clone>"'
+TimeoutStartSec=3600
+ExecStart=%h/.local/bin/elenchus-foldback
 ```
 
 ```ini
