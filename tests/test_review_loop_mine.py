@@ -61,6 +61,12 @@ KNOWN = {"techne", "klepsydra"}
             "1. ✅ **Should-fix** resolved\n## New findings\n1. **Should-fix** [boundary-input] x",
             [("should-fix", "boundary-input"), ("should-fix", "boundary-input")],
         ),
+        # A fixed finding written as a heading opens no section.
+        (
+            "### Finding 1 (Blocking): fixed, CONFIRMED\n- detail\n- more\n"
+            "### New findings\n1. **Should-fix** [boundary-input] x",
+            [("should-fix", "boundary-input")],
+        ),
         # elenchus's own field format under a numbered heading counts once.
         (
             "### 1. Should-fix: stale claim\n- **Severity** — Should-fix\n"
@@ -93,6 +99,18 @@ def test_parse_findings(report: str, want: list[tuple[str, str]]) -> None:
             ("acme", "other-tool", "32"),
         ),
         ("Review Techne#5", ("", "techne", "5")),
+        # Shapes seen in the fleet's prompts; each must yield its PR number.
+        (
+            "Review pull request #212 in the GitHub repo ajbarea/sphragis",
+            ("ajbarea", "sphragis", "212"),
+        ),
+        ("PR: ajbarea/sphragis #204, round 2", ("ajbarea", "sphragis", "204")),
+        ("klepsydra pull request #9: review it", ("", "klepsydra", "9")),
+        (
+            "Read /home/u/ajsoftworks/techne/plugins/techne/skills/elenchus/SKILL.md. "
+            "Review PR #82 in /home/u/ajsoftworks/klepsydra/.claude/worktrees/x",
+            ("", "klepsydra", "82"),
+        ),
         # The repo the reviewer stands in wins over a PR only cited for context.
         (
             "Review PR #113 in /home/u/ajsoftworks/klepsydra/.claude/wt; see techne#217 for why",

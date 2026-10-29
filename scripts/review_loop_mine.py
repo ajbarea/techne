@@ -40,8 +40,18 @@ NOT_REVIEW_RE = re.compile(
     re.I,
 )
 PR_URL_RE = re.compile(r"github\.com/([\w.-]+)/([\w.-]+)/pull/(\d+)")
-SLUG_PR_RE = re.compile(r"\b(?:([\w.-]+)/)?([A-Za-z][\w.-]*)(?:#|\s+(?:PR|pull)\s+#)(\d+)\b")
-WORKTREE_RE = re.compile(r"/ajsoftworks/([\w.-]+)/")
+# owner/name#N, name#N, "name PR #N", "owner/name #N", "name pull request #N".
+SLUG_PR_RE = re.compile(
+    r"\b(?:([\w.-]+)/)?([A-Za-z][\w.-]*)(?:#|\s+#|\s+(?:PR|pull|pull request)\s+#)(\d+)\b"
+)
+# "pull request #212 in the GitHub repo ajbarea/sphragis": the number, then owner/name.
+PR_THEN_REPO_RE = re.compile(
+    r"\b(?:PR|pull request)\s+#(\d+)\b[^\n]{0,80}?(?<![/\w.-])([\w.-]+)/([A-Za-z][\w.-]*)(?![/\w])"
+)
+# A worktree path names the repo the reviewer stands in; a bare repo path is the fallback,
+# so the elenchus SKILL.md path inside techne does not claim the review.
+WORKTREE_RE = re.compile(r"/ajsoftworks/([\w.-]+)/\.claude/worktrees/")
+REPO_PATH_RE = re.compile(r"/ajsoftworks/([\w.-]+)/")
 ROUND_RE = re.compile(r"\bround (\d+)\b|\b(\d+)(?:st|nd|rd|th) round\b|\br(\d+)\b", re.I)
 VERIFY_RE = re.compile(r"\bverify (?:pass|round)\b|\bverif(?:y|ies) (?:the|those) fixes\b", re.I)
 
@@ -133,7 +143,14 @@ def identify(prompt: str, known: set[str]) -> tuple[str, str, str]:
         for m in SLUG_PR_RE.finditer(head)
         if m.group(1) or m.group(2).lower() in known
     ]
+    if not slugs and (m := PR_THEN_REPO_RE.search(head)):
+        slugs = [(m.group(2), m.group(3).lower(), m.group(1))]
     wt = WORKTREE_RE.search(head)
+    if not wt:
+        paths = [
+            m for m in REPO_PATH_RE.finditer(head) if "/skills/" not in head[m.end() : m.end() + 60]
+        ]
+        wt = paths[0] if paths else None
     here = wt.group(1).lower() if wt else ""
     owned = [s for s in slugs if s[0]]
     if owned:
@@ -217,7 +234,8 @@ def parse_findings(report: str, slugs: list[str]) -> list[tuple[str, str]]:
             stops.add(i)
             close()
             section, strong, plain = "", [], []
-            if sev and not negated and not OTHER_SEVERITY_RE.search(line):
+            resolved = RESOLVED_RE.search(line)
+            if sev and not negated and not resolved and not OTHER_SEVERITY_RE.search(line):
                 section = sev.group(1).lower()
             continue
         lead = re.match(r"^\s*(?:\d+[.)]\s|\*\*|#{3,6}\s)", line)
@@ -316,11 +334,16 @@ def catalog_at(hist: list[tuple[str, list[str]]], when: str) -> set[str]:
     return set(current)
 
 
+# Review transcripts the last mine() could not tie to a repo; reported, not hidden.
+unplaced: list[str] = []
+
+
 def mine(
     paths: list[pathlib.Path], since: str, hist: list[tuple[str, list[str]]], known: set[str]
 ) -> list[Round]:
     all_slugs = sorted({s for _, slugs in hist for s in slugs})
     rounds = []
+    unplaced.clear()
     for path in sorted(paths):
         got = read_transcript(path)
         if not got:
@@ -332,6 +355,7 @@ def mine(
             continue
         owner, repo, pr = identify(prompt, known)
         if not repo:
+            unplaced.append(str(path))
             continue
         rnd = Round(str(path), utc(started), repo, owner, pr, round_of(prompt))
         rnd.stated = stated_counts(report)
@@ -409,6 +433,7 @@ def summarize(rounds: list[Round], public: set[str], current: set[str]) -> dict:
     )
     return {
         "rounds": len(rounds),
+        "rounds_without_a_repo": len(unplaced),
         "parser_check": {"rounds_stating_counts": len(checked), "parsed_counts_agree": agree},
         "prs": sum(v["prs"] for v in repo_rows.values()),
         "findings": len(findings),
@@ -454,6 +479,7 @@ def to_markdown(s: dict, since: str, command: str = "") -> str:
         "| Measure | Value |",
         "| --- | --- |",
         f"| Review rounds | {s['rounds']} |",
+        f"| Review rounds left out: no repo found in the prompt | {s['rounds_without_a_repo']} |",
         f"| PRs with a known number | {s['prs']} |",
         f"| Blocking + Should-fix findings | {s['findings']} |",
         f"| From rounds before the catalog existed | {s['before_catalog']} |",

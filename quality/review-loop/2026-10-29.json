@@ -1,26 +1,27 @@
 {
-  "rounds": 219,
+  "rounds": 218,
+  "rounds_without_a_repo": 51,
   "parser_check": {
-    "rounds_stating_counts": 110,
-    "parsed_counts_agree": 93
+    "rounds_stating_counts": 109,
+    "parsed_counts_agree": 92
   },
-  "prs": 83,
-  "findings": 312,
+  "prs": 91,
+  "findings": 305,
   "before_catalog": 41,
-  "tagged": 156,
-  "untagged": 115,
-  "already_catalogued": 151,
+  "tagged": 154,
+  "untagged": 110,
+  "already_catalogued": 149,
   "not_yet_catalogued": 0,
   "new_tagged": 5,
   "already_catalogued_share": 0.968,
-  "already_catalogued_share_of_all": 0.557,
-  "rounds_all_catalogued": 52,
+  "already_catalogued_share_of_all": 0.564,
+  "rounds_all_catalogued": 51,
   "class_counts": {
-    "claim-code-drift": 41,
+    "claim-code-drift": 40,
     "boundary-input": 24,
     "unenumerated-input-shape": 18,
     "unmirrored-parallel-guard": 14,
-    "looks-done-not-done": 13,
+    "looks-done-not-done": 12,
     "vacuous-guard": 8,
     "check-time-vs-run-time": 6,
     "unreached-surface": 5,
@@ -65,8 +66,8 @@
       "max_rounds": 1
     },
     "klepsydra": {
-      "prs": 33,
-      "median_rounds": 1,
+      "prs": 32,
+      "median_rounds": 1.0,
       "max_rounds": 9
     },
     "ldqis": {
@@ -75,13 +76,13 @@
       "max_rounds": 1
     },
     "private repos": {
-      "prs": 11,
-      "median_rounds": 2,
+      "prs": 14,
+      "median_rounds": 2.0,
       "max_rounds": 5
     },
     "sphragis": {
-      "prs": 5,
-      "median_rounds": 2,
+      "prs": 12,
+      "median_rounds": 1.0,
       "max_rounds": 4
     },
     "talks": {
@@ -90,8 +91,8 @@
       "max_rounds": 1
     },
     "techne": {
-      "prs": 14,
-      "median_rounds": 2.0,
+      "prs": 13,
+      "median_rounds": 2,
       "max_rounds": 5
     }
   }
