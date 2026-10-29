@@ -8,11 +8,15 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 
 Running (branch results/quality-baseline, worktree `.claude/worktrees/baseline`): the Opus
 baseline (`make quality MODE=normal PHASE=baseline QUALITY_OUT=quality/results/2026-10-29-baseline`)
-stopped at the 10-29 12:51 session limit and resumes from tmux `quality-resume`
-(`~/.local/state/techne-quality/resume.sh`, logs beside it) at 14:25, then runs
-`make quality-skills`. A skill suite with any "ended on an API error" run is invalid: delete
-its JSON and rerun. Commit both under `quality/results/` by PR. #239 merged after ten review
-rounds (round 10 clean) plus a verify pass.
+runs in tmux `quality-resume` (`~/.local/state/techne-quality/resume.sh`, logs beside it) on
+Personal (`CLAUDE_CONFIG_DIR=~/.claude-rit`; `fleet accounts` says which folder is which),
+then runs `make quality-skills`. To move it to RIT after its reset: `tmux kill-session -t
+quality-resume`, then `tmux new-session -d -s quality-resume -e CLAUDE_CONFIG_DIR=/home/ajbar/.claude
+"bash ~/.local/state/techne-quality/resume.sh"`; rerunning the same command resumes (the run
+cut off is discarded and redone). Always pass `-e CLAUDE_CONFIG_DIR`: tmux drops it and
+`claude -p` then uses `~/.claude`. Progress: `grep tests= ~/.local/state/techne-quality/baseline.log`
+(30 runs). A skill suite with any "ended on an API error" run is invalid: delete its JSON and
+rerun. Then commit both under `quality/results/` by PR and start techne#226.
 
 Before it: the logging rollout (10-28/29) is done, one PR per repo, each re-checked `logging standard ✓`
 on main with #230's check: sphragis #225, techne #230, pharos #102, ariadne #76, keryx #69,
