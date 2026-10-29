@@ -287,6 +287,8 @@ def settings_file() -> pathlib.Path:
         (run / d).mkdir(parents=True, exist_ok=True)
     data = json.loads(SANDBOX.read_text(encoding="utf-8"))
     data["sandbox"]["filesystem"]["denyRead"] += [str(WORK / d) for d in HIDDEN]
+    # Claude Code sets a session's own TMPDIR below this folder; the uv cache needs it too.
+    data["sandbox"]["filesystem"]["allowWrite"] = [str(run / "tmp")]
     data["env"] = {
         "TMPDIR": str(run / "tmp"),
         "HOME": str(run / "home"),
@@ -828,6 +830,15 @@ def failed_run(task: dict, mode: str, rep: int, errors: list[str]) -> dict:
 
 
 ATTEMPTS = 3
+# What a session prints when the sandbox keeps it from writing what the task needs.
+SANDBOX_BLOCKED = re.compile(r"Read-only file system|Failed to initialize cache")
+
+
+def blocked_sessions(folder: pathlib.Path) -> list[str]:
+    """Transcripts under FOLDER where a command hit the sandbox: a smoke run fails on any."""
+    return sorted(
+        str(log) for log in folder.rglob("*.jsonl") if SANDBOX_BLOCKED.search(log.read_text())
+    )
 
 
 def check_tasks(tasks: list[dict]) -> int:
@@ -950,6 +961,11 @@ def main(argv: list[str] | None = None) -> int:
             failed_before = True
             record = failed_run(task, args.mode, rep, [e["error"] for e in errors])
             (dest / "run.json").write_text(json.dumps(record, indent=1) + "\n", encoding="utf-8")
+    if args.smoke and (blocked := blocked_sessions(DONE / args.out.name)):
+        print(
+            "the sandbox blocked a session's command:\n  " + "\n  ".join(blocked), file=sys.stderr
+        )
+        return 4
     return 0
 
 

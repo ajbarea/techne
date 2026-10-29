@@ -310,7 +310,7 @@ def test_sessions_cannot_read_the_seeds_and_their_cache_is_writable(tmp_path, mo
     data = json.loads(run.settings_file().read_text())
     assert str(tmp_path / "seeds") in data["sandbox"]["filesystem"]["denyRead"]
     cache = pathlib.Path(data["env"]["UV_CACHE_DIR"])
-    assert cache.is_relative_to(pathlib.Path(data["env"]["TMPDIR"]))
+    assert any(cache.is_relative_to(w) for w in data["sandbox"]["filesystem"]["allowWrite"])
 
 
 @pytest.mark.parametrize("name", ["review.md", "fix.md"])
