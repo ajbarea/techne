@@ -31,8 +31,8 @@ until="$(date -u -Is)"
 
 # An open fold PR holds the window: the next fold waits for it, so no finding is lost to a
 # PR closed unmerged and no two fold PRs conflict.
-open_prs="$(gh pr list -R "$gh_repo" --state open --author "@me" --search "catalog fold-back in:title" \
-    --json number --jq 'length')"
+open_prs="$(gh pr list -R "$gh_repo" --state open --author "@me" --limit 200 --json headRefName \
+    --jq '[.[] | select(.headRefName | startswith("chore/catalog-fold-"))] | length')"
 if [ "$open_prs" != 0 ]; then
     echo "a catalog fold-back PR is still open; the window stays at $since"
     exit 0
