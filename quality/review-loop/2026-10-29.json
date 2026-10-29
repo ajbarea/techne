@@ -1,5 +1,5 @@
 {
-  "rounds": 289,
+  "rounds": 244,
   "rounds_without_a_repo": 48,
   "parser_check": {
     "rounds_stating_counts": 125,
@@ -73,7 +73,7 @@
     "klepsydra": {
       "prs": 33,
       "median_rounds": 2,
-      "max_rounds": 15
+      "max_rounds": 9
     },
     "ldqis": {
       "prs": 1,
@@ -88,17 +88,17 @@
     "sphragis": {
       "prs": 12,
       "median_rounds": 1.0,
-      "max_rounds": 5
+      "max_rounds": 4
     },
     "talks": {
       "prs": 1,
-      "median_rounds": 4,
-      "max_rounds": 4
+      "median_rounds": 1,
+      "max_rounds": 1
     },
     "techne": {
       "prs": 13,
-      "median_rounds": 3,
-      "max_rounds": 9
+      "median_rounds": 2,
+      "max_rounds": 5
     }
   }
 }

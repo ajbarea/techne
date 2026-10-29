@@ -107,6 +107,8 @@ def text_of(content: object) -> str:
     return ""
 
 
+# Harness notices relayed into a transcript as user messages.
+NOTICE_RE = re.compile(r"^\s*(?:\[SYSTEM NOTIFICATION|<task-notification|<system-reminder)")
 # A follow-up shorter than this that restates the report ("my findings stand") is no round.
 MIN_REPORT = 400
 
@@ -128,9 +130,14 @@ def read_segments(path: pathlib.Path) -> list[tuple[str, str, str]]:
                 msg = rec.get("message") or {}
                 text = text_of(msg.get("content"))
                 if rec.get("type") == "user" and text.strip():
-                    # A message before any report (a notification mid-work) is the same round.
-                    if not segs or segs[-1][2]:
+                    # Only a full report closes a round: a message after an interim reply
+                    # ("waiting on the test run") or a notification stays in the same one.
+                    if not segs or len(segs[-1][2]) >= MIN_REPORT:
                         segs.append([text, rec.get("timestamp", ""), ""])
+                    elif (
+                        len(segs) > 1 and NOTICE_RE.match(segs[-1][0]) and not NOTICE_RE.match(text)
+                    ):
+                        segs[-1][0] = text  # a later round takes its number from a real message
                 elif rec.get("type") == "assistant" and text.strip() and segs:
                     segs[-1][2] = text
     except OSError as exc:

@@ -268,3 +268,34 @@ def test_a_resumed_reviewer_yields_one_round_per_report(tmp_path: pathlib.Path) 
 def test_a_summary_line_opens_no_finding():
     report = "**PR #217, round 3: one Blocking regression.**\n\n1. **Blocking** [boundary-input] x"
     assert m.parse_findings(report, SLUGS) == [("blocking", "boundary-input")]
+
+
+def test_an_interim_reply_and_a_notice_stay_in_one_round(tmp_path: pathlib.Path) -> None:
+    path = tmp_path / "projects" / "p" / "s" / "subagents" / "a.jsonl"
+    path.parent.mkdir(parents=True)
+    report = "## Should-fix\n1. y [vacuous-guard]\n" + "detail " * 80
+    recs = [
+        {
+            "type": "user",
+            "timestamp": "2026-10-23T00:00:00Z",
+            "message": {"content": "Review techne#1"},
+        },
+        {
+            "type": "assistant",
+            "message": {"content": [{"type": "text", "text": "Waiting on the tests."}]},
+        },
+        {"type": "user", "message": {"content": "[SYSTEM NOTIFICATION - task done]"}},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": report}]}},
+        {
+            "type": "user",
+            "timestamp": "2026-10-23T05:00:00Z",
+            "message": {"content": "<task-notification>x"},
+        },
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "Still waiting."}]}},
+        {"type": "user", "message": {"content": "Round 3 review of the new commit"}},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": report}]}},
+    ]
+    path.write_text("\n".join(json.dumps(r) for r in recs) + "\n")
+    hist = [("2026-10-22T00:00:00+00:00", ["vacuous-guard"])]
+    rounds = m.mine([path], "2026-10-22T00:00:00+00:00", hist, KNOWN)
+    assert [(r.round, len(r.findings)) for r in rounds] == [(1, 1), (3, 1)]
