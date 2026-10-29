@@ -171,15 +171,15 @@ LITERAL = re.compile(r"""(?:"([^"\\\n]{4,})"|'([^'\\\n]{4,})'|\b(\d{3,}(?:\.\d+)
 # A name the parent tree lacks, as a hidden test's failure on it reads.
 MISSING_NAME = re.compile(
     r"has no attribute '(\w+)'|cannot import name '(\w+)'|No module named '([\w.]+)'"
-    r"|unexpected keyword argument '(\w+)'|invalid choice: '([\w-]+)'"
     r"|does not have the attribute '(\w+)'"  # mock.patch
 )
+# A name the parent refuses outright: with the gold patch passing, the fix added it.
+REFUSED_NAME = re.compile(r"unexpected keyword argument '(\w+)'|invalid choice: '([\w-]+)'")
 UNRECOGNIZED = re.compile(r"unrecognized arguments: ([^\n]+)")  # argparse lists them all
 # A module a test loads by its path, which fails on the parent as a missing file.
 MISSING_FILE = re.compile(
     r"No such file or directory: '([^'\n]+)'|can't open file '([^'\n]+)'"  # Python, python3
-    r"|(?:^|\s)(\S+\.\w+): No such file or directory",  # bash
-    re.M,
+    r"|(?:^|\s)(\S+\.\w+): No such file or directory"  # bash
 )
 # Files whose words are prose, never names the code defines.
 CODE_SUFFIX = (".py", ".pyi", ".sh", ".bash", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".rs", ".go")
@@ -841,12 +841,9 @@ def strings(source: str, path: str, lines: set[int] | None = None) -> list[str]:
 def defined(source: str, path: str) -> set[str]:
     """The interface a code file defines, each name keyed by its scope so that a name in one
     scope never hides the same name in another: in Python, by its syntax tree, top-level
-    functions, classes, assignments and imports (`name`), a class's methods, fields and
-    `self.` attributes (`Class.name`), a function's or method's parameters (`func(name)`), and
-    the option strings and subcommands an `add_argument`/`add_parser` call adds, keyed by the
-    function and parser that add them (`func:parser(--flag)`). A local variable is no
-    interface. In any other file, or Python that does not parse, every
-    identifier and `--flag` it holds."""
+    functions, classes, assignments and imports (`name`), and a class's methods, fields and
+    `self.` attributes (`Class.name`). A local variable is no interface. In any other file,
+    or Python that does not parse, every identifier and `--flag` it holds."""
     try:
         tree = ast.parse(source) if path.endswith(".py") else None
     except SyntaxError:
@@ -854,12 +851,6 @@ def defined(source: str, path: str) -> set[str]:
     if tree is None:
         return set(re.findall(r"--?[A-Za-z][\w-]*|[A-Za-z_]\w*", source))
     out = set()
-
-    def params(fn: ast.FunctionDef | ast.AsyncFunctionDef, owner: str) -> None:
-        a = fn.args
-        for arg in (*a.posonlyargs, *a.args, *a.kwonlyargs, a.vararg, a.kwarg):
-            if arg is not None:
-                out.add(f"{owner}{fn.name}({arg.arg})")
 
     def targets(node: ast.AST) -> list[ast.expr]:
         if isinstance(node, ast.Assign):
@@ -884,13 +875,11 @@ def defined(source: str, path: str) -> set[str]:
     for node in flat(tree.body):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             out.add(node.name)
-            params(node, "")
         elif isinstance(node, ast.ClassDef):
             out.add(node.name)
             for member in flat(node.body):
                 if isinstance(member, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     out.add(f"{node.name}.{member.name}")
-                    params(member, f"{node.name}.")
                     first = [*member.args.posonlyargs, *member.args.args][:1]
                     for sub in ast.walk(member):  # self.x = ... in a method
                         for tgt in targets(sub):
@@ -911,37 +900,21 @@ def defined(source: str, path: str) -> set[str]:
                 if isinstance(part, ast.Name):
                     out.add(part.id)
 
-    def options(node: ast.AST, fn: str) -> None:
-        for child in ast.iter_child_nodes(node):
-            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                options(child, child.name)
-                continue
-            if (
-                isinstance(child, ast.Call)
-                and isinstance(child.func, ast.Attribute)
-                and child.func.attr in ("add_argument", "add_parser")
-            ):
-                parser = ast.unparse(child.func.value)
-                for arg in child.args:
-                    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
-                        out.add(f"{fn}:{parser}({arg.value})")
-            options(child, fn)
-
-    options(tree, "")
     return out
 
 
 def leaf(key: str) -> str:
-    """The name a scoped key stands for: `C.x` and `f(x)` stand for `x`."""
-    return re.split(r"[.(]", key.rstrip(")"))[-1]
+    """The name a scoped key stands for: `C.x` stands for `x`."""
+    return key.rsplit(".", 1)[-1]
 
 
 def interface_gaps(task: dict, failures: Sequence[str]) -> list[str]:
     """What the hidden tests check that the bug report does not state, so that no fix could
-    pass without the gold patch: a name or file a failure on the parent names (a missing
-    attribute, import, module, keyword argument, CLI flag or choice, or a file loaded or run
-    by path) that the fix adds to its code outside the tests (`defined`, by scope), and that
-    no code span in the report gives; or a string a test adds that shares a three-word run
+    pass without the gold patch: a name or file a failure on the parent names that no code
+    span in the report gives, being a keyword argument, CLI flag or choice the parent refused
+    (with the gold patch passing, the fix added it), a missing attribute, import or module
+    the fix adds to its code outside the tests (`defined`, by scope), or a file the fix adds
+    that a test loads or runs by path; or a string a test adds that shares a three-word run
     with the strings the fix adds and also says something neither the parent's changed files
     nor the report say. A rule stated only in prose, a new positional parameter, a name no
     failure names, a message under three words, and the unquoted text of a file that is not
@@ -965,7 +938,8 @@ def interface_gaps(task: dict, failures: Sequence[str]) -> list[str]:
         return strings(show(task["fix"], path) or "", path, added_lines(diff))
 
     code_paths = [p for p in changed if p not in task["hidden_tests"] and not TEST_PATH.search(p)]
-    new_names, new_files = set(), []
+    new_names = set()
+    new_files = [p for p in code_paths if show(task["parent"], p) is None]
     for p in (p for p in code_paths if p.endswith(CODE_SUFFIX)):
         old = show(task["parent"], p)
         new_names |= {
@@ -974,9 +948,9 @@ def interface_gaps(task: dict, failures: Sequence[str]) -> list[str]:
         if old is None:  # a new module
             stem = pathlib.PurePosixPath(p)
             new_names.add(stem.parent.name if stem.stem == "__init__" else stem.stem)
-            new_files.append(p)
     names = {next(g for g in m.groups() if g) for t in failures for m in MISSING_NAME.finditer(t)}
-    names |= {f for t in failures for m in UNRECOGNIZED.finditer(t) for f in FLAG.findall(m[1])}
+    refused = {next(g for g in m.groups() if g) for t in failures for m in REFUSED_NAME.finditer(t)}
+    refused |= {f for t in failures for m in UNRECOGNIZED.finditer(t) for f in FLAG.findall(m[1])}
     files = set()
     for m in (m for t in failures for m in MISSING_FILE.finditer(t)):
         path = next(g for g in m.groups() if g)
@@ -985,9 +959,9 @@ def interface_gaps(task: dict, failures: Sequence[str]) -> list[str]:
         file = re.escape(pathlib.PurePosixPath(name).name)
         if not any(re.search(rf"(?<![\w.-]){file}(?![\w-])", span) for span in code):
             gaps.add(f"file the report does not give: {name}")
-    for name in sorted(names):
+    for name in sorted(names | refused):
         last = name.rsplit(".", 1)[-1] if not name.startswith("-") else name
-        if last not in new_names:
+        if name not in refused and last not in new_names:
             continue  # the fix adds no such name: the failure is the bug itself
         pattern = rf"(?<![\w-]){re.escape(last)}(?![\w-])"
         if not any(re.search(pattern, span) for span in code):

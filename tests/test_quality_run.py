@@ -517,6 +517,24 @@ def test_interface_gaps_accept_wording_the_report_states(tmp_path):
     assert run.interface_gaps(gap_task(tmp_path, report), []) == []
 
 
+def test_stated_reads_only_a_closed_placeholder_as_any_word():
+    assert run.stated(("in", "b/", "go"), {("in", "<where>/", "go")})
+    assert not run.stated(("in", "b/", "go"), {("in", "<where/", "go")})
+
+
+def test_strings_read_a_literal_by_any_line_it_spans():
+    src = 'x = (\n    "first part "\n    "second part"\n)\n'
+    assert run.strings(src, "m.py", {3}) == ["first part second part"]
+
+
+def test_interface_gaps_flag_a_new_data_file_a_test_loads(tmp_path):
+    task = gap_task(tmp_path, STATED, fix_files={"plugins/x/SKILL.md": "# x\n"})
+    failures = ["FileNotFoundError: No such file or directory: '/ws/plugins/x/SKILL.md'"]
+    assert run.interface_gaps(task, failures) == [
+        "file the report does not give: plugins/x/SKILL.md"
+    ]
+
+
 def test_windows_break_at_a_placeholder_and_a_regex_bar():
     said = run.windows("{} one two {} three four five|six seven")
     assert said == {("three", "four", "five")}
@@ -747,22 +765,46 @@ def test_interface_gaps_match_a_file_by_its_whole_name(tmp_path):
     assert run.interface_gaps(task, ["can't open file 'root.py'"]) == [
         "file the report does not give: root.py"
     ]
+    task["report"] = STATED + " See `root.pyc`."  # another file
+    assert run.interface_gaps(task, ["can't open file 'root.py'"]) == [
+        "file the report does not give: root.py"
+    ]
     task["report"] = STATED + " Run `root.py`."
     assert run.interface_gaps(task, ["can't open file 'root.py'"]) == []
+    # bash names the file at the start of its message
+    task["report"] = STATED
+    assert run.interface_gaps(task, ["root.py: No such file or directory"]) == [
+        "file the report does not give: root.py"
+    ]
     # another folder's file of the same name is not the fix's
     assert run.interface_gaps(task, ["can't open file '/ws/oldtools/new.py'"]) == []
 
 
-def test_interface_gaps_key_a_flag_by_its_subcommand(tmp_path):
-    parent = (
-        PARENT_CODE + "\n\ndef cli(sub):\n    i = sub.add_parser('init')\n"
-        "    i.add_argument('--ideas')\n    b = sub.add_parser('board')\n"
-    )
-    task = gap_task(
-        tmp_path, STATED, parent_code=parent, fix_code=parent + "    b.add_argument('--ideas')\n"
-    )
-    failures = ["h: error: unrecognized arguments: --ideas /x"]
-    assert run.interface_gaps(task, failures) == ["name the report does not give: --ideas"]
+REUSED_P = (
+    "\n\ndef cli(sub):\n    p = sub.add_parser('init')\n    p.add_argument('--ideas')\n"
+    "    p.add_argument('--json')\n    p = sub.add_parser('board')\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("fix_extra", "failure", "gap"),
+    [
+        # the same flag on another subcommand, through the same variable (heuresis's shape)
+        ("    p.add_argument('--ideas')\n", "unrecognized arguments: --ideas /x", "--ideas"),
+        ("    p.add_argument('--json')\n", "unrecognized arguments: --json", "--json"),
+        # a new subcommand through a rebound variable
+        ("    p = sub.add_parser('apply')\n", "argument cmd: invalid choice: 'apply'", "apply"),
+        ("    p.add_argument('--since')\n", "unrecognized arguments: --since 1", "--since"),
+    ],
+)
+def test_interface_gaps_flag_what_argparse_refused(tmp_path, fix_extra, failure, gap):
+    parent = PARENT_CODE + REUSED_P
+    task = gap_task(tmp_path, STATED, parent_code=parent, fix_code=parent + fix_extra)
+    assert run.interface_gaps(task, [f"h: error: {failure}"]) == [
+        f"name the report does not give: {gap}"
+    ]
+    task["report"] = STATED + f" It takes `{gap}`."
+    assert run.interface_gaps(task, [f"h: error: {failure}"]) == []
 
 
 DEFINED_SHAPES = """
@@ -789,9 +831,8 @@ class C:
 def test_defined_keys_every_shape_by_scope():
     keys = run.defined(DEFINED_SHAPES, "s.py")
     assert {"in_with", "in_for", "in_else", "in_finally", "m", "C.m", "C.kept"} <= keys
-    assert {f"g({a})" for a in ("a", "po", "args", "kw", "kwargs")} <= keys
     assert not {"local", "C.dropped", "dropped"} & keys
-    assert run.leaf("C.m") == run.leaf("m") == "m" and run.leaf("cli:b(--x)") == "--x"
+    assert run.leaf("C.m") == run.leaf("m") == "m"
 
 
 def test_interface_gaps_flag_a_new_subcommand(tmp_path):
@@ -815,7 +856,9 @@ def test_interface_gaps_read_every_unrecognized_flag(tmp_path):
     report = STATED + " It takes `--repos-root`."
     task = gap_task(tmp_path, report, fix_code=FIX_CODE + NAMES_CODE)
     failures = ["error: unrecognized arguments: --repos-root /a --techne-toml /b -q --json"]
+    # argparse refused each one on the parent and the gold patch passes: the fix added all
     assert run.interface_gaps(task, failures) == [
+        "name the report does not give: --json",
         "name the report does not give: --techne-toml",
         "name the report does not give: -q",
     ]
@@ -929,6 +972,14 @@ def test_scoring_needs_every_gold_test_to_pass(tmp_path, monkeypatch, rc, cases,
     task = {"hidden_tests": [], "hidden_command": "pytest", "id": "t"}
     monkeypatch.setattr(run, "base_of", lambda ws: "base")
     assert run.hidden_tests(task, tmp_path / "ws", dest, require)["passed"] is want
+
+
+def test_hidden_tests_carry_failures_when_the_diff_does_not_apply(tmp_path, monkeypatch):
+    monkeypatch.setattr(run, "staged_diff", lambda ws: b"not a diff\n")
+    monkeypatch.setattr(run, "workspace", lambda task, d: d.mkdir(parents=True, exist_ok=True))
+    task = {"hidden_tests": [], "hidden_command": "pytest", "id": "t"}
+    out = run.hidden_tests(task, tmp_path / "ws", tmp_path / "score" / "run", messages=True)
+    assert out["failures"] == [] and out["passed"] is False
 
 
 @pytest.mark.parametrize("messages", [True, False])
