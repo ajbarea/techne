@@ -35,7 +35,7 @@ It reads tracked files only, skips vendored and build folders, and exits 0 when 
 | `lint-js` | no ESLint `no-console` or Biome `noConsole` rule is on |
 | `secret-in-log` | a secret-looking name reaches a log, print or echo call |
 | `unbounded-log-file` | a file handler or appender keeps growing or keeps every file |
-| `stderr-for-errors` | shell error text goes to stdout; in a workflow, not as `::error::` |
+| `stderr-for-errors` | error text goes to stdout: shell text like `error:`, or the echo or `print()` right before a non-zero exit; in a workflow, not as `::error::` |
 | `ci-logs-not-uploaded` | a job writes a log file and uploads nothing when it fails |
 | `log-file-tracked` | a `.log` file is committed |
 

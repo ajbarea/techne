@@ -43,7 +43,7 @@ workflow annotations, for a CI step. Exit 2 means the path is not a git reposito
 | `lint-js` | no ESLint `no-console` or Biome `noConsole` rule is on |
 | `secret-in-log` | a secret-looking name reaches a log, print or echo call |
 | `unbounded-log-file` | a file handler or appender keeps growing or keeps every file |
-| `stderr-for-errors` | shell error text goes to stdout; in a workflow, not as `::error::` |
+| `stderr-for-errors` | error text goes to stdout: shell text like `error:`, or the echo or `print()` right before a non-zero exit; in a workflow, not as `::error::` |
 | `ci-logs-not-uploaded` | a job writes a log file and uploads nothing when it fails |
 | `log-file-tracked` | a `.log` file is committed |
 
@@ -69,7 +69,7 @@ For each item, report what is missing and where:
 - **Location and cap:** log files under the OS's user log folder (or the repo's ignored `logs/`
   for development runs), rotated with a fixed number kept, `*.log` in `.gitignore`.
 - **CI:** failures surface as annotations, long output sits in groups, log files are uploaded
-  on failure, pytest runs with `-rs`.
+  on failure, pytest runs with `-ra`.
 
 A finding here cites the standard's section, not taste.
 

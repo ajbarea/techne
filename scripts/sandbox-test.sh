@@ -3,21 +3,21 @@
 # Usage: sandbox-test.sh <private-temp-dir>   (run from the repo root, via the Makefile)
 set -euo pipefail
 
-[ "$(uname -s)" = Linux ] || { echo "test-sandboxed is Linux only (srt uses bubblewrap here)"; exit 1; }
-[ "$#" -eq 1 ] || { echo "usage: $0 <private-temp-dir>"; exit 2; }
+[ "$(uname -s)" = Linux ] || { echo "test-sandboxed is Linux only (srt uses bubblewrap here)" >&2; exit 1; }
+[ "$#" -eq 1 ] || { echo "usage: $0 <private-temp-dir>" >&2; exit 2; }
 tmp=$1
-command -v npm >/dev/null || { echo "npm not on PATH (comes with Node)"; exit 1; }
+command -v npm >/dev/null || { echo "npm not on PATH (comes with Node)" >&2; exit 1; }
 srt=scripts/srt/node_modules/.bin/srt
 # srt names any missing system package (bubblewrap, socat, ripgrep) itself.
 [ -x "$srt" ] || npm ci --ignore-scripts --prefix scripts/srt
 
 # A private temp folder: ours, mode 700, never a symlink.
 if [ -L "$tmp" ] || { [ -e "$tmp" ] && [ ! -O "$tmp" ]; }; then
-    echo "refusing $tmp: a symlink or not owned by you"
+    echo "refusing $tmp: a symlink or not owned by you" >&2
     exit 1
 fi
 install -d -m 700 "$tmp"
-[ -O "$tmp" ] || { echo "refusing $tmp: not owned by you"; exit 1; }
+[ -O "$tmp" ] || { echo "refusing $tmp: not owned by you" >&2; exit 1; }
 
 # Only the sandbox's own uv cache and venv, warmed with the network open and reused inside.
 export UV_CACHE_DIR=$tmp/uv-cache UV_PROJECT_ENVIRONMENT=$tmp/venv UV_LINK_MODE=copy

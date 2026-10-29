@@ -417,7 +417,10 @@ def pause(argv: list, environ, now: float) -> int:
         except ValueError:
             hours = math.nan
         if not (math.isfinite(hours) and 0 < hours <= MAX_PAUSE_HOURS):
-            print(f"phylax budget: hours must be more than 0 and at most 168, not {argv[1]!r}")
+            print(
+                f"phylax budget: hours must be more than 0 and at most 168, not {argv[1]!r}",
+                file=sys.stderr,
+            )
             return 2
     try:
         if argv[0] == "off":
@@ -428,7 +431,7 @@ def pause(argv: list, environ, now: float) -> int:
             except FileNotFoundError:
                 pass
     except OSError as err:
-        print(f"phylax budget: could not change the pause at {path} ({err})")
+        print(f"phylax budget: could not change the pause at {path} ({err})", file=sys.stderr)
         return 1
     until = paused_until(environ, now)
     who = role(environ, now)

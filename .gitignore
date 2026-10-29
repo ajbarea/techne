@@ -17,8 +17,9 @@ site/
 # Generic caches
 .cache/
 
-# scripts/dev-runner.sh archives
+# scripts/dev-runner.sh archives, and log files anywhere
 logs/
+*.log
 
 # Routing evals: the assembled eval-only plugin and per-run results
 plugins/*/eval-fixtures/with-rivals/

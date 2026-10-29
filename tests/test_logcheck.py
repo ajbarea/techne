@@ -492,6 +492,117 @@ def test_stderr_for_errors_shell(tmp_path: Path, line: str, hit: bool) -> None:
     assert findings(tmp_path, files) == ([("run.sh", 2, "stderr-for-errors")] if hit else [])
 
 
+@pytest.mark.parametrize(
+    ("src", "hit"),
+    [
+        ('{ echo "fetch failed, stopping"; exit 1; }', True),
+        ('cmd || { echo "fetch failed, stopping"; exit 1; }', True),
+        ('echo "fetch failed, stopping"\nexit 2', True),
+        ('if [ -z "$x" ]; then\n  echo "x is empty"\n  exit 1\nfi', True),
+        ('{ echo "fetch failed, stopping" >&2; exit 1; }', False),
+        ('echo "done"; exit 0', False),
+        ('echo "done"\nexit "$rc"', False),
+        ('echo "starting"\nrun_it\nexit 1', False),
+        ('{ echo "x failed"; exit 1; }  # logcheck: ignore[stderr-for-errors] usage text', False),
+        ('echo "fetch failed"\nexit 1  # bail', True),
+        ('echo "fetch failed"\nexit 1;', True),
+        ('echo "fetch failed" && exit 1', True),
+        ('[ -n "$x" ] && echo "using $x" || exit 1', False),
+        ('cmd && echo ok || { echo "failed" >&2; exit 1; }', False),
+        ('x=$(echo "captured"); exit 1', False),
+    ],
+    ids=[
+        "group",
+        "after-or",
+        "next-line",
+        "if-block",
+        "to-stderr",
+        "exit-0",
+        "exit-var",
+        "not-adjacent",
+        "ignored",
+        "next-line-comment",
+        "next-line-semicolon",
+        "and-exit",
+        "success-branch",
+        "success-before-handler",
+        "captured",
+    ],
+)
+def test_echo_before_a_failing_exit_goes_to_stderr(tmp_path: Path, src: str, hit: bool) -> None:
+    assert rules(tmp_path, {"run.sh": f"#!/bin/sh\n{src}\n"}) == (
+        ["stderr-for-errors"] if hit else []
+    )
+
+
+def test_echo_before_a_failing_exit_in_a_workflow_asks_for_an_annotation(tmp_path: Path) -> None:
+    wf = (
+        "on: push\njobs:\n  a:\n    runs-on: x\n    steps:\n      - run: |\n"
+        '          echo "Pin actions to full commit SHAs."\n          exit 1\n'
+    )
+    root = make_repo(tmp_path, {".github/workflows/ci.yml": wf})
+    out = run(root)
+    assert ".github/workflows/ci.yml:7: stderr-for-errors:" in out.stdout
+    assert "::error::" in out.stdout
+
+
+@pytest.mark.parametrize(
+    ("body", "line"),
+    [
+        ('    print("no manifest; freeze first")\n    return 1\n', 2),
+        ("    for p in problems:\n        print(p)\n    return 1\n", 3),
+        ('    print("bad")\n    sys.exit(2)\n', 2),
+        ('    print("bad")\n    raise SystemExit(1)\n', 2),
+        ('    print("bad")\n    return -1\n', 2),
+        ('    print("bad")\n    exit(1)\n', 2),
+        ('    print("bad")\n    os._exit(2)\n', 2),
+        ('    print("hint", file=sys.stderr)\n    print("more")\n    raise SystemExit("x")\n', 3),
+        ('    print("bad", file=sys.stderr)\n    return 1\n', None),
+        ('    print("done")\n    return 0\n', None),
+        ('    print("done")\n    return True\n', None),
+        ('    print("done")\n    sys.exit(0)\n', None),
+        ('    print("starting")\n    run()\n    return 1\n', None),
+        ('    print("x")  # logcheck: ignore[stderr-for-errors] the report\n    return 1\n', None),
+    ],
+    ids=[
+        "return-1",
+        "loop",
+        "sys-exit",
+        "system-exit",
+        "return-minus-1",
+        "builtin-exit",
+        "os-exit",
+        "after-stderr",
+        "to-stderr",
+        "return-0",
+        "return-bool",
+        "exit-0",
+        "not-adjacent",
+        "ignored",
+    ],
+)
+def test_print_before_a_failing_exit_goes_to_stderr(
+    tmp_path: Path, body: str, line: int | None
+) -> None:
+    files = {"pyproject.toml": GOOD_RUFF, "tool.py": f"import sys\ndef main():\n{body}"}
+    got = findings(tmp_path, files)
+    assert got == ([("tool.py", line + 1, "stderr-for-errors")] if line else [])
+
+
+def test_a_printed_summary_before_a_failing_exit_is_one_finding(tmp_path: Path) -> None:
+    body = '    print("=" * 60)\n    print("2 suites failed")\n    print("=" * 60)\n    return 1\n'
+    files = {"pyproject.toml": GOOD_RUFF, "tool.py": f"def main():\n{body}"}
+    assert findings(tmp_path, files) == [("tool.py", 2, "stderr-for-errors")]
+
+
+def test_tests_are_not_read_for_failure_prints(tmp_path: Path) -> None:
+    files = {
+        "pyproject.toml": GOOD_RUFF,
+        "tests/test_x.py": 'def f():\n    print("x")\n    return 1\n',
+    }
+    assert findings(tmp_path, files) == []
+
+
 def test_continued_command_is_read_whole(tmp_path: Path) -> None:
     src = (
         "#!/bin/sh\nprintf 'FAIL: %s\\n' \\\n    \"$x\" >&2\nprintf 'FAIL: %s\\n' \\\n    \"$x\"\n"
