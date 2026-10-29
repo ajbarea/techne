@@ -2,7 +2,7 @@
 name: logging
 description: Audit a repo's logging against techne's standard and fix what falls short, so a bug can be found from the logs alone, locally and in CI. Runs a check over Python, Rust, TypeScript, shell and GitHub Actions files (linter gates for logging, secrets reaching log calls, log files without a size cap, error text on stdout, CI logs not uploaded on failure, committed log files), then reviews what a script cannot judge (levels, message content, run ids across processes, where log files live). Use when the user asks to "check the logging", "are our logs any good", "set up logging", "make the logs useful for debugging", "add structured logs", "audit logs for secrets", or wants a repo brought up to the logging standard. Not for reading a finished CI run's log (techne:ci-audit) or for the cross-repo sweep (techne:sisters runs the same check as its check 16).
 disable-model-invocation: false
-allowed-tools: Bash(python3 *) Bash(git *) Bash(gh *) Glob Grep Read Edit Write WebSearch WebFetch
+allowed-tools: Bash Glob Grep Read Edit Write WebSearch WebFetch
 ---
 
 # Logging

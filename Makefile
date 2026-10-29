@@ -156,14 +156,16 @@ freshness:              ## Check upstream Claude Code + skills changes against t
 install-probe:          ## Install the marketplace from GitHub in Claude Code, Codex and Copilot CLI in a clean container
 	@bash scripts/install-probe.sh
 
-# Cases that need Bash inside the run. The eval sandbox refuses to grant Bash while ~/.docker holds
+# Cases that need Bash inside the run, including any skill whose context block runs a shell
+# command when it loads (a case's own allowed_tools cannot grant that; --allow-tools can). The
+# eval sandbox refuses to grant Bash while ~/.docker holds
 # a symlink below its root; Docker Desktop's WSL integration links ~/.docker/contexts to Windows.
 # Only that `contexts` entry blocks it (features.json and the cli-plugins links do not). WSL uses the
 # default context, so a plain copy of that folder in place of the link is enough.
 evals-bash:             ## Behavior evals that grant Bash (needs a symlink-free ~/.docker)
 	@cd plugins/techne && claude plugin eval . --tag behavior-bash --ablation none \
 		--trust-plugin --no-publish -j 2 --threshold 0.9 --scaffold \
-		--allow-tools Write 'Bash(git *)' 'Bash(bash *)'
+		--allow-tools Write 'Bash(git *)' 'Bash(bash *)' 'Bash(echo *)' 'Bash(cat *)'
 
 # The heuresis gold set runs real triages on your own login, so it draws on your plan's usage and
 # stays out of validate. GOLD_ARGS passes runner flags, e.g. GOLD_ARGS="--runs 1 --case 'claude-*'".

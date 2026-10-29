@@ -1,8 +1,8 @@
 ---
 name: ci-audit
-description: Audit the latest GitHub Actions workflow runs on the current branch/PR for warnings, errors, failures, deprecation notices, and other log noise — then fix what's fixable in-repo (workflow YAML, configs, source, tests). Hands commit + push back to the developer. Use after CI finishes and before merge, or whenever the user asks about failing/noisy CI — phrasings like "audit the PR", "why did CI fail", "check the workflow logs", "what's wrong with the build on GitHub", "fix the Actions warnings", "review the latest CI run", "clean up the green-with-warnings run", or names a specific check (Codecov, GitGuardian, Renovate) that's failing on the PR.
+description: Audit the latest GitHub Actions workflow runs on the current branch/PR for warnings, errors, failures, deprecation notices, and other log noise — then fix what's fixable in-repo (workflow YAML, configs, source, tests). Hands commit + push back to the developer. Use after CI finishes and before merge, or whenever the user asks about failing/noisy CI — phrasings like "audit the PR", "why did CI fail", "check the workflow logs", "what's wrong with the build on GitHub", "fix the Actions warnings", "review the latest CI run", "clean up the green-with-warnings run", or names a specific check (Codecov, GitGuardian, Renovate) that's failing on the PR. With `report OWNER/REPO RUN_ID` it runs read-only and replies with a JSON verdict on that one run, for an unattended caller such as a CI watcher.
 disable-model-invocation: false
-allowed-tools: Bash(gh *) Bash(git branch --show-current) Bash(git rev-parse *) Bash(git log *) Bash(python3 *_shared/repo_kind.py*) Bash(python3 *logging/scripts/logcheck.py*) Glob Grep Read Edit Write WebSearch WebFetch
+allowed-tools: Bash Glob Grep Read Edit Write WebSearch WebFetch
 ---
 
 # CI Audit
@@ -22,6 +22,10 @@ If the block above appears as a command rather than its output, run it and use w
 No context file: use generic defaults.
 
 The injected `## ci_audit` section (if present) tells you which repo-side configs a CI failure can trace back to, which tools show up in error output for this repo, and any expected external PR checks (Codecov, GitGuardian, etc.). Use those instead of the generic defaults below when available.
+
+## Report mode
+
+When the arguments start with `report` (`report <owner/repo> <run id> <out dir>`), or a run directory with a `facts.json` is named, this is report mode: read-only, one run, no fixes, edits, commits or posts. Run `bash "<plugin-root>/skills/ci-audit/scripts/report.sh" <owner/repo> <run id> <out dir>` when Bash is available. It records the run with read-only `gh api` calls, computes its facts, and has a headless session judge them with Read, Grep and Glob only. It writes `report.json` and `report.md`. Given a run directory instead, follow `<plugin-root>/skills/ci-audit/references/report-mode.md` yourself and reply with the report JSON alone. Everything below this section is the interactive audit.
 
 ## Scope
 
