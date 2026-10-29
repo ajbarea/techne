@@ -478,7 +478,8 @@ def test_manifest_options_match_the_guard_and_default_off():
     # test_budget.py.
     others = {"restart_on_update", "require_subagent_model", "email_greeting"}
     guards = {k for k in options if k not in others and not k.startswith(("budget_", "email_"))}
-    assert guards == set(ALL)
+    # block_secrets lives in git_guards.py too, tested in test_secret_guard.py.
+    assert guards == {*ALL, "block_secrets"}
     assert options["email_timezone"] == {
         **options["email_timezone"],
         "type": "string",

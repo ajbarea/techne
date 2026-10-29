@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Guards on the Bash tool for git commit, git add and gh pr.
+"""Guards on the Bash tool for git commit, git add, git push and gh pr.
 
 register.ts runs this from its tool.call hook on each main-thread Bash command
 that names git or gh, passing the PreToolUse JSON on stdin and each userConfig
@@ -24,16 +24,22 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import secret_scan
 
 ATTRIBUTION = "block_attribution_trailers"
 COMMITS_MD = "block_commits_md"
 MAIN_CHECKOUT = "warn_main_checkout_commit"
-OPTIONS = (ATTRIBUTION, COMMITS_MD, MAIN_CHECKOUT)
+SECRETS = "block_secrets"
+OPTIONS = (ATTRIBUTION, COMMITS_MD, MAIN_CHECKOUT, SECRETS)
 # The guards that refuse a command; MAIN_CHECKOUT only warns.
-BLOCKING = (ATTRIBUTION, COMMITS_MD)
+BLOCKING = (ATTRIBUTION, COMMITS_MD, SECRETS)
 
 ATTRIBUTION_RE = re.compile(
     r"Claude-Session|claude\.ai/code/session|Co-Authored-By\s*[:=]\s*Claude"
@@ -110,6 +116,35 @@ ADD_INTERACTIVE = {"-p", "--patch", "-i", "--interactive", "-e", "--edit"}
 GH_PR_WRITERS = {"create", "new", "edit", "merge"}
 GH_TEXT = {"-t": "text", "--title": "text", "--subject": "text", "-b": "text", "--body": "text"}
 GH_FILE = {"-F": "file", "--body-file": "file", "-T": "file", "--template": "file"}
+# git add flags that pick hunks or only report; the temporary index takes whole paths instead.
+ADD_REPLAY_DROP = ADD_INTERACTIVE | {"-n", "--dry-run", "--ignore-missing"}
+PUSH_VALUE = {"--repo", "-o", "--push-option", "--receive-pack", "--exec"}
+PUSH_ALL = {"--all", "--branches"}
+# A replayed add runs the repo's clean filters (git-lfs, git-crypt) on whole files.
+ADD_TIMEOUT = 20
+PUSH_DELETE = {"-d", "--delete"}
+# Subcommands the guards act on or track; anything else may be an alias.
+KNOWN_SUBS = {"add", "stage", "commit", "push", "status", "diff", "log", "show"}
+# git subcommands that can create or move a ref before a later `git push` in the same command
+# line runs; the push scan then cannot know its range at hook time and widens.
+REF_MOVERS = {
+    "checkout",
+    "switch",
+    "merge",
+    "rebase",
+    "reset",
+    "pull",
+    "cherry-pick",
+    "am",
+    "branch",
+    "commit",
+    "tag",
+    "revert",
+    "stash",
+    "update-ref",
+    "symbolic-ref",
+    "worktree",
+}
 
 
 def option_on(key: str) -> bool:
@@ -130,24 +165,35 @@ class GitUnavailable(Exception):
 _git_down: str | None = None
 
 
-def run_git(cwd: Path, repo_args: list[str], *args: str, check: bool = True) -> str | None:
+def run_git(
+    cwd: Path,
+    repo_args: list[str],
+    *args: str,
+    check: bool = True,
+    env: dict[str, str] | None = None,
+    timeout: float = GIT_TIMEOUT,
+) -> str | None:
     """Stdout of a git call, or None when git exits non-zero; `check=False` keeps stdout on any
-    exit. Raises GitUnavailable when git cannot start or times out, so the check fails closed."""
+    exit; `env` adds variables such as GIT_INDEX_FILE. Raises GitUnavailable when git cannot
+    start or times out, so the check fails closed. A call given its own `timeout` (a replayed
+    add, whose clean filters may be slow) does not mark git down for the calls after it."""
     global _git_down
     if _git_down is not None:
         raise GitUnavailable(_git_down)
-    env = {**os.environ, "GIT_OPTIONAL_LOCKS": "0"}
+    env = {**os.environ, "GIT_OPTIONAL_LOCKS": "0", **(env or {})}
     try:
         proc = subprocess.run(
             [*GIT_BASE, "-C", str(cwd), *repo_args, *args],
             capture_output=True,
             text=True,
-            timeout=GIT_TIMEOUT,
+            timeout=timeout,
             env=env,
         )
     except subprocess.TimeoutExpired as exc:
-        _git_down = f"git {args[0] if args else ''} timed out after {GIT_TIMEOUT}s"
-        raise GitUnavailable(_git_down) from exc
+        why = f"git {args[0] if args else ''} timed out after {timeout:g}s"
+        if timeout == GIT_TIMEOUT:
+            _git_down = why
+        raise GitUnavailable(why) from exc
     except OSError as exc:
         _git_down = f"git could not run: {exc}"
         raise GitUnavailable(_git_down) from exc
@@ -430,6 +476,83 @@ def parse_git(argv: list[str], cwd: Path, env: dict[str, str]) -> Command | None
     return None
 
 
+_builtins: set[str] | None = None
+
+
+# Options git accepts at the start of an alias and still runs it; the bool says one value follows.
+ALIAS_OPTIONS = {
+    "-p": False,
+    "--paginate": False,
+    "-P": False,
+    "--no-pager": False,
+    "-c": True,
+    "--config-env": True,
+}
+ALIAS_OPTION_PREFIXES = ("--config-env=", "--exec-path=")
+
+
+def resolve_alias(cmd: Command) -> None:
+    """Expand `git <alias>` to the command it stands for (`alias.ci = commit` makes `git ci`
+    a commit), following an alias of an alias as git does, until a loop. git ignores an alias
+    that shadows one of its own commands, and a shell alias (`!...`) is left as it is. A git
+    call that fails here raises GitUnavailable, so the check fails closed."""
+    global _builtins
+    seen: set[str] = set()
+    while cmd.sub and cmd.sub not in KNOWN_SUBS and cmd.sub not in seen:
+        seen.add(cmd.sub)
+        alias = run_git(cmd.cwd, cmd.repo_args, "config", "--get", f"alias.{cmd.sub}")
+        if not alias or alias.lstrip().startswith("!"):
+            return
+        if _builtins is None:
+            listed = run_git(cmd.cwd, [], "--list-cmds=builtins,main,others")
+            if listed is not None:
+                _builtins = set(listed.split())
+        if cmd.sub in (_builtins or ()):
+            return
+        words = shlex.split(alias)
+        while words and (words[0] in ALIAS_OPTIONS or words[0].startswith(ALIAS_OPTION_PREFIXES)):
+            words = words[1 + ALIAS_OPTIONS.get(words[0], False) :]
+        if not words or words[0].startswith("-"):
+            return  # an option git refuses before an alias's command
+        cmd.sub, cmd.args = words[0], words[1:] + cmd.args
+
+
+def repo_env(cmd: Command) -> dict[str, str]:
+    """`--git-dir`/`--work-tree` as the environment a scanner's own git calls read."""
+    env: dict[str, str] = {}
+    args = cmd.repo_args
+    for k in range(0, len(args) - 1, 2):
+        env["GIT_DIR" if args[k] == "--git-dir" else "GIT_WORK_TREE"] = args[k + 1]
+    return env
+
+
+def parse_push(args: list[str]) -> tuple[str | None, list[str], set[str]]:
+    """(remote, refspecs, flags) of `git push` arguments; `tag <name>` gives the tag."""
+    flags: set[str] = set()
+    positional: list[str] = []
+    i = 0
+    while i < len(args):
+        tok = args[i]
+        if tok == "--":
+            positional += args[i + 1 :]
+            break
+        if tok.startswith("--"):
+            name, eq, _ = tok.partition("=")
+            flags.add(name)
+            if name in PUSH_VALUE and not eq:
+                i += 1
+        elif tok.startswith("-") and len(tok) > 1:
+            if tok == "-o":
+                i += 1
+            flags.update(f"-{c}" for c in tok[1:])
+        else:
+            positional.append(tok)
+        i += 1
+    remote = positional[0] if positional else None
+    refspecs = [p for p in positional[1:] if p != "tag"]
+    return remote, refspecs, flags
+
+
 class Commit:
     def __init__(self) -> None:
         self.texts: list[str] = []
@@ -537,8 +660,16 @@ class Verdict:
 
 
 class Guards:
-    def __init__(self, bodies: list[tuple[str, str]]):
+    def __init__(self, bodies: list[tuple[str, str]], who: str = ""):
         self.bodies = bodies
+        # The agent the call came from ("" for the main thread), for the catch log.
+        self.who = who
+        # `git add` calls seen so far in this command, which a later commit would include.
+        self.pending_adds: list[Command] = []
+        # Repos where an earlier git subcommand in this command may move refs before a push runs,
+        # and whether any git subcommand ran before (a push alone with a missing ref sends nothing).
+        self.moved_in: set[Path] = set()
+        self.git_before = False
         self.side_words: set[str] = set()
         self.created_scratch: list[str] = []
         self.writer_text = ""
@@ -679,6 +810,184 @@ class Guards:
         if hits:
             self.deny_scratch(f"this commit would include {hits[0]}")
 
+    def toplevel(self, cmd: Command) -> Path | None:
+        top = run_git(cmd.cwd, cmd.repo_args, "rev-parse", "--show-toplevel")
+        return Path(top.strip()) if top and top.strip() else None
+
+    def check_commit_secrets(self, cmd: Command, commit: Commit) -> None:
+        """Scan what this commit would add, including the paths an earlier `git add` in this
+        command, `-a`, or the commit's own pathspecs stage. Those are staged into a copy of the
+        index (GIT_INDEX_FILE), so the real index is untouched and the scan sees only added lines.
+        Hunk-picking adds (`-p`) are taken as whole paths: a wider scan, never a narrower one.
+        The replayed adds write blobs to the object store even when the commit is refused; they
+        stay local and `git gc` removes them."""
+        if not self.enabled(SECRETS, cmd):
+            return
+        top = self.toplevel(cmd)
+        if top is None:
+            return  # not a work tree: the commit itself will fail
+        replay = [
+            (a, [x for x in a.args if x not in ADD_REPLAY_DROP])
+            for a in self.pending_adds
+            if self.toplevel(a) == top
+        ]
+        if commit.all:
+            replay.append((cmd, ["-u"]))
+        if commit.pathspec_file:
+            replay.append((cmd, ["-A"]))  # an unknown path list: everything it could name
+        elif commit.pathspecs:
+            replay.append((cmd, ["--", *commit.pathspecs]))
+        with tempfile.TemporaryDirectory(prefix="phylax-secrets-") as tmp:
+            git_env = repo_env(cmd)
+            if replay:
+                real = run_git(
+                    cmd.cwd,
+                    cmd.repo_args,
+                    "rev-parse",
+                    "--path-format=absolute",
+                    "--git-path",
+                    "index",
+                )
+                index = Path(tmp) / "index"
+                if real and Path(real.strip()).is_file():
+                    shutil.copyfile(real.strip(), index)
+                git_env["GIT_INDEX_FILE"] = str(index)
+                for add, args in replay:
+                    # A path the real add would refuse fails it too; the rest still stage here.
+                    run_git(
+                        add.cwd,
+                        add.repo_args,
+                        "add",
+                        *args,
+                        check=False,
+                        env=git_env,
+                        timeout=ADD_TIMEOUT,
+                    )
+            self.scan_secrets("this commit", "commit", top, git_env, None, Path(tmp))
+
+    def check_push_secrets(self, cmd: Command) -> None:
+        """Scan the commits this push would send that the remote's tracking refs do not hold yet.
+        Stale tracking refs only widen the scan. Catches commits the commit guard never saw."""
+        if not self.enabled(SECRETS, cmd):
+            return
+        top = self.toplevel(cmd)
+        if top is None:
+            return
+        remote, refspecs, flags = parse_push(cmd.args)
+        if flags & PUSH_DELETE or flags & {"-n", "--dry-run"}:
+            return
+        known = (run_git(cmd.cwd, cmd.repo_args, "remote") or "").split()
+        if remote is None:
+            remote = self.default_remote(cmd)
+
+        def config(key: str) -> str:
+            return (run_git(cmd.cwd, cmd.repo_args, "config", "--get-all", key) or "").strip()
+
+        srcs: list[str] = []
+        if "--mirror" in flags or (remote in known and config(f"remote.{remote}.mirror") == "true"):
+            srcs.append("--all")
+        if flags & PUSH_ALL:
+            srcs.append("--branches")
+        if "--tags" in flags:
+            srcs.append("--tags")
+        for spec in refspecs:
+            src = spec.lstrip("+").split(":", 1)[0]
+            if not src or src.startswith("^"):
+                continue  # a deletion, or a negative refspec (it only narrows the push)
+            if "*" in src:
+                srcs.append(f"--glob={src}" if src.startswith("refs/") else "--branches")
+            else:
+                srcs.append(src)
+        if not srcs and not refspecs:
+            # A configured push refspec or push.default=matching sends more than HEAD.
+            wide = remote in known and bool(config(f"remote.{remote}.push"))
+            wide = wide or config("push.default") == "matching"
+            srcs = ["--branches"] if wide else ["HEAD"]
+        if not srcs:
+            return  # only deletions (`:branch`)
+        named = [x for x in srcs if not x.startswith("--")]
+        unresolved = [
+            x
+            for x in named
+            if run_git(cmd.cwd, cmd.repo_args, "rev-parse", "-q", "--verify", f"{x}^{{commit}}")
+            is None
+        ]
+        if unresolved and not self.git_before:
+            return  # git refuses the whole push, so it sends nothing
+        widened = top in self.moved_in or bool(unresolved)
+        if widened:
+            # Run in one line after a checkout, commit or merge, the push sends refs that do not
+            # exist or point elsewhere at hook time: scan HEAD, what resolves, and every local
+            # branch and tag. Commits made in the same line are the commit scan's.
+            srcs = [x for x in srcs if x not in unresolved] + ["HEAD", "--branches", "--tags"]
+        # Commits any remote holds are already on a server (a fork's upstream included), so the
+        # scan is what no remote has yet; a first push never rescans the whole history.
+        # `--` ends the revisions, so a branch named like a folder is never read as a path.
+        log_opts = " ".join([*dict.fromkeys(srcs), "--not", "--remotes", "--"])
+        what = (
+            "this push (scanned wide: every local branch and tag no remote holds, since an "
+            "earlier command in this line may move them; run the push as a command of its own "
+            "to scan only what it sends)"
+            if widened
+            else "this push"
+        )
+        with tempfile.TemporaryDirectory(prefix="phylax-secrets-") as tmp:
+            self.scan_secrets(what, "push", top, repo_env(cmd), log_opts, Path(tmp))
+
+    def default_remote(self, cmd: Command) -> str:
+        """The remote a bare `git push` uses: pushRemote, pushDefault, the branch's remote,
+        else origin."""
+        branch = (
+            run_git(cmd.cwd, cmd.repo_args, "symbolic-ref", "--short", "-q", "HEAD") or ""
+        ).strip()
+        keys = [f"branch.{branch}.pushRemote", "remote.pushDefault", f"branch.{branch}.remote"]
+        for key in keys if branch else keys[1:2]:
+            value = (run_git(cmd.cwd, cmd.repo_args, "config", "--get", key) or "").strip()
+            if value:
+                return value
+        return "origin"
+
+    def scan_secrets(
+        self,
+        what: str,
+        kind: str,
+        top: Path,
+        git_env: dict[str, str],
+        log_opts: str | None,
+        tmp: Path,
+    ) -> None:
+        event = {"kind": kind, "repo": str(top), "agent": self.who}
+        try:
+            name, findings = secret_scan.scan(kind, top, git_env, log_opts, tmp)
+        except secret_scan.ScanError as exc:
+            secret_scan.log_event({**event, "outcome": "no_verdict", "reason": str(exc)})
+            self.verdict.denies.append(
+                f"phylax: {what} was not run because the secret scan gave no verdict: {exc}. "
+                "Retry it as a command of its own; if it fails again, stop and ask the user. "
+                f"Switching the guard off (`git config {repo_key(SECRETS)} false`) is the user's "
+                "call, not yours."
+            )
+            return
+        if not findings:
+            return
+        secret_scan.log_event(
+            {
+                **event,
+                "outcome": "blocked",
+                "engine": name,
+                "findings": [f.as_dict() for f in findings],
+            }
+        )
+        shown = "; ".join(f.where() for f in findings[:5])
+        more = f" and {len(findings) - 5} more" if len(findings) > 5 else ""
+        self.verdict.denies.append(
+            f"phylax: {what} would add a secret ({name}): {shown}{more}. Remove it and use a "
+            "placeholder the scanner accepts or a value made at runtime (a test fixture included); "
+            "unstage with `git restore --staged <file>`, and for a pushed-to-be commit rewrite it "
+            "before pushing. Do not silence the scanner: GitHub's own scan would still flag it. "
+            "If you believe it is a false positive, stop and ask the user."
+        )
+
     def check_main_checkout(self, cmd: Command) -> None:
         if not self.enabled(MAIN_CHECKOUT, cmd):
             return
@@ -777,8 +1086,12 @@ class Guards:
         cmd = parse_git(argv, cwd, env)
         if cmd is None:
             return
+        resolve_alias(cmd)
         if cmd.sub in ADD_SUBCOMMANDS:
+            self.pending_adds.append(cmd)
             self.check_add(cmd)
+        elif cmd.sub == "push":
+            self.check_push_secrets(cmd)
         elif cmd.sub == "commit":
             commit = parse_commit(cmd.args)
             if self.enabled(ATTRIBUTION, cmd):
@@ -792,7 +1105,13 @@ class Guards:
                     env,
                 )
             self.check_commit_scratch(cmd, commit)
+            self.check_commit_secrets(cmd, commit)
             self.check_main_checkout(cmd)
+        if cmd.sub in REF_MOVERS and option_on(SECRETS):
+            top = self.toplevel(cmd)
+            if top is not None:
+                self.moved_in.add(top)
+        self.git_before = True
 
     def check_gh(self, argv: list[str], cwd: Path, env: dict[str, str]) -> None:
         words: list[str] = []
@@ -845,7 +1164,7 @@ def main() -> int:
     cwd = Path(data["cwd"])
     stripped, bodies = strip_heredocs(raw)
     tokens = tokenize(stripped)
-    guards = Guards(bodies)
+    guards = Guards(bodies, str(data.get("agent_type") or data.get("agent_id") or ""))
     failed = False
     try:
         if tokens is None:

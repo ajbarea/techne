@@ -71,6 +71,16 @@ FIXES = {
         cmd="uv python install --default 3.12 && uv python update-shell",
     ),
     "tmux": Fix(apt="sudo apt install tmux", brew="brew install tmux"),
+    # research(2026-10): gitleaks 8.19.0 added the `git` subcommand phylax runs; Ubuntu noble's
+    # apt package is older, so Linux x64 takes the release binary, checked against its published
+    # SHA-256 (github.com/gitleaks/gitleaks/releases/tag/v8.30.1). Other CPUs: that release page.
+    "gitleaks": Fix(
+        brew="brew install gitleaks",
+        apt="curl -sSfLo /tmp/gitleaks.tgz https://github.com/gitleaks/gitleaks/releases/download/"
+        "v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz && echo '"
+        "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  /tmp/gitleaks.tgz'"
+        " | sha256sum -c - && tar -xzf /tmp/gitleaks.tgz -C ~/.local/bin gitleaks",
+    ),
     "latex": Fix(
         apt="sudo apt install texlive-latex-extra latexmk",
         brew="brew install --cask mactex-no-gui",

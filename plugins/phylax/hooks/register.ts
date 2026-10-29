@@ -1,13 +1,13 @@
 import type { PluginOptions, Register } from 'claude-code'
 
 // The guard options, as the manifest's userConfig names them.
-const GUARDS = ['block_attribution_trailers', 'block_commits_md', 'warn_main_checkout_commit'] as const
+const GUARDS = ['block_attribution_trailers', 'block_commits_md', 'warn_main_checkout_commit', 'block_secrets'] as const
 // The guards that refuse a command; warn_main_checkout_commit only warns.
-const BLOCKING = ['block_attribution_trailers', 'block_commits_md'] as const
+const BLOCKING = ['block_attribution_trailers', 'block_commits_md', 'block_secrets'] as const
 // git_guards.py looks no further at a command without one of these words.
 const GIT_OR_GH = /\b(git|gh)\b/
-// A commit makes at most six git calls of 5 s each inside git_guards.py.
-const GUARD_TIMEOUT_MS = 40_000
+// A commit makes a few git calls of 5 s each and one secret scan of 20 s inside git_guards.py.
+const GUARD_TIMEOUT_MS = 55_000
 
 type Verdict = { deny?: string; warning?: string }
 

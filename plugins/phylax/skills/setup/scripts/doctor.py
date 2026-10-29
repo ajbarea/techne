@@ -25,6 +25,7 @@ OPTIONS = (
     "block_attribution_trailers",
     "block_commits_md",
     "warn_main_checkout_commit",
+    "block_secrets",
     "require_subagent_model",
     "email_greeting",
     "restart_on_update",
@@ -41,7 +42,12 @@ VALUES = (
     "plugin_data",
 )
 # The git guards: they need git and may run from the mod.
-GUARDS = ("block_attribution_trailers", "block_commits_md", "warn_main_checkout_commit")
+GUARDS = (
+    "block_attribution_trailers",
+    "block_commits_md",
+    "warn_main_checkout_commit",
+    "block_secrets",
+)
 MOD_ADDED = (2, 1, 287)
 # 2.1.288 fixed a mod's tool.call hook breaking Bash in subagents that run in a worktree.
 MOD_MINIMUM = (2, 1, 288)
@@ -280,6 +286,19 @@ def checks(
         found.append(d.program(platform, "git", "git"))
     else:
         found.append(d.Check(d.NA, "git", "no guard is on"))
+    if options["block_secrets"] is True:
+        found.append(
+            d.program(
+                platform,
+                "gitleaks",
+                "gitleaks",
+                version_argv=("version",),
+                minimum=(8, 19, 0),
+                why="block_secrets refuses every commit and push while no scanner is installed",
+            )
+        )
+    else:
+        found.append(d.Check(d.NA, "gitleaks", "block_secrets is off"))
     if restart_on:
         found += [
             d.guarded("proc", True, proc),
