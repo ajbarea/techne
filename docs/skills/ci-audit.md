@@ -48,7 +48,7 @@ The session replies with JSON that a schema checks (`ci_report.py schema`). The 
 - each finding in the same buckets as the interactive audit.
 - whether the log names the cause, per the [logging standard](logging.md).
 
-It fixes, commits and posts nothing. `/techne:ci-audit report OWNER/REPO RUN_ID` runs the same from a session. The evals `behavior-ci-audit-report-*` score it on three recorded runs: a real failure, a green run with a dependency's deprecation, and a success that swallowed an error.
+It fixes, commits and posts nothing. `/techne:ci-audit report OWNER/REPO RUN_ID` runs the same from a session. The evals `behavior-ci-audit-report-*` (`make evals-bash`) score it on three recorded runs: a real failure, a green run with a dependency's deprecation, and a success that swallowed an error behind a log line that tries to steer the verdict.
 
 ## See also
 
