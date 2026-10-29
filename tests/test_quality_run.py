@@ -188,10 +188,12 @@ API_404 = {
 @pytest.mark.parametrize(
     ("result", "err", "raises"),
     [
-        (API_404, "", run.HarnessError),  # a 429 ms session is not a rate limit
+        (API_404, "", run.UsageLimit),  # any API error stops the set, whatever its duration
         ({**API_404, "api_error_status": 429}, "", run.UsageLimit),
-        ({**API_404, "api_error_status": 529}, "", run.UsageLimit),
-        ({**API_404, "api_error_status": 500}, "", run.HarnessError),
+        ({**API_404, "api_error_status": 500}, "", run.UsageLimit),
+        ({"subtype": "error_during_execution", "is_error": True}, "", run.HarnessError),
+        ({"subtype": "error_max_structured_output_retries", "is_error": True}, "", None),
+        ({}, "You're out of usage credits", run.UsageLimit),
         (
             {**API_404, "api_error_status": None, "result": "usage limit reached"},
             "",
@@ -269,29 +271,46 @@ def test_a_judge_pass_stamps_one_id_and_a_rejudge_clears_first(tmp_path, monkeyp
     assert run.pass_id(dirs[:1]) != run.pass_id(dirs)
 
 
-def test_private_cache_is_a_copy_and_environments_copy_out_of_it(tmp_path, monkeypatch):
+def test_each_task_has_its_own_seed_and_a_copy_never_writes_back(tmp_path, monkeypatch):
     monkeypatch.setattr(run, "TOOLS", tmp_path / "tools")
-    monkeypatch.setattr(run, "SEED_CACHE", tmp_path / "tools" / "uv-cache")
+    monkeypatch.setattr(run, "SEEDS", tmp_path / "seeds")
     monkeypatch.setattr(run.shutil, "which", lambda _: __file__)
-    run.tool_env()  # writes the seed version, purging an older seed
-    (run.SEED_CACHE / "archive-v0").mkdir(parents=True)
-    (run.SEED_CACHE / "archive-v0" / "f").write_text("seed")
-    copy = run.private_cache(tmp_path / "run" / "uv-cache")
+    a, b = {"id": "a"}, {"id": "b"}
+    (run.seed_of(a) / "archive-v0").mkdir(parents=True)
+    (run.seed_of(a) / "archive-v0" / "f").write_text("seed")
+    copy = run.private_cache(a, tmp_path / "run" / "tmp" / "uv-cache")
     (copy / "archive-v0" / "f").write_text("changed by a run")
     (copy / "archive-v0" / "g").write_text("a run's build")
-    assert (run.SEED_CACHE / "archive-v0" / "f").read_text() == "seed"
-    assert not (run.SEED_CACHE / "archive-v0" / "g").exists()
+    assert (run.seed_of(a) / "archive-v0" / "f").read_text() == "seed"
+    assert not (run.seed_of(a) / "archive-v0" / "g").exists()
+    assert not any(run.private_cache(b, tmp_path / "b-cache").iterdir())
     env = run.tool_env(copy)
     assert env["UV_CACHE_DIR"] == str(copy) and env["UV_LINK_MODE"] == "copy"
 
 
-def test_an_older_seed_cache_is_purged(tmp_path, monkeypatch):
+def test_an_older_harness_cache_is_purged_once(tmp_path, monkeypatch):
+    monkeypatch.setenv("QUALITY_NO_LOCK", "1")
+    monkeypatch.setattr(run, "WORK", tmp_path)
     monkeypatch.setattr(run, "TOOLS", tmp_path / "tools")
-    monkeypatch.setattr(run, "SEED_CACHE", tmp_path / "tools" / "uv-cache")
+    monkeypatch.setattr(run, "SEEDS", tmp_path / "seeds")
+    (tmp_path / "tools" / "uv-cache").mkdir(parents=True)
+    (tmp_path / "seeds" / "a").mkdir(parents=True)
+    run.prepare_seeds()
+    assert not (tmp_path / "tools" / "uv-cache").exists() and not run.SEEDS.exists()
+    (tmp_path / "seeds" / "a").mkdir(parents=True)
+    run.prepare_seeds()
+    assert (tmp_path / "seeds" / "a").exists()
+
+
+def test_sessions_cannot_read_the_seeds_and_their_cache_is_writable(tmp_path, monkeypatch):
+    monkeypatch.setattr(run, "WORK", tmp_path)
+    monkeypatch.setattr(run, "LIVE", tmp_path / "live")
+    monkeypatch.setattr(run, "TOOLS", tmp_path / "tools")
     monkeypatch.setattr(run.shutil, "which", lambda _: __file__)
-    (run.SEED_CACHE / "archive-v0").mkdir(parents=True)
-    run.tool_env()
-    assert not run.SEED_CACHE.exists()
+    data = json.loads(run.settings_file().read_text())
+    assert str(tmp_path / "seeds") in data["sandbox"]["filesystem"]["denyRead"]
+    cache = pathlib.Path(data["env"]["UV_CACHE_DIR"])
+    assert cache.is_relative_to(pathlib.Path(data["env"]["TMPDIR"]))
 
 
 @pytest.mark.parametrize("name", ["review.md", "fix.md"])
@@ -306,9 +325,23 @@ def test_review_and_fix_prompts_name_the_base_commit(name):
         ("def pytest_runtest_makereport(item, call):", True),
         ("    def pytest_collection_modifyitems(items):", True),
         ("pytest_plugins = ['force_pass']", True),
-        ("def pytest_addoption(parser):", False),
+        ("def pytest_pyfunc_call(pyfuncitem):", True),
+        ("async def pytest_unconfigure(config):", True),
+        ("def make_pytest_hook():", False),
         ("def test_pytest_runtest_makereport():", False),
     ],
 )
 def test_result_hooks(line, hit):
     assert bool(run.RESULT_HOOK.search(line)) is hit
+
+
+@pytest.mark.parametrize(
+    ("line", "hit"),
+    [
+        ('addopts = "-p force_pass"', True),
+        ("addopts = -p no:cacheprovider", True),
+        ('addopts = "-q --strict-markers"', False),
+    ],
+)
+def test_config_plugin_loads_are_weakening(line, hit):
+    assert bool(run.CONFIG_WEAKENING.search(line)) is hit

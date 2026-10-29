@@ -62,6 +62,9 @@ def check_set(runs: list[dict], task_ids: list[str], repeats: int) -> list[str]:
     passes = {(r.get("judge_verdict") or {}).get("pass") for r in runs}
     if len(passes) > 1:
         problems.append(f"verdicts from {len(passes)} judge passes: judge all folders together")
+    versions = {r.get("claude_code") for r in runs}
+    if len(versions) > 1:
+        problems.append(f"Claude Code versions {sorted(map(str, versions))}: rerun on one version")
     return problems
 
 
@@ -76,6 +79,8 @@ def load(*folders: pathlib.Path) -> list[dict]:
             if key in seen:
                 raise SystemExit(f"{p} repeats {seen[key]}: analyze one trial's folders only")
             seen[key] = p
+            errors = p.parent / "errors.json"
+            run["retries"] = len(json.loads(errors.read_text())) if errors.exists() else 0
             runs.append(run)
     return runs
 
@@ -195,6 +200,8 @@ def task_rows(runs: list[dict]) -> list[dict]:
                     for k in ("input", "output", "cache_read", "cache_write")
                 },
                 "median_reviews": statistics.median(len(r["reviews"]) for r in rs),
+                "retries": sum(r.get("retries", 0) for r in rs),
+                "harness_failed": sum(bool(r.get("harness_failed")) for r in rs),
                 "judge_scores": {
                     c: statistics.median((r["judge_verdict"] or {}).get(c, 0) for r in rs)
                     for c in CRITERIA
@@ -255,7 +262,9 @@ def decide(runs: list[dict], pilot: bool = False) -> dict:
         else statistics.median(cost[t]["budget"]) / statistics.median(cost[t]["normal"])
         for t in paired
     ]
-    out["h2_imputed"] = sorted(t for t in paired if t in unknown)
+    out["h2_imputed"] = sorted(
+        t for t in paired if t in unknown or statistics.median(cost[t]["normal"]) <= 0
+    )
     rng = random.Random(SEED)
     boot_medians = sorted(
         statistics.median(ratios[rng.randrange(len(ratios))] for _ in ratios)
@@ -312,6 +321,14 @@ def report(result: dict, title: str) -> str:
         f" {'finds' if x['judge_blocking'] else 'finds no'} blocking defect. {x['reason']}"
         for t, m, x in dis
     ] or ["None."]
+    lines += ["", "## Harness retries and failures", ""]
+    for mode in sorted({r["mode"] for r in result["tasks"]}):
+        rows = [r for r in result["tasks"] if r["mode"] == mode]
+        failed = [r["task"] for r in rows if r["harness_failed"]]
+        lines.append(
+            f"- {mode}: {sum(r['retries'] for r in rows)} retries; runs that failed 3 times:"
+            f" {', '.join(failed) or 'none'}"
+        )
     lines += ["", "## Judge criterion scores (median, 0 to 3)", ""]
     lines += [
         f"- {r['task']} ({r['mode']}): "
@@ -365,16 +382,16 @@ def main(argv: list[str] | None = None) -> int:
     if not runs:
         print(f"no run.json under {args.results}", file=sys.stderr)
         return 1
-    task_ids = [t["id"] for t in tomllib.loads(args.tasks.read_text(encoding="utf-8"))["task"]]
-    problems = check_set(runs, task_ids, PILOT_REPEATS if args.pilot else REPEATS)
-    if problems:
-        print("not one complete trial:\n  " + "\n  ".join(problems), file=sys.stderr)
-        return 1
     unjudged = [f"{r['task']}/{r['mode']}/r{r['repeat']}" for r in runs if r["resolved"] is None]
     if unjudged:
         print(
             f"not judged yet (run quality/run.py --judge): {', '.join(unjudged)}", file=sys.stderr
         )
+        return 1
+    task_ids = [t["id"] for t in tomllib.loads(args.tasks.read_text(encoding="utf-8"))["task"]]
+    problems = check_set(runs, task_ids, PILOT_REPEATS if args.pilot else REPEATS)
+    if problems:
+        print("not one complete trial:\n  " + "\n  ".join(problems), file=sys.stderr)
         return 1
     result = decide(runs, pilot=args.pilot)
     md = report(result, "Quality trial: " + ", ".join(r.name for r in args.results))

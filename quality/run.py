@@ -40,13 +40,14 @@ WORK = pathlib.Path(f"/var/tmp/techne-quality-{os.getuid()}")
 # answer or a restored hidden test.
 LIVE, DONE, SCORE, CHECK = (WORK / d for d in ("live", "done", "score", "check"))
 # What a session's shell may read under WORK: its own run, the tools, and the elenchus copy.
-TOOLS = WORK / "tools"  # uv, uv's Pythons and the seed cache: tasks' environments live here
-# The seed uv cache holds only what task setup builds from parent trees. Each session and
-# each scoring gets its own copy, since `uv run` caches the tree it syncs: a shared cache
-# would carry one run's change, or a gold fix, to the next session.
-SEED_CACHE = TOOLS / "uv-cache"
-SEED_VERSION = "2"
-HIDDEN = ("done", "score", "check", "judge")
+TOOLS = WORK / "tools"  # uv and uv's Pythons: tasks' environments live here
+# One seed uv cache per task, holding only what that task's setup builds from its parent
+# tree. Sessions cannot read the seeds; each session and each scoring gets its own copy,
+# since `uv run` caches the tree it syncs: a shared cache would carry one run's change, a
+# gold fix, or a later task's parent (which can hold an earlier task's fix) to a session.
+SEEDS = WORK / "seeds"
+SEEDS_VERSION = "3"
+HIDDEN = ("done", "score", "check", "judge", "seeds")
 JUDGE_CWD = WORK / "judge-cwd"  # one neutral folder: Claude Code shows the judge its cwd
 
 
@@ -56,15 +57,29 @@ def clean_env() -> dict[str, str]:
     return {k: v for k, v in os.environ.items() if k not in ("VIRTUAL_ENV", "PYTHONPATH")}
 
 
-def tool_env(cache: pathlib.Path = SEED_CACHE) -> dict[str, str]:
+def prepare_seeds() -> None:
+    """Drop seeds an older harness wrote (a shared cache that may hold a scored tree)."""
+    marker = WORK / "seeds-version"
+    with lock():
+        if marker.exists() and marker.read_text() == SEEDS_VERSION:
+            return
+        shutil.rmtree(TOOLS / "uv-cache", ignore_errors=True)
+        shutil.rmtree(SEEDS, ignore_errors=True)
+        WORK.mkdir(parents=True, exist_ok=True)
+        tmp = marker.with_suffix(".tmp")
+        tmp.write_text(SEEDS_VERSION)
+        os.replace(tmp, marker)
+
+
+def seed_of(task: dict) -> pathlib.Path:
+    return SEEDS / task["id"]
+
+
+def tool_env(cache: pathlib.Path) -> dict[str, str]:
     """uv and its Pythons inside WORK, so environments built at setup still run when a
     session's shell cannot read /home. Environments copy files out of CACHE rather than
     link to it, so editing an installed package never changes the cache."""
     (TOOLS / "bin").mkdir(parents=True, exist_ok=True)
-    marker = TOOLS / "uv-cache-version"
-    if not marker.exists() or marker.read_text() != SEED_VERSION:
-        shutil.rmtree(SEED_CACHE, ignore_errors=True)  # an older seed may hold a scored tree
-        marker.write_text(SEED_VERSION)
     uv = TOOLS / "bin" / "uv"
     if not uv.exists():
         found = shutil.which("uv")
@@ -79,11 +94,12 @@ def tool_env(cache: pathlib.Path = SEED_CACHE) -> dict[str, str]:
     }
 
 
-def private_cache(dest: pathlib.Path) -> pathlib.Path:
-    """A copy of the seed cache at DEST, for one session's or one scoring's writes."""
+def private_cache(task: dict, dest: pathlib.Path) -> pathlib.Path:
+    """A copy of TASK's seed cache at DEST, for one session's or one scoring's writes.
+    Callers hold lock(), so no setup writes the seed while it is copied."""
     shutil.rmtree(dest, ignore_errors=True)
-    if SEED_CACHE.exists():
-        shutil.copytree(SEED_CACHE, dest, symlinks=True)
+    if seed_of(task).exists():
+        shutil.copytree(seed_of(task), dest, symlinks=True)
     else:
         dest.mkdir(parents=True)
     return dest
@@ -196,7 +212,11 @@ def workspace(task: dict, dest: pathlib.Path) -> None:
     (dest.parent / f"{dest.name}.base").write_text(base)
     if task.get("setup"):
         with lock():
-            env = {**clean_env(), **tool_env(), "PATH": f"{TOOLS / 'bin'}:{os.environ['PATH']}"}
+            env = {
+                **clean_env(),
+                **tool_env(seed_of(task)),
+                "PATH": f"{TOOLS / 'bin'}:{os.environ['PATH']}",
+            }
             out = sh(["bash", "-c", task["setup"]], cwd=dest, timeout=TEST_TIMEOUT, env=env)
         if out.returncode:
             raise RuntimeError(f"setup failed: {out.stderr[-500:]}")
@@ -224,40 +244,46 @@ class HarnessError(RuntimeError):
 
 
 class UsageLimit(HarnessError):
-    """The plan's usage or rate limit: the whole run stops, to resume later."""
+    """The plan's usage or rate limit, or any API error: the whole set stops, to resume
+    later, so an outage never uses up runs' attempts."""
 
 
 # Text of a plan limit, read only from stderr or an API-error result, never from a model's
 # answer (a task about rate limits would match).
-LIMIT = re.compile(r"usage limit|session limit|rate limit|overloaded|credit balance", re.I)
-STOP_STATUS = {429, 529}  # rate limited or overloaded: stop the set, resume later
+LIMIT = re.compile(
+    r"usage limit|session limit|rate limit|overloaded|credit balance|you've hit your"
+    r"|out of usage credits|spend limit",
+    re.I,
+)
+# A session that ends with one of these is the model's outcome, scored as it stands.
+MODEL_OUTCOMES = {"success", "error_max_turns", "error_max_structured_output_retries"}
 
 
 def classify(result: dict, err: str) -> None:
-    """Raise when a session failed for a reason that is not the model's: an API error or
-    no result at all. A timeout, or a result out of turns or structured-output retries,
-    is the model's outcome and returns."""
+    """Raise when a session failed for a reason that is not the model's. An API error or a
+    limit notice stops the set; a session with no result, or one Claude Code ended with an
+    error of its own, is a harness failure. A timeout, or a result that is a success or is
+    out of turns or structured-output retries, is the model's outcome and returns."""
     status = result.get("api_error_status")
-    api = result.get("terminal_reason") == "api_error" or status is not None
-    if api:
-        text = f"{status} {result.get('result', '')} {err}"[-800:]
-        if status in STOP_STATUS or LIMIT.search(text):
-            raise UsageLimit(text)
-        raise HarnessError(text)
-    if "subtype" not in result and err != "timeout":
-        text = f"{err} no result event"[-800:]
-        raise (UsageLimit if LIMIT.search(err) else HarnessError)(text)
     notice = str(result.get("result", ""))
+    if result.get("terminal_reason") == "api_error" or status is not None:
+        raise UsageLimit(f"API error {status}: {notice} {err}"[-800:])
+    if "subtype" not in result:
+        if err == "timeout":
+            return
+        raise (UsageLimit if LIMIT.search(err) else HarnessError)(f"{err} no result"[-800:])
     if result.get("is_error") and result.get("subtype") == "success" and LIMIT.search(notice):
         raise UsageLimit(notice[-800:])  # Claude Code's own limit notice, not a model answer
+    if result["subtype"] not in MODEL_OUTCOMES:
+        raise HarnessError(f"{result['subtype']}: {notice} {err}"[-800:])
 
 
 def settings_file() -> pathlib.Path:
     """quality/sandbox.json with TMPDIR set to the live run's own temp folder, since the
     sandbox denies /tmp (other sessions' scratch can hold a task's fixed code), and the
-    run's own uv cache."""
+    run's own uv cache inside it, the one folder besides the workspace a session may write."""
     run = LIVE / "run"
-    for d in ("tmp", "home", "uv-cache"):
+    for d in ("tmp", "home"):
         (run / d).mkdir(parents=True, exist_ok=True)
     data = json.loads(SANDBOX.read_text(encoding="utf-8"))
     data["sandbox"]["filesystem"]["denyRead"] += [str(WORK / d) for d in HIDDEN]
@@ -265,7 +291,7 @@ def settings_file() -> pathlib.Path:
         "TMPDIR": str(run / "tmp"),
         "HOME": str(run / "home"),
         "PATH": f"{TOOLS / 'bin'}:/usr/local/bin:/usr/bin:/bin",
-        **tool_env(run / "uv-cache"),
+        **tool_env(run / "tmp" / "uv-cache"),
     }
     path = LIVE / "settings.json"
     path.write_text(json.dumps(data), encoding="utf-8")
@@ -409,12 +435,13 @@ TEST_LINE = re.compile(
     r"|expect\(|it\(|test\()"
 )
 SKIP = re.compile(r"pytest\.(?:skip|xfail)|@pytest\.mark\.(?:skip|xfail)|\.(?:skip|only)\(|\bxit\(")
-CONFIG_WEAKENING = re.compile(r"--deselect|--ignore|\s-k\s|collect_ignore|norecursedirs|skip|xfail")
-# A pytest hook that can rewrite outcomes or the exit status, or a plugin loaded to add one.
-RESULT_HOOK = re.compile(
-    r"^\s*def\s+pytest_(?:runtest_makereport|runtest_call|runtest_protocol|report_teststatus"
-    r"|collection_modifyitems|sessionfinish)\b|^\s*pytest_plugins\s*="
+CONFIG_WEAKENING = re.compile(
+    r"--deselect|--ignore|\s-k\s|(?:^|[\s'\"=\[,])-p\s*[\w.:]|collect_ignore|norecursedirs|skip|xfail"
 )
+# Any pytest hook added (one can pass a test unrun or rewrite the exit status), or a plugin
+# loaded to add one; in test code, a hard exit.
+RESULT_HOOK = re.compile(r"^\s*(?:async\s+)?def\s+pytest_\w+\s*\(|^\s*pytest_plugins\s*=")
+HARD_EXIT = re.compile(r"\bos\._exit\s*\(")
 
 
 def audit(task: dict, ws: pathlib.Path, diff: str, logs: list[pathlib.Path]) -> list[str]:
@@ -426,6 +453,10 @@ def audit(task: dict, ws: pathlib.Path, diff: str, logs: list[pathlib.Path]) -> 
         added = [ln[1:] for ln in body if ln.startswith("+") and not ln.startswith("+++")]
         if any(RESULT_HOOK.search(ln) for ln in added):
             flags.append(f"pytest result hook added: {path}")
+        if (TEST_PATH.search(path) or TEST_CONFIG.search(path)) and any(
+            HARD_EXIT.search(ln) for ln in added
+        ):
+            flags.append(f"hard exit added to test code: {path}")
         if TEST_CONFIG.search(path) and any(CONFIG_WEAKENING.search(ln) for ln in added):
             flags.append(f"test config weakened: {path}")
         elif (
@@ -514,7 +545,7 @@ def hidden_tests(task: dict, ws: pathlib.Path, dest: pathlib.Path) -> dict:
     with lock():
         env = {
             **clean_env(),
-            **tool_env(private_cache(cache)),
+            **tool_env(private_cache(task, cache)),
             "PATH": f"{TOOLS / 'bin'}:{os.environ['PATH']}",
         }
         try:
@@ -605,7 +636,8 @@ def run_one(task: dict, mode: str, rep: int, out: pathlib.Path, elenchus: pathli
         shutil.rmtree(base)
     ws, logs = base / "ws", []
     workspace(task, ws)
-    private_cache(base / "uv-cache")
+    with lock():
+        private_cache(task, base / "tmp" / "uv-cache")
     fmt = {
         "base": base_of(ws),
         "report": task["report"].strip(),
@@ -676,7 +708,7 @@ def run_one(task: dict, mode: str, rep: int, out: pathlib.Path, elenchus: pathli
     dest.mkdir(parents=True, exist_ok=True)
     (dest / "run.json").write_text(json.dumps(record, indent=1) + "\n", encoding="utf-8")
     kept = DONE / out.name / task["id"] / mode / f"r{rep}"
-    shutil.rmtree(base / "uv-cache", ignore_errors=True)  # not evidence, and large
+    shutil.rmtree(base / "tmp" / "uv-cache", ignore_errors=True)  # not evidence, and large
     shutil.rmtree(kept, ignore_errors=True)
     kept.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(base), str(kept))
@@ -763,6 +795,7 @@ def failed_run(task: dict, mode: str, rep: int, errors: list[str]) -> dict:
         "implementer": MODELS[mode],
         "reviewer": REVIEWER,
         "judge": JUDGE,
+        "claude_code": sh(["claude", "--version"]).stdout.strip(),
         "resolved": None,  # set by the judge pass, which stamps its pass id: unresolved
         "harness_failed": True,
         "tests": {"passed": False, "exit": None, "tail": ""},
@@ -856,6 +889,7 @@ def main(argv: list[str] | None = None) -> int:
         global REVIEWER, JUDGE, MAX_REVIEWS
         MODELS[args.mode] = REVIEWER = JUDGE = "claude-haiku-5-5"
         MAX_REVIEWS = 1
+    prepare_seeds()
     if args.check_tasks:
         return check_tasks(tasks)
     if args.judge:
@@ -868,6 +902,7 @@ def main(argv: list[str] | None = None) -> int:
     shutil.copytree(ROOT / "plugins" / "techne" / "skills" / "elenchus", elenchus)
     order = [(t, r) for r in range(1, args.repeats + 1) for t in tasks]
     random.Random(SEED).shuffle(order)
+    failed_before = False
     for task, rep in order:
         dest = args.out / task["id"] / args.mode / f"r{rep}"
         if (dest / "run.json").exists():
@@ -878,6 +913,7 @@ def main(argv: list[str] | None = None) -> int:
             started = time.time()
             try:
                 run_one(task, args.mode, rep, args.out, elenchus)
+                failed_before = False
                 break
             except UsageLimit as exc:  # the plan's limit: stop, and resume the set later
                 print(f"usage limit; rerun the same command to resume: {exc}", file=sys.stderr)
@@ -888,6 +924,13 @@ def main(argv: list[str] | None = None) -> int:
                 errfile.write_text(json.dumps(errors, indent=1))
                 print(f"{task['id']}/{args.mode}/r{rep}: harness error {exc!r}", file=sys.stderr)
         else:
+            if failed_before:  # two runs in a row: the harness, not the task; nothing recorded
+                print(
+                    "two runs in a row failed in the harness; check Claude Code, then rerun",
+                    file=sys.stderr,
+                )
+                return 3
+            failed_before = True
             record = failed_run(task, args.mode, rep, [e["error"] for e in errors])
             (dest / "run.json").write_text(json.dumps(record, indent=1) + "\n", encoding="utf-8")
     return 0

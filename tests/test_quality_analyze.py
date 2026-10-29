@@ -158,3 +158,20 @@ def test_check_set_refuses_a_smoke_model_and_a_second_judge_pass():
     runs[1]["judge_verdict"]["pass"] = "p2"
     problems = a.check_set(runs, [f"t{t}" for t in range(10)], a.REPEATS)
     assert any("models" in p for p in problems) and any("judge passes" in p for p in problems)
+
+
+def test_check_set_refuses_two_claude_code_versions():
+    runs = registered(trial(lambda t, r: True))
+    for r in runs:
+        r["claude_code"] = "2.1.302"
+    runs[5]["claude_code"] = "2.1.303"
+    problems = a.check_set(runs, [f"t{t}" for t in range(10)], a.REPEATS)
+    assert any("versions" in p for p in problems)
+
+
+def test_the_report_lists_retries_and_harness_failures_per_mode():
+    runs = trial(lambda t, r: True)
+    runs[0].update(retries=2, harness_failed=True)
+    md = a.report(a.decide(runs), "t")
+    assert "- normal: 2 retries; runs that failed 3 times: t0" in md
+    assert "- budget: 0 retries; runs that failed 3 times: none" in md
