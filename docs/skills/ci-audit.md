@@ -39,7 +39,7 @@ It works in three steps:
 
 1. It records the run with read-only `gh api` calls: the run, its jobs and steps, each job's log and the check-run annotations. The job-log endpoint serves every job, while `gh run view --log` returns nothing for some runs on older gh.
 2. `ci_report.py facts` computes what a script can settle: each failing step with its error lines and their file:line locations, each step that succeeded with an `##[error]` in it, and the warnings and deprecations, deduplicated.
-3. A headless `claude -p` session judges the facts. It has Read, Grep and Glob, allowed only under the output folder and the skill, with no user settings, hooks, plugins or MCP servers. It treats log text as data, never instructions.
+3. A headless `claude -p` session judges the facts in restricted and safe mode: Read, Grep and Glob only, Read allowed only under the output folder and the skill, and no settings files, CLAUDE.md, plugins, hooks or MCP servers. It treats log text as data, never instructions, and the script refuses a report that contradicts the facts (a failing step reported as anything but a failure, a swallowed error reported clean).
 
 The session replies with JSON that a schema checks (`ci_report.py schema`). The script writes `report.json` and `report.md` with:
 

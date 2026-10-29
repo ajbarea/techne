@@ -4,28 +4,33 @@
     ci_report.py fetch REPO RUN DIR   record a run with read-only gh api calls
     ci_report.py facts DIR            print the run's facts as JSON
     ci_report.py schema               print the JSON Schema a report follows
-    ci_report.py check REPORT         exit non-zero when REPORT breaks the schema
+    ci_report.py check REPORT [FACTS] exit non-zero when REPORT breaks the schema
+                                      or contradicts FACTS
     ci_report.py render REPORT        print REPORT as Markdown
 
 A recorded run is DIR/run.json, DIR/jobs.json (each job's steps with their times
 and conclusions), DIR/annotations.json and DIR/logs/<job id>.log. Logs come from
 the REST job-log endpoint, which serves any job; `gh run view --log` returns
 nothing for some runs on older gh. Log lines are assigned to steps by the
-markers the runner prints as each step starts.
+markers the runner prints as each step starts, and by the steps' times.
 """
 
 import json
 import re
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 ERROR = re.compile(
-    r"##\[error\]|\berror(\[[A-Z]\d+\])?:|\bFAILED\b|panicked at"
-    r"|Traceback \(most recent|AssertionError|\bfailures?:",
-    re.I,
+    r"##\[error\]|\b[Ee]rror(\[[A-Z]\d+\])?:|\bFAILED\b|panicked at|Traceback \(most recent"
+    r"|AssertionError|\bERROR\b"
 )
-WARNING = re.compile(r"##\[warning\]|DeprecationWarning|deprecat|\bwarning(\[\w+\])?:", re.I)
+WARNING = re.compile(
+    r"##\[warning\]|\w*DeprecationWarning|\b[Ww]arning(\[\w+\])?:|\bis deprecated\b|\bDEPRECATED\b"
+)
+# A test runner's line for a test that passed, whatever the test is called.
+PASSED = re.compile(r"\b(PASSED|ok|SKIPPED)\s*(\[\s*\d+%\])?$")
 LOCATION = re.compile(
     r"([\w./\\-]+\.(?:py|rs|js|ts|tsx|sh|ya?ml|toml|json|go|java|c|cpp|h|md))[:(](\d+)"
 )
@@ -35,16 +40,27 @@ TAIL = 30
 MAX_LINE = 400
 
 
+class GhError(Exception):
+    pass
+
+
 def gh(path: str) -> str:
-    """One read-only GitHub API call."""
-    return subprocess.run(["gh", "api", path], capture_output=True, text=True, check=True).stdout
+    """One read-only GitHub API call; GhError carries gh's own words."""
+    got = subprocess.run(["gh", "api", path], capture_output=True, text=True, errors="replace")
+    if got.returncode:
+        raise GhError(f"gh api {path}: {got.stderr.strip()[:300] or f'exit {got.returncode}'}")
+    return got.stdout
 
 
 def fetch(repo: str, run: str, out: Path) -> None:
     if not re.fullmatch(r"[\w.-]+/[\w.-]+", repo) or not run.isdigit():
         raise SystemExit(f"error: a repo is OWNER/NAME and a run id is a number: {repo} {run}")
     (out / "logs").mkdir(parents=True, exist_ok=True)
-    r = json.loads(gh(f"repos/{repo}/actions/runs/{run}"))
+    try:
+        r = json.loads(gh(f"repos/{repo}/actions/runs/{run}"))
+    except GhError as e:
+        raise SystemExit(f"error: {e}") from None
+    errors = []
     keys = (
         "id",
         "name",
@@ -59,7 +75,9 @@ def fetch(repo: str, run: str, out: Path) -> None:
     (out / "run.json").write_text(
         json.dumps({"repository": repo} | {k: r.get(k) for k in keys}, indent=1) + "\n"
     )
-    jobs = json.loads(gh(f"repos/{repo}/actions/runs/{run}/jobs?per_page=100"))["jobs"]
+    jobs = json.loads(gh(f"repos/{repo}/actions/runs/{run}/jobs?per_page=100&filter=latest"))[
+        "jobs"
+    ]
     step_keys = ("number", "name", "conclusion", "started_at", "completed_at")
     kept, notes = [], {}
     for j in jobs:
@@ -71,47 +89,81 @@ def fetch(repo: str, run: str, out: Path) -> None:
             (out / "logs" / f"{j['id']}.log").write_text(
                 gh(f"repos/{repo}/actions/jobs/{j['id']}/logs")
             )
-        except subprocess.CalledProcessError:
+        except GhError as e:
             (out / "logs" / f"{j['id']}.log").write_text("")
+            errors.append({"job": j.get("name"), "what": "log", "error": str(e)})
         try:
-            got = json.loads(gh(f"repos/{repo}/check-runs/{j['id']}/annotations"))
-        except subprocess.CalledProcessError:
+            got = json.loads(gh(f"repos/{repo}/check-runs/{j['id']}/annotations?per_page=100"))
+        except GhError as e:
             got = []
+            errors.append({"job": j.get("name"), "what": "annotations", "error": str(e)})
         notes[str(j["id"])] = [
             {k: a.get(k) for k in ("path", "start_line", "annotation_level", "title", "message")}
             for a in got
         ]
     (out / "jobs.json").write_text(json.dumps(kept, indent=1) + "\n")
     (out / "annotations.json").write_text(json.dumps(notes, indent=1) + "\n")
+    (out / "errors.json").write_text(json.dumps(errors, indent=1) + "\n")
+
+
+QUIET = ("Set up job", "Initialize containers", "Stop containers", "Complete job")
+
+
+def second(stamp: str | None) -> int | None:
+    """An ISO time as whole seconds since the epoch (the API's step times are whole seconds)."""
+    if not stamp:
+        return None
+    return int(datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp())
 
 
 def by_step(job: dict, log: str) -> dict[int, list[str]]:
-    """The job's log lines per step number, timestamps removed. The runner marks
-    each step it runs: "##[group]Run ..." opens the next step that runs a command
-    or an action, "Post job cleanup." the next post step, and "Cleaning up orphan
-    processes" the job's last step. Skipped steps print nothing."""
+    """The job's log lines per step number, timestamps removed.
+
+    A step that runs a command or an action opens with "##[group]Run ...". Such a
+    header opens the next of those steps once the current step's time is up; one
+    that falls inside a running step is that step's own group (a script's
+    `::group::Run tests`). The steps that print no header (setting up and
+    stopping containers, post steps) take the lines that fall in their time
+    span; "Post job cleanup.", "Stop and remove container" and "Cleaning up
+    orphan processes" open the next post step, the container stop and the last
+    step. Skipped steps print nothing."""
     steps = job.get("steps") or []
     out: dict[int, list[str]] = {s["number"]: [] for s in steps}
-    if not steps:
-        return out
     ran = [s for s in steps if s.get("conclusion") != "skipped"]
-    main = [
-        s
-        for s in ran
-        if s["name"] not in ("Set up job", "Complete job") and not s["name"].startswith("Post ")
-    ]
-    post = [s for s in ran if s["name"].startswith("Post ")]
-    last = [s for s in ran if s["name"] == "Complete job"]
-    current = ran[0] if ran else steps[0]
+    if not ran:
+        return out
+    span = {s["number"]: (second(s.get("started_at")), second(s.get("completed_at"))) for s in ran}
+
+    def quiet(s: dict) -> bool:
+        return s["name"] in QUIET or s["name"].startswith("Post ")
+
+    def inside(s: dict, t: int) -> bool:
+        lo, hi = span[s["number"]]
+        return lo is not None and hi is not None and lo <= t <= hi
+
+    current = ran[0]
     for raw in log.splitlines():
         m = STAMP.match(raw)
         text = raw[m.end() :] if m else raw
-        if text.startswith("##[group]Run ") and main:
-            current = main.pop(0)
-        elif text.startswith("Post job cleanup.") and post:
-            current = post.pop(0)
-        elif text.startswith("Cleaning up orphan processes") and last:
-            current = last[0]
+        t = second(m.group(1) + "Z") if m else None
+        later = [s for s in ran if s["number"] > current["number"]]
+        ends = span[current["number"]][1]
+        if text.startswith("##[group]Run "):
+            nxt = [s for s in later if not quiet(s)]
+            if nxt and (t is None or ends is None or t >= ends):
+                current = nxt[0]
+        elif text.startswith("Post job cleanup."):
+            nxt = [s for s in later if s["name"].startswith("Post ")]
+            current = nxt[0] if nxt else current
+        elif text.startswith("Stop and remove container"):
+            nxt = [s for s in later if s["name"] == "Stop containers"]
+            current = nxt[0] if nxt else current
+        elif text.startswith("Cleaning up orphan processes"):
+            nxt = [s for s in later if s["name"] == "Complete job"]
+            current = nxt[0] if nxt else current
+        elif t is not None and not inside(current, t):
+            nxt = [s for s in later if quiet(s) and inside(s, t)]
+            current = nxt[0] if nxt else current
         out[current["number"]].append(text[:MAX_LINE])
     return out
 
@@ -128,9 +180,13 @@ def facts(d: Path) -> dict:
         if (d / "annotations.json").exists()
         else {}
     )
+    errors_path = d / "errors.json"
+    fetch_errors = json.loads(errors_path.read_text()) if errors_path.exists() else []
     failing, mismatches, warnings, out_jobs = [], [], {}, []
     for job in jobs:
         log_path = d / "logs" / f"{job['id']}.log"
+        if log_path.is_symlink():
+            raise SystemExit(f"error: {log_path} is a symlink; a recorded log is a plain file")
         lines = by_step(job, log_path.read_text(errors="replace") if log_path.exists() else "")
         out_jobs.append(
             {
@@ -143,7 +199,10 @@ def facts(d: Path) -> dict:
             text = lines.get(step["number"], [])
             errors = [x for x in text if ERROR.search(x)]
             where = {"job": job["name"], "step": step["name"], "conclusion": step["conclusion"]}
-            if step["conclusion"] == "failure":
+            stopped = (
+                step["conclusion"] in ("cancelled", "timed_out") and job["conclusion"] == "failure"
+            )
+            if step["conclusion"] == "failure" or stopped:
                 failing.append(
                     where
                     | {
@@ -159,10 +218,23 @@ def facts(d: Path) -> dict:
                     where | {"error_lines": [x for x in text if "##[error]" in x][:10]}
                 )
             for x in text:
-                if WARNING.search(x) and not ERROR.search(x):
+                if WARNING.search(x) and not PASSED.search(x):
                     key = norm(x)
                     w = warnings.setdefault(key, where | {"line": x.strip(), "count": 0})
                     w["count"] += 1
+        if job["conclusion"] == "failure" and not any(f["job"] == job["name"] for f in failing):
+            # Failed before or between steps (a startup failure has none).
+            whole = [x for v in lines.values() for x in v]
+            failing.append(
+                {
+                    "job": job["name"],
+                    "step": "(job)",
+                    "conclusion": "failure",
+                    "error_lines": [x for x in whole if ERROR.search(x)][-15:],
+                    "locations": [],
+                    "tail": whole[-TAIL:],
+                }
+            )
         for a in notes.get(str(job["id"]), []):
             if a.get("annotation_level") in ("warning", "notice"):
                 key = norm(a.get("message") or "")
@@ -198,6 +270,7 @@ def facts(d: Path) -> dict:
         "success_with_error": mismatches,
         "warnings": sorted(warnings.values(), key=lambda w: -w["count"])[:40],
         "error_annotations": {k: v for k, v in error_notes.items() if v},
+        "fetch_errors": fetch_errors,
         "logging": {
             "failing_steps_with_a_file_annotation": sum(
                 1
@@ -333,6 +406,25 @@ def check(report: dict) -> list[str]:
     return problems
 
 
+def agree(report: dict, f: dict) -> list[str]:
+    """Where REPORT contradicts FACTS: a log line may have steered the judgement."""
+    problems = []
+    for k in ("repository", "id"):
+        if report["run"].get(k) != f["run"].get(k):
+            problems.append(
+                f"run.{k} is {report['run'].get(k)!r}, the facts say {f['run'].get(k)!r}"
+            )
+    if f["failing_steps"] and report["verdict"] != "failure":
+        problems.append(f"verdict {report['verdict']!r} on a run with a failing step")
+    if not f["failing_steps"] and report["verdict"] == "failure":
+        problems.append("verdict 'failure' on a run with no failing step")
+    if f["success_with_error"] and report["verdict"] == "clean":
+        problems.append("verdict 'clean' on a run whose green step printed ##[error]")
+    if f["run"].get("conclusion") is None and report["verdict"] != "in-progress":
+        problems.append("a run with no conclusion yet is in progress")
+    return problems
+
+
 def render(r: dict) -> str:
     run = r["run"]
     sha = (run.get("head_sha") or "")[:7]
@@ -385,8 +477,11 @@ def main(argv: list[str]) -> int:
         fetch(argv[2], argv[3], Path(argv[4]))
     elif len(argv) == 3 and argv[1] == "facts":
         print(json.dumps(facts(Path(argv[2])), indent=1))
-    elif len(argv) == 3 and argv[1] == "check":
-        problems = check(json.loads(Path(argv[2]).read_text()))
+    elif len(argv) in (3, 4) and argv[1] == "check":
+        report = json.loads(Path(argv[2]).read_text())
+        problems = check(report)
+        if not problems and len(argv) == 4:
+            problems = agree(report, json.loads(Path(argv[3]).read_text()))
         for p in problems:
             print(f"error: {p}", file=sys.stderr)
         return 1 if problems else 0
