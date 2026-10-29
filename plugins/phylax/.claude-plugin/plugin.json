@@ -1,6 +1,6 @@
 {
   "name": "phylax",
-  "description": "Opt-in Claude Code hooks: refuse attribution lines in commits and PRs, refuse staging COMMITS.md, warn on commits in a main checkout, refuse a subagent call that would silently inherit the session's model, restart idle sessions onto an updated Claude Code, and route work to cheaper models while the usage allowance burns too fast.",
+  "description": "Opt-in Claude Code hooks: refuse attribution lines in commits and PRs, refuse staging COMMITS.md, refuse commits and pushes that carry a secret, warn on commits in a main checkout, refuse a subagent call that would silently inherit the session's model, restart idle sessions onto an updated Claude Code, and route work to cheaper models while the usage allowance burns too fast.",
   "author": {
     "name": "AJ",
     "email": "ajbareaa@gmail.com"
@@ -32,6 +32,12 @@
       "type": "boolean",
       "title": "Warn on commits in the main checkout",
       "description": "Warn when git commit runs in a repo's main checkout while linked worktrees exist.",
+      "default": false
+    },
+    "block_secrets": {
+      "type": "boolean",
+      "title": "Block secrets in commits and pushes",
+      "description": "Refuse git commit when what it would add holds a secret, and git push when a commit it would send does, checked by gitleaks (or ggshield when GITGUARDIAN_API_KEY is set, for commits). Fires for subagents too. Refuses when no scanner is installed.",
       "default": false
     },
     "require_subagent_model": {

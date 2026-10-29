@@ -26,6 +26,7 @@ OPTIONS = (
     "block_attribution_trailers",
     "block_commits_md",
     "warn_main_checkout_commit",
+    "block_secrets",
     "require_subagent_model",
     "restart_on_update",
     "budget_mode",
@@ -34,6 +35,7 @@ STUBS = {
     "python3": "echo 3.9.6",
     "claude": "echo '2.1.296 (Claude Code)'",
     "tmux": "echo 'tmux 3.4'",
+    "gitleaks": "echo 8.30.1",
 }
 
 

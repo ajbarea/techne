@@ -12,6 +12,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/setup/scripts/doctor.py" \
   'block_attribution_trailers=${user_config.block_attribution_trailers}' \
   'block_commits_md=${user_config.block_commits_md}' \
   'warn_main_checkout_commit=${user_config.warn_main_checkout_commit}' \
+  'block_secrets=${user_config.block_secrets}' \
   'require_subagent_model=${user_config.require_subagent_model}' \
   'email_greeting=${user_config.email_greeting}' \
   'restart_on_update=${user_config.restart_on_update}' \
