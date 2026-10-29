@@ -240,7 +240,7 @@ def test_a_new_class_counts_prs_across_the_week(tmp_path):
     add(tmp_path, "b", 2, "new: stale cache")
     plan = json.loads(run(tmp_path, "fold", "--catalog", str(catalog)).stdout)
     assert list(plan["new_classes"]) == ["stale-cache"]
-    assert [i["pr"] for i in plan["new_classes"]["stale-cache"]] == ["2"]  # today's records
+    assert sorted(i["pr"] for i in plan["new_classes"]["stale-cache"]) == ["1", "2"]
 
 
 def test_checklist_leaves_out_retired_classes(tmp_path):

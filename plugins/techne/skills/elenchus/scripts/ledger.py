@@ -192,17 +192,23 @@ def fold(args: argparse.Namespace) -> int:
     for name in [n for n in new if n in known]:
         incidents[name] += new.pop(name)
     week = read(ago(args.days), until)
-    # A `new:` name counts PRs over the week, as the ladder does: two hits on different days
-    # are still two PRs. Only names seen in today's window are listed.
+    # A `new:` name counts PRs over the week and the window, as the ladder does: two hits on
+    # different days are still two PRs. A name seen in this window is listed with every record
+    # of it, so the curator sees each PR that found it.
+    span = read(min(since, ago(args.days)), until)
     new_prs: dict[str, set[tuple[str, str]]] = defaultdict(set)
-    for r in week:
-        if r["class"].startswith("new: ") and r["pr"].isdigit():
-            new_prs[r["class"][5:]].add((r["repo"], r["pr"]))
+    new_all: dict[str, list[dict]] = defaultdict(list)
+    for r in span:
+        if r["class"].startswith("new: "):
+            name = r["class"][5:]
+            new_all[name].append({k: r[k] for k in ("repo", "pr", "round", "ts", "line")})
+            if r["pr"].isdigit():
+                new_prs[name].add((r["repo"], r["pr"]))
     plan = {
         "since": since.isoformat(),
         "records": len(recent),
         "incidents": dict(sorted(incidents.items())),
-        "new_classes": {n: v for n, v in sorted(new.items()) if len(new_prs[n]) >= 2},
+        "new_classes": {n: new_all[n] for n in sorted(new) if len(new_prs[n]) >= 2},
         "new_seen_once": sorted(n for n in new if len(new_prs[n]) < 2),
         "unknown_slugs": dict(sorted(unknown.items())),
         # Only a catalogued, unretired slug escalates: a free-text `new:` name could carry a

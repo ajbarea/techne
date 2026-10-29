@@ -43,8 +43,15 @@ fi
 
 # The last fold PR, now closed: merged moves the window to its end; closed unmerged keeps it.
 if [ -f "$state/pending" ]; then
-    read -r pend_until pend_branch <"$state/pending"
-    pend_state="$(gh pr view "$pend_branch" -R "$gh_repo" --json state --jq .state)"
+    read -r pend_until pend_branch <"$state/pending" || true
+    if [ -z "${pend_branch:-}" ]; then
+        echo "$state/pending is empty or damaged: look at it, then remove it"
+        exit 1
+    fi
+    pend_state="$(gh pr view "$pend_branch" -R "$gh_repo" --json state --jq .state)" || {
+        echo "could not read the state of the last fold PR ($pend_branch); pending kept"
+        exit 1
+    }
     if [ "$pend_state" = MERGED ]; then
         advance "$pend_until"
         since="$pend_until"
@@ -112,16 +119,21 @@ PY
 git -C "$repo" worktree add -q "$wt" -b "$branch" origin/main
 pushed=0
 cleanup() {
+    rm -rf -- "${state:?}/curate-${day:?}"
     git -C "$repo" worktree remove --force "${wt:?}" 2>/dev/null || true
     [ "$pushed" = 1 ] || git -C "$repo" branch -D "${branch:?}" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 public="$(gh repo list "$owner" --visibility public --limit 300 --json name --jq '[.[].name] | join(", ")')"
-prompt="$(sed -e "s|{plan}|$plan|" -e "s|{public}|$public|" "$here/curate.md")"
+# The curator reads a copy of the plan in a folder of its own, never the ledger or window.
+cur="$state/curate-$day"
+mkdir -p "$cur"
+cp "$plan" "$cur/plan.json"
+prompt="$(sed -e "s|{plan}|$cur/plan.json|" -e "s|{public}|$public|" "$here/curate.md")"
 # Restricted: no user settings, hooks, plugins or MCP servers; file tools stay in the worktree
 # and the plan's folder; no Bash, so nothing the session writes can run.
 (cd "$wt" && timeout 1800 claude -p "$prompt" --model claude-opus-5-5 --restricted \
-    --tools "Read,Edit,Glob,Grep" --strict-mcp-config --add-dir "$state" \
+    --tools "Read,Edit,Glob,Grep" --strict-mcp-config --add-dir "$cur" \
     --permission-mode acceptEdits --max-turns 60 --no-session-persistence \
     --output-format text) || {
     echo "curation session failed or timed out"
@@ -158,6 +170,22 @@ if [ -n "$dry" ]; then
     git -C "$wt" diff --stat
     exit 0
 fi
+# check_private_names.py knows only the owner's private repos; any repo in the plan that is
+# not public (an org's or a teammate's) must not appear in the added lines either.
+leaked="$(git -C "$wt" diff -U0 -- "$catalog" | python3 -c '
+import json, re, sys
+plan, public = json.load(open(sys.argv[1])), {p.strip().lower() for p in sys.argv[2].split(",")}
+repos = {i["repo"] for group in ("incidents", "new_classes", "unknown_slugs")
+         for items in plan.get(group, {}).values() for i in items}
+added = "\n".join(l[1:] for l in sys.stdin if l.startswith("+") and not l.startswith("+++"))
+for name in sorted(repos - public):
+    if re.search(rf"(?<![\w.-]){re.escape(name)}(?![\w-])", added, re.I):
+        print(name)
+' "$plan" "$public")"
+if [ -n "$leaked" ]; then
+    echo "the catalog edit names a repo that is not public; nothing pushed: $leaked"
+    exit 1
+fi
 git -C "$wt" add "$catalog"
 git -C "$wt" commit -q -m "docs(elenchus): fold the findings ledger into the catalog ($day)"
 git -C "$wt" push -q -u origin "$branch"
@@ -167,5 +195,6 @@ gh pr create -R "$gh_repo" --head "$branch" --base main --label documentation \
 "The daily fold of the elenchus findings ledger from $since to $until: incidents for catalogued classes, new classes seen in two or more PRs, and classes whose mechanical check landed. Review the catalog diff before merging; the next fold waits until this PR is merged or closed."
 # The window moves only when this PR merges (checked at the next run), so findings in a
 # fold PR closed unmerged are folded again.
+[ -f "$state/last-fold" ] || echo "$since" >"$state/last-fold"
 printf '%s %s\n' "$until" "$branch" >"$state/pending"
 echo "== $(date -Is) fold-back done"
