@@ -13,6 +13,12 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "quality
 import run  # ty: ignore[unresolved-import]
 
 
+@pytest.fixture(autouse=True)
+def _no_claude_binary(monkeypatch):
+    """CI has no `claude`: every test sees one fixed version unless it sets its own."""
+    monkeypatch.setattr(run, "claude_version", lambda: "v1")
+
+
 def transcript(tmp_path: pathlib.Path, *calls: tuple[str, dict]) -> pathlib.Path:
     log = tmp_path / "t.jsonl"
     recs = [
