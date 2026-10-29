@@ -8,19 +8,32 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 
 Branch results/quality-baseline, worktree `.claude/worktrees/baseline`: techne#249. The first 4
 of 30 Opus baseline runs failed hidden tests that checked names or wording their reports never
-gave. Done on the branch (3818b38 .. HEAD): interface notes completed on 8
-tasks; `run.py` `interface_gaps` + `defined` (scope-keyed definitions the gold patch adds)
-make `--check-tasks` fail such a task (55 hand mutations, all killed; on the real parents' failures the
-old reports flag the four unwinnable tasks, the new ones nothing); `quality/DEVIATIONS.md` records it; old runs in
-`quality/results/2026-10-29-baseline-void/`. Review: r1 reader, r2 `/code-review medium`, r3
-r4-r6 readers (each found Should-fix, all fixed; recurrences got structural fixes: scope-keyed definitions, a table of real exception messages; argparse and keyword refusals count as proof), r7 next.
-Next: a clean round and
-`--check-tasks` all ok (log `~/.local/state/techne-quality/check-tasks-8.log`) → PR (links #249)
-→ merge → restart the baseline from main's commit in `quality/results/2026-10-29-baseline-2` on
-RIT (`CLAUDE_CONFIG_DIR=/home/ajbar/.claude`; edit `~/.local/state/techne-quality/resume.sh`'s
-QUALITY_OUT and its `cd` first), in tmux `quality-resume`:
-`tmux new-session -d -s quality-resume -e CLAUDE_CONFIG_DIR=/home/ajbar/.claude "bash
-~/.local/state/techne-quality/resume.sh"`. Rerunning resumes; always pass `-e CLAUDE_CONFIG_DIR`.
+gave. Done on the branch (3818b38 .. c5bd08b, pushed): interface notes completed on 8 tasks;
+`run.py` `interface_gaps` + `defined` make `--check-tasks` fail such a task (55 hand mutations,
+all killed; on the real parents' failures the old notes flag the four tasks no model could pass,
+techne-206, sphragis-149, -186, -212, and the new notes flag nothing); `quality/DEVIATIONS.md`
+records it (598 of 600 words); old runs in `quality/results/2026-10-29-baseline-void/`.
+Review: r1 reader, r2 `/code-review medium`, r3-r6 readers (each found Should-fix, all fixed;
+recurring classes got structural fixes), **r7 clean** (Minors only). `--check-tasks` on 6c56cbd:
+10/10 ok; on c5bd08b 7/7 ok when stopped for the move to RIT.
+
+Next, in order:
+1. r7 Minors (optional but cheap; then ONE fresh Opus reader verifies those fixes only):
+   (a) `interface_gaps` docstring + DEVIATIONS: "the fix added it" → "the fix added it or
+   stopped passing it; either way the report must name it in a code span"; (b) add a pytest
+   temp path value (`/tmp/pytest-of-x/p0`) to `test_interface_gaps_read_every_unrecognized_flag`
+   (kills the `FLAG` lookbehind mutant); (c) a test with wording only in a parent comment
+   (`before` is whole-file); (d) a missing-file failure on a file the parent already has (no gap).
+2. `uv run python quality/run.py --check-tasks` on the final commit, all 10 ok (log to
+   `~/.local/state/techne-quality/check-tasks-9.log`; ~50 min; never under flock).
+3. PR (links #249; body: why/what/status, results table: old notes 4 tasks flagged, new 0;
+   deferred ledger: junit double parse, `messages` flag, repeated git show, check_tasks'
+   --name-status without -z, r6 minors 4 and 6, r7 informational 5) → merge.
+4. Restart the baseline from main's commit in `quality/results/2026-10-29-baseline-2` on RIT
+   (`CLAUDE_CONFIG_DIR=/home/ajbar/.claude`; edit `~/.local/state/techne-quality/resume.sh`'s
+   QUALITY_OUT and its `cd` to a fresh worktree of main first), in tmux `quality-resume`:
+   `tmux new-session -d -s quality-resume -e CLAUDE_CONFIG_DIR=/home/ajbar/.claude "bash
+   ~/.local/state/techne-quality/resume.sh"`. Rerunning resumes; always pass `-e CLAUDE_CONFIG_DIR`.
 Never wrap `run.py` or `make quality` in `flock /tmp/fleet-heavy.lock`: run.py takes that lock
 itself, so the wrapper deadlocks. A lock held long after every job ended is likely an orphan that
 inherited the fd (klepsydra#193: a test tmux server held it 40 min on 10-29): `lsof
