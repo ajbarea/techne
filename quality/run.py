@@ -410,9 +410,24 @@ def leaks(log: pathlib.Path, ws: pathlib.Path) -> list[str]:
 
 
 def inside(path: str, ws: pathlib.Path) -> bool:
-    """A path a session may read: its workspace, its run folder, the tools, the elenchus copy."""
-    allowed = (str(ws), str(LIVE / "run"), str(TOOLS), str(WORK / "elenchus"))
-    return path.startswith(allowed)
+    """A path a session may read: its workspace, its run folder, the tools, the elenchus
+    copy, and the outputs Claude Code saved for this run's sessions."""
+    allowed = (ws, LIVE / "run", TOOLS, WORK / "elenchus", session_store(ws))
+    return any(path == str(a) or path.startswith(f"{a}/") for a in allowed)
+
+
+def session_store(cwd: pathlib.Path) -> pathlib.Path:
+    """Where Claude Code saves large tool outputs for sessions started in CWD. Every run
+    starts in the same workspace path, so the harness empties it at each run's start and
+    end: a session could otherwise read an earlier run's saved outputs."""
+    config = pathlib.Path(os.environ.get("CLAUDE_CONFIG_DIR") or pathlib.Path.home() / ".claude")
+    return config / "projects" / re.sub(r"[^A-Za-z0-9]", "-", str(cwd))
+
+
+def clear_session_store(cwd: pathlib.Path) -> None:
+    store = session_store(cwd)
+    assert store.parent.name == "projects" and "techne-quality" in store.name, store
+    shutil.rmtree(store, ignore_errors=True)
 
 
 def base_of(ws: pathlib.Path) -> str:
@@ -635,6 +650,7 @@ def run_one(task: dict, mode: str, rep: int, out: pathlib.Path, elenchus: pathli
     if base.exists():
         shutil.rmtree(base)
     ws, logs = base / "ws", []
+    clear_session_store(ws)
     workspace(task, ws)
     with lock():
         private_cache(task, base / "tmp" / "uv-cache")
@@ -709,6 +725,7 @@ def run_one(task: dict, mode: str, rep: int, out: pathlib.Path, elenchus: pathli
     (dest / "run.json").write_text(json.dumps(record, indent=1) + "\n", encoding="utf-8")
     kept = DONE / out.name / task["id"] / mode / f"r{rep}"
     shutil.rmtree(base / "tmp" / "uv-cache", ignore_errors=True)  # not evidence, and large
+    clear_session_store(ws)
     shutil.rmtree(kept, ignore_errors=True)
     kept.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(base), str(kept))

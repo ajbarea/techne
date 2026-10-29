@@ -345,3 +345,28 @@ def test_result_hooks(line, hit):
 )
 def test_config_plugin_loads_are_weakening(line, hit):
     assert bool(run.CONFIG_WEAKENING.search(line)) is hit
+
+
+def test_reads_of_this_runs_saved_tool_outputs_are_not_leaks(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cfg"))
+    ws = pathlib.Path("/var/tmp/techne-quality-1/live/run/ws")
+    store = tmp_path / "cfg" / "projects" / "-var-tmp-techne-quality-1-live-run-ws"
+    assert run.session_store(ws) == store
+    log = transcript(
+        tmp_path,
+        ("Read", {"file_path": f"{store}/s1/tool-results/a.txt"}),
+        ("Read", {"file_path": f"{tmp_path}/cfg/projects/-home-u-repo/s2/tool-results/b.txt"}),
+        ("Read", {"file_path": f"{ws}-gold/x.py"}),
+    )
+    found = run.leaks(log, ws)
+    assert len(found) == 2 and not any("s1/tool-results" in f for f in found)
+
+
+def test_clearing_the_session_store_refuses_any_other_folder(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cfg"))
+    with pytest.raises(AssertionError):
+        run.clear_session_store(pathlib.Path("/home/u/repo"))
+    ws = pathlib.Path("/var/tmp/techne-quality-1/live/run/ws")
+    (run.session_store(ws) / "s1").mkdir(parents=True)
+    run.clear_session_store(ws)
+    assert not run.session_store(ws).exists()
