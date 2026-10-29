@@ -660,6 +660,140 @@ def test_interface_gaps_read_files_by_what_they_are(tmp_path, files, failure, wa
     assert run.interface_gaps(gap_task(tmp_path, STATED, fix_files=files), [failure]) == want
 
 
+REAL_FIX = (
+    FIX_CODE
+    + "\n\nimport argparse\n\n\ndef x():\n    pass\n\n\ndef f(known=None, unknown=None):\n"
+    + "    pass\n\n\ndef cli(argv):\n    p = argparse.ArgumentParser()\n"
+    + '    p.add_argument("--new")\n    sub = p.add_subparsers()\n    sub.add_parser("newcmd")\n'
+)
+REAL_FILES = {"tools/new_mod.py": "", "tools/new.py": "", "tools/new.sh": "", "root.py": ""}
+
+
+def real_failure(kind: str, tmp: pathlib.Path) -> str:
+    """The text a hidden test's failure prints on the parent, made by raising the real thing
+    against a parent-like module that lacks what the fix adds."""
+    import argparse
+    import contextlib
+    import importlib.util
+    import io
+    import types
+    from unittest import mock
+
+    fx = types.ModuleType("fx")
+    sys.modules["fx"] = fx
+    ws = tmp / "ws"
+    try:
+        if kind == "getattr":
+            getattr(fx, kind[:0] + "x")  # a name the parent module lacks
+        elif kind == "from-import":
+            exec("from fx import x")
+        elif kind == "mock.patch":
+            mock.patch("fx.x", 1).start()
+        elif kind == "monkeypatch":
+            pytest.MonkeyPatch().setattr(fx, "x", 1)
+        elif kind == "keyword":
+            (lambda known=None: None)(unknown=1)  # ty: ignore[unknown-argument]
+        elif kind in ("flag", "choice"):
+            p = argparse.ArgumentParser(prog="h")
+            p.add_subparsers().add_parser("init")
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err), contextlib.suppress(SystemExit):
+                p.parse_args(["init", "--new", "1"] if kind == "flag" else ["newcmd"])
+            return err.getvalue()
+        elif kind in ("by-path", "root-by-path"):
+            rel = "tools/new_mod.py" if kind == "by-path" else "root.py"
+            spec = importlib.util.spec_from_file_location("m", ws / rel)
+            assert spec and spec.loader
+            spec.loader.exec_module(importlib.util.module_from_spec(spec))
+        elif kind == "python3":
+            cmd = [sys.executable, str(ws / "tools/new.py")]
+            return subprocess.run(cmd, capture_output=True, text=True).stderr
+        elif kind == "bash":
+            return subprocess.run(
+                ["bash", str(ws / "tools/new.sh")], capture_output=True, text=True
+            ).stderr
+    except Exception as exc:  # the message pytest records
+        return f"{type(exc).__name__}: {exc}"
+    finally:
+        sys.modules.pop("fx", None)
+        mock.patch.stopall()
+    raise AssertionError(f"{kind} raised nothing")
+
+
+@pytest.mark.parametrize(
+    ("kind", "gap"),
+    [
+        ("getattr", "name the report does not give: x"),
+        ("from-import", "name the report does not give: x"),
+        ("mock.patch", "name the report does not give: x"),
+        ("monkeypatch", "name the report does not give: x"),
+        ("keyword", "name the report does not give: unknown"),
+        ("flag", "name the report does not give: --new"),
+        ("choice", "name the report does not give: newcmd"),
+        ("by-path", "file the report does not give: tools/new_mod.py"),
+        ("root-by-path", "file the report does not give: root.py"),
+        ("python3", "file the report does not give: tools/new.py"),
+        ("bash", "file the report does not give: tools/new.sh"),
+    ],
+)
+def test_interface_gaps_read_the_real_failure_messages(tmp_path, kind, gap):
+    text = real_failure(kind, tmp_path)
+    task = gap_task(tmp_path, STATED, fix_code=REAL_FIX, fix_files=REAL_FILES)
+    assert run.interface_gaps(task, [text]) == [gap]
+
+
+def test_interface_gaps_match_a_file_by_its_whole_name(tmp_path):
+    task = gap_task(tmp_path, STATED + " See `not_root.py`.", fix_files=REAL_FILES)
+    assert run.interface_gaps(task, ["can't open file 'root.py'"]) == [
+        "file the report does not give: root.py"
+    ]
+    task["report"] = STATED + " Run `root.py`."
+    assert run.interface_gaps(task, ["can't open file 'root.py'"]) == []
+    # another folder's file of the same name is not the fix's
+    assert run.interface_gaps(task, ["can't open file '/ws/oldtools/new.py'"]) == []
+
+
+def test_interface_gaps_key_a_flag_by_its_subcommand(tmp_path):
+    parent = (
+        PARENT_CODE + "\n\ndef cli(sub):\n    i = sub.add_parser('init')\n"
+        "    i.add_argument('--ideas')\n    b = sub.add_parser('board')\n"
+    )
+    task = gap_task(
+        tmp_path, STATED, parent_code=parent, fix_code=parent + "    b.add_argument('--ideas')\n"
+    )
+    failures = ["h: error: unrecognized arguments: --ideas /x"]
+    assert run.interface_gaps(task, failures) == ["name the report does not give: --ideas"]
+
+
+DEFINED_SHAPES = """
+with open('x') as fh:
+    def in_with(): pass
+for _ in ():
+    def in_for(): pass
+else:
+    def in_else(): pass
+try:
+    pass
+finally:
+    def in_finally(): pass
+def g(a, /, po=None, *args, kw=None, **kwargs):
+    local = 1
+def m(): pass
+class C:
+    def m(self, args):
+        self.kept = 1
+        args.dropped = 1
+"""
+
+
+def test_defined_keys_every_shape_by_scope():
+    keys = run.defined(DEFINED_SHAPES, "s.py")
+    assert {"in_with", "in_for", "in_else", "in_finally", "m", "C.m", "C.kept"} <= keys
+    assert {f"g({a})" for a in ("a", "po", "args", "kw", "kwargs")} <= keys
+    assert not {"local", "C.dropped", "dropped"} & keys
+    assert run.leaf("C.m") == run.leaf("m") == "m" and run.leaf("cli:b(--x)") == "--x"
+
+
 def test_interface_gaps_flag_a_new_subcommand(tmp_path):
     task = gap_task(tmp_path, STATED, fix_code=FIX_CODE + NAMES_CODE)
     failures = ["error: argument cmd: invalid choice: 'restate' (choose from 'init')"]

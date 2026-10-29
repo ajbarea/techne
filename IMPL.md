@@ -10,12 +10,12 @@ Branch results/quality-baseline, worktree `.claude/worktrees/baseline`: techne#2
 of 30 Opus baseline runs failed hidden tests that checked names or wording their reports never
 gave. Done on the branch (3818b38 .. HEAD): interface notes completed on 8
 tasks; `run.py` `interface_gaps` + `defined` (scope-keyed definitions the gold patch adds)
-make `--check-tasks` fail such a task (40 hand mutations, all killed; on the real parents' failures the
+make `--check-tasks` fail such a task (50 hand mutations, all killed; on the real parents' failures the
 old reports flag the four unwinnable tasks, the new ones nothing); `quality/DEVIATIONS.md` records it; old runs in
 `quality/results/2026-10-29-baseline-void/`. Review: r1 reader, r2 `/code-review medium`, r3
-and r4 readers (each found Should-fix, all fixed; recurrences got structural fixes), r5 next.
+r4 and r5 readers (each found Should-fix, all fixed; recurrences got structural fixes: scope-keyed definitions, a table of real exception messages), r6 next.
 Next: a clean round and
-`--check-tasks` all ok (log `~/.local/state/techne-quality/check-tasks-6.log`) → PR (links #249)
+`--check-tasks` all ok (log `~/.local/state/techne-quality/check-tasks-7.log`) → PR (links #249)
 → merge → restart the baseline from main's commit in `quality/results/2026-10-29-baseline-2` on
 RIT (`CLAUDE_CONFIG_DIR=/home/ajbar/.claude`; edit `~/.local/state/techne-quality/resume.sh`'s
 QUALITY_OUT and its `cd` first), in tmux `quality-resume`:

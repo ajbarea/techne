@@ -172,10 +172,15 @@ LITERAL = re.compile(r"""(?:"([^"\\\n]{4,})"|'([^'\\\n]{4,})'|\b(\d{3,}(?:\.\d+)
 MISSING_NAME = re.compile(
     r"has no attribute '(\w+)'|cannot import name '(\w+)'|No module named '([\w.]+)'"
     r"|unexpected keyword argument '(\w+)'|invalid choice: '([\w-]+)'"
+    r"|does not have the attribute '(\w+)'"  # mock.patch
 )
 UNRECOGNIZED = re.compile(r"unrecognized arguments: ([^\n]+)")  # argparse lists them all
 # A module a test loads by its path, which fails on the parent as a missing file.
-MISSING_FILE = re.compile(r"No such file or directory: '([^'\n]+)'")
+MISSING_FILE = re.compile(
+    r"No such file or directory: '([^'\n]+)'|can't open file '([^'\n]+)'"  # Python, python3
+    r"|(?:^|\s)(\S+\.\w+): No such file or directory",  # bash
+    re.M,
+)
 # Files whose words are prose, never names the code defines.
 CODE_SUFFIX = (".py", ".pyi", ".sh", ".bash", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".rs", ".go")
 FLAG = re.compile(r"(?<![\w-])--?[A-Za-z][\w-]*")
@@ -838,8 +843,9 @@ def defined(source: str, path: str) -> set[str]:
     scope never hides the same name in another: in Python, by its syntax tree, top-level
     functions, classes, assignments and imports (`name`), a class's methods, fields and
     `self.` attributes (`Class.name`), a function's or method's parameters (`func(name)`), and
-    the option strings and subcommands an `add_argument`/`add_parser` call adds. A local
-    variable is no interface. In any other file, or Python that does not parse, every
+    the option strings and subcommands an `add_argument`/`add_parser` call adds, keyed by the
+    function and parser that add them (`func:parser(--flag)`). A local variable is no
+    interface. In any other file, or Python that does not parse, every
     identifier and `--flag` it holds."""
     try:
         tree = ast.parse(source) if path.endswith(".py") else None
@@ -862,11 +868,14 @@ def defined(source: str, path: str) -> set[str]:
             return [node.target]
         return []
 
+    blocks = (ast.If, ast.Try, getattr(ast, "TryStar", ast.Try), ast.With, ast.AsyncWith)
+    blocks += (ast.For, ast.AsyncFor, ast.While)
+
     def flat(body: list[ast.stmt]):
-        """Statements at this level, through `if`, `try` and `with` blocks."""
+        """Statements at this level, through `if`, `try`, `with` and loop blocks."""
         for node in body:
             yield node
-            if isinstance(node, (ast.If, ast.Try, ast.With)):
+            if isinstance(node, blocks):
                 for handler in getattr(node, "handlers", []):
                     yield from flat(handler.body)
                 for part in ("body", "orelse", "finalbody"):
@@ -882,9 +891,15 @@ def defined(source: str, path: str) -> set[str]:
                 if isinstance(member, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     out.add(f"{node.name}.{member.name}")
                     params(member, f"{node.name}.")
+                    first = [*member.args.posonlyargs, *member.args.args][:1]
                     for sub in ast.walk(member):  # self.x = ... in a method
                         for tgt in targets(sub):
-                            if isinstance(tgt, ast.Attribute) and isinstance(tgt.value, ast.Name):
+                            if (
+                                isinstance(tgt, ast.Attribute)
+                                and isinstance(tgt.value, ast.Name)
+                                and first
+                                and tgt.value.id == first[0].arg
+                            ):
                                 out.add(f"{node.name}.{tgt.attr}")
                 for tgt in targets(member):
                     if isinstance(tgt, ast.Name):
@@ -895,15 +910,24 @@ def defined(source: str, path: str) -> set[str]:
             for part in ast.walk(tgt):
                 if isinstance(part, ast.Name):
                     out.add(part.id)
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr in ("add_argument", "add_parser")
-        ):
-            for arg in node.args:
-                if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
-                    out.add(arg.value)
+
+    def options(node: ast.AST, fn: str) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                options(child, child.name)
+                continue
+            if (
+                isinstance(child, ast.Call)
+                and isinstance(child.func, ast.Attribute)
+                and child.func.attr in ("add_argument", "add_parser")
+            ):
+                parser = ast.unparse(child.func.value)
+                for arg in child.args:
+                    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                        out.add(f"{fn}:{parser}({arg.value})")
+            options(child, fn)
+
+    options(tree, "")
     return out
 
 
@@ -915,7 +939,7 @@ def leaf(key: str) -> str:
 def interface_gaps(task: dict, failures: Sequence[str]) -> list[str]:
     """What the hidden tests check that the bug report does not state, so that no fix could
     pass without the gold patch: a name or file a failure on the parent names (a missing
-    attribute, import, module, keyword argument, CLI flag or choice, or a file loaded by path)
+    attribute, import, module, keyword argument, CLI flag or choice, or a file loaded or run by path)
     that the fix adds to its code outside the tests (`defined`, by scope), and that no code
     span in the report gives; or a string a test adds that shares a three-word run with the strings
     the fix adds and also says something neither the parent's changed files nor the report
@@ -953,13 +977,15 @@ def interface_gaps(task: dict, failures: Sequence[str]) -> list[str]:
             new_files.append(p)
     names = {next(g for g in m.groups() if g) for t in failures for m in MISSING_NAME.finditer(t)}
     names |= {f for t in failures for m in UNRECOGNIZED.finditer(t) for f in FLAG.findall(m[1])}
+    files = set()
     for m in (m for t in failures for m in MISSING_FILE.finditer(t)):
-        names |= {f for f in new_files if m[1].endswith("/" + f) or m[1] == f}
+        path = next(g for g in m.groups() if g)
+        files |= {f for f in new_files if path.endswith("/" + f) or path == f}
+    for name in sorted(files):  # given when the report names its path or file
+        file = re.escape(pathlib.PurePosixPath(name).name)
+        if not any(re.search(rf"(?<![\w.-]){file}(?![\w-])", span) for span in code):
+            gaps.add(f"file the report does not give: {name}")
     for name in sorted(names):
-        if "/" in name:  # a file the fix adds: given when the report names its path or file
-            if not any(pathlib.PurePosixPath(name).name in span for span in code):
-                gaps.add(f"file the report does not give: {name}")
-            continue
         last = name.rsplit(".", 1)[-1] if not name.startswith("-") else name
         if last not in new_names:
             continue  # the fix adds no such name: the failure is the bug itself
