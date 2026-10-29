@@ -456,3 +456,17 @@ def test_a_chained_alias_is_followed_and_one_shadowing_a_git_command_is_ignored(
     _git(repo, "add", "s.py")
     assert run_guard("git c -m s", repo, state)
     assert run_guard("git checkout -q -b feat", repo, state) is None
+
+
+@needs_gitleaks
+def test_aliases_deep_with_a_pager_flag_or_shadowing_a_non_builtin_command(repo, state):
+    chain = ["a1", "a2", "a3", "a4", "a5", "a6", "a7"]
+    for name, target in zip(chain, chain[1:] + ["commit"], strict=True):
+        _git(repo, "config", f"alias.{name}", target)
+    _git(repo, "config", "alias.pc", "-p commit")
+    _git(repo, "config", "alias.filter-branch", "commit")
+    leak(repo, "s.py")
+    _git(repo, "add", "s.py")
+    assert run_guard("git a1 -m s", repo, state), "a chain deeper than five is followed"
+    assert run_guard("git pc -m s", repo, state), "a leading -p is skipped"
+    assert run_guard("git filter-branch --help", repo, state) is None, "git runs its own command"
