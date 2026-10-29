@@ -136,7 +136,15 @@ def fetch(repo: str, run: str, out: Path) -> None:
         ]
     try:
         steps = split_archive(gh_bytes(f"repos/{repo}/actions/runs/{run}/logs"), kept)
-    except (GhError, OSError, ValueError, zipfile.BadZipFile, zlib.error) as e:
+    except (
+        GhError,
+        OSError,
+        ValueError,
+        RuntimeError,
+        NotImplementedError,
+        zipfile.BadZipFile,
+        zlib.error,
+    ) as e:
         steps = {}
         errors.append({"job": None, "what": "log archive", "error": str(e)[:300]})
     for job_id, texts in steps.items():

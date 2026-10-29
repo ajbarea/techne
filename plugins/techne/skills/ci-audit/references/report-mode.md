@@ -21,7 +21,7 @@ The run directory holds:
    - `cancelled` when it was cancelled, even with a step that failed first.
    - `failure` when the run failed or a step failed.
    - `green-with-findings` when the run passed but has a FIX, BUMP or PROPOSE finding, or a step that succeeded with an error in it.
-   - `clean` otherwise.
+   - `clean`, or `green-with-findings` when a finding is FIX, BUMP or PROPOSE, otherwise (neutral and skipped runs included).
 2. **Failing step.** Report the first failing step that is not just a downstream "exit code 1". Give its root cause in one line: what failed, on which input. Give the most specific `file:line` its error lines name: the test's or the source's, not the workflow's. If none is named, give `null` and say so in the root cause. Quote the deciding log line as evidence. For a green run, set it to `null`.
 3. **Findings.** Bucket each finding as the interactive audit does (`SKILL.md`, "Classify every finding"): FIX, BUMP, PROPOSE, DEFER or EXPECTED. Report mode only classifies; it never edits. The kinds are:
    - `failure`: the failing step itself.
