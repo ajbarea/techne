@@ -10,9 +10,10 @@ Per repo, from GitHub (through `gh`) and from its workflow files:
     as the user's decision, not a gap)
   - Dependabot alerts on
   - zizmor run by a workflow (the workflow linter)
-  - every action pinned to a full commit SHA, or the workflow dependency
-    lockfile (.github/workflows/actions.lock), which GitHub calls the stronger
-    form; a reusable workflow call needs a SHA either way
+  - every action in a workflow or the repo's composite actions pinned to a
+    full commit SHA, unless the workflow dependency lockfile
+    (.github/workflows/actions.lock), which GitHub calls the stronger form,
+    onboards that workflow; a reusable workflow call needs a SHA either way
   - least-privilege `permissions:` in every workflow: set at the top or on
     every job, and never write-all
 
@@ -121,7 +122,30 @@ def read(path: Path) -> str | None:
         return None
 
 
-ZIZMOR = re.compile(r"^\s*(?:-\s+)?(?:run:.*\bzizmor\b|uses:\s*['\"]?zizmorcore/zizmor-action@)")
+ZIZMOR = re.compile(r"\bzizmor\b|zizmorcore/zizmor-action@")
+NOT_A_RUN = re.compile(r"^\s*(?:-\s+)?(?:#|name:|echo\b|run:\s*echo\b)")
+
+
+def runs_zizmor(text: str) -> bool:
+    """A step that runs zizmor: a command line or the zizmor action, not a comment, a step
+    name or an echo."""
+    return any(ZIZMOR.search(ln) and not NOT_A_RUN.match(ln) for ln in text.splitlines())
+
+
+def locked_workflows(lock: str) -> set[str]:
+    """The workflow files the lockfile onboards: the keys under its top-level `workflows:`."""
+    names: set[str] = set()
+    inside = False
+    for line in lock.splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if not line.startswith(" "):
+            inside = line.startswith("workflows:")
+            continue
+        m = re.match(r"^\s+['\"]?\.github/workflows/([^'\"/:]+)['\"]?:", line)
+        if inside and m:
+            names.add(m.group(1))
+    return names
 
 
 def perm_value(line: str) -> str:
@@ -169,7 +193,7 @@ def workflow_gaps(root: Path) -> list[str]:
     if not files:
         return []
     gaps: list[str] = []
-    lock = read(root / ".github" / "workflows" / "actions.lock") or ""
+    onboarded = locked_workflows(read(root / ".github" / "workflows" / "actions.lock") or "")
     unpinned: list[str] = []
     no_perms: list[str] = []
     write_all: list[str] = []
@@ -182,9 +206,10 @@ def workflow_gaps(root: Path) -> list[str]:
             continue
         workflow = path.parent.name == "workflows"
         # Only a workflow the lockfile names is onboarded (GitHub onboards them one by one).
-        locked = workflow and path.name in lock
+        locked = workflow and path.name in onboarded
+        zizmor |= runs_zizmor(text)
+        where = path.relative_to(root).as_posix() if not workflow else path.name
         for line in text.splitlines():
-            zizmor |= workflow and bool(ZIZMOR.match(line))
             m = USES.match(line)
             if not m:
                 continue
@@ -193,7 +218,7 @@ def workflow_gaps(root: Path) -> list[str]:
                 continue  # local actions; Docker refs are out of scope
             reusable = "/.github/workflows/" in ref
             if not SHA.search(ref) and (reusable or not locked):
-                unpinned.append(f"{path.name}: {ref}")
+                unpinned.append(f"{where}: {ref}")
         if not workflow:
             continue
         top = {m.group(1): line for line in text.splitlines() if (m := TOP_KEY.match(line))}

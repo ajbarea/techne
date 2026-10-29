@@ -28,6 +28,7 @@ jobs:
       - uses: actions/checkout@{SHA} # v6
       - run: uvx zizmor .github/workflows/
 """
+LOCK_CI = "version: 1\nworkflows:\n  .github/workflows/ci.yml:\n    actions: {}\n"
 SA_ON = {
     "secret_scanning": {"status": "enabled"},
     "secret_scanning_push_protection": {"status": "enabled"},
@@ -109,11 +110,26 @@ def test_pins_and_the_lockfile(tmp_path):
     loose = GOOD.replace(f"@{SHA}", "@v6")
     out = run(tmp_path, make_repo(tmp_path, {"ci.yml": loose}))
     assert "1 action refs not pinned to a SHA (first: ci.yml: actions/checkout@v6)" in out
-    locked = make_repo(tmp_path, {"ci.yml": loose, "actions.lock": "ci.yml"}, "locked")
+    locked = make_repo(
+        tmp_path,
+        {
+            "ci.yml": loose,
+            "actions.lock": LOCK_CI,
+        },
+        "locked",
+    )
     assert run(tmp_path, locked) == "locked: security floor ✓"
     reusable = loose + "  call:\n    uses: aj/x/.github/workflows/w.yml@main\n"
     out = run(
-        tmp_path, make_repo(tmp_path, {"ci.yml": reusable, "actions.lock": "ci.yml"}, "reuse")
+        tmp_path,
+        make_repo(
+            tmp_path,
+            {
+                "ci.yml": reusable,
+                "actions.lock": LOCK_CI,
+            },
+            "reuse",
+        ),
     )
     assert "w.yml@main" in out, "a reusable workflow call needs a SHA even with the lockfile"
     local = GOOD + "      - uses: ./.github/actions/setup\n      - uses: docker://alpine:3\n"
@@ -169,7 +185,11 @@ def test_a_job_with_write_all_is_a_gap_under_a_read_only_top(tmp_path):
 
 def test_the_lockfile_covers_only_the_workflows_it_names(tmp_path):
     loose = GOOD.replace(f"@{SHA}", "@v6")
-    files = {"ci.yml": loose, "docs.yml": loose, "actions.lock": "ci.yml: actions/checkout"}
+    files = {
+        "ci.yml": loose,
+        "docs.yml": loose,
+        "actions.lock": "workflows:\n  '.github/workflows/ci.yml':\n    actions: {}\n",
+    }
     out = run(tmp_path, make_repo(tmp_path, files))
     assert "1 action refs not pinned" in out and "docs.yml" in out
 
@@ -198,3 +218,26 @@ def test_an_unreadable_workflow_is_reported_not_a_crash(tmp_path):
     broken.write_text(GOOD)
     broken.chmod(0)
     assert "could not read broken.yml" in run(tmp_path, repo)
+
+
+def test_the_lockfile_names_a_workflow_exactly(tmp_path):
+    loose = GOOD.replace(f"@{SHA}", "@v6")
+    lock = "workflows:\n  .github/workflows/my-ci.yml:\n    x: 1\n# TODO onboard ci.yml\n"
+    files = {"ci.yml": loose, "my-ci.yml": loose, "actions.lock": lock}
+    out = run(tmp_path, make_repo(tmp_path, files))
+    assert "1 action refs not pinned" in out and "ci.yml: actions/checkout@v6" in out
+
+
+@pytest.mark.parametrize(
+    "step,counts",
+    [
+        ("      - run: |\n          uvx zizmor .\n", True),
+        ("      - run: make zizmor\n", True),
+        ("      - run: echo 'add zizmor later'\n", False),
+        ("      - name: zizmor someday\n        run: make lint\n", False),
+    ],
+)
+def test_zizmor_counts_only_when_a_step_runs_it(tmp_path, step, counts):
+    text = GOOD.replace("      - run: uvx zizmor .github/workflows/\n", step)
+    out = run(tmp_path, make_repo(tmp_path, {"ci.yml": text}))
+    assert ("no zizmor in CI" not in out) == counts, out
