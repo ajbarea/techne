@@ -342,3 +342,60 @@ exit 1
     why = run_guard("git commit -m x", repo, state, extra_env={"PATH": only(bin_dir)})
     assert why and "cfg.py:1 (github-pat)" in why
     assert "gitleaksignore" not in why and "git config" not in why and "ask the user" in why
+
+
+@needs_gitleaks
+def test_a_new_branch_committed_and_pushed_in_one_command_passes_when_clean(repo, state):
+    (repo / "b.txt").write_text("b\n")
+    command = "git checkout -b feat && git add b.txt && git commit -m b && git push -u origin feat"
+    assert run_guard(command, repo, state) is None
+
+
+@needs_gitleaks
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git checkout feat && git push -u origin HEAD",
+        "git merge feat && git push origin main",
+        "git switch feat; git push",
+    ],
+)
+def test_a_push_after_a_ref_move_in_the_same_command_scans_every_local_branch(repo, state, command):
+    _git(repo, "checkout", "-qb", "feat")
+    commit_leak(repo)
+    _git(repo, "checkout", "-q", "main")
+    why = run_guard(command, repo, state)
+    assert why and "would add a secret" in why, why
+
+
+@needs_gitleaks
+def test_a_mirror_remote_from_config_scans_every_ref(repo, state, tmp_path):
+    _git(repo, "checkout", "-qb", "side")
+    commit_leak(repo)
+    _git(repo, "checkout", "-q", "main")
+    _git(tmp_path, "init", "-q", "--bare", str(tmp_path / "m.git"))
+    _git(repo, "remote", "add", "--mirror=push", "backup", str(tmp_path / "m.git"))
+    assert run_guard("git push backup", repo, state)
+
+
+@needs_gitleaks
+def test_a_negative_refspec_does_not_hide_a_commit_from_the_scan(repo, state):
+    commit_leak(repo)
+    _git(repo, "branch", "wip")
+    assert run_guard("git push origin 'refs/heads/*' '^refs/heads/wip'", repo, state)
+
+
+@needs_gitleaks
+def test_a_tag_glob_scans_commits_only_tags_reach(repo, state):
+    _git(repo, "checkout", "-qb", "tmp")
+    commit_leak(repo)
+    _git(repo, "tag", "v1")
+    _git(repo, "checkout", "-q", "main")
+    _git(repo, "branch", "-qD", "tmp")
+    assert run_guard("git push origin 'refs/tags/*'", repo, state)
+
+
+@needs_gitleaks
+def test_a_push_of_a_branch_that_does_not_exist_is_left_to_git(repo, state):
+    # git reports the missing ref itself; the guard must not blame the scanner.
+    assert run_guard("git push origin no-such-branch", repo, state) is None

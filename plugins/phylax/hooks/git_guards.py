@@ -123,6 +123,27 @@ PUSH_ALL = {"--all", "--branches"}
 # A replayed add runs the repo's clean filters (git-lfs, git-crypt) on whole files.
 ADD_TIMEOUT = 20
 PUSH_DELETE = {"-d", "--delete"}
+# git subcommands that can create or move a ref before a later `git push` in the same command
+# line runs; the push scan then cannot know its range at hook time and widens.
+REF_MOVERS = {
+    "checkout",
+    "switch",
+    "merge",
+    "rebase",
+    "reset",
+    "pull",
+    "cherry-pick",
+    "am",
+    "branch",
+    "commit",
+    "tag",
+    "revert",
+    "stash",
+    "update-ref",
+    "symbolic-ref",
+    "worktree",
+    "fetch",
+}
 
 
 def option_on(key: str) -> bool:
@@ -603,6 +624,8 @@ class Guards:
         self.who = who
         # `git add` calls seen so far in this command, which a later commit would include.
         self.pending_adds: list[Command] = []
+        # Whether an earlier git subcommand in this command may move refs before a push runs.
+        self.refs_may_move = False
         self.side_words: set[str] = set()
         self.created_scratch: list[str] = []
         self.writer_text = ""
@@ -809,8 +832,15 @@ class Guards:
         remote, refspecs, flags = parse_push(cmd.args)
         if flags & PUSH_DELETE or flags & {"-n", "--dry-run"}:
             return
+        known = (run_git(cmd.cwd, cmd.repo_args, "remote") or "").split()
+        if remote is None:
+            remote = self.default_remote(cmd)
+
+        def config(key: str) -> str:
+            return (run_git(cmd.cwd, cmd.repo_args, "config", "--get-all", key) or "").strip()
+
         srcs: list[str] = []
-        if "--mirror" in flags:
+        if "--mirror" in flags or (remote in known and config(f"remote.{remote}.mirror") == "true"):
             srcs.append("--all")
         if flags & PUSH_ALL:
             srcs.append("--branches")
@@ -818,23 +848,31 @@ class Guards:
             srcs.append("--tags")
         for spec in refspecs:
             src = spec.lstrip("+").split(":", 1)[0]
+            if not src or src.startswith("^"):
+                continue  # a deletion, or a negative refspec (it only narrows the push)
             if "*" in src:
-                srcs.append("--branches")
-            elif src:
+                srcs.append(f"--glob={src}" if src.startswith("refs/") else "--branches")
+            else:
                 srcs.append(src)
-        known = (run_git(cmd.cwd, cmd.repo_args, "remote") or "").split()
-        if remote is None:
-            remote = self.default_remote(cmd)
         if not srcs and not refspecs:
             # A configured push refspec or push.default=matching sends more than HEAD.
-            def config(key: str) -> str:
-                return (run_git(cmd.cwd, cmd.repo_args, "config", "--get-all", key) or "").strip()
-
             wide = remote in known and bool(config(f"remote.{remote}.push"))
             wide = wide or config("push.default") == "matching"
             srcs = ["--branches"] if wide else ["HEAD"]
         if not srcs:
             return  # only deletions (`:branch`)
+        named = [x for x in srcs if not x.startswith("--")]
+        unresolved = [
+            x
+            for x in named
+            if run_git(cmd.cwd, cmd.repo_args, "rev-parse", "-q", "--verify", f"{x}^{{commit}}")
+            is None
+        ]
+        if self.refs_may_move or unresolved:
+            # Run in one line after a checkout, commit or merge, the push sends refs that do not
+            # exist or point elsewhere at hook time: scan everything local the remotes lack.
+            # Commits made in the same line are the commit scan's.
+            srcs = [x for x in srcs if x.startswith("--")] + ["--branches", "--tags"]
         # A remote with no tracking refs yet (a first push) excludes what every remote holds,
         # rather than scanning the whole history.
         held = remote in known and bool(
@@ -875,8 +913,9 @@ class Guards:
             secret_scan.log_event({**event, "outcome": "no_verdict", "reason": str(exc)})
             self.verdict.denies.append(
                 f"phylax: {what} was not run because the secret scan gave no verdict: {exc}. "
-                "Fix the scanner (the user can install gitleaks) and retry. Switching the guard "
-                f"off (`git config {repo_key(SECRETS)} false`) is the user's call, not yours."
+                "Retry it as a command of its own; if it fails again, stop and ask the user. "
+                f"Switching the guard off (`git config {repo_key(SECRETS)} false`) is the user's "
+                "call, not yours."
             )
             return
         if not findings:
@@ -1017,6 +1056,8 @@ class Guards:
             self.check_commit_scratch(cmd, commit)
             self.check_commit_secrets(cmd, commit)
             self.check_main_checkout(cmd)
+        if cmd.sub in REF_MOVERS:
+            self.refs_may_move = True
 
     def check_gh(self, argv: list[str], cwd: Path, env: dict[str, str]) -> None:
         words: list[str] = []
