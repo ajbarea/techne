@@ -6,11 +6,10 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 
 ## In flight
 
-#244 / PR #239 (branch feat/quality-prereg, worktree `.claude/worktrees/prereg`): the
-budget-trial pre-registration and harness. Round 7 review running; rounds 4 to 6 fixed a judge
-that could see the mode, uv caches that leaked fixes across runs, read-only session caches,
-API errors misread, and a scorer that trusted pytest's exit code (now JUnit + gold test ids in
-`quality/tasks/gold-tests.json`, written by `--check-tasks`). Merge only after a clean round.
+Next: the Opus baseline (`make quality MODE=normal PHASE=baseline
+QUALITY_OUT=quality/results/2026-10-29-baseline`, resumes by rerunning the same command after
+a limit), then `make quality-skills`; commit both under `quality/results/`. #239 merged after
+ten review rounds (round 10 clean) plus a verify pass.
 
 Before it: the logging rollout (10-28/29) is done, one PR per repo, each re-checked `logging standard ✓`
 on main with #230's check: sphragis #225, techne #230, pharos #102, ariadne #76, keryx #69,
@@ -37,13 +36,17 @@ to mark as a false positive in the dashboard. Same for ariadne incident 39247473
   this PC: `~/.config/systemd/user/elenchus-foldback.{service,timer}` (06:30) running
   `~/.local/bin/elenchus-foldback`, which resolves the installed plugin path.
 - 📋 #236: two hook proposals (skipped git hooks; commits gated on a piped verify); AJ picks.
-- 🔄 #239 (issue #244) pre-registration of the budget-trial quality evals: `quality/`
+- ✅ #239 (issue #244) pre-registration of the budget-trial quality evals: `quality/`
   (PREREGISTRATION.md, run.py, analyze.py, tasks.toml with 10 replayed PRs, gold-tests.json,
-  judge.md, sandbox.json) and the `quality-*` skill eval cases. Reviewed until clean.
-  `run.py --check-tasks` (no model, ~1.5 h with lock waits) and `--smoke` (Haiku, out
-  folder named smoke) validate the harness; only one run.py process at a time.
-- 📋 After #239 merges, in order: `make quality MODE=normal` (Opus baseline, 3 repeats,
-  judge pass, analysis) and `make quality-skills` (Opus) → commit results under
+  judge.md, sandbox.json) and the `quality-*` skill eval cases. Each results folder's
+  `set.json` pins phase, version and input hashes; a differing resume is refused. File tools
+  are denied /home (but the run's saved outputs), /tmp, /mnt, /root. `--check-tasks` (all 10
+  ok 10-29) and `--smoke` (Haiku) validate it; one run.py process at a time. Recorded minors:
+  two redundant resolve() checks in read_denials; the store add-dir also allows writes; a
+  session could write `.claude/settings.local.json` (globally gitignored), judged inert by
+  reading the binary, not probed; `--setting-sources` would close it.
+- 📋 Baseline, in order: `make quality MODE=normal PHASE=baseline QUALITY_OUT=...` (Opus,
+  3 repeats, judge pass, analysis) and `make quality-skills` (Opus) → commit results under
   `quality/results/`; then techne#226 (fold-or-keep audit) measured on them. The
   sonnet/opus comparison (pilot → sizing → confirmatory) runs only when AJ schedules the
   budget trial. Stretch: 10 DeepSWE tasks on TIGRIS, never this PC.
