@@ -57,7 +57,7 @@ def slug(root: Path) -> str | None:
         ).stdout.strip()
     except (OSError, subprocess.TimeoutExpired):
         return None
-    m = re.search(r"github\.com[:/]([^/]+/[^/]+?)(?:\.git)?/?$", url)
+    m = re.search(r"(?:^|[@/])github\.com[:/]([^/]+/[^/]+?)(?:\.git)?/?$", url)
     return m.group(1) if m else None
 
 
@@ -70,6 +70,8 @@ def remote_gaps(name: str) -> tuple[list[str], list[str]]:
         if repo.returncode:
             return [], [f"GitHub settings not read ({(repo.stderr.strip() or 'gh failed')[:80]})"]
         data = json.loads(repo.stdout)
+        if not (data.get("permissions") or {}).get("admin"):
+            return [], ["GitHub settings not read (needs admin access)"]
         sa = data.get("security_and_analysis") or {}
 
         def on(key: str) -> bool:
@@ -104,6 +106,29 @@ def workflow_files(root: Path) -> list[Path]:
     return sorted(p for p in folder.glob("*.y*ml") if p.is_file()) if folder.is_dir() else []
 
 
+def composite_actions(root: Path) -> list[Path]:
+    """The repo's own composite actions: their `uses:` are pinned like a workflow's."""
+    folder = root / ".github" / "actions"
+    return (
+        sorted(p for p in folder.glob("**/action.y*ml") if p.is_file()) if folder.is_dir() else []
+    )
+
+
+def read(path: Path) -> str | None:
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+
+
+ZIZMOR = re.compile(r"^\s*(?:-\s+)?(?:run:.*\bzizmor\b|uses:\s*['\"]?zizmorcore/zizmor-action@)")
+
+
+def perm_value(line: str) -> str:
+    """A `permissions:` line's value, its comment dropped."""
+    return line.split(":", 1)[1].split("#", 1)[0].strip()
+
+
 def jobs_without_permissions(text: str) -> list[str]:
     """Jobs with no `permissions:` key of their own, read by indentation."""
     out: list[str] = []
@@ -133,6 +158,8 @@ def jobs_without_permissions(text: str) -> list[str]:
         child_indent = child_indent or indent
         if indent == child_indent and line.strip().startswith("permissions:"):
             has = True
+            if perm_value(line.strip()) == "write-all":
+                out.append(f"{job} (write-all)")
     close()
     return out
 
@@ -142,28 +169,40 @@ def workflow_gaps(root: Path) -> list[str]:
     if not files:
         return []
     gaps: list[str] = []
-    locked = (root / ".github" / "workflows" / "actions.lock").is_file()
+    lock = read(root / ".github" / "workflows" / "actions.lock") or ""
     unpinned: list[str] = []
     no_perms: list[str] = []
     write_all: list[str] = []
+    unreadable: list[str] = []
     zizmor = False
-    for path in files:
-        text = path.read_text(encoding="utf-8", errors="replace")
-        zizmor |= "zizmor" in text
+    for path in files + composite_actions(root):
+        text = read(path)
+        if text is None:
+            unreadable.append(path.name)
+            continue
+        workflow = path.parent.name == "workflows"
+        # Only a workflow the lockfile names is onboarded (GitHub onboards them one by one).
+        locked = workflow and path.name in lock
         for line in text.splitlines():
+            zizmor |= workflow and bool(ZIZMOR.match(line))
             m = USES.match(line)
             if not m:
                 continue
             ref = m.group(1)
             if ref.startswith(("./", "docker://")):
-                continue
+                continue  # local actions; Docker refs are out of scope
             reusable = "/.github/workflows/" in ref
             if not SHA.search(ref) and (reusable or not locked):
                 unpinned.append(f"{path.name}: {ref}")
+        if not workflow:
+            continue
         top = {m.group(1): line for line in text.splitlines() if (m := TOP_KEY.match(line))}
-        if "write-all" in top.get("permissions", ""):
+        missing = jobs_without_permissions(text)
+        if "permissions" in top and perm_value(top["permissions"]) == "write-all":
             write_all.append(path.name)
-        elif "permissions" not in top and jobs_without_permissions(text):
+        elif any(j.endswith("(write-all)") for j in missing):
+            write_all.append(path.name)
+        elif "permissions" not in top and missing:
             no_perms.append(path.name)
     if not zizmor:
         gaps.append("no zizmor in CI")
@@ -173,6 +212,8 @@ def workflow_gaps(root: Path) -> list[str]:
         gaps.append(f"no permissions: in {', '.join(no_perms)}")
     if write_all:
         gaps.append(f"permissions: write-all in {', '.join(write_all)}")
+    if unreadable:
+        gaps.append(f"could not read {', '.join(unreadable)}")
     return gaps
 
 
@@ -199,7 +240,8 @@ def main(argv: list[str]) -> int:
         gaps, notes = check(workspace / name)
         tail = f" ({'; '.join(notes)})" if notes else ""
         if gaps:
-            print(f"{name}: {len(gaps)} security floor gaps: {'; '.join(gaps)}{tail}")
+            word = "gap" if len(gaps) == 1 else "gaps"
+            print(f"{name}: {len(gaps)} security floor {word}: {'; '.join(gaps)}{tail}")
         else:
             print(f"{name}: security floor ✓{tail}")
     return 0

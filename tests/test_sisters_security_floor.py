@@ -47,8 +47,16 @@ def make_repo(tmp_path: Path, workflows: dict[str, str], name: str = "r") -> Pat
     return root
 
 
-def run(tmp_path: Path, repo: Path, *, sa=None, private=False, alerts="204", fail=False) -> str:
-    answer = json.dumps({"private": private, "security_and_analysis": SA_ON if sa is None else sa})
+def run(
+    tmp_path: Path, repo: Path, *, sa=None, private=False, alerts="204", fail=False, admin=True
+) -> str:
+    answer = json.dumps(
+        {
+            "private": private,
+            "permissions": {"admin": admin},
+            "security_and_analysis": (SA_ON if sa is None else sa) if admin else None,
+        }
+    )
     fake = tmp_path / "gh"
     fake.write_text(
         "#!/bin/sh\n"
@@ -83,7 +91,7 @@ def test_a_repo_on_the_floor_passes(tmp_path):
 )
 def test_github_settings_off_on_a_public_repo_are_gaps(tmp_path, kw, gap):
     out = run(tmp_path, make_repo(tmp_path, {"ci.yml": GOOD}), **kw)
-    assert "1 security floor gaps" in out and gap in out
+    assert "1 security floor gap:" in out and gap in out
 
 
 def test_a_private_repo_without_secret_protection_is_the_users_call(tmp_path):
@@ -101,10 +109,12 @@ def test_pins_and_the_lockfile(tmp_path):
     loose = GOOD.replace(f"@{SHA}", "@v6")
     out = run(tmp_path, make_repo(tmp_path, {"ci.yml": loose}))
     assert "1 action refs not pinned to a SHA (first: ci.yml: actions/checkout@v6)" in out
-    locked = make_repo(tmp_path, {"ci.yml": loose, "actions.lock": "{}"}, "locked")
+    locked = make_repo(tmp_path, {"ci.yml": loose, "actions.lock": "ci.yml"}, "locked")
     assert run(tmp_path, locked) == "locked: security floor ✓"
     reusable = loose + "  call:\n    uses: aj/x/.github/workflows/w.yml@main\n"
-    out = run(tmp_path, make_repo(tmp_path, {"ci.yml": reusable, "actions.lock": "{}"}, "reuse"))
+    out = run(
+        tmp_path, make_repo(tmp_path, {"ci.yml": reusable, "actions.lock": "ci.yml"}, "reuse")
+    )
     assert "w.yml@main" in out, "a reusable workflow call needs a SHA even with the lockfile"
     local = GOOD + "      - uses: ./.github/actions/setup\n      - uses: docker://alpine:3\n"
     assert run(tmp_path, make_repo(tmp_path, {"ci.yml": local}, "local")).endswith("✓")
@@ -139,5 +149,52 @@ def test_not_a_repo(tmp_path):
         [sys.executable, str(SCRIPT), str(tmp_path), "plain"], capture_output=True, text=True
     ).stdout
     assert (
-        out.strip() == f"plain: 1 security floor gaps: not a git repository at {tmp_path / 'plain'}"
+        out.strip() == f"plain: 1 security floor gap: not a git repository at {tmp_path / 'plain'}"
     )
+
+
+def test_without_admin_access_the_settings_are_not_read_rather_than_off(tmp_path):
+    out = run(tmp_path, make_repo(tmp_path, {"ci.yml": GOOD}), admin=False, alerts="404")
+    assert out == "r: security floor ✓ (GitHub settings not read (needs admin access))"
+
+
+def test_a_job_with_write_all_is_a_gap_under_a_read_only_top(tmp_path):
+    job = GOOD.replace("    runs-on:", "    permissions: write-all\n    runs-on:")
+    assert "write-all in ci.yml" in run(tmp_path, make_repo(tmp_path, {"ci.yml": job}))
+    note = GOOD.replace(
+        "permissions:\n  contents: read\n", "permissions: read-all # never write-all\n"
+    )
+    assert run(tmp_path, make_repo(tmp_path, {"ci.yml": note}, "note")).endswith("✓")
+
+
+def test_the_lockfile_covers_only_the_workflows_it_names(tmp_path):
+    loose = GOOD.replace(f"@{SHA}", "@v6")
+    files = {"ci.yml": loose, "docs.yml": loose, "actions.lock": "ci.yml: actions/checkout"}
+    out = run(tmp_path, make_repo(tmp_path, files))
+    assert "1 action refs not pinned" in out and "docs.yml" in out
+
+
+def test_a_composite_actions_uses_are_pinned_too(tmp_path):
+    repo = make_repo(tmp_path, {"ci.yml": GOOD})
+    action = repo / ".github" / "actions" / "setup" / "action.yml"
+    action.parent.mkdir(parents=True)
+    action.write_text("runs:\n  using: composite\n  steps:\n    - uses: astral-sh/setup-uv@v6\n")
+    assert "action.yml: astral-sh/setup-uv@v6" in run(tmp_path, repo)
+
+
+def test_zizmor_named_only_in_a_comment_does_not_count(tmp_path):
+    text = GOOD.replace("      - run: uvx zizmor .github/workflows/\n", "      # TODO add zizmor\n")
+    assert "no zizmor in CI" in run(tmp_path, make_repo(tmp_path, {"ci.yml": text}))
+    action = GOOD.replace(
+        "      - run: uvx zizmor .github/workflows/\n",
+        f"      - uses: zizmorcore/zizmor-action@{SHA}\n",
+    )
+    assert run(tmp_path, make_repo(tmp_path, {"ci.yml": action}, "act")).endswith("✓")
+
+
+def test_an_unreadable_workflow_is_reported_not_a_crash(tmp_path):
+    repo = make_repo(tmp_path, {"ci.yml": GOOD})
+    broken = repo / ".github" / "workflows" / "broken.yml"
+    broken.write_text(GOOD)
+    broken.chmod(0)
+    assert "could not read broken.yml" in run(tmp_path, repo)
