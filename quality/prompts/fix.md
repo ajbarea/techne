@@ -4,7 +4,7 @@ You are working in a git repository checked out in the current directory. A user
 {report}
 </bug_report>
 
-A fix is already in the working tree (`git diff` shows it). A reviewer found these problems with it:
+A fix is already in the working tree (`git diff {base}` shows it, new files included). A reviewer found these problems with it:
 
 <review_findings>
 {findings}

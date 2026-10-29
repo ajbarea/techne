@@ -18,6 +18,7 @@ import pathlib
 import random
 import statistics
 import sys
+import tomllib
 from collections import defaultdict
 from collections.abc import Sequence
 
@@ -30,6 +31,38 @@ MAX_TASKS = 12
 RISK_CLASSES = ("security", "destructive-operation", "governance")
 CRITERIA = ("root_cause", "inputs_covered", "no_regression", "regression_test", "scope")
 Z = statistics.NormalDist()
+REPEATS, PILOT_REPEATS = 3, 1
+# The registered models; a run on any other (a smoke run on Haiku) is never analysed.
+IMPLEMENTER = {"normal": "claude-opus-5-5", "budget": "claude-sonnet-5-5"}
+REVIEWER = JUDGE = "claude-opus-5-5"
+TASKS = pathlib.Path(__file__).resolve().parent / "tasks" / "tasks.toml"
+
+
+def check_set(runs: list[dict], task_ids: list[str], repeats: int) -> list[str]:
+    """Why RUNS are not one complete trial, or nothing: every task in every mode present
+    with repeats 1..REPEATS, the registered models, and every verdict from one judge pass."""
+    problems = []
+    for mode in sorted({r["mode"] for r in runs}):
+        have = {(r["task"], r["repeat"]) for r in runs if r["mode"] == mode}
+        missing = [
+            f"{t}/r{n}" for t in task_ids for n in range(1, repeats + 1) if (t, n) not in have
+        ]
+        extra = sorted(f"{t}/r{n}" for t, n in have if t not in task_ids or not 1 <= n <= repeats)
+        if missing:
+            problems.append(f"{mode}: missing {', '.join(missing)}")
+        if extra:
+            problems.append(f"{mode}: not in the registered set {', '.join(extra)}")
+    for r in runs:
+        tag = f"{r['task']}/{r['mode']}/r{r['repeat']}"
+        want = (IMPLEMENTER.get(r["mode"]), REVIEWER, JUDGE)
+        got = (r.get("implementer"), r.get("reviewer"), r.get("judge"))
+        verdict_model = (r.get("judge_verdict") or {}).get("model", JUDGE)
+        if got != want or verdict_model != JUDGE:
+            problems.append(f"{tag}: models {got}, judged by {verdict_model}; registered {want}")
+    passes = {(r.get("judge_verdict") or {}).get("pass") for r in runs}
+    if len(passes) > 1:
+        problems.append(f"verdicts from {len(passes)} judge passes: judge all folders together")
+    return problems
 
 
 def load(*folders: pathlib.Path) -> list[dict]:
@@ -213,16 +246,16 @@ def decide(runs: list[dict], pilot: bool = False) -> dict:
     unknown = {r["task"] for r in runs if not r["usage"].get("cost_known", 1)}
     for r in runs:
         cost[r["task"]].setdefault(r["mode"], []).append(r["usage"].get("cost_usd", 0.0))
-    # Per task, the median budget cost over the median normal cost; a task with a run whose
-    # cost is unknown (a timed-out session) or a zero normal cost is left out of H2.
+    # Per task, the median budget cost over the median normal cost. A task with a run whose
+    # cost is unknown (a timed-out session reports none) or a zero normal cost counts as
+    # infinitely dearer in budget mode: dropping it would favour the mode that times out.
     ratios = [
-        statistics.median(cost[t]["budget"]) / statistics.median(cost[t]["normal"])
+        math.inf
+        if t in unknown or statistics.median(cost[t]["normal"]) <= 0
+        else statistics.median(cost[t]["budget"]) / statistics.median(cost[t]["normal"])
         for t in paired
-        if t not in unknown and statistics.median(cost[t]["normal"]) > 0
     ]
-    if not ratios:
-        out["h2"] = {"median_cost_ratio": None, "upper": None, "cheaper": False}
-        ratios = [math.nan]
+    out["h2_imputed"] = sorted(t for t in paired if t in unknown)
     rng = random.Random(SEED)
     boot_medians = sorted(
         statistics.median(ratios[rng.randrange(len(ratios))] for _ in ratios)
@@ -297,13 +330,10 @@ def report(result: dict, title: str) -> str:
             f"- Mean per-task difference (budget minus normal): {result['mean_difference']:+.3f}",
             f"- H1 lower bounds: bootstrap {h1['bootstrap_lower']:+.3f}, t {h1['t_lower']:+.3f};"
             f" margin {MARGIN:+.2f}: {'non-inferior' if h1['non_inferior'] else 'not shown'}",
-            "- H2: "
-            + (
-                f"median cost ratio {h2['median_cost_ratio']:.2f}, one-sided 95% upper bound"
-                f" {h2['upper']:.2f}: {'cheaper' if h2['cheaper'] else 'not shown'}"
-                if h2["median_cost_ratio"] is not None
-                else "no task with every cost known: not computable"
-            ),
+            f"- H2: median cost ratio {h2['median_cost_ratio']:.2f}, one-sided 95% upper bound"
+            f" {h2['upper']:.2f}: {'cheaper' if h2['cheaper'] else 'not shown'}",
+            "- H2 tasks counted as dearer in budget mode (a cost unknown or zero): "
+            + (", ".join(result["h2_imputed"]) or "none"),
         ]
         for c, v in result["h3"].items():
             lines.append(
@@ -329,10 +359,16 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("results", type=pathlib.Path, nargs="+", help="one trial's result folders")
     ap.add_argument("--pilot", action="store_true")
     ap.add_argument("--out", type=pathlib.Path)
+    ap.add_argument("--tasks", type=pathlib.Path, default=TASKS)
     args = ap.parse_args(argv)
     runs = load(*args.results)
     if not runs:
         print(f"no run.json under {args.results}", file=sys.stderr)
+        return 1
+    task_ids = [t["id"] for t in tomllib.loads(args.tasks.read_text(encoding="utf-8"))["task"]]
+    problems = check_set(runs, task_ids, PILOT_REPEATS if args.pilot else REPEATS)
+    if problems:
+        print("not one complete trial:\n  " + "\n  ".join(problems), file=sys.stderr)
         return 1
     unjudged = [f"{r['task']}/{r['mode']}/r{r['repeat']}" for r in runs if r["resolved"] is None]
     if unjudged:

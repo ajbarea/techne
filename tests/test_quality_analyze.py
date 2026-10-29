@@ -113,12 +113,13 @@ def test_h2_leaves_out_unknown_and_zero_costs():
     assert out["h2"]["median_cost_ratio"] == 0.5
 
 
-def test_h2_without_any_known_cost_is_not_computable():
+def test_h2_counts_a_task_with_an_unknown_cost_as_dearer_in_budget_mode():
     runs = trial(lambda t, r: True)
     for x in runs:
         x["usage"]["cost_known"] = 0
     out = a.decide(runs)
-    assert out["h2"]["median_cost_ratio"] is None and not out["h2"]["cheaper"]
+    assert out["h2"]["median_cost_ratio"] == math.inf and not out["h2"]["cheaper"]
+    assert len(out["h2_imputed"]) == len(out["differences"])
 
 
 def test_load_refuses_a_run_twice(tmp_path):
@@ -129,3 +130,31 @@ def test_load_refuses_a_run_twice(tmp_path):
     with pytest.raises(SystemExit, match="repeats"):
         a.load(tmp_path / "a", tmp_path / "b")
     assert len(a.load(tmp_path / "a")) == 1
+
+
+def registered(runs):
+    for r in runs:
+        r.update(implementer=a.IMPLEMENTER[r["mode"]], reviewer=a.REVIEWER, judge=a.JUDGE)
+        r["judge_verdict"].update(model=a.JUDGE, **{"pass": "p1"})
+    return runs
+
+
+def test_check_set_accepts_one_complete_trial():
+    runs = registered(trial(lambda t, r: True))
+    assert a.check_set(runs, [f"t{t}" for t in range(10)], a.REPEATS) == []
+
+
+def test_check_set_refuses_a_missing_mode_or_repeat():
+    runs = registered(trial(lambda t, r: True))
+    runs = [r for r in runs if not (r["task"] == "t3" and r["mode"] == "budget")]
+    runs = [r for r in runs if not (r["task"] == "t4" and r["repeat"] == 3)]
+    problems = a.check_set(runs, [f"t{t}" for t in range(10)], a.REPEATS)
+    assert any("t3/r1" in p for p in problems) and any("t4/r3" in p for p in problems)
+
+
+def test_check_set_refuses_a_smoke_model_and_a_second_judge_pass():
+    runs = registered(trial(lambda t, r: True))
+    runs[0]["implementer"] = "claude-haiku-5-5"
+    runs[1]["judge_verdict"]["pass"] = "p2"
+    problems = a.check_set(runs, [f"t{t}" for t in range(10)], a.REPEATS)
+    assert any("models" in p for p in problems) and any("judge passes" in p for p in problems)

@@ -1,4 +1,4 @@
-You are an independent reviewer. Someone else wrote the change in the working tree of the git repository in the current directory (`git diff` shows it). It is meant to fix this bug:
+You are an independent reviewer. Someone else wrote the change in the working tree of the git repository in the current directory (`git diff {base}` shows it, new files included). It is meant to fix this bug:
 
 <bug_report>
 {report}

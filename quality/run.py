@@ -8,13 +8,14 @@ no reads of the source clones or Claude's config.
 
     uv run python quality/run.py --mode normal --repeats 3 --out quality/results/<name>
 
-Transcripts and workspaces stay under ~/.cache/techne-quality; the results folder gets one
+Transcripts and workspaces stay under /var/tmp/techne-quality-<uid>; the results folder gets one
 `run.json` per task run (scores, usage, flags, judge verdict, diff) that analyze.py reads.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import pathlib
@@ -39,8 +40,14 @@ WORK = pathlib.Path(f"/var/tmp/techne-quality-{os.getuid()}")
 # answer or a restored hidden test.
 LIVE, DONE, SCORE, CHECK = (WORK / d for d in ("live", "done", "score", "check"))
 # What a session's shell may read under WORK: its own run, the tools, and the elenchus copy.
-TOOLS = WORK / "tools"  # uv, uv's Pythons and cache: tasks' environments live here
+TOOLS = WORK / "tools"  # uv, uv's Pythons and the seed cache: tasks' environments live here
+# The seed uv cache holds only what task setup builds from parent trees. Each session and
+# each scoring gets its own copy, since `uv run` caches the tree it syncs: a shared cache
+# would carry one run's change, or a gold fix, to the next session.
+SEED_CACHE = TOOLS / "uv-cache"
+SEED_VERSION = "2"
 HIDDEN = ("done", "score", "check", "judge")
+JUDGE_CWD = WORK / "judge-cwd"  # one neutral folder: Claude Code shows the judge its cwd
 
 
 def clean_env() -> dict[str, str]:
@@ -49,10 +56,15 @@ def clean_env() -> dict[str, str]:
     return {k: v for k, v in os.environ.items() if k not in ("VIRTUAL_ENV", "PYTHONPATH")}
 
 
-def tool_env() -> dict[str, str]:
+def tool_env(cache: pathlib.Path = SEED_CACHE) -> dict[str, str]:
     """uv and its Pythons inside WORK, so environments built at setup still run when a
-    session's shell cannot read /home."""
+    session's shell cannot read /home. Environments copy files out of CACHE rather than
+    link to it, so editing an installed package never changes the cache."""
     (TOOLS / "bin").mkdir(parents=True, exist_ok=True)
+    marker = TOOLS / "uv-cache-version"
+    if not marker.exists() or marker.read_text() != SEED_VERSION:
+        shutil.rmtree(SEED_CACHE, ignore_errors=True)  # an older seed may hold a scored tree
+        marker.write_text(SEED_VERSION)
     uv = TOOLS / "bin" / "uv"
     if not uv.exists():
         found = shutil.which("uv")
@@ -60,10 +72,21 @@ def tool_env() -> dict[str, str]:
             raise RuntimeError("uv is not on PATH")
         shutil.copy2(found, uv)
     return {
-        "UV_CACHE_DIR": str(TOOLS / "uv-cache"),
+        "UV_CACHE_DIR": str(cache),
+        "UV_LINK_MODE": "copy",
         "UV_PYTHON_INSTALL_DIR": str(TOOLS / "python"),
         "UV_PYTHON_PREFERENCE": "only-managed",
     }
+
+
+def private_cache(dest: pathlib.Path) -> pathlib.Path:
+    """A copy of the seed cache at DEST, for one session's or one scoring's writes."""
+    shutil.rmtree(dest, ignore_errors=True)
+    if SEED_CACHE.exists():
+        shutil.copytree(SEED_CACHE, dest, symlinks=True)
+    else:
+        dest.mkdir(parents=True)
+    return dest
 
 
 MODELS = {"normal": "claude-opus-5-5", "budget": "claude-sonnet-5-5"}
@@ -204,14 +227,37 @@ class UsageLimit(HarnessError):
     """The plan's usage or rate limit: the whole run stops, to resume later."""
 
 
-LIMIT = re.compile(r"usage limit|rate limit|\b429\b|overloaded|credit balance", re.I)
+# Text of a plan limit, read only from stderr or an API-error result, never from a model's
+# answer (a task about rate limits would match).
+LIMIT = re.compile(r"usage limit|session limit|rate limit|overloaded|credit balance", re.I)
+STOP_STATUS = {429, 529}  # rate limited or overloaded: stop the set, resume later
+
+
+def classify(result: dict, err: str) -> None:
+    """Raise when a session failed for a reason that is not the model's: an API error or
+    no result at all. A timeout, or a result out of turns or structured-output retries,
+    is the model's outcome and returns."""
+    status = result.get("api_error_status")
+    api = result.get("terminal_reason") == "api_error" or status is not None
+    if api:
+        text = f"{status} {result.get('result', '')} {err}"[-800:]
+        if status in STOP_STATUS or LIMIT.search(text):
+            raise UsageLimit(text)
+        raise HarnessError(text)
+    if "subtype" not in result and err != "timeout":
+        text = f"{err} no result event"[-800:]
+        raise (UsageLimit if LIMIT.search(err) else HarnessError)(text)
+    notice = str(result.get("result", ""))
+    if result.get("is_error") and result.get("subtype") == "success" and LIMIT.search(notice):
+        raise UsageLimit(notice[-800:])  # Claude Code's own limit notice, not a model answer
 
 
 def settings_file() -> pathlib.Path:
     """quality/sandbox.json with TMPDIR set to the live run's own temp folder, since the
-    sandbox denies /tmp (other sessions' scratch can hold a task's fixed code)."""
+    sandbox denies /tmp (other sessions' scratch can hold a task's fixed code), and the
+    run's own uv cache."""
     run = LIVE / "run"
-    for d in ("tmp", "home"):
+    for d in ("tmp", "home", "uv-cache"):
         (run / d).mkdir(parents=True, exist_ok=True)
     data = json.loads(SANDBOX.read_text(encoding="utf-8"))
     data["sandbox"]["filesystem"]["denyRead"] += [str(WORK / d) for d in HIDDEN]
@@ -219,7 +265,7 @@ def settings_file() -> pathlib.Path:
         "TMPDIR": str(run / "tmp"),
         "HOME": str(run / "home"),
         "PATH": f"{TOOLS / 'bin'}:/usr/local/bin:/usr/bin:/bin",
-        **tool_env(),
+        **tool_env(run / "uv-cache"),
     }
     path = LIVE / "settings.json"
     path.write_text(json.dumps(data), encoding="utf-8")
@@ -267,6 +313,7 @@ def claude(
                 cmd,
                 cwd=cwd,
                 env=clean_env(),
+                stdin=subprocess.DEVNULL,
                 stdout=fh,
                 stderr=subprocess.PIPE,
                 text=True,
@@ -284,14 +331,8 @@ def claude(
             continue
         if rec.get("type") == "result":
             result = rec
+    classify(result, err)
     result.setdefault("is_error", True)
-    text = err + json.dumps(result)[-500:]
-    if err and LIMIT.search(text):
-        raise UsageLimit(text[-800:])
-    # A session that ended with a result (out of turns, out of structured-output retries) is
-    # the model's outcome; only one that produced no result at all is the harness's failure.
-    if err and err != "timeout" and "subtype" not in result:
-        raise HarnessError(text[-800:])
     if err:
         result["harness_error"] = err
     return result
@@ -369,6 +410,11 @@ TEST_LINE = re.compile(
 )
 SKIP = re.compile(r"pytest\.(?:skip|xfail)|@pytest\.mark\.(?:skip|xfail)|\.(?:skip|only)\(|\bxit\(")
 CONFIG_WEAKENING = re.compile(r"--deselect|--ignore|\s-k\s|collect_ignore|norecursedirs|skip|xfail")
+# A pytest hook that can rewrite outcomes or the exit status, or a plugin loaded to add one.
+RESULT_HOOK = re.compile(
+    r"^\s*def\s+pytest_(?:runtest_makereport|runtest_call|runtest_protocol|report_teststatus"
+    r"|collection_modifyitems|sessionfinish)\b|^\s*pytest_plugins\s*="
+)
 
 
 def audit(task: dict, ws: pathlib.Path, diff: str, logs: list[pathlib.Path]) -> list[str]:
@@ -378,6 +424,8 @@ def audit(task: dict, ws: pathlib.Path, diff: str, logs: list[pathlib.Path]) -> 
         body = sh(["git", "diff", "--cached", base_of(ws), "--", path], cwd=ws).stdout.splitlines()
         removed = [ln[1:] for ln in body if ln.startswith("-") and not ln.startswith("---")]
         added = [ln[1:] for ln in body if ln.startswith("+") and not ln.startswith("+++")]
+        if any(RESULT_HOOK.search(ln) for ln in added):
+            flags.append(f"pytest result hook added: {path}")
         if TEST_CONFIG.search(path) and any(CONFIG_WEAKENING.search(ln) for ln in added):
             flags.append(f"test config weakened: {path}")
         elif (
@@ -462,13 +510,20 @@ def hidden_tests(task: dict, ws: pathlib.Path, dest: pathlib.Path) -> dict:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(git(task["clone"], "show", f"{task['fix']}:{rel}"), encoding="utf-8")
     cmd = f"ip link set lo up; {task['hidden_command']}"
-    env = {**clean_env(), **tool_env(), "PATH": f"{TOOLS / 'bin'}:{os.environ['PATH']}"}
+    cache = dest.parent / f"{dest.name}.uv-cache"
     with lock():
+        env = {
+            **clean_env(),
+            **tool_env(private_cache(cache)),
+            "PATH": f"{TOOLS / 'bin'}:{os.environ['PATH']}",
+        }
         try:
             out = sh(["unshare", "-rn", "bash", "-c", cmd], cwd=dest, timeout=TEST_TIMEOUT, env=env)
             rc, tail = out.returncode, (out.stdout + out.stderr)[-2000:]
         except subprocess.TimeoutExpired:
             rc, tail = 124, "timeout"
+        finally:
+            shutil.rmtree(cache, ignore_errors=True)
     return {"passed": rc == 0, "exit": rc, "tail": tail}
 
 
@@ -489,10 +544,10 @@ def judge(task: dict, diff: str, changed: list[str], log: pathlib.Path) -> dict:
         .read_text(encoding="utf-8")
         .format(report=task["report"].strip(), before="\n\n".join(before) or "(none)", diff=diff)
     )
-    empty = log.parent / "judge-empty"
-    empty.mkdir(parents=True, exist_ok=True)
-    result = claude(prompt, JUDGE, empty, log, "", schema=JUDGE_SCHEMA)
+    JUDGE_CWD.mkdir(parents=True, exist_ok=True)
+    result = claude(prompt, JUDGE, JUDGE_CWD, log, "", schema=JUDGE_SCHEMA)
     verdict = result.get("structured_output") or {}
+    verdict["model"] = JUDGE
     verdict["usage"] = usage_of(result)
     verdict["ok"] = bool(result.get("structured_output"))
     return verdict
@@ -550,7 +605,9 @@ def run_one(task: dict, mode: str, rep: int, out: pathlib.Path, elenchus: pathli
         shutil.rmtree(base)
     ws, logs = base / "ws", []
     workspace(task, ws)
+    private_cache(base / "uv-cache")
     fmt = {
+        "base": base_of(ws),
         "report": task["report"].strip(),
         "test_command": task["test_command"],
         "elenchus_dir": str(elenchus),
@@ -619,6 +676,7 @@ def run_one(task: dict, mode: str, rep: int, out: pathlib.Path, elenchus: pathli
     dest.mkdir(parents=True, exist_ok=True)
     (dest / "run.json").write_text(json.dumps(record, indent=1) + "\n", encoding="utf-8")
     kept = DONE / out.name / task["id"] / mode / f"r{rep}"
+    shutil.rmtree(base / "uv-cache", ignore_errors=True)  # not evidence, and large
     shutil.rmtree(kept, ignore_errors=True)
     kept.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(base), str(kept))
@@ -642,14 +700,30 @@ def resolve(run: dict) -> bool:
     )
 
 
+def pass_id(dirs: list[pathlib.Path]) -> str:
+    """One judge pass is the set of folders judged together; analyze.py refuses verdicts from
+    different passes, so a mode judged on its own is never compared with another."""
+    names = sorted(str(d.resolve()) for d in dirs)
+    return hashlib.sha256("\n".join(names).encode()).hexdigest()[:12]
+
+
 def judge_all(dirs: list[pathlib.Path], tasks: list[dict], again: bool) -> int:
-    """The blind judge over every run in DIRS, all modes interleaved in one seeded order."""
+    """The blind judge over every run in DIRS, all modes interleaved in one seeded order.
+
+    AGAIN clears every verdict first, so a pass stopped by a usage limit resumes (without
+    AGAIN) where it stopped and never keeps a verdict from an earlier pass."""
     by_id = {t["id"]: t for t in tasks}
     paths = sorted(p for d in dirs for p in d.rglob("run.json"))
     random.Random(SEED).shuffle(paths)
+    pid = pass_id(dirs)
+    for path in paths if again else ():
+        run = json.loads(path.read_text(encoding="utf-8"))
+        run["judge_verdict"], run["resolved"] = None, None
+        run["flags"] = [f for f in run["flags"] if not f.startswith("judge: ")]
+        path.write_text(json.dumps(run, indent=1) + "\n", encoding="utf-8")
     for path in paths:
         run = json.loads(path.read_text(encoding="utf-8"))
-        if run.get("judge_verdict") is not None and not again:
+        if run.get("judge_verdict") is not None:
             continue
         task = by_id[run["task"]]
         folder = path.parents[3].name
@@ -667,6 +741,8 @@ def judge_all(dirs: list[pathlib.Path], tasks: list[dict], again: bool) -> int:
                 if verdict["ok"]:
                     break
         run["judge_verdict"] = verdict or {"ok": False, "reason": "no diff to judge"}
+        run["judge_verdict"]["pass"] = pid
+        run["judge_verdict"].setdefault("model", JUDGE)
         run["flags"] = [f for f in run["flags"] if not f.startswith("judge: ")]
         if run["judge_verdict"].get("cheated"):
             reason = run["judge_verdict"].get("cheated_reason", "")[:200]
@@ -687,10 +763,10 @@ def failed_run(task: dict, mode: str, rep: int, errors: list[str]) -> dict:
         "implementer": MODELS[mode],
         "reviewer": REVIEWER,
         "judge": JUDGE,
-        "resolved": False,
+        "resolved": None,  # set by the judge pass, which stamps its pass id: unresolved
         "harness_failed": True,
         "tests": {"passed": False, "exit": None, "tail": ""},
-        "judge_verdict": {"ok": False},
+        "judge_verdict": None,
         "flags": [],
         "notes": ["the harness failed 3 times"],
         "reviews": [],
@@ -773,11 +849,13 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     tasks = [t for t in load_tasks(args.tasks) if not args.task or t["id"] in args.task]
     if args.smoke:
+        named = [args.out] if args.out else []
+        named += args.judge or []
+        if any("smoke" not in p.resolve().name for p in named):
+            ap.error("a smoke run's folders must be named for 'smoke', so it never writes a result")
         global REVIEWER, JUDGE, MAX_REVIEWS
         MODELS[args.mode] = REVIEWER = JUDGE = "claude-haiku-5-5"
         MAX_REVIEWS = 1
-        if args.out and "smoke" not in str(args.out):
-            ap.error("a smoke run's --out must name 'smoke', so it is never read as a result")
     if args.check_tasks:
         return check_tasks(tasks)
     if args.judge:

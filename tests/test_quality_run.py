@@ -172,3 +172,143 @@ def test_leaks_reads_every_record_shape(tmp_path):
     recs = [{"type": "system", "message": "init"}, ["x"], {"message": {"content": "text"}}]
     log.write_text("\n".join(json.dumps(r) for r in recs) + "\n")
     assert run.leaks(log, tmp_path / "ws") == []
+
+
+API_404 = {
+    "type": "result",
+    "subtype": "success",
+    "is_error": True,
+    "terminal_reason": "api_error",
+    "api_error_status": 404,
+    "duration_ms": 429,
+    "result": "There's an issue with the selected model.",
+}
+
+
+@pytest.mark.parametrize(
+    ("result", "err", "raises"),
+    [
+        (API_404, "", run.HarnessError),  # a 429 ms session is not a rate limit
+        ({**API_404, "api_error_status": 429}, "", run.UsageLimit),
+        ({**API_404, "api_error_status": 529}, "", run.UsageLimit),
+        ({**API_404, "api_error_status": 500}, "", run.HarnessError),
+        (
+            {**API_404, "api_error_status": None, "result": "usage limit reached"},
+            "",
+            run.UsageLimit,
+        ),
+        ({}, "boom", run.HarnessError),
+        ({}, "You've hit your session limit", run.UsageLimit),
+        ({}, "timeout", None),
+        ({"subtype": "error_max_turns", "is_error": True}, "exit 1", None),
+        ({"subtype": "success", "is_error": False, "result": "fixed the rate limit bug"}, "", None),
+        (
+            {"subtype": "success", "is_error": True, "result": "You've hit your session limit"},
+            "",
+            run.UsageLimit,
+        ),
+    ],
+)
+def test_classify_reads_structured_fields(result, err, raises):
+    if raises is None:
+        run.classify(result, err)
+    else:
+        with pytest.raises(raises) as caught:
+            run.classify(result, err)
+        assert type(caught.value) is raises
+
+
+@pytest.mark.parametrize("flag", ["--judge", "--out"])
+def test_smoke_never_writes_into_a_real_results_folder(tmp_path, flag):
+    with pytest.raises(SystemExit):
+        run.main(["--smoke", flag, str(tmp_path / "smoke" / "2026-10-29-normal")])
+    assert run.MODELS["normal"] == "claude-opus-5-5"
+
+
+def test_the_judge_runs_in_one_neutral_folder(tmp_path, monkeypatch):
+    seen = []
+    monkeypatch.setattr(run, "JUDGE_CWD", tmp_path / "judge-cwd")
+    monkeypatch.setattr(
+        run, "claude", lambda prompt, model, cwd, *a, **k: seen.append(cwd) or {"is_error": True}
+    )
+    task = {"report": "r", "clone": tmp_path, "parent": "HEAD"}
+    for mode in ("normal", "budget"):
+        run.judge(task, "+x", [], tmp_path / "judge" / f"2026-10-29-{mode}" / "t.jsonl")
+    assert seen == [tmp_path / "judge-cwd"] * 2
+
+
+def test_a_judge_pass_stamps_one_id_and_a_rejudge_clears_first(tmp_path, monkeypatch):
+    for mode in ("normal", "budget"):
+        path = tmp_path / mode / "t1" / mode / "r1" / "run.json"
+        path.parent.mkdir(parents=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "task": "t1",
+                    "mode": mode,
+                    "repeat": 1,
+                    "tests": {"passed": True},
+                    "diff": "+x",
+                    "flags": [],
+                    "judge_verdict": {"ok": True, "pass": "old"},
+                    "resolved": True,
+                }
+            )
+        )
+    calls = []
+    monkeypatch.setattr(run, "judge", lambda *a, **k: calls.append(1) or {"ok": True})
+    monkeypatch.setattr(run, "WORK", tmp_path / "work")
+    dirs = [tmp_path / "normal", tmp_path / "budget"]
+    assert run.judge_all(dirs, [{"id": "t1"}], again=False) == 0
+    assert calls == []  # judged runs are kept without --rejudge
+    assert run.judge_all(dirs, [{"id": "t1"}], again=True) == 0
+    passes = {
+        json.loads(p.read_text())["judge_verdict"]["pass"] for p in tmp_path.rglob("run.json")
+    }
+    assert passes == {run.pass_id(dirs)} and len(calls) == 2
+    assert run.pass_id(dirs[:1]) != run.pass_id(dirs)
+
+
+def test_private_cache_is_a_copy_and_environments_copy_out_of_it(tmp_path, monkeypatch):
+    monkeypatch.setattr(run, "TOOLS", tmp_path / "tools")
+    monkeypatch.setattr(run, "SEED_CACHE", tmp_path / "tools" / "uv-cache")
+    monkeypatch.setattr(run.shutil, "which", lambda _: __file__)
+    run.tool_env()  # writes the seed version, purging an older seed
+    (run.SEED_CACHE / "archive-v0").mkdir(parents=True)
+    (run.SEED_CACHE / "archive-v0" / "f").write_text("seed")
+    copy = run.private_cache(tmp_path / "run" / "uv-cache")
+    (copy / "archive-v0" / "f").write_text("changed by a run")
+    (copy / "archive-v0" / "g").write_text("a run's build")
+    assert (run.SEED_CACHE / "archive-v0" / "f").read_text() == "seed"
+    assert not (run.SEED_CACHE / "archive-v0" / "g").exists()
+    env = run.tool_env(copy)
+    assert env["UV_CACHE_DIR"] == str(copy) and env["UV_LINK_MODE"] == "copy"
+
+
+def test_an_older_seed_cache_is_purged(tmp_path, monkeypatch):
+    monkeypatch.setattr(run, "TOOLS", tmp_path / "tools")
+    monkeypatch.setattr(run, "SEED_CACHE", tmp_path / "tools" / "uv-cache")
+    monkeypatch.setattr(run.shutil, "which", lambda _: __file__)
+    (run.SEED_CACHE / "archive-v0").mkdir(parents=True)
+    run.tool_env()
+    assert not run.SEED_CACHE.exists()
+
+
+@pytest.mark.parametrize("name", ["review.md", "fix.md"])
+def test_review_and_fix_prompts_name_the_base_commit(name):
+    text = (run.HERE / "prompts" / name).read_text()
+    assert "`git diff {base}`" in text and "`git diff`" not in text
+
+
+@pytest.mark.parametrize(
+    ("line", "hit"),
+    [
+        ("def pytest_runtest_makereport(item, call):", True),
+        ("    def pytest_collection_modifyitems(items):", True),
+        ("pytest_plugins = ['force_pass']", True),
+        ("def pytest_addoption(parser):", False),
+        ("def test_pytest_runtest_makereport():", False),
+    ],
+)
+def test_result_hooks(line, hit):
+    assert bool(run.RESULT_HOOK.search(line)) is hit
