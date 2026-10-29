@@ -122,14 +122,27 @@ def read(path: Path) -> str | None:
         return None
 
 
-ZIZMOR = re.compile(r"\bzizmor\b|zizmorcore/zizmor-action@")
-NOT_A_RUN = re.compile(r"^\s*(?:-\s+)?(?:#|name:|echo\b|run:\s*echo\b)")
+ZIZMOR = re.compile(r"\bzizmor\b")
+KEY = re.compile(r"^\s*(?:-\s+)?([A-Za-z_][\w-]*):\s*(.*)$")
 
 
 def runs_zizmor(text: str) -> bool:
-    """A step that runs zizmor: a command line or the zizmor action, not a comment, a step
-    name or an echo."""
-    return any(ZIZMOR.search(ln) and not NOT_A_RUN.match(ln) for ln in text.splitlines())
+    """A step that runs zizmor: the zizmor action, or zizmor in a command (a `run:` value or a
+    line of a run block). A comment, an echo, or any other key's value (env, with, if, name)
+    does not count."""
+    for raw in text.splitlines():
+        line = re.sub(r"(^|\s)#.*$", "", raw).rstrip()
+        m = KEY.match(line)
+        if m:
+            key, value = m.groups()
+            if key == "uses" and value.strip("'\"").startswith("zizmorcore/zizmor-action@"):
+                return True
+            if key != "run":
+                continue
+            line = value
+        if ZIZMOR.search(line) and not re.match(r"^\s*echo\b", line):
+            return True
+    return False
 
 
 def locked_workflows(lock: str) -> set[str]:
@@ -201,10 +214,10 @@ def workflow_gaps(root: Path) -> list[str]:
     zizmor = False
     for path in files + composite_actions(root):
         text = read(path)
-        if text is None:
-            unreadable.append(path.name)
-            continue
         workflow = path.parent.name == "workflows"
+        if text is None:
+            unreadable.append(path.name if workflow else path.relative_to(root).as_posix())
+            continue
         # Only a workflow the lockfile names is onboarded (GitHub onboards them one by one).
         locked = workflow and path.name in onboarded
         zizmor |= runs_zizmor(text)

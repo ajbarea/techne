@@ -235,6 +235,10 @@ def test_the_lockfile_names_a_workflow_exactly(tmp_path):
         ("      - run: make zizmor\n", True),
         ("      - run: echo 'add zizmor later'\n", False),
         ("      - name: zizmor someday\n        run: make lint\n", False),
+        ("      - uses: actions/checkout@" + SHA + " # zizmor: ignore[artipacked]\n", False),
+        ("      - run: make lint\n        env:\n          zizmor-version: 1\n", False),
+        ("      - uses: other/zizmor-wrapper@" + SHA + "\n", False),
+        ("      - uses: zizmorcore/zizmor-action@" + SHA + "\n", True),
     ],
 )
 def test_zizmor_counts_only_when_a_step_runs_it(tmp_path, step, counts):
