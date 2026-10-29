@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Guards on the Bash tool for git commit, git add, git push and gh pr.
+"""Guards on the Bash tool for git commit, git add, git push and gh pr/issue/api writes.
 
 register.ts runs this from its tool.call hook on each main-thread Bash command
 that names git or gh, passing the PreToolUse JSON on stdin and each userConfig
@@ -31,15 +31,17 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import body_gate
 import secret_scan
 
 ATTRIBUTION = "block_attribution_trailers"
 COMMITS_MD = "block_commits_md"
 MAIN_CHECKOUT = "warn_main_checkout_commit"
 SECRETS = "block_secrets"
-OPTIONS = (ATTRIBUTION, COMMITS_MD, MAIN_CHECKOUT, SECRETS)
+BODIES = "block_long_bodies"
+OPTIONS = (ATTRIBUTION, COMMITS_MD, MAIN_CHECKOUT, SECRETS, BODIES)
 # The guards that refuse a command; MAIN_CHECKOUT only warns.
-BLOCKING = (ATTRIBUTION, COMMITS_MD, SECRETS)
+BLOCKING = (ATTRIBUTION, COMMITS_MD, SECRETS, BODIES)
 
 ATTRIBUTION_RE = re.compile(
     r"Claude-Session|claude\.ai/code/session|Co-Authored-By\s*[:=]\s*Claude"
@@ -116,6 +118,49 @@ ADD_INTERACTIVE = {"-p", "--patch", "-i", "--interactive", "-e", "--edit"}
 GH_PR_WRITERS = {"create", "new", "edit", "merge"}
 GH_TEXT = {"-t": "text", "--title": "text", "--subject": "text", "-b": "text", "--body": "text"}
 GH_FILE = {"-F": "file", "--body-file": "file", "-T": "file", "--template": "file"}
+# gh subcommands that write an issue, PR or comment body, and that body's kind (body_gate).
+GH_BODY_KINDS = {
+    ("pr", "create"): "PR",
+    ("pr", "new"): "PR",
+    ("pr", "edit"): "PR",
+    ("issue", "create"): "issue",
+    ("issue", "new"): "issue",
+    ("issue", "edit"): "issue",
+    ("pr", "comment"): "comment",
+    ("issue", "comment"): "comment",
+    ("pr", "review"): "comment",
+}
+GH_BODY_TEXT = {"-b", "--body"}
+GH_BODY_FILE = {"-F", "--body-file"}
+# gh api flags that take a value, and the REST paths whose `body` field is an issue, PR or comment.
+GH_API_VALUE = {
+    "-X",
+    "--method",
+    "-H",
+    "--header",
+    "-q",
+    "--jq",
+    "-t",
+    "--template",
+    "--hostname",
+    "-p",
+    "--preview",
+    "--cache",
+    "-f",
+    "--raw-field",
+    "-F",
+    "--field",
+    "--input",
+}
+GH_API_KINDS = (
+    (
+        re.compile(r"repos/[^/\s]+/[^/\s]+/(?:issues|pulls)/(?:\d+/comments|comments/\d+)/?$"),
+        "comment",
+    ),
+    (re.compile(r"repos/[^/\s]+/[^/\s]+/pulls/\d+/reviews(?:/\d+)?/?$"), "comment"),
+    (re.compile(r"repos/[^/\s]+/[^/\s]+/pulls(?:/\d+)?/?$"), "PR"),
+    (re.compile(r"repos/[^/\s]+/[^/\s]+/issues(?:/\d+)?/?$"), "issue"),
+)
 # git add flags that pick hunks or only report; the temporary index takes whole paths instead.
 ADD_REPLAY_DROP = ADD_INTERACTIVE | {"-n", "--dry-run", "--ignore-missing"}
 PUSH_VALUE = {"--repo", "-o", "--push-option", "--receive-pack", "--exec"}
@@ -1128,6 +1173,94 @@ class Guards:
         if writer and self.enabled(ATTRIBUTION, Command(cwd), local=False):
             texts, files = parse_gh_pr(argv[1:])
             self.check_attribution(f"`gh pr {words[1]}`", texts, files, cwd, "pr", argv, env)
+        kind = GH_BODY_KINDS.get(tuple(words)) if len(words) == 2 else None
+        api = bool(words) and words[0] == "api"
+        if (kind or api) and self.enabled(BODIES, Command(cwd), local=False):
+            if api:
+                kind, body = self.api_body(argv[argv.index("api") + 1 :], cwd, env)
+            else:
+                body = self.gh_body(argv[1:], cwd, env)
+            if kind and body is not None:
+                denies, warnings = body_gate.check(kind, body)
+                self.verdict.denies.extend(denies)
+                self.verdict.warnings.extend(warnings)
+
+    def body_value(self, value: str, cwd: Path, env: dict[str, str]) -> str | None:
+        """A body flag's value as GitHub gets it: a heredoc this command line opens
+        with gh, a `$(cat FILE)`, or the text with the variables known here; None
+        when it cannot be known (stdin)."""
+        if "<<" in value:
+            for opener, text in self.bodies:
+                if re.search(r"\bgh\b", opener):
+                    return text
+            return None
+        cat = CAT_SUBST_RE.search(value)
+        if cat:
+            return read_message_file(cat.group(1), cwd)
+        return expand(value, env, unknown=None)
+
+    def gh_body(self, args: list[str], cwd: Path, env: dict[str, str]) -> str | None:
+        """The body `gh pr|issue create|edit|comment` writes, or None without one."""
+        body: str | None = None
+        i = 0
+        while i < len(args):
+            tok = args[i]
+            name, eq, value = tok.partition("=")
+            if not tok.startswith("--") and len(tok) > 2 and tok[:2] in GH_BODY_TEXT | GH_BODY_FILE:
+                name, eq, value = tok[:2], "=", tok[2:]
+            if name in GH_BODY_TEXT | GH_BODY_FILE:
+                if not eq:
+                    value = args[i + 1] if i + 1 < len(args) else ""
+                    i += 1
+                if name in GH_BODY_TEXT:
+                    body = self.body_value(value, cwd, env)
+                elif value == "-":
+                    body = self.body_value("<<", cwd, env)
+                else:
+                    body = read_message_file(value, cwd)
+            i += 1
+        return body
+
+    def api_body(
+        self, args: list[str], cwd: Path, env: dict[str, str]
+    ) -> tuple[str | None, str | None]:
+        """The kind and `body` field of a `gh api` write to an issue, PR or comment."""
+        endpoint = None
+        body: str | None = None
+        i = 0
+        while i < len(args):
+            tok = args[i]
+            name, eq, value = tok.partition("=") if tok.startswith("--") else (tok, "", "")
+            if not tok.startswith("--") and len(tok) > 2 and tok[:2] in GH_API_VALUE:
+                name, eq, value = tok[:2], "=", tok[2:]
+            if name in GH_API_VALUE:
+                if not eq:
+                    value = args[i + 1] if i + 1 < len(args) else ""
+                    i += 1
+                if name in {"-f", "--raw-field", "-F", "--field"}:
+                    key, _, field = value.partition("=")
+                    if key == "body":
+                        if name in {"-F", "--field"} and field.startswith("@"):
+                            body = None if field == "@-" else read_message_file(field[1:], cwd)
+                        else:
+                            body = self.body_value(field, cwd, env)
+                elif name == "--input" and value != "-":
+                    try:
+                        loaded = json.loads(read_message_file(value, cwd) or "null")
+                    except ValueError:
+                        loaded = None
+                    if isinstance(loaded, dict) and isinstance(loaded.get("body"), str):
+                        body = loaded["body"]
+            elif endpoint is None and not tok.startswith("-"):
+                endpoint = tok
+            i += 1
+        if endpoint is None or body is None:
+            return None, None
+        path = expand(endpoint, env, unknown=None).split("?")[0]
+        for pattern, kind in GH_API_KINDS:
+            if pattern.search(path):
+                return kind, body
+        return None, None
 
 
 def mod_checks(data: dict) -> bool:
