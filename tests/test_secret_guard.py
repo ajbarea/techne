@@ -397,5 +397,51 @@ def test_a_tag_glob_scans_commits_only_tags_reach(repo, state):
 
 @needs_gitleaks
 def test_a_push_of_a_branch_that_does_not_exist_is_left_to_git(repo, state):
-    # git reports the missing ref itself; the guard must not blame the scanner.
+    # git refuses the whole push, so it sends nothing: no scan, and no blame on an unrelated
+    # unpushed branch's secret.
+    _git(repo, "checkout", "-qb", "old")
+    commit_leak(repo)
+    _git(repo, "checkout", "-q", "main")
     assert run_guard("git push origin no-such-branch", repo, state) is None
+
+
+@needs_gitleaks
+def test_a_widened_scan_still_covers_a_detached_head(repo, state):
+    _git(repo, "checkout", "-q", "--detach")
+    commit_leak(repo)
+    command = "git commit --allow-empty -m y && git push origin HEAD:refs/heads/feat"
+    why = run_guard(command, repo, state)
+    assert why and "scanned wide" in why and "command of its own" in why, why
+
+
+@needs_gitleaks
+def test_commits_another_remote_holds_are_never_blamed(repo, state, tmp_path):
+    # A fork: main tracks upstream, whose history carries a flagged fixture.
+    _git(tmp_path, "init", "-q", "--bare", str(tmp_path / "up.git"))
+    _git(repo, "remote", "add", "upstream", str(tmp_path / "up.git"))
+    commit_leak(repo, "fixture.py")
+    _git(repo, "push", "-q", "upstream", "HEAD:main")
+    _git(repo, "fetch", "-q", "upstream")
+    assert run_guard("git push origin main:refs/heads/feat", repo, state) is None
+    assert run_guard("git checkout -b feat2 && git push -u origin feat2", repo, state) is None
+
+
+@needs_gitleaks
+def test_a_mover_in_another_repo_or_a_fetch_does_not_widen(repo, state, tmp_path):
+    _git(repo, "checkout", "-qb", "old")
+    commit_leak(repo)
+    _git(repo, "checkout", "-q", "main")
+    other = tmp_path / "other"
+    other.mkdir()
+    _git(other, "init", "-q", "-b", "main")
+    assert run_guard(f"git -C {other} checkout -qb x && git push origin main", repo, state) is None
+    assert run_guard("git fetch -q origin && git push origin main", repo, state) is None
+    assert run_guard("git checkout -q main && git push origin main", repo, state)
+
+
+@needs_gitleaks
+def test_an_alias_for_commit_is_scanned(repo, state):
+    _git(repo, "config", "alias.ci", "commit")
+    leak(repo, "s.py")
+    why = run_guard("git add s.py && git ci -m s", repo, state)
+    assert why and "this commit would add a secret" in why, why

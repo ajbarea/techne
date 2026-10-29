@@ -125,6 +125,8 @@ ADD_TIMEOUT = 20
 PUSH_DELETE = {"-d", "--delete"}
 # git subcommands that can create or move a ref before a later `git push` in the same command
 # line runs; the push scan then cannot know its range at hook time and widens.
+# Subcommands the guards act on or track; anything else may be an alias.
+KNOWN_SUBS = {"add", "stage", "commit", "push", "status", "diff", "log", "show"}
 REF_MOVERS = {
     "checkout",
     "switch",
@@ -142,7 +144,6 @@ REF_MOVERS = {
     "update-ref",
     "symbolic-ref",
     "worktree",
-    "fetch",
 }
 
 
@@ -475,6 +476,20 @@ def parse_git(argv: list[str], cwd: Path, env: dict[str, str]) -> Command | None
     return None
 
 
+def resolve_alias(cmd: Command) -> None:
+    """Expand `git <alias>` to the command it stands for (`alias.ci = commit` makes `git ci`
+    a commit); a shell alias (`!...`) is left as it is."""
+    if not cmd.sub or cmd.sub in KNOWN_SUBS:
+        return
+    try:
+        alias = run_git(cmd.cwd, cmd.repo_args, "config", "--get", f"alias.{cmd.sub}")
+    except GitUnavailable:
+        return
+    words = shlex.split(alias or "") if alias and not alias.lstrip().startswith("!") else []
+    if words:
+        cmd.sub, cmd.args = words[0], words[1:] + cmd.args
+
+
 def repo_env(cmd: Command) -> dict[str, str]:
     """`--git-dir`/`--work-tree` as the environment a scanner's own git calls read."""
     env: dict[str, str] = {}
@@ -624,8 +639,10 @@ class Guards:
         self.who = who
         # `git add` calls seen so far in this command, which a later commit would include.
         self.pending_adds: list[Command] = []
-        # Whether an earlier git subcommand in this command may move refs before a push runs.
-        self.refs_may_move = False
+        # Repos where an earlier git subcommand in this command may move refs before a push runs,
+        # and whether any git subcommand ran before (a push alone with a missing ref sends nothing).
+        self.moved_in: set[Path] = set()
+        self.git_before = False
         self.side_words: set[str] = set()
         self.created_scratch: list[str] = []
         self.writer_text = ""
@@ -868,21 +885,27 @@ class Guards:
             if run_git(cmd.cwd, cmd.repo_args, "rev-parse", "-q", "--verify", f"{x}^{{commit}}")
             is None
         ]
-        if self.refs_may_move or unresolved:
+        if unresolved and not self.git_before:
+            return  # git refuses the whole push, so it sends nothing
+        widened = top in self.moved_in or bool(unresolved)
+        if widened:
             # Run in one line after a checkout, commit or merge, the push sends refs that do not
-            # exist or point elsewhere at hook time: scan everything local the remotes lack.
-            # Commits made in the same line are the commit scan's.
-            srcs = [x for x in srcs if x.startswith("--")] + ["--branches", "--tags"]
-        # A remote with no tracking refs yet (a first push) excludes what every remote holds,
-        # rather than scanning the whole history.
-        held = remote in known and bool(
-            run_git(cmd.cwd, cmd.repo_args, "for-each-ref", "--count=1", f"refs/remotes/{remote}/")
-        )
-        theirs = f"--remotes={remote}" if held else "--remotes"
+            # exist or point elsewhere at hook time: scan HEAD, what resolves, and every local
+            # branch and tag. Commits made in the same line are the commit scan's.
+            srcs = [x for x in srcs if x not in unresolved] + ["HEAD", "--branches", "--tags"]
+        # Commits any remote holds are already on a server (a fork's upstream included), so the
+        # scan is what no remote has yet; a first push never rescans the whole history.
         # `--` ends the revisions, so a branch named like a folder is never read as a path.
-        log_opts = " ".join([*dict.fromkeys(srcs), "--not", theirs, "--"])
+        log_opts = " ".join([*dict.fromkeys(srcs), "--not", "--remotes", "--"])
+        what = (
+            "this push (scanned wide: every local branch and tag no remote holds, since an "
+            "earlier command in this line may move them; run the push as a command of its own "
+            "to scan only what it sends)"
+            if widened
+            else "this push"
+        )
         with tempfile.TemporaryDirectory(prefix="phylax-secrets-") as tmp:
-            self.scan_secrets("this push", "push", top, repo_env(cmd), log_opts, Path(tmp))
+            self.scan_secrets(what, "push", top, repo_env(cmd), log_opts, Path(tmp))
 
     def default_remote(self, cmd: Command) -> str:
         """The remote a bare `git push` uses: pushRemote, pushDefault, the branch's remote,
@@ -1036,6 +1059,7 @@ class Guards:
         cmd = parse_git(argv, cwd, env)
         if cmd is None:
             return
+        resolve_alias(cmd)
         if cmd.sub in ADD_SUBCOMMANDS:
             self.pending_adds.append(cmd)
             self.check_add(cmd)
@@ -1056,8 +1080,11 @@ class Guards:
             self.check_commit_scratch(cmd, commit)
             self.check_commit_secrets(cmd, commit)
             self.check_main_checkout(cmd)
-        if cmd.sub in REF_MOVERS:
-            self.refs_may_move = True
+        if cmd.sub in REF_MOVERS and option_on(SECRETS):
+            top = self.toplevel(cmd)
+            if top is not None:
+                self.moved_in.add(top)
+        self.git_before = True
 
     def check_gh(self, argv: list[str], cwd: Path, env: dict[str, str]) -> None:
         words: list[str] = []
