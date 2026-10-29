@@ -6,45 +6,18 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 
 ## In flight
 
-Logging rollout (fleet, 10-28/29), one PR per repo. This branch, `chore/logging-rollout`, is techne's
-own PR: the standard says `-ra` (`-rs` alone drops FAILED lines) and `RUFF_OUTPUT_FORMAT` in a
-workflow `env:`; `stderr-for-errors` also reads an echo or `print()` right before a non-zero exit;
-techne's own hits fixed. Repo PRs: sphragis #225, pharos #102, ariadne #76; then keryx, kourai,
-ajbarea.github.io, papers, phalanx-fl, periplus, talks, the coding-gym repo, the CSCI-739
-class repo, ldqis. Status per repo:
-the queue file's Running-now line.
+Nothing. The logging rollout (10-28/29) is done, one PR per repo, each re-checked `logging standard ✓`
+on main with #230's check: sphragis #225, techne #230, pharos #102, ariadne #76, keryx #69,
+ajbarea.github.io #137, papers #115, phalanx-fl #139, periplus #62, talks #41, the coding-gym repo
+#7, the CSCI-739 class repo #22, ldqis #209 (klepsydra met it in #145). Left: kourai-khryseai's code
+(harvest-only since Aug 2026; 94 G004/G201/G003, an uncapped FileHandler in
+`scripts/diagnose_m14_timeout.py`, templates without the lint rules) until AJ asks; velocity-fl
+skipped (harvest-only).
 
 Owed by AJ: from #209, the status line step `/phylax:setup` prints and the global CLAUDE.md
 routing line; GitGuardian incident 39081601 (a fake test token in #215, gone from the history)
-to mark as a false positive in the dashboard.
-
-## Logging gaps on main, 10-28 (logcheck.py plus the review pass)
-
-| Repo | Finding | Severity |
-|---|---|---|
-| sphragis | lint-python: ruff lacks G, LOG; 124 files use print, 1 uses logging | medium |
-| sphragis | log-file-tracked: 842 files in datasets/logs/ (evidence, to skip) | low |
-| sphragis | review: no `*.log` ignore (only logs/*), pytest without -ra, ruff without annotations | low |
-| pharos | lint-python: ruff lacks G, LOG; 47 print files | medium |
-| pharos | review: no `*.log` ignore, pytest without -ra in ci.yml, ruff without annotations | low |
-| ariadne | lint-python: ruff lacks G | medium |
-| ariadne | review: a bad `ARIADNE_STREAM_STALL_S` silently ignored; silent OTel and graph fallbacks; pytest without -ra | medium |
-| techne | check ✓; review: no `*.log` ignore; `-rs` drops FAILED lines; shell/Python failure text on stdout the check missed | medium |
-| keryx | lint-python: ruff lacks G, LOG; 9 files log | medium |
-| keryx | review: no `*.log`/logs/ ignore, pytest without -ra | low |
-| kourai-khryseai | lint-python: ruff lacks G (94 G004/G201/G003 to fix); templates lack G, LOG | medium |
-| kourai-khryseai | unbounded-log-file: scripts/diagnose_m14_timeout.py FileHandler | medium |
-| kourai-khryseai | lint-js: templates/frontend, tools/voice-lab | low |
-| ajbarea.github.io | lint-js: no no-console rule; 7 files call console.log/info/debug | medium |
-| papers | lint-python: ruff lacks G, LOG; pytest without -ra | low |
-| phalanx-fl | lint-python: ruff lacks G, LOG; no `*.log` ignore | low |
-| periplus | lint-js: no no-console rule; no `*.log`/logs/ ignore | low |
-| talks | lint-python: ruff lacks G, LOG; no `*.log` ignore | low |
-| the coding-gym repo | lint-python: ruff lacks G, LOG; no `*.log` ignore | low |
-| csci739-qfl-privacy | lint-python: ruff lacks G, LOG; pytest -q without -ra | low |
-| ldqis | lint-js + lint-python; no `*.log` ignore | low |
-| klepsydra | meets the standard (#145) | - |
-| velocity-fl | lint-python, lint-rust | skipped: harvest-only |
+to mark as a false positive in the dashboard. Same for ariadne incident 39247473 and 39249419
+(fake Neo4j credentials in the #76 tests, squashed out of the PR before merge).
 
 ## Open Minors (recorded, not scheduled)
 
@@ -58,6 +31,10 @@ to mark as a false positive in the dashboard.
 - slides.py `_READ_SLIDE`'s screen-reader check compares screen pixels with 1px, so at a deck
   scale above 1 it misses sr-only text (pptx_editable measures offsetWidth instead).
 
+- #230 logcheck: `lint-js` passes once a `noConsole` or `no-console` rule exists, without checking
+  that it covers the code (periplus's first `biome.json` missed the inline scripts in `index.html`);
+  a one-line `log() { echo "$*"; }` before `exit 1`, `printf -v`, and `{ echo` split from
+  `exit 1; } >&2` are flagged; `raise SystemExit(-1)` is not read.
 - #214 logcheck: an awk `}'` line closes an enclosing `{ ... } >&2` group; a Rust appender
   builder split over two statements is flagged; a JS ternary branch (`c ? token : "x"`) and a
   TS arrow parameter (`(token: string) =>`) are read as object fields; `$(( (a) << b ))` and
