@@ -867,24 +867,41 @@ def _failure_code(node: ast.expr | None) -> bool:
     return isinstance(node, ast.JoinedStr)
 
 
+def _int_literal(node: ast.expr | None) -> int | None:
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        inner = _int_literal(node.operand)
+        return None if inner is None else -inner
+    if isinstance(node, ast.Constant) and type(node.value) is int:
+        return node.value
+    return None
+
+
+EXIT_CALLS = {("sys", "exit"), ("os", "_exit"), (None, "exit"), (None, "quit")}
+
+
 def exits_failing(stmt: ast.stmt) -> bool:
-    """`return 1`, `sys.exit(1)`, `raise SystemExit(1)` and their message forms."""
+    """`return 1`, `sys.exit(1)`, `exit(1)`, `os._exit(1)`, `raise SystemExit(1)` and their
+    message forms."""
     if isinstance(stmt, ast.Return):
-        value = stmt.value
-        return isinstance(value, ast.Constant) and type(value.value) is int and value.value != 0
+        return _int_literal(stmt.value) not in (None, 0)
     if isinstance(stmt, ast.Raise) and isinstance(stmt.exc, ast.Call):
         call = stmt.exc
         return (
             terminal(call.func) == "SystemExit" and bool(call.args) and _failure_code(call.args[0])
         )
     if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
-        call = stmt.value
+        call, func = stmt.value, stmt.value.func
+        if isinstance(func, ast.Attribute):
+            target = (terminal(func.value), func.attr)
+        elif isinstance(func, ast.Name):
+            target = (None, func.id)
+        else:
+            return False
+        code = call.args[0] if call.args else None
         return (
-            isinstance(call.func, ast.Attribute)
-            and call.func.attr == "exit"
-            and terminal(call.func.value) == "sys"
-            and bool(call.args)
-            and _failure_code(call.args[0])
+            target in EXIT_CALLS
+            and code is not None
+            and (_failure_code(code) or _int_literal(code) not in (None, 0))
         )
     return False
 
@@ -1100,9 +1117,15 @@ def scan_shell_line(
         grouped = True
     parts = commands(line)
     for k, (cmd, op) in enumerate(parts):
+        # The failure's message: printed just before `exit N`, joined by `;` or `&&` (not on
+        # the `||` success branch, not inside `$(...)`), on this line or as the line's last
+        # command when the next line exits.
+        captured = k > 0 and parts[k - 1][1] in ("$(", "`")
+        nxt = parts[k + 1][0].strip() if k + 1 < len(parts) else ""
         rest_of_line = [c.strip() for c, _ in parts[k + 1 :]]
-        before_exit = any(EXIT_FAILING.match(c) for c in rest_of_line) or (
-            exit_follows and all(c in ("", "}", "fi") for c in rest_of_line)
+        before_exit = not captured and (
+            (op in (";", "&&") and bool(EXIT_FAILING.match(nxt)))
+            or (exit_follows and op in ("", ";") and all(c in ("", "}") for c in rest_of_line))
         )
         m = re.match(r"\s*(?:then\s+|do\s+|else\s+|\{\s*)?(echo|printf)\b(.*)", cmd)
         if not m or "::add-mask::" in cmd:
@@ -1182,12 +1205,17 @@ def shell_text(texts: dict[int, str]) -> tuple[dict[int, str], set[int]]:
     return kept, grouped
 
 
+def exits_first(line: str) -> bool:
+    """The line's first command is `exit N` with N non-zero."""
+    return bool(EXIT_FAILING.match(commands(line)[0][0].strip()))
+
+
 def scan_shell(path: str, text: str, report: Report) -> None:
     lines = text.splitlines()
     kept, grouped = shell_text(dict(enumerate(lines, 1)))
     logical = logical_lines(kept)
     for k, (line, span) in enumerate(logical):
-        follows = k + 1 < len(logical) and bool(EXIT_FAILING.match(logical[k + 1][0]))
+        follows = k + 1 < len(logical) and exits_first(logical[k + 1][0])
         scan_shell_line(path, lines, line, span, False, report, span[0] in grouped, follows)
 
 
@@ -1290,7 +1318,7 @@ def scan_workflow(path: str, text: str, report: Report) -> None:
         shell.update(kept)
         logical = logical_lines(kept)
         for k, (line, span) in enumerate(logical):
-            follows = k + 1 < len(logical) and bool(EXIT_FAILING.match(logical[k + 1][0]))
+            follows = k + 1 < len(logical) and exits_first(logical[k + 1][0])
             scan_shell_line(path, lines, line, span, True, report, exit_follows=follows)
     for name, start, end in jobs(lines):
         writes = [n for n in shell if start < n <= end and WRITES_LOG.search(lines[n - 1])]
