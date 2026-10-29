@@ -1,0 +1,98 @@
+{
+  "rounds": 219,
+  "parser_check": {
+    "rounds_stating_counts": 110,
+    "parsed_counts_agree": 93
+  },
+  "prs": 83,
+  "findings": 312,
+  "before_catalog": 41,
+  "tagged": 156,
+  "untagged": 115,
+  "already_catalogued": 151,
+  "not_yet_catalogued": 0,
+  "new_tagged": 5,
+  "already_catalogued_share": 0.968,
+  "already_catalogued_share_of_all": 0.557,
+  "rounds_all_catalogued": 52,
+  "class_counts": {
+    "claim-code-drift": 41,
+    "boundary-input": 24,
+    "unenumerated-input-shape": 18,
+    "unmirrored-parallel-guard": 14,
+    "looks-done-not-done": 13,
+    "vacuous-guard": 8,
+    "check-time-vs-run-time": 6,
+    "unreached-surface": 5,
+    "wrong-altitude": 4,
+    "flake-vs-real-red": 4,
+    "over-broad-trigger": 2,
+    "undiagnosable-failure": 2,
+    "shell-semantics-mismatch": 2,
+    "unmodeled-host-config": 2,
+    "instance-patch": 1,
+    "asymmetric-signal": 1,
+    "rebase-arms-live-test": 1,
+    "new: stacked-wrapper-input-pollution": 1,
+    "new: pseudo-geometry": 1,
+    "new: retry-bypasses-confirm": 1,
+    "new: state-by-tint-only": 1,
+    "new: dom-not-model": 1,
+    "hot-path-latency": 1,
+    "kill-by-pattern": 1,
+    "destructive-op-reachability": 1
+  },
+  "repeated_new_never_added": {},
+  "rounds_per_pr_by_repo": {
+    "ajbarea.github.io": {
+      "prs": 9,
+      "median_rounds": 2,
+      "max_rounds": 2
+    },
+    "ariadne": {
+      "prs": 1,
+      "median_rounds": 3,
+      "max_rounds": 3
+    },
+    "hackathon": {
+      "prs": 2,
+      "median_rounds": 2.5,
+      "max_rounds": 3
+    },
+    "keryx": {
+      "prs": 6,
+      "median_rounds": 1.0,
+      "max_rounds": 1
+    },
+    "klepsydra": {
+      "prs": 33,
+      "median_rounds": 1,
+      "max_rounds": 9
+    },
+    "ldqis": {
+      "prs": 1,
+      "median_rounds": 1,
+      "max_rounds": 1
+    },
+    "private repos": {
+      "prs": 11,
+      "median_rounds": 2,
+      "max_rounds": 5
+    },
+    "sphragis": {
+      "prs": 5,
+      "median_rounds": 2,
+      "max_rounds": 4
+    },
+    "talks": {
+      "prs": 1,
+      "median_rounds": 1,
+      "max_rounds": 1
+    },
+    "techne": {
+      "prs": 14,
+      "median_rounds": 2.0,
+      "max_rounds": 5
+    }
+  }
+}
