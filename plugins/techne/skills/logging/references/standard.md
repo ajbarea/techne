@@ -3,7 +3,7 @@
 
 What a repo's logs must do so that a bug can be found from the logs alone, on a laptop and in a
 CI run. `scripts/logcheck.py` checks the parts a program can check; the rest is what a reviewer
-reads for. Sources are listed at the end; each was read on 2026-10-26.
+reads for. Sources are listed at the end; each was read on 2026-10-26 or 2026-10-28.
 
 `# research(2026-10)`
 
@@ -93,6 +93,11 @@ days by `make clean`.
   `FileHandler` or `basicConfig(filename=...)` grows without a cap. `WatchedFileHandler` is
   for a file that `logrotate` rotates. → `unbounded-log-file`.
 - A slow handler (network, email) sits behind `QueueHandler` and `QueueListener`.
+- A script without a logger prints a refusal or warning with `print(..., file=sys.stderr)`. A
+  `print()` to stdout in the run of prints right before `return 1`, `sys.exit(1)` or
+  `raise SystemExit(1)` is the failure's message on the wrong stream. A checker's findings
+  are its result and stay on stdout, with a `logcheck: ignore` saying so.
+  → `stderr-for-errors`.
 
 ## Rust
 
@@ -123,7 +128,9 @@ days by `make clean`.
 ## Shell
 
 - Error and warning text goes to stderr, `echo "error: ..." >&2`, through one `err()` helper
-  (Google's shell style guide). → `stderr-for-errors`.
+  (Google's shell style guide). The check reads text that starts `error:`, `FAIL:` or the like,
+  and any `echo` or `printf` right before `exit N` with N non-zero, on the same line or the
+  next. → `stderr-for-errors`.
 - A script that runs in CI prints its own errors as annotations (below).
 - A secret is never echoed. Shell secrets are environment variables, named in capitals; the
   check reads only those. Piping one to a command (`printf '%s' "$TOKEN" | gh auth login
@@ -134,8 +141,10 @@ days by `make clean`.
 
 - **Annotations name the cause.** A step reports a failure with
   `::error file=<path>,line=<n>,title=<short>::<message>`, which shows on the run summary and
-  the PR's changed lines. Tools that can emit them should: `ruff check --output-format=github`,
-  `logcheck.py --format github`. → in a workflow, `stderr-for-errors` asks for `::error::`.
+  the PR's changed lines. Tools that can emit them should: `logcheck.py --format github`, and
+  ruff through `RUFF_OUTPUT_FORMAT: github` in the workflow's `env:` (ruff 0.16 and later apply
+  it to `format --check` too), so each step stays the command `make lint` runs locally.
+  → in a workflow, `stderr-for-errors` asks for `::error::`.
 - **Groups keep the log readable.** Wrap long output in `::group::<title>` and `::endgroup::`.
 - **Masking.** `::add-mask::<value>` before a value derived from a secret is printed; each value
   is masked once per job. Never `echo` a secret, masked or not. → `secret-in-log`.
@@ -147,8 +156,9 @@ days by `make clean`.
   by default. → `ci-logs-not-uploaded`.
 - **Step summaries** (`$GITHUB_STEP_SUMMARY`) hold a short table of results: at most 1 MiB per
   step, and 20 per job are shown.
-- **Skips are visible.** pytest runs with `-rs`, so each skip reason is in the log, and an audit
-  can count skips.
+- **Skips are visible.** pytest runs with `-ra`, so each skip reason is in the log next to the
+  failures, and an audit can count skips. `-rs` alone replaces pytest's default `fE` and drops
+  the FAILED lines from the short summary (pytest 9.1).
 
 ## Sources
 
@@ -157,6 +167,8 @@ days by `make clean`.
 - Python logging handlers: https://docs.python.org/3/library/logging.handlers.html
 - structlog 26.1.0, logging best practices: https://www.structlog.org/en/stable/logging-best-practices.html
 - ruff rules, flake8-logging and flake8-logging-format: https://docs.astral.sh/ruff/rules/
+- ruff CLI, `RUFF_OUTPUT_FORMAT`: https://docs.astral.sh/ruff/configuration/#full-command-line-interface
+- pytest output, `-r` summary characters: https://docs.pytest.org/en/stable/how-to/output.html
 - platformdirs platform paths: https://platformdirs.readthedocs.io/en/latest/platforms.html
 - XDG Base Directory spec 0.8: https://specifications.freedesktop.org/basedir/latest/
 - Microsoft, WSL file systems: https://learn.microsoft.com/en-us/windows/wsl/filesystems

@@ -571,7 +571,7 @@ def store(path: Path, plugin: str | None, plugin_root: Path) -> int:
         print(f"error: {path}: {exc}", file=sys.stderr)
         return 2
     if not found:
-        print(f"No values in {path}; nothing stored.")
+        print(f"No values in {path}; nothing stored.", file=sys.stderr)
         return 1
     if plugin and not have_claude():
         return 2

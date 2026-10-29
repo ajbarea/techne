@@ -14,7 +14,9 @@ Rules:
     lint-js               no ESLint no-console or Biome noConsole rule is on
     secret-in-log         a secret-looking name reaches a log or print call
     unbounded-log-file    a log file handler or appender has no size or file-count cap
-    stderr-for-errors     a shell error message goes to stdout (in a workflow: not an annotation)
+    stderr-for-errors     an error message goes to stdout: shell text starting error: or the like,
+                          or the echo, printf or print() right before a non-zero exit (in a
+                          workflow: not an annotation)
     ci-logs-not-uploaded  a workflow job writes a log file and uploads no artifact on failure
     log-file-tracked      a .log file is committed
 
@@ -856,6 +858,77 @@ def handler_message(kind: str, get: dict[str, ast.expr | None]) -> str | None:
     return None
 
 
+def _failure_code(node: ast.expr | None) -> bool:
+    """A literal non-zero exit status: 1, 2 or a message, not 0, None or a name."""
+    if node is None:
+        return False
+    if isinstance(node, ast.Constant):
+        return node.value not in (0, None, False) and not isinstance(node.value, bool)
+    return isinstance(node, ast.JoinedStr)
+
+
+def exits_failing(stmt: ast.stmt) -> bool:
+    """`return 1`, `sys.exit(1)`, `raise SystemExit(1)` and their message forms."""
+    if isinstance(stmt, ast.Return):
+        value = stmt.value
+        return isinstance(value, ast.Constant) and type(value.value) is int and value.value != 0
+    if isinstance(stmt, ast.Raise) and isinstance(stmt.exc, ast.Call):
+        call = stmt.exc
+        return (
+            terminal(call.func) == "SystemExit" and bool(call.args) and _failure_code(call.args[0])
+        )
+    if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
+        call = stmt.value
+        return (
+            isinstance(call.func, ast.Attribute)
+            and call.func.attr == "exit"
+            and terminal(call.func.value) == "sys"
+            and bool(call.args)
+            and _failure_code(call.args[0])
+        )
+    return False
+
+
+def prints(stmt: ast.stmt) -> list[ast.Call] | None:
+    """The print() calls a statement is made of, directly or as a loop's whole body; None
+    when it does anything else."""
+    if isinstance(stmt, (ast.For, ast.While)) and not stmt.orelse:
+        inner = [prints(s) for s in stmt.body]
+        return None if any(p is None for p in inner) else [c for p in inner for c in p or []]
+    if (
+        isinstance(stmt, ast.Expr)
+        and isinstance(stmt.value, ast.Call)
+        and isinstance(stmt.value.func, ast.Name)
+        and stmt.value.func.id == "print"
+    ):
+        return [stmt.value]
+    return None
+
+
+def failure_prints(tree: ast.AST) -> list[tuple[int, int]]:
+    """For each block that ends in a non-zero exit, the stdout prints in the run of print
+    statements right before that exit: the failure's message. One span per block, so a
+    printed summary is one finding."""
+    out = []
+    for node in ast.walk(tree):
+        for field in ("body", "orelse", "finalbody"):
+            block = getattr(node, field, None)
+            if not (isinstance(block, list) and block and isinstance(block[-1], ast.stmt)):
+                continue
+            if not exits_failing(block[-1]):
+                continue
+            run: list[ast.Call] = []
+            for stmt in reversed(block[:-1]):
+                calls = prints(stmt)
+                if calls is None:
+                    break
+                run[:0] = calls
+            stdout = [c for c in run if not any(k.arg == "file" for k in c.keywords)]
+            if stdout:
+                out.append((stdout[0].lineno, stdout[-1].end_lineno or stdout[-1].lineno))
+    return out
+
+
 def scan_python(path: str, text: str, report: Report) -> None:
     try:
         with warnings.catch_warnings():
@@ -864,6 +937,9 @@ def scan_python(path: str, text: str, report: Report) -> None:
     except (SyntaxError, ValueError):
         return
     lines = text.splitlines()
+    for span in failure_prints(tree):
+        message = "the message before a failing exit goes to stdout → print(..., file=sys.stderr)"
+        report.add_line(path, lines, span, "stderr-for-errors", message)
     for node in ast.walk(tree):
         span = (getattr(node, "lineno", 1), getattr(node, "end_lineno", None) or 1)
         if isinstance(node, ast.Call):
@@ -921,6 +997,7 @@ ERROR_START = re.compile(
     re.I,
 )
 GROUP_TO_STDERR = re.compile(r"\}\s*(?:1?>&2|>\s*/dev/stderr)")
+EXIT_FAILING = re.compile(r"^\s*exit\s+[1-9]\d*\s*$")
 HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_]\w*)\1")
 TO_STDERR = re.compile(r"(?:^|\s)(?:1?>&2|>\s*/dev/stderr)")
 TO_FILE = re.compile(r"(?:^|[^&\d])>>?\s*(?!&)(?!/dev/std(?:out|err))\S")
@@ -1015,11 +1092,18 @@ def scan_shell_line(
     workflow: bool,
     report: Report,
     grouped: bool = False,
+    exit_follows: bool = False,
 ) -> None:
-    """grouped: the line sits in a `{ ...; } >&2` group, so all its output goes to stderr."""
+    """grouped: the line sits in a `{ ...; } >&2` group, so all its output goes to stderr.
+    exit_follows: the next line is `exit N` with N non-zero."""
     if not grouped and GROUP_TO_STDERR.search(outside_quotes(line)):
         grouped = True
-    for cmd, op in commands(line):
+    parts = commands(line)
+    for k, (cmd, op) in enumerate(parts):
+        rest_of_line = [c.strip() for c, _ in parts[k + 1 :]]
+        before_exit = any(EXIT_FAILING.match(c) for c in rest_of_line) or (
+            exit_follows and all(c in ("", "}", "fi") for c in rest_of_line)
+        )
         m = re.match(r"\s*(?:then\s+|do\s+|else\s+|\{\s*)?(echo|printf)\b(.*)", cmd)
         if not m or "::add-mask::" in cmd:
             continue
@@ -1037,7 +1121,7 @@ def scan_shell_line(
         text = unquote(rest.strip())
         if text.startswith("::") or (to_stderr and not workflow):
             continue
-        if ERROR_START.match(text):
+        if ERROR_START.match(text) or before_exit:
             message = (
                 'error text goes to the plain log → print it with echo "::error::..." so the '
                 "run's annotations name it"
@@ -1101,8 +1185,10 @@ def shell_text(texts: dict[int, str]) -> tuple[dict[int, str], set[int]]:
 def scan_shell(path: str, text: str, report: Report) -> None:
     lines = text.splitlines()
     kept, grouped = shell_text(dict(enumerate(lines, 1)))
-    for line, span in logical_lines(kept):
-        scan_shell_line(path, lines, line, span, False, report, span[0] in grouped)
+    logical = logical_lines(kept)
+    for k, (line, span) in enumerate(logical):
+        follows = k + 1 < len(logical) and bool(EXIT_FAILING.match(logical[k + 1][0]))
+        scan_shell_line(path, lines, line, span, False, report, span[0] in grouped, follows)
 
 
 # --- workflows -------------------------------------------------------------------------------
@@ -1202,8 +1288,10 @@ def scan_workflow(path: str, text: str, report: Report) -> None:
     for block in run_blocks(lines):
         kept, _ = shell_text(block)
         shell.update(kept)
-        for line, span in logical_lines(kept):
-            scan_shell_line(path, lines, line, span, True, report)
+        logical = logical_lines(kept)
+        for k, (line, span) in enumerate(logical):
+            follows = k + 1 < len(logical) and bool(EXIT_FAILING.match(logical[k + 1][0]))
+            scan_shell_line(path, lines, line, span, True, report, exit_follows=follows)
     for name, start, end in jobs(lines):
         writes = [n for n in shell if start < n <= end and WRITES_LOG.search(lines[n - 1])]
         if writes and not uploads_on_failure(lines, writes[0], end):

@@ -6,31 +6,45 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 
 ## In flight
 
-Nothing. #220 (heuresis refuses a relative folder, techne#219) and the 10-26 techne batch are merged: #215 docsync repo metadata, #216 poppler on CI,
-#217 graphe `pptx --editable` (see ROADMAP Shipped). Next pickup: the logging rollout below.
+Logging rollout (fleet, 10-28/29), one PR per repo. This branch, `chore/logging-rollout`, is techne's
+own PR: the standard says `-ra` (`-rs` alone drops FAILED lines) and `RUFF_OUTPUT_FORMAT` in a
+workflow `env:`; `stderr-for-errors` also reads an echo or `print()` right before a non-zero exit;
+techne's own hits fixed. Repo PRs: sphragis #225, pharos #102, ariadne #76; then keryx, kourai,
+ajbarea.github.io, papers, phalanx-fl, periplus, talks, the coding-gym repo, the CSCI-739
+class repo, ldqis. Status per repo:
+the queue file's Running-now line.
 
 Owed by AJ: from #209, the status line step `/phylax:setup` prints and the global CLAUDE.md
 routing line; GitGuardian incident 39081601 (a fake test token in #215, gone from the history)
 to mark as a false positive in the dashboard.
 
-## Logging rollout (stopped here 10-26; AJ moved sphragis and the MSR paper to the top)
+## Logging gaps on main, 10-28 (logcheck.py plus the review pass)
 
-One PR per repo: `/techne:logging`, fix the check's findings and the review items, then
-reproduce one real failure and quote the log line that names it (before and after). Baseline
-from `logcheck.py --summary` on 10-26:
-
-1. klepsydra (wait until its other agent is done): lint-rust in `src-tauri` and
-   `src-tauri/fleet`, lint-js, lint-python. Backend logs with `eprintln!` plus the capped
-   `problem_log`: move to `tracing` with a `RollingFileAppender::builder().max_log_files(n)`
-   file in the OS log folder (or `tauri-plugin-log` with `KeepSome(n)`), front end through
-   `@tauri-apps/plugin-log`, hooks log the Claude `session_id` as the run id.
-2. sphragis: lint-python; its 834 committed `datasets/logs/` files are evidence, so add
-   `- skip: datasets/logs/` under `## logging`.
-3. keryx, ariadne, pharos, the coding-gym repo, phalanx-fl, papers, talks, the CSCI-739 class repo:
-   lint-python (select `G` and `LOG`, fix what ruff then reports), plus the review pass.
-4. ajbarea.github.io, periplus: lint-js.
-5. ldqis (team repo): propose lint-js and lint-python fixes in a PR, ask first.
-6. Left out: kourai-khryseai and velocity-fl (harvest-only since Aug 2026).
+| Repo | Finding | Severity |
+|---|---|---|
+| sphragis | lint-python: ruff lacks G, LOG; 124 files use print, 1 uses logging | medium |
+| sphragis | log-file-tracked: 842 files in datasets/logs/ (evidence, to skip) | low |
+| sphragis | review: no `*.log` ignore (only logs/*), pytest without -ra, ruff without annotations | low |
+| pharos | lint-python: ruff lacks G, LOG; 47 print files | medium |
+| pharos | review: no `*.log` ignore, pytest without -ra in ci.yml, ruff without annotations | low |
+| ariadne | lint-python: ruff lacks G | medium |
+| ariadne | review: a bad `ARIADNE_STREAM_STALL_S` silently ignored; silent OTel and graph fallbacks; pytest without -ra | medium |
+| techne | check ✓; review: no `*.log` ignore; `-rs` drops FAILED lines; shell/Python failure text on stdout the check missed | medium |
+| keryx | lint-python: ruff lacks G, LOG; 9 files log | medium |
+| keryx | review: no `*.log`/logs/ ignore, pytest without -ra | low |
+| kourai-khryseai | lint-python: ruff lacks G (94 G004/G201/G003 to fix); templates lack G, LOG | medium |
+| kourai-khryseai | unbounded-log-file: scripts/diagnose_m14_timeout.py FileHandler | medium |
+| kourai-khryseai | lint-js: templates/frontend, tools/voice-lab | low |
+| ajbarea.github.io | lint-js: no no-console rule; 7 files call console.log/info/debug | medium |
+| papers | lint-python: ruff lacks G, LOG; pytest without -ra | low |
+| phalanx-fl | lint-python: ruff lacks G, LOG; no `*.log` ignore | low |
+| periplus | lint-js: no no-console rule; no `*.log`/logs/ ignore | low |
+| talks | lint-python: ruff lacks G, LOG; no `*.log` ignore | low |
+| the coding-gym repo | lint-python: ruff lacks G, LOG; no `*.log` ignore | low |
+| csci739-qfl-privacy | lint-python: ruff lacks G, LOG; pytest -q without -ra | low |
+| ldqis | lint-js + lint-python; no `*.log` ignore | low |
+| klepsydra | meets the standard (#145) | - |
+| velocity-fl | lint-python, lint-rust | skipped: harvest-only |
 
 ## Open Minors (recorded, not scheduled)
 

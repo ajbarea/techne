@@ -625,7 +625,7 @@ def test_budget_off_takes_hours(home):
 @pytest.mark.parametrize("hours", ["0", "-1", "abc", "169", "nan"])
 def test_budget_off_refuses_bad_hours(home, hours):
     proc = pause_cli(home, "off", hours)
-    assert proc.returncode == 2 and "more than 0 and at most 168" in proc.stdout
+    assert proc.returncode == 2 and "more than 0 and at most 168" in proc.stderr
     assert not (home / ".claude" / "phylax-budget-override.json").exists()
 
 
@@ -723,7 +723,7 @@ def test_a_folder_at_the_pause_path_is_reported_not_raised(home, sub):
     (home / ".claude" / "phylax-budget-override.json").mkdir()
     proc = pause_cli(home, sub)
     assert proc.returncode == 1 and "Traceback" not in proc.stderr
-    assert "could not" in proc.stdout
+    assert "could not" in proc.stderr
 
 
 def test_no_seen_path_reads_normal_not_a_file_named_none(bg, tmp_path, monkeypatch):

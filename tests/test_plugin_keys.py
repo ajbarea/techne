@@ -825,7 +825,7 @@ def test_store_unknown_name_exits_2_without_calling_claude(tmp_path):
 
 def test_store_with_no_values_exits_1(tmp_path):
     done, rec = run_store(tmp_path, CLAUDE_OK, content="# only\nS2_API_KEY=\n")
-    assert done.returncode == 1 and "nothing stored" in done.stdout
+    assert done.returncode == 1 and "nothing stored" in done.stderr
     assert not (rec / "stdin").exists()
 
 

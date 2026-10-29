@@ -88,7 +88,7 @@ Expand context (`grep -A3 -B1`) around any hit you can't classify from one line.
 A failed step whose log does not say what failed, on which input, is a finding of its own,
 even once the failure is fixed. Look for: a failure with no `::error` annotation pointing at
 the file, a long tool output with no `::group::`, a job that wrote a log file and uploaded
-nothing on failure, a skip with no reason (pytest without `-rs`), a secret-looking value
+nothing on failure, a skip with no reason (pytest without `-ra`), a secret-looking value
 printed even if masked. Each is `[FIX]` in the workflow or the script it runs. The rules and
 their sources are in `<plugin-root>/skills/logging/references/standard.md`;
 `python3 "<plugin-root>/skills/logging/scripts/logcheck.py"` checks the workflow files for the

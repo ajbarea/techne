@@ -302,7 +302,7 @@ def main() -> int:
         "Name each private repo by what it is. Where a name is only an ordinary word, add it to"
         f" {words_path} (one per line, kept out of the repo); it then matches only as"
         f" {owner}/name or name#N. A name in an unpushed commit or message needs a rebase."
-    )
+    )  # logcheck: ignore[stderr-for-errors] ends the findings report, which is the result
     return 1
 
 
