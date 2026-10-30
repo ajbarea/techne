@@ -306,7 +306,7 @@ def run_git(
     return proc.stdout if proc.returncode == 0 or not check else None
 
 
-def strip_heredocs(text: str) -> tuple[str, list[tuple[str, str]]]:
+def strip_heredocs(text: str) -> tuple[str, list[tuple[str, str, bool]]]:
     """Remove heredoc bodies and line continuations so the command tokenizes.
 
     Tracks quoting as bash does: `<<` inside quotes is literal, except inside a
@@ -806,7 +806,7 @@ class Verdict:
 
 
 class Guards:
-    def __init__(self, bodies: list[tuple[str, str]], who: str = ""):
+    def __init__(self, bodies: list[tuple[str, str, bool]], who: str = ""):
         self.bodies = bodies
         # Files the subcommands so far write: the heredoc each was written from, or None
         # when that text cannot be known here.
