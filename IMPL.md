@@ -6,23 +6,28 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 
 ## In flight
 
-Next: the Opus baseline (`make quality MODE=normal PHASE=baseline
-QUALITY_OUT=quality/results/2026-10-29-baseline`, resumes by rerunning the same command after
-a limit), then `make quality-skills`; commit both under `quality/results/`. #239 merged after
-ten review rounds (round 10 clean) plus a verify pass.
+techne#249 is fixed in PR #252 (branch results/quality-baseline): the task notes state what the
+hidden tests check, `--check-tasks` fails a task with a gap, `quality/DEVIATIONS.md` records it.
+Seven reader rounds plus a verify pass, clean; `--check-tasks` 10/10 ok on 5ec4dc0. Old runs stay
+in `quality/results/2026-10-29-baseline-void/`.
 
-Before it: the logging rollout (10-28/29) is done, one PR per repo, each re-checked `logging standard ✓`
-on main with #230's check: sphragis #225, techne #230, pharos #102, ariadne #76, keryx #69,
-ajbarea.github.io #137, papers #115, phalanx-fl #139, periplus #62, talks #41, the coding-gym repo
-#7, the CSCI-739 class repo #22, ldqis #209 (klepsydra met it in #145). Left: kourai-khryseai's code
-(harvest-only since Aug 2026; 94 G004/G201/G003, an uncapped FileHandler in
-`scripts/diagnose_m14_timeout.py`, templates without the lint rules) until AJ asks; velocity-fl
-skipped (harvest-only).
+Next, in order:
+1. Merge #252 on green.
+2. Restart the Opus baseline from main in a fresh worktree on the RIT account (the default config
+   folder): point `~/.local/state/techne-quality/resume.sh`'s `cd` at that worktree and its
+   QUALITY_OUT at `quality/results/2026-10-29-baseline-2`, then
+   `tmux new-session -d -s quality-resume -e CLAUDE_CONFIG_DIR="$HOME/.claude" "bash
+   ~/.local/state/techne-quality/resume.sh"`. Rerunning resumes; always pass `-e CLAUDE_CONFIG_DIR`.
+   Progress: `grep tests= ~/.local/state/techne-quality/baseline.log`.
+3. Commit the results under `quality/results/` by PR, then start techne#226 measured on them.
+Never wrap `run.py` or `make quality` in `flock /tmp/fleet-heavy.lock`: run.py takes that lock
+itself, so the wrapper deadlocks. A lock held long after every job ended is likely an orphan that
+inherited the fd (klepsydra#193): `lsof /tmp/fleet-heavy.lock`. A skill suite with any "ended on
+an API error" run is invalid: delete its JSON and rerun.
 
 Owed by AJ: from #209, the status line step `/phylax:setup` prints and the global CLAUDE.md
-routing line; GitGuardian incident 39081601 (a fake test token in #215, gone from the history)
-to mark as a false positive in the dashboard. Same for ariadne incident 39247473 and 39249419
-(fake Neo4j credentials in the #76 tests, squashed out of the PR before merge).
+routing line; GitGuardian incidents 39081601 (techne #215), 39247473 and 39249419 (ariadne #76),
+fake test credentials, to mark as false positives.
 
 ## Resume: quality evals, hooks, review-loop ledger (techne-evals brief, 10-29)
 

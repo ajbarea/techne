@@ -19,7 +19,7 @@ Every heuresis command runs under `uv run --directory ${CLAUDE_PLUGIN_ROOT}`, so
 
 **Seen 2026-10-27.** Two `scout-context` runs called `add-record --ideas ideas` from `~/ajsoftworks`. Both exited 0 and reported their records saved, but the files landed in `<plugin cache>/ideas/runs/<id>/scout-context.json`. `pool` would have run without any context records, and nothing warned. The records were found and moved by hand.
 
-Interface the tests use: A relative `--ideas` or `--repos-root` exits 2 with an error containing `argument --ideas: must be an absolute path` (or the `--repos-root` equivalent), the argparse way. A command on one idea whose `--ideas` root has no `ideas/` folder exits 2 with an error containing `has no ideas/`, writing nothing.
+Interface the tests use: Every path argument (`init`'s ideas path, `--ideas`, `--repos-root`, `--techne-toml`) must be absolute; a relative one exits 2 the argparse way, with an error containing `must be an absolute path` (for `--ideas`, `argument --ideas: must be an absolute path`). A command on one idea (`add-record`, `search`, `pool`, `verify`, `apply`, `restate`, `override`, `decline`) whose `--ideas` root has no `ideas/<id>.md` for that idea, because the root lacks the folder or never captured the idea, returns 2 from `cli.main` with an error containing `has no ideas/`, writing nothing; `search` refuses before it queries any source.
 """
 
 [[task]]
@@ -37,7 +37,7 @@ report = """
 
 Removing the worktree a session stood in made every later git command fail with `phylax: the git guard failed ($.process.run(python3) failed to start: ENOENT ... posix_spawn 'python3')`, which reads as a PATH problem. Every git command was blocked, not only the guarded ones, and the message did not say why.
 
-Interface the tests use: `plugins/phylax/hooks/git_guards.py` refuses a guarded command (`git add`, `git commit`, a `gh pr` writer) only when the folder it will run in (the session folder, after any `cd` and `-C`, resolved as bash does) is not an existing folder. The refusal reason contains `runs in <folder>, which is not an existing folder` and `cd to an existing folder`. A command the enabled guards do not check runs as usual. Input that names no folder at all fails closed.
+Interface the tests use: `plugins/phylax/hooks/git_guards.py` refuses a guarded `git add` or `git commit` only when the folder it will run in (the session folder, after any `cd` and `-C`, resolved as bash does) is not an existing folder. The refusal reason contains `runs in <folder>, which is not an existing folder` and `cd to an existing folder`. A `gh pr` writer is not refused for a gone folder, but its text is still checked for attribution lines. A command the enabled guards do not check runs as usual. Hook input with no `cwd` fails closed when a blocking guard is enabled: exit 2, stderr containing `names no folder`. When the only enabled guard is the main-checkout warning, a `git commit` in a gone folder exits 1 with nothing on stdout and stderr containing `not an existing folder`.
 """
 
 [[task]]
@@ -62,7 +62,7 @@ heuresis's `sync._env` already covers all three choices (`GIT_SSH_COMMAND`, `GIT
 
 Found while running `make test-unit` under Anthropic's sandbox-runtime (`srt`). It sets its own `GIT_SSH_COMMAND`, and `test_git_runs_with_a_timeout_and_without_prompts_under_auto` assumes the variable is unset, so the test fails in any shell that has it set.
 
-Interface the tests use: Tests load `plugins/techne/_shared/git_env.py`, which exposes `BATCH_SSH` (an ssh command containing `BatchMode=yes`) and `batch_ssh(env, repo)`: it returns a copy of `env` with `GIT_SSH_COMMAND` set to `BATCH_SSH` unless the caller chose ssh itself (`GIT_SSH_COMMAND`, `GIT_SSH`, or the repo's `core.sshCommand`), and never changes the dict it was given.
+Interface the tests use: Tests load `plugins/techne/_shared/git_env.py`, which exposes `BATCH_SSH` (an ssh command containing `BatchMode=yes`) and `batch_ssh(env, repo)`: it returns a copy of `env` with `GIT_SSH_COMMAND` set to `BATCH_SSH` unless the caller chose ssh itself (`GIT_SSH_COMMAND`, `GIT_SSH`, or the repo's `core.sshCommand`), and never changes the dict it was given. When reading `core.sshCommand` fails (git times out or cannot start), it falls back to `BATCH_SSH`.
 """
 
 [[task]]
@@ -80,7 +80,7 @@ report = """
 
 The first live run of the clean_finished_work hook listed, under "held after merge", two branches with no PR and uncommitted work: other sessions' work in progress. Claude would have been told to investigate them. The same run held a merged ldqis worktree for review because of two Chrome profiles that Lighthouse's chrome-launcher writes under WSL: each lands as one folder named after a Windows temp path, which git quotes.
 
-Interface the tests use: Only a branch or worktree whose PR merged is reported as held after merge. In `hygiene.py`, `regenerable(entry, worktree=None)` counts an untracked root-level folder named `lighthouse.` plus exactly 8 digits (also when git quotes it as a Windows path such as `"C:\\\\Users\\\\aj\\\\AppData\\\\Local\\\\lighthouse.80415069/"`) as build output only when `worktree` is given and that folder holds a Chrome profile's `Local State` file; without the worktree, never.
+Interface the tests use: Only a branch or worktree whose PR merged is reported as held after merge. In `hygiene.py`, `regenerable(entry, worktree=None)` counts an untracked root-level folder named `lighthouse.` plus exactly 8 digits (also when git quotes it as an absolute Windows path with a drive letter, such as `"C:\\\\Users\\\\aj\\\\AppData\\\\Local\\\\lighthouse.80415069/"`; a quoted relative name with a backslash, such as `"my thesis\\\\lighthouse.80415069/"`, is a person's folder, never build output) as build output only when `worktree` is given and that folder holds a Chrome profile's `Local State` file; without the worktree, never.
 """
 
 [[task]]
@@ -120,7 +120,7 @@ Three Minor findings left open when #193 merged (sisters check 15, `plugins/tech
 
 Classes: `boundary-input`, `undiagnosable-failure`, `claim-code-drift`.
 
-Interface the tests use: A corrupt index reports `git ls-files failed in <root>: ` followed by git's own error, not "not a git repository".
+Interface the tests use: A corrupt index reports `git ls-files failed in <root>: ` followed by git's own error, not "not a git repository". A nested `CLAUDE.local.md` in folder `<where>` reads `<rel> stops Claude Code reading AGENTS.md for you in a session started in <where>/ → move it to ~/.claude/CLAUDE.md, or set Project instructions to claude-md-and-agents-md`; the root one keeps its message without the `in a session started in` part. A wholly ignored folder that is itself a git repository (a clone of another project) is not checked at all.
 """
 
 [[task]]
@@ -138,7 +138,7 @@ report = """
 
 Qt's and Chromium's REST grants answered one collector's request, from its stated address and with its User-Agent. `REST_PERMITTED` ships in this public repository, though, so any clone of it would read both hosts under the study's grant.
 
-Interface the tests use: `RestPermission` gains `written_grant: bool = False`; Qt and Chromium set it. A written-grant host is refused unless this machine lists it in the grants file: `SPHRAGIS_GRANTS` names it (default `~/.config/sphragis/grants`), one host a line, `#` comments, surrounding whitespace and case ignored. The check runs in the HTTP transport before any connection, and `resume_when_allowed.sh`'s lookup refuses the same hosts before its probes. No git-route host may be permitted until the git route gets the same check. A refused written-grant host's error contains `written grant to this study's collector`.
+Interface the tests use: `RestPermission` gains `written_grant: bool = False`; Qt and Chromium set it. A written-grant host is refused unless this machine lists it in the grants file, one host a line, `#` starting a comment anywhere on a line, surrounding whitespace and case ignored. `cli.grants_file()` returns its path as a `pathlib.Path`: `SPHRAGIS_GRANTS` when set, else `$XDG_CONFIG_HOME/sphragis/grants`, or `~/.config/sphragis/grants` when `XDG_CONFIG_HOME` is unset or empty. A missing file holds no grants. A file that cannot be read (a directory, not UTF-8) stops the process with a `SystemExit` whose message contains `cannot be read`, and `SPHRAGIS_GRANTS` set but empty stops it with one containing `set but empty`: never an exception a per-change handler would catch. The check runs in the HTTP transport before any connection, and `resume_when_allowed.sh`'s lookup refuses the same hosts before its probes, printing the refusal on stdout and exiting 1. No git-route host may be permitted until the git route gets the same check. A refused written-grant host's error contains `written grant to this study's collector`.
 """
 
 [[task]]
@@ -157,6 +157,8 @@ report = """
 `make redact` (`scripts/redact_identities.py`) scans every file under `datasets/results/`, including gitignored inputs such as `contamination-inputs/`. `redact.redact_file` decodes JSON only for a `.json` suffix, so it treats a `.jsonl` file as raw text. On raw text the address pattern can start at the letter after a JSON backslash: `\\\\n\\\\n@decorator(` matches as `n@decorator`, and redacting it deletes the escape letter, leaving a lone backslash.
 
 Result: `contamination-inputs/openstack-post.jsonl` line 1090 and four lines of `openstack-pre.jsonl` (1361, 1376, 1510, 1794) no longer parse. Three of the five breaks are decorators that were not addresses, so code was rewritten too.
+
+Interface the tests use: `scripts/redact_identities.py` gains `artifacts(results)`, the sorted list of `pathlib.Path`s (each `results / <relative path>`) of the files under `results` that git does not ignore (tracked or untracked), and `make redact` scans only those: an ignored input is study data, never published. `redact.addresses_in(path)` and `redact.redact_file(path)` read a `.jsonl` file line by line as JSON: a line with no address is kept byte for byte, a redacted line is re-encoded with `identities_redacted` set as a `.json` record is, and a line that is not JSON is scanned as text. `redact_file` returns `(set(), None)` when it finds nothing.
 """
 
 [[task]]
@@ -173,6 +175,8 @@ report = """
 # provenance: untracked files with quoted names drop out of uncommitted_code_sha256
 
 `_git_record` splits `git status --porcelain` lines on whitespace. Under `core.quotePath` an untracked path with non-ASCII or special characters arrives C-quoted (`?? "scripts/an\\303\\241lise.py"`), so `(top / path).is_file()` is False and its bytes never reach `uncommitted_code_sha256`: two runs whose untracked code differs can record the same digest. A staged rename records `old -> new` as the path.
+
+Interface the tests use: `provenance._changed_code()` returns `(status, path)` pairs of bytes, the path's raw bytes, for every code path that differs from HEAD (statuses such as `b"M "`, `b"C "`, `b"??"`), and `_git_record` takes its paths from it rather than from `_git("status", ...)`. A rename records both its old and new path; a copy records only its new path. A path that is not UTF-8 is recorded decoded with `backslashreplace` (`scripts/bad\\xff.py`) and still digested by its bytes.
 """
 
 [[task]]

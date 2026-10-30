@@ -1,0 +1,25 @@
+{
+ "phase": "baseline",
+ "mode": "normal",
+ "repeats": 3,
+ "tasks": [
+  "keryx-41",
+  "sphragis-149",
+  "sphragis-186",
+  "sphragis-212",
+  "techne-161",
+  "techne-162",
+  "techne-166",
+  "techne-174",
+  "techne-206",
+  "techne-220"
+ ],
+ "claude_code": "2.1.302 (Claude Code)",
+ "inputs": {
+  "harness": "368d14bf5ca7f4f5",
+  "tasks": "bef433742020746d",
+  "judge": "86560571c19d70a6",
+  "elenchus": "04809cf83b2d270d"
+ },
+ "commit": "59c050d179942b069988820e322cc3fab47493be"
+}

@@ -6,6 +6,7 @@ import json
 import pathlib
 import subprocess
 import sys
+from collections.abc import Sequence
 
 import pytest
 
@@ -405,6 +406,558 @@ def test_junit_results(tmp_path):
     assert run.junit_results(tmp_path / "bad.xml") == (set(), set())
 
 
+def test_junit_failures_carry_the_message_and_text(tmp_path):
+    (tmp_path / "j.xml").write_text(
+        '<testsuites><testsuite><testcase classname="t" name="a">'
+        "<failure message=\"has no attribute 'x'\">trace</failure></testcase>"
+        '<testcase classname="t" name="b"/></testsuite></testsuites>'
+    )
+    assert run.junit_failures(tmp_path / "j.xml") == ["has no attribute 'x'\ntrace"]
+    assert run.junit_failures(tmp_path / "none.xml") == []
+
+
+def test_added_lines_counts_the_new_side():
+    diff = "--- a/f\n+++ b/f\n@@ -1,3 +1,4 @@\n a\n-b\n+c\n+d\n e\n@@ -9 +10,2 @@\n x\n+y\n"
+    assert run.added_lines(diff) == {2, 3, 11}
+
+
+def test_strings_skip_docstrings_and_keep_placeholders():
+    src = (
+        '"""Module doc."""\n\ndef f(x):\n    """Doc."""\n'
+        '    return f"{x} stops here", "plain one"\n'
+    )
+    assert sorted(run.strings(src, "m.py")) == ["plain one", "{} stops here"]
+    assert run.strings(src, "m.py", {1, 4}) == []
+    assert run.strings('echo "a message"\n', "s.sh") == ["a message"]
+    assert run.strings('x = "abc"\ny = b"bytes here"\n', "m.py") == ["bytes here"]
+    assert run.strings('echo "refused: \\"$h\\" needs"\n', "s.sh") == ['refused: \\"$h\\" needs']
+
+
+PARENT_CODE = (
+    "def msg(rel, where):\n"
+    '    return f"{rel} stops for you → go; for a session started in {where}/"\n'
+)
+FIX_CODE = (
+    "def msg(rel, where, nested):\n"
+    '    scope = f" in a session started in {where}/" if nested else ""\n'
+    '    return f"{rel} stops for you{scope} → go"\n'
+)
+TEST_CODE = (
+    '"""Tests for the message, in a session started in a folder."""\n'
+    "def test_m():\n"
+    '    assert msg("a", "b", True) == "a stops for you in a session started in b/ → go"\n'
+    '    assert fixture("jane.doe@example.org wrote to us")\n'
+)
+
+
+NAMES_CODE = (
+    "\nfrom os import sep as SEP\n\n\ndef artifacts(results):\n    return []\n"
+    "\n\ndef grants_file():\n    return None\n"
+    "\n\nclass Permission:\n    written_grant: bool = False\n\n    def seen(self):\n"
+    "        self.count = 1\n\n\ndef cli(p, mode=None):\n"
+    '    p.add_argument("--repos-root")\n    p.add_argument("--techne-toml")\n'
+    '    p.add_argument("-q")\n    p.add_parser("restate")\n'
+)
+STATED = "A nested one reads `<rel> stops for you in a session started in <where>/ → go`."
+
+
+def gap_task(
+    tmp_path: pathlib.Path,
+    report: str,
+    test_code: str = TEST_CODE,
+    parent_code: str = PARENT_CODE,
+    config: Sequence[tuple[str, str]] = (),
+    parent_files: dict[str, str] | None = None,
+    fix_code: str = FIX_CODE,
+    fix_files: dict[str, str] | None = None,
+) -> dict:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    def commit(files: dict[str, str]) -> str:
+        for rel, body in files.items():
+            (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+            (repo / rel).write_text(body)
+        subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+        subprocess.run(["git", "commit", "-qm", "x"], cwd=repo, check=True)
+        return subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True, check=True
+        ).stdout.strip()
+
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=repo, check=True)
+    for key, value in config:
+        subprocess.run(["git", "config", key, value], cwd=repo, check=True)
+    parent = commit(
+        {**(parent_files or {}), "m.py": parent_code, "tests/test_m.py": "def test_old(): pass\n"}
+    )
+    fix = commit({**(fix_files or {}), "m.py": fix_code, "tests/test_m.py": test_code})
+    return {
+        "clone": repo,
+        "parent": parent,
+        "fix": fix,
+        "report": report,
+        "hidden_tests": ["tests/test_m.py"],
+    }
+
+
+@pytest.mark.parametrize(
+    "config", [(), (("color.diff", "always"), ("color.ui", "always"))]
+)  # the user's git config must not hide the diff
+def test_interface_gaps_name_new_wording_the_report_leaves_out(tmp_path, config):
+    task = gap_task(tmp_path, "msg names the folder for a nested file.", config=config)
+    assert run.interface_gaps(task, []) == [
+        "wording the report does not give: a stops for you in a session started in b/ → go"
+    ]
+
+
+def test_interface_gaps_accept_wording_the_report_states(tmp_path):
+    report = "A nested one reads `<rel> stops for you in a session started in <where>/ → go`."
+    assert run.interface_gaps(gap_task(tmp_path, report), []) == []
+
+
+def test_stated_reads_only_a_closed_placeholder_as_any_word():
+    assert run.stated(("in", "b/", "go"), {("in", "<where>/", "go")})
+    assert not run.stated(("in", "b/", "go"), {("in", "<where/", "go")})
+
+
+def test_strings_read_a_literal_by_any_line_it_spans():
+    src = 'x = (\n    "first part "\n    "second part"\n)\n'
+    assert run.strings(src, "m.py", {3}) == ["first part second part"]
+
+
+def test_interface_gaps_flag_a_new_data_file_a_test_loads(tmp_path):
+    task = gap_task(tmp_path, STATED, fix_files={"plugins/x/SKILL.md": "# x\n"})
+    failures = ["FileNotFoundError: No such file or directory: '/ws/plugins/x/SKILL.md'"]
+    assert run.interface_gaps(task, failures) == [
+        "file the report does not give: plugins/x/SKILL.md"
+    ]
+
+
+def test_windows_break_at_a_placeholder_and_a_regex_bar():
+    said = run.windows("{} one two {} three four five|six seven")
+    assert said == {("three", "four", "five")}
+
+
+def test_windows_read_a_closing_period_as_punctuation():
+    said = run.windows("It reads `set but empty.` Then run.py stops.")
+    assert {("set", "but", "empty"), ("then", "run.py", "stops")} <= said
+
+
+@pytest.mark.parametrize(
+    "literal",
+    [
+        "session go stops in",  # only the fix's words, no three-word run of its strings
+        "stops for you → go",  # wording the parent already had
+        "stops for you jane",  # a run with a word the fix never says: fixture data
+    ],
+)
+def test_interface_gaps_leave_out_strings_that_add_no_wording(tmp_path, literal):
+    test_code = TEST_CODE + f'    assert fixture("{literal}")\n'
+    report = "A nested one reads `<rel> stops for you in a session started in <where>/ → go`."
+    assert run.interface_gaps(gap_task(tmp_path, report, test_code), []) == []
+
+
+def test_interface_gaps_read_wording_the_parent_kept_in_a_dict(tmp_path):
+    parent = PARENT_CODE + 'OLD = {"k": "a stops for you in a session started in b/ → go"}\n'
+    task = gap_task(tmp_path, "msg names the folder for a nested file.", parent_code=parent)
+    assert run.interface_gaps(task, []) == []
+
+
+def test_interface_gaps_read_wording_the_parent_kept_in_a_comment(tmp_path):
+    parent = PARENT_CODE + "# a stops for you in a session started in b/ → go\n"
+    task = gap_task(tmp_path, "msg names the folder for a nested file.", parent_code=parent)
+    assert run.interface_gaps(task, []) == []
+
+
+def test_interface_gaps_skip_a_missing_file_the_parent_has(tmp_path):
+    task = gap_task(
+        tmp_path, STATED, parent_files={"data.json": "{}\n"}, fix_files={"data.json": "[]\n"}
+    )
+    failures = ["FileNotFoundError: No such file or directory: '/var/tmp/ws/data.json'"]
+    assert run.interface_gaps(task, failures) == []
+
+
+def test_interface_gaps_skip_a_name_the_parent_defines(tmp_path):
+    report = "A nested one reads `<rel> stops for you in a session started in <where>/ → go`."
+    failures = ["AttributeError: 'NoneType' object has no attribute 'msg'"]
+    assert run.interface_gaps(gap_task(tmp_path, report), failures) == []
+
+
+def test_interface_gaps_flag_a_name_the_fix_adds_though_another_file_has_it(tmp_path):
+    other = {"other.py": "def artifacts():\n    pass\n"}  # the shape of techne-174's BATCH_SSH
+    task = gap_task(tmp_path, STATED, parent_files=other, fix_code=FIX_CODE + NAMES_CODE)
+    failures = ["AttributeError: module 'm' has no attribute 'artifacts'"]
+    assert run.interface_gaps(task, failures) == ["name the report does not give: artifacts"]
+
+
+def test_interface_gaps_flag_methods_attributes_and_fields_the_fix_adds(tmp_path):
+    task = gap_task(tmp_path, STATED, fix_code=FIX_CODE + NAMES_CODE)
+    failures = [f"'Permission' object has no attribute '{n}'" for n in ("seen", "count")]
+    failures.append("TypeError: got an unexpected keyword argument 'written_grant'")
+    failures.append("TypeError: cli() got an unexpected keyword argument 'mode'")
+    failures.append("ImportError: cannot import name 'SEP' from 'm'")
+    assert run.interface_gaps(task, failures) == [
+        f"name the report does not give: {n}"
+        for n in ("SEP", "count", "mode", "seen", "written_grant")
+    ]
+
+
+def test_defined_reads_identifiers_and_flags_outside_python():
+    assert run.defined('main() { grep --fixed x_y "$1"; }\n', "s.sh") >= {"main", "--fixed", "x_y"}
+    assert run.defined("def broken(:\n", "b.py") >= {"def", "broken"}
+
+
+@pytest.mark.parametrize(
+    ("parent_extra", "fix_extra", "failure", "gap"),
+    [
+        # a parent local never hides a new top-level name
+        ("def scan():\n    artifacts = 1\n", "def artifacts():\n    pass\n", "'artifacts'", True),
+        # another function's parameter never hides a new one
+        (
+            "def other(timeout=5):\n    pass\n",
+            "def fetch(url, timeout=None):\n    pass\n",
+            "fetch() got an unexpected keyword argument 'timeout'",
+            True,
+        ),
+        ("def artifacts():\n    pass\n", "def artifacts():\n    pass\n", "'artifacts'", False),
+        ("", "def outer():\n    def inner():\n        pass\n", "'inner'", False),  # local
+        (
+            "",
+            'try:\n    from os import sep as SEP2\nexcept ImportError:\n    SEP2 = "/"\n',
+            "'SEP2'",
+            True,
+        ),
+        ("", "class D:\n    if True:\n        mode = 1\n", "'mode'", True),
+        (
+            "",
+            "try:\n    import zz_absent\nexcept ImportError:\n    FALLBACK = 1\n",
+            "'FALLBACK'",
+            True,
+        ),
+        (
+            "class E:\n    def seen(self):\n        pass\n",
+            "class E:\n    def seen(self, depth=0):\n        pass\n",
+            "seen() got an unexpected keyword argument 'depth'",
+            True,
+        ),
+    ],
+)
+def test_interface_gaps_read_where_a_name_is_defined(
+    tmp_path, parent_extra, fix_extra, failure, gap
+):
+    task = gap_task(
+        tmp_path,
+        STATED,
+        parent_code=PARENT_CODE + "\n\n" + parent_extra,
+        fix_code=FIX_CODE + "\n\n" + parent_extra + "\n\n" + fix_extra,
+    )
+    failure = failure if "argument" in failure else f"module 'm' has no attribute {failure}"
+    name = failure.rsplit("'", 2)[-2]
+    assert run.interface_gaps(task, [failure]) == (
+        [f"name the report does not give: {name}"] if gap else []
+    )
+
+
+def test_interface_gaps_flag_a_file_a_test_loads_by_path(tmp_path):
+    rel = "plugins/x/_shared/git_env.py"
+    failures = [
+        f"FileNotFoundError: [Errno 2] No such file or directory: '/var/tmp/ws/{rel}'",
+        "FileNotFoundError: [Errno 2] No such file or directory: '/var/tmp/ws/data.json'",
+    ]
+    task = gap_task(tmp_path, STATED, fix_files={rel: "BATCH = 1\n"})
+    assert run.interface_gaps(task, failures) == [f"file the report does not give: {rel}"]
+    task["report"] = STATED + f" Tests load `{rel}`."
+    assert run.interface_gaps(task, failures) == []
+
+
+@pytest.mark.parametrize(
+    ("files", "failure", "want"),
+    [
+        ({"README.md": "Each group is read.\n"}, "'NoneType' object has no attribute 'group'", []),
+        (
+            {"análise.py": "def novo():\n    pass\n"},  # a path git would C-quote
+            "module 'análise' has no attribute 'novo'",
+            ["name the report does not give: novo"],
+        ),
+        (
+            {"pkg2/__init__.py": ""},
+            "No module named 'pkg2'",
+            ["name the report does not give: pkg2"],
+        ),
+    ],
+)
+def test_interface_gaps_read_files_by_what_they_are(tmp_path, files, failure, want):
+    assert run.interface_gaps(gap_task(tmp_path, STATED, fix_files=files), [failure]) == want
+
+
+REAL_FIX = (
+    FIX_CODE
+    + "\n\nimport argparse\n\n\ndef x():\n    pass\n\n\ndef f(known=None, unknown=None):\n"
+    + "    pass\n\n\ndef cli(argv):\n    p = argparse.ArgumentParser()\n"
+    + '    p.add_argument("--new")\n    sub = p.add_subparsers()\n    sub.add_parser("newcmd")\n'
+)
+REAL_FILES = {"tools/new_mod.py": "", "tools/new.py": "", "tools/new.sh": "", "root.py": ""}
+
+
+def real_failure(kind: str, tmp: pathlib.Path) -> str:
+    """The text a hidden test's failure prints on the parent, made by raising the real thing
+    against a parent-like module that lacks what the fix adds."""
+    import argparse
+    import contextlib
+    import importlib.util
+    import io
+    import types
+    from unittest import mock
+
+    fx = types.ModuleType("fx")
+    sys.modules["fx"] = fx
+    ws = tmp / "ws"
+    try:
+        if kind == "getattr":
+            getattr(fx, kind[:0] + "x")  # a name the parent module lacks
+        elif kind == "from-import":
+            exec("from fx import x")
+        elif kind == "mock.patch":
+            mock.patch("fx.x", 1).start()
+        elif kind == "monkeypatch":
+            pytest.MonkeyPatch().setattr(fx, "x", 1)
+        elif kind == "keyword":
+            (lambda known=None: None)(unknown=1)  # ty: ignore[unknown-argument]
+        elif kind in ("flag", "choice"):
+            p = argparse.ArgumentParser(prog="h")
+            p.add_subparsers().add_parser("init")
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err), contextlib.suppress(SystemExit):
+                p.parse_args(["init", "--new", "1"] if kind == "flag" else ["newcmd"])
+            return err.getvalue()
+        elif kind in ("by-path", "root-by-path"):
+            rel = "tools/new_mod.py" if kind == "by-path" else "root.py"
+            spec = importlib.util.spec_from_file_location("m", ws / rel)
+            assert spec and spec.loader
+            spec.loader.exec_module(importlib.util.module_from_spec(spec))
+        elif kind == "python3":
+            cmd = [sys.executable, str(ws / "tools/new.py")]
+            return subprocess.run(cmd, capture_output=True, text=True).stderr
+        elif kind == "bash":
+            return subprocess.run(
+                ["bash", str(ws / "tools/new.sh")], capture_output=True, text=True
+            ).stderr
+    except Exception as exc:  # the message pytest records
+        return f"{type(exc).__name__}: {exc}"
+    finally:
+        sys.modules.pop("fx", None)
+        mock.patch.stopall()
+    raise AssertionError(f"{kind} raised nothing")
+
+
+@pytest.mark.parametrize(
+    ("kind", "gap"),
+    [
+        ("getattr", "name the report does not give: x"),
+        ("from-import", "name the report does not give: x"),
+        ("mock.patch", "name the report does not give: x"),
+        ("monkeypatch", "name the report does not give: x"),
+        ("keyword", "name the report does not give: unknown"),
+        ("flag", "name the report does not give: --new"),
+        ("choice", "name the report does not give: newcmd"),
+        ("by-path", "file the report does not give: tools/new_mod.py"),
+        ("root-by-path", "file the report does not give: root.py"),
+        ("python3", "file the report does not give: tools/new.py"),
+        ("bash", "file the report does not give: tools/new.sh"),
+    ],
+)
+def test_interface_gaps_read_the_real_failure_messages(tmp_path, kind, gap):
+    text = real_failure(kind, tmp_path)
+    task = gap_task(tmp_path, STATED, fix_code=REAL_FIX, fix_files=REAL_FILES)
+    assert run.interface_gaps(task, [text]) == [gap]
+
+
+def test_interface_gaps_match_a_file_by_its_whole_name(tmp_path):
+    task = gap_task(tmp_path, STATED + " See `not_root.py`.", fix_files=REAL_FILES)
+    assert run.interface_gaps(task, ["can't open file 'root.py'"]) == [
+        "file the report does not give: root.py"
+    ]
+    task["report"] = STATED + " See `root.pyc`."  # another file
+    assert run.interface_gaps(task, ["can't open file 'root.py'"]) == [
+        "file the report does not give: root.py"
+    ]
+    task["report"] = STATED + " Run `root.py`."
+    assert run.interface_gaps(task, ["can't open file 'root.py'"]) == []
+    # bash names the file at the start of its message
+    task["report"] = STATED
+    assert run.interface_gaps(task, ["root.py: No such file or directory"]) == [
+        "file the report does not give: root.py"
+    ]
+    # another folder's file of the same name is not the fix's
+    assert run.interface_gaps(task, ["can't open file '/ws/oldtools/new.py'"]) == []
+
+
+REUSED_P = (
+    "\n\ndef cli(sub):\n    p = sub.add_parser('init')\n    p.add_argument('--ideas')\n"
+    "    p.add_argument('--json')\n    p = sub.add_parser('board')\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("fix_extra", "failure", "gap"),
+    [
+        # the same flag on another subcommand, through the same variable (heuresis's shape)
+        ("    p.add_argument('--ideas')\n", "unrecognized arguments: --ideas /x", "--ideas"),
+        ("    p.add_argument('--json')\n", "unrecognized arguments: --json", "--json"),
+        # a new subcommand through a rebound variable
+        ("    p = sub.add_parser('apply')\n", "argument cmd: invalid choice: 'apply'", "apply"),
+        ("    p.add_argument('--since')\n", "unrecognized arguments: --since 1", "--since"),
+    ],
+)
+def test_interface_gaps_flag_what_argparse_refused(tmp_path, fix_extra, failure, gap):
+    parent = PARENT_CODE + REUSED_P
+    task = gap_task(tmp_path, STATED, parent_code=parent, fix_code=parent + fix_extra)
+    assert run.interface_gaps(task, [f"h: error: {failure}"]) == [
+        f"name the report does not give: {gap}"
+    ]
+    task["report"] = STATED + f" It takes `{gap}`."
+    assert run.interface_gaps(task, [f"h: error: {failure}"]) == []
+
+
+DEFINED_SHAPES = """
+with open('x') as fh:
+    def in_with(): pass
+for _ in ():
+    def in_for(): pass
+else:
+    def in_else(): pass
+try:
+    pass
+finally:
+    def in_finally(): pass
+def g(a, /, po=None, *args, kw=None, **kwargs):
+    local = 1
+def m(): pass
+class C:
+    def m(self, args):
+        self.kept = 1
+        args.dropped = 1
+"""
+
+
+def test_defined_keys_every_shape_by_scope():
+    keys = run.defined(DEFINED_SHAPES, "s.py")
+    assert {"in_with", "in_for", "in_else", "in_finally", "m", "C.m", "C.kept"} <= keys
+    assert not {"local", "C.dropped", "dropped"} & keys
+    assert run.leaf("C.m") == run.leaf("m") == "m"
+
+
+def test_interface_gaps_flag_a_new_subcommand(tmp_path):
+    task = gap_task(tmp_path, STATED, fix_code=FIX_CODE + NAMES_CODE)
+    failures = ["error: argument cmd: invalid choice: 'restate' (choose from 'init')"]
+    assert run.interface_gaps(task, failures) == ["name the report does not give: restate"]
+
+
+def test_interface_gaps_flag_a_new_module(tmp_path):
+    task = gap_task(tmp_path, STATED, fix_files={"pkg/grants.py": "X = 1\n"})
+    failures = ["ModuleNotFoundError: No module named 'pkg.grants'"]
+    assert run.interface_gaps(task, failures) == ["name the report does not give: pkg.grants"]
+
+
+def test_interface_gaps_skip_a_name_only_the_tests_add(tmp_path):
+    task = gap_task(tmp_path, STATED, fix_files={"tests/helpers.py": "def helper():\n    pass\n"})
+    assert run.interface_gaps(task, ["module 'helpers' has no attribute 'helper'"]) == []
+
+
+def test_interface_gaps_read_every_unrecognized_flag(tmp_path):
+    report = STATED + " It takes `--repos-root`."
+    task = gap_task(tmp_path, report, fix_code=FIX_CODE + NAMES_CODE)
+    failures = [
+        "error: unrecognized arguments: --repos-root /tmp/pytest-of-x/p0 --techne-toml /b -q --json"
+    ]  # a dash inside a path value is no flag
+    # argparse refused each one on the parent and the gold patch passes: the fix added all
+    assert run.interface_gaps(task, failures) == [
+        "name the report does not give: --json",
+        "name the report does not give: --techne-toml",
+        "name the report does not give: -q",
+    ]
+
+
+def test_interface_gaps_name_what_the_parent_lacks_unless_the_report_does(tmp_path):
+    report = (
+        "Interface: a stops for you in a session started in b/ → go. `cli.grants_file()`;"
+        " it writes artifacts to the results folder."
+    )
+    task = gap_task(tmp_path, report, fix_code=FIX_CODE + NAMES_CODE)
+    failures = [
+        "AttributeError: module 'redact' has no attribute 'artifacts'",
+        "AttributeError: module 'cli' has no attribute 'grants_file'",
+        "error: unrecognized arguments: --techne-toml /x",
+    ]
+    assert run.interface_gaps(task, failures) == [
+        "name the report does not give: --techne-toml",
+        "name the report does not give: artifacts",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("report", "parent_ran", "ok"),
+    [
+        ("The fix adds `artifacts(results)`.", True, True),
+        ("No name given.", True, False),
+        ("The fix adds `artifacts(results)`.", False, False),  # a timeout: nothing was checked
+    ],
+)
+def test_check_tasks_fails_a_task_whose_report_leaves_out_a_name(
+    tmp_path, monkeypatch, capsys, report, parent_ran, ok
+):
+    monkeypatch.setattr(run, "CHECK", tmp_path / "check")
+    monkeypatch.setattr(run, "GOLD", tmp_path / "gold.json")
+    monkeypatch.setattr(run, "workspace", lambda task, dest: dest.mkdir(parents=True))
+    monkeypatch.setattr(run, "git", lambda *a: "")
+    monkeypatch.setattr(run, "sh", lambda *a, **k: subprocess.CompletedProcess(a, 0, "", ""))
+    monkeypatch.setattr(run, "base_of", lambda ws: "base")
+    monkeypatch.setattr(run, "diff_files", lambda ws: [])
+    monkeypatch.setattr(run, "audit", lambda *a: [])
+
+    def scored(task, ws, dest, require=None, messages=False):
+        if dest.name == "score-parent":
+            assert messages  # the gap check reads the parent's failures
+            return {
+                "passed": False,
+                "tests_run": ["t::a"] if parent_ran else [],
+                "failures": ["module 'x' has no attribute 'artifacts'"] if parent_ran else [],
+            }
+        return {"passed": True, "tests_run": ["t::a"]}
+
+    monkeypatch.setattr(run, "hidden_tests", scored)
+
+    def gaps(task, failures):
+        # the parent's failures reach the gap check
+        assert failures == (["module 'x' has no attribute 'artifacts'"] if parent_ran else [])
+        return [] if "`artifacts" in task["report"] else ["name the report does not give: x"]
+
+    monkeypatch.setattr(run, "interface_gaps", gaps)
+    task = {"id": "a", "clone": tmp_path, "parent": "p", "fix": "f", "report": report}
+    task["hidden_tests"] = ["tests/test_a.py"]
+    assert run.check_tasks([task]) == (0 if ok else 1)
+    out = capsys.readouterr().out
+    assert ("BROKEN" in out) is not ok
+    assert json.loads(run.GOLD.read_text()) == ({"a": ["t::a"]} if ok else {})
+
+
+def test_added_lines_reads_an_added_line_that_starts_with_two_pluses():
+    assert run.added_lines("--- a/f\n+++ b/f\n@@ -1 +1,3 @@\n a\n+++x\n+y\n") == {2, 3}
+
+
+def test_a_name_counts_as_given_only_as_a_whole_word(tmp_path):
+    fix = FIX_CODE + "\n\ndef pool():\n    pass\n"
+    task = gap_task(tmp_path, STATED + " Uses `spool`.", fix_code=fix)
+    failures = ["module 'c' has no attribute 'pool'"]
+    assert run.interface_gaps(task, failures) == ["name the report does not give: pool"]
+    task["report"] = STATED + " Adds `cli.Pool()`."  # names are case-sensitive
+    assert run.interface_gaps(task, failures) == ["name the report does not give: pool"]
+    task["report"] = STATED + " Adds `cli.pool()`."
+    assert run.interface_gaps(task, failures) == []
+
+
 @pytest.mark.parametrize(
     ("rc", "cases", "require", "want"),
     [
@@ -435,6 +988,43 @@ def test_scoring_needs_every_gold_test_to_pass(tmp_path, monkeypatch, rc, cases,
     task = {"hidden_tests": [], "hidden_command": "pytest", "id": "t"}
     monkeypatch.setattr(run, "base_of", lambda ws: "base")
     assert run.hidden_tests(task, tmp_path / "ws", dest, require)["passed"] is want
+
+
+def test_hidden_tests_carry_failures_when_the_diff_does_not_apply(tmp_path, monkeypatch):
+    monkeypatch.setattr(run, "staged_diff", lambda ws: b"not a diff\n")
+    monkeypatch.setattr(run, "workspace", lambda task, d: d.mkdir(parents=True, exist_ok=True))
+    task = {"hidden_tests": [], "hidden_command": "pytest", "id": "t"}
+    out = run.hidden_tests(task, tmp_path / "ws", tmp_path / "score" / "run", messages=True)
+    assert out["failures"] == [] and out["passed"] is False
+
+
+@pytest.mark.parametrize("messages", [True, False])
+def test_hidden_tests_carry_the_failures_only_when_asked(tmp_path, monkeypatch, messages):
+    dest = tmp_path / "score" / "run"
+    monkeypatch.setattr(run, "workspace", lambda task, d: d.mkdir(parents=True, exist_ok=True))
+    monkeypatch.setattr(run, "private_cache", lambda task, d: d)
+    monkeypatch.setattr(run, "tool_env", lambda cache: {})
+    monkeypatch.setenv("QUALITY_NO_LOCK", "1")
+
+    def fake_sh(cmd, cwd=None, **kw):
+        if cmd[0] == "unshare":
+            (dest.parent / "run.junit.xml").write_text(
+                '<testsuites><testsuite><testcase classname="t" name="a">'
+                "<failure message=\"has no attribute 'x'\">trace</failure>"
+                "</testcase></testsuite></testsuites>"
+            )
+            return subprocess.CompletedProcess(cmd, 1, "", "")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(run, "sh", fake_sh)
+    monkeypatch.setattr(run, "staged_diff", lambda ws: b"")
+    monkeypatch.setattr(run, "base_of", lambda ws: "base")
+    task = {"hidden_tests": [], "hidden_command": "pytest", "id": "t"}
+    out = run.hidden_tests(task, tmp_path / "ws", dest, messages=messages)
+    if messages:
+        assert out["failures"] == ["has no attribute 'x'\ntrace"]
+    else:
+        assert "failures" not in out
 
 
 def harness(tmp_path, monkeypatch, ids=("a", "b", "c"), version="v1"):
