@@ -412,7 +412,7 @@ def test_each_unknown_file_name_is_its_own(repo):
         f'cat > "$B" <<\'Y\'\n{LONG}\nY\ngh pr comment 1 --body-file "$B"'
     )
     assert refused(run_guard(two, repo)), "B's long body, not A's short one"
-    tee = f"tee -ia c.md <<'EOF'\nmore\nEOF\ngh pr create -t t --body-file c.md"
+    tee = "tee -ia c.md <<'EOF'\nmore\nEOF\ngh pr create -t t --body-file c.md"
     assert "own call" in (refused(run_guard(tee, repo)) or ""), "-ia appends"
 
 
