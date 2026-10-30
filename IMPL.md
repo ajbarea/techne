@@ -6,53 +6,28 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 
 ## In flight
 
-Branch results/quality-baseline, worktree `.claude/worktrees/baseline`: techne#249. The first 4
-of 30 Opus baseline runs failed hidden tests that checked names or wording their reports never
-gave. Done on the branch (3818b38 .. c5bd08b, pushed): interface notes completed on 8 tasks;
-`run.py` `interface_gaps` + `defined` make `--check-tasks` fail such a task (55 hand mutations,
-all killed; on the real parents' failures the old notes flag the four tasks no model could pass,
-techne-206, sphragis-149, -186, -212, and the new notes flag nothing); `quality/DEVIATIONS.md`
-records it (598 of 600 words); old runs in `quality/results/2026-10-29-baseline-void/`.
-Review: r1 reader, r2 `/code-review medium`, r3-r6 readers (each found Should-fix, all fixed;
-recurring classes got structural fixes), **r7 clean** (Minors only). `--check-tasks` on 6c56cbd:
-10/10 ok; on c5bd08b 7/7 ok when stopped for the move to RIT.
+techne#249 is fixed in PR #252 (branch results/quality-baseline): the task notes state what the
+hidden tests check, `--check-tasks` fails a task with a gap, `quality/DEVIATIONS.md` records it.
+Seven reader rounds plus a verify pass, clean; `--check-tasks` 10/10 ok on 5ec4dc0. Old runs stay
+in `quality/results/2026-10-29-baseline-void/`.
 
 Next, in order:
-1. r7 Minors (optional but cheap; then ONE fresh Opus reader verifies those fixes only):
-   (a) `interface_gaps` docstring + DEVIATIONS: "the fix added it" → "the fix added it or
-   stopped passing it; either way the report must name it in a code span"; (b) add a pytest
-   temp path value (`/tmp/pytest-of-x/p0`) to `test_interface_gaps_read_every_unrecognized_flag`
-   (kills the `FLAG` lookbehind mutant); (c) a test with wording only in a parent comment
-   (`before` is whole-file); (d) a missing-file failure on a file the parent already has (no gap).
-2. `uv run python quality/run.py --check-tasks` on the final commit, all 10 ok (log to
-   `~/.local/state/techne-quality/check-tasks-9.log`; ~50 min; never under flock).
-3. PR (links #249; body: why/what/status, results table: old notes 4 tasks flagged, new 0;
-   deferred ledger: junit double parse, `messages` flag, repeated git show, check_tasks'
-   --name-status without -z, r6 minors 4 and 6, r7 informational 5) → merge.
-4. Restart the baseline from main's commit in `quality/results/2026-10-29-baseline-2` on RIT
-   (`CLAUDE_CONFIG_DIR=/home/ajbar/.claude`; edit `~/.local/state/techne-quality/resume.sh`'s
-   QUALITY_OUT and its `cd` to a fresh worktree of main first), in tmux `quality-resume`:
-   `tmux new-session -d -s quality-resume -e CLAUDE_CONFIG_DIR=/home/ajbar/.claude "bash
+1. Merge #252 on green.
+2. Restart the Opus baseline from main in a fresh worktree on the RIT account (the default config
+   folder): point `~/.local/state/techne-quality/resume.sh`'s `cd` at that worktree and its
+   QUALITY_OUT at `quality/results/2026-10-29-baseline-2`, then
+   `tmux new-session -d -s quality-resume -e CLAUDE_CONFIG_DIR="$HOME/.claude" "bash
    ~/.local/state/techne-quality/resume.sh"`. Rerunning resumes; always pass `-e CLAUDE_CONFIG_DIR`.
+   Progress: `grep tests= ~/.local/state/techne-quality/baseline.log`.
+3. Commit the results under `quality/results/` by PR, then start techne#226 measured on them.
 Never wrap `run.py` or `make quality` in `flock /tmp/fleet-heavy.lock`: run.py takes that lock
 itself, so the wrapper deadlocks. A lock held long after every job ended is likely an orphan that
-inherited the fd (klepsydra#193: a test tmux server held it 40 min on 10-29): `lsof
-/tmp/fleet-heavy.lock`. Progress: `grep tests= ~/.local/state/techne-quality/baseline.log`. A
-skill suite with any "ended on an API error" run is invalid: delete its JSON and rerun. Then
-commit results under `quality/results/` by PR and start techne#226.
-
-Before it: the logging rollout (10-28/29) is done, one PR per repo, each re-checked `logging standard ✓`
-on main with #230's check: sphragis #225, techne #230, pharos #102, ariadne #76, keryx #69,
-ajbarea.github.io #137, papers #115, phalanx-fl #139, periplus #62, talks #41, the coding-gym repo
-#7, the CSCI-739 class repo #22, ldqis #209 (klepsydra met it in #145). Left: kourai-khryseai's code
-(harvest-only since Aug 2026; 94 G004/G201/G003, an uncapped FileHandler in
-`scripts/diagnose_m14_timeout.py`, templates without the lint rules) until AJ asks; velocity-fl
-skipped (harvest-only).
+inherited the fd (klepsydra#193): `lsof /tmp/fleet-heavy.lock`. A skill suite with any "ended on
+an API error" run is invalid: delete its JSON and rerun.
 
 Owed by AJ: from #209, the status line step `/phylax:setup` prints and the global CLAUDE.md
-routing line; GitGuardian incident 39081601 (a fake test token in #215, gone from the history)
-to mark as a false positive in the dashboard. Same for ariadne incident 39247473 and 39249419
-(fake Neo4j credentials in the #76 tests, squashed out of the PR before merge).
+routing line; GitGuardian incidents 39081601 (techne #215), 39247473 and 39249419 (ariadne #76),
+fake test credentials, to mark as false positives.
 
 ## Resume: quality evals, hooks, review-loop ledger (techne-evals brief, 10-29)
 
