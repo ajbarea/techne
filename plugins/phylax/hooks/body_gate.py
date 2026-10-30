@@ -18,6 +18,9 @@ import re
 BUDGET = {"PR": 150, "issue": 300, "comment": 150}
 SLACK = 1.1
 LONG_SENTENCE = 25
+# GitHub refuses a longer body ("Body is too long (maximum is 65536 characters)"), so
+# one is refused here without scanning it.
+GITHUB_MAX = 65536
 
 _FOLD_TAG = re.compile(r"<(/?)(details|summary)\b([^>]*)>", re.I)
 _COMMENT = re.compile(r"<!--.*?-->", re.S)
@@ -104,6 +107,12 @@ def check(kind: str, body: str) -> tuple[list[str], list[str]]:
     """The refusals and the warnings for a body of KIND (PR, issue or comment)."""
     denies: list[str] = []
     warnings: list[str] = []
+    if len(body) > GITHUB_MAX:
+        denies.append(
+            f"phylax: this {kind} body has {len(body)} characters; GitHub refuses a body over "
+            f"{GITHUB_MAX}. Cut it to the short top and fold or link the depth."
+        )
+        return denies, warnings
     if _MARKER.search(blank_code(body)):
         denies.append(
             f"phylax: this {kind} body carries a `budget:` marker. GitHub shows the raw text "

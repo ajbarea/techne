@@ -132,7 +132,10 @@ GH_BODY_KINDS = {
 }
 GH_BODY_TEXT = {"-b", "--body"}
 # A heredoc's opener (`<<EOF`, `<<-'EOF'`), not a here-string (`<<<`).
-HEREDOC_OPEN_RE = re.compile(r"(?<!<)<<(?!<)")
+# strip_heredocs writes each heredoc's delimiter as this sentinel, numbered as `bodies`.
+SENTINEL_RE = re.compile("\x00H(\\d+)\x00")
+# A variable a heredoc fills, `NAME=$(cat <<EOF` or `NAME="$(cat <<EOF"`, on its opening line.
+HEREDOC_VAR_RE = re.compile(r"(?:^|[;&|(\s])(?:export\s+)?([A-Za-z_]\w*)=\"?\$\(\s*cat\s*<<")
 GH_BODY_FILE = {"-F", "--body-file"}
 # gh api flags that take a value, and the REST paths whose `body` field is an issue, PR or comment.
 GH_API_VALUE = {
@@ -254,6 +257,8 @@ def strip_heredocs(text: str) -> tuple[str, list[tuple[str, str]]]:
     Tracks quoting as bash does: `<<` inside quotes is literal, except inside a
     `$(...)` within double quotes, the `-m "$(cat <<'EOF' ...)"` commit idiom.
     Drops `#` comments and rewrites `$'...'` as a plain single-quoted string.
+    Each heredoc's delimiter becomes a NUL-wrapped sentinel naming its index, so
+    the value or redirection that opened it says which body is its own.
     Returns the stripped text and each heredoc as (the line that opened it, its body).
     """
     out: list[str] = []
@@ -339,12 +344,23 @@ def strip_heredocs(text: str) -> tuple[str, list[tuple[str, str]]]:
                 stop = text.find("\n", i)
                 opener = text[start : n if stop < 0 else stop]
                 pending.append((m.group(3), m.group(1) == "-", opener))
-                out.append(m.group(0))
+                out.append(f"<<{m.group(1)}\x00H{len(bodies) + len(pending) - 1}\x00")
                 i = m.end()
                 continue
         out.append(ch)
         i += 1
     return "".join(out), bodies
+
+
+def stdin_heredoc(group: list[str]) -> int | None:
+    """The heredoc a subcommand reads on stdin (`<<` followed by its sentinel), not one
+    inside a value."""
+    for j in range(len(group) - 1):
+        if group[j] == "<<":
+            m = SENTINEL_RE.fullmatch(group[j + 1].lstrip("-"))
+            if m:
+                return int(m.group(1))
+    return None
 
 
 def tokenize(text: str) -> list[str] | None:
@@ -710,9 +726,22 @@ class Verdict:
 class Guards:
     def __init__(self, bodies: list[tuple[str, str]], who: str = ""):
         self.bodies = bodies
-        # How many heredocs the subcommands before the one being checked opened:
-        # the index of that one's own heredoc in `bodies`.
-        self.heredoc_at = 0
+        # The heredoc a variable holds, from `NAME=$(cat <<EOF` (the tokenizer splits
+        # an unquoted `$(...)`, so the assignment alone cannot say).
+        self.heredoc_vars: dict[str, int] = {}
+        seen: set[str] = set()
+        for k, (opener, _) in enumerate(bodies):
+            if opener in seen:
+                continue
+            seen.add(opener)
+            m = HEREDOC_VAR_RE.search(opener)
+            if m:
+                self.heredoc_vars[m.group(1)] = k
+        # Files the subcommands so far write: the heredoc each was written from, or None
+        # when that text cannot be known here.
+        self.written: dict[str, int | None] = {}
+        # The stdin heredoc of the subcommand being checked.
+        self.stdin_heredoc: int | None = None
         # The agent the call came from ("" for the main thread), for the catch log.
         self.who = who
         # `git add` calls seen so far in this command, which a later commit would include.
@@ -1090,7 +1119,11 @@ class Guards:
             if group and all(ASSIGNMENT_RE.match(t) for t in group[group[0] == "export" :]):
                 for tok in group[group[0] == "export" :]:
                     name, _, value = tok.partition("=")
-                    env[name] = expand(value, env)
+                    held = self.heredoc_vars.get(name)
+                    if value == "$" and held is not None:
+                        env[name] = f"\x00H{held}\x00"
+                    else:
+                        env[name] = expand(value, env)
                 continue
             if not argv:
                 continue
@@ -1116,6 +1149,7 @@ class Guards:
                     dirstack.append(old)
                 env["OLDPWD"], env["PWD"] = str(old), str(cwd)
                 continue
+            self.stdin_heredoc = stdin_heredoc(group)
             try:
                 if name == "git":
                     self.check_git(argv, run_cwd, env)
@@ -1123,7 +1157,17 @@ class Guards:
                     self.check_gh(argv, run_cwd, env)
             except Exception as exc:  # one broken check must not skip the next subcommand
                 self.errors.append(f"{' '.join(argv)[:80]}: {exc}")
-            self.heredoc_at += sum(len(HEREDOC_OPEN_RE.findall(tok)) for tok in group)
+            self.note_written(group, argv, run_cwd)
+
+    def note_written(self, group: list[str], argv: list[str], cwd: Path) -> None:
+        """Record the files this subcommand writes, and the heredoc each comes from: its
+        stdin heredoc for a redirect from `cat` or a `tee`, else unknown."""
+        targets = [group[j + 1] for j in range(len(group) - 1) if group[j] in CREATE_REDIRECTS]
+        if argv and Path(argv[0]).name in CREATORS:
+            targets += [a for a in argv[1:] if not a.startswith("-")]
+        source = self.stdin_heredoc if argv and Path(argv[0]).name in {"cat", "tee"} else None
+        for target in targets:
+            self.written[os.path.normpath(cwd / os.path.expanduser(target))] = source
 
     def note_created(self, group: list[str], argv: list[str], cwd: Path) -> None:
         """Record a COMMITS.md this subcommand creates; a dry run cannot see it yet."""
@@ -1192,23 +1236,41 @@ class Guards:
                 self.verdict.denies.extend(denies)
                 self.verdict.warnings.extend(warnings)
 
-    def own_heredoc(self) -> str | None:
-        """The heredoc the gh subcommand being checked opened: the next after those
-        the subcommands before it opened."""
-        if self.heredoc_at < len(self.bodies):
-            return self.bodies[self.heredoc_at][1]
+    def heredoc(self, index: int | None) -> str | None:
+        if index is not None and index < len(self.bodies):
+            return self.bodies[index][1]
         return None
 
+    def own_heredoc(self) -> str | None:
+        """The heredoc on the stdin of the gh subcommand being checked."""
+        return self.heredoc(self.stdin_heredoc)
+
+    def body_file(self, path: str, cwd: Path) -> str | None:
+        """A body file's text as gh will read it: from the heredoc an earlier subcommand
+        wrote it from, refused when it was written here some other way, else from disk."""
+        key = os.path.normpath(cwd / os.path.expanduser(path))
+        if key in self.written:
+            index = self.written[key]
+            if index is None:
+                self.verdict.denies.append(
+                    f"phylax: this command writes {path} and then sends it as a body, so its "
+                    "length cannot be checked first. Write the body file in its own call."
+                )
+                return None
+            return self.heredoc(index)
+        return read_message_file(path, cwd)
+
     def body_value(self, value: str, cwd: Path, env: dict[str, str]) -> str | None:
-        """A body flag's value as GitHub gets it: its own heredoc, a `$(cat FILE)`
-        (also through a variable set earlier), or the text with the variables
-        known here; None when it cannot be known."""
-        if "<<" in value:
-            return self.own_heredoc()
+        """A body flag's value as GitHub gets it: the heredoc it opened (also through a
+        variable set earlier), a `$(cat FILE)`, or the text with the variables known
+        here."""
         value = expand(value, env, unknown=None)
+        sentinel = SENTINEL_RE.search(value)
+        if sentinel:
+            return self.heredoc(int(sentinel.group(1)))
         cat = CAT_SUBST_RE.search(value)
         if cat:
-            return read_message_file(cat.group(1), cwd)
+            return self.body_file(cat.group(1), cwd)
         return value
 
     def gh_body(self, args: list[str], cwd: Path, env: dict[str, str]) -> str | None:
@@ -1229,7 +1291,7 @@ class Guards:
                 elif value == "-":
                     body = self.own_heredoc()
                 else:
-                    body = read_message_file(value, cwd)
+                    body = self.body_file(value, cwd)
             i += 1
         return body
 
@@ -1255,11 +1317,11 @@ class Guards:
                         if name in {"-F", "--field"} and field == "@-":
                             body = self.own_heredoc()
                         elif name in {"-F", "--field"} and field.startswith("@"):
-                            body = read_message_file(field[1:], cwd)
+                            body = self.body_file(field[1:], cwd)
                         else:
                             body = self.body_value(field, cwd, env)
                 elif name == "--input":
-                    raw = self.own_heredoc() if value == "-" else read_message_file(value, cwd)
+                    raw = self.own_heredoc() if value == "-" else self.body_file(value, cwd)
                     try:
                         loaded = json.loads(raw or "null")
                     except ValueError:

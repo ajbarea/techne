@@ -230,3 +230,41 @@ def test_off_by_default_and_off_per_repo(repo):
         ["git", "-C", str(repo), "config", "phylax.blockLongBodies", "false"], check=True
     )
     assert run_guard(command, repo) is None
+
+
+def test_a_heredoc_is_the_body_of_the_value_that_opened_it(repo):
+    short_title = f"\"$(cat <<'T'\n{words_of(2)}\nT\n)\""
+    long_body = f"\"$(cat <<'B'\n{LONG}\nB\n)\""
+    assert refused(run_guard(f"gh pr create --title {short_title} --body {long_body}", repo))
+    held = f"BODY=$(cat <<'EOF'\n{LONG}\nEOF\n)\ngh pr comment 1 --body \"$BODY\""
+    assert refused(run_guard(held, repo)), "a heredoc held in a variable is still the body"
+    quoted = f'BODY="$(cat <<\'EOF\'\n{LONG}\nEOF\n)"\ngh pr comment 1 --body "$BODY"'
+    assert refused(run_guard(quoted, repo))
+    assert refused(run_guard(f"gh pr comment 1 --body 'x << 2 {LONG}'", repo)), (
+        "a quoted << is text, not a heredoc"
+    )
+    blamed = f"gh issue comment 1 --body 'x << 2' && gh pr comment 1 -F - <<'B'\n{LONG}\nB"
+    assert refused(run_guard(blamed, repo))
+    loop = f"while read l; do :; done <<'Q'\nq\nQ\ngh pr comment 1 -F - <<'B'\n{LONG}\nB"
+    assert refused(run_guard(loop, repo)), "a heredoc fed to a loop is not the gh body"
+    here_string = f"grep x <<< \"$y\" && gh pr comment 1 -F - <<'B'\n{LONG}\nB"
+    assert refused(run_guard(here_string, repo)), "a here-string opens no heredoc"
+
+
+def test_a_body_file_written_in_the_same_command_is_read_from_its_heredoc(repo):
+    fresh = f"cat > new.md <<'EOF'\n{LONG}\nEOF\ngh pr create -t t --body-file new.md"
+    assert refused(run_guard(fresh, repo)), "the file does not exist yet when the hook runs"
+    (repo / "stale.md").write_text(words_of(400))
+    rewrite = f"cat > stale.md <<'EOF'\n{SHORT}\nEOF\ngh pr create -t t --body-file stale.md"
+    assert refused(run_guard(rewrite, repo)) is None, "the new short text counts, not the old file"
+    unknown = "cp other.md made.md && gh pr create -t t --body-file made.md"
+    assert "own call" in (refused(run_guard(unknown, repo)) or "")
+
+
+def test_a_body_github_would_refuse_is_refused_without_a_slow_scan():
+    import time
+
+    start = time.monotonic()
+    denies, _ = body_gate.check("PR", "```\n" + "x\n" * 40000)
+    assert time.monotonic() - start < 1
+    assert "GitHub refuses" in denies[0]
