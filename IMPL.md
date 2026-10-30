@@ -10,7 +10,11 @@ Branch results/quality-baseline-2, worktree `.claude/worktrees/quality-run` (fro
 after #252 fixed #249): the Opus baseline, `make quality MODE=normal PHASE=baseline
 QUALITY_OUT=quality/results/2026-10-29-baseline-2`, then `make quality-skills`, both driven by
 `~/.local/state/techne-quality/resume.sh` in tmux `quality-resume` on the RIT account (the
-default config folder). Started 10-29 20:49. Earlier logs: `baseline-void.log`, `skills-void.log`.
+default config folder). Started 10-29 20:49; stopped 21:11 on RIT's session limit after 3 of 30
+runs (sphragis-149 r1-r3 kept; one sphragis-186 api_error run discarded). Resumed 10-30 17:33 on
+RIT, same CLI (2.1.302, matches set.json); it was queued on the fleet heavy lock at the handoff.
+A running run.py (`pgrep -af quality/run.py`) means do not start another: watch the log.
+Earlier logs: `baseline-void.log`, `skills-void.log`.
 
 To resume after a usage limit or restart: `tmux new-session -d -s quality-resume -e
 CLAUDE_CONFIG_DIR="$HOME/.claude" "bash ~/.local/state/techne-quality/resume.sh"` (rerunning
