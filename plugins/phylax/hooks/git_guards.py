@@ -344,7 +344,8 @@ def strip_heredocs(text: str) -> tuple[str, list[tuple[str, str, bool]]]:
                         j = text.find("\n", i)
                         more = text[i:] if j < 0 else text[i:j]
                         i = n if j < 0 else j + 1
-                        line = line[:-1] + (more.lstrip("\t") if dash else more)
+                        # `<<-` strips the joined line's leading tabs, not the continuation's.
+                        line = line[:-1] + more
                     if (line.lstrip("\t") if dash else line) == delim:
                         break
                     body.append(line)
@@ -856,6 +857,7 @@ class Guards:
         # Its other stdin redirect, `< FILE` or `<<< WORD`, and whether one cannot be followed.
         self.stdin_other: tuple[str, str] | None = None
         self.stdin_odd = False
+        self.stdin_redirects = 0
         # The variables as written, before heredocs and files (`run`'s `raw`).
         self.raw: dict[str, str] = {}
         # Each file's text as `resolve` read it, which READ_RE sentinels name.
@@ -1280,6 +1282,7 @@ class Guards:
                 continue
             self.stdin_heredoc = stdin_heredoc(group)
             self.stdin_other = stdin_redirect(group)
+            self.stdin_redirects = sum(t in {"<", "<<", "<<-", "<<<"} for t in group)
             # Bash reads the last stdin redirect: a heredoc or a `<`/`<<<`, not both.
             if self.stdin_heredoc is not None and self.stdin_other is not None:
                 if last_redirect(group, {"<<", "<<-"}) > last_redirect(group, {"<", "<<<"}):
@@ -1563,6 +1566,12 @@ class Guards:
             return None
         kind, word = self.stdin_other
         if kind == "<" and word in STDIN_PATHS:
+            if self.stdin_redirects > 1:
+                # It reopens the redirect before it, which this check does not track.
+                self.verdict.denies.append(
+                    f"phylax: `< {word}` after another stdin redirect reopens it, so the body's "
+                    "length cannot be checked first. Give the body one redirect, or a file."
+                )
             return None  # the shell's own stdin, passed through: not seen
         if kind == "<":
             return self.body_file(word, cwd, env)
@@ -1581,8 +1590,9 @@ class Guards:
             return ""
         if not path:
             self.verdict.denies.append(
-                "phylax: the body file is a process substitution (`<(...)`), whose text this "
-                "check cannot read first. Write the body to a file in its own call."
+                "phylax: the body file has an empty name, or is a process substitution "
+                "(`<(...)`), whose text this check cannot read first. Write the body to a file "
+                "in its own call."
             )
             return None
         if key not in self.written and ("$" in path or "`" in path):

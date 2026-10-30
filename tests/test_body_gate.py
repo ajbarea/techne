@@ -770,7 +770,7 @@ def test_a_trailing_backslash_joins_before_the_delimiter_is_seen(repo):
     assert refused(run_guard(dash, repo))
     written = f"cat > h.md <<EOF\nshort\\\nEOF\n{LONG}\nEOF\ngh pr comment 1 --body-file h.md"
     assert refused(run_guard(written, repo))
-    quoted = "gh pr comment 1 --body-file - <<'EOF'\nshort\\\nEOF\n"
+    quoted = f"gh pr comment 1 --body-file - <<'EOF'\nshort\\\nEOF\necho {LONG}"
     assert refused(run_guard(quoted, repo)) is None, "a quoted heredoc keeps its backslash"
     near = f"gh pr comment 1 --body-file - <<EOF\n{words_of(164)} wo\\\nrd\nEOF"
     assert refused(run_guard(near, repo)) is None, "165 words once the halves join"
@@ -782,6 +782,8 @@ def test_odd_stdin_and_body_files_are_named(repo):
     assert refused(run_guard("gh pr edit 1 --body-file /dev/null", repo)) is None
     sub = refused(run_guard("gh pr comment 1 --body-file <(cat b.md)", repo))
     assert "process substitution" in (sub or "")
+    empty = refused(run_guard("gh pr comment 1 --body-file ''", repo))
+    assert "empty name" in (empty or "")
     (repo / "dir").mkdir()
     assert "folder" in (refused(run_guard("gh pr comment 1 --body-file dir", repo)) or "")
     fd0 = "gh pr comment 1 --body-file /dev/fd/0 <<'EOF'\nshort\nEOF"
@@ -796,3 +798,35 @@ def test_escapes_and_backticks_in_unquoted_heredocs_read_exactly(repo):
     assert refused(run_guard(code, repo)) is None, "an escaped backtick is text"
     live = "cat > h.md <<EOF\nrun `make` first\nEOF\ngh pr comment 1 --body-file h.md"
     assert "unquoted heredoc" in (refused(run_guard(live, repo)) or ""), "a live backtick"
+
+
+def test_the_join_reads_as_bash_reads_it(repo):
+    even = f"gh pr comment 1 --body-file - <<EOF\nshort\\\\\nEOF\necho {LONG}"
+    assert refused(run_guard(even, repo)) is None, "an even run of backslashes joins nothing"
+    joined = f"gh pr comment 1 --body-file - <<EOF\nEO\\\nF\n{LONG}\nEOF"
+    assert refused(run_guard(joined, repo)) is None, "the joined line is the delimiter"
+    split = f"gh pr comment 1 --body-file - <<-EOF\nE\\\n\tOF\n{LONG}\nEOF"
+    assert refused(run_guard(split, repo)), "E<tab>OF is no delimiter, so the body runs on"
+    commit = (
+        "git commit -F - <<-EOF\nfeat\nE\\\n\tOF\n"
+        "Co-Authored-By: Claude <noreply@anthropic.com>\nEOF"
+    )
+    payload = json.dumps({"cwd": str(repo), "tool_input": {"command": commit}})
+    proc = subprocess.run(
+        [HOOK_PYTHON, str(GUARDS)],
+        input=payload,
+        capture_output=True,
+        text=True,
+        env=hook_env(("block_attribution_trailers",)),
+        check=False,
+    )
+    assert "attribution" in proc.stdout, "gate off: the attribution line is in the message"
+
+
+def test_dev_stdin_after_another_redirect_is_refused(repo):
+    (repo / "b.md").write_text(LONG)
+    for command in (
+        f"gh pr comment 1 --body-file - <<'EOF' < /dev/stdin\n{LONG}\nEOF",
+        "gh pr comment 1 --body-file - < b.md < /dev/stdin",
+    ):
+        assert "reopens" in (refused(run_guard(command, repo)) or ""), command
