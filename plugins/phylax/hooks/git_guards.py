@@ -136,8 +136,16 @@ GH_BODY_TEXT = {"-b", "--body"}
 SENTINEL_RE = re.compile("\x00H(\\d+)\x00")
 # A command substitution reading a heredoc, `$(cat <<EOF ...)`, after strip_heredocs.
 HEREDOC_SUBST_RE = re.compile("\\$\\(([^()]*\x00H\\d+\x00[^()]*)\\)")
-# The name a command substitution this check cannot run stands for in a variable.
-UNKNOWN_SUBST_RE = re.compile(r"\$\(command \d+\)")
+# A word of a heredoc redirection after strip_heredocs: `<<`, `<<-`, the sentinel or both.
+HEREDOC_WORD_RE = re.compile("(?:<<-?)?(?:-?\x00H\\d+\x00)?")
+# A command substitution with no other inside it, `$(...)`.
+SUBST_RE = re.compile(r"\$\(([^()]*)\)")
+# strip_heredocs's sentinel for a file read `$(cat FILE)` captured by `capture`.
+READ_RE = re.compile("\x00R(\\d+)\x00")
+# Builtins that assign their `NAME=VALUE` words, as a bare assignment does.
+DECLARERS = {"export", "declare", "local", "typeset", "readonly"}
+# An expansion this check cannot know, in a `gh api` path.
+UNKNOWN_PART_RE = re.compile(r"\$\([^()]*\)|\$\{[^}]*\}|\$\w+|\$$|`")
 GH_BODY_FILE = {"-F", "--body-file"}
 # gh api flags that take a value, and the REST paths whose `body` field is an issue, PR or comment.
 GH_API_VALUE = {
@@ -372,9 +380,18 @@ def tokenize(text: str) -> list[str] | None:
     lexer.whitespace_split = True
     lexer.commenters = ""
     try:
-        return list(lexer)
+        tokens = list(lexer)
     except ValueError:
         return None
+    # shlex joins a run of punctuation: `$(< f)` gives `(<`, which must open a subshell
+    # as `(` does, then redirect; a separator run (`);`) is split at its parens later.
+    out: list[str] = []
+    for tok in tokens:
+        if len(tok) > 1 and set(tok) <= set("()<>") and set(tok) & set("()"):
+            out.extend(re.findall(r"[()]|[<>]+", tok))
+        else:
+            out.append(tok)
+    return out
 
 
 def rough_tokenize(text: str) -> list[str]:
@@ -736,6 +753,8 @@ class Guards:
         self.stdin_heredoc: int | None = None
         # The variables as written, before heredocs and files (`run`'s `raw`).
         self.raw: dict[str, str] = {}
+        # Each file's text as `resolve` read it, which READ_RE sentinels name.
+        self.captured: list[str] = []
         # The agent the call came from ("" for the main thread), for the catch log.
         self.who = who
         # `git add` calls seen so far in this command, which a later commit would include.
@@ -1113,19 +1132,14 @@ class Guards:
                 if stack:
                     cwd, env, raw = stack.pop()
                 continue
-            if len(group) == 3 and group[0].endswith("=$") and group[1] == "(<":
-                # `NAME=$(< FILE)`: the tokenizer joins `(<`, so no subshell opens.
-                name = group[0][:-2]
-                if ASSIGNMENT_RE.match(group[0]):
-                    raw[name] = env[name] = f"$(cat {group[2]})"
-                    continue
-            if group and all(ASSIGNMENT_RE.match(t) for t in group[group[0] == "export" :]):
-                for tok in group[group[0] == "export" :]:
+            words = group[group[0] in DECLARERS :] if group else []
+            if words and all(ASSIGNMENT_RE.match(t) for t in words):
+                for tok in words:
                     name, _, value = tok.partition("=")
                     if value == "$" and groups[k + 1 : k + 2] == [[PUSH]]:
-                        written = self.substitution(groups, k)
+                        written = self.substitution(groups, k, cwd, env)
                     else:
-                        written = expand(value, {**env, **raw})
+                        written = self.resolve(expand(value, {**env, **raw}), cwd, env, k)
                     raw[name] = written
                     env[name] = self.fill(written)
                 continue
@@ -1258,22 +1272,65 @@ class Guards:
                 self.verdict.denies.extend(denies)
                 self.verdict.warnings.extend(warnings)
 
-    def substitution(self, groups: list[list[str]], k: int) -> str:
-        """What an unquoted `NAME=$(...)` assigns, as written: the tokenizer splits it into
-        the assignment `NAME=$`, then a subshell. `cat <<EOF` is that heredoc, `cat FILE`
-        and `< FILE` read FILE, and any other command a name of its own that stays
-        unknown (`T=$(mktemp)` written, then sent, as "$T")."""
+    def substitution(self, groups: list[list[str]], k: int, cwd: Path, env: dict[str, str]) -> str:
+        """What an unquoted `NAME=$(...)` assigns, as `resolve` leaves it: the tokenizer
+        splits it into the assignment `NAME=$`, then a subshell of one command."""
         inner = groups[k + 2] if len(groups) > k + 2 else []
-        whole = groups[k + 3 : k + 4] == [[POP]]
-        if inner[:1] == ["cat"]:
-            at = stdin_heredoc(inner)
-            if at is not None:
-                return f"\x00H{at}\x00"
-            if whole and len(inner) == 2 and not inner[1].startswith("-"):
-                return f"$(cat {inner[1]})"
-        if whole and len(inner) == 2 and inner[0] == "<":
-            return f"$(cat {inner[1]})"
-        return f"$(command {k})"
+        if groups[k + 3 : k + 4] != [[POP]]:
+            return f"$(command #{k})"  # a pipe or a list: its output cannot be known here
+        return self.resolve(f"$({shlex.join(inner)})", cwd, env, k)
+
+    def resolve(self, text: str, cwd: Path, env: dict[str, str], tag: int | None) -> str:
+        """TEXT with each `$(cat FILE)` or `$(< FILE)` in it read now, as bash runs it,
+        into a sentinel `fill` replaces; a heredoc's `$(cat <<EOF)` stays for `fill`.
+        Any other command stays as written: its output cannot be known here (with TAG,
+        the assignment's place, so two of them name two files)."""
+
+        def one(m: re.Match[str]) -> str:
+            inner = m.group(1)
+            try:
+                argv = shlex.split(inner)
+            except ValueError:
+                argv = []
+            if SENTINEL_RE.search(inner):
+                # Only a bare `cat <<EOF` is its heredoc; anything more in it is unknown.
+                rest = [a for a in argv[1:] if not HEREDOC_WORD_RE.fullmatch(a)]
+                if argv[:1] == ["cat"] and not rest:
+                    return m.group(0)
+                inner = SENTINEL_RE.sub("", inner)
+                return f"$({inner})" if tag is None else f"$({inner} #{tag})"
+            path = None
+            if argv[:1] == ["cat"]:
+                files = [a for a in argv[1:] if a != "--"]
+                if len(files) == 1 and not files[0].startswith("-"):
+                    path = files[0]
+            elif len(argv) == 2 and argv[0] == "<":
+                path = argv[1]
+            elif len(argv) == 1 and argv[0].startswith("<") and len(argv[0]) > 1:
+                path = argv[0][1:]
+            read = self.capture(path, cwd, env) if path else None
+            if read is not None:
+                return read
+            return m.group(0) if tag is None else f"$({inner} #{tag})"
+
+        return SUBST_RE.sub(one, text)
+
+    def capture(self, path: str, cwd: Path, env: dict[str, str]) -> str | None:
+        """A sentinel for PATH's text as `cat` reads it now: a heredoc an earlier
+        subcommand wrote it from, else the file on disk; None when it cannot be known."""
+        path = expand(path, env, unknown=None)
+        if "$" in path or "`" in path:
+            return None
+        key = os.path.normpath(cwd / os.path.expanduser(path))
+        if key in self.written:
+            index = self.written[key]
+            if index is None:
+                return None
+            text = self.heredoc(index) or ""
+        else:
+            text = read_message_file(path, cwd) or ""
+        self.captured.append(text)
+        return f"\x00R{len(self.captured) - 1}\x00"
 
     def fill(self, text: str) -> str:
         """TEXT with each `$(cat <<EOF ...)` and each bare heredoc in it replaced by
@@ -1281,7 +1338,8 @@ class Guards:
         # Of several heredocs on one command, bash feeds the last.
         last = lambda m: self.heredoc(int(SENTINEL_RE.findall(m.group(1))[-1])) or ""  # noqa: E731
         text = HEREDOC_SUBST_RE.sub(last, text)
-        return SENTINEL_RE.sub(lambda m: self.heredoc(int(m.group(1))) or "", text)
+        text = SENTINEL_RE.sub(lambda m: self.heredoc(int(m.group(1))) or "", text)
+        return READ_RE.sub(lambda m: self.captured[int(m.group(1))], text)
 
     def heredoc(self, index: int | None) -> str | None:
         if index is not None and index < len(self.bodies):
@@ -1321,8 +1379,9 @@ class Guards:
         here."""
         # Files are read before heredocs are filled in: a heredoc's `$(cat FILE)` is text.
         value = expand(value, {**env, **self.raw}, unknown=None)
-        value = CAT_SUBST_RE.sub(lambda m: self.body_file(m.group(1), cwd, env) or "", value)
-        if UNKNOWN_SUBST_RE.search(value):
+        while (resolved := self.resolve(value, cwd, env, None)) != value:
+            value = resolved
+        if "$(" in HEREDOC_SUBST_RE.sub("", value):
             self.verdict.denies.append(
                 "phylax: this body holds the output of a command this check cannot run, so "
                 "its length cannot be checked first. Write the body to a file in its own "
@@ -1395,6 +1454,10 @@ class Guards:
         for pattern, kind in GH_API_KINDS:
             if pattern.search(path):
                 return kind, body
+        # A part this check cannot know (`repos/$R/issues/$N/comments`) may be any
+        # segments: the body is held to the strictest budget, not skipped.
+        if UNKNOWN_PART_RE.search(path) and re.search(r"(?:^|/)(?:issues|pulls)(?:/|$)", path):
+            return "comment", body
         return None, None
 
 

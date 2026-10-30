@@ -438,3 +438,56 @@ def test_a_body_of_blank_lines_is_checked_quickly(unit):
     start = time.monotonic()
     body_gate.check("PR", body)
     assert time.monotonic() - start < 2
+
+
+def test_a_file_is_read_where_and_when_the_variable_is_set(repo):
+    (repo / "b.md").write_text(LONG)
+    (repo / "sub").mkdir()
+    for read in ("B=$(cat b.md)", 'B="$(cat b.md)"', "B=$(< b.md)", "declare B=$(cat b.md)"):
+        sent = f'{read}; cd sub && gh pr comment 1 --body "$B"'
+        assert refused(run_guard(sent, repo)), read
+    assert refused(run_guard('(B=$(< b.md); gh pr comment 1 --body "$B")', repo)), (
+        "a subshell keeps it"
+    )
+    (repo / "short.md").write_text(SHORT)
+    assert refused(run_guard('B=$(cat short.md); gh pr comment 1 --body "$B"', repo)) is None
+    outside = '(B=$(cat b.md)); gh pr comment 1 --body "${B}ok"'
+    assert refused(run_guard(outside, repo)) is None, "a subshell's variable stays inside it"
+    later = (
+        f"cat > n.md <<'A'\n{LONG}\nA\nB=$(cat n.md)\n"
+        f"cat > n.md <<'C'\n{SHORT}\nC\ngh pr comment 1 --body \"$B\""
+    )
+    assert refused(run_guard(later, repo)), "B holds the text from when it was read"
+
+
+def test_inline_and_variable_reads_follow_one_rule(repo):
+    (repo / "b.md").write_text(LONG)
+    for inline in ("$(cat 'b.md')", "$(cat -- b.md)", "$(<b.md)", "$(cat ./b.md)"):
+        assert refused(run_guard(f'gh pr comment 1 --body "{inline}"', repo)), inline
+    for unknown in (
+        "$(cat b.md c.md)",
+        "$(sed -n p b.md)",
+        "$(cat b.md | head)",
+        "$(git rev-parse HEAD)",
+    ):
+        out = refused(run_guard(f'gh pr comment 1 --body "Fixed in {unknown}"', repo))
+        assert "cannot run" in (out or ""), unknown
+        out = refused(run_guard(f'B={unknown}; gh pr comment 1 --body "Fixed in $B"', repo))
+        assert "cannot run" in (out or ""), f"B={unknown}"
+    tail = "gh pr comment 1 --body \"$(cat <<'A'; echo more\nshort\nA\n)\""
+    assert "cannot run" in (refused(run_guard(tail, repo)) or ""), "a heredoc with more after it"
+
+
+def test_a_gh_api_path_it_cannot_know_still_has_its_body_checked(repo):
+    (repo / "b.md").write_text(LONG)
+    for path in (
+        "repos/o/r/issues/$N/comments",
+        "repos/$R/issues/1/comments",
+        "repos/o/r/pulls/${PR}",
+    ):
+        out = run_guard(
+            f'N=$(gh pr view --json number -q .number); gh api {path} -f body="$(cat b.md)"', repo
+        )
+        assert refused(out), path
+    notes = f"gh api repos/$R/releases -f body='{words_of(400)}'"
+    assert refused(run_guard(notes, repo)) is None, "release notes are no issue or PR"
