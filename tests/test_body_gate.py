@@ -761,3 +761,38 @@ def test_a_dash_heredoc_after_a_file_wins_and_awk_in_place_writes(repo):
     (repo / "x.md").write_text(SHORT)
     awk = "awk -i inplace '{print}' x.md; gh pr comment 1 --body-file x.md"
     assert "may change" in (refused(run_guard(awk, repo)) or "")
+
+
+def test_a_trailing_backslash_joins_before_the_delimiter_is_seen(repo):
+    first = f"gh pr comment 1 --body-file - <<EOF\nshort\\\nEOF\n{LONG}\nEOF"
+    assert refused(run_guard(first, repo)), "bash reads past the first EOF"
+    dash = f"gh pr comment 1 --body-file - <<-EOF\n\tshort\\\n\tEOF\n{LONG}\n\tEOF"
+    assert refused(run_guard(dash, repo))
+    written = f"cat > h.md <<EOF\nshort\\\nEOF\n{LONG}\nEOF\ngh pr comment 1 --body-file h.md"
+    assert refused(run_guard(written, repo))
+    quoted = "gh pr comment 1 --body-file - <<'EOF'\nshort\\\nEOF\n"
+    assert refused(run_guard(quoted, repo)) is None, "a quoted heredoc keeps its backslash"
+    near = f"gh pr comment 1 --body-file - <<EOF\n{words_of(164)} wo\\\nrd\nEOF"
+    assert refused(run_guard(near, repo)) is None, "165 words once the halves join"
+
+
+def test_odd_stdin_and_body_files_are_named(repo):
+    out = run_guard("gh pr comment 1 --body-file - < /dev/stdin", repo)
+    assert refused(out) is None, "the shell's own stdin, passed through, never loops"
+    assert refused(run_guard("gh pr edit 1 --body-file /dev/null", repo)) is None
+    sub = refused(run_guard("gh pr comment 1 --body-file <(cat b.md)", repo))
+    assert "process substitution" in (sub or "")
+    (repo / "dir").mkdir()
+    assert "folder" in (refused(run_guard("gh pr comment 1 --body-file dir", repo)) or "")
+    fd0 = "gh pr comment 1 --body-file /dev/fd/0 <<'EOF'\nshort\nEOF"
+    assert refused(run_guard(fd0, repo)) is None, "/dev/fd/0 is stdin, not a device to refuse"
+
+
+def test_escapes_and_backticks_in_unquoted_heredocs_read_exactly(repo):
+    (repo / "b.md").write_text(LONG)
+    escaped = "gh pr comment 1 --body-file - <<EOF\nsee \\$(cat b.md) here\nEOF"
+    assert refused(run_guard(escaped, repo)) is None, "an escaped $ is text"
+    code = "cat > h.md <<EOF\nrun \\`make\\` first\nEOF\ngh pr comment 1 --body-file h.md"
+    assert refused(run_guard(code, repo)) is None, "an escaped backtick is text"
+    live = "cat > h.md <<EOF\nrun `make` first\nEOF\ngh pr comment 1 --body-file h.md"
+    assert "unquoted heredoc" in (refused(run_guard(live, repo)) or ""), "a live backtick"

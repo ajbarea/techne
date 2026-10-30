@@ -338,6 +338,13 @@ def strip_heredocs(text: str) -> tuple[str, list[tuple[str, str, bool]]]:
                     j = text.find("\n", i)
                     line = text[i:] if j < 0 else text[i:j]
                     i = n if j < 0 else j + 1
+                    # Unquoted, bash joins a line ending in an odd run of backslashes to
+                    # the next before it compares the line with the delimiter.
+                    while not quoted and j >= 0 and (len(line) - len(line.rstrip("\\"))) % 2:
+                        j = text.find("\n", i)
+                        more = text[i:] if j < 0 else text[i:j]
+                        i = n if j < 0 else j + 1
+                        line = line[:-1] + (more.lstrip("\t") if dash else more)
                     if (line.lstrip("\t") if dash else line) == delim:
                         break
                     body.append(line)
@@ -1555,6 +1562,8 @@ class Guards:
         if self.stdin_other is None:
             return None
         kind, word = self.stdin_other
+        if kind == "<" and word in STDIN_PATHS:
+            return None  # the shell's own stdin, passed through: not seen
         if kind == "<":
             return self.body_file(word, cwd, env)
         return self.body_value(word, cwd, env)
@@ -1568,9 +1577,15 @@ class Guards:
             return self.stdin_body(cwd, env)
         key = os.path.normpath(cwd / os.path.expanduser(path))
         target = cwd / os.path.expanduser(path)
-        if key not in self.written and (
-            "$" in path or "`" in path or "\x00" in path or path.startswith("<")
-        ):
+        if path == "/dev/null":
+            return ""
+        if not path:
+            self.verdict.denies.append(
+                "phylax: the body file is a process substitution (`<(...)`), whose text this "
+                "check cannot read first. Write the body to a file in its own call."
+            )
+            return None
+        if key not in self.written and ("$" in path or "`" in path):
             self.verdict.denies.append(
                 f"phylax: the body file {TAG_RE.sub(')', path).replace(chr(0), '')} is named "
                 "through a value this "
@@ -1579,8 +1594,8 @@ class Guards:
             return None
         if key not in self.written and os.path.exists(target) and not os.path.isfile(target):
             self.verdict.denies.append(
-                f"phylax: the body file {path} is no regular file (a pipe or a device), so its "
-                "length cannot be checked first. Write the body to a file in its own call."
+                f"phylax: the body file {path} is no regular file (a folder, pipe or device), so "
+                "its length cannot be checked first. Write the body to a file in its own call."
             )
             return None
         if key in self.written:
