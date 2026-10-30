@@ -387,3 +387,54 @@ def test_a_body_file_named_through_a_variable_is_expanded(repo):
     )
     made = f'T=$(mktemp); cat > "$T" <<\'EOF\'\n{SHORT}\nEOF\ngh pr comment 1 --body-file "$T"'
     assert refused(run_guard(made, repo)) is None, "a file written here from a heredoc is known"
+
+
+def test_a_command_in_a_quoted_heredoc_body_is_text(repo):
+    (repo / "README.md").write_text(LONG)
+    said = 'The hook now reads $(cat README.md) before it sends, and `$(cat "$F")` too.'
+    body = f"gh pr comment 1 --body \"$(cat <<'EOF'\n{said}\nEOF\n)\""
+    assert refused(run_guard(body, repo)) is None
+    held = f"B=$(cat <<'EOF'\n{said}\nEOF\n)\ngh pr comment 1 --body \"$B\""
+    assert refused(run_guard(held, repo)) is None
+
+
+def test_a_file_read_into_a_variable_is_the_body(repo):
+    (repo / "b.md").write_text(LONG)
+    for read in ("B=$(cat b.md)", "B=$(< b.md)", 'B="$(cat b.md)"'):
+        assert refused(run_guard(f'{read}; gh pr comment 1 --body "$B"', repo)), read
+    unknown = 'B=$(python3 make_body.py); gh pr comment 1 --body "$B"'
+    assert "cannot run" in (refused(run_guard(unknown, repo)) or "")
+
+
+def test_each_unknown_file_name_is_its_own(repo):
+    two = (
+        f"A=$(mktemp); B=$(mktemp); cat > \"$A\" <<'X'\n{SHORT}\nX\n"
+        f'cat > "$B" <<\'Y\'\n{LONG}\nY\ngh pr comment 1 --body-file "$B"'
+    )
+    assert refused(run_guard(two, repo)), "B's long body, not A's short one"
+    tee = f"tee -ia c.md <<'EOF'\nmore\nEOF\ngh pr create -t t --body-file c.md"
+    assert "own call" in (refused(run_guard(tee, repo)) or ""), "-ia appends"
+
+
+def test_a_quoted_heredoc_folder_is_its_text_to_every_guard(repo):
+    command = 'D="$(cat <<\'EOF\'\n.\nEOF\n)"\ncd "$D" && git commit -m x'
+    payload = json.dumps({"cwd": str(repo), "tool_input": {"command": command}})
+    proc = subprocess.run(
+        [HOOK_PYTHON, str(GUARDS)],
+        input=payload,
+        capture_output=True,
+        text=True,
+        env=hook_env(("block_attribution_trailers",)),
+        check=False,
+    )
+    assert (proc.returncode, proc.stdout.strip()) == (0, ""), proc.stderr
+
+
+@pytest.mark.parametrize("unit", ["\n", " \n", "\n \n"])
+def test_a_body_of_blank_lines_is_checked_quickly(unit):
+    import time
+
+    body = (unit * (body_gate.GITHUB_MAX // len(unit)))[: body_gate.GITHUB_MAX]
+    start = time.monotonic()
+    body_gate.check("PR", body)
+    assert time.monotonic() - start < 2

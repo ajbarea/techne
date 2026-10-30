@@ -32,7 +32,8 @@ _TAG = re.compile(
 )
 _ENTITY = re.compile(r"&(?:[A-Za-z]{2,8}|#\d{1,6}|#x[0-9A-Fa-f]{1,6});")
 _WORD = re.compile(r"[^\W_]")
-_MARKER = re.compile(r"<!--\s*budget\s*:|^\s*%+\s*budget\s*:", re.I | re.M)
+# `[ \t]` after `^`, as graphe's _TEX_LINE: `\s` there spans newlines, quadratic on blank lines.
+_MARKER = re.compile(r"<!--\s*budget\s*:|^[ \t]*%+[ \t]*budget\s*:", re.I | re.M)
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n\s*\n|\n(?=\s*(?:[-*+]|\d+\.|\||#))")
 
 

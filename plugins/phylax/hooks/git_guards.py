@@ -135,7 +135,9 @@ GH_BODY_TEXT = {"-b", "--body"}
 # strip_heredocs writes each heredoc's delimiter as this sentinel, numbered as `bodies`.
 SENTINEL_RE = re.compile("\x00H(\\d+)\x00")
 # A command substitution reading a heredoc, `$(cat <<EOF ...)`, after strip_heredocs.
-HEREDOC_SUBST_RE = re.compile("\\$\\([^()\x00]*<<-?\x00H(\\d+)\x00[^()]*\\)")
+HEREDOC_SUBST_RE = re.compile("\\$\\(([^()]*\x00H\\d+\x00[^()]*)\\)")
+# The name a command substitution this check cannot run stands for in a variable.
+UNKNOWN_SUBST_RE = re.compile(r"\$\(command \d+\)")
 GH_BODY_FILE = {"-F", "--body-file"}
 # gh api flags that take a value, and the REST paths whose `body` field is an issue, PR or comment.
 GH_API_VALUE = {
@@ -732,6 +734,8 @@ class Guards:
         self.written: dict[str, int | None] = {}
         # The stdin heredoc of the subcommand being checked.
         self.stdin_heredoc: int | None = None
+        # The variables as written, before heredocs and files (`run`'s `raw`).
+        self.raw: dict[str, str] = {}
         # The agent the call came from ("" for the main thread), for the catch log.
         self.who = who
         # `git add` calls seen so far in this command, which a later commit would include.
@@ -1095,27 +1099,35 @@ class Guards:
                     self.writer_text += "\n" + "\n".join(groups[k][j + 1 :])
                     break
         env = {**os.environ, "PWD": str(cwd)}
-        stack: list[tuple[Path, dict[str, str]]] = []
+        # Each variable as written before its heredocs are filled in and its files read,
+        # for the body check alone (`raw_value`); `env` holds what bash would.
+        raw: dict[str, str] = {}
+        stack: list[tuple[Path, dict[str, str], dict[str, str]]] = []
         dirstack: list[Path] = []
         for k, (argv, chdirs) in enumerate(unwrapped):
             group = groups[k]
             if group == [PUSH]:
-                stack.append((cwd, dict(env)))
+                stack.append((cwd, dict(env), dict(raw)))
                 continue
             if group == [POP]:
                 if stack:
-                    cwd, env = stack.pop()
+                    cwd, env, raw = stack.pop()
                 continue
+            if len(group) == 3 and group[0].endswith("=$") and group[1] == "(<":
+                # `NAME=$(< FILE)`: the tokenizer joins `(<`, so no subshell opens.
+                name = group[0][:-2]
+                if ASSIGNMENT_RE.match(group[0]):
+                    raw[name] = env[name] = f"$(cat {group[2]})"
+                    continue
             if group and all(ASSIGNMENT_RE.match(t) for t in group[group[0] == "export" :]):
                 for tok in group[group[0] == "export" :]:
                     name, _, value = tok.partition("=")
                     if value == "$" and groups[k + 1 : k + 2] == [[PUSH]]:
-                        # A command substitution: a heredoc's text, else a name of its own
-                        # that stays unknown (`T=$(mktemp)` written, then sent, as "$T").
-                        held = self.assigned_heredoc(groups, k)
-                        env[name] = held if held is not None else f"$(command {k})"
+                        written = self.substitution(groups, k)
                     else:
-                        env[name] = self.fill(expand(value, env))
+                        written = expand(value, {**env, **raw})
+                    raw[name] = written
+                    env[name] = self.fill(written)
                 continue
             if not argv:
                 continue
@@ -1142,6 +1154,7 @@ class Guards:
                 env["OLDPWD"], env["PWD"] = str(old), str(cwd)
                 continue
             self.stdin_heredoc = stdin_heredoc(group)
+            self.raw = raw
             try:
                 if name == "git":
                     self.check_git(argv, run_cwd, env)
@@ -1245,18 +1258,29 @@ class Guards:
                 self.verdict.denies.extend(denies)
                 self.verdict.warnings.extend(warnings)
 
-    def assigned_heredoc(self, groups: list[list[str]], k: int) -> str | None:
-        """The heredoc an unquoted `NAME=$(cat <<EOF` assigns: the tokenizer splits it
-        into the assignment `NAME=$`, then a subshell whose first command is `cat <<`."""
-        rest = groups[k + 1 : k + 3]
-        if len(rest) == 2 and rest[0] == [PUSH] and rest[1][:1] == ["cat"]:
-            return self.heredoc(stdin_heredoc(rest[1]))
-        return None
+    def substitution(self, groups: list[list[str]], k: int) -> str:
+        """What an unquoted `NAME=$(...)` assigns, as written: the tokenizer splits it into
+        the assignment `NAME=$`, then a subshell. `cat <<EOF` is that heredoc, `cat FILE`
+        and `< FILE` read FILE, and any other command a name of its own that stays
+        unknown (`T=$(mktemp)` written, then sent, as "$T")."""
+        inner = groups[k + 2] if len(groups) > k + 2 else []
+        whole = groups[k + 3 : k + 4] == [[POP]]
+        if inner[:1] == ["cat"]:
+            at = stdin_heredoc(inner)
+            if at is not None:
+                return f"\x00H{at}\x00"
+            if whole and len(inner) == 2 and not inner[1].startswith("-"):
+                return f"$(cat {inner[1]})"
+        if whole and len(inner) == 2 and inner[0] == "<":
+            return f"$(cat {inner[1]})"
+        return f"$(command {k})"
 
     def fill(self, text: str) -> str:
         """TEXT with each `$(cat <<EOF ...)` and each bare heredoc in it replaced by
         that heredoc's body, as bash substitutes it; no sentinel is left."""
-        text = HEREDOC_SUBST_RE.sub(lambda m: self.heredoc(int(m.group(1))) or "", text)
+        # Of several heredocs on one command, bash feeds the last.
+        last = lambda m: self.heredoc(int(SENTINEL_RE.findall(m.group(1))[-1])) or ""  # noqa: E731
+        text = HEREDOC_SUBST_RE.sub(last, text)
         return SENTINEL_RE.sub(lambda m: self.heredoc(int(m.group(1))) or "", text)
 
     def heredoc(self, index: int | None) -> str | None:
@@ -1295,8 +1319,17 @@ class Guards:
         """A body flag's value as GitHub gets it: the heredoc it opened (also through a
         variable set earlier), a `$(cat FILE)`, or the text with the variables known
         here."""
-        value = self.fill(expand(value, env, unknown=None))
-        return CAT_SUBST_RE.sub(lambda m: self.body_file(m.group(1), cwd, env) or "", value)
+        # Files are read before heredocs are filled in: a heredoc's `$(cat FILE)` is text.
+        value = expand(value, {**env, **self.raw}, unknown=None)
+        value = CAT_SUBST_RE.sub(lambda m: self.body_file(m.group(1), cwd, env) or "", value)
+        if UNKNOWN_SUBST_RE.search(value):
+            self.verdict.denies.append(
+                "phylax: this body holds the output of a command this check cannot run, so "
+                "its length cannot be checked first. Write the body to a file in its own "
+                "call, then send it with --body-file."
+            )
+            return None
+        return self.fill(value)
 
     def gh_body(self, args: list[str], cwd: Path, env: dict[str, str]) -> str | None:
         """The body `gh pr|issue create|edit|comment` writes, or None without one."""
