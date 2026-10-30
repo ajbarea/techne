@@ -138,6 +138,8 @@ SENTINEL_RE = re.compile("\x00H(\\d+)\x00")
 HEREDOC_SUBST_RE = re.compile("\\$\\(([^()]*\x00H\\d+\x00[^()]*)\\)")
 # A word of a heredoc redirection after strip_heredocs: `<<`, `<<-`, the sentinel or both.
 HEREDOC_WORD_RE = re.compile("(?:<<-?)?(?:-?\x00H\\d+\x00)?")
+# The place `resolve` tags an unknown command's output with, ` #3)`, never shown.
+TAG_RE = re.compile(r" #\d+\)")
 # A command substitution with no other inside it, `$(...)`.
 SUBST_RE = re.compile(r"\$\(([^()]*)\)")
 # strip_heredocs's sentinel for a file read `$(cat FILE)` captured by `capture`.
@@ -179,14 +181,14 @@ READERS = {
     "basename",
     "dirname",
     "cut",
-    "uniq",
     "tr",
     "chmod",
     "chown",
     "awk",
 }
-# Readers that write the files they name when given one of these options.
-IN_PLACE = {"sed": ("-i", "--in-place"), "sort": ("-o", "--output")}
+# Readers that write the files they name given one of these options, short ones
+# also inside a cluster (`sed -Ei`, `sort -uo x`).
+IN_PLACE = {"sed": ("i", "--in-place"), "sort": ("o", "--output"), "awk": ("i", "--include")}
 # Builtins that assign their `NAME=VALUE` words, as a bare assignment does.
 DECLARERS = {"export", "declare", "local", "typeset", "readonly"}
 # An expansion this check cannot know, in a `gh api` path.
@@ -421,6 +423,11 @@ def stdin_heredoc(group: list[str]) -> int | None:
             if m:
                 found = int(m.group(1))
     return found
+
+
+def last_redirect(group: list[str], ops: set[str]) -> int:
+    """The place of the last of OPS in GROUP, -1 when there is none."""
+    return max((j for j, t in enumerate(group) if t in ops), default=-1)
 
 
 def stdin_redirect(group: list[str]) -> tuple[str, str] | None:
@@ -1240,10 +1247,22 @@ class Guards:
                 continue
             self.stdin_heredoc = stdin_heredoc(group)
             self.stdin_other = stdin_redirect(group)
-            # A stdin redirect `stdin_body` cannot follow: `<&3`, `< <(...)`.
+            # Bash reads the last stdin redirect: a heredoc or a `<`/`<<<`, not both.
+            if self.stdin_heredoc is not None and self.stdin_other is not None:
+                if last_redirect(group, {"<<", "<<-"}) > last_redirect(group, {"<", "<<<"}):
+                    self.stdin_other = None
+                else:
+                    self.stdin_heredoc = None
+            # A stdin redirect `stdin_body` cannot follow: `<&3`, `< <(...)`. Only a bare
+            # punctuation token counts: a quoted `<draft>` title is a word.
             self.stdin_odd = any(
-                t[:1] == "<" and t not in {"<", "<<", "<<-", "<<<"} for t in group
-            ) or (self.stdin_other is not None and self.stdin_other[1][:1] in {"<", "&", "("})
+                t[:1] == "<" and set(t) <= set("<>&|();") and t not in {"<", "<<", "<<-", "<<<"}
+                for t in group
+            ) or (
+                self.stdin_other is not None
+                and self.stdin_other[0] == "<"
+                and self.stdin_other[1][:1] in {"<", "&", "("}
+            )
             self.raw = raw
             try:
                 if name == "git":
@@ -1288,7 +1307,11 @@ class Guards:
         than a plain reader or a writer `note_written` follows: each of those files'
         text is unknown from here on."""
         prog = Path(argv[0]).name if argv else ""
-        in_place = any(a.startswith(IN_PLACE.get(prog, ("\x00",))) for a in argv[1:])
+        short, long = IN_PLACE.get(prog, ("", ""))
+        in_place = bool(short) and any(
+            a.startswith(long) or (a[:1] == "-" and a[1:2] != "-" and short in a[1:])
+            for a in argv[1:]
+        )
         if (prog in READERS or prog in IN_PLACE) and not in_place:
             return
         if prog in CREATORS or prog in {"cd", "pushd", "popd"}:
@@ -1430,9 +1453,9 @@ class Guards:
             index = self.written[key]
             if index is None:
                 return None
-            text = self.heredoc(index) or ""
-        else:
-            text = read_message_file(path, cwd) or ""
+            # The heredoc itself, which a body expands when it is unquoted.
+            return f"\x00H{index}\x00"
+        text = read_message_file(path, cwd) or ""
         # As bash's `$(...)`, which drops the trailing newlines.
         self.captured.append(text.rstrip("\n"))
         return f"\x00R{len(self.captured) - 1}\x00"
@@ -1452,7 +1475,11 @@ class Guards:
         if index is None or index >= len(self.bodies):
             return None
         _, text, quoted = self.bodies[index]
-        return text if quoted else self.body_value(text, cwd, env)
+        if quoted:
+            return text
+        # `\$` is a literal dollar in an unquoted heredoc, as in double quotes.
+        held = self.body_value(text.replace("\\$", "\x00D\x00"), cwd, env)
+        return None if held is None else held.replace("\x00D\x00", "$")
 
     def fill_body(self, text: str, cwd: Path, env: dict[str, str]) -> str:
         """`fill` for a body: an unquoted heredoc's text expanded as bash expands it."""
@@ -1501,8 +1528,8 @@ class Guards:
         key = os.path.normpath(cwd / os.path.expanduser(path))
         if key not in self.written and ("$" in path or "`" in path):
             self.verdict.denies.append(
-                f"phylax: the body file {path} is named through a value this check cannot "
-                "know, so its length cannot be checked first. Name the file directly."
+                f"phylax: the body file {TAG_RE.sub(')', path)} is named through a value this "
+                "check cannot know, so its length cannot be checked first. Name the file directly."
             )
             return None
         if key in self.written:
@@ -1514,7 +1541,7 @@ class Guards:
                     "own call."
                 )
                 return None
-            return self.heredoc(index)
+            return self.heredoc_text(index, cwd, env)
         return read_message_file(path, cwd)
 
     def body_value(self, value: str, cwd: Path, env: dict[str, str]) -> str | None:

@@ -654,3 +654,55 @@ def test_a_fifo_body_file_never_hangs_the_hook(repo):
     os.mkfifo(repo / "pipe.md")
     out = run_guard("gh pr comment 1 --body-file pipe.md", repo)
     assert refused(out) is None
+
+
+def test_a_file_written_from_an_unquoted_heredoc_is_expanded(repo):
+    (repo / "b.md").write_text(LONG)
+    write = "cat > x.md <<EOF\n$(cat b.md)\nEOF\n"
+    for send in (
+        "gh pr comment 1 --body-file x.md",
+        'gh pr comment 1 --body "$(cat x.md)"',
+        "gh api repos/o/r/issues/1/comments -F body=@x.md",
+    ):
+        assert refused(run_guard(write + send, repo)), send
+    tee = "tee x.md <<EOF >/dev/null\n$(cat b.md)\nEOF\ngh pr comment 1 --body-file x.md"
+    assert refused(run_guard(tee, repo))
+    log = "cat > x.md <<EOF\n$(git log --oneline -5)\nEOF\ngh pr comment 1 --body-file x.md"
+    assert "cannot run" in (refused(run_guard(log, repo)) or "")
+    literal = "cat > x.md <<EOF\nCosts \\$5 and \\$(cat b.md) stays text.\nEOF\n"
+    assert refused(run_guard(literal + "gh pr comment 1 --body-file x.md", repo)) is None
+
+
+def test_stdin_is_the_last_redirect(repo):
+    (repo / "b.md").write_text(LONG)
+    (repo / "s.md").write_text(SHORT)
+    after = "gh pr comment 1 --body-file - <<'EOF' < b.md\nshort\nEOF"
+    assert refused(run_guard(after, repo)), "the file after the heredoc"
+    before = "gh pr comment 1 --body-file - < b.md <<'EOF'\nshort\nEOF"
+    assert refused(run_guard(before, repo)) is None, "the heredoc after the file"
+    titled = "gh pr create --title '<draft> x' --body-file - < s.md"
+    assert refused(run_guard(titled, repo)) is None, "a quoted < in a title is a word"
+    here = "gh pr comment 1 --body-file - <<< '<details>short</details>'"
+    assert refused(run_guard(here, repo)) is None
+
+
+def test_in_place_options_inside_a_cluster_count(repo):
+    (repo / "b.md").write_text(LONG)
+    (repo / "x.md").write_text(SHORT)
+    for change in (
+        "sed -Ei 's/a/b/' x.md",
+        "sed -ni 'p' x.md",
+        "sort -uo x.md b.md",
+        "uniq b.md x.md",
+    ):
+        out = refused(run_guard(f"{change}; gh pr comment 1 --body-file x.md", repo))
+        assert "may change" in (out or ""), change
+    for read in ("sed -E 's/a/b/' x.md", "sort -u x.md"):
+        assert refused(run_guard(f"{read}; gh pr comment 1 --body-file x.md", repo)) is None, read
+
+
+def test_a_refusal_never_shows_the_internal_tag(repo):
+    out = refused(
+        run_guard('R=$(git rev-parse --show-toplevel); gh pr comment 1 --body-file "$R/b.md"', repo)
+    )
+    assert out and " #" not in out
