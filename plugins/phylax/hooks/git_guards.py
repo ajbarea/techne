@@ -134,8 +134,8 @@ GH_BODY_TEXT = {"-b", "--body"}
 # A heredoc's opener (`<<EOF`, `<<-'EOF'`), not a here-string (`<<<`).
 # strip_heredocs writes each heredoc's delimiter as this sentinel, numbered as `bodies`.
 SENTINEL_RE = re.compile("\x00H(\\d+)\x00")
-# A variable a heredoc fills, `NAME=$(cat <<EOF` or `NAME="$(cat <<EOF"`, on its opening line.
-HEREDOC_VAR_RE = re.compile(r"(?:^|[;&|(\s])(?:export\s+)?([A-Za-z_]\w*)=\"?\$\(\s*cat\s*<<")
+# A command substitution reading a heredoc, `$(cat <<EOF ...)`, after strip_heredocs.
+HEREDOC_SUBST_RE = re.compile("\\$\\([^()\x00]*<<-?\x00H(\\d+)\x00[^()]*\\)")
 GH_BODY_FILE = {"-F", "--body-file"}
 # gh api flags that take a value, and the REST paths whose `body` field is an issue, PR or comment.
 GH_API_VALUE = {
@@ -354,13 +354,14 @@ def strip_heredocs(text: str) -> tuple[str, list[tuple[str, str]]]:
 
 def stdin_heredoc(group: list[str]) -> int | None:
     """The heredoc a subcommand reads on stdin (`<<` followed by its sentinel), not one
-    inside a value."""
+    inside a value; the last, as bash feeds the last of several."""
+    found = None
     for j in range(len(group) - 1):
         if group[j] == "<<":
             m = SENTINEL_RE.fullmatch(group[j + 1].lstrip("-"))
             if m:
-                return int(m.group(1))
-    return None
+                found = int(m.group(1))
+    return found
 
 
 def tokenize(text: str) -> list[str] | None:
@@ -726,17 +727,6 @@ class Verdict:
 class Guards:
     def __init__(self, bodies: list[tuple[str, str]], who: str = ""):
         self.bodies = bodies
-        # The heredoc a variable holds, from `NAME=$(cat <<EOF` (the tokenizer splits
-        # an unquoted `$(...)`, so the assignment alone cannot say).
-        self.heredoc_vars: dict[str, int] = {}
-        seen: set[str] = set()
-        for k, (opener, _) in enumerate(bodies):
-            if opener in seen:
-                continue
-            seen.add(opener)
-            m = HEREDOC_VAR_RE.search(opener)
-            if m:
-                self.heredoc_vars[m.group(1)] = k
         # Files the subcommands so far write: the heredoc each was written from, or None
         # when that text cannot be known here.
         self.written: dict[str, int | None] = {}
@@ -1119,11 +1109,13 @@ class Guards:
             if group and all(ASSIGNMENT_RE.match(t) for t in group[group[0] == "export" :]):
                 for tok in group[group[0] == "export" :]:
                     name, _, value = tok.partition("=")
-                    held = self.heredoc_vars.get(name)
-                    if value == "$" and held is not None:
-                        env[name] = f"\x00H{held}\x00"
+                    if value == "$" and groups[k + 1 : k + 2] == [[PUSH]]:
+                        # A command substitution: a heredoc's text, else a name of its own
+                        # that stays unknown (`T=$(mktemp)` written, then sent, as "$T").
+                        held = self.assigned_heredoc(groups, k)
+                        env[name] = held if held is not None else f"$(command {k})"
                     else:
-                        env[name] = expand(value, env)
+                        env[name] = self.fill(expand(value, env))
                 continue
             if not argv:
                 continue
@@ -1157,17 +1149,34 @@ class Guards:
                     self.check_gh(argv, run_cwd, env)
             except Exception as exc:  # one broken check must not skip the next subcommand
                 self.errors.append(f"{' '.join(argv)[:80]}: {exc}")
-            self.note_written(group, argv, run_cwd)
+            self.note_written(group, argv, run_cwd, env)
 
-    def note_written(self, group: list[str], argv: list[str], cwd: Path) -> None:
-        """Record the files this subcommand writes, and the heredoc each comes from: its
-        stdin heredoc for a redirect from `cat` or a `tee`, else unknown."""
-        targets = [group[j + 1] for j in range(len(group) - 1) if group[j] in CREATE_REDIRECTS]
-        if argv and Path(argv[0]).name in CREATORS:
-            targets += [a for a in argv[1:] if not a.startswith("-")]
-        source = self.stdin_heredoc if argv and Path(argv[0]).name in {"cat", "tee"} else None
-        for target in targets:
-            self.written[os.path.normpath(cwd / os.path.expanduser(target))] = source
+    def note_written(
+        self, group: list[str], argv: list[str], cwd: Path, env: dict[str, str]
+    ) -> None:
+        """Record the files this subcommand writes, and the heredoc each holds after it:
+        the stdin heredoc of a `cat` or `tee` that writes it whole, else unknown (an
+        append, `tee -a`, a `cat` of other files, any other writer)."""
+        redirects = [
+            (group[j], group[j + 1]) for j in range(len(group) - 1) if group[j] in CREATE_REDIRECTS
+        ]
+        prog = Path(argv[0]).name if argv else ""
+        args = [a for a in argv[1:] if not a.startswith("-") or a == "-"]
+        flags = [a for a in argv[1:] if a.startswith("-") and a != "-"]
+        writes = [(op, t) for op, t in redirects]
+        if prog in {"touch", "tee"}:
+            writes += [(">", a) for a in args if a != "-"]
+        elif prog in CREATORS and args:
+            writes.append((">", args[-1]))  # cp, mv, install: the last name is the target
+        whole_cat = prog == "cat" and all(a == "-" for a in args)
+        whole_tee = prog == "tee" and not any(
+            f in {"-a", "--append"} or (f[1:2] != "-" and "a" in f) for f in flags
+        )
+        for op, target in writes:
+            appends = op in {">>", "&>>"}
+            source = self.stdin_heredoc if (whole_cat or whole_tee) and not appends else None
+            path = os.path.expanduser(expand(target, env, unknown=None))
+            self.written[os.path.normpath(cwd / path)] = source
 
     def note_created(self, group: list[str], argv: list[str], cwd: Path) -> None:
         """Record a COMMITS.md this subcommand creates; a dry run cannot see it yet."""
@@ -1236,6 +1245,20 @@ class Guards:
                 self.verdict.denies.extend(denies)
                 self.verdict.warnings.extend(warnings)
 
+    def assigned_heredoc(self, groups: list[list[str]], k: int) -> str | None:
+        """The heredoc an unquoted `NAME=$(cat <<EOF` assigns: the tokenizer splits it
+        into the assignment `NAME=$`, then a subshell whose first command is `cat <<`."""
+        rest = groups[k + 1 : k + 3]
+        if len(rest) == 2 and rest[0] == [PUSH] and rest[1][:1] == ["cat"]:
+            return self.heredoc(stdin_heredoc(rest[1]))
+        return None
+
+    def fill(self, text: str) -> str:
+        """TEXT with each `$(cat <<EOF ...)` and each bare heredoc in it replaced by
+        that heredoc's body, as bash substitutes it; no sentinel is left."""
+        text = HEREDOC_SUBST_RE.sub(lambda m: self.heredoc(int(m.group(1))) or "", text)
+        return SENTINEL_RE.sub(lambda m: self.heredoc(int(m.group(1))) or "", text)
+
     def heredoc(self, index: int | None) -> str | None:
         if index is not None and index < len(self.bodies):
             return self.bodies[index][1]
@@ -1245,10 +1268,18 @@ class Guards:
         """The heredoc on the stdin of the gh subcommand being checked."""
         return self.heredoc(self.stdin_heredoc)
 
-    def body_file(self, path: str, cwd: Path) -> str | None:
+    def body_file(self, path: str, cwd: Path, env: dict[str, str]) -> str | None:
         """A body file's text as gh will read it: from the heredoc an earlier subcommand
-        wrote it from, refused when it was written here some other way, else from disk."""
+        wrote it from, refused when it was written here some other way or its name is
+        not known here, else from disk."""
+        path = expand(path, env, unknown=None)
         key = os.path.normpath(cwd / os.path.expanduser(path))
+        if key not in self.written and ("$" in path or "`" in path):
+            self.verdict.denies.append(
+                f"phylax: the body file {path} is named through a value this check cannot "
+                "know, so its length cannot be checked first. Name the file directly."
+            )
+            return None
         if key in self.written:
             index = self.written[key]
             if index is None:
@@ -1264,14 +1295,8 @@ class Guards:
         """A body flag's value as GitHub gets it: the heredoc it opened (also through a
         variable set earlier), a `$(cat FILE)`, or the text with the variables known
         here."""
-        value = expand(value, env, unknown=None)
-        sentinel = SENTINEL_RE.search(value)
-        if sentinel:
-            return self.heredoc(int(sentinel.group(1)))
-        cat = CAT_SUBST_RE.search(value)
-        if cat:
-            return self.body_file(cat.group(1), cwd)
-        return value
+        value = self.fill(expand(value, env, unknown=None))
+        return CAT_SUBST_RE.sub(lambda m: self.body_file(m.group(1), cwd, env) or "", value)
 
     def gh_body(self, args: list[str], cwd: Path, env: dict[str, str]) -> str | None:
         """The body `gh pr|issue create|edit|comment` writes, or None without one."""
@@ -1291,7 +1316,7 @@ class Guards:
                 elif value == "-":
                     body = self.own_heredoc()
                 else:
-                    body = self.body_file(value, cwd)
+                    body = self.body_file(value, cwd, env)
             i += 1
         return body
 
@@ -1317,11 +1342,11 @@ class Guards:
                         if name in {"-F", "--field"} and field == "@-":
                             body = self.own_heredoc()
                         elif name in {"-F", "--field"} and field.startswith("@"):
-                            body = self.body_file(field[1:], cwd)
+                            body = self.body_file(field[1:], cwd, env)
                         else:
                             body = self.body_value(field, cwd, env)
                 elif name == "--input":
-                    raw = self.own_heredoc() if value == "-" else self.body_file(value, cwd)
+                    raw = self.own_heredoc() if value == "-" else self.body_file(value, cwd, env)
                     try:
                         loaded = json.loads(raw or "null")
                     except ValueError:

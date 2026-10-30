@@ -23,9 +23,6 @@ LONG_SENTENCE = 25
 GITHUB_MAX = 65536
 
 _FOLD_TAG = re.compile(r"<(/?)(details|summary)\b([^>]*)>", re.I)
-_COMMENT = re.compile(r"<!--.*?-->", re.S)
-# As graphe's prose_check.MD_FENCE: a fence may be indented (a list item's).
-_FENCE = re.compile(r"^[ \t]*(`{3,}|~{3,})[^\n]*\n.*?^[ \t]*\1[`~]*[ \t]*$", re.M | re.S)
 _INLINE_CODE = re.compile(r"`[^`\n]*`")
 _LINK_URL = re.compile(r"\]\([^)]*\)")
 # HTML tags a GitHub body uses; anything else in angle brackets is text.
@@ -39,10 +36,76 @@ _MARKER = re.compile(r"<!--\s*budget\s*:|^\s*%+\s*budget\s*:", re.I | re.M)
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n\s*\n|\n(?=\s*(?:[-*+]|\d+\.|\||#))")
 
 
+def strip_fences(text: str) -> str:
+    """TEXT with each fenced block, opening line to closing line, made one space.
+
+    Matches graphe's prose_check.MD_FENCE (a fence may be indented, as a list
+    item's), `^[ \\t]*(`{3,}|~{3,})[^\\n]*\\n.*?^[ \\t]*\\1[`~]*[ \\t]*$` under
+    re.M | re.S, in linear time: the regex is quadratic on an unclosed fence.
+    As its backtracking does, an opener of N marks closes at the first later
+    line of at least min(N, the longest such run after it) marks.
+    """
+    lines = text.split("\n")
+    # Each line's leading run of ` and of ~ when the line holds nothing else.
+    runs: list[dict[str, int]] = []
+    for line in lines:
+        bare = line.strip(" \t")
+        runs.append(
+            {c: len(bare) - len(bare.lstrip(c)) for c in "`~"}
+            if bare and not bare.strip("`~")
+            else {}
+        )
+    # The longest closing run of each mark from each line on.
+    longest = {c: [0] * (len(lines) + 1) for c in "`~"}
+    for i in range(len(lines) - 1, -1, -1):
+        for c in "`~":
+            longest[c][i] = max(longest[c][i + 1], runs[i].get(c, 0))
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        opener = lines[i].lstrip(" \t")
+        mark = opener[:1]
+        n = len(opener) - len(opener.lstrip(mark)) if mark in ("`", "~") else 0
+        # An opener ends its line, so the last line opens nothing.
+        k = min(n, longest[mark][i + 1]) if n >= 3 and i + 1 < len(lines) else 0
+        if k >= 3:
+            j = i + 1
+            while runs[j].get(mark, 0) < k:
+                j += 1
+            out.append(" ")
+            i = j + 1
+            continue
+        out.append(lines[i])
+        i += 1
+    return "\n".join(out)
+
+
+def strip_comments(text: str) -> str:
+    """TEXT with each HTML comment made one space, as `<!--.*?-->` under re.S, in linear time."""
+    out: list[str] = []
+    pos = 0
+    while (start := text.find("<!--", pos)) >= 0:
+        end = text.find("-->", start + 4)
+        if end < 0:
+            break
+        out.append(text[pos:start] + " ")
+        pos = end + 3
+    out.append(text[pos:])
+    return "".join(out)
+
+
+def sub_closed(pattern: re.Pattern[str], repl: str, text: str, close: str) -> str:
+    """`pattern.sub` for a pattern each match of which ends with CLOSE, run only up
+    to CLOSE's last place: past it no match can end, and a scan for one there is
+    quadratic."""
+    end = text.rfind(close) + 1
+    return pattern.sub(repl, text[:end]) + text[end:] if end else text
+
+
 def blank_code(body: str) -> str:
     """BODY with its fenced and inline code blanked: a tag or a marker shown as
     code is text, not markup."""
-    return _INLINE_CODE.sub(" ", _FENCE.sub(" ", body))
+    return _INLINE_CODE.sub(" ", strip_fences(body))
 
 
 def visible(body: str) -> str:
@@ -50,12 +113,12 @@ def visible(body: str) -> str:
     blocks (nested ones too; an unclosed one hides the rest, as GitHub renders
     it), each folded block's <summary> line, an open block's content, and no
     HTML comment or code."""
-    body = _COMMENT.sub(" ", blank_code(body))
+    body = strip_comments(blank_code(body))
     out: list[str] = []
     shown: list[bool] = []  # one per open <details>: whether its content shows
     summary = False
     pos = 0
-    for m in _FOLD_TAG.finditer(body):
+    for m in _FOLD_TAG.finditer(body, 0, body.rfind(">") + 1):
         if all(shown) or summary:
             out.append(body[pos : m.start()])
         closing, tag, attrs = m.group(1), m.group(2).lower(), m.group(3)
@@ -76,10 +139,9 @@ def visible(body: str) -> str:
 
 def prose(text: str) -> str:
     """TEXT without code, link targets and HTML tags."""
-    text = _FENCE.sub(" ", text)
-    text = _INLINE_CODE.sub(" ", text)
-    text = _LINK_URL.sub("]", text)
-    return _ENTITY.sub(" ", _TAG.sub(" ", text))
+    text = _INLINE_CODE.sub(" ", strip_fences(text))
+    text = sub_closed(_LINK_URL, "]", text, ")")
+    return _ENTITY.sub(" ", sub_closed(_TAG, " ", text, ">"))
 
 
 def words(text: str) -> int:

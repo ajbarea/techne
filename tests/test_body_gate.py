@@ -9,6 +9,8 @@ from __future__ import annotations
 import importlib.util
 import json
 import pathlib
+import random
+import re
 import subprocess
 import sys
 
@@ -268,3 +270,120 @@ def test_a_body_github_would_refuse_is_refused_without_a_slow_scan():
     denies, _ = body_gate.check("PR", "```\n" + "x\n" * 40000)
     assert time.monotonic() - start < 1
     assert "GitHub refuses" in denies[0]
+
+
+# The regexes the linear scanners replace, as graphe's prose_check holds them.
+GRAPHE_FENCE = re.compile(r"^[ \t]*(`{3,}|~{3,})[^\n]*\n.*?^[ \t]*\1[`~]*[ \t]*$", re.M | re.S)
+HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
+
+
+def test_the_linear_scanners_match_the_regexes_they_replace():
+    rng = random.Random(229)
+    pieces = [
+        "`",
+        "```",
+        "````",
+        "~~~",
+        "~",
+        "a",
+        " ",
+        "\t",
+        "\n",
+        "<!--",
+        "-->",
+        "-",
+        "<",
+        ">",
+        "](",
+        ")",
+        "<b>",
+        "x",
+    ]
+    for _ in range(4000):
+        text = "".join(rng.choice(pieces) for _ in range(rng.randrange(40)))
+        assert body_gate.strip_fences(text) == GRAPHE_FENCE.sub(" ", text), repr(text)
+        assert body_gate.strip_comments(text) == HTML_COMMENT.sub(" ", text), repr(text)
+        for pattern, close in ((body_gate._TAG, ">"), (body_gate._LINK_URL, ")")):
+            assert body_gate.sub_closed(pattern, " ", text, close) == pattern.sub(" ", text), repr(
+                text
+            )
+
+
+@pytest.mark.parametrize("unit", ["<!--", "```a\n", "`", "<details", "<b", "]("])
+def test_a_body_at_githubs_cap_is_checked_quickly(unit):
+    import time
+
+    body = (unit * (body_gate.GITHUB_MAX // len(unit) + 1))[: body_gate.GITHUB_MAX]
+    start = time.monotonic()
+    body_gate.check("PR", body)
+    assert time.monotonic() - start < 2
+
+
+def test_a_heredoc_held_in_a_variable_is_its_text_to_every_guard(repo):
+    command = 'D=$(cat <<\'EOF\'\n.\nEOF\n)\ncd "$D" && git -C "$D" commit -m x'
+    payload = json.dumps({"cwd": str(repo), "tool_input": {"command": command}})
+    for on in ((BODIES,), ("block_attribution_trailers", "block_commits_md")):
+        proc = subprocess.run(
+            [HOOK_PYTHON, str(GUARDS)],
+            input=payload,
+            capture_output=True,
+            text=True,
+            env=hook_env(on),
+            check=False,
+        )
+        assert (proc.returncode, proc.stdout.strip()) == (0, ""), proc.stderr
+
+
+def test_each_assignment_holds_its_own_heredoc(repo):
+    twice = (
+        f"B=$(cat <<'EOF'\n{words_of(5)}\nEOF\n)\ngh issue comment 1 --body \"$B\"\n"
+        f"B=$(cat <<'EOF'\n{LONG}\nEOF\n)\ngh pr comment 1 --body \"$B\""
+    )
+    assert refused(run_guard(twice, repo))
+    reverse = (
+        f"B=$(cat <<'EOF'\n{LONG}\nEOF\n)\nB=$(cat <<'EOF'\n{words_of(5)}\nEOF\n)\n"
+        'gh pr comment 1 --body "$B"'
+    )
+    assert refused(run_guard(reverse, repo)) is None
+
+
+def test_every_heredoc_and_text_in_a_value_counts(repo):
+    five = f"$(cat <<'A'\n{words_of(5)}\nA\n)"
+    assert refused(run_guard(f'gh pr comment 1 --body "{five} {LONG}"', repo))
+    assert refused(run_guard(f"gh pr comment 1 --body \"{five}\n$(cat <<'C'\n{LONG}\nC\n)\"", repo))
+    held = f"B=$(cat <<'EOF'\n{words_of(5)}\nEOF\n)\ngh pr comment 1 --body \"$B {LONG}\""
+    assert refused(run_guard(held, repo))
+    dash = f"gh pr comment 1 -F - <<-'EOF'\n{LONG}\nEOF"
+    assert refused(run_guard(dash, repo)), "a <<- heredoc is read too"
+    last = f"gh pr comment 1 -F - <<'A' <<'B'\nshort\nA\n{LONG}\nB"
+    assert refused(run_guard(last, repo)), "bash feeds the last of two heredocs"
+    two_on_a_line = f"cat <<'A' >/dev/null; gh pr comment 1 -F - <<'B'\nx\nA\n{LONG}\nB"
+    assert refused(run_guard(two_on_a_line, repo))
+
+
+def test_an_appended_or_combined_body_file_cannot_be_known_here(repo):
+    (repo / "b.md").write_text(LONG)
+    for write in (
+        "cat >> b.md <<'EOF'\nmore\nEOF",
+        "tee -a b.md <<'EOF'\nmore\nEOF",
+        "cat b.md - > n.md <<'EOF'\nmore\nEOF",
+    ):
+        target = "n.md" if "n.md" in write else "b.md"
+        out = run_guard(f"{write}\ngh pr create -t t --body-file {target}", repo)
+        assert "own call" in (refused(out) or ""), write
+    tee = f"tee c.md <<'EOF'\n{LONG}\nEOF\ngh pr create -t t --body-file c.md"
+    assert refused(run_guard(tee, repo))
+    (repo / "short.md").write_text(SHORT)
+    copy = "cp short.md copy.md && gh pr create -t t --body-file short.md"
+    assert refused(run_guard(copy, repo)) is None, "cp writes only its last name"
+
+
+def test_a_body_file_named_through_a_variable_is_expanded(repo):
+    (repo / "b.md").write_text(LONG)
+    assert refused(run_guard('F=b.md; gh pr comment 1 --body-file "$F"', repo))
+    assert refused(run_guard('gh pr comment 1 --body-file "$PWD/b.md"', repo))
+    assert "Name the file" in (
+        refused(run_guard('gh pr comment 1 --body-file "$(mktemp)"', repo)) or ""
+    )
+    made = f'T=$(mktemp); cat > "$T" <<\'EOF\'\n{SHORT}\nEOF\ngh pr comment 1 --body-file "$T"'
+    assert refused(run_guard(made, repo)) is None, "a file written here from a heredoc is known"
