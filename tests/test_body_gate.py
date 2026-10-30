@@ -1097,3 +1097,36 @@ def test_the_attribution_guard_reads_options_as_gh_does(repo, command):
         check=False,
     )
     assert "attribution" in proc.stdout, command
+
+
+def test_a_word_before_the_subcommand_it_cannot_know_is_refused(repo):
+    for command in (
+        f"R='-R o/r'; gh $R pr comment 1 -b '{LONG}'",
+        f"gh $GH_FLAGS pr comment 1 -b '{LONG}'",
+        "gh $SUB comment 1 -b short",
+    ):
+        assert "before its subcommand" in (refused(run_guard(command, repo)) or ""), command
+    for command in (
+        f"gh '' pr comment 1 -b '{LONG}'",
+        f"gh pr '' comment 1 -b '{LONG}'",
+    ):
+        assert "visible words" in (refused(run_guard(command, repo)) or ""), "cobra skips ''"
+    fine = 'gh -R "$REPO" pr comment 1 -b short; gh pr comment "$N" -b short'
+    assert refused(run_guard(fine, repo)) is None, "a variable as a value or after is fine"
+    api = 'gh api "repos/$R/issues/1/comments" -f body=short'
+    assert refused(run_guard(api, repo)) is None, "an api endpoint is no subcommand"
+
+
+def test_the_attribution_guard_skips_other_options_values(repo):
+    (repo / "msg.txt").write_text("Fix.\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n")
+    command = "gh pr create -t x --label -F -F msg.txt"
+    payload = json.dumps({"cwd": str(repo), "tool_input": {"command": command}})
+    proc = subprocess.run(
+        [HOOK_PYTHON, str(GUARDS)],
+        input=payload,
+        capture_output=True,
+        text=True,
+        env=hook_env(("block_attribution_trailers",)),
+        check=False,
+    )
+    assert "attribution" in proc.stdout

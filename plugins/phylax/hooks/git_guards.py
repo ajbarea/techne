@@ -205,6 +205,7 @@ GH_VALUE_FLAGS = {
         "--add-sub-issue",
         "--remove-sub-issue",
     },
+    ("pr", "merge"): {"-A", "--author-email", "--match-head-commit"},
     ("pr", "comment"): {"--attach"},
     ("issue", "comment"): {"--attach"},
 }
@@ -885,9 +886,11 @@ def parse_commit(args: list[str]) -> Commit:
     return c
 
 
-def parse_gh_pr(args: list[str]) -> tuple[list[str], list[str]]:
-    """Every title and body text and file a `gh pr` command names, its short options read
-    grouped as gh's parser reads them (`-dF msg.txt`, `-F=msg.txt`)."""
+def parse_gh_pr(args: list[str], words: tuple[str, ...] = ()) -> tuple[list[str], list[str]]:
+    """Every title and body text and file a `gh pr` command names, its options read as
+    gh's parser reads them: grouped short options (`-dF msg.txt`), `=` values, and the
+    values of its other options (`--label -F`) skipped."""
+    values = GH_VALUE_FLAGS.get(words, set()) | GH_GLOBAL_VALUE_FLAGS
     texts: list[str] = []
     files: list[str] = []
     i = 0
@@ -902,12 +905,18 @@ def parse_gh_pr(args: list[str]) -> tuple[list[str], list[str]]:
                     value = args[i] if i < len(args) else ""
                     i += 1
                 (texts if kind == "text" else files).append(value)
+            elif name in values and not eq:
+                i += 1
             continue
         if not tok.startswith("-") or tok == "-":
             continue
         for k in range(1, len(tok)):
             flag = "-" + tok[k]
             kind = GH_TEXT.get(flag) or GH_FILE.get(flag)
+            if not kind and flag in values:
+                if not tok[k + 1 :]:
+                    i += 1  # its value is the next word
+                break
             if kind:
                 value = tok[k + 1 :]
                 if len(value) > 1 and value[0] == "=":
@@ -1506,8 +1515,15 @@ class Guards:
         words: list[str] = []
         at: list[int] = []  # where each subcommand word sits in argv
         i = 1
+        unknown = None  # a word before the subcommand this check cannot know
         while i < len(argv) and len(words) < 2:
             tok = argv[i]
+            if tok == "":
+                i += 1  # cobra skips an empty argument when it looks for the subcommand
+                continue
+            if ("$" in tok or "`" in tok) and words != ["api"]:
+                unknown = tok
+                break
             if tok in GH_GLOBAL_VALUE_FLAGS:
                 i += 2
                 continue
@@ -1525,9 +1541,19 @@ class Guards:
         # gh (cobra) drops the subcommand words and parses the rest, so an option just
         # before one takes the word after it: `gh pr -b review TEXT 1`.
         rest = [a for j, a in enumerate(argv) if j and j not in at]
+        if unknown is not None:
+            if self.enabled(BODIES, Command(cwd), local=False) or self.enabled(
+                ATTRIBUTION, Command(cwd), local=False
+            ):
+                self.verdict.denies.append(
+                    f"phylax: `gh` is given {TAG_RE.sub(')', unknown)} before its subcommand, a "
+                    "value this check cannot know, so it cannot tell which subcommand runs or "
+                    "what it sends. Write the gh command out in full."
+                )
+            return
         writer = len(words) == 2 and words[0] == "pr" and words[1] in GH_PR_WRITERS
         if writer and self.enabled(ATTRIBUTION, Command(cwd), local=False):
-            texts, files = parse_gh_pr(rest)
+            texts, files = parse_gh_pr(rest, tuple(words))
             self.check_attribution(f"`gh pr {words[1]}`", texts, files, cwd, "pr", argv, env)
         kind = GH_BODY_KINDS.get(tuple(words)) if len(words) == 2 else None
         api = bool(words) and words[0] == "api"
