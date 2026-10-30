@@ -1178,3 +1178,6 @@ def test_create_sends_the_file_whatever_the_order(repo, verb):
     for flags in ("-F long.md -b short", "--body-file=long.md --body=short", "-b short -F long.md"):
         out = refused(run_guard(f"gh {verb} -t x {flags}", repo))
         assert "visible words" in (out or ""), (verb, flags)
+    (repo / "short.md").write_text(SHORT)
+    reverse = refused(run_guard(f"gh {verb} -t x -b '{words_of(400)}' -F short.md", repo))
+    assert reverse is None, "the short file is what gh sends"
