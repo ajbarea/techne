@@ -860,3 +860,33 @@ def test_a_crlf_opener_keeps_its_carriage_return(repo):
 def test_a_written_file_refusal_never_shows_the_internal_tag(repo):
     out = refused(run_guard('T=$(mktemp); echo x > "$T"; gh pr comment 1 --body-file "$T"', repo))
     assert out and " #" not in out
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "gh pr review 4 -a -b '{L}'",
+        "gh pr review 4 -r -b '{L}'",
+        "gh pr review 4 -c -b '{L}'",
+        "gh pr review 4 -a --body-file b.md",
+        "gh pr review 4 -rb '{L}'",
+        "gh pr review 4 -cb'{L}'",
+        "gh pr comment 4 -e -b '{L}'",
+        "gh pr create -d -b '{L}'",
+        "gh pr create -dt title -b '{L}'",
+        "gh pr create --title=-Fix -b '{L}'",
+        "gh pr create -t '-Fix crash' --body '{L}'",
+        "gh issue comment 4 -e -b '{L}'",
+        "gh pr edit 3 -t x -b '{L}'",
+    ],
+)
+def test_a_body_after_any_other_option_is_read(repo, command):
+    (repo / "b.md").write_text(LONG)
+    assert refused(run_guard(command.format(L=LONG), repo)), command
+
+
+def test_fill_is_read_where_gh_reads_it(repo):
+    for fill in ("-df", "-fd", "--fill-verbose"):
+        assert "--fill" in (refused(run_guard(f"gh pr create {fill}", repo)) or ""), fill
+    assert refused(run_guard("gh pr edit 3 --title --fill-in", repo)) is None, "a value, on edit"
+    assert refused(run_guard("gh pr create -t --fill -b short", repo)) is None, "a title"

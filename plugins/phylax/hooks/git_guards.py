@@ -112,7 +112,7 @@ CREATE_REDIRECTS = {">", ">>", ">|", "&>", "&>>"}
 CREATORS = {"touch", "tee", "cp", "mv", "install"}
 # Commands whose arguments become file content, for a message file the command writes.
 WRITERS = {"echo", "printf"}
-GH_VALUE_FLAGS = {"-R", "--repo"}
+GH_GLOBAL_VALUE_FLAGS = {"-R", "--repo"}
 ADD_INTERACTIVE = {"-p", "--patch", "-i", "--interactive", "-e", "--edit"}
 # gh pr subcommands that write a PR title/body, or (merge) the squash commit message.
 GH_PR_WRITERS = {"create", "new", "edit", "merge"}
@@ -131,29 +131,16 @@ GH_BODY_KINDS = {
     ("pr", "review"): "comment",
 }
 GH_BODY_TEXT = {"-b", "--body"}
-# gh's other options that take a value (a title, label, assignee, base, repo...), whose
-# value is no body flag even when it starts with `-` (`--title '-Fix crash'`).
-GH_VALUE_FLAGS = {
+# The options each body-writing gh subcommand takes a value for, besides the body's own
+# (`-b`, `-F`) and `-R`: the rest are on/off (`gh pr review -a` approves, `-r` requests
+# changes). `gh_body` reads short ones grouped as gh's flag parser does.
+_EDIT_VALUES = {
     "-t",
     "--title",
-    "-l",
-    "--label",
-    "-a",
-    "--assignee",
     "-B",
     "--base",
-    "-H",
-    "--head",
     "-m",
     "--milestone",
-    "-p",
-    "--project",
-    "-r",
-    "--reviewer",
-    "-R",
-    "--repo",
-    "-T",
-    "--template",
     "--add-label",
     "--remove-label",
     "--add-assignee",
@@ -162,9 +149,47 @@ GH_VALUE_FLAGS = {
     "--remove-reviewer",
     "--add-project",
     "--remove-project",
-    "-e",
-    "--editor",
 }
+GH_VALUE_FLAGS = {
+    ("pr", "create"): {
+        "-t",
+        "--title",
+        "-a",
+        "--assignee",
+        "-B",
+        "--base",
+        "-H",
+        "--head",
+        "-l",
+        "--label",
+        "-m",
+        "--milestone",
+        "-p",
+        "--project",
+        "-r",
+        "--reviewer",
+        "-T",
+        "--template",
+    },
+    ("issue", "create"): {
+        "-t",
+        "--title",
+        "-a",
+        "--assignee",
+        "-l",
+        "--label",
+        "-m",
+        "--milestone",
+        "-p",
+        "--project",
+        "-T",
+        "--template",
+    },
+    ("pr", "edit"): _EDIT_VALUES,
+    ("issue", "edit"): _EDIT_VALUES - {"-B", "--base", "--add-reviewer", "--remove-reviewer"},
+}
+GH_VALUE_FLAGS[("pr", "new")] = GH_VALUE_FLAGS[("pr", "create")]
+GH_VALUE_FLAGS[("issue", "new")] = GH_VALUE_FLAGS[("issue", "create")]
 # `gh pr create` options that build the body from commit messages.
 GH_FILL = {"-f", "--fill", "--fill-first", "--fill-verbose"}
 # A heredoc's opener (`<<EOF`, `<<-'EOF'`), not a here-string (`<<<`).
@@ -1444,7 +1469,7 @@ class Guards:
         i = 1
         while i < len(argv) and len(words) < 2:
             tok = argv[i]
-            if tok in GH_VALUE_FLAGS:
+            if tok in GH_GLOBAL_VALUE_FLAGS:
                 i += 2
                 continue
             if not tok.startswith("-"):
@@ -1460,7 +1485,7 @@ class Guards:
             if api:
                 kind, body = self.api_body(argv[argv.index("api") + 1 :], cwd, env)
             else:
-                body = self.gh_body(argv[1:], cwd, env)
+                body = self.gh_body(argv[1:], cwd, env, tuple(words))
             if kind and body is not None:
                 denies, warnings = body_gate.check(kind, body)
                 self.verdict.denies.extend(denies)
@@ -1691,37 +1716,65 @@ class Guards:
             return None
         return self.fill_body(value, cwd, env)
 
-    def gh_body(self, args: list[str], cwd: Path, env: dict[str, str]) -> str | None:
-        """The body `gh pr|issue create|edit|comment` writes, or None without one."""
+    def gh_body(
+        self, args: list[str], cwd: Path, env: dict[str, str], words: tuple[str, ...] = ()
+    ) -> str | None:
+        """The body `gh pr|issue create|edit|comment|review` writes, or None without one,
+        its options read as gh's flag parser (pflag) reads them: a long option's value
+        after `=` or in the next word; short options grouped in one word (`-rb TEXT`), the
+        first that takes a value taking the rest of the word or the next word."""
+        values = GH_VALUE_FLAGS.get(words, set()) | GH_GLOBAL_VALUE_FLAGS
+        body_flags = GH_BODY_TEXT | GH_BODY_FILE
         body: str | None = None
-        given = False
+        given = fill = False
         i = 0
         while i < len(args):
             tok = args[i]
-            if tok in GH_VALUE_FLAGS:
-                i += 2  # its value, whatever it starts with
-                continue
-            name, eq, value = tok.partition("=")
-            if not tok.startswith("--") and len(tok) > 2 and tok[:2] in GH_BODY_TEXT | GH_BODY_FILE:
-                name, eq, value = tok[:2], "=", tok[2:]
-            if name in GH_BODY_TEXT | GH_BODY_FILE:
-                if not eq:
-                    value = args[i + 1] if i + 1 < len(args) else ""
-                    i += 1
-                given = True
-                if name in GH_BODY_TEXT:
-                    body = self.body_value(value, cwd, env)
-                elif value == "-":
-                    body = self.stdin_body(cwd, env)
-                else:
-                    body = self.body_file(value, cwd, env)
             i += 1
-        if not given and any(a in GH_FILL or a.startswith("--fill") for a in args):
+            if tok == "--":
+                break
+            if tok.startswith("--"):
+                name, eq, value = tok.partition("=")
+                if name in body_flags:
+                    if not eq:
+                        value = args[i] if i < len(args) else ""
+                        i += 1
+                    body, given = self.read_body(name, value, cwd, env), True
+                elif name in values and not eq:
+                    i += 1
+                elif name in GH_FILL:
+                    fill = True
+                continue
+            if not tok.startswith("-") or tok == "-":
+                continue
+            for k in range(1, len(tok)):
+                flag = "-" + tok[k]
+                if flag in body_flags or flag in values:
+                    value = tok[k + 1 :]
+                    if k == 1 and value.startswith("="):
+                        value = value[1:]
+                    elif not value:
+                        value = args[i] if i < len(args) else ""
+                        i += 1
+                    if flag in body_flags:
+                        body, given = self.read_body(flag, value, cwd, env), True
+                    break
+                if flag in GH_FILL:
+                    fill = True
+        if fill and not given and words in {("pr", "create"), ("pr", "new")}:
             self.verdict.denies.append(
                 "phylax: --fill builds this PR body from the commit messages, whose length "
                 "this check cannot see first. Pass the body with --body-file instead."
             )
         return body
+
+    def read_body(self, flag: str, value: str, cwd: Path, env: dict[str, str]) -> str | None:
+        """The body a body flag with VALUE gives: text, stdin (`-`) or a file."""
+        if flag in GH_BODY_TEXT:
+            return self.body_value(value, cwd, env)
+        if value == "-":
+            return self.stdin_body(cwd, env)
+        return self.body_file(value, cwd, env)
 
     def api_body(
         self, args: list[str], cwd: Path, env: dict[str, str]
