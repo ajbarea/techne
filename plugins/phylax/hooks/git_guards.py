@@ -1522,7 +1522,9 @@ class Guards:
                 i += 1  # cobra skips an empty argument when it looks for the subcommand
                 continue
             # Only where the next word decides the subcommand; `--name=$V` stays one option.
-            option = tok.startswith("-") and "=" in tok
+            option = tok.startswith("-") and (
+                "=" in tok or (len(tok) > 2 and tok[1].isalpha())  # `-R$R` is one option
+            )
             if ("$" in tok or "`" in tok) and not option and words in ([], ["pr"], ["issue"]):
                 unknown = tok
                 break
@@ -1805,7 +1807,8 @@ class Guards:
         values = GH_VALUE_FLAGS.get(words, set()) | GH_GLOBAL_VALUE_FLAGS
         body_flags = GH_BODY_TEXT | GH_BODY_FILE
         body: str | None = None
-        given = fill = False
+        from_file: str | None = None  # `create` sends the file whatever the order
+        given = file_given = fill = False
         i = 0
         while i < len(args):
             tok = args[i]
@@ -1819,6 +1822,8 @@ class Guards:
                         value = args[i] if i < len(args) else ""
                         i += 1
                     body, given = self.read_body(name, value, cwd, env), True
+                    if name in GH_BODY_FILE and value:
+                        from_file, file_given = body, True
                 elif name in values and not eq:
                     i += 1
                 elif name in GH_FILL:
@@ -1837,6 +1842,8 @@ class Guards:
                         i += 1
                     if flag in body_flags:
                         body, given = self.read_body(flag, value, cwd, env), True
+                        if flag in GH_BODY_FILE and value:
+                            from_file, file_given = body, True
                     break
                 if flag in GH_FILL:
                     fill = True
@@ -1847,6 +1854,13 @@ class Guards:
                 "phylax: --fill builds this PR body from the commit messages, whose length "
                 "this check cannot see first. Pass the body with --body-file instead."
             )
+        if file_given and words in {
+            ("pr", "create"),
+            ("pr", "new"),
+            ("issue", "create"),
+            ("issue", "new"),
+        }:
+            return from_file
         return body
 
     def read_body(self, flag: str, value: str, cwd: Path, env: dict[str, str]) -> str | None:

@@ -1105,6 +1105,10 @@ def test_a_word_before_the_subcommand_it_cannot_know_is_refused(repo):
         f"gh $GH_FLAGS pr comment 1 -b '{LONG}'",
         "gh $SUB comment 1 -b short",
         "gh `echo pr` comment 1 -b short",
+        "gh pr $SUB 1 -b short",
+        "gh issue $SUB 1 -b short",
+        "gh -$F pr comment 1 -b short",
+        "gh --$F pr comment 1 -b short",
     ):
         assert "before its subcommand" in (refused(run_guard(command, repo)) or ""), command
     for command in (
@@ -1122,6 +1126,8 @@ def test_a_word_before_the_subcommand_it_cannot_know_is_refused(repo):
         'gh co "$N"',
         'gh browse "$N"',
         'gh run view "$ID"',
+        'gh -R"$R" pr view 3',
+        'gh pr -R"$R" view 3',
     ):
         assert refused(run_guard(fine, repo)) is None, fine
     api = 'gh api "repos/$R/issues/1/comments" -f body=short'
@@ -1164,3 +1170,11 @@ def test_with_attribution_alone_unknown_subcommands_and_option_values_are_handle
     (repo / "msg.txt").write_text(f"Fix.\n\n{trailer}\n")
     assert "attribution" in _attribution_only("gh pr create -t x -l -F -F msg.txt", repo)
     assert "attribution" in _attribution_only("gh pr merge 3 -A -F -F msg.txt", repo)
+
+
+@pytest.mark.parametrize("verb", ["pr create", "pr new", "issue create", "issue new"])
+def test_create_sends_the_file_whatever_the_order(repo, verb):
+    (repo / "long.md").write_text(words_of(400))
+    for flags in ("-F long.md -b short", "--body-file=long.md --body=short", "-b short -F long.md"):
+        out = refused(run_guard(f"gh {verb} -t x {flags}", repo))
+        assert "visible words" in (out or ""), (verb, flags)
