@@ -1474,6 +1474,13 @@ class Guards:
             if tok in GH_GLOBAL_VALUE_FLAGS:
                 i += 2
                 continue
+            # Before the subcommand gh (cobra) takes an option it does not know there as
+            # one with a value, `gh pr -b TEXT comment 3`: so does this, and `gh_body`
+            # reads every option in the command as gh then does.
+            long_bare = tok.startswith("--") and "=" not in tok and tok != "--"
+            if long_bare or (len(tok) == 2 and tok[0] == "-" and tok != "--"):
+                i += 2
+                continue
             if not tok.startswith("-"):
                 words.append(tok)
             i += 1
@@ -1763,6 +1770,8 @@ class Guards:
                     break
                 if flag in GH_FILL:
                     fill = True
+                if tok[k + 1 : k + 2] == "=":
+                    break  # `-d=t`: the switch's own value, and no more options after it
         if fill and not given and words in {("pr", "create"), ("pr", "new")}:
             self.verdict.denies.append(
                 "phylax: --fill builds this PR body from the commit messages, whose length "

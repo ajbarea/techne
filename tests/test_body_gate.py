@@ -898,3 +898,82 @@ def test_fill_is_read_where_gh_reads_it(repo):
 
 def test_a_marker_after_a_grouped_equals_is_still_seen(repo):
     assert "budget" in (refused(run_guard("gh pr review 4 -cb='% budget: 100'", repo)) or "")
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "gh pr create -t x -d=t -b '{L}'",
+        "gh pr comment 3 -e=F -b '{L}'",
+        "gh pr create -t x -d=T -F b.md",
+        "gh pr -b '{L}' comment 3",
+        "gh pr -F b.md comment 3",
+        "gh pr --body-file b.md comment 3",
+        "gh pr review 4 -c -F=b.md",
+    ],
+)
+def test_options_read_as_gh_reads_them(repo, command):
+    (repo / "b.md").write_text(LONG)
+    assert refused(run_guard(command.format(L=LONG), repo)), command
+
+
+def test_recover_takes_a_value(repo):
+    out = refused(run_guard(f"gh pr create --recover -b '{LONG}'", repo))
+    assert out is None, "-b is the recover file's name, so no body is given"
+
+
+def _gh_ready() -> bool:
+    try:
+        return (
+            subprocess.run(["gh", "auth", "status"], capture_output=True, timeout=20).returncode
+            == 0
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+@pytest.mark.skipif(not _gh_ready(), reason="needs an installed, signed-in gh")
+def test_the_option_walk_reads_the_file_gh_opens(tmp_path):
+    """Differential: random option groups for `gh pr review`; gh opens its -F file before
+    any request, so the file it names in its error is the one the hook must read."""
+    guards = _load("phylax_git_guards_diff", GUARDS)
+    rng = random.Random(229)
+    letters = "arcbFe"
+    checked = 0
+    for t in range(150):
+        names = iter(f"/nonexist/t{t}x{k}" for k in range(9))
+        parts: list[str] = []
+        for _ in range(rng.randrange(1, 4)):
+            group = "".join(rng.choice(letters) for _ in range(rng.randrange(1, 4)))
+            form = rng.choice(["sep", "eq", "glued", "bare"])
+            if form == "sep":
+                parts += [f"-{group}", next(names)]
+            elif form == "bare":
+                parts.append(f"-{group}")
+            else:
+                parts.append(f"-{group}{'=' if form == 'eq' else ''}{next(names)}")
+        args = ["pr", "review", "1", "-R", "o/nope", *parts]
+        out = subprocess.run(
+            ["gh", *args], capture_output=True, text=True, timeout=20, cwd=tmp_path
+        )
+        said = out.stderr + out.stdout
+        if re.search(
+            r"unknown|needs an argument|invalid argument|bad flag|accepts at most|"
+            r"specify only one of|need exactly one of",
+            said,
+        ):
+            continue
+        opened = re.search(r"open (\S+): no such file", said)
+        g = guards.Guards([], "")
+        read: list[tuple[str, str]] = []
+        g.read_body = lambda flag, value, cwd, env, read=read: read.append((flag, value)) or ""
+        g.gh_body(args[2:], tmp_path, {}, ("pr", "review"))
+        hook = read[-1][1] if read and read[-1][0] in ("-F", "--body-file") else None
+        assert hook == (opened.group(1) if opened else None), (parts, said[:120], read)
+        checked += 1
+    assert checked > 20
+
+
+def test_a_lone_equals_is_the_file_named_equals(repo):
+    (repo / "=").write_text(SHORT)
+    assert refused(run_guard("gh pr review 4 -cF=", repo)) is None, "gh opens the file `=`"
