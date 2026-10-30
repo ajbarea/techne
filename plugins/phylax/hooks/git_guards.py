@@ -1521,7 +1521,9 @@ class Guards:
             if tok == "":
                 i += 1  # cobra skips an empty argument when it looks for the subcommand
                 continue
-            if ("$" in tok or "`" in tok) and words != ["api"]:
+            # Only where the next word decides the subcommand; `--name=$V` stays one option.
+            option = tok.startswith("-") and "=" in tok
+            if ("$" in tok or "`" in tok) and not option and words in ([], ["pr"], ["issue"]):
                 unknown = tok
                 break
             if tok in GH_GLOBAL_VALUE_FLAGS:

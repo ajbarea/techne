@@ -1104,6 +1104,7 @@ def test_a_word_before_the_subcommand_it_cannot_know_is_refused(repo):
         f"R='-R o/r'; gh $R pr comment 1 -b '{LONG}'",
         f"gh $GH_FLAGS pr comment 1 -b '{LONG}'",
         "gh $SUB comment 1 -b short",
+        "gh `echo pr` comment 1 -b short",
     ):
         assert "before its subcommand" in (refused(run_guard(command, repo)) or ""), command
     for command in (
@@ -1111,8 +1112,18 @@ def test_a_word_before_the_subcommand_it_cannot_know_is_refused(repo):
         f"gh pr '' comment 1 -b '{LONG}'",
     ):
         assert "visible words" in (refused(run_guard(command, repo)) or ""), "cobra skips ''"
-    fine = 'gh -R "$REPO" pr comment 1 -b short; gh pr comment "$N" -b short'
-    assert refused(run_guard(fine, repo)) is None, "a variable as a value or after is fine"
+    for fine in (
+        'gh -R "$REPO" pr comment 1 -b short',
+        'gh pr comment "$N" -b short',
+        'gh --repo="$R" pr view 3',
+        'gh pr --repo="$R" view 3',
+        "gh --repo=$R run list",
+        "gh -R=$R pr view 1",
+        'gh co "$N"',
+        'gh browse "$N"',
+        'gh run view "$ID"',
+    ):
+        assert refused(run_guard(fine, repo)) is None, fine
     api = 'gh api "repos/$R/issues/1/comments" -f body=short'
     assert refused(run_guard(api, repo)) is None, "an api endpoint is no subcommand"
 
@@ -1130,3 +1141,26 @@ def test_the_attribution_guard_skips_other_options_values(repo):
         check=False,
     )
     assert "attribution" in proc.stdout
+
+
+def _attribution_only(command: str, cwd: pathlib.Path) -> str:
+    payload = json.dumps({"cwd": str(cwd), "tool_input": {"command": command}})
+    proc = subprocess.run(
+        [HOOK_PYTHON, str(GUARDS)],
+        input=payload,
+        capture_output=True,
+        text=True,
+        env=hook_env(("block_attribution_trailers",)),
+        check=False,
+    )
+    return proc.stdout
+
+
+def test_with_attribution_alone_unknown_subcommands_and_option_values_are_handled(repo):
+    trailer = "Co-Authored-By: Claude <noreply@anthropic.com>"
+    assert "before its subcommand" in _attribution_only(
+        f"R=x; gh $R pr edit 1 -b '{trailer}'", repo
+    )
+    (repo / "msg.txt").write_text(f"Fix.\n\n{trailer}\n")
+    assert "attribution" in _attribution_only("gh pr create -t x -l -F -F msg.txt", repo)
+    assert "attribution" in _attribution_only("gh pr merge 3 -A -F -F msg.txt", repo)
