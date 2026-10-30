@@ -12,7 +12,12 @@ QUALITY_OUT=quality/results/2026-10-29-baseline-2`, then `make quality-skills`, 
 `~/.local/state/techne-quality/resume.sh` in tmux `quality-resume` on the RIT account (the
 default config folder). Started 10-29 20:49; stopped 21:11 on RIT's session limit after 3 of 30
 runs (sphragis-149 r1-r3 kept; one sphragis-186 api_error run discarded). Resumed 10-30 17:33 on
-RIT, same CLI (2.1.302, matches set.json); it was queued on the fleet heavy lock at the handoff.
+RIT, same CLI (2.1.302, matches set.json); stopped 19:43 on RIT's limit at 9 of 30 runs
+logged (sphragis-149 r1-r3, sphragis-186 r3, techne-162 r1, techne-220 r1, techne-174 r2-r3,
+techne-206 r2). Personal had five-hour room but 15% weekly (Heph's account), so the rest stays
+on RIT: tmux `quality-resume` sleeps until 23:42 10-30, then runs resume.sh, which now waits
+out each session limit by itself (the reset time in the log, plus 2 min, up to 8 attempts) and
+stops on any other exit 3 (a Claude Code update mid-run, a refused resume, a judge failure).
 A running run.py (`pgrep -af quality/run.py`) means do not start another: watch the log.
 Earlier logs: `baseline-void.log`, `skills-void.log`.
 
