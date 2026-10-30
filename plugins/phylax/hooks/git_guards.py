@@ -149,6 +149,7 @@ _EDIT_VALUES = {
     "--remove-reviewer",
     "--add-project",
     "--remove-project",
+    "--attach",
 }
 GH_VALUE_FLAGS = {
     ("pr", "create"): {
@@ -171,6 +172,7 @@ GH_VALUE_FLAGS = {
         "-T",
         "--template",
         "--recover",
+        "--attach",
     },
     ("issue", "create"): {
         "-t",
@@ -186,9 +188,25 @@ GH_VALUE_FLAGS = {
         "-T",
         "--template",
         "--recover",
+        # gh 2.8x and later
+        "--attach",
+        "--type",
+        "--parent",
+        "--blocked-by",
+        "--blocking",
     },
     ("pr", "edit"): _EDIT_VALUES,
-    ("issue", "edit"): _EDIT_VALUES - {"-B", "--base", "--add-reviewer", "--remove-reviewer"},
+    ("issue", "edit"): (_EDIT_VALUES - {"-B", "--base", "--add-reviewer", "--remove-reviewer"})
+    | {
+        "--add-blocked-by",
+        "--remove-blocked-by",
+        "--add-blocking",
+        "--remove-blocking",
+        "--add-sub-issue",
+        "--remove-sub-issue",
+    },
+    ("pr", "comment"): {"--attach"},
+    ("issue", "comment"): {"--attach"},
 }
 GH_VALUE_FLAGS[("pr", "new")] = GH_VALUE_FLAGS[("pr", "create")]
 GH_VALUE_FLAGS[("issue", "new")] = GH_VALUE_FLAGS[("issue", "create")]
@@ -868,21 +886,39 @@ def parse_commit(args: list[str]) -> Commit:
 
 
 def parse_gh_pr(args: list[str]) -> tuple[list[str], list[str]]:
+    """Every title and body text and file a `gh pr` command names, its short options read
+    grouped as gh's parser reads them (`-dF msg.txt`, `-F=msg.txt`)."""
     texts: list[str] = []
     files: list[str] = []
     i = 0
     while i < len(args):
         tok = args[i]
-        name, eq, value = tok.partition("=")
-        if not tok.startswith("--") and len(tok) > 2 and tok[:2] in GH_TEXT | GH_FILE:
-            name, eq, value = tok[:2], "=", tok[2:]
-        kind = GH_TEXT.get(name) or GH_FILE.get(name)
-        if kind:
-            if not eq:
-                value = args[i + 1] if i + 1 < len(args) else ""
-                i += 1
-            (texts if kind == "text" else files).append(value)
         i += 1
+        if tok.startswith("--"):
+            name, eq, value = tok.partition("=")
+            kind = GH_TEXT.get(name) or GH_FILE.get(name)
+            if kind:
+                if not eq:
+                    value = args[i] if i < len(args) else ""
+                    i += 1
+                (texts if kind == "text" else files).append(value)
+            continue
+        if not tok.startswith("-") or tok == "-":
+            continue
+        for k in range(1, len(tok)):
+            flag = "-" + tok[k]
+            kind = GH_TEXT.get(flag) or GH_FILE.get(flag)
+            if kind:
+                value = tok[k + 1 :]
+                if len(value) > 1 and value[0] == "=":
+                    value = value[1:]
+                elif not value:
+                    value = args[i] if i < len(args) else ""
+                    i += 1
+                (texts if kind == "text" else files).append(value)
+                break
+            if tok[k + 1 : k + 2] == "=":
+                break
     return texts, files
 
 
@@ -1486,20 +1522,20 @@ class Guards:
                 words.append(tok)
                 at.append(i)
             i += 1
+        # gh (cobra) drops the subcommand words and parses the rest, so an option just
+        # before one takes the word after it: `gh pr -b review TEXT 1`.
+        rest = [a for j, a in enumerate(argv) if j and j not in at]
         writer = len(words) == 2 and words[0] == "pr" and words[1] in GH_PR_WRITERS
         if writer and self.enabled(ATTRIBUTION, Command(cwd), local=False):
-            texts, files = parse_gh_pr(argv[1:])
+            texts, files = parse_gh_pr(rest)
             self.check_attribution(f"`gh pr {words[1]}`", texts, files, cwd, "pr", argv, env)
         kind = GH_BODY_KINDS.get(tuple(words)) if len(words) == 2 else None
         api = bool(words) and words[0] == "api"
         if (kind or api) and self.enabled(BODIES, Command(cwd), local=False):
-            # gh (cobra) drops the subcommand words and parses the rest, so an option just
-            # before one takes the word after it: `gh pr -b review TEXT 1`.
             if api:
-                rest = [a for j, a in enumerate(argv) if j and j != at[0]]
-                kind, body = self.api_body(rest, cwd, env)
+                after = [a for j, a in enumerate(argv) if j and j != at[0]]  # keeps the endpoint
+                kind, body = self.api_body(after, cwd, env)
             else:
-                rest = [a for j, a in enumerate(argv) if j and j not in at]
                 body = self.gh_body(rest, cwd, env, tuple(words))
             if kind and body is not None:
                 denies, warnings = body_gate.check(kind, body)

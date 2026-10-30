@@ -926,16 +926,16 @@ def test_recover_takes_a_value(repo):
 @pytest.fixture
 def fake_github(tmp_path):
     """gh's environment pointed at the fake GitHub, and its request log."""
-    import socket
-    import time
-
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        port = sock.getsockname()[1]
     log = tmp_path / "requests.jsonl"
     server = subprocess.Popen(
-        [sys.executable, str(FIXTURES / "fake_github.py"), str(port), str(log)]
+        [sys.executable, str(FIXTURES / "fake_github.py"), "0", str(log)],
+        stdout=subprocess.PIPE,
+        text=True,
     )
+    port = (server.stdout.readline() if server.stdout else "").strip()
+    if not port.isdigit():
+        server.kill()
+        pytest.fail("the fake GitHub did not start")
     proxy = f"http://127.0.0.1:{port}"
     env = dict(
         os.environ,
@@ -952,22 +952,20 @@ def fake_github(tmp_path):
         GH_PROMPT_DISABLED="1",
         GH_NO_UPDATE_NOTIFIER="1",
     )
-    for _ in range(50):
-        try:
-            socket.create_connection(("127.0.0.1", port), timeout=0.2).close()
-            break
-        except OSError:
-            time.sleep(0.1)
     yield env, log
     server.terminate()
     server.wait(timeout=10)
 
 
-@pytest.mark.skipif(shutil.which("gh") is None, reason="needs gh")
+@pytest.mark.skipif(
+    shutil.which("gh") is None and not os.environ.get("CI"), reason="needs gh (CI has it)"
+)
 def test_the_body_read_is_the_body_gh_sends(tmp_path, fake_github):
     """Differential: random body and switch options, long and short, grouped, before and
     after the subcommand, for three subcommands. gh sends the body to a fake GitHub that
-    logs it; the hook's walk must read that same body."""
+    logs it; the hook's walk must read that same body. `create` and `edit` are left out:
+    gh first resolves the repository and the PR's projects there, which the fake does not
+    serve; their value options are pinned by the fixed cases above."""
     env, log = fake_github
     guards = _load("phylax_git_guards_diff", GUARDS)
     files = tmp_path / "files"
@@ -1076,3 +1074,26 @@ def test_options_before_the_subcommand_take_the_next_word(repo, command):
 def test_a_lone_equals_is_the_file_named_equals(repo):
     (repo / "=").write_text(SHORT)
     assert refused(run_guard("gh pr review 4 -cF=", repo)) is None, "gh opens the file `=`"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "gh pr -d -F create msg.txt -t x",
+        "gh pr create -t x -dF msg.txt",
+        "gh pr create -t x -F=msg.txt",
+        "gh pr -w -F edit msg.txt 3",
+    ],
+)
+def test_the_attribution_guard_reads_options_as_gh_does(repo, command):
+    (repo / "msg.txt").write_text("Fix.\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n")
+    payload = json.dumps({"cwd": str(repo), "tool_input": {"command": command}})
+    proc = subprocess.run(
+        [HOOK_PYTHON, str(GUARDS)],
+        input=payload,
+        capture_output=True,
+        text=True,
+        env=hook_env(("block_attribution_trailers",)),
+        check=False,
+    )
+    assert "attribution" in proc.stdout, command

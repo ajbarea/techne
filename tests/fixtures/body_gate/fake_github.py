@@ -2,7 +2,7 @@
 github.localhost: it answers the few queries `gh pr|issue comment|review` makes and
 logs each request body, so a test sees the body gh really sends.
 
-    python3 fake_github.py PORT LOG
+    python3 fake_github.py PORT LOG    (PORT 0: any free one, printed first)
 """
 
 import json
@@ -94,4 +94,6 @@ class H(BaseHTTPRequestHandler):
     do_PATCH = do_POST
 
 
-ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), H).serve_forever()
+server = ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), H)
+print(server.server_address[1], flush=True)  # the port, for PORT 0
+server.serve_forever()
