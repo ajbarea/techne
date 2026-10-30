@@ -60,7 +60,7 @@ GIT_BASE = ("git", "-c", "core.fsmonitor=false", "-c", "core.quotePath=false")
 # shlex joins adjacent punctuation, so a separator is any run of these, such as "&&\n".
 SEPARATOR_RE = re.compile(r"^[;&|()\n]+$")
 REDIRECT_RE = re.compile(r"^[<>&]*[<>][<>&]*$")
-ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\+?=")
 HEREDOC_RE = re.compile(r"<<(-?)\s*\\?(['\"]?)([A-Za-z_][\w.-]*)\2")
 VAR_RE = re.compile(r"\$(?:\{(\w+)\}|(\w+))")
 # Marker groups split_subcommands emits around a `( ... )` subshell or `$(...)`.
@@ -142,6 +142,43 @@ HEREDOC_WORD_RE = re.compile("(?:<<-?)?(?:-?\x00H\\d+\x00)?")
 SUBST_RE = re.compile(r"\$\(([^()]*)\)")
 # strip_heredocs's sentinel for a file read `$(cat FILE)` captured by `capture`.
 READ_RE = re.compile("\x00R(\\d+)\x00")
+# A variable left in a body once the known ones are expanded: set some other way.
+UNSET_VAR_RE = re.compile(r"\$(?:\{[^}]*\}|[A-Za-z_]\w*)")
+# Commands that print one short line, whose output in a body counts as one word.
+SHORT_OUTPUT = (
+    ("git", "rev-parse"),
+    ("git", "branch", "--show-current"),
+    ("date",),
+    ("pwd",),
+    ("basename",),
+)
+# Commands that read the files they name and write none.
+READERS = {
+    "cat",
+    "head",
+    "tail",
+    "wc",
+    "grep",
+    "rg",
+    "less",
+    "more",
+    "ls",
+    "stat",
+    "file",
+    "diff",
+    "cmp",
+    "test",
+    "[",
+    "echo",
+    "printf",
+    "true",
+    "false",
+    "jq",
+    "realpath",
+    "readlink",
+    "basename",
+    "dirname",
+}
 # Builtins that assign their `NAME=VALUE` words, as a bare assignment does.
 DECLARERS = {"export", "declare", "local", "typeset", "readonly"}
 # An expansion this check cannot know, in a `gh api` path.
@@ -374,6 +411,15 @@ def stdin_heredoc(group: list[str]) -> int | None:
     return found
 
 
+def stdin_redirect(group: list[str]) -> tuple[str, str] | None:
+    """A subcommand's last stdin redirect that is no heredoc: `< FILE` or `<<< WORD`."""
+    found = None
+    for j in range(len(group) - 1):
+        if group[j] in {"<", "<<<"} and not (j and group[j - 1].isdigit() and group[j - 1] != "0"):
+            found = (group[j], group[j + 1])
+    return found
+
+
 def tokenize(text: str) -> list[str] | None:
     lexer = shlex.shlex(text, posix=True, punctuation_chars=";&|()<>\n")
     lexer.whitespace = " \t\r"
@@ -477,6 +523,8 @@ def read_message_file(path: str, cwd: Path) -> str | None:
     target = Path(os.path.expanduser(path))
     if not target.is_absolute():
         target = cwd / target
+    if not target.is_file():  # a FIFO or a device would hang the hook
+        return None
     try:
         with open(target, encoding="utf-8", errors="replace") as fh:
             return fh.read(MAX_MESSAGE_FILE)
@@ -751,6 +799,8 @@ class Guards:
         self.written: dict[str, int | None] = {}
         # The stdin heredoc of the subcommand being checked.
         self.stdin_heredoc: int | None = None
+        # Its other stdin redirect, `< FILE` or `<<< WORD`.
+        self.stdin_other: tuple[str, str] | None = None
         # The variables as written, before heredocs and files (`run`'s `raw`).
         self.raw: dict[str, str] = {}
         # Each file's text as `resolve` read it, which READ_RE sentinels name.
@@ -1136,10 +1186,16 @@ class Guards:
             if words and all(ASSIGNMENT_RE.match(t) for t in words):
                 for tok in words:
                     name, _, value = tok.partition("=")
+                    # `NAME+=value` appends to what NAME held.
+                    held = ""
+                    if name.endswith("+"):
+                        name = name[:-1]
+                        held = raw.get(name, env.get(name, ""))
                     if value == "$" and groups[k + 1 : k + 2] == [[PUSH]]:
                         written = self.substitution(groups, k, cwd, env)
                     else:
                         written = self.resolve(expand(value, {**env, **raw}), cwd, env, k)
+                    written = held + written
                     raw[name] = written
                     env[name] = self.fill(written)
                 continue
@@ -1148,6 +1204,7 @@ class Guards:
             name = Path(argv[0]).name
             if name not in {"git", "gh"}:
                 self.note_created(group, argv, cwd)
+                self.note_touched(argv, cwd, env)
             run_cwd = cwd
             for target in chdirs:
                 run_cwd = resolve_dir(run_cwd, target, env)
@@ -1168,6 +1225,7 @@ class Guards:
                 env["OLDPWD"], env["PWD"] = str(old), str(cwd)
                 continue
             self.stdin_heredoc = stdin_heredoc(group)
+            self.stdin_other = stdin_redirect(group)
             self.raw = raw
             try:
                 if name == "git":
@@ -1204,6 +1262,22 @@ class Guards:
             source = self.stdin_heredoc if (whole_cat or whole_tee) and not appends else None
             path = os.path.expanduser(expand(target, env, unknown=None))
             self.written[os.path.normpath(cwd / path)] = source
+
+    def note_touched(self, argv: list[str], cwd: Path, env: dict[str, str]) -> None:
+        """A command that may change the files it names (`sed -i`, `ln`, `dd of=`), other
+        than a plain reader or a writer `note_written` follows: each of those files'
+        text is unknown from here on."""
+        prog = Path(argv[0]).name if argv else ""
+        if prog in READERS or prog in CREATORS or prog in {"cd", "pushd", "popd"}:
+            return
+        for arg in argv[1:]:
+            if arg.startswith("-"):
+                continue
+            value = (
+                arg.partition("=")[2] if "=" in arg and "/" not in arg.partition("=")[0] else arg
+            )
+            path = os.path.expanduser(expand(value, env, unknown=None))
+            self.written[os.path.normpath(cwd / path)] = None
 
     def note_created(self, group: list[str], argv: list[str], cwd: Path) -> None:
         """Record a COMMITS.md this subcommand creates; a dry run cannot see it yet."""
@@ -1299,6 +1373,9 @@ class Guards:
                     return m.group(0)
                 inner = SENTINEL_RE.sub("", inner)
                 return f"$({inner})" if tag is None else f"$({inner} #{tag})"
+            if any(tuple(argv[: len(short)]) == short for short in SHORT_OUTPUT):
+                self.captured.append("x")
+                return f"\x00R{len(self.captured) - 1}\x00"
             path = None
             if argv[:1] == ["cat"]:
                 files = [a for a in argv[1:] if a != "--"]
@@ -1329,7 +1406,8 @@ class Guards:
             text = self.heredoc(index) or ""
         else:
             text = read_message_file(path, cwd) or ""
-        self.captured.append(text)
+        # As bash's `$(...)`, which drops the trailing newlines.
+        self.captured.append(text.rstrip("\n"))
         return f"\x00R{len(self.captured) - 1}\x00"
 
     def fill(self, text: str) -> str:
@@ -1349,6 +1427,19 @@ class Guards:
     def own_heredoc(self) -> str | None:
         """The heredoc on the stdin of the gh subcommand being checked."""
         return self.heredoc(self.stdin_heredoc)
+
+    def stdin_body(self, cwd: Path, env: dict[str, str]) -> str | None:
+        """What the gh subcommand being checked reads on stdin: its heredoc, a `< FILE`
+        or a `<<< WORD` here-string (with its newline gone, as gh trims it); None for
+        a pipe, which is not seen."""
+        if self.stdin_heredoc is not None:
+            return self.own_heredoc()
+        if self.stdin_other is None:
+            return None
+        kind, word = self.stdin_other
+        if kind == "<":
+            return self.body_file(word, cwd, env)
+        return self.body_value(word, cwd, env)
 
     def body_file(self, path: str, cwd: Path, env: dict[str, str]) -> str | None:
         """A body file's text as gh will read it: from the heredoc an earlier subcommand
@@ -1381,6 +1472,14 @@ class Guards:
         value = expand(value, {**env, **self.raw}, unknown=None)
         while (resolved := self.resolve(value, cwd, env, None)) != value:
             value = resolved
+        unset = UNSET_VAR_RE.search(value)
+        if unset:
+            self.verdict.denies.append(
+                f"phylax: this body names {unset.group(0)}, which this command does not set "
+                "with a plain NAME=value, so its length cannot be checked first. Write the "
+                "body to a file in its own call, then send it with --body-file."
+            )
+            return None
         if "$(" in HEREDOC_SUBST_RE.sub("", value):
             self.verdict.denies.append(
                 "phylax: this body holds the output of a command this check cannot run, so "
@@ -1406,7 +1505,7 @@ class Guards:
                 if name in GH_BODY_TEXT:
                     body = self.body_value(value, cwd, env)
                 elif value == "-":
-                    body = self.own_heredoc()
+                    body = self.stdin_body(cwd, env)
                 else:
                     body = self.body_file(value, cwd, env)
             i += 1
@@ -1432,13 +1531,17 @@ class Guards:
                     key, _, field = value.partition("=")
                     if key == "body":
                         if name in {"-F", "--field"} and field == "@-":
-                            body = self.own_heredoc()
+                            body = self.stdin_body(cwd, env)
                         elif name in {"-F", "--field"} and field.startswith("@"):
                             body = self.body_file(field[1:], cwd, env)
                         else:
                             body = self.body_value(field, cwd, env)
                 elif name == "--input":
-                    raw = self.own_heredoc() if value == "-" else self.body_file(value, cwd, env)
+                    raw = (
+                        self.stdin_body(cwd, env)
+                        if value == "-"
+                        else self.body_file(value, cwd, env)
+                    )
                     try:
                         loaded = json.loads(raw or "null")
                     except ValueError:

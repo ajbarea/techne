@@ -452,7 +452,7 @@ def test_a_file_is_read_where_and_when_the_variable_is_set(repo):
     (repo / "short.md").write_text(SHORT)
     assert refused(run_guard('B=$(cat short.md); gh pr comment 1 --body "$B"', repo)) is None
     outside = '(B=$(cat b.md)); gh pr comment 1 --body "${B}ok"'
-    assert refused(run_guard(outside, repo)) is None, "a subshell's variable stays inside it"
+    assert "does not set" in (refused(run_guard(outside, repo)) or ""), "unset outside its subshell"
     later = (
         f"cat > n.md <<'A'\n{LONG}\nA\nB=$(cat n.md)\n"
         f"cat > n.md <<'C'\n{SHORT}\nC\ngh pr comment 1 --body \"$B\""
@@ -468,7 +468,7 @@ def test_inline_and_variable_reads_follow_one_rule(repo):
         "$(cat b.md c.md)",
         "$(sed -n p b.md)",
         "$(cat b.md | head)",
-        "$(git rev-parse HEAD)",
+        "$(python3 x.py)",
     ):
         out = refused(run_guard(f'gh pr comment 1 --body "Fixed in {unknown}"', repo))
         assert "cannot run" in (out or ""), unknown
@@ -491,3 +491,80 @@ def test_a_gh_api_path_it_cannot_know_still_has_its_body_checked(repo):
         assert refused(out), path
     notes = f"gh api repos/$R/releases -f body='{words_of(400)}'"
     assert refused(run_guard(notes, repo)) is None, "release notes are no issue or PR"
+
+
+def test_a_variable_set_any_other_way_is_unknown(repo):
+    (repo / "b.md").write_text(LONG)
+    for setter in (
+        "read -r -d '' B <<'EOF'\nlong\nEOF\n",
+        "mapfile B < b.md; ",
+        "declare -r B=x; ",
+        "",
+    ):
+        for use in ('"$B"', '"${B:-x}"'):
+            out = refused(run_guard(f"{setter}gh pr comment 1 --body {use}", repo))
+            assert "does not set" in (out or ""), (setter, use)
+    home = 'gh pr comment 1 --body "built in $HOME"'
+    assert refused(run_guard(home, repo)) is None, "the hook's own env is known"
+
+
+def test_stdin_from_a_file_or_a_here_string_is_read(repo):
+    (repo / "b.md").write_text(LONG)
+    assert refused(run_guard("gh pr comment 1 --body-file - < b.md", repo))
+    here = 'gh api repos/o/r/issues/1/comments -F body=@- <<< "$(cat b.md)"'
+    assert refused(run_guard(here, repo))
+    assert refused(run_guard("gh pr comment 1 --body-file - <<< 'short'", repo)) is None
+
+
+def test_a_file_another_command_may_change_is_unknown(repo):
+    (repo / "b.md").write_text(SHORT)
+    for change in (
+        "sed -i 's/a/b/' b.md",
+        "ln -sf other.md b.md",
+        "python3 grow.py b.md",
+        "dd if=x of=b.md",
+    ):
+        out = refused(run_guard(f"{change} && gh pr comment 1 --body-file b.md", repo))
+        assert "own call" in (out or ""), change
+    reader = "wc -w b.md && gh pr comment 1 --body-file b.md"
+    assert refused(run_guard(reader, repo)) is None, "a reader changes nothing"
+    made = refused(run_guard('echo hi > f.md; gh pr comment 1 --body "$(cat f.md)"', repo))
+    assert made is not None, "a file written another way in this command is not read from disk"
+
+
+def test_short_outputs_count_and_reads_are_trimmed_as_bash_trims_them(repo):
+    sha = 'gh pr comment 1 --body "Fixed in $(git rev-parse --short HEAD)."'
+    assert refused(run_guard(sha, repo)) is None
+    assert refused(run_guard('gh pr comment 1 --body "$(cat $NOPE/b.md)"', repo))
+    (repo / "b.md").write_text(LONG)
+    for read in ("B=$(cat -- b.md)", 'B="$(cat -- b.md)"'):
+        assert refused(run_guard(f'{read}; gh pr comment 1 --body "$B"', repo)), read
+    two = (
+        f'A="$(mktemp)"; B="$(mktemp)"; cat > "$A" <<\'X\'\n{SHORT}\nX\n'
+        f'cat > "$B" <<\'Y\'\n{LONG}\nY\ngh pr comment 1 --body-file "$B"'
+    )
+    assert refused(run_guard(two, repo)), "two quoted mktemp names are two files"
+    assert refused(run_guard(f"gh api repos/o/r/pulls/1/reviews -f body='{LONG}'", repo))
+    (repo / "sub").mkdir()
+    (repo / "dir.txt").write_text("sub\n")
+    for command in (
+        'D=$(cat dir.txt); cd "$D" && git commit -m x',
+        'D=$(cat dir.txt); git -C "$D" commit -m x',
+    ):
+        payload = json.dumps({"cwd": str(repo), "tool_input": {"command": command}})
+        proc = subprocess.run(
+            [HOOK_PYTHON, str(GUARDS)],
+            input=payload,
+            capture_output=True,
+            text=True,
+            env=hook_env(("block_attribution_trailers",)),
+            check=False,
+        )
+        assert (proc.returncode, proc.stdout.strip()) == (0, ""), (command, proc.stdout)
+
+
+def test_an_append_adds_to_the_variable(repo):
+    (repo / "b.md").write_text(LONG)
+    grown = 'B="Notes:"; B+=" $(cat b.md)"; gh pr comment 1 --body "$B"'
+    assert refused(run_guard(grown, repo))
+    assert refused(run_guard('B="a"; B+=" b"; gh pr comment 1 --body "$B"', repo)) is None
