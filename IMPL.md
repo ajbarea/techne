@@ -6,20 +6,22 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 
 ## In flight
 
-techne#249 is fixed in PR #252 (branch results/quality-baseline): the task notes state what the
-hidden tests check, `--check-tasks` fails a task with a gap, `quality/DEVIATIONS.md` records it.
-Seven reader rounds plus a verify pass, clean; `--check-tasks` 10/10 ok on 5ec4dc0. Old runs stay
-in `quality/results/2026-10-29-baseline-void/`.
+Branch results/quality-baseline-2, worktree `.claude/worktrees/quality-run` (from main 7c47fd1,
+after #252 fixed #249): the Opus baseline, `make quality MODE=normal PHASE=baseline
+QUALITY_OUT=quality/results/2026-10-29-baseline-2`, then `make quality-skills`, both driven by
+`~/.local/state/techne-quality/resume.sh` in tmux `quality-resume` on the RIT account (the
+default config folder). Started 10-29 20:49. Earlier logs: `baseline-void.log`, `skills-void.log`.
+
+To resume after a usage limit or restart: `tmux new-session -d -s quality-resume -e
+CLAUDE_CONFIG_DIR="$HOME/.claude" "bash ~/.local/state/techne-quality/resume.sh"` (rerunning
+resumes; always pass `-e CLAUDE_CONFIG_DIR`). Progress: `grep tests=
+~/.local/state/techne-quality/baseline.log`.
 
 Next, in order:
-1. Merge #252 on green.
-2. Restart the Opus baseline from main in a fresh worktree on the RIT account (the default config
-   folder): point `~/.local/state/techne-quality/resume.sh`'s `cd` at that worktree and its
-   QUALITY_OUT at `quality/results/2026-10-29-baseline-2`, then
-   `tmux new-session -d -s quality-resume -e CLAUDE_CONFIG_DIR="$HOME/.claude" "bash
-   ~/.local/state/techne-quality/resume.sh"`. Rerunning resumes; always pass `-e CLAUDE_CONFIG_DIR`.
-   Progress: `grep tests= ~/.local/state/techne-quality/baseline.log`.
-3. Commit the results under `quality/results/` by PR, then start techne#226 measured on them.
+1. When `EXIT=0` lands in `skills.log`: commit `quality/results/2026-10-29-baseline-2/` and the
+   skill-suite results by PR on this branch (results table: per task, median and range, tokens).
+2. Then techne#226 (fold-or-keep audit), one change at a time, measured on these evals.
+3. From 2026-11-05: rerun `scripts/review_loop_mine.py` with the ledger (#234 step 5).
 Never wrap `run.py` or `make quality` in `flock /tmp/fleet-heavy.lock`: run.py takes that lock
 itself, so the wrapper deadlocks. A lock held long after every job ended is likely an orphan that
 inherited the fd (klepsydra#193): `lsof /tmp/fleet-heavy.lock`. A skill suite with any "ended on
