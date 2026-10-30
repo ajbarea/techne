@@ -830,3 +830,12 @@ def test_dev_stdin_after_another_redirect_is_refused(repo):
         "gh pr comment 1 --body-file - < b.md < /dev/stdin",
     ):
         assert "reopens" in (refused(run_guard(command, repo)) or ""), command
+
+
+def test_the_delimiter_is_the_whole_line_after_dash_tabs(repo):
+    dash = f"gh pr comment 1 --body-file - <<-EOF\n\tshort\n\tEOF\necho {LONG}"
+    assert refused(run_guard(dash, repo)) is None, "<<- ends at the tab-indented EOF"
+    plain = f"gh pr comment 1 --body-file - <<EOF\n\tEOF\n{LONG}\nEOF"
+    assert refused(run_guard(plain, repo)), "<< does not strip tabs, so the body runs on"
+    here = "gh pr comment 1 --body-file - <<< hi < /dev/stdin"
+    assert "reopens" in (refused(run_guard(here, repo)) or "")
