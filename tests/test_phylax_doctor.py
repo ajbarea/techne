@@ -27,6 +27,7 @@ OPTIONS = (
     "block_commits_md",
     "warn_main_checkout_commit",
     "block_secrets",
+    "block_long_bodies",
     "require_subagent_model",
     "restart_on_update",
     "budget_mode",

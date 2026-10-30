@@ -169,7 +169,7 @@ If either check fails, stop and report. Don't execute a stale plan — the group
 
 3. **Push.** `git push -u origin <branch>`. Never force-push. Never push to `main` or `master`.
 
-4. **Open the PR.** `gh pr create` with the plan as source material. Build the body from the commit headlines and bullets — drop the header comment and the `Suggested branch:` line (those were scaffolding). Format:
+4. **Open the PR.** `gh pr create` with the plan as source material. Keep the visible body to about 150 words (phylax's `block_long_bodies` refuses longer) and fold the rest into `<details>` sections. Build the body from the commit headlines and bullets — drop the header comment and the `Suggested branch:` line (those were scaffolding). Format:
    ```
    gh pr create --title "<short headline, preferably the lead commit's>" --assignee @me [--label <label>] --body "$(cat <<'EOF'
    ## Summary

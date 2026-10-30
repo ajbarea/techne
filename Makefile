@@ -102,7 +102,7 @@ sandbox-warm:
 # The hooks and the setup doctors run on the user's system python3, not the project venv.
 # 3.9 is macOS's.
 HOOKS_OLDEST_PYTHON := 3.9
-HOOK_TESTS := tests/test_git_guards.py tests/test_secret_guard.py tests/test_model_guard.py tests/test_email_greeting.py tests/test_elenchus_ledger.py tests/test_budget.py tests/test_phylax_options.py tests/test_board_hook.py tests/test_repo_kind.py tests/test_repo_meta.py tests/test_resume_brief.py tests/test_sisters_hygiene_hook.py tests/test_stale_restart.py tests/test_plugin_keys.py tests/test_plugin_key_manifests.py $(wildcard tests/test_*doctor*.py)
+HOOK_TESTS := tests/test_git_guards.py tests/test_secret_guard.py tests/test_body_gate.py tests/test_model_guard.py tests/test_email_greeting.py tests/test_elenchus_ledger.py tests/test_budget.py tests/test_phylax_options.py tests/test_board_hook.py tests/test_repo_kind.py tests/test_repo_meta.py tests/test_resume_brief.py tests/test_sisters_hygiene_hook.py tests/test_stale_restart.py tests/test_plugin_keys.py tests/test_plugin_key_manifests.py $(wildcard tests/test_*doctor*.py)
 
 test-hooks-oldest:      ## Hook and doctor tests with the code under test run on the oldest python3
 	@py="$$(uv python find --no-project $(HOOKS_OLDEST_PYTHON) 2>/dev/null || { uv python install -q $(HOOKS_OLDEST_PYTHON) && uv python find --no-project $(HOOKS_OLDEST_PYTHON); })"; \
