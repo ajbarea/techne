@@ -138,6 +138,8 @@ SENTINEL_RE = re.compile("\x00H(\\d+)\x00")
 HEREDOC_SUBST_RE = re.compile("\\$\\(([^()]*\x00H\\d+\x00[^()]*)\\)")
 # A word of a heredoc redirection after strip_heredocs: `<<`, `<<-`, the sentinel or both.
 HEREDOC_WORD_RE = re.compile("(?:<<-?)?(?:-?\x00H\\d+\x00)?")
+# Paths gh reads as stdin, as it reads `-`.
+STDIN_PATHS = {"/dev/stdin", "/dev/fd/0", "/proc/self/fd/0"}
 # The place `resolve` tags an unknown command's output with, ` #3)`, never shown.
 TAG_RE = re.compile(r" #\d+\)")
 # A command substitution with no other inside it, `$(...)`.
@@ -423,6 +425,30 @@ def stdin_heredoc(group: list[str]) -> int | None:
             if m:
                 found = int(m.group(1))
     return found
+
+
+def unescape(text: str, keep: bool = False) -> str:
+    r"""An unquoted heredoc's backslashes as bash reads them, left to right: `\\` is one
+    backslash, `\$` and `\`` their character, a backslash-newline joins the lines, and
+    any other backslash stays. KEEP marks the escaped `$` and backtick so a later
+    expansion leaves them alone (`heredoc_text` puts them back)."""
+    out: list[str] = []
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        nxt = text[i + 1 : i + 2]
+        if ch == "\\" and nxt in ("\\", "$", "`", "\n"):
+            if nxt == "$":
+                out.append("\x00D\x00" if keep else "$")
+            elif nxt == "`":
+                out.append("\x00B\x00" if keep else "`")
+            elif nxt == "\\":
+                out.append("\\")
+            i += 2
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
 
 
 def last_redirect(group: list[str], ops: set[str]) -> int:
@@ -1446,16 +1472,15 @@ class Guards:
         """A sentinel for PATH's text as `cat` reads it now: a heredoc an earlier
         subcommand wrote it from, else the file on disk; None when it cannot be known."""
         path = expand(path, env, unknown=None)
-        if "$" in path or "`" in path:
+        if "$" in path or "`" in path or "\x00" in path:
             return None
         key = os.path.normpath(cwd / os.path.expanduser(path))
         if key in self.written:
-            index = self.written[key]
-            if index is None:
+            text = self.written_text(self.written[key])
+            if text is None:
                 return None
-            # The heredoc itself, which a body expands when it is unquoted.
-            return f"\x00H{index}\x00"
-        text = read_message_file(path, cwd) or ""
+        else:
+            text = read_message_file(path, cwd) or ""
         # As bash's `$(...)`, which drops the trailing newlines.
         self.captured.append(text.rstrip("\n"))
         return f"\x00R{len(self.captured) - 1}\x00"
@@ -1469,6 +1494,20 @@ class Guards:
         text = SENTINEL_RE.sub(lambda m: self.heredoc(int(m.group(1))) or "", text)
         return READ_RE.sub(lambda m: self.captured[int(m.group(1))], text)
 
+    def written_text(self, index: int | None) -> str | None:
+        """The text of a file an earlier subcommand wrote from heredoc INDEX: as written
+        when its delimiter was quoted or it holds no `$` or backtick, else unknown, since
+        bash expanded it there, with that place's folder and variables."""
+        if index is None or index >= len(self.bodies):
+            return None
+        _, text, quoted = self.bodies[index]
+        if quoted:
+            return text
+        marked = unescape(text, keep=True)
+        if "$" in marked or "`" in marked:
+            return None
+        return marked.replace("\x00D\x00", "$").replace("\x00B\x00", "`")
+
     def heredoc_text(self, index: int | None, cwd: Path, env: dict[str, str]) -> str | None:
         """Heredoc INDEX as a body gets it: a quoted one's text as written, an unquoted
         one's as bash expands it, under the same rule as a body value."""
@@ -1477,9 +1516,9 @@ class Guards:
         _, text, quoted = self.bodies[index]
         if quoted:
             return text
-        # `\$` is a literal dollar in an unquoted heredoc, as in double quotes.
-        held = self.body_value(text.replace("\\$", "\x00D\x00"), cwd, env)
-        return None if held is None else held.replace("\x00D\x00", "$")
+        # `\$` and `\`` are literal in an unquoted heredoc, as in double quotes.
+        held = self.body_value(unescape(text, keep=True), cwd, env)
+        return None if held is None else held.replace("\x00D\x00", "$").replace("\x00B\x00", "`")
 
     def fill_body(self, text: str, cwd: Path, env: dict[str, str]) -> str:
         """`fill` for a body: an unquoted heredoc's text expanded as bash expands it."""
@@ -1525,11 +1564,23 @@ class Guards:
         wrote it from, refused when it was written here some other way or its name is
         not known here, else from disk."""
         path = expand(path, env, unknown=None)
+        if path in STDIN_PATHS:
+            return self.stdin_body(cwd, env)
         key = os.path.normpath(cwd / os.path.expanduser(path))
-        if key not in self.written and ("$" in path or "`" in path):
+        target = cwd / os.path.expanduser(path)
+        if key not in self.written and (
+            "$" in path or "`" in path or "\x00" in path or path.startswith("<")
+        ):
             self.verdict.denies.append(
-                f"phylax: the body file {TAG_RE.sub(')', path)} is named through a value this "
+                f"phylax: the body file {TAG_RE.sub(')', path).replace(chr(0), '')} is named "
+                "through a value this "
                 "check cannot know, so its length cannot be checked first. Name the file directly."
+            )
+            return None
+        if key not in self.written and os.path.exists(target) and not os.path.isfile(target):
+            self.verdict.denies.append(
+                f"phylax: the body file {path} is no regular file (a pipe or a device), so its "
+                "length cannot be checked first. Write the body to a file in its own call."
             )
             return None
         if key in self.written:
@@ -1541,7 +1592,14 @@ class Guards:
                     "own call."
                 )
                 return None
-            return self.heredoc_text(index, cwd, env)
+            text = self.written_text(index)
+            if text is None:
+                self.verdict.denies.append(
+                    f"phylax: {path} was written from an unquoted heredoc holding `$` or a "
+                    "backtick, which bash expanded where it was written, so its length cannot "
+                    "be checked first. Quote the delimiter (<<'EOF') or write it in its own call."
+                )
+            return text
         return read_message_file(path, cwd)
 
     def body_value(self, value: str, cwd: Path, env: dict[str, str]) -> str | None:

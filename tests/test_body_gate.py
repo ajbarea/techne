@@ -653,7 +653,7 @@ def test_an_append_keeps_what_the_variable_held(repo):
 def test_a_fifo_body_file_never_hangs_the_hook(repo):
     os.mkfifo(repo / "pipe.md")
     out = run_guard("gh pr comment 1 --body-file pipe.md", repo)
-    assert refused(out) is None
+    assert "no regular file" in (refused(out) or ""), "refused, never read"
 
 
 def test_a_file_written_from_an_unquoted_heredoc_is_expanded(repo):
@@ -668,7 +668,7 @@ def test_a_file_written_from_an_unquoted_heredoc_is_expanded(repo):
     tee = "tee x.md <<EOF >/dev/null\n$(cat b.md)\nEOF\ngh pr comment 1 --body-file x.md"
     assert refused(run_guard(tee, repo))
     log = "cat > x.md <<EOF\n$(git log --oneline -5)\nEOF\ngh pr comment 1 --body-file x.md"
-    assert "cannot run" in (refused(run_guard(log, repo)) or "")
+    assert "unquoted heredoc" in (refused(run_guard(log, repo)) or "")
     literal = "cat > x.md <<EOF\nCosts \\$5 and \\$(cat b.md) stays text.\nEOF\n"
     assert refused(run_guard(literal + "gh pr comment 1 --body-file x.md", repo)) is None
 
@@ -706,3 +706,58 @@ def test_a_refusal_never_shows_the_internal_tag(repo):
         run_guard('R=$(git rev-parse --show-toplevel); gh pr comment 1 --body-file "$R/b.md"', repo)
     )
     assert out and " #" not in out
+
+
+def test_a_written_heredoc_holding_an_expansion_is_unknown_wherever_it_is_sent(repo):
+    (repo / "b.md").write_text(LONG)
+    (repo / "sub").mkdir()
+    for command in (
+        "cat > h.md <<EOF\n$(cat b.md)\nEOF\ncd sub && gh pr comment 1 --body-file ../h.md",
+        'N="$(cat b.md)"; cat > h.md <<EOF\n$N\nEOF\nN=short; gh pr comment 1 --body-file h.md',
+        'cat > h.md <<EOF\n$(cat b.md)\nEOF\nB=$(cat h.md); cd sub && gh pr comment 1 --body "$B"',
+    ):
+        assert refused(run_guard(command, repo)), command
+    plain = "cat > h.md <<EOF\nNo expansion here.\nEOF\ngh pr comment 1 --body-file h.md"
+    assert refused(run_guard(plain, repo)) is None
+
+
+def test_a_name_read_from_a_file_is_never_taken_for_a_heredoc(repo):
+    (repo / "b.md").write_text(LONG)
+    (repo / "name.txt").write_text("b.md\n")
+    for command in (
+        'cat > n.txt <<\'EOF\'\nb.md\nEOF\nF=$(cat n.txt); gh pr comment 1 --body "$(cat "$F")"',
+        'F=$(cat name.txt); gh pr comment 1 --body "$(cat "$F")"',
+        'gh pr comment 1 --body "$(cat $(cat name.txt))"',
+    ):
+        assert refused(run_guard(command, repo)), command
+
+
+def test_stdin_paths_and_odd_files_are_read_or_refused(repo):
+    (repo / "b.md").write_text(LONG)
+    for command in (
+        f"gh pr comment 1 --body-file /dev/stdin <<'EOF'\n{LONG}\nEOF",
+        "gh pr comment 1 --body-file /dev/stdin < b.md",
+        "gh pr comment 1 --body-file /dev/fd/0 < b.md",
+        "gh api repos/o/r/issues/1/comments -F body=@/dev/stdin < b.md",
+        "gh pr comment 1 --body-file <(cat b.md)",
+    ):
+        assert refused(run_guard(command, repo)), command
+    short = "gh pr comment 1 --body-file /dev/stdin <<'EOF'\nshort\nEOF"
+    assert refused(run_guard(short, repo)) is None
+
+
+def test_backslashes_in_an_unquoted_heredoc_read_as_bash_reads_them(repo):
+    (repo / "b.md").write_text(LONG)
+    doubled = "gh pr comment 1 --body-file - <<EOF\nsee \\\\$(cat b.md)\nEOF"
+    assert refused(run_guard(doubled, repo)), "an escaped backslash leaves the $(...) live"
+    joined = "gh pr comment 1 --body-file - <<EOF\none \\\ntwo\nEOF"
+    assert refused(run_guard(joined, repo)) is None
+
+
+def test_a_dash_heredoc_after_a_file_wins_and_awk_in_place_writes(repo):
+    (repo / "b.md").write_text(LONG)
+    dash = "gh pr comment 1 --body-file - < b.md <<-EOF\n\tshort\n\tEOF"
+    assert refused(run_guard(dash, repo)) is None, "the last redirect is the heredoc"
+    (repo / "x.md").write_text(SHORT)
+    awk = "awk -i inplace '{print}' x.md; gh pr comment 1 --body-file x.md"
+    assert "may change" in (refused(run_guard(awk, repo)) or "")
