@@ -86,6 +86,7 @@ git config phylax.blockAttributionTrailers false
 git config phylax.blockCommitsMd false
 git config phylax.warnMainCheckoutCommit false
 git config phylax.blockSecrets false
+git config phylax.blockLongBodies false
 ```
 
 These keys were `techne.*` before the guards moved to the phylax plugin; rename any you set.

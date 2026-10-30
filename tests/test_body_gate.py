@@ -839,3 +839,24 @@ def test_the_delimiter_is_the_whole_line_after_dash_tabs(repo):
     assert refused(run_guard(plain, repo)), "<< does not strip tabs, so the body runs on"
     here = "gh pr comment 1 --body-file - <<< hi < /dev/stdin"
     assert "reopens" in (refused(run_guard(here, repo)) or "")
+
+
+def test_other_flags_values_and_fill_are_handled(repo):
+    long_with_title = f"gh pr create --body '{LONG}' --title '-Fix crash'"
+    assert refused(run_guard(long_with_title, repo)), "a title starting with -F is no body file"
+    bump = f"gh pr create --title '-bump deps' --body '{LONG}'"
+    assert refused(run_guard(bump, repo)), "a title starting with -b is no body"
+    for fill in ("--fill", "-f", "--fill-first", "--fill-verbose"):
+        out = refused(run_guard(f"gh pr create {fill}", repo))
+        assert "--fill" in (out or ""), fill
+    assert refused(run_guard("gh pr create --fill --body 'short'", repo)) is None
+
+
+def test_a_crlf_opener_keeps_its_carriage_return(repo):
+    crlf = f"gh pr comment 1 --body-file - <<EOF\r\nshort\nEOF\n{LONG}\nEOF\r\n"
+    assert refused(run_guard(crlf, repo)), "bash's delimiter is EOF\\r"
+
+
+def test_a_written_file_refusal_never_shows_the_internal_tag(repo):
+    out = refused(run_guard('T=$(mktemp); echo x > "$T"; gh pr comment 1 --body-file "$T"', repo))
+    assert out and " #" not in out

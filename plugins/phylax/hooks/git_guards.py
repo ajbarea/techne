@@ -131,6 +131,42 @@ GH_BODY_KINDS = {
     ("pr", "review"): "comment",
 }
 GH_BODY_TEXT = {"-b", "--body"}
+# gh's other options that take a value (a title, label, assignee, base, repo...), whose
+# value is no body flag even when it starts with `-` (`--title '-Fix crash'`).
+GH_VALUE_FLAGS = {
+    "-t",
+    "--title",
+    "-l",
+    "--label",
+    "-a",
+    "--assignee",
+    "-B",
+    "--base",
+    "-H",
+    "--head",
+    "-m",
+    "--milestone",
+    "-p",
+    "--project",
+    "-r",
+    "--reviewer",
+    "-R",
+    "--repo",
+    "-T",
+    "--template",
+    "--add-label",
+    "--remove-label",
+    "--add-assignee",
+    "--remove-assignee",
+    "--add-reviewer",
+    "--remove-reviewer",
+    "--add-project",
+    "--remove-project",
+    "-e",
+    "--editor",
+}
+# `gh pr create` options that build the body from commit messages.
+GH_FILL = {"-f", "--fill", "--fill-first", "--fill-verbose"}
 # A heredoc's opener (`<<EOF`, `<<-'EOF'`), not a here-string (`<<<`).
 # strip_heredocs writes each heredoc's delimiter as this sentinel, numbered as `bodies`.
 SENTINEL_RE = re.compile("\x00H(\\d+)\x00")
@@ -414,7 +450,9 @@ def strip_heredocs(text: str) -> tuple[str, list[tuple[str, str, bool]]]:
                 # A quoted delimiter (`'EOF'`, `"EOF"`, `\EOF`) keeps the body literal;
                 # bash expands an unquoted one's `$VAR` and `$(...)`.
                 quoted = bool(m.group(2)) or "\\" in m.group(0)
-                pending.append((m.group(3), m.group(1) == "-", opener, quoted))
+                # A CRLF opener's delimiter is `EOF\r`, as bash reads it.
+                delim = m.group(3) + ("\r" if text[m.end() : m.end() + 2] == "\r\n" else "")
+                pending.append((delim, m.group(1) == "-", opener, quoted))
                 out.append(f"<<{m.group(1)}\x00H{len(bodies) + len(pending) - 1}\x00")
                 i = m.end()
                 continue
@@ -1612,7 +1650,8 @@ class Guards:
             index = self.written[key]
             if index is None:
                 self.verdict.denies.append(
-                    f"phylax: this command writes or may change {path} before it sends it as a "
+                    f"phylax: this command writes or may change {TAG_RE.sub(')', path)} before it "
+                    "sends it as a "
                     "body, so its length cannot be checked first. Write the body file in its "
                     "own call."
                 )
@@ -1655,9 +1694,13 @@ class Guards:
     def gh_body(self, args: list[str], cwd: Path, env: dict[str, str]) -> str | None:
         """The body `gh pr|issue create|edit|comment` writes, or None without one."""
         body: str | None = None
+        given = False
         i = 0
         while i < len(args):
             tok = args[i]
+            if tok in GH_VALUE_FLAGS:
+                i += 2  # its value, whatever it starts with
+                continue
             name, eq, value = tok.partition("=")
             if not tok.startswith("--") and len(tok) > 2 and tok[:2] in GH_BODY_TEXT | GH_BODY_FILE:
                 name, eq, value = tok[:2], "=", tok[2:]
@@ -1665,6 +1708,7 @@ class Guards:
                 if not eq:
                     value = args[i + 1] if i + 1 < len(args) else ""
                     i += 1
+                given = True
                 if name in GH_BODY_TEXT:
                     body = self.body_value(value, cwd, env)
                 elif value == "-":
@@ -1672,6 +1716,11 @@ class Guards:
                 else:
                     body = self.body_file(value, cwd, env)
             i += 1
+        if not given and any(a in GH_FILL or a.startswith("--fill") for a in args):
+            self.verdict.denies.append(
+                "phylax: --fill builds this PR body from the commit messages, whose length "
+                "this check cannot see first. Pass the body with --body-file instead."
+            )
         return body
 
     def api_body(
