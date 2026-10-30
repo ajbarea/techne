@@ -1468,6 +1468,7 @@ class Guards:
 
     def check_gh(self, argv: list[str], cwd: Path, env: dict[str, str]) -> None:
         words: list[str] = []
+        at: list[int] = []  # where each subcommand word sits in argv
         i = 1
         while i < len(argv) and len(words) < 2:
             tok = argv[i]
@@ -1483,6 +1484,7 @@ class Guards:
                 continue
             if not tok.startswith("-"):
                 words.append(tok)
+                at.append(i)
             i += 1
         writer = len(words) == 2 and words[0] == "pr" and words[1] in GH_PR_WRITERS
         if writer and self.enabled(ATTRIBUTION, Command(cwd), local=False):
@@ -1491,10 +1493,14 @@ class Guards:
         kind = GH_BODY_KINDS.get(tuple(words)) if len(words) == 2 else None
         api = bool(words) and words[0] == "api"
         if (kind or api) and self.enabled(BODIES, Command(cwd), local=False):
+            # gh (cobra) drops the subcommand words and parses the rest, so an option just
+            # before one takes the word after it: `gh pr -b review TEXT 1`.
             if api:
-                kind, body = self.api_body(argv[argv.index("api") + 1 :], cwd, env)
+                rest = [a for j, a in enumerate(argv) if j and j != at[0]]
+                kind, body = self.api_body(rest, cwd, env)
             else:
-                body = self.gh_body(argv[1:], cwd, env, tuple(words))
+                rest = [a for j, a in enumerate(argv) if j and j not in at]
+                body = self.gh_body(rest, cwd, env, tuple(words))
             if kind and body is not None:
                 denies, warnings = body_gate.check(kind, body)
                 self.verdict.denies.extend(denies)

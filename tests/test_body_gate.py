@@ -12,6 +12,7 @@ import os
 import pathlib
 import random
 import re
+import shutil
 import subprocess
 import sys
 
@@ -922,56 +923,154 @@ def test_recover_takes_a_value(repo):
     assert out is None, "-b is the recover file's name, so no body is given"
 
 
-def _gh_ready() -> bool:
-    try:
-        return (
-            subprocess.run(["gh", "auth", "status"], capture_output=True, timeout=20).returncode
-            == 0
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return False
+@pytest.fixture
+def fake_github(tmp_path):
+    """gh's environment pointed at the fake GitHub, and its request log."""
+    import socket
+    import time
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    log = tmp_path / "requests.jsonl"
+    server = subprocess.Popen(
+        [sys.executable, str(FIXTURES / "fake_github.py"), str(port), str(log)]
+    )
+    proxy = f"http://127.0.0.1:{port}"
+    env = dict(
+        os.environ,
+        GH_CONFIG_DIR=str(tmp_path / "gh"),
+        GH_TOKEN="x",
+        GH_ENTERPRISE_TOKEN="x",
+        GH_HOST="github.localhost",
+        HTTP_PROXY=proxy,
+        http_proxy=proxy,
+        HTTPS_PROXY="",
+        https_proxy="",
+        NO_PROXY="",
+        no_proxy="",
+        GH_PROMPT_DISABLED="1",
+        GH_NO_UPDATE_NOTIFIER="1",
+    )
+    for _ in range(50):
+        try:
+            socket.create_connection(("127.0.0.1", port), timeout=0.2).close()
+            break
+        except OSError:
+            time.sleep(0.1)
+    yield env, log
+    server.terminate()
+    server.wait(timeout=10)
 
 
-@pytest.mark.skipif(not _gh_ready(), reason="needs an installed, signed-in gh")
-def test_the_option_walk_reads_the_file_gh_opens(tmp_path):
-    """Differential: random option groups for `gh pr review`; gh opens its -F file before
-    any request, so the file it names in its error is the one the hook must read."""
+@pytest.mark.skipif(shutil.which("gh") is None, reason="needs gh")
+def test_the_body_read_is_the_body_gh_sends(tmp_path, fake_github):
+    """Differential: random body and switch options, long and short, grouped, before and
+    after the subcommand, for three subcommands. gh sends the body to a fake GitHub that
+    logs it; the hook's walk must read that same body."""
+    env, log = fake_github
     guards = _load("phylax_git_guards_diff", GUARDS)
+    files = tmp_path / "files"
+    files.mkdir()
+    subs = {
+        ("pr", "review"): ["-a", "-c", "-r", "--approve", "--comment", "--request-changes"],
+        ("pr", "comment"): [],
+        ("issue", "comment"): [],
+    }
     rng = random.Random(229)
-    letters = "arcbFe"
-    checked = 0
-    for t in range(150):
-        names = iter(f"/nonexist/t{t}x{k}" for k in range(9))
-        parts: list[str] = []
-        for _ in range(rng.randrange(1, 4)):
-            group = "".join(rng.choice(letters) for _ in range(rng.randrange(1, 4)))
-            form = rng.choice(["sep", "eq", "glued", "bare"])
-            if form == "sep":
-                parts += [f"-{group}", next(names)]
-            elif form == "bare":
-                parts.append(f"-{group}")
-            else:
-                parts.append(f"-{group}{'=' if form == 'eq' else ''}{next(names)}")
-        args = ["pr", "review", "1", "-R", "o/nope", *parts]
-        out = subprocess.run(
-            ["gh", *args], capture_output=True, text=True, timeout=20, cwd=tmp_path
+    sent = 0
+    for t in range(200):
+        words = rng.choice(list(subs))
+        count = iter(range(100))
+
+        def text(t: int = t, count=count) -> str:
+            return f"T{t}_{next(count)}"
+
+        def name(t: int = t, count=count) -> str:
+            made = f"f{t}_{next(count)}"
+            (files / made).write_text(f"FILE {made}")
+            return made
+
+        def piece(words: tuple[str, str] = words) -> list[str]:
+            switches = subs[words]
+            kind = rng.choice(
+                ["b", "F", "long", "longF", "sw", "group", "eqb", "eqF", "lone", "val"]
+            )
+            if kind == "lone":
+                return [rng.choice(["-b", "-F", "--body", "--body-file"])]
+            if kind == "val":
+                return [rng.choice([text(), name()])]
+            if kind == "b":
+                return ["-b", text()]
+            if kind == "F":
+                return ["-F", name()]
+            if kind == "long":
+                return ["--body", text()]
+            if kind == "longF":
+                return ["--body-file", name()]
+            if kind == "eqb":
+                return [f"--body={text()}"]
+            if kind == "eqF":
+                return [f"--body-file={name()}"]
+            if kind == "sw":
+                return [rng.choice(switches)] if switches else ["-b", text()]
+            pool = "".join(s[1] for s in switches if len(s) == 2) + "bF"
+            group = "".join(rng.choice(pool) for _ in range(rng.randrange(1, 3)))
+            return [f"-{group}"] + ([rng.choice([text(), name()])] if rng.random() < 0.7 else [])
+
+        before = [w for _ in range(rng.randrange(0, 3)) for w in piece()]
+        after = [w for _ in range(rng.randrange(0, 3)) for w in piece()]
+        args = [words[0], *before, words[1], *after, "1", "-R", "github.localhost/o/r"]
+        log.write_text("")
+        subprocess.run(
+            ["gh", *args], capture_output=True, text=True, env=env, timeout=20, cwd=files
         )
-        said = out.stderr + out.stdout
-        if re.search(
-            r"unknown|needs an argument|invalid argument|bad flag|accepts at most|"
-            r"specify only one of|need exactly one of",
-            said,
-        ):
+        mutations = [
+            json.loads(r["body"])
+            for r in map(json.loads, log.read_text().splitlines())
+            if "mutation" in r.get("body", "")
+        ]
+        if not mutations:
             continue
-        opened = re.search(r"open (\S+): no such file", said)
+        gh_body = mutations[-1]["variables"]["input"]["body"]
         g = guards.Guards([], "")
-        read: list[tuple[str, str]] = []
-        g.read_body = lambda flag, value, cwd, env, read=read: read.append((flag, value)) or ""
-        g.gh_body(args[2:], tmp_path, {}, ("pr", "review"))
-        hook = read[-1][1] if read and read[-1][0] in ("-F", "--body-file") else None
-        assert hook == (opened.group(1) if opened else None), (parts, said[:120], read)
-        checked += 1
-    assert checked > 20
+        g.enabled = lambda *a, **k: True
+        g.read_body = lambda flag, value, cwd, env: (
+            value
+            if flag in ("-b", "--body")
+            else (files / value).read_text()
+            if (files / value).is_file()
+            else f"<file {value}>"
+        )
+        read: list[str | None] = []
+        walk = g.gh_body
+        g.gh_body = lambda *a, walk=walk, read=read, **k: read.append(walk(*a, **k)) or read[-1]
+        real = guards.body_gate.check
+        guards.body_gate.check = lambda kind, body: ([], [])
+        try:
+            g.check_gh(["gh", *args], files, {})
+        finally:
+            guards.body_gate.check = real
+        assert ((read[-1] if read else None) or "") == gh_body, (args, gh_body, read)
+        sent += 1
+    assert sent > 20, f"gh sent only {sent} bodies"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "gh pr -a -b review '{L}' 1",
+        "gh pr --approve --body review '{L}' 1",
+        "gh pr --edit-last -b comment '{L}' 1",
+        "gh pr -c -F review b.md 1",
+        "gh -f body='{L}' api repos/o/r/issues/1/comments",
+        "gh -F body=@b.md api repos/o/r/issues/1/comments",
+        "gh -p api api repos/o/r/issues/1/comments -f body='{L}'",
+    ],
+)
+def test_options_before_the_subcommand_take_the_next_word(repo, command):
+    (repo / "b.md").write_text(LONG)
+    assert refused(run_guard(command.format(L=LONG), repo)), command
 
 
 def test_a_lone_equals_is_the_file_named_equals(repo):
