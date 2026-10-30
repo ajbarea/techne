@@ -143,15 +143,15 @@ SUBST_RE = re.compile(r"\$\(([^()]*)\)")
 # strip_heredocs's sentinel for a file read `$(cat FILE)` captured by `capture`.
 READ_RE = re.compile("\x00R(\\d+)\x00")
 # A variable left in a body once the known ones are expanded: set some other way.
-UNSET_VAR_RE = re.compile(r"\$(?:\{[^}]*\}|[A-Za-z_]\w*)")
-# Commands that print one short line, whose output in a body counts as one word.
-SHORT_OUTPUT = (
-    ("git", "rev-parse"),
-    ("git", "branch", "--show-current"),
-    ("date",),
-    ("pwd",),
-    ("basename",),
-)
+UNSET_VAR_RE = re.compile(r"\$(?:\{[^}]{0,200}\}|[A-Za-z_]\w*)")
+# Commands that print one short line, and the words a body counts for it.
+SHORT_OUTPUT = {
+    ("git", "rev-parse"): 1,
+    ("git", "branch", "--show-current"): 1,
+    ("date",): 6,
+    ("pwd",): 1,
+    ("basename",): 1,
+}
 # Commands that read the files they name and write none.
 READERS = {
     "cat",
@@ -178,7 +178,15 @@ READERS = {
     "readlink",
     "basename",
     "dirname",
+    "cut",
+    "uniq",
+    "tr",
+    "chmod",
+    "chown",
+    "awk",
 }
+# Readers that write the files they name when given one of these options.
+IN_PLACE = {"sed": ("-i", "--in-place"), "sort": ("-o", "--output")}
 # Builtins that assign their `NAME=VALUE` words, as a bare assignment does.
 DECLARERS = {"export", "declare", "local", "typeset", "readonly"}
 # An expansion this check cannot know, in a `gh api` path.
@@ -306,11 +314,12 @@ def strip_heredocs(text: str) -> tuple[str, list[tuple[str, str]]]:
     Drops `#` comments and rewrites `$'...'` as a plain single-quoted string.
     Each heredoc's delimiter becomes a NUL-wrapped sentinel naming its index, so
     the value or redirection that opened it says which body is its own.
-    Returns the stripped text and each heredoc as (the line that opened it, its body).
+    Returns the stripped text and each heredoc as (the line that opened it, its body,
+    whether its delimiter was quoted).
     """
     out: list[str] = []
-    bodies: list[tuple[str, str]] = []
-    pending: list[tuple[str, bool, str]] = []
+    bodies: list[tuple[str, str, bool]] = []
+    pending: list[tuple[str, bool, str, bool]] = []
     stack: list[str] = []  # "'", '"' or "$(" for each open quoting context
     i, n = 0, len(text)
     while i < n:
@@ -319,7 +328,7 @@ def strip_heredocs(text: str) -> tuple[str, list[tuple[str, str]]]:
         if ch == "\n" and pending:
             out.append(ch)
             i += 1
-            for delim, dash, opener in pending:
+            for delim, dash, opener, quoted in pending:
                 body: list[str] = []
                 while i < n:
                     j = text.find("\n", i)
@@ -328,7 +337,7 @@ def strip_heredocs(text: str) -> tuple[str, list[tuple[str, str]]]:
                     if (line.lstrip("\t") if dash else line) == delim:
                         break
                     body.append(line)
-                bodies.append((opener, "\n".join(body)))
+                bodies.append((opener, "\n".join(body), quoted))
             pending = []
             continue
         if top == "'":
@@ -390,7 +399,10 @@ def strip_heredocs(text: str) -> tuple[str, list[tuple[str, str]]]:
                     start = text.rfind("\n", 0, start - 1) + 1
                 stop = text.find("\n", i)
                 opener = text[start : n if stop < 0 else stop]
-                pending.append((m.group(3), m.group(1) == "-", opener))
+                # A quoted delimiter (`'EOF'`, `"EOF"`, `\EOF`) keeps the body literal;
+                # bash expands an unquoted one's `$VAR` and `$(...)`.
+                quoted = bool(m.group(2)) or "\\" in m.group(0)
+                pending.append((m.group(3), m.group(1) == "-", opener, quoted))
                 out.append(f"<<{m.group(1)}\x00H{len(bodies) + len(pending) - 1}\x00")
                 i = m.end()
                 continue
@@ -412,10 +424,12 @@ def stdin_heredoc(group: list[str]) -> int | None:
 
 
 def stdin_redirect(group: list[str]) -> tuple[str, str] | None:
-    """A subcommand's last stdin redirect that is no heredoc: `< FILE` or `<<< WORD`."""
+    """A subcommand's last stdin redirect that is no heredoc: `< FILE` or `<<< WORD`. A
+    digit before `<` reads as an argument (`comment 12 < b.md`): the tokens lost the
+    space that would tell it from a file descriptor."""
     found = None
     for j in range(len(group) - 1):
-        if group[j] in {"<", "<<<"} and not (j and group[j - 1].isdigit() and group[j - 1] != "0"):
+        if group[j] in {"<", "<<<"}:
             found = (group[j], group[j + 1])
     return found
 
@@ -523,7 +537,7 @@ def read_message_file(path: str, cwd: Path) -> str | None:
     target = Path(os.path.expanduser(path))
     if not target.is_absolute():
         target = cwd / target
-    if not target.is_file():  # a FIFO or a device would hang the hook
+    if not os.path.isfile(target):  # a FIFO or a device would hang the hook
         return None
     try:
         with open(target, encoding="utf-8", errors="replace") as fh:
@@ -799,8 +813,9 @@ class Guards:
         self.written: dict[str, int | None] = {}
         # The stdin heredoc of the subcommand being checked.
         self.stdin_heredoc: int | None = None
-        # Its other stdin redirect, `< FILE` or `<<< WORD`.
+        # Its other stdin redirect, `< FILE` or `<<< WORD`, and whether one cannot be followed.
         self.stdin_other: tuple[str, str] | None = None
+        self.stdin_odd = False
         # The variables as written, before heredocs and files (`run`'s `raw`).
         self.raw: dict[str, str] = {}
         # Each file's text as `resolve` read it, which READ_RE sentinels name.
@@ -878,7 +893,7 @@ class Guards:
         variables = {m.group(1) or m.group(2) for t in texts for m in VAR_RE.finditer(t)}
         names = {keyword, *variables, *(os.path.normpath(f) for f in files)}
         scan = list(texts)
-        for opener, body in self.bodies:
+        for opener, body, _ in self.bodies:
             words = {os.path.normpath(w) for w in re.split(r"[\s;&|()<>\"'=$]+", opener) if w}
             if names & words:
                 scan.append(body)
@@ -1204,7 +1219,6 @@ class Guards:
             name = Path(argv[0]).name
             if name not in {"git", "gh"}:
                 self.note_created(group, argv, cwd)
-                self.note_touched(argv, cwd, env)
             run_cwd = cwd
             for target in chdirs:
                 run_cwd = resolve_dir(run_cwd, target, env)
@@ -1226,6 +1240,10 @@ class Guards:
                 continue
             self.stdin_heredoc = stdin_heredoc(group)
             self.stdin_other = stdin_redirect(group)
+            # A stdin redirect `stdin_body` cannot follow: `<&3`, `< <(...)`.
+            self.stdin_odd = any(
+                t[:1] == "<" and t not in {"<", "<<", "<<-", "<<<"} for t in group
+            ) or (self.stdin_other is not None and self.stdin_other[1][:1] in {"<", "&", "("})
             self.raw = raw
             try:
                 if name == "git":
@@ -1235,6 +1253,8 @@ class Guards:
             except Exception as exc:  # one broken check must not skip the next subcommand
                 self.errors.append(f"{' '.join(argv)[:80]}: {exc}")
             self.note_written(group, argv, run_cwd, env)
+            if name not in {"git", "gh"}:
+                self.note_touched(argv, run_cwd, env)
 
     def note_written(
         self, group: list[str], argv: list[str], cwd: Path, env: dict[str, str]
@@ -1268,10 +1288,13 @@ class Guards:
         than a plain reader or a writer `note_written` follows: each of those files'
         text is unknown from here on."""
         prog = Path(argv[0]).name if argv else ""
-        if prog in READERS or prog in CREATORS or prog in {"cd", "pushd", "popd"}:
+        in_place = any(a.startswith(IN_PLACE.get(prog, ("\x00",))) for a in argv[1:])
+        if (prog in READERS or prog in IN_PLACE) and not in_place:
+            return
+        if prog in CREATORS or prog in {"cd", "pushd", "popd"}:
             return
         for arg in argv[1:]:
-            if arg.startswith("-"):
+            if arg.startswith("-") and "=" not in arg:
                 continue
             value = (
                 arg.partition("=")[2] if "=" in arg and "/" not in arg.partition("=")[0] else arg
@@ -1373,8 +1396,12 @@ class Guards:
                     return m.group(0)
                 inner = SENTINEL_RE.sub("", inner)
                 return f"$({inner})" if tag is None else f"$({inner} #{tag})"
-            if any(tuple(argv[: len(short)]) == short for short in SHORT_OUTPUT):
-                self.captured.append("x")
+            # Only in a body: an assignment keeps such output unknown, as a folder.
+            words = next(
+                (n for short, n in SHORT_OUTPUT.items() if tuple(argv[: len(short)]) == short), 0
+            )
+            if words and tag is None:
+                self.captured.append(" ".join(["x"] * words))
                 return f"\x00R{len(self.captured) - 1}\x00"
             path = None
             if argv[:1] == ["cat"]:
@@ -1419,6 +1446,24 @@ class Guards:
         text = SENTINEL_RE.sub(lambda m: self.heredoc(int(m.group(1))) or "", text)
         return READ_RE.sub(lambda m: self.captured[int(m.group(1))], text)
 
+    def heredoc_text(self, index: int | None, cwd: Path, env: dict[str, str]) -> str | None:
+        """Heredoc INDEX as a body gets it: a quoted one's text as written, an unquoted
+        one's as bash expands it, under the same rule as a body value."""
+        if index is None or index >= len(self.bodies):
+            return None
+        _, text, quoted = self.bodies[index]
+        return text if quoted else self.body_value(text, cwd, env)
+
+    def fill_body(self, text: str, cwd: Path, env: dict[str, str]) -> str:
+        """`fill` for a body: an unquoted heredoc's text expanded as bash expands it."""
+
+        def last(m: re.Match[str]) -> str:
+            return self.heredoc_text(int(SENTINEL_RE.findall(m.group(1))[-1]), cwd, env) or ""
+
+        text = HEREDOC_SUBST_RE.sub(last, text)
+        text = SENTINEL_RE.sub(lambda m: self.heredoc_text(int(m.group(1)), cwd, env) or "", text)
+        return READ_RE.sub(lambda m: self.captured[int(m.group(1))], text)
+
     def heredoc(self, index: int | None) -> str | None:
         if index is not None and index < len(self.bodies):
             return self.bodies[index][1]
@@ -1433,7 +1478,14 @@ class Guards:
         or a `<<< WORD` here-string (with its newline gone, as gh trims it); None for
         a pipe, which is not seen."""
         if self.stdin_heredoc is not None:
-            return self.own_heredoc()
+            return self.heredoc_text(self.stdin_heredoc, cwd, env)
+        if self.stdin_odd:
+            self.verdict.denies.append(
+                "phylax: this body comes on stdin through a redirect this check cannot follow, "
+                "so its length cannot be checked first. Write the body to a file in its own "
+                "call, then send it with --body-file."
+            )
+            return None
         if self.stdin_other is None:
             return None
         kind, word = self.stdin_other
@@ -1457,8 +1509,9 @@ class Guards:
             index = self.written[key]
             if index is None:
                 self.verdict.denies.append(
-                    f"phylax: this command writes {path} and then sends it as a body, so its "
-                    "length cannot be checked first. Write the body file in its own call."
+                    f"phylax: this command writes or may change {path} before it sends it as a "
+                    "body, so its length cannot be checked first. Write the body file in its "
+                    "own call."
                 )
                 return None
             return self.heredoc(index)
@@ -1487,7 +1540,7 @@ class Guards:
                 "call, then send it with --body-file."
             )
             return None
-        return self.fill(value)
+        return self.fill_body(value, cwd, env)
 
     def gh_body(self, args: list[str], cwd: Path, env: dict[str, str]) -> str | None:
         """The body `gh pr|issue create|edit|comment` writes, or None without one."""

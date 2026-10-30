@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import pathlib
 import random
 import re
@@ -568,3 +569,88 @@ def test_an_append_adds_to_the_variable(repo):
     grown = 'B="Notes:"; B+=" $(cat b.md)"; gh pr comment 1 --body "$B"'
     assert refused(run_guard(grown, repo))
     assert refused(run_guard('B="a"; B+=" b"; gh pr comment 1 --body "$B"', repo)) is None
+
+
+def gate_off(command: str, cwd: pathlib.Path) -> tuple[int, str]:
+    payload = json.dumps({"cwd": str(cwd), "tool_input": {"command": command}})
+    proc = subprocess.run(
+        [HOOK_PYTHON, str(GUARDS)],
+        input=payload,
+        capture_output=True,
+        text=True,
+        env=hook_env(("block_attribution_trailers", "block_commits_md")),
+        check=False,
+    )
+    return proc.returncode, proc.stdout.strip()
+
+
+def test_a_short_output_stays_unknown_as_a_folder(repo):
+    for command in (
+        'ROOT=$(git rev-parse --show-toplevel); cd "$ROOT" && git commit -m fix',
+        'ROOT=$(git rev-parse --show-toplevel); git -C "$ROOT" commit -m fix',
+        'D=$(pwd); cd "$D" && git add a.txt',
+    ):
+        assert gate_off(command, repo) == (0, ""), command
+    (repo / "b.md").write_text(LONG)
+    unknown = 'ROOT=$(git rev-parse --show-toplevel); gh pr comment 1 --body-file "$ROOT/b.md"'
+    assert "Name the file" in (refused(run_guard(unknown, repo)) or "")
+    dated = 'gh pr comment 1 --body "Built $(date)."'
+    assert refused(run_guard(dated, repo)) is None
+
+
+def test_an_unquoted_heredoc_is_expanded_as_bash_expands_it(repo):
+    (repo / "b.md").write_text(LONG)
+    for command in (
+        "gh pr comment 1 --body-file - <<EOF\n$(cat b.md)\nEOF",
+        "B=$(cat b.md)\ngh pr comment 1 --body-file - <<EOF\n$B\nEOF",
+        'gh pr comment 1 --body "$(cat <<EOF\nNotes: $(cat b.md)\nEOF\n)"',
+    ):
+        assert refused(run_guard(command, repo)), command
+    quoted = "gh pr comment 1 --body-file - <<'EOF'\n$(cat b.md)\nEOF"
+    assert refused(run_guard(quoted, repo)) is None, "a quoted one stays literal"
+    unknown = "gh pr comment 1 --body-file - <<EOF\n$(python3 make.py)\nEOF"
+    assert "cannot run" in (refused(run_guard(unknown, repo)) or "")
+
+
+def test_each_stdin_redirect_is_read_or_refused(repo):
+    (repo / "b.md").write_text(LONG)
+    (repo / "short.md").write_text(SHORT)
+    (repo / "in.json").write_text(json.dumps({"body": LONG}))
+    for command in (
+        "gh pr comment -F - 251 < b.md",
+        "gh pr comment 1 --body-file - < short.md < b.md",
+        "gh api -X PATCH repos/o/r/pulls/1 --input - < in.json",
+    ):
+        assert refused(run_guard(command, repo)), command
+    for odd in ("gh pr comment 1 --body-file - <&3", "gh pr comment 1 --body-file - < <(cat b.md)"):
+        assert "cannot follow" in (refused(run_guard(odd, repo)) or ""), odd
+    assert refused(run_guard("gh pr comment 1 --body-file - <<< b.md", repo)) is None, "a word"
+
+
+def test_more_ways_a_file_changes_and_ways_it_is_only_read(repo):
+    (repo / "b.md").write_text(LONG)
+    (repo / "sub").mkdir()
+    (repo / "sub" / "s.md").write_text(SHORT)
+    (repo / "s.md").write_text(SHORT)
+    for change, sent in (
+        ("sort --output=s.md b.md", "s.md"),
+        ("env -C sub sed -i 's/a/b/' s.md", "sub/s.md"),
+    ):
+        out = refused(run_guard(f"{change}; gh pr comment 1 --body-file {sent}", repo))
+        assert "may change" in (out or ""), change
+    for read in ("sed -n 1p s.md", "chmod 644 s.md", "awk 1 s.md", "sort s.md"):
+        out = refused(run_guard(f"{read}; gh pr comment 1 --body-file s.md", repo))
+        assert out is None, read
+
+
+def test_an_append_keeps_what_the_variable_held(repo):
+    (repo / "half.md").write_text(words_of(100))
+    first = words_of(100)
+    grown = f'B="{first}"; B+=" $(cat half.md)"; gh pr comment 1 --body "$B"'
+    assert refused(run_guard(grown, repo)), "100 words held and 100 appended"
+
+
+def test_a_fifo_body_file_never_hangs_the_hook(repo):
+    os.mkfifo(repo / "pipe.md")
+    out = run_guard("gh pr comment 1 --body-file pipe.md", repo)
+    assert refused(out) is None
