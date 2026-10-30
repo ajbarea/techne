@@ -170,6 +170,7 @@ GH_VALUE_FLAGS = {
         "--reviewer",
         "-T",
         "--template",
+        "--recover",
     },
     ("issue", "create"): {
         "-t",
@@ -184,6 +185,7 @@ GH_VALUE_FLAGS = {
         "--project",
         "-T",
         "--template",
+        "--recover",
     },
     ("pr", "edit"): _EDIT_VALUES,
     ("issue", "edit"): _EDIT_VALUES - {"-B", "--base", "--add-reviewer", "--remove-reviewer"},
@@ -1751,7 +1753,7 @@ class Guards:
                 flag = "-" + tok[k]
                 if flag in body_flags or flag in values:
                     value = tok[k + 1 :]
-                    if k == 1 and value.startswith("="):
+                    if len(value) > 1 and value[0] == "=":  # pflag drops it after any letter
                         value = value[1:]
                     elif not value:
                         value = args[i] if i < len(args) else ""

@@ -878,6 +878,10 @@ def test_a_written_file_refusal_never_shows_the_internal_tag(repo):
         "gh pr create -t '-Fix crash' --body '{L}'",
         "gh issue comment 4 -e -b '{L}'",
         "gh pr edit 3 -t x -b '{L}'",
+        "gh pr review 4 -cF=b.md",
+        "gh pr create -t t -dF=b.md",
+        "gh issue comment 4 -eF=b.md",
+        "gh pr review 4 -cb='{L}'",
     ],
 )
 def test_a_body_after_any_other_option_is_read(repo, command):
@@ -890,3 +894,7 @@ def test_fill_is_read_where_gh_reads_it(repo):
         assert "--fill" in (refused(run_guard(f"gh pr create {fill}", repo)) or ""), fill
     assert refused(run_guard("gh pr edit 3 --title --fill-in", repo)) is None, "a value, on edit"
     assert refused(run_guard("gh pr create -t --fill -b short", repo)) is None, "a title"
+
+
+def test_a_marker_after_a_grouped_equals_is_still_seen(repo):
+    assert "budget" in (refused(run_guard("gh pr review 4 -cb='% budget: 100'", repo)) or "")
