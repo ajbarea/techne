@@ -1,4 +1,4 @@
-<!-- budget: 600 words -->
+<!-- budget: 900 words -->
 # Deviations from the pre-registration
 
 Each entry is dated, gives its reason, and is named in the report. `PREREGISTRATION.md` itself does not change.
@@ -14,3 +14,12 @@ Each entry is dated, gives its reason, and is named in the report. `PREREGISTRAT
 **The four void runs.** techne-206, techne-166, sphragis-149 and sphragis-186, repeat 3, normal mode, under the old task hash. They stay in `quality/results/2026-10-29-baseline-void/` and are reported, but they are not pooled: `analyze.py` already refuses a set whose input hashes differ. In techne-166, a quoted relative name with a backslash was accepted as a Chrome profile. The old note's "a Windows path" allowed that reading, so the note now says a drive-letter path. The run's reviewer flagged a different input in the same function (`lighthouse_profile`: a non-ASCII drive-letter path, whose octal escapes the unquote left in place). The folder also keeps `discards.jsonl`, whose one record is a techne-206 attempt that ended on an API error before the run that counted.
 
 **Restart.** The baseline reruns from the start in `quality/results/2026-10-29-baseline-2/`, under the new task hash.
+
+## 2026-10-31: the leak check reads commands, not text (#255)
+
+**What changed.** `quality/run.py`'s leak check now parses each Bash command with tree-sitter-bash. A network program (`gh`, `curl`, `wget`, `ssh`, `scp`, `nc`) or a git remote subcommand counts only when a shell runs it. That covers wrappers such as `env` or `timeout`, a `bash -c` string, a heredoc fed to a shell, `eval`, `find -exec` and command substitution. A climb of two or more `../` counts when it lands outside the folders a session may read, judged against the shell's working folder. That folder is followed from call to call and from Claude Code's "Shell cwd was reset" notices; when it cannot be known, any climb counts. An unparsable command falls back to the old text match. `run.py --reaudit` recomputes recorded runs' leak flags from kept transcripts, keeping the old ones; `analyze.py` reports both.
+
+**Why.** The old check matched text anywhere in a command. In the first 10 baseline runs it raised 43 leak flags on 9 runs, 7 of which passed the hidden tests. All but two came from commands that stayed in the run's folder: `git stash push` to confirm a new test fails without the fix, a folder named `clone`, `GIT_SSH_COMMAND="ssh -x"`, a grep pattern, and `cd ../../../../..` back to the workspace. The registration names "a git remote command", which `git stash push` is not. EvilGenie checks its cheat detectors against human review rather than trusting them alone ([Gabor et al., 2025](https://arxiv.org/abs/2511.21654)).
+
+**What it can bias.** It was found after results existed, so the report lists both sets of flags. Both modes get it alike. A climb inside code the shell does not run, such as an argument a reviewer passes to the code under test, still counts: techne-220 r1 keeps two flags for `--id ../../etc`.
+

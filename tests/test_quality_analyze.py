@@ -236,3 +236,24 @@ def test_check_set_refuses_verdicts_on_two_claude_code_versions():
         r["judge_verdict"]["claude_code"] = "v2" if i == 4 else "v1"
     problems = a.check_set(runs, [f"t{t}" for t in range(10)], a.REPEATS)
     assert any("verdicts on Claude Code" in p for p in problems)
+
+
+def test_check_set_refuses_a_partial_reaudit():
+    runs = registered(trial(lambda t, r: True))
+    assert a.check_set(runs, [f"t{t}" for t in range(10)], a.REPEATS) == []
+    runs[4]["reaudit"] = {"harness": "h2", "leak_flags_as_run": []}
+    problems = a.check_set(runs, [f"t{t}" for t in range(10)], a.REPEATS)
+    assert any("--reaudit" in p for p in problems)
+    for r in runs:
+        r["reaudit"] = {"harness": "h2", "leak_flags_as_run": []}
+    assert a.check_set(runs, [f"t{t}" for t in range(10)], a.REPEATS) == []
+
+
+def test_the_report_lists_leak_flags_the_reaudit_dropped():
+    runs = trial(lambda t, r: True)
+    runs[0]["reaudit"] = {"harness": "h", "leak_flags_as_run": ["leak: Bash: git stash push"]}
+    runs[2]["flags"] = ["leak: Bash: curl x"]
+    runs[2]["reaudit"] = {"harness": "h", "leak_flags_as_run": ["leak: Bash: curl x"]}
+    md = a.report(a.decide(runs), "t")
+    assert "- t0 (normal): leak: Bash: git stash push" in md.split("dropped by the re-audit")[1]
+    assert "curl x" not in md.split("dropped by the re-audit")[1]

@@ -158,15 +158,59 @@ TEST_CONFIG = re.compile(
     r"(^|/)(conftest\.py|pytest\.ini|tox\.ini|setup\.cfg|pyproject\.toml|__snapshots__/"
     r"|[^/]*\.snap)"
 )
-# Commands that try to reach past the sandbox: network tools, git remotes, GitHub. A URL
-# alone is not one: the sandbox has no network, and a test may parse one.
+# Programs that try to reach past the sandbox: network tools, git remotes, GitHub. A URL
+# alone is not one: the sandbox has no network, and a test may parse one. Only a program a
+# shell runs counts, so `git stash push` or a grep pattern naming curl does not.
+NET_PROGRAMS = frozenset({"gh", "curl", "wget", "ssh", "scp", "nc"})
+GIT_REMOTE = frozenset({"fetch", "clone", "pull", "push", "remote", "ls-remote"})
+GIT_OPTION_ARG = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env"})
+SHELLS = frozenset({"bash", "sh", "dash", "zsh", "ksh"})
+# Words a program name hides behind; the value is how many words follow the wrapper's own
+# options before the program (timeout's duration).
+WRAPPERS = {
+    "env": 0,
+    "command": 0,
+    "exec": 0,
+    "nohup": 0,
+    "time": 0,
+    "nice": 0,
+    "sudo": 0,
+    "stdbuf": 0,
+    "xargs": 0,
+    "timeout": 1,
+}
+WRAPPER_OPTION_ARG = frozenset(
+    {
+        "-n",
+        "-u",
+        "-C",
+        "-g",
+        "-I",
+        "-L",
+        "-P",
+        "-d",
+        "-s",
+        "-E",
+        "-k",
+        "--signal",
+        "--kill-after",
+        "-o",
+        "-e",
+    }
+)
+# The text-only reading, kept for a command the shell parser cannot read cleanly.
 LEAK = re.compile(
     r"\b(?:gh|curl|wget|ssh|scp|nc)\s"
     r"|\bgit\b[^|;&\n]*?\s(?:fetch|clone|pull|push|remote|ls-remote)\b"
 )
-# An absolute path outside the system folders, and a climb out of the workspace.
+# An absolute path outside the system folders, and a climb of two or more levels.
 HOME_PATH = re.compile(r"(?<![\w.])/(?:home|root|tmp|mnt|var/tmp)(?:/[^\s'\";|&)]*)?")
 ESCAPE = re.compile(r"(?:^|[\s'\"=])(?:\.\./){2,}")
+CLIMB = re.compile(
+    r"(?:^|(?<=[\s'\"=(:,]))((?:\.\./){2,}[^\s'\";|&)]*|(?:\.\./){1,}\.\.(?=$|[\s'\";|&)]))"
+)
+CWD_RESET = re.compile(r"Shell cwd was reset to (/[^\s\"\\]+)")
+BASH = None  # the tree-sitter parser, built on first use
 LITERAL = re.compile(r"""(?:"([^"\\\n]{4,})"|'([^'\\\n]{4,})'|\b(\d{3,}(?:\.\d+)?)\b)""")
 # A name the parent tree lacks, as a hidden test's failure on it reads.
 MISSING_NAME = re.compile(
@@ -465,8 +509,11 @@ def add_usage(total: dict, part: dict) -> None:
 
 
 def leaks(log: pathlib.Path, ws: pathlib.Path) -> list[str]:
-    """Commands and reads in a transcript that reach past the workspace."""
+    """Commands and reads in a transcript that reach past the workspace. The shell's working
+    folder is followed from call to call, as Claude Code keeps it, so a climb is judged by
+    where it lands."""
     found = []
+    cwd: str | None = str(ws)
     for line in log.read_text(encoding="utf-8").splitlines():
         try:
             rec = json.loads(line)
@@ -475,17 +522,322 @@ def leaks(log: pathlib.Path, ws: pathlib.Path) -> list[str]:
         msg = rec.get("message") if isinstance(rec, dict) else None
         content = msg.get("content") if isinstance(msg, dict) else None
         for part in content if isinstance(content, list) else []:
-            if not isinstance(part, dict) or part.get("type") != "tool_use":
+            if not isinstance(part, dict):
+                continue
+            if part.get("type") == "tool_result":
+                # Claude Code moves the shell back when a command leaves its folders.
+                if reset := CWD_RESET.findall(json.dumps(part.get("content"))):
+                    cwd = reset[-1]
+                continue
+            if part.get("type") != "tool_use":
                 continue
             inp = part.get("input") or {}
             command = inp.get("command", "") if part.get("name") == "Bash" else ""
-            outside = [p for p in HOME_PATH.findall(command) if not inside(p, ws)]
-            if command and (LEAK.search(command) or outside or ESCAPE.search(command)):
-                found.append(f"Bash: {command[:200]}")
+            if command:
+                reached, cwd = shell_reach(command, cwd, ws)
+                outside = [p for p in HOME_PATH.findall(command) if not inside(p, ws)]
+                if reached or outside:
+                    found.append(f"Bash: {command[:200]}")
             for path in tool_paths(part.get("name", ""), inp, ws):
                 if not inside(path, ws):
                     found.append(f"{part.get('name')}: {path}")
     return found
+
+
+def bash_parser():
+    global BASH
+    if BASH is None:
+        import tree_sitter
+        import tree_sitter_bash
+
+        BASH = tree_sitter.Parser(tree_sitter.Language(tree_sitter_bash.language()))
+    return BASH
+
+
+def shell_reach(command: str, cwd: str | None, ws: pathlib.Path) -> tuple[bool, str | None]:
+    """Whether a shell command runs a network program or a git remote command, or climbs out
+    of the folders a session may read; and the working folder it leaves the shell in (None
+    when it cannot be known, which makes any later climb count)."""
+    tree = bash_parser().parse(command.encode())
+    if tree.root_node.has_error:  # unreadable: fall back to reading the text
+        climb = bool(ESCAPE.search(command))
+        return bool(LEAK.search(command) or climb), cwd
+    walker = _ShellWalk(ws, cwd)
+    walker.visit(tree.root_node, walker.cwd, top=True)
+    return walker.reached, walker.cwd
+
+
+def _literal(node) -> str | None:
+    """A word's value after quote removal, or None when it holds an expansion."""
+    kind = node.type
+    text = node.text.decode(errors="replace")
+    if kind in ("word", "number"):
+        return re.sub(r"\\(.)", r"\1", text)
+    if kind == "raw_string":
+        return text[1:-1]
+    if kind == "string":
+        parts = []
+        for c in node.children:
+            if c.type == '"':
+                continue
+            if c.type != "string_content":
+                return None
+            parts.append(c.text.decode(errors="replace"))
+        return "".join(parts)
+    if kind == "concatenation":
+        joined = ""
+        for c in node.children:
+            part = _literal(c)
+            if part is None:
+                return None
+            joined += part
+        return joined
+    return None
+
+
+class _ShellWalk:
+    """Walks one command's syntax tree in execution order, tracking `cd` and simple variables
+    in the shell that persists between calls; subshells and pipelines get a copy."""
+
+    SUBSHELL = frozenset({"subshell", "pipeline", "command_substitution", "process_substitution"})
+
+    def __init__(self, ws: pathlib.Path, cwd: str | None) -> None:
+        self.ws = ws
+        self.cwd = cwd
+        self.home = str(ws.parent / "home")
+        self.vars = {
+            "TMPDIR": str(ws.parent / "tmp" / f"claude-{os.getuid()}"),
+            "HOME": self.home,
+            "PWD": cwd,
+        }
+        self.reached = False
+        self.heredocs: dict[tuple[int, int], list[tuple[str, str]]] = {}
+
+    def visit(self, node, cwd: str | None, top: bool) -> str | None:
+        """Visit NODE in a shell whose folder is CWD; returns the folder after it."""
+        kind = node.type
+        if kind == "redirected_statement":
+            self._pin_heredocs(node)
+        if kind == "command":
+            return self._command(node, cwd, top)
+        if kind == "variable_assignment" and top:
+            self._assign(node, cwd)
+            return cwd
+        if kind == "heredoc_body":  # its text is read with the command it feeds
+            for c in node.children:
+                if c.type in self.SUBSHELL:
+                    self.visit(c, cwd, top=False)
+            return cwd
+        if kind in self.SUBSHELL:
+            for c in node.children:
+                self.visit(c, cwd, top=False)
+            return cwd
+        if kind in ("string_content", "raw_string", "word"):
+            self._climbs(node.text.decode(errors="replace"), cwd)
+            return cwd
+        for c in node.children:
+            cwd = self.visit(c, cwd, top)
+        if top and node.parent is None:
+            self.cwd = cwd
+        return cwd
+
+    def _pin_heredocs(self, node) -> None:
+        """A heredoc feeds the last command that ends before its `<<`."""
+        body = node.child_by_field_name("body") or node.children[0]
+        commands = [n for n in (body, *_descendants(body)) if n.type == "command"]
+        for r in node.children:
+            if r.type not in ("heredoc_redirect", "herestring_redirect"):
+                continue
+            before = [c for c in commands if c.end_byte <= r.start_byte]
+            if not before:
+                continue
+            text = _feed_text(r)
+            key = (before[-1].start_byte, before[-1].end_byte)
+            self.heredocs.setdefault(key, []).append((r.type, text))
+
+    def _assign(self, node, cwd: str | None) -> None:
+        name = node.child_by_field_name("name")
+        value = node.child_by_field_name("value")
+        if name is None:
+            return
+        val = _literal(value) if value is not None else ""
+        if val is not None:
+            val = self._expand_known(val)
+        self.vars[name.text.decode()] = val
+        if value is not None:
+            self.visit(value, cwd, top=False)
+
+    def _expand_known(self, text: str) -> str | None:
+        def sub(m: re.Match) -> str:
+            v = self.vars.get(m.group(1) or m.group(2))
+            if v is None:
+                raise KeyError
+            return v
+
+        try:
+            return re.sub(r"\$\{(\w+)\}|\$(\w+)", sub, text)
+        except KeyError:
+            return None
+
+    def _word(self, node) -> str | None:
+        """A word's value with known variables expanded, or None."""
+        lit = _literal(node)
+        if lit is not None:
+            return lit
+        raw = node.text.decode(errors="replace")
+        if node.type == "string":
+            raw = raw[1:-1]
+        if re.search(r"\$\(|`", raw):
+            return None
+        return self._expand_known(raw.replace('"', ""))
+
+    def _command(self, node, cwd: str | None, top: bool) -> str | None:
+        words, nested = [], []
+        for c in node.children:
+            if c.type == "variable_assignment":  # applies to this command only
+                self.visit(c, cwd, top=False)
+            elif c.type == "command_name":
+                words.append(c.children[0] if c.children else c)
+            elif c.type in (
+                "word",
+                "string",
+                "raw_string",
+                "concatenation",
+                "number",
+                "simple_expansion",
+                "expansion",
+            ):
+                words.append(c)
+            else:
+                nested.append(c)
+        feeds = list(self.heredocs.get((node.start_byte, node.end_byte), []))
+        for n in nested:
+            if n.type in ("heredoc_redirect", "herestring_redirect"):
+                feeds.append((n.type, _feed_text(n)))
+            self.visit(n, cwd, top=False)
+        for w in words:
+            self.visit(w, cwd, top=False)  # climbs and substitutions inside the words
+        values = [self._word(w) for w in words]
+        prog, args = self._program(values)
+        if prog in NET_PROGRAMS:
+            self.reached = True
+        elif prog == "git" and self._git_subcommand(args) in GIT_REMOTE:
+            self.reached = True
+        elif prog in SHELLS:
+            if "-c" in args and args.index("-c") + 1 < len(args):
+                script = args[args.index("-c") + 1]
+                self._nested(script, cwd)
+            elif not any(a and not a.startswith("-") for a in args):
+                for _kind, text in feeds:
+                    self._nested(text, cwd)
+        elif prog == "eval":
+            script = " ".join(a or "" for a in args)
+            if None in args:
+                self.reached = self.reached or bool(LEAK.search(script))
+            cwd = self._nested(script, cwd, same_shell=True)
+        elif prog == "find":
+            for i, a in enumerate(args):
+                if a in ("-exec", "-execdir", "-ok", "-okdir") and i + 1 < len(args):
+                    sub, sub_args = self._program(args[i + 1 :])
+                    if sub in NET_PROGRAMS or (
+                        sub == "git" and self._git_subcommand(sub_args) in GIT_REMOTE
+                    ):
+                        self.reached = True
+        for _kind, text in feeds:
+            self._climbs(text, cwd)
+        if prog in ("cd", "pushd") and top:
+            cwd = self._cd(args, cwd)
+            self.vars["PWD"] = cwd
+        if prog in ("export", "declare", "local", "readonly") and top:
+            for a in args:
+                if a and "=" in a and not a.startswith("-"):
+                    k, v = a.split("=", 1)
+                    self.vars[k] = v
+        return cwd
+
+    def _program(self, values: list[str | None]) -> tuple[str | None, list[str | None]]:
+        """The program a command runs, past wrappers like env and timeout, and its args."""
+        i = 0
+        while i < len(values):
+            v = values[i]
+            if v is None:
+                return None, values[i + 1 :]
+            name = os.path.basename(v)
+            if name not in WRAPPERS:
+                return name, values[i + 1 :]
+            if name == "command" and any(a in ("-v", "-V") for a in values[i + 1 : i + 3]):
+                return None, []  # asks whether a program exists; runs nothing
+            skip = WRAPPERS[name]
+            i += 1
+            while i < len(values):
+                a = values[i]
+                if a is None:
+                    break
+                if a.startswith("-"):
+                    i += 2 if a in WRAPPER_OPTION_ARG else 1
+                elif name == "env" and "=" in a:
+                    i += 1
+                elif skip:
+                    skip -= 1
+                    i += 1
+                else:
+                    break
+        return None, []
+
+    @staticmethod
+    def _git_subcommand(args: list[str | None]) -> str | None:
+        i = 0
+        while i < len(args):
+            a = args[i]
+            if a is None:
+                return None
+            if a in GIT_OPTION_ARG:
+                i += 2
+            elif a.startswith("-"):
+                i += 1
+            else:
+                return a
+        return None
+
+    def _nested(self, script: str | None, cwd: str | None, same_shell: bool = False) -> str | None:
+        if script is None:
+            return cwd
+        reached, after = shell_reach(script, cwd, self.ws)
+        self.reached = self.reached or reached
+        return after if same_shell else cwd
+
+    def _cd(self, args: list[str | None], cwd: str | None) -> str | None:
+        target = next((a for a in args if a is None or not a.startswith("-") or a == "-"), "")
+        if target is None or target == "-":
+            return None
+        if target in ("", "~"):
+            return self.home
+        if target.startswith("~/"):
+            target = self.home + target[1:]
+        if os.path.isabs(target):
+            return os.path.normpath(target)
+        return None if cwd is None else os.path.normpath(os.path.join(cwd, target))
+
+    def _climbs(self, text: str, cwd: str | None) -> None:
+        for m in CLIMB.finditer(text):
+            if cwd is None or not inside(os.path.join(cwd, m.group(1)), self.ws):
+                self.reached = True
+                return
+
+
+def _feed_text(redirect) -> str:
+    """The text a heredoc or here-string hands its command."""
+    return "".join(
+        c.text.decode(errors="replace")
+        for c in redirect.children
+        if c.type in ("heredoc_body", "string", "raw_string", "word", "concatenation")
+    )
+
+
+def _descendants(node):
+    for c in node.children:
+        yield c
+        yield from _descendants(c)
 
 
 def tool_paths(name: str, inp: dict, ws: pathlib.Path) -> list[str]:
@@ -1182,6 +1534,30 @@ def pass_id(dirs: list[pathlib.Path]) -> str:
     return hashlib.sha256("\n".join(names).encode()).hexdigest()[:12]
 
 
+def reaudit(dirs: list[pathlib.Path]) -> int:
+    """Recompute each recorded run's leak flags from its kept transcripts with this harness's
+    leak check, keeping the flags as run (quality/DEVIATIONS.md, 2026-10-31)."""
+    harness = digest(pathlib.Path(__file__))
+    for path in sorted(p for d in dirs for p in d.rglob("run.json")):
+        run = json.loads(path.read_text(encoding="utf-8"))
+        rel = path.parent.relative_to(path.parents[3])
+        kept = DONE / path.parents[3].name / rel
+        logs = sorted(kept.glob("*.jsonl"))
+        if not logs:
+            print(f"{rel}: no kept transcripts under {kept}", file=sys.stderr)
+            return 1
+        before = run.get("reaudit", {}).get("leak_flags_as_run")
+        if before is None:
+            before = [f for f in run["flags"] if f.startswith("leak: ")]
+        ws = LIVE / "run" / "ws"  # where every run's sessions worked
+        found = {f"leak: {x}" for log in logs for x in leaks(log, ws)}
+        run["flags"] = sorted({f for f in run["flags"] if not f.startswith("leak: ")} | found)
+        run["reaudit"] = {"harness": harness, "leak_flags_as_run": before}
+        path.write_text(json.dumps(run, indent=1) + "\n", encoding="utf-8")
+        print(f"{rel}: leak flags {len(before)} as run, {len(found)} now")
+    return 0
+
+
 def judge_all(dirs: list[pathlib.Path], tasks: list[dict], again: bool) -> int:
     """The blind judge over every run in DIRS, all modes interleaved in one seeded order.
 
@@ -1465,11 +1841,19 @@ def main(argv: list[str] | None = None) -> int:
     )
     ap.add_argument("--rejudge", action="store_true", help="with --judge, judge judged runs again")
     ap.add_argument(
+        "--reaudit",
+        type=pathlib.Path,
+        nargs="+",
+        help="recompute recorded runs' leak flags from their kept transcripts",
+    )
+    ap.add_argument(
         "--smoke",
         action="store_true",
         help="harness check only: every session on Haiku, one review; never a result",
     )
     args = ap.parse_args(argv)
+    if args.reaudit:  # reads kept transcripts only; safe beside a running set
+        return reaudit(args.reaudit)
     tasks = [t for t in load_tasks(args.tasks) if not args.task or t["id"] in args.task]
     if args.smoke:
         named = [args.out] if args.out else []
