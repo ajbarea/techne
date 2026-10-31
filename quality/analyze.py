@@ -93,6 +93,9 @@ def check_set(
     )
     if stale:
         problems.append(f"judged with another judge prompt: {', '.join(stale)}")
+    audits = {(r.get("reaudit") or {}).get("harness") for r in runs}
+    if len(audits) > 1:
+        problems.append("leak flags from more than one audit: run --reaudit on every folder")
     return problems
 
 
@@ -246,6 +249,14 @@ def task_rows(runs: list[dict]) -> list[dict]:
                     for c in CRITERIA
                 },
                 "flags": sorted({f for r in rs for f in r["flags"]}),
+                "flags_dropped": sorted(
+                    {
+                        f
+                        for r in rs
+                        for f in (r.get("reaudit") or {}).get("leak_flags_as_run", [])
+                        if f not in r["flags"]
+                    }
+                ),
                 "disagreements": [
                     {
                         "repeat": r["repeat"],
@@ -354,6 +365,10 @@ def report(result: dict, title: str) -> str:
     flagged = [(r["task"], r["mode"], f) for r in result["tasks"] for f in r["flags"]]
     lines += ["", "## Cheat-audit flags", ""]
     lines += [f"- {t} ({m}): {f}" for t, m, f in flagged] or ["None."]
+    dropped = [(r["task"], r["mode"], f) for r in result["tasks"] for f in r["flags_dropped"]]
+    if dropped:
+        lines += ["", "## Leak flags as run, dropped by the re-audit (DEVIATIONS 2026-10-31)", ""]
+        lines += [f"- {t} ({m}): {f}" for t, m, f in dropped]
     lines += ["", "## Judge-test disagreements", ""]
     dis = [(r["task"], r["mode"], x) for r in result["tasks"] for x in r["disagreements"]]
     lines += [
