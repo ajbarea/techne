@@ -1,8 +1,12 @@
-"""quality/run.py's shell reading agrees with bash on which network programs a command runs.
+"""quality/run.py's shell reading never misses a network program bash runs, and clears the
+data shapes it claims to.
 
 Generated commands run under real bash with every network program replaced by a stub that
 logs its name, and git's ssh transport pointed at the ssh stub, so a git remote command that
-would connect logs too. The leak check must flag exactly the commands whose run logged.
+would connect logs too. Every command whose run logged must be flagged; a command built only
+from shapes the reader can show are data (a grep pattern, a local git command, a variable's
+value, a script it reads itself) must not be. Anything else may be flagged either way: a
+text match counts unless the reader clears it.
 """
 
 from __future__ import annotations
@@ -20,7 +24,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "quality
 import run  # ty: ignore[unresolved-import]
 
 pytestmark = pytest.mark.skipif(
-    not (shutil.which("bash") and shutil.which("git")), reason="needs bash and git"
+    not (shutil.which("bash") and shutil.which("git") and shutil.which("python3")),
+    reason="needs bash, git and python3",
 )
 
 NET = sorted(run.NET_PROGRAMS)
@@ -29,7 +34,16 @@ GIT_REMOTE = ["fetch origin", "pull origin main", "push origin HEAD", "ls-remote
 GIT_LOCAL = ["status -s", "log -1 --oneline", "stash list", "rev-parse HEAD", "branch -a"]
 GIT_OPTS = ["", "-C . ", "-c a.b=c ", "--no-pager "]
 BENIGN = ["true", "echo hi", "printf %s x", "cat /dev/null", "ls >/dev/null"]
-# Words that name a network program without running it.
+# Words that name a network program without running it, in shapes the reader clears.
+DATA = [
+    "grep -q 'curl x' /dev/null || true",
+    'grep -c "git push" /dev/null; true',
+    "A='ssh -x' true",
+    "git log -1 --grep 'push origin' --oneline",
+    "command -v curl >/dev/null",
+    "printf '%s' 'gh wget' >/dev/null",
+]
+# The same, in shapes it may flag: printed text could be run by what reads it.
 DECOYS = ["echo curl", "echo 'ssh -x'", "printf '%s' 'git push'", "echo gh wget"]
 WRAPPERS = ["", "env A=1 ", "timeout 5 ", "nice -n 1 ", "command ", "nohup ", "stdbuf -o0 "]
 
@@ -43,43 +57,56 @@ def spell(name: str, rng: random.Random) -> str:
 
 
 def simple(rng: random.Random) -> tuple[str, bool]:
-    """One command and whether it runs a network program."""
-    kind = rng.randrange(5)
+    """One command, and whether the reader must clear it."""
+    kind = rng.randrange(6)
     wrap = rng.choice(WRAPPERS)
     if kind == 0:
-        return f"{wrap}{spell(rng.choice(NET), rng)} x", True
+        return f"{wrap}{spell(rng.choice(NET), rng)} x", False
     if kind == 1:
-        return f"{wrap}{spell('git', rng)} {rng.choice(GIT_OPTS)}{rng.choice(GIT_REMOTE)}", True
+        return f"{wrap}{spell('git', rng)} {rng.choice(GIT_OPTS)}{rng.choice(GIT_REMOTE)}", False
     if kind == 2:
-        return f"{wrap}git {rng.choice(GIT_OPTS)}{rng.choice(GIT_LOCAL)}", False
+        return f"{wrap}git {rng.choice(GIT_OPTS)}{rng.choice(GIT_LOCAL)}", True
     if kind == 3:
+        return rng.choice(DATA), True
+    if kind == 4:
         return rng.choice(DECOYS), False
-    return f"{wrap}{rng.choice(BENIGN)}", False
+    return f"{wrap}{rng.choice(BENIGN)}", True
 
 
-def nest(cmd: str, rng: random.Random) -> str:
-    """CMD run another way bash still runs it."""
+def nest(cmd: str, rng: random.Random) -> tuple[str, bool]:
+    """CMD run another way bash still runs it, and whether that way keeps it clearable."""
     q = cmd.replace("'", "'\\''")
-    return rng.choice(
-        [
-            cmd,
-            f"bash -c '{q}'",
-            f"sh <<'EOF'\n{cmd}\nEOF",
-            f"echo $({cmd}) >/dev/null",
-            f"eval '{q}'",
-            f"( {cmd} )",
-            f"{{ {cmd}; }}",
-            f"true | {cmd}",
-        ]
-    )
+    forms = [
+        (cmd, True),
+        (f"bash -c '{q}'", True),
+        (f"bash -lc '{q}'", True),
+        (f"bash -euc '{q}'", True),
+        (f"sh <<'EOF'\n{cmd}\nEOF", True),
+        (f"bash <<< '{q}'", True),
+        (f"eval '{q}'", True),
+        (f"( {cmd} )", True),
+        (f"{{ {cmd}; }}", True),
+        (f"true | {cmd}", True),
+        (f"find . -maxdepth 0 -exec sh -c '{q}' \\;", True),
+        (f"python3 - <<'PY'\nimport os\nos.system({cmd!r})\nPY", True),
+        (f"echo $({cmd}) >/dev/null", False),
+        (f"echo '{q}' | bash", False),
+        (f"cat <<'EOF' | sh\n{cmd}\nEOF", False),
+    ]
+    if "<<" not in cmd and "|" not in cmd and ";" not in cmd and not cmd.startswith("A="):
+        forms.append((f"echo y | xargs {cmd}", True))
+    return rng.choice(forms)
 
 
 def generate(rng: random.Random) -> tuple[str, bool]:
+    """A command line, and whether the reader must clear all of it."""
     parts = [simple(rng) for _ in range(rng.randint(1, 3))]
-    cmds = [nest(c, rng) for c, _ in parts]
+    nested = [nest(c, rng) for c, _ in parts]
+    cmds = [c for c, _ in nested]
     # A heredoc ends only on a line holding its word alone.
     sep = "\n" if any("<<" in c for c in cmds) else rng.choice(["; ", " && ", "\n"])
-    return sep.join(cmds), any(net for _, net in parts)
+    clear = all(ok for _, ok in parts) and all(ok for _, ok in nested)
+    return sep.join(cmds), clear
 
 
 @pytest.fixture(scope="module")
@@ -129,21 +156,26 @@ def ran_network(cmd: str, box) -> bool:
     return log.exists() and log.read_text().strip() != ""
 
 
-@pytest.mark.parametrize("seed", range(6))
-def test_the_leak_check_agrees_with_bash(box, seed):
+@pytest.mark.parametrize("seed", range(8))
+def test_the_leak_check_never_misses_what_bash_runs(box, seed):
     rng = random.Random(seed)
     ws = run.LIVE / "run" / "ws"
     wrong = []
     for _ in range(60):
-        cmd, _expected = generate(rng)
+        cmd, clear = generate(rng)
         real = ran_network(cmd, box)
         flagged, _ = run.shell_reach(cmd, str(ws), ws)
-        if real != flagged:
-            wrong.append(f"bash ran network={real}, check={flagged}: {cmd!r}")
+        if real and flagged != "ran":
+            wrong.append(f"bash ran a network program, check said {flagged!r}: {cmd!r}")
+        if clear and flagged:
+            wrong.append(f"flagged data the reader should clear: {cmd!r}")
     assert not wrong, "\n".join(wrong)
 
 
-def test_the_generator_reaches_both_answers(box):
+def test_the_generator_reaches_every_answer(box):
     rng = random.Random(0)
-    seen = {ran_network(generate(rng)[0], box) for _ in range(40)}
-    assert seen == {True, False}
+    seen = set()
+    for _ in range(80):
+        cmd, clear = generate(rng)
+        seen.add((ran_network(cmd, box), clear))
+    assert {(True, False), (False, True), (False, False)} <= seen

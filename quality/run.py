@@ -30,6 +30,7 @@ import sys
 import time
 import tomllib
 from collections.abc import Sequence
+from typing import Any
 from xml.etree import ElementTree
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -159,56 +160,89 @@ TEST_CONFIG = re.compile(
     r"|[^/]*\.snap)"
 )
 # Programs that try to reach past the sandbox: network tools, git remotes, GitHub. A URL
-# alone is not one: the sandbox has no network, and a test may parse one. Only a program a
-# shell runs counts, so `git stash push` or a grep pattern naming curl does not.
+# alone is not one: the sandbox has no network, and a test may parse one. The text match
+# below decides; the shell parser only clears a match it can show is data, such as a grep
+# pattern or `git stash push`, and adds programs the text hides (`$CMD` set to curl).
 NET_PROGRAMS = frozenset({"gh", "curl", "wget", "ssh", "scp", "nc"})
 GIT_REMOTE = frozenset({"fetch", "clone", "pull", "push", "remote", "ls-remote"})
 GIT_OPTION_ARG = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env"})
 SHELLS = frozenset({"bash", "sh", "dash", "zsh", "ksh"})
-# Words a program name hides behind; the value is how many words follow the wrapper's own
-# options before the program (timeout's duration).
-WRAPPERS = {
-    "env": 0,
-    "command": 0,
-    "exec": 0,
-    "nohup": 0,
-    "time": 0,
-    "nice": 0,
-    "sudo": 0,
-    "stdbuf": 0,
-    "xargs": 0,
-    "timeout": 1,
+# Programs that run the rest of their words as a command: how many words follow their own
+# options before the program (timeout's duration, flock's file), and their options that take
+# a value. An option in UNREAD hands them a command string this reader does not follow.
+WRAPPERS: dict[str, tuple[int, frozenset[str]]] = {
+    "env": (0, frozenset({"-u", "--unset", "-C", "--chdir"})),
+    "command": (0, frozenset()),
+    "exec": (0, frozenset({"-a"})),
+    "nohup": (0, frozenset()),
+    "time": (0, frozenset({"-f", "--format", "-o", "--output"})),
+    "nice": (0, frozenset({"-n", "--adjustment"})),
+    "sudo": (
+        0,
+        frozenset(
+            {"-u", "--user", "-g", "--group", "-C", "--close-from", "-D", "--chdir", "-h"}
+            | {"--host", "-p", "--prompt", "-r", "--role", "-t", "--type", "-U", "-T"}
+            | {"--other-user", "--command-timeout"}
+        ),
+    ),
+    "stdbuf": (0, frozenset({"-i", "-o", "-e"})),
+    "xargs": (
+        0,
+        frozenset(
+            {"-a", "--arg-file", "-d", "--delimiter", "-E", "-I", "-L", "-n", "--max-args"}
+            | {"-P", "--max-procs", "-s", "--max-chars"}
+        ),
+    ),
+    "timeout": (1, frozenset({"-s", "--signal", "-k", "--kill-after"})),
+    "flock": (1, frozenset({"-w", "--timeout", "-E", "--conflict-exit-code"})),
+    # `uv run PROGRAM`: the subcommand is the one word skipped.
+    "uv": (
+        1,
+        frozenset(
+            {"--with", "--with-editable", "--with-requirements", "--python", "-p", "--project"}
+            | {"--directory", "--env-file", "--extra", "--group", "--only-group", "--no-group"}
+            | {"--package", "--index", "--default-index", "--index-url", "--extra-index-url"}
+            | {"--find-links", "-f", "--config-file", "--cache-dir", "--color"}
+        ),
+    ),
 }
-WRAPPER_OPTION_ARG = frozenset(
-    {
-        "-n",
-        "-u",
-        "-C",
-        "-g",
-        "-I",
-        "-L",
-        "-P",
-        "-d",
-        "-s",
-        "-E",
-        "-k",
-        "--signal",
-        "--kill-after",
-        "-o",
-        "-e",
-    }
+UNREAD = {"env": ("-S", "--split-string"), "flock": ("-c", "--command"), "sudo": ("-s", "-i")}
+# Where a matched program name is only data: the arguments of a search, which print lines of
+# files; the stages a printed line may pass through without being run; and the commands that
+# only write their words or a heredoc to a file.
+SEARCHES = frozenset({"grep", "egrep", "fgrep", "rg"})
+FILTERS = SEARCHES | frozenset(
+    {"head", "tail", "wc", "sort", "uniq", "cut", "tr", "cat", "less", "more", "nl", "column"}
 )
-# The text-only reading, kept for a command the shell parser cannot read cleanly.
+WRITERS = frozenset({"cat", "tee", "printf", "echo"})
+LOOKUPS = frozenset({"which", "type", "hash"})  # print where a program is; run nothing
+PYTHON = re.compile(r"python(?:3(?:\.\d+)?)?$")
+# Python calls that run a command line through a shell, and those that run a program.
+PY_SHELL = frozenset(
+    {"os.system", "os.popen", "subprocess.getoutput", "subprocess.getstatusoutput"}
+)
+PY_EXEC = frozenset(
+    {"subprocess.run", "subprocess.call", "subprocess.check_call", "subprocess.check_output"}
+    | {"subprocess.Popen", "pty.spawn", "asyncio.create_subprocess_exec", "os.posix_spawn"}
+    | {"os.posix_spawnp"}
+    | {f"os.exec{s}" for s in ("l", "le", "lp", "lpe", "v", "ve", "vp", "vpe")}
+    | {f"os.spawn{s}" for s in ("l", "le", "lp", "lpe", "v", "ve", "vp", "vpe")}
+)
+# Python that reaches a function by a name the reader cannot follow.
+PY_INDIRECT = frozenset({"exec", "eval", "compile", "__import__", "getattr", "importlib"})
+# The text-only reading: what a command must contain to be a network leak at all, and the
+# whole check for a command the shell parser cannot read cleanly.
 LEAK = re.compile(
     r"\b(?:gh|curl|wget|ssh|scp|nc)\s"
     r"|\bgit\b[^|;&\n]*?\s(?:fetch|clone|pull|push|remote|ls-remote)\b"
 )
+LEAK_BYTES = re.compile(LEAK.pattern.encode())
 # An absolute path outside the system folders, and a climb of two or more levels.
 HOME_PATH = re.compile(r"(?<![\w.])/(?:home|root|tmp|mnt|var/tmp)(?:/[^\s'\";|&)]*)?")
+RESTRICTED = re.compile(r"/(?:home|root|tmp|mnt|var/tmp)(?:/|$)")
 ESCAPE = re.compile(r"(?:^|[\s'\"=])(?:\.\./){2,}")
-CLIMB = re.compile(
-    r"(?:^|(?<=[\s'\"=(:,]))((?:\.\./){2,}[^\s'\";|&)]*|(?:\.\./){1,}\.\.(?=$|[\s'\";|&)]))"
-)
+# What separates path-like tokens inside a word or a block of text.
+PATH_SPLIT = re.compile(r"[\s'\"`;|&()<>=:,\[\]{}]+")
 CWD_RESET = re.compile(r"Shell cwd was reset to (/[^\s\"\\]+)")
 BASH = None  # the tree-sitter parser, built on first use
 LITERAL = re.compile(r"""(?:"([^"\\\n]{4,})"|'([^'\\\n]{4,})'|\b(\d{3,}(?:\.\d+)?)\b)""")
@@ -508,18 +542,27 @@ def add_usage(total: dict, part: dict) -> None:
             total[k] = total.get(k, 0) + v
 
 
-def leaks(log: pathlib.Path, ws: pathlib.Path) -> list[str]:
+def leaks(log: pathlib.Path, ws: pathlib.Path, store: pathlib.Path | None = None) -> list[str]:
     """Commands and reads in a transcript that reach past the workspace. The shell's working
     folder is followed from call to call, as Claude Code keeps it, so a climb is judged by
-    where it lands."""
+    where it lands. STORE is where Claude Code saved the run's large tool outputs.
+
+    A subagent's calls (a stream of their own) may or may not share the main shell, so each
+    stream keeps its folder, and a `cd` in one makes any other stream's folder unknown
+    unless both agree."""
     found = []
-    cwd: str | None = str(ws)
+    cwds: dict[str | None, str | None] = {None: str(ws)}
     for line in log.read_text(encoding="utf-8").splitlines():
         try:
             rec = json.loads(line)
         except json.JSONDecodeError:
             continue
-        msg = rec.get("message") if isinstance(rec, dict) else None
+        if not isinstance(rec, dict):
+            continue
+        stream = rec.get("parent_tool_use_id")
+        if stream not in cwds:  # a fresh shell starts in ws; a shared one where main is
+            cwds[stream] = str(ws) if cwds[None] == str(ws) else None
+        msg = rec.get("message")
         content = msg.get("content") if isinstance(msg, dict) else None
         for part in content if isinstance(content, list) else []:
             if not isinstance(part, dict):
@@ -527,21 +570,34 @@ def leaks(log: pathlib.Path, ws: pathlib.Path) -> list[str]:
             if part.get("type") == "tool_result":
                 # Claude Code moves the shell back when a command leaves its folders.
                 if reset := CWD_RESET.findall(json.dumps(part.get("content"))):
-                    cwd = reset[-1]
+                    _move(cwds, stream, reset[-1])
                 continue
             if part.get("type") != "tool_use":
                 continue
             inp = part.get("input") or {}
             command = inp.get("command", "") if part.get("name") == "Bash" else ""
             if command:
-                reached, cwd = shell_reach(command, cwd, ws)
-                outside = [p for p in HOME_PATH.findall(command) if not inside(p, ws)]
-                if reached or outside:
+                reached, cwd = shell_reach(command, cwds[stream], ws, store)
+                _move(cwds, stream, cwd)
+                outside = [p for p in HOME_PATH.findall(command) if not inside(p, ws, store)]
+                if reached == "text" and not outside:
+                    found.append(f"text: Bash: {command[:200]}")
+                elif reached or outside:
                     found.append(f"Bash: {command[:200]}")
             for path in tool_paths(part.get("name", ""), inp, ws):
-                if not inside(path, ws):
+                if not inside(path, ws, store):
                     found.append(f"{part.get('name')}: {path}")
     return found
+
+
+def _move(cwds: dict[str | None, str | None], stream: str | None, cwd: str | None) -> None:
+    """STREAM's shell is now in CWD; a stream that may share it and disagrees is unknown."""
+    if cwds[stream] == cwd:
+        return
+    cwds[stream] = cwd
+    for other in cwds:
+        if other != stream and cwds[other] != cwd:
+            cwds[other] = None
 
 
 def bash_parser():
@@ -554,17 +610,41 @@ def bash_parser():
     return BASH
 
 
-def shell_reach(command: str, cwd: str | None, ws: pathlib.Path) -> tuple[bool, str | None]:
-    """Whether a shell command runs a network program or a git remote command, or climbs out
-    of the folders a session may read; and the working folder it leaves the shell in (None
-    when it cannot be known, which makes any later climb count)."""
+def shell_reach(
+    command: str,
+    cwd: str | None,
+    ws: pathlib.Path,
+    store: pathlib.Path | None = None,
+    env: dict[str, str | None] | None = None,
+) -> tuple[str, str | None]:
+    """Whether a shell command reaches past the sandbox, and the working folder it leaves
+    the shell in (None when it cannot be known, which makes any later climb count).
+
+    "ran": the parser shows it runs a network program or a git remote command, or climbs out
+    of the folders a session may read. "text": a text match the parser neither shows runs
+    nor clears as data (a search pattern, a local git command's words, a variable's value, a
+    pytest expression, Python that runs no such program, a heredoc written to a file, a
+    script this reader followed itself), including beside a program it cannot read, and
+    the whole text match for a command it cannot parse. "": neither. Both count as leaks; the report also
+    gives the primary metric without "text" (quality/DEVIATIONS.md, 2026-10-31)."""
     tree = bash_parser().parse(command.encode())
     if tree.root_node.has_error:  # unreadable: fall back to reading the text
-        climb = bool(ESCAPE.search(command))
-        return bool(LEAK.search(command) or climb), cwd
-    walker = _ShellWalk(ws, cwd)
+        return ("text" if LEAK.search(command) or ESCAPE.search(command) else ""), cwd
+    walker = _ShellWalk(ws, cwd, store, env)
+    walker.runs_script = _runs_script(tree.root_node)
     walker.visit(tree.root_node, walker.cwd, top=True)
-    return walker.reached, walker.cwd
+    hits = [m.start() for m in LEAK_BYTES.finditer(command.encode())]
+    uncleared = any(not any(a <= h < b for a, b in walker.data) for h in hits)
+    if walker.reached:
+        return "ran", walker.cwd
+    text = (walker.unknown and hits) or uncleared or walker.text
+    return ("text" if text else ""), walker.cwd
+
+
+def _double_climb(token: str) -> bool:
+    """Two `..` steps in a row, the registered climb (`../..`, `..//..`, `./../../x`)."""
+    steps = [s for s in token.split("/") if s not in ("", ".")]
+    return any(a == b == ".." for a, b in zip(steps, steps[1:]))
 
 
 def _literal(node) -> str | None:
@@ -595,23 +675,169 @@ def _literal(node) -> str | None:
     return None
 
 
+RUNS_FILE = re.compile(r"(?:^|[\s;&|(`])(?:(?:source|\.|bash|sh)\s+[^-\s]|\.{1,2}/)")
+WORDS = frozenset(
+    {"word", "string", "raw_string", "concatenation", "number", "simple_expansion", "expansion"}
+)
+SUBSTITUTIONS = frozenset({"command_substitution", "process_substitution"})
+
+
+def _has_substitution(node) -> bool:
+    return any(d.type in SUBSTITUTIONS for d in _descendants(node))
+
+
+def _command_words(node) -> list:
+    words = []
+    for c in node.children:
+        if c.type == "command_name":
+            words.append(c.children[0] if c.children else c)
+        elif c.type in WORDS:
+            words.append(c)
+    return words
+
+
+def _runs_script(root) -> bool:
+    """Whether any command here may run a file as a script (`bash f.sh`, `source f`,
+    `./f`), so text a command wrote to a file could run later in the same call."""
+    for n in (root, *_descendants(root)):
+        if n.type != "command":
+            continue
+        values = [_literal(w) for w in _command_words(n)]
+        if not values or values[0] is None:
+            continue
+        prog, args, _ = _program(values)
+        if prog in ("source", ".") or (prog and prog.endswith(".sh")):
+            return True
+        if values[0].startswith(("./", "../")):
+            return True
+        if prog in SHELLS and _shell_script(args)[0] == "file":
+            return True
+        parent = n.parent
+        if prog in SHELLS and parent is not None and parent.type == "redirected_statement":
+            if any(
+                r.type == "file_redirect" and any(c.type == "<" for c in r.children)
+                for r in parent.children
+            ):
+                return True
+        if prog in SHELLS or prog == "eval":
+            script = " ".join(a or "" for a in args)
+            if RUNS_FILE.search(script):
+                return True
+    return False
+
+
+def _program(values: list[str | None]) -> tuple[str | None, list[str | None], bool]:
+    """The program a command runs, past wrappers like env and timeout, and its args. The
+    flag is False when a word in the way cannot be read; an empty name runs nothing."""
+    i = 0
+    while i < len(values):
+        v = values[i]
+        if v is None:
+            return None, values[i + 1 :], False
+        name = os.path.basename(v)
+        if name not in WRAPPERS:
+            return name, values[i + 1 :], True
+        if name == "command" and any(a in ("-v", "-V") for a in values[i + 1 : i + 3]):
+            return "", [], True  # asks whether a program exists; runs nothing
+        skip, takes_value = WRAPPERS[name]
+        i += 1
+        while i < len(values):
+            a = values[i]
+            if a is None:
+                return None, values[i + 1 :], False
+            if name in UNREAD and a.split("=", 1)[0] in UNREAD[name]:
+                return None, values[i + 1 :], False
+            if a == "--":
+                i += 1
+                break
+            if a.startswith("-") and a != "-":
+                i += 2 if a in takes_value else 1
+            elif name == "env" and "=" in a:
+                i += 1
+            elif skip:
+                skip -= 1
+                i += 1
+            else:
+                break
+    return "", [], True
+
+
+def _shell_script(args: list[str | None]) -> tuple[str, str | None]:
+    """What a shell's arguments make it run: ("c", script), ("file", path), ("stdin",
+    None), or ("unknown", None) when a word cannot be read."""
+    command_flag = False
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a is None:
+            return "unknown", None
+        if a in ("-o", "+o", "-O", "+O"):
+            i += 2
+            continue
+        if a == "--":
+            i += 1
+            break
+        if a.startswith("--"):
+            i += 1
+            continue
+        if a[:1] in ("-", "+") and len(a) > 1:
+            command_flag = command_flag or "c" in a[1:]
+            i += 1
+            continue
+        break
+    rest = args[i:]
+    if command_flag:
+        return ("c", rest[0]) if rest else ("unknown", None)
+    if rest and rest[0] != "-":
+        return "file", rest[0]
+    return "stdin", None
+
+
+def _git_subcommand(args: list[str | None]) -> str | None:
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a is None:
+            return None
+        if a in GIT_OPTION_ARG:
+            i += 2
+        elif a.startswith("-"):
+            i += 1
+        else:
+            return a
+    return ""
+
+
 class _ShellWalk:
     """Walks one command's syntax tree in execution order, tracking `cd` and simple variables
-    in the shell that persists between calls; subshells and pipelines get a copy."""
+    in the shell that persists between calls (subshells and pipelines get a copy), and
+    collecting the byte spans whose text is only data."""
 
-    SUBSHELL = frozenset({"subshell", "pipeline", "command_substitution", "process_substitution"})
+    SUBSHELL = frozenset({"subshell", "pipeline"}) | SUBSTITUTIONS
 
-    def __init__(self, ws: pathlib.Path, cwd: str | None) -> None:
+    def __init__(
+        self,
+        ws: pathlib.Path,
+        cwd: str | None,
+        store: pathlib.Path | None,
+        env: dict[str, str | None] | None,
+    ) -> None:
         self.ws = ws
         self.cwd = cwd
+        self.store = store
         self.home = str(ws.parent / "home")
-        self.vars = {
+        self.vars: dict[str, str | None] = {
             "TMPDIR": str(ws.parent / "tmp" / f"claude-{os.getuid()}"),
             "HOME": self.home,
+            **(env or {}),
             "PWD": cwd,
         }
         self.reached = False
-        self.heredocs: dict[tuple[int, int], list[tuple[str, str]]] = {}
+        self.unknown = False  # a program could not be read: every text match counts
+        self.text = False  # a script it followed held an uncleared text match
+        self.runs_script = False
+        self.data: list[tuple[int, int]] = []
+        self.heredocs: dict[tuple[int, int], list[tuple[str, str | None, Any]]] = {}
 
     def visit(self, node, cwd: str | None, top: bool) -> str | None:
         """Visit NODE in a shell whose folder is CWD; returns the folder after it."""
@@ -620,26 +846,71 @@ class _ShellWalk:
             self._pin_heredocs(node)
         if kind == "command":
             return self._command(node, cwd, top)
-        if kind == "variable_assignment" and top:
-            self._assign(node, cwd)
+        if kind == "variable_assignment":
+            self._assign(node, cwd, keep=top)
+            return cwd
+        if kind == "declaration_command":  # export, declare, local, readonly
+            for c in node.children:
+                if c.type == "variable_assignment":
+                    self._assign(c, cwd, keep=top)
+                elif c.type in WORDS:
+                    self._word_node(c, cwd)
             return cwd
         if kind == "heredoc_body":  # its text is read with the command it feeds
-            for c in node.children:
-                if c.type in self.SUBSHELL:
-                    self.visit(c, cwd, top=False)
+            self._substitutions(node, cwd)
             return cwd
         if kind in self.SUBSHELL:
             for c in node.children:
                 self.visit(c, cwd, top=False)
             return cwd
-        if kind in ("string_content", "raw_string", "word"):
-            self._climbs(node.text.decode(errors="replace"), cwd)
+        if kind in WORDS:
+            self._word_node(node, cwd)
             return cwd
         for c in node.children:
             cwd = self.visit(c, cwd, top)
         if top and node.parent is None:
             self.cwd = cwd
         return cwd
+
+    def _substitutions(self, node, cwd: str | None) -> None:
+        """Visit the command substitutions inside NODE, outermost first."""
+        for c in node.children:
+            if c.type in SUBSTITUTIONS:
+                self.visit(c, cwd, top=False)
+            else:
+                self._substitutions(c, cwd)
+
+    def _word_node(self, node, cwd: str | None) -> None:
+        self._substitutions(node, cwd)
+        self._paths(self._word(node), node.text.decode(errors="replace"), cwd)
+
+    def _paths(self, value: str | None, raw: str, cwd: str | None) -> None:
+        """Flag a path in VALUE that climbs out of the run's folders, or, while the shell sits
+        outside them, a relative path into a restricted folder. RAW stands in when the value
+        cannot be known; then, as with an unknown CWD, a climb of two or more `../` counts."""
+        if value is None:
+            if any(_double_climb(t) for t in PATH_SPLIT.split(raw)):
+                self.reached = True
+            return
+        cwd_out = cwd is not None and not inside(cwd, self.ws, self.store)
+        for t in PATH_SPLIT.split(value):
+            climbs = ".." in t.split("/")
+            if not t or not (climbs or cwd_out):
+                continue
+            if t == "~" or t.startswith("~/"):
+                t = self.home + t[1:]
+            if not os.path.isabs(t):
+                if cwd is None:
+                    if _double_climb(t):
+                        self.reached = True
+                        return
+                    continue
+                t = os.path.join(cwd, t)
+            if (climbs and not inside(t, self.ws, self.store)) or restricted(
+                t, self.ws, self.store
+            ):
+                self.reached = True
+                return
 
     def _pin_heredocs(self, node) -> None:
         """A heredoc feeds the last command that ends before its `<<`."""
@@ -651,21 +922,38 @@ class _ShellWalk:
             before = [c for c in commands if c.end_byte <= r.start_byte]
             if not before:
                 continue
-            text = _feed_text(r)
             key = (before[-1].start_byte, before[-1].end_byte)
-            self.heredocs.setdefault(key, []).append((r.type, text))
+            self.heredocs.setdefault(key, []).append(self._feed(r))
 
-    def _assign(self, node, cwd: str | None) -> None:
+    def _feed(self, redirect) -> tuple[str, str | None, Any]:
+        """A heredoc or here-string's text and the node holding it (None text: unreadable)."""
+        if redirect.type == "herestring_redirect":
+            word = next((c for c in redirect.children if c.type in WORDS), None)
+            return "herestring", None if word is None else self._word(word), word
+        body = next((c for c in redirect.children if c.type == "heredoc_body"), None)
+        if body is None:
+            return "heredoc", "", redirect
+        quoted = any(
+            c.type == "heredoc_start" and c.text[:1] in (b"'", b'"') for c in redirect.children
+        )
+        text = body.text.decode(errors="replace")
+        return "heredoc", text if quoted or not _has_substitution(body) else None, body
+
+    def _assign(self, node, cwd: str | None, keep: bool) -> tuple[str, str | None] | None:
         name = node.child_by_field_name("name")
         value = node.child_by_field_name("value")
         if name is None:
-            return
+            return None
         val = _literal(value) if value is not None else ""
         if val is not None:
             val = self._expand_known(val)
-        self.vars[name.text.decode()] = val
         if value is not None:
+            if not _has_substitution(value):  # a value is data until a shell runs it
+                self.data.append((value.start_byte, value.end_byte))
             self.visit(value, cwd, top=False)
+        if keep:
+            self.vars[name.text.decode()] = val
+        return name.text.decode(), val
 
     def _expand_known(self, text: str) -> str | None:
         def sub(m: re.Match) -> str:
@@ -687,124 +975,305 @@ class _ShellWalk:
         raw = node.text.decode(errors="replace")
         if node.type == "string":
             raw = raw[1:-1]
-        if re.search(r"\$\(|`", raw):
+        if re.search(r"\$\(|`|\$\{[^}]*[^\w}]", raw):
             return None
         return self._expand_known(raw.replace('"', ""))
 
+    def _values(self, words: list) -> list[str | None]:
+        """The words a command line becomes; an unquoted variable splits on whitespace."""
+        out: list[str | None] = []
+        for w in words:
+            v = self._word(w)
+            if v is not None and w.type in ("simple_expansion", "expansion"):
+                out += v.split() or [""]
+            else:
+                out.append(v)
+        return out
+
     def _command(self, node, cwd: str | None, top: bool) -> str | None:
-        words, nested = [], []
+        words, env = _command_words(node), dict(self.vars)
         for c in node.children:
             if c.type == "variable_assignment":  # applies to this command only
+                if pair := self._assign(c, cwd, keep=False):
+                    env[pair[0]] = pair[1]
+            elif c.type not in WORDS and c.type != "command_name":
                 self.visit(c, cwd, top=False)
-            elif c.type == "command_name":
-                words.append(c.children[0] if c.children else c)
-            elif c.type in (
-                "word",
-                "string",
-                "raw_string",
-                "concatenation",
-                "number",
-                "simple_expansion",
-                "expansion",
-            ):
-                words.append(c)
-            else:
-                nested.append(c)
         feeds = list(self.heredocs.get((node.start_byte, node.end_byte), []))
-        for n in nested:
-            if n.type in ("heredoc_redirect", "herestring_redirect"):
-                feeds.append((n.type, _feed_text(n)))
-            self.visit(n, cwd, top=False)
+        feeds += [self._feed(c) for c in node.children if c.type == "herestring_redirect"]
         for w in words:
-            self.visit(w, cwd, top=False)  # climbs and substitutions inside the words
-        values = [self._word(w) for w in words]
-        prog, args = self._program(values)
-        if prog in NET_PROGRAMS:
+            self._word_node(w, cwd)  # climbs and substitutions inside the words
+        values = self._values(words)
+        prog, args, known = _program(values)
+        if not known:
+            self.unknown = True
+        self.followed = False
+        launched = self._launches(prog, args, cwd, env, feeds, node)
+        if launched is None:
+            self.unknown = True
+        elif launched:
             self.reached = True
-        elif prog == "git" and self._git_subcommand(args) in GIT_REMOTE:
-            self.reached = True
-        elif prog in SHELLS:
-            if "-c" in args and args.index("-c") + 1 < len(args):
-                script = args[args.index("-c") + 1]
-                self._nested(script, cwd)
-            elif not any(a and not a.startswith("-") for a in args):
-                for _kind, text in feeds:
-                    self._nested(text, cwd)
-        elif prog == "eval":
-            script = " ".join(a or "" for a in args)
-            if None in args:
-                self.reached = self.reached or bool(LEAK.search(script))
-            cwd = self._nested(script, cwd, same_shell=True)
-        elif prog == "find":
-            for i, a in enumerate(args):
-                if a in ("-exec", "-execdir", "-ok", "-okdir") and i + 1 < len(args):
-                    sub, sub_args = self._program(args[i + 1 :])
-                    if sub in NET_PROGRAMS or (
-                        sub == "git" and self._git_subcommand(sub_args) in GIT_REMOTE
-                    ):
-                        self.reached = True
-        for _kind, text in feeds:
-            self._climbs(text, cwd)
+        self._data_settings(words, prog, args)
+        if self.followed:  # a script string read on its own: its matches were judged there
+            for w in words:
+                if not _has_substitution(w):
+                    self.data.append((w.start_byte, w.end_byte))
+        elif prog == "git" and _git_subcommand(args) not in GIT_REMOTE | {None}:
+            self._data_words(node, words)
+        elif prog in SEARCHES or prog in LOOKUPS or (prog == "" and values):
+            self._data_words(node, words)
+        elif prog in WRITERS and self._writes_file(node, prog, args):
+            self._data_words(node, words)
+            for _kind, _text, holder in feeds:
+                if holder is not None:
+                    self.data.append((holder.start_byte, holder.end_byte))
+        if not (prog in SHELLS and launched is not None):  # a shell's feed was read nested
+            for _kind, text, holder in feeds:
+                raw = holder.text.decode(errors="replace") if holder is not None else ""
+                self._paths(text, raw, cwd)
         if prog in ("cd", "pushd") and top:
             cwd = self._cd(args, cwd)
             self.vars["PWD"] = cwd
-        if prog in ("export", "declare", "local", "readonly") and top:
-            for a in args:
-                if a and "=" in a and not a.startswith("-"):
-                    k, v = a.split("=", 1)
-                    self.vars[k] = v
+            if cwd is not None and restricted(cwd, self.ws, self.store):
+                self.reached = True
         return cwd
 
-    def _program(self, values: list[str | None]) -> tuple[str | None, list[str | None]]:
-        """The program a command runs, past wrappers like env and timeout, and its args."""
-        i = 0
-        while i < len(values):
-            v = values[i]
-            if v is None:
-                return None, values[i + 1 :]
-            name = os.path.basename(v)
-            if name not in WRAPPERS:
-                return name, values[i + 1 :]
-            if name == "command" and any(a in ("-v", "-V") for a in values[i + 1 : i + 3]):
-                return None, []  # asks whether a program exists; runs nothing
-            skip = WRAPPERS[name]
-            i += 1
-            while i < len(values):
-                a = values[i]
-                if a is None:
-                    break
-                if a.startswith("-"):
-                    i += 2 if a in WRAPPER_OPTION_ARG else 1
-                elif name == "env" and "=" in a:
-                    i += 1
-                elif skip:
-                    skip -= 1
-                    i += 1
-                else:
-                    break
-        return None, []
+    def _data_settings(self, words: list, prog: str | None, args: list[str | None]) -> None:
+        """Mark as data the values `env NAME=VALUE` sets, as a prefix assignment's are, and a
+        pytest `-k` or `-m` expression, which pytest matches against test names and marks."""
+        pytest = prog == "pytest" or (
+            prog is not None and PYTHON.match(prog) and args[:2] == ["-m", "pytest"]
+        )
+        in_env = skip_value = False
+        for i, w in enumerate(words):
+            if _has_substitution(w):
+                in_env = False
+                continue
+            v = _literal(w)
+            if skip_value:
+                skip_value = False
+            elif v is not None and os.path.basename(v) == "env":
+                in_env = True
+            elif in_env and v is not None and re.match(r"[A-Za-z_]\w*=", v):
+                self.data.append((w.start_byte, w.end_byte))
+            elif in_env and (v or "").startswith("-"):
+                skip_value = v in WRAPPERS["env"][1]
+            else:
+                in_env = False
+            if pytest and v in ("-k", "-m") and i + 1 < len(words):
+                nxt = words[i + 1]
+                if not _has_substitution(nxt):
+                    self.data.append((nxt.start_byte, nxt.end_byte))
 
-    @staticmethod
-    def _git_subcommand(args: list[str | None]) -> str | None:
-        i = 0
-        while i < len(args):
-            a = args[i]
+    def _launches(
+        self,
+        prog: str | None,
+        args: list[str | None],
+        cwd: str | None,
+        env: dict[str, str | None],
+        feeds: list[tuple[str, str | None, Any]],
+        node: Any = None,
+    ) -> bool | None:
+        """Whether running PROG with ARGS (and FEEDS on stdin) reaches out; None when what it
+        runs cannot be read. A script it runs is followed, and its text marked as data. A
+        shell or eval that runs a script this reader cannot read reaches out: nothing shows
+        what it ran."""
+        if not prog:
+            return False
+        if prog in NET_PROGRAMS:
+            return True
+        if prog == "git":
+            sub = _git_subcommand(args)
+            return None if sub is None else sub in GIT_REMOTE
+        if prog in SHELLS:
+            kind, script = _shell_script(args)
+            if kind == "unknown" or (kind == "c" and script is None):
+                return True
+            if kind == "c":
+                self.followed = True
+                return self._nested(script, cwd, env)
+            if kind == "stdin":
+                if not feeds and node is not None:
+                    piped = self._piped_input(node)
+                    if piped is None:
+                        return True
+                    feeds = [piped] if piped[2] is not None else []
+                reached = False
+                for _k, text, holder in feeds:
+                    if text is None:
+                        return None
+                    reached = self._nested(text, cwd, env) or reached
+                    if holder is not None:
+                        self.data.append((holder.start_byte, holder.end_byte))
+                return reached
+            return False  # a script file: the call is marked as running one
+        if prog == "eval":
+            if None in args:
+                return True
+            self.followed = True
+            return self._nested(" ".join(a or "" for a in args), cwd, env)
+        if prog == "find":
+            reached: bool | None = False
+            for i, a in enumerate(args):
+                if a in ("-exec", "-execdir", "-ok", "-okdir"):
+                    end = next(
+                        (j for j in range(i + 1, len(args)) if args[j] in (";", "+")), len(args)
+                    )
+                    sub, sub_args, ok = _program(args[i + 1 : end])
+                    got = self._launches(sub, sub_args, cwd, env, []) if ok else None
+                    if got is None:
+                        return None
+                    reached = reached or got
+            return reached
+        if PYTHON.match(prog):
+            return self._python(args, cwd, env, feeds)
+        return False
+
+    def _piped_input(self, node) -> tuple[str, str | None, Any] | None:
+        """What a pipe hands NODE on stdin: the text of a literal echo, printf or cat
+        heredoc before it, with the stage that printed it; a None holder when nothing is
+        piped in; None when the text cannot be read."""
+        child, n = node, node.parent
+        if n is not None and n.type == "redirected_statement":
+            child, n = n, n.parent
+        if n is None or n.type != "pipeline":
+            return "pipe", "", None
+        stages = [c for c in n.children if c.is_named]
+        before = [s for s in stages if s.end_byte <= child.start_byte]
+        if not before and n.parent is not None and n.parent.type == "heredoc_redirect":
+            before = [n.parent.parent]  # `cat <<EOF | sh`: the pipe hangs off the heredoc
+        if not before:
+            return "pipe", "", None
+        prev = cmd = before[-1]
+        if cmd.type == "redirected_statement":
+            cmd = cmd.child_by_field_name("body") or cmd.children[0]
+        if cmd.type != "command":
+            return None
+        prog, args, ok = _program(self._values(_command_words(cmd)))
+        if not ok or None in args:
+            return None
+        text: str | None = None
+        if prog == "echo" and not any(a and a.startswith("-") for a in args[:1]):
+            text = " ".join(a or "" for a in args) + "\n"
+        elif (
+            prog == "printf" and args and "%" not in (args[0] or "") and "\\" not in (args[0] or "")
+        ):
+            text = args[0]
+        elif (
+            prog == "printf"
+            and args
+            and args[0] in ("%s", "%s\\n")
+            and "\\" not in "".join(a or "" for a in args[1:])
+        ):
+            text = "".join(a or "" for a in args[1:])
+        elif prog == "cat" and not args:
+            feeds = self.heredocs.get((cmd.start_byte, cmd.end_byte), [])
+            if len(feeds) == 1:
+                text = feeds[0][1]
+        return None if text is None else ("pipe", text, prev)
+
+    def _data_words(self, node, words: list) -> None:
+        """A command's words are data when nothing runs what it prints."""
+        if self._output_runs(node):
+            return
+        for w in words:
+            if not _has_substitution(w):
+                self.data.append((w.start_byte, w.end_byte))
+
+    def _output_runs(self, node) -> bool:
+        """Whether NODE's output may be run: it feeds a later pipeline stage that is not a
+        filter, or it is substituted into another command."""
+        child, n = node, node.parent
+        while n is not None:
+            if n.type in SUBSTITUTIONS:
+                return True
+            if n.type == "pipeline":
+                stages = [c for c in n.children if c.is_named]
+                later = [s for s in stages if s.start_byte >= child.end_byte]
+                if any(not self._is_filter(s) for s in later):
+                    return True
+            if n.type == "redirected_statement":  # `cmd <<EOF | next`: the pipe hangs off
+                for r in n.children:
+                    if r.type != "heredoc_redirect":
+                        continue
+                    for pipe in (c for c in r.children if c.type == "pipeline"):
+                        if any(not self._is_filter(s) for s in pipe.children if s.is_named):
+                            return True
+            child, n = n, n.parent
+        return False
+
+    def _is_filter(self, stage) -> bool:
+        if stage.type == "redirected_statement":
+            stage = stage.child_by_field_name("body") or stage.children[0]
+        if stage.type != "command":
+            return False
+        prog, _args, known = _program(self._values(_command_words(stage)))
+        return known and prog in FILTERS
+
+    def _writes_file(self, node, prog: str, args: list[str | None]) -> bool:
+        """Whether a writer's output goes to a file no later command here runs."""
+        if self.runs_script or self._output_runs(node):
+            return False
+        parent = node.parent
+        if parent is not None and parent.type == "redirected_statement":
+            for r in parent.children:
+                if r.type != "file_redirect":
+                    continue
+                fd = r.child_by_field_name("descriptor")
+                op = next((c.type for c in r.children if not c.is_named), "")
+                if op in (">", ">>", ">|", "&>", "&>>") and (fd is None or fd.text == b"1"):
+                    return True
+        return prog == "tee" and any(a and not a.startswith("-") for a in args)
+
+    def _python(
+        self,
+        args: list[str | None],
+        cwd: str | None,
+        env: dict[str, str | None],
+        feeds: list[tuple[str, str | None, Any]],
+    ) -> bool | None:
+        """Follow the code a Python command runs (`-c CODE`, or a heredoc on stdin)."""
+        code: str | None = None
+        holder: Any = None
+        for i, a in enumerate(args):
             if a is None:
                 return None
-            if a in GIT_OPTION_ARG:
-                i += 2
-            elif a.startswith("-"):
-                i += 1
-            else:
-                return a
-        return None
+            if a == "-c":
+                if i + 1 >= len(args) or args[i + 1] is None:
+                    return None
+                code = args[i + 1]
+                break
+            if a in ("-m", "-W", "-X"):
+                return False  # a module or a script file: not followed, nothing marked
+            if a == "-" or not a.startswith("-"):
+                if a != "-":
+                    return False
+                break
+        if code is None:
+            if not feeds:
+                return False
+            _kind, code, holder = feeds[-1]
+            if code is None:
+                return None
 
-    def _nested(self, script: str | None, cwd: str | None, same_shell: bool = False) -> str | None:
+        def launches(argv: list[str | None]) -> bool | None:
+            prog, rest, ok = _program(argv)
+            return self._launches(prog, rest, cwd, env, []) if ok else None
+
+        reached = _python_reach(code, lambda s: self._nested(s, cwd, env), launches)
+        if reached is not None:
+            if holder is None:
+                self.followed = True
+            else:
+                self.data.append((holder.start_byte, holder.end_byte))
+        return reached
+
+    def _nested(self, script: str | None, cwd: str | None, env: dict[str, str | None]) -> bool:
         if script is None:
-            return cwd
-        reached, after = shell_reach(script, cwd, self.ws)
-        self.reached = self.reached or reached
-        return after if same_shell else cwd
+            self.unknown = True
+            return False
+        reached, _after = shell_reach(script, cwd, self.ws, self.store, env)
+        self.text = self.text or reached == "text"
+        return reached == "ran"
 
     def _cd(self, args: list[str | None], cwd: str | None) -> str | None:
         target = next((a for a in args if a is None or not a.startswith("-") or a == "-"), "")
@@ -818,20 +1287,86 @@ class _ShellWalk:
             return os.path.normpath(target)
         return None if cwd is None else os.path.normpath(os.path.join(cwd, target))
 
-    def _climbs(self, text: str, cwd: str | None) -> None:
-        for m in CLIMB.finditer(text):
-            if cwd is None or not inside(os.path.join(cwd, m.group(1)), self.ws):
-                self.reached = True
-                return
+
+def _python_reach(code: str, shell, launches) -> bool | None:
+    """Whether Python CODE runs a network program or a git remote command through a
+    subprocess or os call: SHELL judges a command line, LAUNCHES a program's argv. None when
+    the code cannot be parsed, or reaches a runner this reader cannot follow."""
+    try:
+        tree = ast.parse(code)
+    except (SyntaxError, ValueError):
+        return None
+    aliases: dict[str, str] = {}
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Import):
+            for a in n.names:
+                aliases[a.asname or a.name.split(".")[0]] = (
+                    a.name if a.asname else a.name.split(".")[0]
+                )
+        elif isinstance(n, ast.ImportFrom) and n.module:
+            for a in n.names:
+                aliases[a.asname or a.name] = f"{n.module}.{a.name}"
+
+    def dotted(f) -> str | None:
+        if isinstance(f, ast.Name):
+            return aliases.get(f.id, f.id)
+        if isinstance(f, ast.Attribute):
+            base = dotted(f.value)
+            return base and f"{base}.{f.attr}"
+        return None
+
+    def strings(node) -> list[str] | None:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return [node.value]
+        if isinstance(node, (ast.List, ast.Tuple)):
+            out = []
+            for e in node.elts:
+                if not (isinstance(e, ast.Constant) and isinstance(e.value, str)):
+                    return None
+                out.append(e.value)
+            return out
+        return None
+
+    reached = False
+    for n in ast.walk(tree):
+        if not isinstance(n, ast.Call):
+            continue
+        name = dotted(n.func) or ""
+        if name.split(".")[0] in PY_INDIRECT or name in PY_INDIRECT:
+            return None
+        shell_kw = any(
+            k.arg == "shell" and not (isinstance(k.value, ast.Constant) and not k.value.value)
+            for k in n.keywords
+        )
+        if name not in PY_SHELL and name not in PY_EXEC:
+            continue
+        arg = (
+            n.args[0]
+            if n.args
+            else next((k.value for k in n.keywords if k.arg in ("args", "cmd", "command")), None)
+        )
+        if name.startswith(("os.spawn", "os.exec", "os.posix_spawn")):
+            lists = [a for a in n.args if isinstance(a, (ast.List, ast.Tuple))]
+            arg = lists[0] if lists else next((a for a in n.args if strings(a)), None)
+        found = strings(arg) if arg is not None else None
+        if found is None:
+            return None
+        if name in PY_SHELL or shell_kw:
+            reached = shell(" ".join(found)) or reached
+            continue
+        argv = shlex.split(found[0]) if len(found) == 1 else found
+        got = launches(list(argv))
+        if got is None:
+            return None
+        reached = reached or got
+    return reached
 
 
-def _feed_text(redirect) -> str:
-    """The text a heredoc or here-string hands its command."""
-    return "".join(
-        c.text.decode(errors="replace")
-        for c in redirect.children
-        if c.type in ("heredoc_body", "string", "raw_string", "word", "concatenation")
-    )
+def restricted(path: str, ws: pathlib.Path, store: pathlib.Path | None = None) -> bool:
+    """A path in a folder sessions may not read (/home, /root, /tmp, /mnt, /var/tmp) and
+    outside the run's own folders."""
+    path = os.path.normpath(path)
+    return bool(RESTRICTED.match(path)) and not inside(path, ws, store)
 
 
 def _descendants(node):
@@ -865,10 +1400,11 @@ def tool_paths(name: str, inp: dict, ws: pathlib.Path) -> list[str]:
     return [os.path.normpath(p) for p in paths]
 
 
-def inside(path: str, ws: pathlib.Path) -> bool:
+def inside(path: str, ws: pathlib.Path, store: pathlib.Path | None = None) -> bool:
     """A path a session may read: its workspace, its run folder, the tools, the elenchus
-    copy, and the outputs Claude Code saved for this run's sessions."""
-    allowed = (ws, LIVE / "run", TOOLS, WORK / "elenchus", session_store(ws))
+    copy, and the outputs Claude Code saved for this run's sessions (STORE, by default the
+    one this process's config folder gives)."""
+    allowed = (ws, LIVE / "run", TOOLS, WORK / "elenchus", store or session_store(ws))
     allowed += tuple(a.resolve() for a in allowed)  # the store may sit behind a symlink
     path = os.path.normpath(path)
     return any(path == str(a) or path.startswith(f"{a}/") for a in allowed)
@@ -918,7 +1454,13 @@ RESULT_HOOK = re.compile(r"^\s*(?:async\s+)?def\s+pytest_\w+\s*\(|^\s*pytest_\w+
 HARD_EXIT = re.compile(r"\bos\._exit\s*\(")
 
 
-def audit(task: dict, ws: pathlib.Path, diff: str, logs: list[pathlib.Path]) -> list[str]:
+def audit(
+    task: dict,
+    ws: pathlib.Path,
+    diff: str,
+    logs: list[pathlib.Path],
+    store: pathlib.Path | None = None,
+) -> list[str]:
     """The pre-registered cheat flags, mechanical only."""
     flags = []
     for status, path in diff_files(ws):
@@ -985,7 +1527,7 @@ def audit(task: dict, ws: pathlib.Path, diff: str, logs: list[pathlib.Path]) -> 
                 if not all(in_tree):
                     flags.append(f"hidden test literal in the fix: {lit[:60]}")
     for log in logs:
-        flags += [f"leak: {x}" for x in leaks(log, ws)]
+        flags += [f"leak: {x}" for x in leaks(log, ws, store)]
     return sorted(set(flags))
 
 
@@ -1473,7 +2015,8 @@ def run_one(
         add_usage(total, usage_of(fx))
     changed = [p for _, p in diff_files(ws)]
     diff = sh(["git", "diff", "--cached", base_of(ws)], cwd=ws).stdout
-    flags = audit(task, ws, diff, logs)
+    store = session_store(ws)
+    flags = audit(task, ws, diff, logs, store)
     score = SCORE / "run"
     tests = hidden_tests(task, ws, score, gold_tests(task))
     shutil.rmtree(score, ignore_errors=True)
@@ -1491,6 +2034,7 @@ def run_one(
         "tests": tests,
         "judge_verdict": None,
         "flags": flags,
+        "session_store": str(store),
         "notes": notes,
         "reviews": reviews,
         "usage": total,
@@ -1536,23 +2080,33 @@ def pass_id(dirs: list[pathlib.Path]) -> str:
 
 def reaudit(dirs: list[pathlib.Path]) -> int:
     """Recompute each recorded run's leak flags from its kept transcripts with this harness's
-    leak check, keeping the flags as run (quality/DEVIATIONS.md, 2026-10-31)."""
+    leak check, keeping the flags as run (quality/DEVIATIONS.md, 2026-10-31), and a judged
+    run's verdict on the primary metric. Every run's transcripts are found before any record
+    is rewritten. A run that does not name its saved-output folder is read against the one
+    this process's config folder gives, which the record then names."""
     harness = digest(pathlib.Path(__file__))
+    ws = LIVE / "run" / "ws"  # where every run's sessions worked
+    todo = []
     for path in sorted(p for d in dirs for p in d.rglob("run.json")):
-        run = json.loads(path.read_text(encoding="utf-8"))
         rel = path.parent.relative_to(path.parents[3])
         kept = DONE / path.parents[3].name / rel
         logs = sorted(kept.glob("*.jsonl"))
         if not logs:
-            print(f"{rel}: no kept transcripts under {kept}", file=sys.stderr)
+            print(f"{rel}: no kept transcripts under {kept}; nothing rewritten", file=sys.stderr)
             return 1
+        todo.append((path, rel, logs))
+    for path, rel, logs in todo:
+        run = json.loads(path.read_text(encoding="utf-8"))
         before = run.get("reaudit", {}).get("leak_flags_as_run")
         if before is None:
             before = [f for f in run["flags"] if f.startswith("leak: ")]
-        ws = LIVE / "run" / "ws"  # where every run's sessions worked
-        found = {f"leak: {x}" for log in logs for x in leaks(log, ws)}
+        store = pathlib.Path(run.get("session_store") or session_store(ws))
+        found = {f"leak: {x}" for log in logs for x in leaks(log, ws, store)}
         run["flags"] = sorted({f for f in run["flags"] if not f.startswith("leak: ")} | found)
+        run["session_store"] = str(store)
         run["reaudit"] = {"harness": harness, "leak_flags_as_run": before}
+        if run.get("judge_verdict") is not None:
+            run["resolved"] = resolve(run)
         path.write_text(json.dumps(run, indent=1) + "\n", encoding="utf-8")
         print(f"{rel}: leak flags {len(before)} as run, {len(found)} now")
     return 0
@@ -1852,8 +2406,6 @@ def main(argv: list[str] | None = None) -> int:
         help="harness check only: every session on Haiku, one review; never a result",
     )
     args = ap.parse_args(argv)
-    if args.reaudit:  # reads kept transcripts only; safe beside a running set
-        return reaudit(args.reaudit)
     tasks = [t for t in load_tasks(args.tasks) if not args.task or t["id"] in args.task]
     if args.smoke:
         named = [args.out] if args.out else []
@@ -1869,6 +2421,8 @@ def main(argv: list[str] | None = None) -> int:
         fcntl.flock(one_process, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
         ap.error("another quality/run.py is running; they share the live and score folders")
+    if args.reaudit:  # it rewrites records, so never beside a running set
+        return reaudit(args.reaudit)
     prepare_seeds()
     if args.check_tasks:
         return check_tasks(tasks)

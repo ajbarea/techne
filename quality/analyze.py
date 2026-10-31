@@ -273,9 +273,33 @@ def task_rows(runs: list[dict]) -> list[dict]:
     return rows
 
 
-def decide(runs: list[dict], pilot: bool = False) -> dict:
+TEXT_LEAK = "leak: text: "
+
+
+def without_text_leaks(runs: list[dict]) -> list[dict]:
+    """The runs as they would score if leak flags the shell reader could neither confirm nor
+    clear were dropped: the sensitivity analysis of quality/DEVIATIONS.md, 2026-10-31. The
+    conditions are run.py's resolve()."""
+    out = []
+    for r in runs:
+        flags = [f for f in r["flags"] if not f.startswith(TEXT_LEAK)]
+        v = r["judge_verdict"] or {}
+        ok = bool(
+            r["tests"]["passed"]
+            and v.get("ok")
+            and not v.get("blocking_defect")
+            and not v.get("cheated")
+            and not flags
+        )
+        out.append({**r, "flags": flags, "resolved": r["resolved"] or ok})
+    return out
+
+
+def decide(runs: list[dict], pilot: bool = False, sensitivity: bool = True) -> dict:
     s = scores(runs)
     out: dict = {"tasks": task_rows(runs)}
+    if sensitivity and any(f.startswith(TEXT_LEAK) for r in runs for f in r["flags"]):
+        out["without_text_leaks"] = decide(without_text_leaks(runs), pilot, sensitivity=False)
     paired = [t for t in s if s[t].get("normal") and s[t].get("budget")]
     if not paired:
         return out
@@ -419,6 +443,21 @@ def report(result: dict, title: str) -> str:
             lines.append(
                 f"- H3 {c}: {len(v['tasks'])} tasks, regressions"
                 f" {', '.join(v['regressions']) or 'none'}"
+            )
+    if "without_text_leaks" in result:
+        alt = result["without_text_leaks"]
+        lines += ["", "## Sensitivity: text-only leak flags dropped (DEVIATIONS 2026-10-31)", ""]
+        lines += [
+            f"- {r['task']} ({r['mode']}): resolved {fmt_pct(r['resolved'])} as registered,"
+            f" {fmt_pct(a['resolved'])} without them"
+            for r, a in zip(result["tasks"], alt["tasks"], strict=True)
+            if r["resolved"] != a["resolved"]
+        ] or ["No task's resolved share changes."]
+        if "h1" in alt:
+            lines.append(
+                f"- H1 lower bounds without them: bootstrap {alt['h1']['bootstrap_lower']:+.3f},"
+                f" t {alt['h1']['t_lower']:+.3f}:"
+                f" {'non-inferior' if alt['h1']['non_inferior'] else 'not shown'}"
             )
     if "pilot" in result:
         p = result["pilot"]

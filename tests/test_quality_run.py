@@ -203,6 +203,23 @@ def test_a_cwd_reset_returns_the_shell_to_the_workspace(tmp_path):
     assert not run.leaks(log, ws)
 
 
+@pytest.mark.parametrize("cd_by", ["toolu_1", None])
+def test_a_cd_in_one_stream_leaves_the_others_folder_unknown(tmp_path, cd_by):
+    ws = run.LIVE / "run" / "ws"
+
+    def bash(command: str, parent: str | None) -> dict:
+        call = {"type": "tool_use", "name": "Bash", "input": {"command": command}}
+        return {"type": "assistant", "parent_tool_use_id": parent, "message": {"content": [call]}}
+
+    # A subagent's shell may be the main one or its own, so after a `cd` in one stream the
+    # climb in the other lands inside ws in one reading and outside it in the other.
+    other = None if cd_by else "toolu_1"
+    recs = [bash("cd plugins/a/b/c", cd_by), bash("cat ../../../../x", other)]
+    log = tmp_path / "t.jsonl"
+    log.write_text("\n".join(json.dumps(r) for r in recs) + "\n")
+    assert run.leaks(log, ws)
+
+
 def test_reaudit_keeps_the_flags_as_run(tmp_path, monkeypatch):
     monkeypatch.setattr(run, "DONE", tmp_path / "done")
     res = tmp_path / "results" / "set"
@@ -1533,3 +1550,39 @@ def test_only_a_runs_own_sessions_may_read_back_their_saved_outputs(
     run.claude("p", "m", cwd, tmp_path / "s.jsonl", "Read")
     dirs = [seen[0][i + 1] for i, x in enumerate(seen[0]) if x == "--add-dir"]
     assert (str(run.session_store(cwd)) in dirs) is run_session
+
+
+@pytest.mark.parametrize(
+    ("command", "want"),
+    [
+        ('env GIT_SSH_COMMAND="ssh -x" uv run pytest -q', ""),
+        ("env -u X A='curl x' true", ""),
+        ('uv run pytest -q -k "ssh or prompts"', ""),
+        ('python3 -m pytest -m "gh and slow"', ""),
+        ("env A=1 curl x", "ran"),
+        ("uv run pytest -k x; curl y", "ran"),
+        ("bash -lc 'curl x'", "ran"),
+        # Python whose subprocess call this reader cannot follow, beside a text match.
+        (
+            "python3 -c \"import subprocess as s; f=lambda *a: s.run(['git',*a]); f('-c', 'x=ssh -i k')\"",
+            "text",
+        ),
+        ("my_fn 'gh pr create -b x'", "text"),
+        # A script this reader follows keeps its own text-only verdict.
+        ("bash -c \"my_fn 'gh pr create'\"", "text"),
+        # With the folder unknown, only the registered climb of two `../` counts.
+        ('cd "$(mktemp -d)" && git worktree add ../feat', ""),
+        ('cd "$(mktemp -d)" && cat ../../x', "ran"),
+    ],
+)
+def test_each_leak_verdict_names_how_it_was_found(command, want):
+    ws = run.LIVE / "run" / "ws"
+    assert run.shell_reach(command, str(ws), ws)[0] == want
+
+
+def test_text_only_leaks_are_labelled_in_the_flag(tmp_path):
+    ws = run.LIVE / "run" / "ws"
+    log = transcript(
+        tmp_path, ("Bash", {"command": "my_fn 'gh pr create'"}), ("Bash", {"command": "curl x"})
+    )
+    assert run.leaks(log, ws) == ["text: Bash: my_fn 'gh pr create'", "Bash: curl x"]

@@ -257,3 +257,41 @@ def test_the_report_lists_leak_flags_the_reaudit_dropped():
     md = a.report(a.decide(runs), "t")
     assert "- t0 (normal): leak: Bash: git stash push" in md.split("dropped by the re-audit")[1]
     assert "curl x" not in md.split("dropped by the re-audit")[1]
+
+
+def test_the_sensitivity_analysis_drops_only_text_only_leak_flags():
+    runs = trial(lambda t, r: True)
+    budget = [r for r in runs if r["mode"] == "budget"]
+    budget[0]["flags"] = ["leak: text: Bash: printf 'gh pr create' | python3 probe.py"]
+    budget[1]["flags"] = ["leak: text: Bash: x", "leak: Bash: curl x"]
+    budget[2]["flags"] = ["leak: text: Bash: x"]
+    budget[2]["tests"]["passed"] = False
+    for r in budget[:3]:
+        r["resolved"] = False
+    out = a.decide(runs)
+    alt = {r["task"]: r for r in out["without_text_leaks"]["tasks"] if r["mode"] == "budget"}
+    # t0's three repeats: only r1, whose sole flag is text-only and which otherwise passes,
+    # comes back.
+    assert alt["t0"]["resolved"] == pytest.approx(1 / 3)
+    assert "without_text_leaks" not in out["without_text_leaks"]
+    md = a.report(out, "t")
+    assert "- t0 (budget): resolved 0% as registered, 33% without them" in md
+    assert "H1 lower bounds without them" in md
+
+
+def test_the_sensitivity_analysis_agrees_with_run_resolve():
+    import run as r  # ty: ignore[unresolved-import]
+
+    for passed in (True, False):
+        for verdict in ({"ok": True}, {"ok": True, "blocking_defect": True}, {"ok": False}):
+            for flags in ([], ["leak: text: Bash: x"], ["leak: Bash: x"], ["judge: y"]):
+                rec = {"tests": {"passed": passed}, "judge_verdict": verdict, "flags": flags}
+                rec["resolved"] = r.resolve(rec)
+                kept = [f for f in flags if not f.startswith(a.TEXT_LEAK)]
+                want = r.resolve({**rec, "flags": kept})
+                assert a.without_text_leaks([rec])[0]["resolved"] == want
+
+
+def test_no_sensitivity_section_without_text_only_leak_flags():
+    md = a.report(a.decide(trial(lambda t, r: True)), "t")
+    assert "Sensitivity" not in md
