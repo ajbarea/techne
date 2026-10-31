@@ -6,20 +6,21 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 
 ## In flight
 
-techne#249 is fixed in PR #252 (branch results/quality-baseline): the task notes state what the
-hidden tests check, `--check-tasks` fails a task with a gap, `quality/DEVIATIONS.md` records it.
-Seven reader rounds plus a verify pass, clean; `--check-tasks` 10/10 ok on 5ec4dc0. Old runs stay
-in `quality/results/2026-10-29-baseline-void/`.
+techne#255 (branch fix/quality-leak-audit, no PR yet): the leak check reads bash with
+tree-sitter-bash instead of matching text; `run.py --reaudit` recomputes recorded runs' flags;
+DEVIATIONS.md 2026-10-31 logs it. Reproduced on a copy of baseline-2: 43 leak flags on 9 runs
+drop to 2 (techne-220 r1, `--id ../../etc`), every dropped one a local command. 327415f adds
+tests/test_quality_shell_diff.py (360 generated commands run under real bash with stub network
+programs; all agree); four hand mutants (timeout wrapper, raw-string unquote, eval, heredoc feed)
+each go red. Lint clean; full `make test` not yet finished (stopped for the 10-31 account hold).
 
 Next, in order:
-1. Merge #252 on green.
-2. Restart the Opus baseline from main in a fresh worktree on the RIT account (the default config
-   folder): point `~/.local/state/techne-quality/resume.sh`'s `cd` at that worktree and its
-   QUALITY_OUT at `quality/results/2026-10-29-baseline-2`, then
-   `tmux new-session -d -s quality-resume -e CLAUDE_CONFIG_DIR="$HOME/.claude" "bash
-   ~/.local/state/techne-quality/resume.sh"`. Rerunning resumes; always pass `-e CLAUDE_CONFIG_DIR`.
-   Progress: `grep tests= ~/.local/state/techne-quality/baseline.log`.
-3. Commit the results under `quality/results/` by PR, then start techne#226 measured on them.
+1. `timeout 1800 flock /tmp/fleet-heavy.lock timeout 1500 make test` in this worktree.
+2. Open the PR (Closes #255, label bug, assignee ajbarea), then elenchus: `/code-review medium`
+   + a fresh Opus reader per round, until clean (registered-study harness), then a verify pass.
+3. Merge; when the baseline (tmux quality-resume, RIT, results/quality-baseline-2) reaches 30
+   runs, `uv run python quality/run.py --reaudit quality/results/2026-10-29-baseline-2` from
+   main, then the judge pass + analyze, results PR, then techne#226.
 Never wrap `run.py` or `make quality` in `flock /tmp/fleet-heavy.lock`: run.py takes that lock
 itself, so the wrapper deadlocks. A lock held long after every job ended is likely an orphan that
 inherited the fd (klepsydra#193): `lsof /tmp/fleet-heavy.lock`. A skill suite with any "ended on
