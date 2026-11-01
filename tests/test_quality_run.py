@@ -1564,7 +1564,8 @@ def test_only_a_runs_own_sessions_may_read_back_their_saved_outputs(
         ("bash -lc 'curl x'", "ran"),
         # Python whose subprocess call this reader cannot follow, beside a text match.
         (
-            "python3 -c \"import subprocess as s; f=lambda *a: s.run(['git',*a]); f('-c', 'x=ssh -i k')\"",
+            'python3 -c "import subprocess as s; '
+            "f=lambda *a: s.run(['git',*a]); f('-c', 'x=ssh -i k')\"",
             "text",
         ),
         ("my_fn 'gh pr create -b x'", "text"),
