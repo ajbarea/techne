@@ -18,6 +18,7 @@ import argparse
 import ast
 import fcntl
 import hashlib
+import itertools
 import json
 import os
 import pathlib
@@ -29,7 +30,7 @@ import subprocess
 import sys
 import time
 import tomllib
-from collections.abc import Sequence
+from collections.abc import Sequence, Set
 from typing import Any
 from xml.etree import ElementTree
 
@@ -661,7 +662,7 @@ def shell_reach(
     except RecursionError:
         return ("text" if LEAK.search(command) or ESCAPE.search(command) else ""), None
     finally:
-        for index, ids in zip((HAS_SUBSTITUTION, MAY_RUN_OUTPUT), saved):
+        for index, ids in zip((HAS_SUBSTITUTION, MAY_RUN_OUTPUT), saved, strict=True):
             index.clear()
             index.update(ids)
     hits = [m.start() for m in LEAK_BYTES.finditer(command.encode())]
@@ -675,7 +676,7 @@ def shell_reach(
 def _double_climb(token: str) -> bool:
     """Two `..` steps in a row, the registered climb (`../..`, `..//..`, `./../../x`)."""
     steps = [s for s in token.split("/") if s not in ("", ".")]
-    return any(a == b == ".." for a, b in zip(steps, steps[1:]))
+    return any(a == b == ".." for a, b in itertools.pairwise(steps))
 
 
 def expand_tilde(path: str, home: str, cwd: str | None = None) -> str | None:
@@ -1162,7 +1163,11 @@ class _ShellWalk:
                 if prog in WRITERS and not self._to_null(node):
                     self._written(text, here, env)
         if printed and not self._to_null(node):
-            self._written("\n".join(a for a in args if a), here, env)
+            lines = args
+            if prog == "printf" and len(args) > 1:  # each argument is written through the format
+                self._written(args[0], here, env)
+                lines = args[1:]
+            self._written("\n".join(a for a in lines if a), here, env)
         if prog == "git":
             config = _git_subcommand(args) == "config"
             for i, w in enumerate(words):
@@ -1353,7 +1358,7 @@ class _ShellWalk:
                 text = feeds[0][1]
         return None if text is None else ("pipe", text, prev)
 
-    def _data_words(self, node, words: list, keep: set[int] = frozenset()) -> None:
+    def _data_words(self, node, words: list, keep: Set[int] = frozenset()) -> None:
         """A command's words (but those at the indexes in KEEP) are data when nothing runs
         what it prints."""
         if self._output_runs(node):
@@ -2348,7 +2353,9 @@ def reaudit(dirs: list[pathlib.Path], store: pathlib.Path | None = None) -> int:
         if before is None:
             before = [f for f in run["flags"] if f.startswith("leak: ")]
         if logs:
-            saved = pathlib.Path(run.get("session_store") or store)
+            saved = run.get("session_store") or store
+            assert saved, rel  # refused above
+            saved = pathlib.Path(saved)
             found = {f"leak: {x}" for log in logs for x in leaks(log, ws, saved)}
             run["flags"] = sorted({f for f in run["flags"] if not f.startswith("leak: ")} | found)
             run["session_store"] = str(saved)

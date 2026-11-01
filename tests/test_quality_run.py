@@ -1584,6 +1584,36 @@ def test_each_leak_verdict_names_how_it_was_found(command, want):
     assert run.shell_reach(command, str(ws), ws)[0] == want
 
 
+@pytest.mark.parametrize(
+    ("command", "want"),
+    [
+        # A git subcommand off the local list keeps its words' paths and its text matches.
+        ("git lfs track /home/aj/x", "ran"),
+        ("git frobnicate; grep -n 'gh pr' notes.txt", "text"),
+        # A `-c` value is not data: git may run it.
+        ("git -c core.hooksPath=/home/aj/h status", "ran"),
+        ("git -c user.name=gh status", "text"),
+        # `-mc` runs the module c: the string after it is an argument, not code.
+        ("python3 -mc \"import os; os.system('curl x')\"", "text"),
+        # A subshell's folder and variables end with it; `cd -` returns; `source` loses it.
+        ('(cd a/b/c); cat "$PWD/../../../x"', "ran"),
+        ("cd a/b && cd .. && cd - && cat ../../x", ""),
+        ("cd a/b && . ./env.sh && cat ../../x", "ran"),
+        # A search whose output a command takes as words is not data.
+        ("echo $(grep curl notes.txt)", "text"),
+        # Python written to a file is read as Python; a printf format apart from its lines.
+        ('echo \'import subprocess; subprocess.run(["curl", "x"])\' > t.py', "text"),
+        (
+            "printf '%s\\n' 'import subprocess' 'subprocess.run([\"gh\", \"pr\"])' > t.py",
+            "text",
+        ),
+    ],
+)
+def test_each_guard_of_the_shell_reader_decides_a_verdict(command, want):
+    ws = run.LIVE / "run" / "ws"
+    assert run.shell_reach(command, str(ws), ws)[0] == want
+
+
 def test_text_only_leaks_are_labelled_in_the_flag(tmp_path):
     ws = run.LIVE / "run" / "ws"
     log = transcript(
