@@ -1719,7 +1719,7 @@ def test_reaudit_recomputes_the_primary_verdict(tmp_path, monkeypatch):
         ("env --split-string='curl x'", "ran"),
         ("sudo -s curl x", "ran"),
         # Python that reaches a call by a name the reader cannot follow keeps its match.
-        ("python3 -c \"exec('import os; os.system(\\\"curl x\\\")')\"", "text"),
+        ('python3 -c "exec(\'import os; os.system(\\"curl x\\")\')"', "text"),
         ("python3 -c \"import subprocess; subprocess.run('true; curl x', shell=True)\"", "ran"),
         ("python3 -c \"import subprocess; subprocess.run('true; curl x', shell=False)\"", ""),
     ],
