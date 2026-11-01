@@ -254,9 +254,13 @@ def test_the_report_lists_leak_flags_the_reaudit_dropped():
     runs[0]["reaudit"] = {"harness": "h", "leak_flags_as_run": ["leak: Bash: git stash push"]}
     runs[2]["flags"] = ["leak: Bash: curl x"]
     runs[2]["reaudit"] = {"harness": "h", "leak_flags_as_run": ["leak: Bash: curl x"]}
+    # A flag the re-audit kept and labelled text-only was not dropped.
+    runs[4]["flags"] = ["leak: text: Bash: my_fn 'gh pr'"]
+    runs[4]["reaudit"] = {"harness": "h", "leak_flags_as_run": ["leak: Bash: my_fn 'gh pr'"]}
     md = a.report(a.decide(runs), "t")
     assert "- t0 (normal): leak: Bash: git stash push" in md.split("dropped by the re-audit")[1]
     assert "curl x" not in md.split("dropped by the re-audit")[1]
+    assert "my_fn" not in md.split("dropped by the re-audit")[1]
 
 
 def test_the_sensitivity_analysis_drops_only_text_only_leak_flags():

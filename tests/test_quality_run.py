@@ -1601,6 +1601,39 @@ def test_each_leak_verdict_names_how_it_was_found(command, want):
         ("cd a/b && . ./env.sh && cat ../../x", "ran"),
         # A search whose output a command takes as words is not data.
         ("echo $(grep curl notes.txt)", "text"),
+        # A command after `||` or in a branch may not run: the folder after it is unknown.
+        ("cd sub 2>/dev/null || cd ../.. ; ls", "ran"),
+        ("if false; then cd /x; fi; ls ../..", "ran"),
+        ("until false; do cd x; done; cat ../../y", "ran"),
+        ("cd x || exit 1; cat ../y", ""),
+        ("if [ -d x ]; then cd x; else cd x; fi; cat ../y", ""),
+        # tree-sitter reads `a && b 2>&1 | c` as `(a && b 2>&1) | c`; bash pipes only b.
+        ("cd .. && ls 2>&1 | cat; cat ../x", "ran"),
+        ("cd a & cat ../../y", "ran"),
+        # An unquoted expansion to nothing is no word: curl is the program.
+        ("X=; $X curl http://x", "ran"),
+        # A file a search, cat or git opens is a path it uses; a search pattern is text.
+        ("grep -r token /home/aj/.ssh", "ran"),
+        ("rg -g '*.py' secret /root", "ran"),
+        ("git -C /home/aj/other log", "ran"),
+        ("cat /home/aj/secret > /dev/null", "ran"),
+        ("grep -e /home/x src", "text"),
+        ("grep -rn 'curl' src/", ""),
+        # `//home` is /home; a glob or brace that can name a registered folder counts.
+        ("cat //home/aj/.ssh/id_rsa", "ran"),
+        ("cat /h?me/aj/x", "ran"),
+        ("ls /{home,x}/aj", "ran"),
+        ("ls /u?r/lib; cat *.py; ls ../{a,b}", ""),
+        # Only git's own `-c`, before the subcommand, sets a value git may run.
+        ("git log --format=%H -c curl", ""),
+        # A redirect after a list's or pipeline's last command is that command's.
+        ("false || printf '%s' 'gh wget' >/dev/null", ""),
+        ("echo y | xargs echo 'curl x' >/dev/null", ""),
+        ("true || printf 'curl x' >f.sh", "text"),
+        # A function that defines its own name anew runs the new body; one defined in a
+        # subshell is gone after it.
+        ("g() { g() { cd /home; }; g; }; g; cat x", "ran"),
+        ("( f() { cd /home; } ); f; cat x", ""),
         # Python written to a file is read as Python; a printf format apart from its lines.
         ('echo \'import subprocess; subprocess.run(["curl", "x"])\' > t.py', "text"),
         (

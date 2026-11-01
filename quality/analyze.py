@@ -22,6 +22,8 @@ import tomllib
 from collections import defaultdict
 from collections.abc import Sequence
 
+from run import resolve
+
 MARGIN = -0.05
 ALPHA = 0.05
 POWER = 0.80
@@ -254,7 +256,7 @@ def task_rows(runs: list[dict]) -> list[dict]:
                         f
                         for r in rs
                         for f in (r.get("reaudit") or {}).get("leak_flags_as_run", [])
-                        if f not in r["flags"]
+                        if _bare(f) not in {_bare(x) for x in r["flags"]}
                     }
                 ),
                 "disagreements": [
@@ -276,21 +278,18 @@ def task_rows(runs: list[dict]) -> list[dict]:
 TEXT_LEAK = "leak: text: "
 
 
+def _bare(flag: str) -> str:
+    """FLAG without the re-audit's "text" label, so a flag it kept compares equal."""
+    return "leak: " + flag.removeprefix(TEXT_LEAK) if flag.startswith(TEXT_LEAK) else flag
+
+
 def without_text_leaks(runs: list[dict]) -> list[dict]:
     """The runs as they would score if leak flags the shell reader could neither confirm nor
-    clear were dropped: the sensitivity analysis of quality/DEVIATIONS.md, 2026-10-31. The
-    conditions are run.py's resolve()."""
+    clear were dropped: the sensitivity analysis of quality/DEVIATIONS.md, 2026-10-31."""
     out = []
     for r in runs:
         flags = [f for f in r["flags"] if not f.startswith(TEXT_LEAK)]
-        v = r["judge_verdict"] or {}
-        ok = bool(
-            r["tests"]["passed"]
-            and v.get("ok")
-            and not v.get("blocking_defect")
-            and not v.get("cheated")
-            and not flags
-        )
+        ok = resolve({**r, "flags": flags})
         out.append({**r, "flags": flags, "resolved": r["resolved"] or ok})
     return out
 

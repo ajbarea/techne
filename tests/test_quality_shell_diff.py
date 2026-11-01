@@ -47,6 +47,7 @@ DATA = [
 # The same, in shapes it may flag: printed text could be run by what reads it.
 DECOYS = ["echo curl", "echo 'ssh -x'", "printf '%s' 'git push'", "echo gh wget"]
 WRAPPERS = ["", "env A=1 ", "timeout 5 ", "nice -n 1 ", "command ", "nohup ", "stdbuf -o0 "]
+WRAPPERS += ["E=; $E "]  # an unquoted expansion to nothing is no word
 
 
 def spell(name: str, rng: random.Random) -> str:
@@ -87,15 +88,22 @@ def nest(cmd: str, rng: random.Random) -> tuple[str, bool]:
         (f"eval '{q}'", True),
         (f"( {cmd} )", True),
         (f"{{ {cmd}; }}", True),
-        (f"true | {cmd}", True),
         (f"find . -maxdepth 0 -exec sh -c '{q}' \\;", True),
         (f"python3 - <<'PY'\nimport os\nos.system({cmd!r})\nPY", True),
+        (f"false || {cmd}", True),
+        (f"if true; then\n{cmd}\nfi", True),
+        (f"for i in 1; do\n{cmd}\ndone", True),
+        (f"case x in x)\n{cmd}\n;; esac", True),
         (f"echo $({cmd}) >/dev/null", False),
         (f"echo '{q}' | bash", False),
         (f"cat <<'EOF' | sh\n{cmd}\nEOF", False),
     ]
+    if ";" not in cmd:  # `true | a; b` pipes only a: b never sees a's assignments
+        forms.append((f"true | {cmd}", True))
     if not any(s in cmd for s in ("<<", "|", ";")) and not cmd.startswith(("A=", "command ")):
         forms.append((f"echo y | xargs {cmd}", True))
+    if "<<" not in cmd:  # tree-sitter reads this as `(true && cmd 2>&1) | cat`
+        forms.append((f"true && {cmd} 2>&1 | cat", True))
     return rng.choice(forms)
 
 
@@ -201,6 +209,7 @@ def test_the_leak_check_never_calls_ran_what_bash_did_not_run(box):
 # one). A move is followed by `:`, so the folder it enters is logged.
 DIRS = ["/", "/usr", "/usr/lib", "..", "../..", "{ws}", "{ws}/sub/deep", "~"]
 LANDS = ["x", "..", "../x", "../../x", "sub/x", "~/x", "/usr/x", "/tmp/zz", "~root/x"]
+LANDS += ["//tmp/zz", "/t?p", "/{tmp,usr}/zz", "/u?r/x", "s*"]  # globs match what exists
 MOVES = [
     "cd {d}",
     "builtin cd {d}",
@@ -223,11 +232,11 @@ def folder_step(rng: random.Random, ws: str) -> str:
     return rng.choice(MOVES).format(d=d) + "; :"
 
 
-def folder_group(rng: random.Random, ws: str, depth: int = 0) -> str:
+def folder_group(rng: random.Random, ws: str, depth: int = 0, step=folder_step) -> str:
     steps = [
-        folder_group(rng, ws, depth + 1)
+        folder_group(rng, ws, depth + 1, step)
         if depth < 2 and rng.random() < 0.3
-        else folder_step(rng, ws)
+        else step(rng, ws)
         for _ in range(rng.randint(1, 4))
     ]
     body = "; ".join(steps)
@@ -294,6 +303,50 @@ def test_the_leak_check_follows_the_folder_as_bash_does(folders, seed):
             wrong.append(f"bash used {real[0]}, check said {flagged!r}: {cmd!r}")
         if flagged == "ran" and not real:
             wrong.append(f"check said 'ran', bash used no registered folder: {cmd!r}")
+    assert not wrong, "\n".join(wrong)
+
+
+# Moves that may not happen: a branch, a command after `||`, a loop, a background job, a
+# pipe. The check may not know the folder after one; with the folder unknown only the
+# registered climb of two `../` counts, so the steps here never climb one level, and the
+# check must say "ran" whenever bash used a registered folder (the other way it may be
+# stricter than bash).
+MAYBE = [
+    "cd {d} || cd ..",
+    "cd nope 2>/dev/null || cd {d}",
+    "false || cd {d}",
+    "true || cd {d}",
+    "cd {d} && true 2>&1 | cat",
+    "true && cd {d} 2>&1 | cat",
+    "if true; then cd {d}; fi",
+    "if false; then cd {d}; else cd sub; fi",
+    "for i in 1 2; do cd {d}; done",
+    "while false; do cd {d}; done",
+    "case x in x) cd {d};; esac",
+    "cd {d} & wait",
+]
+MAYBE_DIRS = ["/", "/usr", "{ws}", "{ws}/sub", "{ws}/sub/deep", "~"]
+
+
+def maybe_step(rng: random.Random, ws: str) -> str:
+    d = rng.choice(MAYBE_DIRS).format(ws=ws)
+    p = rng.choice([x for x in LANDS if x not in ("..", "../x")])
+    if rng.randrange(3) == 0:
+        return f"probe {p}"
+    return rng.choice(MAYBE).format(d=d) + "; :"
+
+
+@pytest.mark.parametrize("seed", range(4))
+def test_a_move_that_may_not_happen_never_hides_a_landing(folders, seed):
+    repo, _env = folders
+    rng = random.Random(2000 + seed)
+    wrong = []
+    for _ in range(50):
+        cmd = folder_group(rng, str(repo), step=maybe_step)
+        real = landed_outside(cmd, folders)
+        flagged, _ = run.shell_reach(cmd, str(repo), repo)
+        if real and flagged != "ran":
+            wrong.append(f"bash used {real[0]}, check said {flagged!r}: {cmd!r}")
     assert not wrong, "\n".join(wrong)
 
 
