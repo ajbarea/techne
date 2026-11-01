@@ -240,6 +240,7 @@ PYTHON = re.compile(r"python(?:3(?:\.\d+)?)?$")
 # Python calls that run a command line through a shell, and those that run a program.
 PY_SHELL = frozenset(
     {"os.system", "os.popen", "subprocess.getoutput", "subprocess.getstatusoutput"}
+    | {"asyncio.create_subprocess_shell"}
 )
 PY_EXEC = frozenset(
     {"subprocess.run", "subprocess.call", "subprocess.check_call", "subprocess.check_output"}
@@ -645,6 +646,11 @@ def bash_parser():
     return BASH
 
 
+def _text_reading(command: str) -> str:
+    """The registered rule read as text, for a command the parser cannot follow."""
+    return "text" if LEAK.search(command) or ESCAPE.search(command) else ""
+
+
 def shell_reach(
     command: str,
     cwd: str | None,
@@ -662,19 +668,19 @@ def shell_reach(
     cannot parse. "": neither. Only a closed list of shapes clears a match as data: a
     search's or lookup's words, a local git command's words but its `-c` values, a value
     assigned to a variable no program runs, a pytest `-k`/`-m` expression, words printed to
-    /dev/null, and a script this reader followed itself. Text written to a file stays
-    "text": a later call may run the file. Both count as leaks; the report also gives the
-    primary metric without "text" (quality/DEVIATIONS.md, 2026-10-31)."""
+    /dev/null, and a shell script this reader followed itself (never Python code). Text
+    written to a file stays "text": a later call may run the file. Both count as leaks; the
+    report also gives the primary metric without "text" (quality/DEVIATIONS.md, 2026-10-31)."""
     tree = bash_parser().parse(command.encode())
     if tree.root_node.has_error:  # unreadable: the registered text reading
-        return ("text" if LEAK.search(command) or ESCAPE.search(command) else ""), None
+        return _text_reading(command), None
     saved = HAS_SUBSTITUTION.copy(), MAY_RUN_OUTPUT.copy()  # a nested read indexes its own
     try:
         _index(tree.root_node)
         walker = _ShellWalk(ws, cwd, store, env)
         after = walker.visit(tree.root_node, cwd)
     except RecursionError:
-        return ("text" if LEAK.search(command) or ESCAPE.search(command) else ""), None
+        return _text_reading(command), None
     finally:
         for index, ids in zip((HAS_SUBSTITUTION, MAY_RUN_OUTPUT), saved, strict=True):
             index.clear()
@@ -854,6 +860,21 @@ def _opened(words: list, values: list[str | None], prog: str | None, args: list)
     return {at + i for i in out}
 
 
+COMPARE = frozenset({"=", "==", "!=", "=~", "<", ">", "-eq", "-ne", "-lt", "-le", "-gt", "-ge"})
+
+
+def _compared(node) -> bool:
+    """Whether word NODE is only compared or listed (a loop's items, a test's string or
+    pattern operand), so a path in it is text; a file test (`-f`, `-nt`) uses its path."""
+    parent = node.parent
+    if parent is None:
+        return False
+    if parent.type == "for_statement":
+        return True
+    op = parent.child_by_field_name("operator")
+    return parent.type == "binary_expression" and op is not None and op.type in COMPARE
+
+
 def _list_items(node) -> list:
     """A `&&`/`||`/`;` list's statements, operators and redirections, flattened in order:
     tree-sitter nests a long chain one level per operator, and hangs a redirection after a
@@ -994,6 +1015,7 @@ class _ShellWalk:
         self.unknown = False  # a program could not be read: every text match counts
         self.text = False  # a script it followed held an uncleared text match
         self.followed = False
+        self.python_code = False  # the command runs Python code given as a word (`-c`)
         self.nested_cwd: str | None = None  # where an eval'd script left the folder
         self.data: list[tuple[int, int]] = []
         self.heredocs: dict[tuple[int, int], list[tuple[str, str | None, Any]]] = {}
@@ -1011,7 +1033,7 @@ class _ShellWalk:
                 if c.type == "variable_assignment":
                     self._assign(c, cwd, keep=True)
                 elif c.type in WORDS:
-                    self._word_node(c, cwd)
+                    self._word_node(c, cwd, soft=True)
             return cwd
         if kind == "heredoc_body":  # its text is read with the command it feeds
             self._substitutions(node, cwd)
@@ -1038,7 +1060,7 @@ class _ShellWalk:
                 self.functions[name.text.decode(errors="replace")] = body
             return cwd
         if kind in WORDS:
-            self._word_node(node, cwd)
+            self._word_node(node, cwd, soft=_compared(node))
             return cwd
         if kind == "if_statement":
             return self._if(node, cwd)
@@ -1136,7 +1158,7 @@ class _ShellWalk:
                 k = next((i for i, x in enumerate(c.children) if x.type == ")"), None)
                 ends.append(cwd if k is None else self._seq(c.children[k + 1 :], cwd))
             elif c.type in WORDS:
-                self._word_node(c, cwd)
+                self._word_node(c, cwd, soft=True)
         return ends[0] if all(e == ends[0] for e in ends) else None
 
     def _loop(self, node, cwd: str | None) -> str | None:
@@ -1169,9 +1191,9 @@ class _ShellWalk:
             elif _has_substitution(c):
                 stack.extend(reversed(c.children))
 
-    def _word_node(self, node, cwd: str | None) -> None:
+    def _word_node(self, node, cwd: str | None, soft: bool = False) -> None:
         self._substitutions(node, cwd)
-        self._paths(self._word(node), node.text.decode(errors="replace"), cwd)
+        self._paths(self._word(node), node.text.decode(errors="replace"), cwd, soft)
 
     def _paths(self, value: str | None, raw: str, cwd: str | None, soft: bool = False) -> None:
         """Flag a path in VALUE that lands in a registered folder outside the run's own.
@@ -1306,6 +1328,7 @@ class _ShellWalk:
         if not known:
             self.unknown = True
         self.followed = False
+        self.python_code = False
         launched = self._launches(prog, args, here, env, feeds, node)
         if launched is None:
             self.unknown = True
@@ -1331,7 +1354,7 @@ class _ShellWalk:
         opened = _opened(words, values, prog, args)
         for i, w in enumerate(words):  # printed, or cleared as data and not opened: text
             cleared = any(a <= w.start_byte and w.end_byte <= b for a, b in spans)
-            soft = printed or (cleared and i not in opened)
+            soft = printed or self.python_code or (cleared and i not in opened)
             self._paths(self._word(w), w.text.decode(errors="replace"), here, soft)
         if not (prog in SHELLS and launched is not None):  # a shell's feed was read nested
             for _kind, text, holder in feeds:
@@ -1613,15 +1636,16 @@ class _ShellWalk:
             node, parent = parent, parent.parent
         if parent is None or parent.type != "redirected_statement":
             return False
+        last = None  # bash applies redirects in order: the last one of stdout holds
         for r in parent.children:
             if r.type != "file_redirect":
                 continue
             fd = r.child_by_field_name("descriptor")
             op = next((c.type for c in r.children if not c.is_named), "")
             target = r.child_by_field_name("destination")
-            if op in (">", ">>", ">|", "&>", "&>>") and (fd is None or fd.text == b"1"):
-                return target is not None and _literal(target) == "/dev/null"
-        return False
+            if op in (">", ">>", ">|", "&>", "&>>", ">&") and (fd is None or fd.text == b"1"):
+                last = target
+        return last is not None and _literal(last) == "/dev/null"
 
     def _python(
         self,
@@ -1633,7 +1657,6 @@ class _ShellWalk:
         """Follow the code a Python command runs (`-c CODE`, or a heredoc on stdin). Short
         options may be grouped (`-Ic`); `-W` and `-X` take a value."""
         code: str | None = None
-        holder: Any = None
         i = 0
         while i < len(args) and code is None:
             a = args[i]
@@ -1663,10 +1686,11 @@ class _ShellWalk:
                         code = value
                     break
             i += step
+        self.python_code = code is not None  # a path in it is text: Python is not read
         if code is None:
             if not feeds:
                 return False
-            _kind, code, holder = feeds[-1]
+            _kind, code, _holder = feeds[-1]
             if code is None:
                 return None
 
@@ -1675,11 +1699,8 @@ class _ShellWalk:
             lambda s: self._nested(s, cwd, env),
             lambda argv: self._argv_launches(argv, cwd, env),
         )
-        if reached is not None:
-            if holder is None:
-                self.followed = True
-            else:
-                self.data.append((holder.start_byte, holder.end_byte))
+        # Python is not read whole (any library may run or write), so its code is never
+        # cleared as data: a runner it shows gives "ran", and its text matches stay "text".
         return reached
 
     def _nested(
@@ -1793,10 +1814,9 @@ def _python_reach(code: str, shell, launches) -> bool | None:
             if n.args
             else next((k.value for k in n.keywords if k.arg in ("args", "cmd", "command")), None)
         )
-        if name.startswith(("os.spawn", "os.exec", "os.posix_spawn")):
-            lists = [a for a in n.args if isinstance(a, (ast.List, ast.Tuple))]
-            arg = lists[0] if lists else next((a for a in n.args if strings(a)), None)
         found = strings(arg) if arg is not None else None
+        if name.startswith(("os.spawn", "os.exec", "os.posix_spawn")):
+            found = _os_argv(name, n.args, strings)
         if found is None:
             return None
         if name in PY_SHELL or shell_kw:
@@ -1808,6 +1828,22 @@ def _python_reach(code: str, shell, launches) -> bool | None:
             return None
         reached = reached or got
     return reached
+
+
+def _os_argv(name: str, args: list, strings) -> list[str] | None:
+    """The argv an os.exec*, os.spawn* or os.posix_spawn* call runs, from its positional
+    ARGS: after the mode (spawn) and the path, each word apart (`l`) or one list (`v`,
+    posix_spawn), less a trailing environment (`e`). None when any of it is not a literal."""
+    kind = name.rsplit(".", 1)[1]
+    rest = args[2:] if kind.startswith("spawn") else args[1:]
+    if kind.startswith("posix_spawn") or "v" in kind:
+        return strings(rest[0]) if rest else None
+    if "e" in kind.removeprefix("exec").removeprefix("spawn"):
+        rest = rest[:-1]
+    words = [strings(a) for a in rest]
+    if not words or any(w is None or len(w) != 1 for w in words):
+        return None
+    return [w[0] for w in words]
 
 
 def _norm(path: str) -> str:
@@ -2538,6 +2574,7 @@ def run_one(
         "tests": tests,
         "judge_verdict": None,
         "flags": flags,
+        "reaudit": audit_stamp([f for f in flags if f.startswith("leak: ")]),
         "session_store": str(store),
         "notes": notes,
         "reviews": reviews,
@@ -2575,6 +2612,13 @@ def resolve(run: dict) -> bool:
     )
 
 
+def audit_stamp(as_run: list[str]) -> dict:
+    """Which leak check set a record's flags, and its leak flags as first recorded (AS_RUN):
+    analyze.py pools only runs one check flagged. Fresh, failed and re-audited records all
+    carry it."""
+    return {"harness": digest(pathlib.Path(__file__)), "leak_flags_as_run": as_run}
+
+
 def pass_id(dirs: list[pathlib.Path]) -> str:
     """One judge pass is the set of folders judged together; analyze.py refuses verdicts from
     different passes, so a mode judged on its own is never compared with another."""
@@ -2589,7 +2633,6 @@ def reaudit(dirs: list[pathlib.Path], store: pathlib.Path | None = None) -> int:
     run must have kept transcripts and name the folder where Claude Code saved its outputs,
     or STORE must give it, since the check reads against it. A run the harness failed has no
     transcripts; it is stamped with this harness and keeps its flags."""
-    harness = digest(pathlib.Path(__file__))
     ws = LIVE / "run" / "ws"  # where every run's sessions worked
     todo = []
     for path in sorted(p for d in dirs for p in d.rglob("run.json")):
@@ -2620,7 +2663,7 @@ def reaudit(dirs: list[pathlib.Path], store: pathlib.Path | None = None) -> int:
             found = {f"leak: {x}" for log in logs for x in leaks(log, ws, saved)}
             run["flags"] = sorted({f for f in run["flags"] if not f.startswith("leak: ")} | found)
             run["session_store"] = str(saved)
-        run["reaudit"] = {"harness": harness, "leak_flags_as_run": before}
+        run["reaudit"] = audit_stamp(before)
         if run.get("judge_verdict") is not None:
             run["resolved"] = resolve(run)
         tmp = path.with_suffix(".tmp")
@@ -2726,6 +2769,7 @@ def failed_run(
         "tests": {"passed": False, "exit": None, "tail": ""},
         "judge_verdict": None,
         "flags": [],
+        "reaudit": audit_stamp([]),
         "notes": ["the harness failed 3 times"],
         "reviews": [],
         "usage": {"cost_known": False},

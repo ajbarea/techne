@@ -125,7 +125,6 @@ def test_the_run_folder_and_tools_are_not_leaks(tmp_path):
         'grep -rln "urlopen\\|curl \\|requests\\." src',
         "printf 'scratch/\\nclone/\\n' > .gitignore",
         "command -v curl || echo none",
-        "python3 - <<'EOF'\nimport subprocess\nprint('git push origin main')\nEOF",
         "cd plugins/a/b/c && cd ../../../.. && ls",
     ],
 )
@@ -1669,6 +1668,21 @@ def _reaudit_set(tmp_path, monkeypatch, *records):
     return res
 
 
+def test_fresh_failed_and_reaudited_records_carry_one_audit_stamp(tmp_path, monkeypatch):
+    monkeypatch.setattr(run, "claude_version", lambda: "v")
+    failed = run.failed_run({"id": "t1", "risk": "low"}, "normal", 1, ["e"])
+    res = _reaudit_set(tmp_path, monkeypatch, {"flags": ["leak: Bash: curl x"]})
+    assert run.reaudit([res], tmp_path / "store") == 0
+    out = json.loads((res / "t1" / "normal" / "r1" / "run.json").read_text())
+    assert failed["reaudit"] == run.audit_stamp([])
+    assert out["reaudit"] == run.audit_stamp(["leak: Bash: curl x"])
+    assert (
+        failed["reaudit"]["harness"]
+        == out["reaudit"]["harness"]
+        == run.digest(pathlib.Path(run.__file__))
+    )
+
+
 def test_reaudit_needs_the_saved_output_folder(tmp_path, monkeypatch):
     res = _reaudit_set(tmp_path, monkeypatch, {"flags": []})
     before = (res / "t1" / "normal" / "r1" / "run.json").read_text()
@@ -1784,7 +1798,25 @@ def test_reaudit_recomputes_the_primary_verdict(tmp_path, monkeypatch):
         # Python that reaches a call by a name the reader cannot follow keeps its match.
         ('python3 -c "exec(\'import os; os.system(\\"curl x\\")\')"', "text"),
         ("python3 -c \"import subprocess; subprocess.run('true; curl x', shell=True)\"", "ran"),
-        ("python3 -c \"import subprocess; subprocess.run('true; curl x', shell=False)\"", ""),
+        # Python's text is never cleared: only a runner the reader follows decides "ran".
+        ("python3 -c \"import subprocess; subprocess.run('true; curl x', shell=False)\"", "text"),
+        ("python3 - <<'EOF'\nimport subprocess\nprint('git push origin main')\nEOF", "text"),
+        ('python3 -c \'open("a.sh", "w").write("curl http://x")\'', "text"),
+        ("python3 -c \"f('/home/u')\"", "text"),
+        # os.exec* and os.spawn* take the program's words apart, after the path and mode.
+        ('python3 -c \'import os; os.execl("/bin/sh", "sh", "-c", "curl x")\'', "ran"),
+        ('python3 -c \'import os; os.spawnlp(os.P_WAIT, "sh", "sh", "-c", "curl x")\'', "ran"),
+        ('python3 -c \'import os; os.execle("/bin/sh", "sh", "-c", "curl x", {})\'', "ran"),
+        ('python3 -c \'import os; os.execve("/bin/sh", ["sh", "-c", "curl x"], {})\'', "ran"),
+        ("python3 -c 'import asyncio; asyncio.create_subprocess_shell(\"curl x\")'", "ran"),
+        # The last redirect of stdout decides where the text goes.
+        ("echo 'curl x' >/dev/null >run.sh", "text"),
+        ("echo 'curl x' >run.sh >/dev/null", ""),
+        # A loop's items, a case subject and a compared string are not paths used.
+        ("for f in /home/other/a; do echo; done", "text"),
+        ("[[ $x == /home/* ]] && echo hi", "text"),
+        ("case /home/x in *) echo;; esac", "text"),
+        ("[ -f /home/x ]", "ran"),
     ],
 )
 def test_round_two_shapes(command, want):

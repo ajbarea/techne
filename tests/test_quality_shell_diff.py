@@ -89,7 +89,8 @@ def nest(cmd: str, rng: random.Random) -> tuple[str, bool]:
         (f"( {cmd} )", True),
         (f"{{ {cmd}; }}", True),
         (f"find . -maxdepth 0 -exec sh -c '{q}' \\;", True),
-        (f"python3 - <<'PY'\nimport os\nos.system({cmd!r})\nPY", True),
+        # Python is not read whole: its text is never cleared, only its runners confirmed.
+        (f"python3 - <<'PY'\nimport os\nos.system({cmd!r})\nPY", False),
         (f"false || {cmd}", True),
         (f"if true; then\n{cmd}\nfi", True),
         (f"for i in 1; do\n{cmd}\ndone", True),
