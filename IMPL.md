@@ -6,21 +6,29 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 
 ## In flight
 
-techne#255 (branch fix/quality-leak-audit, no PR yet): the leak check reads bash with
-tree-sitter-bash instead of matching text; `run.py --reaudit` recomputes recorded runs' flags;
-DEVIATIONS.md 2026-10-31 logs it. Reproduced on a copy of baseline-2: 43 leak flags on 9 runs
-drop to 2 (techne-220 r1, `--id ../../etc`), every dropped one a local command. 327415f adds
-tests/test_quality_shell_diff.py (360 generated commands run under real bash with stub network
-programs; all agree); four hand mutants (timeout wrapper, raw-string unquote, eval, heredoc feed)
-each go red. Lint clean; full `make test` not yet finished (stopped for the 10-31 account hold).
+techne#255, PR #256 (branch fix/quality-leak-audit): the leak check reads bash with
+tree-sitter-bash; `run.py --reaudit [--session-store DIR]` recomputes recorded runs. Review
+round 2 (11-01: /code-review medium + an Opus reader) found 1 Blocking + 12 Should-fix, two
+classes repeated from round 1 (shell-semantics-mismatch, vacuous-guard), so the fix is
+structural: one closed list of shapes that clear a match as data (written text, `-c`
+values and values git runs stay "text"); one path judge for every word (data words give
+"text", never "ran"; landing judged by `restricted()`); folder frames per subshell, pipeline
+stage and substitution, with pushd/popd/`cd -`/`env -C`/eval/function replay; iterative
+traversal (a 6400-command chain in 3.5 s, no RecursionError); `--reaudit` refuses a record
+naming no saved-output folder and stamps harness-failed runs. Differential tests against
+real bash now cover folders (DEBUG-trap oracle), write-then-run across two calls, and the
+no-false-"ran" direction. Baseline copy re-audit: 45 flags on 10 runs -> 18 "text" on 4,
+none "ran" (DEVIATIONS.md 2026-10-31).
 
 Next, in order:
-1. `timeout 1800 flock /tmp/fleet-heavy.lock timeout 1500 make test` in this worktree.
-2. Open the PR (Closes #255, label bug, assignee ajbarea), then elenchus: `/code-review medium`
-   + a fresh Opus reader per round, until clean (registered-study harness), then a verify pass.
-3. Merge; when the baseline (tmux quality-resume, RIT, results/quality-baseline-2) reaches 30
-   runs, `uv run python quality/run.py --reaudit quality/results/2026-10-29-baseline-2` from
-   main, then the judge pass + analyze, results PR, then techne#226.
+1. Guard mutation sweep (scratchpad mutate.py, 42 flips, under the fleet lock): every flip
+   must turn a test red; add a test for any survivor.
+2. Commit, full `make test` under the lock, push; update the PR body (numbers above).
+3. Review round 3: /code-review medium + a fresh Opus reader with the open list; until
+   clean, then a verify pass. Merge.
+4. When the baseline (tmux quality-resume, RIT) reaches 30 runs: `--reaudit` from main with
+   `--session-store ~/.claude/projects/-var-tmp-techne-quality-1001-live-run-ws`, judge,
+   analyze, results PR, then techne#226.
 Never wrap `run.py` or `make quality` in `flock /tmp/fleet-heavy.lock`: run.py takes that lock
 itself, so the wrapper deadlocks. A lock held long after every job ended is likely an orphan that
 inherited the fd (klepsydra#193): `lsof /tmp/fleet-heavy.lock`. A skill suite with any "ended on

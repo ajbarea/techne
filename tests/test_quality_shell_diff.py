@@ -11,6 +11,7 @@ text match counts unless the reader clears it.
 
 from __future__ import annotations
 
+import json
 import os
 import pathlib
 import random
@@ -93,7 +94,7 @@ def nest(cmd: str, rng: random.Random) -> tuple[str, bool]:
         (f"echo '{q}' | bash", False),
         (f"cat <<'EOF' | sh\n{cmd}\nEOF", False),
     ]
-    if "<<" not in cmd and "|" not in cmd and ";" not in cmd and not cmd.startswith("A="):
+    if not any(s in cmd for s in ("<<", "|", ";")) and not cmd.startswith(("A=", "command ")):
         forms.append((f"echo y | xargs {cmd}", True))
     return rng.choice(forms)
 
@@ -179,3 +180,164 @@ def test_the_generator_reaches_every_answer(box):
         cmd, clear = generate(rng)
         seen.add((ran_network(cmd, box), clear))
     assert {(True, False), (False, True), (False, False)} <= seen
+
+
+def test_the_leak_check_never_calls_ran_what_bash_did_not_run(box):
+    rng = random.Random(99)
+    ws = run.LIVE / "run" / "ws"
+    wrong = []
+    for _ in range(200):
+        cmd, _clear = generate(rng)
+        flagged, _ = run.shell_reach(cmd, str(ws), ws)
+        if flagged == "ran" and not ran_network(cmd, box):
+            wrong.append(f"check said 'ran', bash ran no network program: {cmd!r}")
+    assert not wrong, "\n".join(wrong)
+
+
+# Where paths land. A probe program logs its folder and where each argument lands, and a
+# DEBUG trap (inherited by functions, subshells and every bash started) logs the shell's
+# folder before each command; the check must say "ran" exactly when one of them is in a
+# registered folder outside the workspace (the test's workspace sits under /tmp, which is
+# one). A move is followed by `:`, so the folder it enters is logged.
+DIRS = ["/", "/usr", "/usr/lib", "..", "../..", "{ws}", "{ws}/sub/deep", "~"]
+LANDS = ["x", "..", "../x", "../../x", "sub/x", "~/x", "/usr/x", "/tmp/zz", "~root/x"]
+MOVES = [
+    "cd {d}",
+    "builtin cd {d}",
+    "pushd {d} >/dev/null",
+    "pushd {d} >/dev/null && popd >/dev/null",
+    "cd {d} && cd - >/dev/null",
+    "eval 'cd {d}'",
+    "f() {{ cd {d}; }}; f",
+]
+
+
+def folder_step(rng: random.Random, ws: str) -> str:
+    d = rng.choice(DIRS).format(ws=ws)
+    p = rng.choice(LANDS)
+    kind = rng.randrange(4)
+    if kind == 0:
+        return f"probe {p}"
+    if kind == 1:
+        return f"env -C {d} probe {p}"
+    return rng.choice(MOVES).format(d=d) + "; :"
+
+
+def folder_group(rng: random.Random, ws: str, depth: int = 0) -> str:
+    steps = [
+        folder_group(rng, ws, depth + 1)
+        if depth < 2 and rng.random() < 0.3
+        else folder_step(rng, ws)
+        for _ in range(rng.randint(1, 4))
+    ]
+    body = "; ".join(steps)
+    q = body.replace("'", "'\\''")
+    return rng.choice(
+        [
+            body,
+            f"( {body} )",
+            f"{{ {body}; }}",
+            f"bash -c '{q}'",
+            f"echo $( {body} ) >/dev/null",
+            f"true | ( {body} )",
+            f"g() {{ {body}; }}; g",
+        ]
+    )
+
+
+@pytest.fixture(scope="module")
+def folders(box):
+    repo, env, _log = box
+    (repo / "sub" / "deep").mkdir(parents=True, exist_ok=True)
+    probe = repo.parent / "stubs" / "probe"
+    probe.write_text(
+        "#!/usr/bin/env python3\nimport os, sys\n"
+        "with open(os.environ['PROBELOG'], 'a') as f:\n"
+        "    f.write(os.getcwd() + '\\n')\n"
+        "    for a in sys.argv[1:]:\n"
+        "        f.write(os.path.normpath(os.path.join(os.getcwd(), a)) + '\\n')\n"
+    )
+    probe.chmod(0o755)
+    trap = repo.parent / "trap.sh"
+    trap.write_text('set -T\ntrap \'printf "%s\\n" "$PWD" >> "$PROBELOG"\' DEBUG\n')
+    home = repo.parent / "home"
+    probe_log = str(repo.parent / "probe.log")
+    return repo, {**env, "PROBELOG": probe_log, "HOME": str(home), "BASH_ENV": str(trap)}
+
+
+def landed_outside(cmd: str, folders) -> list[str]:
+    repo, env = folders
+    log = pathlib.Path(env["PROBELOG"])
+    log.unlink(missing_ok=True)
+    subprocess.run(
+        ["bash", "-c", cmd],
+        cwd=repo,
+        env={k: v for k, v in env.items() if k != "OLDPWD"},
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        timeout=30,
+    )
+    landed = log.read_text().split() if log.exists() else []
+    return [p for p in landed if run.restricted(p, repo)]
+
+
+@pytest.mark.parametrize("seed", range(6))
+def test_the_leak_check_follows_the_folder_as_bash_does(folders, seed):
+    repo, _env = folders
+    rng = random.Random(1000 + seed)
+    wrong = []
+    for _ in range(50):
+        cmd = folder_group(rng, str(repo))
+        real = landed_outside(cmd, folders)
+        flagged, _ = run.shell_reach(cmd, str(repo), repo)
+        if real and flagged != "ran":
+            wrong.append(f"bash used {real[0]}, check said {flagged!r}: {cmd!r}")
+        if flagged == "ran" and not real:
+            wrong.append(f"check said 'ran', bash used no registered folder: {cmd!r}")
+    assert not wrong, "\n".join(wrong)
+
+
+def test_the_folder_generator_reaches_both_answers(folders):
+    repo, _env = folders
+    rng = random.Random(1000)
+    seen = {bool(landed_outside(folder_group(rng, str(repo)), folders)) for _ in range(60)}
+    assert seen == {True, False}
+
+
+# A script written in one call and run in a later one: the write must keep its text match.
+WRITES = [
+    ("cat > s.sh <<'EOF'\n{c}\nEOF", "bash s.sh"),
+    ("echo '{q}' > s.sh", "sh s.sh"),
+    ("printf '%s\\n' '{q}' | tee s.sh >/dev/null", ". ./s.sh"),
+    ("git config alias.zz '!{q}'", "git zz"),
+    ("cat > Makefile <<'MK'\nall:\n\t@{c}\nMK", "make -s"),
+    ("cat > s.py <<'EOF'\nimport os\nos.system({p!r})\nEOF", "python3 s.py"),
+]
+
+
+def test_a_script_written_now_and_run_later_keeps_its_flag(box, tmp_path):
+    repo, _env, _log = box
+    rng = random.Random(7)
+    wrong = []
+    for _ in range(40):
+        write, later = rng.choice(WRITES)
+        if later.startswith("make") and not shutil.which("make"):
+            continue
+        c = f"{spell(rng.choice(NET), rng)} x"
+        first = write.format(c=c, q=c.replace("'", "'\\''"), p=c)
+        ran_network(first, box)
+        if not ran_network(later, box):
+            continue
+        calls = [{"command": first}, {"command": later}]
+        log = tmp_path / "t.jsonl"
+        log.write_text(
+            "\n".join(
+                json.dumps(
+                    {"message": {"content": [{"type": "tool_use", "name": "Bash", "input": inp}]}}
+                )
+                for inp in calls
+            )
+        )
+        if not run.leaks(log, repo):
+            wrong.append(f"no flag on a script run later: {first!r} then {later!r}")
+    assert not wrong, "\n".join(wrong)
