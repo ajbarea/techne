@@ -4,32 +4,53 @@ The active TODO list for whatever's in flight **right now**: current PR, open de
 immediate next pickup. Queued specs and ordering live in [ROADMAP.md](./ROADMAP.md); landed work
 moves to its dated Shipped log. Over ~50 lines means something referential crept in.
 
-## In flight
+## In flight (PAUSED 11-02 18:15 by Heph: one agent per account)
 
 techne#255, PR #256 (branch fix/quality-leak-audit, worktree `.claude/worktrees/leak-audit`):
 the registered leak rule stays the primary metric exactly (a test pins its patterns); a
 tree-sitter-bash reader labels each flag (ran, `text:`, `cleared:`, `extra:`) for two
 sensitivity rows in analyze.py; `run.py --reaudit` adds labels to recorded runs.
 
-Done (11-02): round 6 (fresh Opus reader + `/code-review medium`) found six Blocking holes
-in the clearing deny-lists; per the reader's option (a), ab9fd1e makes the reader unable to
-move the primary result, and fixes the holes for the sensitivity rows. Ledgered (round 6).
-Recount at ab9fd1e on the 14 recorded runs: 50 registered flags on 12 runs; 20 cleared,
-30 text, 0 ran, 0 extra; reader's view flags 7 runs, ran-only 0 (scratch label_count.py).
-DEVIATIONS #255 entry rewritten (887 of 900 words); PR body updated.
+Done (11-02): round 6 -> ab9fd1e (primary = registered rule; reader only labels). Round 7
+`/code-review medium` -> c35825e: a reader exception labels the call text instead of
+aborting leaks(); `_sink_safe` walks every ancestor; Python->unread shell script unknown;
+python_code restored after nested launches; a comment climb stays text. 7 mutants all
+killed (scratch mutate_r7.py). Rounds 6-7 ledgered. DEVIATIONS #255 rewritten (887/900
+words); PR body updated. Recount at ab9fd1e: 50 registered flags on 12 of 14 runs; 20
+cleared, 30 text, 0 ran; reader's view 7 runs, ran-only 0.
+
+Not verified at c35825e: the three quality test files and the recount were stopped by the
+pause (only the 11 round-7 tests and lint ran green). The round-7 Opus reader was stopped
+before reporting.
 
 Next, in order:
-1. Round 7: a fresh Opus reader + `/code-review medium`; fix, ledger, until clean, then a
-   verify pass; `flock -o /tmp/fleet-heavy.lock timeout 2400 make test` on the final head;
-   merge on green.
-2. Baseline (tmux quality-resume, RIT, pinned to Claude Code 2.1.302 in
-   `~/.local/state/techne-quality/cc-2.1.302`): when it reaches 30 runs, `--reaudit` from
-   main, judge, analyze, results PR, then techne#226. resume.sh's single long `sleep` stalls
-   across a WSL suspend (11-02: killing the stalled `sleep` after the reset resumed it):
-   replace with a wall-clock wait once it is idle (never mid-run).
-3. Then #260 (log cleanup) and #261 (file naming) in one standard pass (research: logrotate
-   size+count, tmpfiles.d `D`/age + the user clean timer, temp+fsync+os.replace+dir fsync,
-   ULID/UUIDv7), then a klepsydra issue applying both.
+1. `uv run pytest -q tests/test_quality_analyze.py tests/test_quality_run.py
+   tests/test_quality_shell_diff.py`; recount labels (copy of the scratch script: imports
+   `run` from quality/, iterates run.json under the baseline-2 results folder, calls
+   `run.leaks(log, ws, run.session_store(ws))` on `run.DONE/<set>/<rel>/*.jsonl` with
+   CLAUDE_CONFIG_DIR=~/.claude); if counts moved, update DEVIATIONS and the PR table.
+2. Round 7 reader: a fresh Opus elenchus reader on c35825e (classes so far:
+   shell-semantics-mismatch, unmirrored-parallel-guard, check-time-vs-run-time,
+   vacuous-guard, instance-patch, unenumerated-input-shape, claim-code-drift,
+   undiagnosable-failure). Fix, ledger, until clean; verify pass;
+   `flock -o /tmp/fleet-heavy.lock timeout 2400 make test`; merge on green.
+3. Baseline (tmux quality-resume, RIT, pinned to Claude Code 2.1.302 in
+   `~/.local/state/techne-quality/cc-2.1.302`): resumed 17:48 at 14 of 30 runs, queued on
+   the heavy lock; runs on its own. At 30 runs: `--reaudit` from main, judge, analyze,
+   results PR, then techne#226. resume.sh's long `sleep` stalls across a WSL suspend
+   (killing the stalled `sleep` after the reset resumes it): replace with a wall-clock wait
+   once it is idle (never mid-run).
+4. Then #260 (log cleanup) and #261 (file naming) in one standard pass, then a klepsydra
+   issue applying both. research(2026-11), to cite: logrotate size+rotate N
+   (https://oneuptime.com/blog/post/2026-01-15-configure-logrotate-ubuntu/markdown);
+   rename rotation by the writer, copytruncate loses lines; user tmpfiles.d age lines in
+   ~/.config/user-tmpfiles.d + user systemd-tmpfiles-clean.timer, non-root clean bumps dir
+   atime (https://manpages.ubuntu.com/manpages/focal/man8/systemd-tmpfiles-clean.timer.8.html);
+   temp+fsync+os.replace+dir fsync, python-atomicwrites unmaintained
+   (https://pypi.org/project/atomicreplace/); `uuid.uuid7()` stdlib from Python 3.14 only,
+   techne supports 3.11+, so a fallback (https://docs.python.org/3/library/uuid.html).
+Round-7 deferred (sensitivity only): `_nested` returns False on a nested "text" (self.text
+carries it; no wrong verdict shown); audit_stamp digests all of run.py (reaudit restamps).
 Deferred Minors on #256: module-level substitution indexes restored in a finally; recursive
 `visit` (text fallback on RecursionError); audit_stamp digests all of run.py; exported-variable
 tracking; a program named by a substitution; `cmd >f <<< s` does not parse; programs that
