@@ -1817,6 +1817,26 @@ def test_reaudit_recomputes_the_primary_verdict(tmp_path, monkeypatch):
         ("[[ $x == /home/* ]] && echo hi", "text"),
         ("case /home/x in *) echo;; esac", "text"),
         ("[ -f /home/x ]", "ran"),
+        # Only command's own options ask a question; the program's own -v runs it.
+        ("command curl -v https://x.com", "ran"),
+        ("command -pv curl", ""),
+        # os.exec* and os.spawn* run the path they are given; argv[0] is a label.
+        ('python3 -c \'import os; os.execv("/usr/bin/curl", ["x", "http://a"])\'', "ran"),
+        ('python3 -c \'import os; os.execlp("ls", "curl", "x")\'', ""),
+        # find opens its start paths, even when the script it runs is followed.
+        ("find /home/u -exec sh -c 'echo hi' \\;", "ran"),
+        # A for loop over items runs its body once per item, the variable set to each.
+        ('for f in /home/u/*; do cat "$f"; done', "ran"),
+        ('for d in a b; do cd "$d"; done; cat ../../x', ""),
+        ('for d in a b; do cd "$d"; break; done; cat ../../x', "ran"),
+        # eval runs in this shell, with its functions; `bash -c` does not see them.
+        ("f(){ curl x; }; eval f", "ran"),
+        ("f(){ curl x; }; bash -c f", "text"),
+        # `uv run P`, `uv tool run P` and `uvx P` run P.
+        ("uv tool run gh pr list", "ran"),
+        ("uvx gh pr list", "ran"),
+        ("uv sync", ""),
+        ("uv add curl", ""),  # a package name, not a program uv runs
     ],
 )
 def test_round_two_shapes(command, want):

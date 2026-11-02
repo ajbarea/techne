@@ -137,6 +137,7 @@ def registered(runs):
         r.update(implementer=a.IMPLEMENTER[r["mode"]], reviewer=a.REVIEWER, judge=a.JUDGE)
         r["judge_verdict"].update(model=a.JUDGE, judge_prompt="j1", **{"pass": "p1"})
         r.update(phase="baseline", inputs={"harness": "h", "judge": "j1", "elenchus": "e"})
+        r["reaudit"] = {"harness": "h1", "leak_flags_as_run": []}
     return runs
 
 
@@ -240,6 +241,12 @@ def test_check_set_refuses_verdicts_on_two_claude_code_versions():
 
 def test_check_set_refuses_a_partial_reaudit():
     runs = registered(trial(lambda t, r: True))
+    for r in runs:
+        del r["reaudit"]
+    problems = a.check_set(runs, [f"t{t}" for t in range(10)], a.REPEATS)
+    assert any("no recorded audit" in p for p in problems)  # flags from before the deviation
+    for r in runs:
+        r["reaudit"] = {"harness": "h1", "leak_flags_as_run": []}
     assert a.check_set(runs, [f"t{t}" for t in range(10)], a.REPEATS) == []
     runs[4]["reaudit"] = {"harness": "h2", "leak_flags_as_run": []}
     problems = a.check_set(runs, [f"t{t}" for t in range(10)], a.REPEATS)

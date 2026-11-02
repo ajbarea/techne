@@ -98,6 +98,8 @@ def check_set(
     audits = {(r.get("reaudit") or {}).get("harness") for r in runs}
     if len(audits) > 1:
         problems.append("leak flags from more than one audit: run --reaudit on every folder")
+    elif None in audits:  # flags from the text check before quality/DEVIATIONS.md 2026-10-31
+        problems.append("leak flags from no recorded audit: run --reaudit on every folder")
     return problems
 
 

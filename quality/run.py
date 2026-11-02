@@ -18,6 +18,7 @@ import argparse
 import ast
 import fcntl
 import fnmatch
+import functools
 import hashlib
 import itertools
 import json
@@ -226,6 +227,7 @@ WRAPPERS: dict[str, tuple[int, frozenset[str]]] = {
         ),
     ),
 }
+WRAPPERS["uvx"] = (0, WRAPPERS["uv"][1])
 UNREAD = {"env": ("-S", "--split-string"), "flock": ("-c", "--command"), "sudo": ("-s", "-i")}
 # Where a matched program name is only data: the arguments of a search, which print lines of
 # files; the stages a printed line may pass through without being run; and the commands that
@@ -657,6 +659,7 @@ def shell_reach(
     ws: pathlib.Path,
     store: pathlib.Path | None = None,
     env: dict[str, str | None] | None = None,
+    functions: dict[str, Any] | None = None,
 ) -> tuple[str, str | None]:
     """Whether a shell command reaches past the sandbox, and the working folder it leaves
     the shell in (None when it cannot be known, which makes any later climb count).
@@ -669,8 +672,10 @@ def shell_reach(
     search's or lookup's words, a local git command's words but its `-c` values, a value
     assigned to a variable no program runs, a pytest `-k`/`-m` expression, words printed to
     /dev/null, and a shell script this reader followed itself (never Python code). Text
-    written to a file stays "text": a later call may run the file. Both count as leaks; the
-    report also gives the primary metric without "text" (quality/DEVIATIONS.md, 2026-10-31)."""
+    written to a file stays "text": a later call may run the file. Clearing applies to
+    program names: leaks() also labels "text" any registered path in the command's text
+    this does not show used. Both count as leaks; the report also gives the primary metric
+    without "text" (quality/DEVIATIONS.md, 2026-10-31)."""
     tree = bash_parser().parse(command.encode())
     if tree.root_node.has_error:  # unreadable: the registered text reading
         return _text_reading(command), None
@@ -678,6 +683,7 @@ def shell_reach(
     try:
         _index(tree.root_node)
         walker = _ShellWalk(ws, cwd, store, env)
+        walker.functions = dict(functions or {})  # eval's script calls this shell's functions
         after = walker.visit(tree.root_node, cwd)
     except RecursionError:
         return _text_reading(command), None
@@ -802,6 +808,19 @@ def _command_words(node) -> list:
     return words
 
 
+def _breaks(node) -> bool:
+    """Whether NODE holds a `break` or `continue` command."""
+    stack = [node]
+    while stack:
+        n = stack.pop()
+        if n.type == "command":
+            words = _command_words(n)
+            if words and _literal(words[0]) in ("break", "continue"):
+                return True
+        stack.extend(n.children)
+    return False
+
+
 LOOPS = frozenset({"while_statement", "until_statement", "for_statement", "c_style_for_statement"})
 
 
@@ -817,8 +836,8 @@ def _stops(node) -> bool:
 
 def _opened(words: list, values: list[str | None], prog: str | None, args: list) -> set[int]:
     """Which of a command's WORDS its program opens as a file or folder: a search's files,
-    `cat`'s and `tee`'s, and git's `-C`, `--git-dir` and `--work-tree`. When a variable
-    split into several words, every word may be one."""
+    `cat`'s and `tee`'s, find's start paths, and git's `-C`, `--git-dir` and
+    `--work-tree`. When a variable split into several words, every word may be one."""
     if len(values) != len(words):
         return set(range(len(words)))
     at = len(words) - len(args)
@@ -849,6 +868,11 @@ def _opened(words: list, values: list[str | None], prog: str | None, args: list)
             i += 1
     elif prog in ("cat", "tee"):
         out = {i for i, a in enumerate(args) if a is None or not a.startswith("-") or a == "-"}
+    elif prog == "find":
+        for i, a in enumerate(args):
+            if a is not None and (a.startswith(("-", "(", "!")) or a == ")"):
+                break
+            out.add(i)
     elif prog == "git":
         for i, a in enumerate(args):
             if a is None or not a.startswith("-"):
@@ -904,8 +928,21 @@ def _program(
         name = os.path.basename(v)
         if name not in WRAPPERS:
             return name, values[i + 1 :], True
-        if name == "command" and any(a in ("-v", "-V") for a in values[i + 1 : i + 3]):
-            return "", [], True  # asks whether a program exists; runs nothing
+        if name == "command":
+            asks = False
+            for a in values[i + 1 :]:  # command's own options, before the program
+                if a is None or not a.startswith("-") or a == "--":
+                    break
+                asks = asks or "v" in a or "V" in a
+            if asks:
+                return "", [], True  # asks whether a program exists; runs nothing
+        if name == "uv":  # `uv run P` and `uv tool run P` run P; any other subcommand is uv's
+            sub = values[i + 1 : i + 3]
+            if sub[:2] == ["tool", "run"]:
+                i += 3
+                continue
+            if sub[:1] != ["run"]:
+                return name, values[i + 1 :], True
         skip, takes_value = WRAPPERS[name]
         i += 1
         while i < len(values):
@@ -1070,7 +1107,7 @@ class _ShellWalk:
             return self._loop(node, cwd)
         if kind in ("list", "redirected_statement"):
             flat = self._flatten(node)
-            if flat[0] is not node:
+            if flat[0] != node:
                 return self._and_or(flat, cwd)
             if kind == "redirected_statement":  # around one statement
                 self._pin_heredocs(node)
@@ -1080,7 +1117,7 @@ class _ShellWalk:
         """NODE's `&&`/`||` items in order, pinning each flattened statement's heredocs."""
         flat = _list_items(node)
         spine = node
-        while spine is not flat[0]:  # each redirected statement it flattened
+        while spine != flat[0]:  # each redirected statement it flattened
             if spine.type == "redirected_statement":
                 self._pin_heredocs(spine)
             spine = spine.children[0]
@@ -1163,10 +1200,26 @@ class _ShellWalk:
 
     def _loop(self, node, cwd: str | None) -> str | None:
         """A loop's body runs any number of times. One that moves the shell is read again,
-        with its head, from an unknown folder, where the loop leaves it."""
+        with its head, from an unknown folder, where the loop leaves it. A `for` over items
+        it can read (at most 16) and with no break or continue runs once per item, in order,
+        its variable set to each; otherwise the variable is unknown in the body."""
         body = node.child_by_field_name("body")
-        head = [c for c in node.children if c is not body]
+        head = [
+            c for c in node.children if c != body
+        ]  # field access gives a new object: compare by value
         cwd = self._seq(head, cwd)
+        var = node.child_by_field_name("variable") if node.type == "for_statement" else None
+        if var is not None:
+            name = var.text.decode(errors="replace")
+            items = [c for c in node.children_by_field_name("value")]
+            values = self._values(items) if items else None
+            if values is not None and None not in values and len(values) <= 16:
+                if not _breaks(body):
+                    for v in values:
+                        self.vars[name] = v
+                        cwd = self.visit(body, cwd)
+                    return cwd
+            self.vars[name] = None
         if self.visit(body, cwd) == cwd:
             return cwd
         self._seq(head, None)
@@ -1715,7 +1768,8 @@ class _ShellWalk:
         if script is None:
             self.unknown = True
             return False
-        reached, after = shell_reach(script, cwd, self.ws, self.store, env)
+        functions = self.functions if keep_folder else None
+        reached, after = shell_reach(script, cwd, self.ws, self.store, env, functions)
         if keep_folder:
             self.nested_cwd = after
         self.text = self.text or reached == "text"
@@ -1831,19 +1885,24 @@ def _python_reach(code: str, shell, launches) -> bool | None:
 
 
 def _os_argv(name: str, args: list, strings) -> list[str] | None:
-    """The argv an os.exec*, os.spawn* or os.posix_spawn* call runs, from its positional
-    ARGS: after the mode (spawn) and the path, each word apart (`l`) or one list (`v`,
-    posix_spawn), less a trailing environment (`e`). None when any of it is not a literal."""
+    """The program and arguments an os.exec*, os.spawn* or os.posix_spawn* call runs, from
+    its positional ARGS: the path it is given (after spawn's mode), then argv past argv[0],
+    a label, each word apart (`l`) or one list (`v`, posix_spawn), less a trailing
+    environment (`e`). None when any of it is not a literal."""
     kind = name.rsplit(".", 1)[1]
-    rest = args[2:] if kind.startswith("spawn") else args[1:]
-    if kind.startswith("posix_spawn") or "v" in kind:
-        return strings(rest[0]) if rest else None
-    if "e" in kind.removeprefix("exec").removeprefix("spawn"):
-        rest = rest[:-1]
-    words = [strings(a) for a in rest]
-    if not words or any(w is None or len(w) != 1 for w in words):
+    at = 1 if kind.startswith("spawn") else 0
+    path = strings(args[at]) if len(args) > at else None
+    rest = args[at + 1 :]
+    if path is None or len(path) != 1:
         return None
-    return [w[0] for w in words]
+    if kind.startswith("posix_spawn") or "v" in kind:
+        argv = strings(rest[0]) if rest else None
+    else:
+        if "e" in kind.removeprefix("exec").removeprefix("spawn"):
+            rest = rest[:-1]
+        words = [strings(a) for a in rest]
+        argv = None if any(w is None or len(w) != 1 for w in words) else [w[0] for w in words]
+    return None if argv is None else [path[0], *argv[1:]]
 
 
 def _norm(path: str) -> str:
@@ -1944,10 +2003,17 @@ def inside(path: str, ws: pathlib.Path, store: pathlib.Path | None = None) -> bo
     """A path a session may read: its workspace, its run folder, the tools, the elenchus
     copy, and the outputs Claude Code saved for this run's sessions (STORE, by default the
     one this process's config folder gives)."""
-    allowed = (ws, LIVE / "run", TOOLS, WORK / "elenchus", store or session_store(ws))
-    allowed += tuple(a.resolve() for a in allowed)  # the store may sit behind a symlink
+    allowed = _allowed(ws, store or session_store(ws))
     path = _norm(path)
     return any(path == str(a) or path.startswith(f"{a}/") for a in allowed)
+
+
+@functools.lru_cache(maxsize=64)
+def _allowed(ws: pathlib.Path, store: pathlib.Path) -> tuple[pathlib.Path, ...]:
+    """The folders `inside` allows, and where each resolves: the store may sit behind a
+    symlink."""
+    roots = (ws, LIVE / "run", TOOLS, WORK / "elenchus", store)
+    return roots + tuple(a.resolve() for a in roots)
 
 
 def session_store(cwd: pathlib.Path) -> pathlib.Path:
