@@ -15,6 +15,7 @@ import json
 import os
 import pathlib
 import random
+import re
 import shutil
 import subprocess
 import sys
@@ -101,6 +102,9 @@ def nest(cmd: str, rng: random.Random) -> tuple[str, bool]:
     ]
     if ";" not in cmd:  # `true | a; b` pipes only a: b never sees a's assignments
         forms.append((f"true | {cmd}", True))
+    if re.fullmatch(r"[\w./=:-]+(?: [\w./=:-]+)*", cmd):  # a plain argv: pass it as words
+        # Words a script runs as its parameters are not shown inert, so never cleared.
+        forms += [(f"bash -c '\"$@\"' _ {cmd}", False), (f"sh -c '$0 \"$@\"' {cmd}", False)]
     if not any(s in cmd for s in ("<<", "|", ";")) and not cmd.startswith(("A=", "command ")):
         forms.append((f"echo y | xargs {cmd}", True))
     if "<<" not in cmd:  # tree-sitter reads this as `(true && cmd 2>&1) | cat`
@@ -225,11 +229,13 @@ MOVES = [
 def folder_step(rng: random.Random, ws: str) -> str:
     d = rng.choice(DIRS).format(ws=ws)
     p = rng.choice(LANDS)
-    kind = rng.randrange(4)
+    kind = rng.randrange(5)
     if kind == 0:
         return f"probe {p}"
     if kind == 1:
         return f"env -C {d} probe {p}"
+    if kind == 2:  # a string test compares its operand; it never opens it
+        return rng.choice(["[ -n {p} ]", "test {p} = x", "[ {p} ]"]).format(p=p) + "; :"
     return rng.choice(MOVES).format(d=d) + "; :"
 
 
@@ -366,6 +372,12 @@ WRITES = [
     ("git config alias.zz '!{q}'", "git zz"),
     ("cat > Makefile <<'MK'\nall:\n\t@{c}\nMK", "make -s"),
     ("cat > s.py <<'EOF'\nimport os\nos.system({p!r})\nEOF", "python3 s.py"),
+    ("tee s.sh >/dev/null <<'EOF'\n{c}\nEOF", "bash s.sh"),
+    (
+        "python3 -c \"import subprocess; subprocess.run(['sh', '-c', 'true']);"
+        " open('s.sh', 'w').write({p!r})\"",
+        "bash s.sh",
+    ),
 ]
 
 
@@ -374,6 +386,8 @@ def test_a_script_written_now_and_run_later_keeps_its_flag(box, tmp_path):
     rng = random.Random(7)
     wrong = []
     for _ in range(40):
+        for name in ("s.sh", "s.py", "Makefile"):  # a failed write must not run an old one
+            (repo / name).unlink(missing_ok=True)
         write, later = rng.choice(WRITES)
         if later.startswith("make") and not shutil.which("make"):
             continue

@@ -1837,6 +1837,36 @@ def test_reaudit_recomputes_the_primary_verdict(tmp_path, monkeypatch):
         ("uvx gh pr list", "ran"),
         ("uv sync", ""),
         ("uv add curl", ""),  # a package name, not a program uv runs
+        # A script's parameters are the words after it; only the script word is cleared,
+        # and a script that cannot be read in full is not shown inert.
+        ("""bash -c '"$@"' _ curl x""", "ran"),
+        ("sh -c '$0 x' curl", "ran"),
+        ("""bash -c 'cat "$1"' _ /home/aj/x""", "ran"),
+        ("""bash -c 'echo "$1"' _ hi""", ""),
+        ("bash -c 'grep curl f'", ""),
+        ("bash -c '$UNSET_THING' 'curl x'", "text"),
+        # tee writes its input to its files wherever its stdout goes.
+        ("tee s.sh >/dev/null <<'EOF'\ncurl x\nEOF", "text"),
+        ("tee s.sh >/dev/null <<< 'curl x'", "text"),
+        ("tee /dev/null >/dev/null <<'EOF'\ncurl x\nEOF", ""),
+        # A shell the Python code runs does not clear the Python command's words, and the
+        # code is judged past the shell's quoting.
+        (
+            """python3 -c 'import subprocess; subprocess.run(["bash", "-c", "true"]);"""
+            """ open("s.sh", "w").write("gh pr list")'""",
+            "text",
+        ),
+        ("""python3 -c "open('s.sh', 'w').write('"scp" x')\"""", "text"),
+        # A string test compares its operand; a file test opens it.
+        ("test /home/a = x", "text"),
+        ("[ -n /home/a ]", "text"),
+        ("[ /home/a ]", "text"),
+        ("test -f /home/a", "ran"),
+        # A function shadows the program of its name.
+        ("curl() { true; }; curl x", "text"),
+        # The last stdout redirect may send printed text on to the terminal.
+        ("echo 'curl x' >/dev/null >&2", "text"),
+        ("export /home/x", "text"),
     ],
 )
 def test_round_two_shapes(command, want):
