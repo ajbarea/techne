@@ -7,31 +7,27 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 ## In flight
 
 techne#255, PR #256 (branch fix/quality-leak-audit, worktree `.claude/worktrees/leak-audit`):
-the leak check reads bash with tree-sitter-bash; `run.py --reaudit` recomputes recorded runs.
+the registered leak rule stays the primary metric exactly (a test pins its patterns); a
+tree-sitter-bash reader labels each flag (ran, `text:`, `cleared:`, `extra:`) for two
+sensitivity rows in analyze.py; `run.py --reaudit` adds labels to recorded runs.
 
-Done (11-01 to 11-02): rounds 3-5 (`/code-review medium` + a fresh Opus reader each round;
-findings in the elenchus ledger). shell-semantics-mismatch recurred every round, so round 5
-changed the approach: clearing is proof-based and minimal. Measured on the recorded baseline
-(`leaks()` per transcript, one clearing shape off at a time; scratch `variant_count.py`):
-7 of 10 clearing shapes changed no verdict and were removed (assignment values, env
-settings, followed scripts, shell feeds, lookups, empty program, /dev/null prints). Kept,
-with option deny-lists: search words (`_search_runs`: rg --pre, -z, --hostname-bin),
-local git words (`_git_runs`: git grep -O), pytest -k/-m. An `alias` turns clearing off.
-A registered climb is never cleared (the folder only upgrades it to "ran"). `source`/`.`
-is unread. Every new guard mutation-checked.
+Done (11-02): round 6 (fresh Opus reader + `/code-review medium`) found six Blocking holes
+in the clearing deny-lists; per the reader's option (a), ab9fd1e makes the reader unable to
+move the primary result, and fixes the holes for the sensitivity rows. Ledgered (round 6).
+Recount at ab9fd1e on the 14 recorded runs: 50 registered flags on 12 runs; 20 cleared,
+30 text, 0 ran, 0 extra; reader's view flags 7 runs, ran-only 0 (scratch label_count.py).
+DEVIATIONS #255 entry rewritten (887 of 900 words); PR body updated.
 
 Next, in order:
-1. Recount at the round-5 code; update DEVIATIONS.md (structural rule, the measurement,
-   numbers; keep it under its 900-word budget) and the PR body; commit; push.
-2. `flock /tmp/fleet-heavy.lock timeout 2400 make test` on the new head (do not edit the tree
-   while it runs).
-3. Round 6: a fresh Opus reader + `/code-review medium`, open classes as above; until clean,
-   then a verify pass; merge.
-4. Baseline (tmux quality-resume, RIT, pinned to Claude Code 2.1.302 in
+1. Round 7: a fresh Opus reader + `/code-review medium`; fix, ledger, until clean, then a
+   verify pass; `flock -o /tmp/fleet-heavy.lock timeout 2400 make test` on the final head;
+   merge on green.
+2. Baseline (tmux quality-resume, RIT, pinned to Claude Code 2.1.302 in
    `~/.local/state/techne-quality/cc-2.1.302`): when it reaches 30 runs, `--reaudit` from
    main, judge, analyze, results PR, then techne#226. resume.sh's single long `sleep` stalls
-   across a WSL suspend: replace with a wall-clock wait once it is idle (never mid-run).
-5. Then #260 (log cleanup) and #261 (file naming) in one standard pass (research: logrotate
+   across a WSL suspend (11-02: killing the stalled `sleep` after the reset resumed it):
+   replace with a wall-clock wait once it is idle (never mid-run).
+3. Then #260 (log cleanup) and #261 (file naming) in one standard pass (research: logrotate
    size+count, tmpfiles.d `D`/age + the user clean timer, temp+fsync+os.replace+dir fsync,
    ULID/UUIDv7), then a klepsydra issue applying both.
 Deferred Minors on #256: module-level substitution indexes restored in a finally; recursive
