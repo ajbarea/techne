@@ -211,7 +211,7 @@ table.data td.num {
   font-variant-numeric: tabular-nums;
 }
 
-/* Dark slides: title, dividers, discussion stops. */
+/* Dark slides: title, dividers, discussion pauses. */
 .reveal .slides section.dark {
   color: var(--night-ink);
 }

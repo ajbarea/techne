@@ -169,10 +169,10 @@ guidance below is what a deck adds to it. To check a script, run
   better comprehension and fewer misconceptions than with topic headlines over
   bullets ([2025 study](https://www.sciencedirect.com/science/article/pii/S2307187725001701)).
 - **An agenda slide right after the title.** The talk's parts, in order, in
-  plain words, plus where the pauses fall and which kind each is. It orients the room, and
-  it is the presenter's map when a question pulls the talk off course. Keep
-  the section names identical to the kicker labels on the slides they
-  introduce ("3 · How it works · Before the data").
+  plain words, plus where the pauses fall and which kind each is. It orients
+  the room, and it is the presenter's map when a question pulls the talk off
+  course. Keep the section names identical to the kicker labels on the
+  slides they introduce ("3 · How it works · Before the data").
 - **One slide says what we did and why this audience should care.** See
   [below](#what-we-did-and-why-you-should-care). It is a standing requirement
   for every talk.
@@ -231,16 +231,16 @@ guidance below is what a deck adds to it. To check a script, run
     two apps?"), with no prompt and no example answers. Put one after each
     part a room is likely to question, and plan for questions in any talk to
     a lab, a class or a review panel, where people come with their own.
-  - A **discussion pause** asks the room to take part. It goes right after the
-    slide whose idea it generalizes: one short personal question anyone can
-    answer without the paper ("What's one thing you would never let an AI do
-    for you?"), and a muted line of example answers that gets the room
+  - A **discussion pause** asks the room to take part: a dark slide, right
+    after the slide whose idea it generalizes, with one short personal
+    question anyone can answer without the paper ("What's one thing you would
+    never let an AI do for you?"), and a muted line of example answers that gets the room
     started ("Send a message as you? Spend your money? Grade your work?").
 
   Not every pause needs a discussion question: a question pause that tacks
   one on crowds out the room's own questions, and a discussion pause with no
-  question is a question pause. Short planned breaks in a lecture improve
-  recall ([Ruhl, Hughes and Schloss 1987](https://doi.org/10.1177/088840648701000103)).
+  question is a question pause. Three two-minute pauses in a lecture improved
+  recall and test scores ([Ruhl, Hughes and Schloss 1987](https://doi.org/10.1177/088840648701000103)).
   Name each on the agenda by its kind ("questions after part 2, a discussion
   after the demo").
 - **Talk lean, backup unlimited.** A `Backup slides` divider (or an FAQ
