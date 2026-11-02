@@ -587,10 +587,21 @@ def add_usage(total: dict, part: dict) -> None:
             total[k] = total.get(k, 0) + v
 
 
-def registered(command: str, ws: pathlib.Path, store: pathlib.Path | None = None) -> bool:
+def _outside(command: str, ws: pathlib.Path, store: pathlib.Path | None) -> list[str]:
+    return [p for p in HOME_PATH.findall(command) if not inside(p, ws, store)]
+
+
+def registered(
+    command: str,
+    ws: pathlib.Path,
+    store: pathlib.Path | None = None,
+    outside: list[str] | None = None,
+) -> bool:
     """The registered rule for a Bash call: a network program or git remote command named,
-    a registered path outside the run, or a climb of two `../` (PREREGISTRATION.md)."""
-    outside = [p for p in HOME_PATH.findall(command) if not inside(p, ws, store)]
+    a registered path outside the run, or a climb of two `../` (PREREGISTRATION.md).
+    OUTSIDE, when given, is `_outside(command, ws, store)` already computed."""
+    if outside is None:
+        outside = _outside(command, ws, store)
     return bool(LEAK.search(command) or outside or ESCAPE.search(command))
 
 
@@ -633,18 +644,21 @@ def leaks(log: pathlib.Path, ws: pathlib.Path, store: pathlib.Path | None = None
             inp = part.get("input") or {}
             command = inp.get("command", "") if part.get("name") == "Bash" else ""
             if command:
-                reached, cwd = shell_reach(command, cwds[stream], ws, store)
+                try:
+                    reached, cwd = shell_reach(command, cwds[stream], ws, store)
+                except Exception:  # the reader only labels: it never stops the registered rule
+                    reached, cwd = "text", None
                 _move(cwds, stream, cwd)
-                # A registered path the reader did not find used stays a text match.
-                outside = [p for p in HOME_PATH.findall(command) if not inside(p, ws, store)]
+                # A registered path or climb the reader did not find used stays a text match.
+                outside = _outside(command, ws, store)
                 label = (
                     ""
                     if reached == "ran"
                     else TEXT_LABEL
-                    if reached == "text" or outside
+                    if reached == "text" or outside or ESCAPE.search(command)
                     else CLEARED_LABEL
                 )
-                if not registered(command, ws, store):
+                if not registered(command, ws, store, outside):
                     label = None if label == CLEARED_LABEL else EXTRA_LABEL + label
                 if label is not None:
                     found.append(f"{label}Bash: {command[:200]}")
@@ -1819,28 +1833,29 @@ class _ShellWalk:
                 self.data.append((w.start_byte, w.end_byte))
 
     def _sink_safe(self, node) -> bool:
-        """Whether NODE's output reaches only the tool result: every redirect of the
-        command, and of the lists and pipelines it ends, is an input, /dev/null or a copy of
-        another descriptor; no process substitution."""
-        child, n = node, node
-        while n is not None and n.type in ("command", "redirected_statement", "list", "pipeline"):
-            if n.type == "redirected_statement":
-                for r in n.children:
-                    if r.type in ("heredoc_redirect", "herestring_redirect") or r == child:
-                        continue
-                    if r.type != "file_redirect":
-                        continue
-                    op = next((c.type for c in r.children if not c.is_named), "")
-                    target = r.child_by_field_name("destination")
-                    text = _literal(target) if target is not None else None
-                    if op == "<":
-                        continue
-                    if text == "/dev/null" or (op in (">&", "<&") and (text or "").isdigit()):
-                        continue
+        """Whether NODE's output reaches only the tool result: every redirect of the command
+        (its prefix ones too) and of every statement around it is an input, /dev/null or a
+        copy of another descriptor; no process substitution; not inside a function body,
+        whose output each call may send elsewhere."""
+        child, n = None, node
+        while n is not None:
+            if n.type == "function_definition":
+                return False
+            for r in n.children:
+                if r == child:
+                    continue
+                if r.type == "process_substitution":
                     return False
-            for c in n.children:
-                if c.type == "process_substitution":
-                    return False
+                if r.type != "file_redirect":
+                    continue
+                op = next((c.type for c in r.children if not c.is_named), "")
+                target = r.child_by_field_name("destination")
+                text = _literal(target) if target is not None else None
+                if op == "<":
+                    continue
+                if text == "/dev/null" or (op in (">&", "<&") and (text or "").isdigit()):
+                    continue
+                return False
             child, n = n, n.parent
         return True
 
@@ -1940,7 +1955,8 @@ class _ShellWalk:
                         code = value
                     break
             i += step
-        self.python_code = code is not None  # a path in it is text: Python is not read
+        code_word = code is not None
+        self.python_code = code_word  # a path in it is text: Python is not read
         if code is None:
             if not feeds:
                 return False
@@ -1953,6 +1969,7 @@ class _ShellWalk:
             lambda s: self._nested(s, cwd, env),
             lambda argv: self._argv_launches(argv, cwd, env),
         )
+        self.python_code = code_word  # a launch it made may have reset it
         # Python is not read whole (any library may run or write), so its code is never
         # cleared as data: a runner it shows gives "ran", and its text matches stay "text",
         # judged on the code Python gets, past the shell's quoting.
@@ -2086,9 +2103,15 @@ def _python_reach(code: str, shell, launches) -> bool | None:
         if found is None:
             return None
         if name in PY_SHELL or shell_kw:
-            reached = shell(" ".join(found)) or reached
+            got = shell(" ".join(found))
+            if got is None:  # a script it hands a shell could not be read
+                return None
+            reached = got or reached
             continue
-        argv = shlex.split(found[0]) if len(found) == 1 else found
+        try:
+            argv = shlex.split(found[0]) if len(found) == 1 else found
+        except ValueError:  # unbalanced quotes: the program cannot be read
+            return None
         got = launches(list(argv))
         if got is None:
             return None

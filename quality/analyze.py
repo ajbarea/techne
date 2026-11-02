@@ -462,11 +462,11 @@ def report(result: dict, title: str) -> str:
         ("parser_view", "the shell reader's leak flags (cleared dropped, its own counted)"),
         ("parser_ran", "only leak flags the shell reader shows ran (an upper bound)"),
     )
-    for key, title in views:
+    for key, caption in views:
         if key not in result:
             continue
         alt = result[key]
-        lines += ["", f"## Sensitivity: {title} (DEVIATIONS 2026-10-31)", ""]
+        lines += ["", f"## Sensitivity: {caption} (DEVIATIONS 2026-10-31)", ""]
         lines += [
             f"- {r['task']} ({r['mode']}): resolved {fmt_pct(r['resolved'])} as registered,"
             f" {fmt_pct(a['resolved'])} here"

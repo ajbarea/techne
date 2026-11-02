@@ -1966,6 +1966,49 @@ def test_round_six_shapes(command, want):
     assert run.shell_reach(command, str(ws), ws)[0] == want
 
 
+@pytest.mark.parametrize(
+    ("command", "want"),
+    [
+        # A search's output that a surrounding statement or a prefix redirect sends to a file.
+        ("{ grep -r curl .; } > out.sh", "text"),
+        ("(grep -r curl .) > out.sh", "text"),
+        ("for i in 1; do grep curl .; done > out.sh", "text"),
+        (">run.sh grep -r curl .", "text"),
+        ("f() { grep curl .; }; f > out.sh", "text"),
+        ("{ grep -r curl .; } 2>/dev/null", ""),
+        # Python handing a shell a script the reader cannot follow is unknown.
+        ("""python3 -c "import os; os.system('sh fetch.sh')" && grep -r curl .""", "text"),
+        # A launch inside -c code leaves the outer code's paths as text.
+        (
+            """python3 -c 'import subprocess; subprocess.run(["python3","-V"]); open("/home/x")'""",
+            "text",
+        ),
+        # Unbalanced quotes in a Python argument: unknown, not a crash.
+        ("""python3 -c 'import subprocess; subprocess.run("echo \\"x")' && grep curl .""", "text"),
+    ],
+)
+def test_round_seven_shapes(command, want):
+    ws = run.LIVE / "run" / "ws"
+    assert run.shell_reach(command, str(ws), ws)[0] == want
+
+
+def test_a_reader_crash_falls_back_to_the_registered_flag(tmp_path, monkeypatch):
+    ws = run.LIVE / "run" / "ws"
+
+    def boom(*_a, **_k):
+        raise RecursionError
+
+    monkeypatch.setattr(run, "shell_reach", boom)
+    log = transcript(tmp_path, ("Bash", {"command": "grep curl f"}))
+    assert run.leaks(log, ws) == ["text: Bash: grep curl f"]
+
+
+def test_a_climb_in_a_comment_is_never_cleared(tmp_path):
+    ws = run.LIVE / "run" / "ws"
+    log = transcript(tmp_path, ("Bash", {"command": "ls # ../../etc"}))
+    assert run.leaks(log, ws) == ["text: Bash: ls # ../../etc"]
+
+
 def test_file_tool_paths_are_read_as_registered(tmp_path):
     ws = run.LIVE / "run" / "ws"
     for p in ("~-/x", "~root/.ssh/id_rsa"):
