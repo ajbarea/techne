@@ -270,37 +270,62 @@ def test_the_report_lists_leak_flags_the_reaudit_dropped():
     assert "my_fn" not in md.split("dropped by the re-audit")[1]
 
 
-def test_the_sensitivity_analysis_drops_only_text_only_leak_flags():
+def test_the_sensitivity_rows_read_the_shell_reader_labels():
     runs = trial(lambda t, r: True)
     budget = [r for r in runs if r["mode"] == "budget"]
-    budget[0]["flags"] = ["leak: text: Bash: printf 'gh pr create' | python3 probe.py"]
-    budget[1]["flags"] = ["leak: text: Bash: x", "leak: Bash: curl x"]
+    budget[0]["flags"] = ["leak: cleared: Bash: grep curl f"]
+    budget[1]["flags"] = ["leak: text: Bash: x"]
     budget[2]["flags"] = ["leak: text: Bash: x"]
     budget[2]["tests"]["passed"] = False
     for r in budget[:3]:
         r["resolved"] = False
+    normal = [r for r in runs if r["mode"] == "normal"]
+    normal[0]["flags"] = ["leak: extra: Bash: cu''rl x"]  # only the reader raises it
     out = a.decide(runs)
-    alt = {r["task"]: r for r in out["without_text_leaks"]["tasks"] if r["mode"] == "budget"}
-    # t0's three repeats: only r1, whose sole flag is text-only and which otherwise passes,
-    # comes back.
-    assert alt["t0"]["resolved"] == pytest.approx(1 / 3)
-    assert "without_text_leaks" not in out["without_text_leaks"]
+    view = {(r["task"], r["mode"]): r for r in out["parser_view"]["tasks"]}
+    ran = {(r["task"], r["mode"]): r for r in out["parser_ran"]["tasks"]}
+    primary = {(r["task"], r["mode"]): r for r in out["tasks"]}
+    # Primary: the registered rule; the reader's own flag does not count.
+    assert primary[("t0", "budget")]["resolved"] == 0
+    assert primary[("t0", "normal")]["resolved"] == 1
+    # The reader's view: its cleared flag drops (r0 back), its own flag counts.
+    assert view[("t0", "budget")]["resolved"] == pytest.approx(1 / 3)
+    assert view[("t0", "normal")]["resolved"] == pytest.approx(2 / 3)
+    # Only what it shows ran: text drops too (r1 back; r2 failed its tests).
+    assert ran[("t0", "budget")]["resolved"] == pytest.approx(2 / 3)
+    assert "parser_view" not in out["parser_view"]
     md = a.report(out, "t")
-    assert "- t0 (budget): resolved 0% as registered, 33% without them" in md
-    assert "H1 lower bounds without them" in md
+    assert "- t0 (budget): resolved 0% as registered, 33% here" in md
+    assert "H1 lower bounds here" in md
 
 
-def test_the_sensitivity_analysis_agrees_with_run_resolve():
+def test_the_sensitivity_rows_agree_with_run_resolve():
     import run as r  # ty: ignore[unresolved-import]
 
     for passed in (True, False):
         for verdict in ({"ok": True}, {"ok": True, "blocking_defect": True}, {"ok": False}):
-            for flags in ([], ["leak: text: Bash: x"], ["leak: Bash: x"], ["judge: y"]):
+            for flags in (
+                [],
+                ["leak: text: Bash: x"],
+                ["leak: cleared: Bash: x"],
+                ["leak: extra: Bash: x"],
+                ["leak: Bash: x"],
+                ["judge: y"],
+            ):
                 rec = {"tests": {"passed": passed}, "judge_verdict": verdict, "flags": flags}
                 rec["resolved"] = r.resolve(rec)
-                kept = [f for f in flags if not f.startswith(a.TEXT_LEAK)]
-                want = r.resolve({**rec, "flags": kept})
-                assert a.without_text_leaks([rec])[0]["resolved"] == want
+                view = [f for f in flags if not f.startswith(a.CLEARED_LEAK)]
+                ran = [f for f in view if not f.startswith((a.TEXT_LEAK, "leak: extra: text"))]
+                assert a.parser_view([rec])[0]["resolved"] == r.resolve(
+                    {**rec, "flags": view}, extra=True
+                )
+                assert a.parser_view([rec], only_ran=True)[0]["resolved"] == r.resolve(
+                    {**rec, "flags": ran}, extra=True
+                )
+                # The primary metric never counts a flag only the reader raises.
+                assert r.resolve(rec) == r.resolve(
+                    {**rec, "flags": [f for f in flags if not f.startswith("leak: extra: ")]}
+                )
 
 
 def test_no_sensitivity_section_without_text_only_leak_flags():

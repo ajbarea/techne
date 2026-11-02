@@ -177,7 +177,16 @@ GIT_LOCAL = frozenset(
     | {"ls-tree", "diff-tree", "diff-index", "diff-files", "merge-base", "check-ignore"}
     | {"name-rev", "for-each-ref", "symbolic-ref", "hash-object", "count-objects", "version"}
 )
-GIT_OPTION_ARG = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env"})
+GIT_OPTION_ARG = frozenset(
+    {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--attr-source"}
+)
+# git's own options that take no value; any other before the subcommand leaves it unknown.
+GIT_FLAGS = frozenset(
+    {"--no-pager", "-p", "--paginate", "-P", "--bare", "--no-replace-objects"}
+    | {"--literal-pathspecs", "--glob-pathspecs", "--noglob-pathspecs", "--icase-pathspecs"}
+    | {"--no-optional-locks", "--no-advice", "--exec-path", "--html-path", "--man-path"}
+    | {"--info-path", "-v", "--version", "-h", "--help", "--no-lazy-fetch"}
+)
 # Variables whose value a program runs as a command (git's, a pager, an editor, a shell's
 # start-up file), so the value is not data.
 EXECUTED_VAR = re.compile(
@@ -230,12 +239,10 @@ WRAPPERS: dict[str, tuple[int, frozenset[str]]] = {
 WRAPPERS["uvx"] = (0, WRAPPERS["uv"][1])
 UNREAD = {"env": ("-S", "--split-string"), "flock": ("-c", "--command"), "sudo": ("-s", "-i")}
 # Where a matched program name is only data: the arguments of a search, which print lines of
-# files; the stages a printed line may pass through without being run; and the commands that
-# only write their words or a heredoc to a file.
+# files; and the stages a printed line may pass through without being run. WRITERS write
+# their words or a heredoc, which a later call may run, so their words are never cleared.
 SEARCHES = frozenset({"grep", "egrep", "fgrep", "rg"})
-FILTERS = SEARCHES | frozenset(
-    {"head", "tail", "wc", "sort", "uniq", "cut", "tr", "cat", "less", "more", "nl", "column"}
-)
+FILTERS = SEARCHES | frozenset({"head", "tail", "wc", "uniq", "cut", "tr", "cat", "nl", "column"})
 WRITERS = frozenset({"cat", "tee", "printf", "echo"})
 PYTHON = re.compile(r"python(?:3(?:\.\d+)?)?$")
 # Python calls that run a command line through a shell, and those that run a program.
@@ -263,6 +270,8 @@ LEAK_BYTES = re.compile(LEAK.pattern.encode())
 HOME_PATH = re.compile(r"(?<![\w.])/(?:home|root|tmp|mnt|var/tmp)(?:/[^\s'\";|&)]*)?")
 REGISTERED = ("/home", "/root", "/tmp", "/mnt", "/var/tmp")
 TEXT_LABEL = "text: "  # leads a leak flag the parser found only as text
+CLEARED_LABEL = "cleared: "  # every match the parser shows inert; still a registered flag
+EXTRA_LABEL = "extra: "  # the parser shows a reach the registered rule misses
 RESTRICTED = re.compile(f"(?:{'|'.join(REGISTERED)})(?:/|$)")
 ESCAPE = re.compile(r"(?:^|[\s'\"=])(?:\.\./){2,}")
 # What separates path-like tokens inside a word or a block of text.
@@ -578,12 +587,23 @@ def add_usage(total: dict, part: dict) -> None:
             total[k] = total.get(k, 0) + v
 
 
-def leaks(log: pathlib.Path, ws: pathlib.Path, store: pathlib.Path | None = None) -> list[str]:
-    """Commands and reads in a transcript that reach past the workspace. The shell's working
-    folder is followed from call to call, as Claude Code keeps it, so a climb is judged by
-    where it lands. STORE is where Claude Code saved the run's large tool outputs.
+def registered(command: str, ws: pathlib.Path, store: pathlib.Path | None = None) -> bool:
+    """The registered rule for a Bash call: a network program or git remote command named,
+    a registered path outside the run, or a climb of two `../` (PREREGISTRATION.md)."""
+    outside = [p for p in HOME_PATH.findall(command) if not inside(p, ws, store)]
+    return bool(LEAK.search(command) or outside or ESCAPE.search(command))
 
-    A subagent's calls (a stream of their own) may or may not share the main shell, so each
+
+def leaks(log: pathlib.Path, ws: pathlib.Path, store: pathlib.Path | None = None) -> list[str]:
+    """Commands and reads in a transcript that reach past the workspace: every call the
+    registered rule flags, each labelled by the shell reader (quality/DEVIATIONS.md,
+    2026-10-31). No label: the reader shows it ran. TEXT_LABEL: a match the reader could
+    not show inert. CLEARED_LABEL: every match the reader shows inert. EXTRA_LABEL: a call
+    the registered rule does not flag but the reader shows reaching out; the primary metric
+    leaves these out. STORE is where Claude Code saved the run's large tool outputs.
+
+    The shell's working folder is followed from call to call, as Claude Code keeps it. A
+    subagent's calls (a stream of their own) may or may not share the main shell, so each
     stream keeps its folder, and a `cd` in one makes any other stream's folder unknown
     unless both agree."""
     found = []
@@ -615,13 +635,19 @@ def leaks(log: pathlib.Path, ws: pathlib.Path, store: pathlib.Path | None = None
             if command:
                 reached, cwd = shell_reach(command, cwds[stream], ws, store)
                 _move(cwds, stream, cwd)
-                # A registered path the parser did not find used (a pattern, a string, text
-                # written to a file) is a text match.
+                # A registered path the reader did not find used stays a text match.
                 outside = [p for p in HOME_PATH.findall(command) if not inside(p, ws, store)]
-                if reached == "ran":
-                    found.append(f"Bash: {command[:200]}")
-                elif reached == "text" or outside:
-                    found.append(f"{TEXT_LABEL}Bash: {command[:200]}")
+                label = (
+                    ""
+                    if reached == "ran"
+                    else TEXT_LABEL
+                    if reached == "text" or outside
+                    else CLEARED_LABEL
+                )
+                if not registered(command, ws, store):
+                    label = None if label == CLEARED_LABEL else EXTRA_LABEL + label
+                if label is not None:
+                    found.append(f"{label}Bash: {command[:200]}")
             for path in tool_paths(part.get("name", ""), inp, ws):
                 if not inside(path, ws, store):
                     found.append(f"{part.get('name')}: {path}")
@@ -707,7 +733,7 @@ def _reach(
             index.clear()
             index.update(ids)
     hits = [m.start() for m in LEAK_BYTES.finditer(command.encode())]
-    spans = [] if walker.aliased else walker.data
+    spans = [] if walker.no_clear else walker.data
     uncleared = any(not any(a <= h < b for a, b in spans) for h in hits)
     if walker.reached:
         return "ran", after, walker.unknown
@@ -824,11 +850,44 @@ def _command_words(node) -> list:
     return words
 
 
+# Commands after which a word may run something no reader of this call sees.
+RESHAPERS = frozenset({"alias", "hash", "enable", "shopt", "exec", "source", "."})
+LOOKUP_VARS = frozenset(
+    {"PATH", "BASH_ALIASES", "BASH_CMDS", "RIPGREP_CONFIG_PATH", "BASH_ENV", "PS0", "PS4"}
+    | {"PROMPT_COMMAND", "IFS"}
+)
+
+
+def _sets_lookup(prefix: list[str | None]) -> bool:
+    """Whether words before a program (prefix or `env` assignments) set a variable that
+    changes what a program runs or how it reads its options."""
+    for v in prefix:
+        name = (v or "").split("=", 1)[0] if v and "=" in v else None
+        if name and (name in LOOKUP_VARS or EXECUTED_VAR.fullmatch(name)):
+            return True
+    return False
+
+
+def _plain_program(
+    words: list, values: list[str | None], prog: str | None, args: list[str | None]
+) -> int | None:
+    """The index of the program's word when every word is literal and the program is named
+    by a bare word (no path, no variable), else None: only such a command is cleared."""
+    if not prog or len(values) != len(words) or None in values:
+        return None
+    at = len(values) - len(args) - 1
+    if at < 0 or values[at] != prog or _literal(words[at]) != prog:
+        return None
+    return at
+
+
 def _search_runs(prog: str | None, args: list[str | None]) -> bool:
     """Whether a search's options make it run a program: rg's preprocessor, decompressors
     and hostname program."""
     if prog != "rg":
         return False
+    if "--no-config" not in args:  # a config file (RIPGREP_CONFIG_PATH) may add any option
+        return True
     for a in args:
         if a is None or a == "--":
             return a is None
@@ -842,9 +901,17 @@ def _search_runs(prog: str | None, args: list[str | None]) -> bool:
 def _git_runs(args: list[str | None]) -> bool:
     """Whether a local git command's options run a program: `git grep -O` opens its
     matches in a command it names."""
-    return _git_subcommand(args) == "grep" and any(
-        a is None or a.startswith(("-O", "--open-files-in-pager")) for a in args
-    )
+    if _git_subcommand(args) != "grep":
+        return False
+    for a in args:
+        if a is None:
+            return True
+        long = a.split("=", 1)[0]
+        if len(long) >= 4 and "--open-files-in-pager".startswith(long):  # abbreviated
+            return True
+        if a.startswith("-") and not a.startswith("--") and "O" in a[1:]:  # in a cluster
+            return True
+    return False
 
 
 def _tee_files(prog: str | None, args: list[str | None]) -> bool:
@@ -1099,8 +1166,14 @@ def _git_subcommand(args: list[str | None]) -> str | None:
             return None
         if a in GIT_OPTION_ARG:
             i += 2
-        elif a.startswith("-"):
+        elif a in GIT_FLAGS or (
+            a.startswith("--") and a.split("=", 1)[0] in GIT_OPTION_ARG | {"--exec-path"}
+        ):
             i += 1
+        elif a.startswith("-c") or a.startswith("-C"):  # a value joined to its option
+            i += 1
+        elif a.startswith("-"):
+            return None
         else:
             return a
     return ""
@@ -1135,7 +1208,7 @@ class _ShellWalk:
         self.reached = False
         self.unknown = False  # a program could not be read: every text match counts
         self.text = False  # a script it followed held an uncleared text match
-        self.aliased = False  # an `alias` ran: any word may run a command
+        self.no_clear = False  # the call may change what a word runs: clear nothing
         self.scripts: set[str] = set()  # scripts this command hands a shell, read nested
         self.python_code = False  # the command runs Python code given as a word (`-c`)
         self.nested_cwd: str | None = None  # where an eval'd script left the folder
@@ -1402,16 +1475,17 @@ class _ShellWalk:
         return "heredoc", text if quoted or not _has_substitution(body) else None, body
 
     def _assign(self, node, cwd: str | None, keep: bool) -> tuple[str, str | None] | None:
-        """A variable's value is data, and not a path, until something uses it; unless a
-        program runs it as a command (EXECUTED_VAR)."""
+        """A variable's value is not a path until something uses it. Setting one a program
+        runs or reads its options from (EXECUTED_VAR, LOOKUP_VARS) turns clearing off."""
         name = node.child_by_field_name("name")
         value = node.child_by_field_name("value")
         if name is None:
             return None
         key = name.text.decode()
-        val = _literal(value) if value is not None else ""
-        if val is not None:
-            val = self._expand_known(val)
+        base = key.split("[", 1)[0]  # BASH_ALIASES[grep]=…
+        if base in LOOKUP_VARS or EXECUTED_VAR.fullmatch(base):
+            self.no_clear = True  # what a program runs or reads may now differ
+        val = self._word(value) if value is not None else ""  # quoting kept as bash keeps it
         if value is not None:
             self._substitutions(value, cwd)
             self._paths(self._word(value), value.text.decode(errors="replace"), cwd, soft=True)
@@ -1483,10 +1557,18 @@ class _ShellWalk:
             self.reached = True
         mark = len(self.data)
         self._data_settings(words, prog, args)
-        if prog == "alias":  # a word may now run a command no reader sees: clear nothing
-            self.aliased = True
-        if prog == "git" and _git_subcommand(args) in GIT_LOCAL and not _git_runs(args):
-            self._data_words(node, words, keep=self._git_config_values(words))
+        first = os.path.basename(values[0] or "") if values else ""
+        if (
+            prog in RESHAPERS
+            or first in RESHAPERS
+            or _sets_lookup(values[: len(values) - len(args)])
+        ):
+            self.no_clear = True  # a word may now run a command no reader sees
+        at = _plain_program(words, values, prog, args)
+        if at is None or not self._sink_safe(node):
+            pass  # a program named by a path or a variable, or output that may be run
+        elif prog == "git" and _git_subcommand(args) in GIT_LOCAL and not _git_runs(args):
+            self._data_words(node, words, keep=self._git_config_values(words, at))
         elif prog in SEARCHES and not _search_runs(prog, args):
             self._data_words(node, words)
         spans = self.data[mark:]
@@ -1512,10 +1594,23 @@ class _ShellWalk:
                 self._written(args[0], here, env)
                 lines = args[1:]
             self._written("\n".join(a for a in lines if a), here, env)
+        if prog == "git" and _git_subcommand(args) in ("commit", "tag", "stash"):
+            for i, a in enumerate(args):  # a message is kept: a later call may replay it
+                if a is None:
+                    continue
+                if a.startswith("--message"):
+                    msg = a.split("=", 1)[1] if "=" in a else None
+                elif a.startswith("-") and not a.startswith("--") and "m" in a[1:]:
+                    msg = a[a.index("m", 1) + 1 :] or None  # `-qam MSG` or `-mMSG`
+                else:
+                    continue
+                if msg is None and i + 1 < len(args):
+                    msg = args[i + 1]
+                self._written(msg, here, env)
         if prog == "git":
             config = _git_subcommand(args) == "config"
             for i, w in enumerate(words):
-                if i in self._git_config_values(words) or (config and i > 0):
+                if i in self._git_config_values(words, at) or (config and i > 0):
                     self._written(self._word(w), here, env)
         if prog in self.functions:  # it runs in this shell: replay it, once per call chain
             body = self.functions[prog]
@@ -1564,15 +1659,15 @@ class _ShellWalk:
         prog, rest, ok = _program(argv)
         return self._launches(prog, rest, cwd, env, []) if ok else None
 
-    def _git_config_values(self, words: list) -> set[int]:
+    def _git_config_values(self, words: list, at: int | None) -> set[int]:
         """Which of a git command's words are `-c`/`--config-env` values, which git may run
-        (an alias, a pager, ssh): only git's own options, before the subcommand."""
+        (an alias, a pager, ssh): only git's own options, after git's word AT. With AT
+        unknown, every word may be one."""
+        if at is None:
+            return set(range(len(words)))
         keep: set[int] = set()
         values = [_literal(w) for w in words]
-        i = next((k for k, v in enumerate(values) if os.path.basename(v or "") == "git"), None)
-        if i is None:
-            return keep
-        i += 1
+        i = at + 1
         while i < len(values):
             v = values[i]
             if v in ("-c", "--config-env"):
@@ -1723,6 +1818,32 @@ class _ShellWalk:
             if i not in keep and not _has_substitution(w):
                 self.data.append((w.start_byte, w.end_byte))
 
+    def _sink_safe(self, node) -> bool:
+        """Whether NODE's output reaches only the tool result: every redirect of the
+        command, and of the lists and pipelines it ends, is an input, /dev/null or a copy of
+        another descriptor; no process substitution."""
+        child, n = node, node
+        while n is not None and n.type in ("command", "redirected_statement", "list", "pipeline"):
+            if n.type == "redirected_statement":
+                for r in n.children:
+                    if r.type in ("heredoc_redirect", "herestring_redirect") or r == child:
+                        continue
+                    if r.type != "file_redirect":
+                        continue
+                    op = next((c.type for c in r.children if not c.is_named), "")
+                    target = r.child_by_field_name("destination")
+                    text = _literal(target) if target is not None else None
+                    if op == "<":
+                        continue
+                    if text == "/dev/null" or (op in (">&", "<&") and (text or "").isdigit()):
+                        continue
+                    return False
+            for c in n.children:
+                if c.type == "process_substitution":
+                    return False
+            child, n = n, n.parent
+        return True
+
     def _output_runs(self, node) -> bool:
         """Whether NODE's output may be run: it feeds a later pipeline stage that is not a
         filter, or it is substituted into another command."""
@@ -1748,9 +1869,7 @@ class _ShellWalk:
         return False
 
     def _is_filter(self, stage) -> bool:
-        if stage.type == "redirected_statement":
-            stage = stage.child_by_field_name("body") or stage.children[0]
-        if stage.type != "command":
+        if stage.type != "command":  # a redirected stage may write a file
             return False
         prog, _args, known = _program(self._values(_command_words(stage)))
         return known and prog in FILTERS
@@ -1957,6 +2076,11 @@ def _python_reach(code: str, shell, launches) -> bool | None:
             else next((k.value for k in n.keywords if k.arg in ("args", "cmd", "command")), None)
         )
         found = strings(arg) if arg is not None else None
+        if name == "asyncio.create_subprocess_exec":  # the program and its words apart
+            parts = [strings(a) for a in n.args]
+            found = [w[0] for w in parts if w is not None and len(w) == 1]
+            if len(found) != len(parts):
+                found = None
         if name.startswith(("os.spawn", "os.exec", "os.posix_spawn")):
             found = _os_argv(name, n.args, strings)
         if found is None:
@@ -2073,7 +2197,10 @@ def tool_paths(name: str, inp: dict, ws: pathlib.Path) -> list[str]:
         return []
 
     def absolute(p: str, base: str) -> str:
-        p = expand_tilde(p, str(LIVE / "run" / "home"), base) or p  # a run's own home
+        if p == "~" or p.startswith("~/"):  # a session's home is its run's own home folder
+            p = str(LIVE / "run" / "home") + p[1:]
+        elif p.startswith("~"):  # ~user: that user's home
+            p = str(HOMES / p[1:])
         return p if os.path.isabs(p) else os.path.join(base, p)
 
     base = absolute(inp.get("path") or str(ws), str(ws))
@@ -2754,15 +2881,17 @@ def run_one(
     return record
 
 
-def resolve(run: dict) -> bool:
-    """The primary metric: hidden tests pass, the judge finds no blocking defect, no flag."""
+def resolve(run: dict, extra: bool = False) -> bool:
+    """The primary metric: hidden tests pass, the judge finds no blocking defect, no flag.
+    A leak flag only the shell reader raises counts only with EXTRA (a sensitivity row)."""
     v = run["judge_verdict"] or {}
+    flags = [f for f in run["flags"] if extra or not f.startswith("leak: " + EXTRA_LABEL)]
     return bool(
         run["tests"]["passed"]
         and v.get("ok")
         and not v.get("blocking_defect")
         and not v.get("cheated")
-        and not run["flags"]
+        and not flags
     )
 
 

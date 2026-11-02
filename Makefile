@@ -38,9 +38,9 @@ frontmatter:            ## Verify SKILL.md frontmatter + theoros structural chec
 	@bash scripts/check_theoros_skill.sh
 
 # Paths must match lint's, or fix cannot repair what lint rejects.
-fix:                    ## Auto-fix ruff issues in scripts/ and skill-shipped Python
-	@uv run ruff check --fix scripts/ plugins/ tests/
-	@uv run ruff format scripts/ plugins/ tests/
+fix:                    ## Auto-fix ruff issues in scripts/, quality/ and skill-shipped Python
+	@uv run ruff check --fix scripts/ quality/ plugins/ tests/
+	@uv run ruff format scripts/ quality/ plugins/ tests/
 
 # Covers scripts/ and any Python a skill ships. The catchup skill's sweep.py sat
 # outside scripts/ and so went unlinted entirely until the paths were widened.

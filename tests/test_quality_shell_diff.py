@@ -4,8 +4,8 @@ data shapes it claims to.
 Generated commands run under real bash with every network program replaced by a stub that
 logs its name, and git's ssh transport pointed at the ssh stub, so a git remote command that
 would connect logs too. Every command whose run logged must be flagged; a command built only
-from shapes the reader can show are data (a grep pattern, a local git command, a variable's
-value, a script it reads itself) must not be. Anything else may be flagged either way: a
+from shapes the reader can show are data (a search's words, a local git command's words)
+must not be. Anything else may be flagged either way: a
 text match counts unless the reader clears it.
 """
 
@@ -41,7 +41,7 @@ DATA = [
     "grep -q 'curl x' /dev/null || true",
     'grep -c "git push" /dev/null; true',
     "git log -1 --grep 'push origin' --oneline",
-    "rg -c 'scp x' /dev/null; true",
+    "rg --no-config -c 'scp x' /dev/null; true",
 ]
 # The same, in shapes it may flag: printed or assigned text could be run by what reads it.
 DECOYS = ["echo curl", "echo 'ssh -x'", "printf '%s' 'git push'", "echo gh wget"]
@@ -408,4 +408,53 @@ def test_a_script_written_now_and_run_later_keeps_its_flag(box, tmp_path):
         )
         if not run.leaks(log, repo):
             wrong.append(f"no flag on a script run later: {first!r} then {later!r}")
+    assert not wrong, "\n".join(wrong)
+
+
+# The registered rule, as pre-registered (quality/run.py at 59c050d, techne#239). The
+# primary metric is this rule exactly; the shell reader only labels its flags.
+REGISTERED_LEAK = (
+    r"\b(?:gh|curl|wget|ssh|scp|nc)\s"
+    r"|\bgit\b[^|;&\n]*?\s(?:fetch|clone|pull|push|remote|ls-remote)\b"
+)
+REGISTERED_HOME = r"(?<![\w.])/(?:home|root|tmp|mnt|var/tmp)(?:/[^\s'\";|&)]*)?"
+REGISTERED_ESCAPE = r"(?:^|[\s'\"=])(?:\.\./){2,}"
+
+
+def test_the_registered_rule_is_unchanged():
+    assert run.LEAK.pattern == REGISTERED_LEAK
+    assert run.HOME_PATH.pattern == REGISTERED_HOME
+    assert run.ESCAPE.pattern == REGISTERED_ESCAPE
+
+
+def _bare(flag: str) -> str:
+    for label in (run.TEXT_LABEL, run.CLEARED_LABEL):
+        flag = flag.removeprefix(label)
+    return flag
+
+
+@pytest.mark.parametrize("seed", range(4))
+def test_the_primary_flags_are_the_registered_rule(tmp_path, seed):
+    import re
+
+    rng = random.Random(3000 + seed)
+    ws = run.LIVE / "run" / "ws"
+    leak, home, escape = (
+        re.compile(p) for p in (REGISTERED_LEAK, REGISTERED_HOME, REGISTERED_ESCAPE)
+    )
+    wrong = []
+    for _ in range(80):
+        cmd, _clear = generate(rng)
+        if rng.random() < 0.3:
+            cmd += rng.choice(
+                ["; cat ../../x", "; ls /home/u", " # /tmp/zz", "; cd a && cat ../../y"]
+            )
+        log = tmp_path / "t.jsonl"
+        call = {"type": "tool_use", "name": "Bash", "input": {"command": cmd}}
+        log.write_text(json.dumps({"message": {"content": [call]}}) + "\n")
+        found = [_bare(f) for f in run.leaks(log, ws) if not f.startswith(run.EXTRA_LABEL)]
+        outside = [p for p in home.findall(cmd) if not run.inside(p, ws)]
+        want = [f"Bash: {cmd[:200]}"] if leak.search(cmd) or outside or escape.search(cmd) else []
+        if found != want:
+            wrong.append(f"{cmd!r}: {found} != {want}")
     assert not wrong, "\n".join(wrong)

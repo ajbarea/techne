@@ -22,7 +22,7 @@ import tomllib
 from collections import defaultdict
 from collections.abc import Sequence
 
-from run import TEXT_LABEL, resolve
+from run import CLEARED_LABEL, EXTRA_LABEL, TEXT_LABEL, resolve
 
 MARGIN = -0.05
 ALPHA = 0.05
@@ -271,6 +271,9 @@ def task_rows(runs: list[dict]) -> list[dict]:
 
 
 TEXT_LEAK = "leak: " + TEXT_LABEL
+CLEARED_LEAK = "leak: " + CLEARED_LABEL
+EXTRA_LEAK = "leak: " + EXTRA_LABEL
+LABELS = (EXTRA_LABEL, TEXT_LABEL, CLEARED_LABEL)
 
 
 def _dropped(run: dict) -> list[str]:
@@ -281,26 +284,36 @@ def _dropped(run: dict) -> list[str]:
 
 
 def _bare(flag: str) -> str:
-    """FLAG without the re-audit's "text" label, so a flag it kept compares equal."""
-    return "leak: " + flag.removeprefix(TEXT_LEAK) if flag.startswith(TEXT_LEAK) else flag
+    """FLAG without the shell reader's labels, so a flag the re-audit kept compares equal."""
+    if not flag.startswith("leak: "):
+        return flag
+    rest = flag.removeprefix("leak: ")
+    for label in LABELS:
+        rest = rest.removeprefix(label)
+    return "leak: " + rest
 
 
-def without_text_leaks(runs: list[dict]) -> list[dict]:
-    """The runs as they would score if leak flags the shell reader could neither confirm nor
-    clear were dropped: the sensitivity analysis of quality/DEVIATIONS.md, 2026-10-31."""
+def parser_view(runs: list[dict], only_ran: bool = False) -> list[dict]:
+    """The runs as the shell reader would score them (quality/DEVIATIONS.md, 2026-10-31):
+    flags it shows inert dropped and flags only it raises counted; with ONLY_RAN, also its
+    text-only flags dropped, an upper bound on the relief."""
     out = []
     for r in runs:
-        flags = [f for f in r["flags"] if not f.startswith(TEXT_LEAK)]
-        ok = resolve({**r, "flags": flags})
-        out.append({**r, "flags": flags, "resolved": r["resolved"] or ok})
+        drop = (CLEARED_LEAK, TEXT_LEAK, EXTRA_LEAK + TEXT_LABEL) if only_ran else (CLEARED_LEAK,)
+        flags = [f for f in r["flags"] if not f.startswith(drop)]
+        judged = r.get("judge_verdict") is not None
+        ok = resolve({**r, "flags": flags}, extra=True) if judged else r["resolved"]
+        out.append({**r, "flags": flags, "resolved": ok})
     return out
 
 
 def decide(runs: list[dict], pilot: bool = False, sensitivity: bool = True) -> dict:
     s = scores(runs)
     out: dict = {"tasks": task_rows(runs)}
-    if sensitivity and any(f.startswith(TEXT_LEAK) for r in runs for f in r["flags"]):
-        out["without_text_leaks"] = decide(without_text_leaks(runs), pilot, sensitivity=False)
+    labelled = (TEXT_LEAK, CLEARED_LEAK, EXTRA_LEAK)
+    if sensitivity and any(f.startswith(labelled) for r in runs for f in r["flags"]):
+        out["parser_view"] = decide(parser_view(runs), pilot, sensitivity=False)
+        out["parser_ran"] = decide(parser_view(runs, only_ran=True), pilot, sensitivity=False)
     paired = [t for t in s if s[t].get("normal") and s[t].get("budget")]
     if not paired:
         return out
@@ -445,18 +458,24 @@ def report(result: dict, title: str) -> str:
                 f"- H3 {c}: {len(v['tasks'])} tasks, regressions"
                 f" {', '.join(v['regressions']) or 'none'}"
             )
-    if "without_text_leaks" in result:
-        alt = result["without_text_leaks"]
-        lines += ["", "## Sensitivity: text-only leak flags dropped (DEVIATIONS 2026-10-31)", ""]
+    views = (
+        ("parser_view", "the shell reader's leak flags (cleared dropped, its own counted)"),
+        ("parser_ran", "only leak flags the shell reader shows ran (an upper bound)"),
+    )
+    for key, title in views:
+        if key not in result:
+            continue
+        alt = result[key]
+        lines += ["", f"## Sensitivity: {title} (DEVIATIONS 2026-10-31)", ""]
         lines += [
             f"- {r['task']} ({r['mode']}): resolved {fmt_pct(r['resolved'])} as registered,"
-            f" {fmt_pct(a['resolved'])} without them"
+            f" {fmt_pct(a['resolved'])} here"
             for r, a in zip(result["tasks"], alt["tasks"], strict=True)
             if r["resolved"] != a["resolved"]
         ] or ["No task's resolved share changes."]
         if "h1" in alt:
             lines.append(
-                f"- H1 lower bounds without them: bootstrap {alt['h1']['bootstrap_lower']:+.3f},"
+                f"- H1 lower bounds here: bootstrap {alt['h1']['bootstrap_lower']:+.3f},"
                 f" t {alt['h1']['t_lower']:+.3f}:"
                 f" {'non-inferior' if alt['h1']['non_inferior'] else 'not shown'}"
             )
