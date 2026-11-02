@@ -211,7 +211,7 @@ table.data td.num {
   font-variant-numeric: tabular-nums;
 }
 
-/* Dark slides: title, dividers, discussion stops. */
+/* Dark slides: title, dividers, discussion pauses. */
 .reveal .slides section.dark {
   color: var(--night-ink);
 }
@@ -235,7 +235,8 @@ table.data td.num {
   max-width: 20ch;
 }
 
-.discussion h2 {
+.discussion h2,
+.pause h2 {
   margin-top: 150px;
   font-size: 1.7em;
   max-width: 24ch;
@@ -407,7 +408,8 @@ table.data td.num {
 .phone .cards,
 .phone .steps { grid-template-columns: 1fr; }
 .phone .title-slide h1,
-.phone .discussion h2 { margin-top: 60px; }
+.phone .discussion h2,
+.phone .pause h2 { margin-top: 60px; }
 .phone .footnote { position: static; margin-top: 16px; font-size: 0.7em; }
 
 /* ----------------------------------------------------------------- motion -- */
