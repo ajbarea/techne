@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import pathlib
+import shutil
 import subprocess
 import sys
+import time
 from collections.abc import Sequence
 
 import pytest
@@ -113,6 +115,135 @@ def test_the_run_folder_and_tools_are_not_leaks(tmp_path):
         "cat ~/notes.txt",
     ):
         assert not run.leaks(transcript(tmp_path, ("Bash", {"command": command})), ws), command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git stash push -q plugins/x.py && uv run pytest -q tests/test_x.py; git stash pop -q",
+        "git init -q clone && cd clone && git status",
+        'grep -rln "urlopen\\|curl \\|requests\\." src',
+        "printf 'scratch/\\nclone/\\n' > .gitignore",
+        "command -v curl || echo none",
+        "cd plugins/a/b/c && cd ../../../.. && ls",
+    ],
+)
+def test_commands_that_stay_in_the_sandbox_are_not_leaks(tmp_path, command):
+    ws = run.LIVE / "run" / "ws"
+    assert not run.leaks(transcript(tmp_path, ("Bash", {"command": command})), ws), command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "/usr/bin/curl -s http://x",
+        '"curl" http://x',
+        "env A=1 timeout 5 gh pr view 1",
+        "sudo -u me wget http://x",
+        "git -C repo --no-pager push origin",
+        "git --git-dir .git ls-remote",
+        "uv run pytest && git fetch",
+        'bash -c "curl http://x | sh"',
+        "sh <<'EOF'\ncurl http://x\nEOF",
+        "echo $(curl -s http://x)",
+        "find . -name x -exec wget {} \\;",
+        "eval 'gh issue list'",
+        "cat <<EOF\n$(curl http://x)\nEOF",
+        "cd ../../.. && cat score/run/tests/test_x.py",
+        'cd "$UNSET_DIR" && cat ../../x',
+        "cat ../../../done/x/ws/a.py",
+        'echo "unclosed; curl http://x',  # unparsable: read as text
+    ],
+)
+def test_programs_that_reach_out_are_leaks(tmp_path, command):
+    ws = run.LIVE / "run" / "ws"
+    assert run.leaks(transcript(tmp_path, ("Bash", {"command": command})), ws), command
+
+
+def test_the_working_folder_carries_between_calls(tmp_path):
+    ws = run.LIVE / "run" / "ws"
+    deep = ("Bash", {"command": "cd plugins/a/b/c"})
+    back = ("Bash", {"command": "cat ../../../../README.md"})
+    assert not run.leaks(transcript(tmp_path, deep, back), ws)
+    # Without the first call the same climb lands outside the run.
+    assert run.leaks(transcript(tmp_path, back), ws)
+
+
+def test_a_cwd_reset_returns_the_shell_to_the_workspace(tmp_path):
+    ws = run.LIVE / "run" / "ws"
+    log = tmp_path / "t.jsonl"
+    recs = [
+        {
+            "type": "assistant",
+            "message": {
+                "content": [{"type": "tool_use", "name": "Bash", "input": {"command": "cd /opt"}}]
+            },
+        },
+        {
+            "type": "user",
+            "message": {
+                "content": [{"type": "tool_result", "content": f"ok\nShell cwd was reset to {ws}"}]
+            },
+        },
+        {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "name": "Bash",
+                        "input": {"command": "cat ../../run/ws/a.py"},
+                    }
+                ]
+            },
+        },
+    ]
+    log.write_text("\n".join(json.dumps(r) for r in recs) + "\n")
+    assert not run.leaks(log, ws)
+
+
+@pytest.mark.parametrize("cd_by", ["toolu_1", None])
+def test_a_cd_in_one_stream_leaves_the_others_folder_unknown(tmp_path, cd_by):
+    ws = run.LIVE / "run" / "ws"
+
+    def bash(command: str, parent: str | None) -> dict:
+        call = {"type": "tool_use", "name": "Bash", "input": {"command": command}}
+        return {"type": "assistant", "parent_tool_use_id": parent, "message": {"content": [call]}}
+
+    # A subagent's shell may be the main one or its own, so after a `cd` in one stream the
+    # climb in the other lands inside ws in one reading and outside it in the other.
+    other = None if cd_by else "toolu_1"
+    recs = [bash("cd plugins/a/b/c", cd_by), bash("cat ../../../../x", other)]
+    log = tmp_path / "t.jsonl"
+    log.write_text("\n".join(json.dumps(r) for r in recs) + "\n")
+    assert run.leaks(log, ws)
+
+
+def test_reaudit_keeps_the_flags_as_run(tmp_path, monkeypatch):
+    monkeypatch.setattr(run, "DONE", tmp_path / "done")
+    res = tmp_path / "results" / "set"
+    rec = res / "t1" / "normal" / "r1"
+    rec.mkdir(parents=True)
+    as_run = ["leak: Bash: git stash push -q x", "hidden test literal in the fix: abcd"]
+    (rec / "run.json").write_text(json.dumps({"flags": as_run, "session_store": "/nowhere"}))
+    kept = tmp_path / "done" / "set" / "t1" / "normal" / "r1"
+    kept.mkdir(parents=True)
+    transcript(kept, ("Bash", {"command": "git stash push -q x"})).rename(kept / "implement.jsonl")
+    assert run.reaudit([res]) == 0
+    out = json.loads((rec / "run.json").read_text())
+    assert out["flags"] == ["hidden test literal in the fix: abcd"]
+    assert out["reaudit"]["leak_flags_as_run"] == ["leak: Bash: git stash push -q x"]
+    assert run.reaudit([res]) == 0  # a second pass keeps the first pass's record
+    again = json.loads((rec / "run.json").read_text())
+    assert again["reaudit"]["leak_flags_as_run"] == ["leak: Bash: git stash push -q x"]
+
+
+def test_reaudit_refuses_a_run_without_transcripts(tmp_path, monkeypatch):
+    monkeypatch.setattr(run, "DONE", tmp_path / "done")
+    rec = tmp_path / "results" / "set" / "t1" / "normal" / "r1"
+    rec.mkdir(parents=True)
+    (rec / "run.json").write_text(json.dumps({"flags": ["leak: x"]}))
+    assert run.reaudit([tmp_path / "results" / "set"]) == 1
 
 
 @pytest.mark.parametrize(
@@ -1418,3 +1549,354 @@ def test_only_a_runs_own_sessions_may_read_back_their_saved_outputs(
     run.claude("p", "m", cwd, tmp_path / "s.jsonl", "Read")
     dirs = [seen[0][i + 1] for i, x in enumerate(seen[0]) if x == "--add-dir"]
     assert (str(run.session_store(cwd)) in dirs) is run_session
+
+
+@pytest.mark.parametrize(
+    ("command", "want"),
+    [
+        # git runs this value as its ssh: it is not data.
+        ('env GIT_SSH_COMMAND="ssh -x" uv run pytest -q', "text"),
+        ('GIT_SSH_COMMAND="ssh -x" uv run pytest -q', "text"),
+        ("export GIT_SSH_COMMAND='ssh -x'\nuv run pytest -q", "text"),
+        ("env -u X A='curl x' true", ""),
+        ('uv run pytest -q -k "ssh or prompts"', ""),
+        ('python3 -m pytest -m "gh and slow"', ""),
+        ("env A=1 curl x", "ran"),
+        ("uv run pytest -k x; curl y", "ran"),
+        ("bash -lc 'curl x'", "ran"),
+        # Python whose subprocess call this reader cannot follow, beside a text match.
+        (
+            'python3 -c "import subprocess as s; '
+            "f=lambda *a: s.run(['git',*a]); f('-c', 'x=ssh -i k')\"",
+            "text",
+        ),
+        ("my_fn 'gh pr create -b x'", "text"),
+        # A script this reader follows keeps its own text-only verdict.
+        ("bash -c \"my_fn 'gh pr create'\"", "text"),
+        # With the folder unknown, only the registered climb of two `../` counts.
+        ('cd "$(mktemp -d)" && git worktree add ../feat', ""),
+        ('cd "$(mktemp -d)" && cat ../../x', "ran"),
+    ],
+)
+def test_each_leak_verdict_names_how_it_was_found(command, want):
+    ws = run.LIVE / "run" / "ws"
+    assert run.shell_reach(command, str(ws), ws)[0] == want
+
+
+@pytest.mark.parametrize(
+    ("command", "want"),
+    [
+        # A git subcommand off the local list keeps its words' paths and its text matches.
+        ("git lfs track /home/aj/x", "ran"),
+        ("git frobnicate; grep -n 'gh pr' notes.txt", "text"),
+        # A `-c` value is not data: git may run it.
+        ("git -c core.hooksPath=/home/aj/h status", "ran"),
+        ("git -c user.name=gh status", "text"),
+        # `-mc` runs the module c: the string after it is an argument, not code.
+        ("python3 -mc \"import os; os.system('curl x')\"", "text"),
+        # A subshell's folder and variables end with it; `cd -` returns; `source` loses it.
+        ('(cd a/b/c); cat "$PWD/../../../x"', "ran"),
+        ("cd a/b && cd .. && cd - && cat ../../x", ""),
+        ("cd a/b && . ./env.sh && cat ../../x", "ran"),
+        # A search whose output a command takes as words is not data.
+        ("echo $(grep curl notes.txt)", "text"),
+        # A command after `||` or in a branch may not run: the folder after it is unknown.
+        ("cd sub 2>/dev/null || cd ../.. ; ls", "ran"),
+        ("if false; then cd /x; fi; ls ../..", "ran"),
+        ("until false; do cd x; done; cat ../../y", "ran"),
+        ("cd x || exit 1; cat ../y", ""),
+        ("if [ -d x ]; then cd x; else cd x; fi; cat ../y", ""),
+        # tree-sitter reads `a && b 2>&1 | c` as `(a && b 2>&1) | c`; bash pipes only b.
+        ("cd .. && ls 2>&1 | cat; cat ../x", "ran"),
+        ("cd a & cat ../../y", "ran"),
+        # An unquoted expansion to nothing is no word: curl is the program.
+        ("X=; $X curl http://x", "ran"),
+        # A file a search, cat or git opens is a path it uses; a search pattern is text.
+        ("grep -r token /home/aj/.ssh", "ran"),
+        ("rg -g '*.py' secret /root", "ran"),
+        ("git -C /home/aj/other log", "ran"),
+        ("cat /home/aj/secret > /dev/null", "ran"),
+        ("grep -e /home/x src", "text"),
+        ("grep -rn 'curl' src/", ""),
+        # `//home` is /home; a glob or brace that can name a registered folder counts.
+        ("cat //home/aj/.ssh/id_rsa", "ran"),
+        ("cat /h?me/aj/x", "ran"),
+        ("ls /{home,x}/aj", "ran"),
+        ("ls /u?r/lib; cat *.py; ls ../{a,b}", ""),
+        # Only git's own `-c`, before the subcommand, sets a value git may run.
+        ("git log --format=%H -c curl", ""),
+        # A redirect after a list's or pipeline's last command is that command's.
+        ("false || printf '%s' 'gh wget' >/dev/null", ""),
+        ("echo y | xargs echo 'curl x' >/dev/null", ""),
+        ("true || printf 'curl x' >f.sh", "text"),
+        # A function that defines its own name anew runs the new body; one defined in a
+        # subshell is gone after it.
+        ("g() { g() { cd /home; }; g; }; g; cat x", "ran"),
+        ("( f() { cd /home; } ); f; cat x", ""),
+        # Python written to a file is read as Python; a printf format apart from its lines.
+        ('echo \'import subprocess; subprocess.run(["curl", "x"])\' > t.py', "text"),
+        (
+            "printf '%s\\n' 'import subprocess' 'subprocess.run([\"gh\", \"pr\"])' > t.py",
+            "text",
+        ),
+    ],
+)
+def test_each_guard_of_the_shell_reader_decides_a_verdict(command, want):
+    ws = run.LIVE / "run" / "ws"
+    assert run.shell_reach(command, str(ws), ws)[0] == want
+
+
+def test_text_only_leaks_are_labelled_in_the_flag(tmp_path):
+    ws = run.LIVE / "run" / "ws"
+    log = transcript(
+        tmp_path, ("Bash", {"command": "my_fn 'gh pr create'"}), ("Bash", {"command": "curl x"})
+    )
+    assert run.leaks(log, ws) == ["text: Bash: my_fn 'gh pr create'", "Bash: curl x"]
+
+
+def _reaudit_set(tmp_path, monkeypatch, *records):
+    """A results set of RECORDS, each with a kept transcript of one local command."""
+    monkeypatch.setattr(run, "DONE", tmp_path / "done")
+    res = tmp_path / "results" / "set"
+    for i, record in enumerate(records, start=1):
+        rec = res / f"t{i}" / "normal" / "r1"
+        rec.mkdir(parents=True)
+        (rec / "run.json").write_text(json.dumps(record))
+        kept = tmp_path / "done" / "set" / f"t{i}" / "normal" / "r1"
+        kept.mkdir(parents=True)
+        transcript(kept, ("Bash", {"command": "ls"})).rename(kept / "implement.jsonl")
+    return res
+
+
+def test_fresh_failed_and_reaudited_records_carry_one_audit_stamp(tmp_path, monkeypatch):
+    monkeypatch.setattr(run, "claude_version", lambda: "v")
+    failed = run.failed_run({"id": "t1", "risk": "low"}, "normal", 1, ["e"])
+    res = _reaudit_set(tmp_path, monkeypatch, {"flags": ["leak: Bash: curl x"]})
+    assert run.reaudit([res], tmp_path / "store") == 0
+    out = json.loads((res / "t1" / "normal" / "r1" / "run.json").read_text())
+    assert failed["reaudit"] == run.audit_stamp([])
+    assert out["reaudit"] == run.audit_stamp(["leak: Bash: curl x"])
+    assert (
+        failed["reaudit"]["harness"]
+        == out["reaudit"]["harness"]
+        == run.digest(pathlib.Path(run.__file__))
+    )
+
+
+def test_reaudit_needs_the_saved_output_folder(tmp_path, monkeypatch):
+    res = _reaudit_set(tmp_path, monkeypatch, {"flags": []})
+    before = (res / "t1" / "normal" / "r1" / "run.json").read_text()
+    assert run.reaudit([res]) == 1  # a config folder's guess would change the verdict
+    assert (res / "t1" / "normal" / "r1" / "run.json").read_text() == before
+    assert run.reaudit([res], tmp_path / "store") == 0
+    out = json.loads((res / "t1" / "normal" / "r1" / "run.json").read_text())
+    assert out["session_store"] == str(tmp_path / "store")
+
+
+def test_reaudit_stamps_a_run_the_harness_failed(tmp_path, monkeypatch):
+    res = _reaudit_set(
+        tmp_path,
+        monkeypatch,
+        {"flags": ["leak: Bash: curl x"], "session_store": "/s"},
+        {"flags": ["leak: x"], "harness_failed": True},
+    )
+    shutil.rmtree(tmp_path / "done" / "set" / "t2")  # a failed run keeps no transcripts
+    assert run.reaudit([res]) == 0
+    failed = json.loads((res / "t2" / "normal" / "r1" / "run.json").read_text())
+    assert failed["flags"] == ["leak: x"]
+    assert failed["reaudit"]["harness"] == run.digest(pathlib.Path(run.__file__))
+    ok = json.loads((res / "t1" / "normal" / "r1" / "run.json").read_text())
+    assert ok["flags"] == []  # recomputed from its transcript
+
+
+def test_reaudit_recomputes_the_primary_verdict(tmp_path, monkeypatch):
+    verdict = {"ok": True, "blocking_defect": False, "cheated": False}
+    res = _reaudit_set(
+        tmp_path,
+        monkeypatch,
+        {
+            "flags": ["leak: Bash: git stash"],
+            "session_store": "/s",
+            "tests": {"passed": True},
+            "judge_verdict": verdict,
+            "resolved": False,
+        },
+    )
+    assert run.reaudit([res]) == 0
+    assert json.loads((res / "t1" / "normal" / "r1" / "run.json").read_text())["resolved"]
+
+
+@pytest.mark.parametrize(
+    ("command", "want"),
+    [
+        # A subshell's `cd` holds inside it, and only there.
+        ("(cd / && cat home/u/.ssh/id_rsa)", "ran"),
+        ("(cd /usr && cat ../home/u/x)", "ran"),
+        ("(cd sub/deep && cat ../../README)", ""),
+        ("(cd /) && cat home/u/x", ""),
+        ("(cd ..; cd ..; cd ..; ls done)", "ran"),
+        ("cd / | cat home/u/x", ""),
+        ("echo $(cd / && cat home/u/x)", "ran"),
+        ("cd ..; pushd sub >/dev/null; popd >/dev/null; cat ../x", "ran"),
+        ("pushd / >/dev/null; popd >/dev/null; cat home/u/x", ""),
+        ("cd / && cd - && cat home/u/x", ""),
+        ("builtin cd / ; cat home/u/x", "ran"),
+        ("env -C / cat home/u/x", "ran"),
+        ("env --chdir=/ cat home/u/x", "ran"),
+        ("f() { cd /; }; f; cat home/u/x", "ran"),
+        ("f() { cd /; }; cat home/u/x", ""),
+        ("f() { f; }; f; cat ../../x", "ran"),
+        ("eval 'cd /'; cat home/u/x", "ran"),
+        ("bash -c 'cd /'; cat home/u/x", ""),
+        # A climb is judged by where it lands: /usr is no registered folder.
+        ("cd /usr/lib && ls ..", ""),
+        ("cd /usr/lib/python3 && ls ../..", ""),
+        # Every path the shell uses, absolute or after a tilde.
+        ("cat ~ajbar/.ssh/id_rsa", "ran"),
+        ("cd ~ajbar && cat .ssh/x", "ran"),
+        ("cat ~root/x", "ran"),
+        ('cat /h""ome/u/x', "ran"),
+        ("D=/ho; cat ${D}me/x", "ran"),
+        ("cat /var//tmp/techne-quality-1001/seeds/x", "ran"),
+        ("cd $'/'; cat home/u/x", "ran"),
+        # Data that names a registered folder is a text match, never "ran".
+        ("grep -rn '/home/' src", "text"),
+        ("echo ../../etc", "text"),
+        ("A=/home/u/x true", "text"),
+        ("cat > t.py <<'EOF'\nopen('../../x')\nEOF", "text"),
+        # Options that take a value hide nothing behind them.
+        ("python3 -W ignore -c \"import subprocess; subprocess.run(['curl','http://x'])\"", "ran"),
+        ("python3 -X dev -c \"import os; os.system('curl x')\"", "ran"),
+        ("python3 -Ic \"import os; os.system('curl x')\"", "ran"),
+        ("python3 -Wignore -c \"import os; os.system('curl x')\"", "ran"),
+        ("bash --rcfile /dev/null -c 'curl http://x'", "ran"),
+        ("bash --init-file x -c 'curl http://x'", "ran"),
+        ("$'curl' x", "ran"),
+        # A git subcommand off the local list, or a value git runs, keeps its text match.
+        ("git lfs pull", "text"),
+        ("git -c alias.st='!curl http://x' st", "text"),
+        ("git config alias.st '!curl http://x'", "text"),
+        ("GIT_EXTERNAL_DIFF='curl x' git diff", "text"),
+        ("git -c a.b=c log --grep 'push origin' -1", ""),
+        # Text written to a file may run in a later call; only /dev/null clears it.
+        ("cat > t.sh <<'EOF'\ncurl http://x\nEOF", "text"),
+        ("cat > Makefile <<'MK'\nall:\n\tcurl http://x\nMK\nmake", "text"),
+        ("echo 'curl http://x' > .git/hooks/pre-commit", "text"),
+        ("echo 'curl http://x' | tee hook.sh", "text"),
+        ("printf '%s' 'gh wget' >/dev/null", ""),
+        # A script this reader cannot read is no proof of a run.
+        ('eval "$(pyenv init -)"', ""),
+        ('bash -c "$X"', ""),
+        ("bash script.sh", ""),
+        ('eval "$X" curl x', "text"),
+        # A wrapper option that hands a shell its string is read as `sh -c`.
+        ("flock f -c 'curl x'", "ran"),
+        ("flock -c 'grep curl f' f", ""),
+        ("env -S 'curl x'", "ran"),
+        ("env --split-string='curl x'", "ran"),
+        ("sudo -s curl x", "ran"),
+        # Python that reaches a call by a name the reader cannot follow keeps its match.
+        ('python3 -c "exec(\'import os; os.system(\\"curl x\\")\')"', "text"),
+        ("python3 -c \"import subprocess; subprocess.run('true; curl x', shell=True)\"", "ran"),
+        # Python's text is never cleared: only a runner the reader follows decides "ran".
+        ("python3 -c \"import subprocess; subprocess.run('true; curl x', shell=False)\"", "text"),
+        ("python3 - <<'EOF'\nimport subprocess\nprint('git push origin main')\nEOF", "text"),
+        ('python3 -c \'open("a.sh", "w").write("curl http://x")\'', "text"),
+        ("python3 -c \"f('/home/u')\"", "text"),
+        # os.exec* and os.spawn* take the program's words apart, after the path and mode.
+        ('python3 -c \'import os; os.execl("/bin/sh", "sh", "-c", "curl x")\'', "ran"),
+        ('python3 -c \'import os; os.spawnlp(os.P_WAIT, "sh", "sh", "-c", "curl x")\'', "ran"),
+        ('python3 -c \'import os; os.execle("/bin/sh", "sh", "-c", "curl x", {})\'', "ran"),
+        ('python3 -c \'import os; os.execve("/bin/sh", ["sh", "-c", "curl x"], {})\'', "ran"),
+        ("python3 -c 'import asyncio; asyncio.create_subprocess_shell(\"curl x\")'", "ran"),
+        # The last redirect of stdout decides where the text goes.
+        ("echo 'curl x' >/dev/null >run.sh", "text"),
+        ("echo 'curl x' >run.sh >/dev/null", ""),
+        # A loop's items, a case subject and a compared string are not paths used.
+        ("for f in /home/other/a; do echo; done", "text"),
+        ("[[ $x == /home/* ]] && echo hi", "text"),
+        ("case /home/x in *) echo;; esac", "text"),
+        ("[ -f /home/x ]", "ran"),
+        # Only command's own options ask a question; the program's own -v runs it.
+        ("command curl -v https://x.com", "ran"),
+        ("command -pv curl", ""),
+        # os.exec* and os.spawn* run the path they are given; argv[0] is a label.
+        ('python3 -c \'import os; os.execv("/usr/bin/curl", ["x", "http://a"])\'', "ran"),
+        ('python3 -c \'import os; os.execlp("ls", "curl", "x")\'', ""),
+        # find opens its start paths, even when the script it runs is followed.
+        ("find /home/u -exec sh -c 'echo hi' \\;", "ran"),
+        # A for loop over items runs its body once per item, the variable set to each.
+        ('for f in /home/u/*; do cat "$f"; done', "ran"),
+        ('for d in a b; do cd "$d"; done; cat ../../x', ""),
+        ('for d in a b; do cd "$d"; break; done; cat ../../x', "ran"),
+        # eval runs in this shell, with its functions; `bash -c` does not see them.
+        ("f(){ curl x; }; eval f", "ran"),
+        ("f(){ curl x; }; bash -c f", "text"),
+        # `uv run P`, `uv tool run P` and `uvx P` run P.
+        ("uv tool run gh pr list", "ran"),
+        ("uvx gh pr list", "ran"),
+        ("uv sync", ""),
+        ("uv add curl", ""),  # a package name, not a program uv runs
+        # A script's parameters are the words after it; only the script word is cleared,
+        # and a script that cannot be read in full is not shown inert.
+        ("""bash -c '"$@"' _ curl x""", "ran"),
+        ("sh -c '$0 x' curl", "ran"),
+        ("""bash -c 'cat "$1"' _ /home/aj/x""", "ran"),
+        ("""bash -c 'echo "$1"' _ hi""", ""),
+        ("bash -c 'grep curl f'", ""),
+        ("bash -c '$UNSET_THING' 'curl x'", "text"),
+        # tee writes its input to its files wherever its stdout goes.
+        ("tee s.sh >/dev/null <<'EOF'\ncurl x\nEOF", "text"),
+        ("tee s.sh >/dev/null <<< 'curl x'", "text"),
+        ("tee /dev/null >/dev/null <<'EOF'\ncurl x\nEOF", ""),
+        # A shell the Python code runs does not clear the Python command's words, and the
+        # code is judged past the shell's quoting.
+        (
+            """python3 -c 'import subprocess; subprocess.run(["bash", "-c", "true"]);"""
+            """ open("s.sh", "w").write("gh pr list")'""",
+            "text",
+        ),
+        ("""python3 -c "open('s.sh', 'w').write('"scp" x')\"""", "text"),
+        # A string test compares its operand; a file test opens it.
+        ("test /home/a = x", "text"),
+        ("[ -n /home/a ]", "text"),
+        ("[ /home/a ]", "text"),
+        ("test -f /home/a", "ran"),
+        # A function shadows the program of its name.
+        ("curl() { true; }; curl x", "text"),
+        # The last stdout redirect may send printed text on to the terminal.
+        ("echo 'curl x' >/dev/null >&2", "text"),
+        ("export /home/x", "text"),
+    ],
+)
+def test_round_two_shapes(command, want):
+    ws = run.LIVE / "run" / "ws"
+    assert run.shell_reach(command, str(ws), ws)[0] == want
+
+
+def test_a_long_chain_is_read_in_linear_time():
+    ws = run.LIVE / "run" / "ws"
+    chain = " && ".join(f'echo "$(date)" {i} >/dev/null' for i in range(3000))
+    start = time.monotonic()
+    assert run.shell_reach(chain + " && curl x", str(ws), ws)[0] == "ran"
+    assert time.monotonic() - start < 10
+
+
+def test_an_unparsable_command_leaves_the_folder_unknown():
+    ws = run.LIVE / "run" / "ws"
+    assert run.shell_reach("cd / && echo 'unterminated", str(ws), ws) == ("", None)
+
+
+def test_text_paths_are_labelled_text(tmp_path):
+    ws = run.LIVE / "run" / "ws"
+    log = transcript(
+        tmp_path,
+        ("Bash", {"command": "grep -rn '/home/u' src"}),
+        ("Bash", {"command": "python3 -c \"f('/home/u')\""}),
+        ("Bash", {"command": "cat /home/u/x"}),
+    )
+    assert run.leaks(log, ws) == [
+        "text: Bash: grep -rn '/home/u' src",
+        "text: Bash: python3 -c \"f('/home/u')\"",
+        "Bash: cat /home/u/x",
+    ]

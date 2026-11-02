@@ -6,20 +6,40 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 
 ## In flight
 
-techne#249 is fixed in PR #252 (branch results/quality-baseline): the task notes state what the
-hidden tests check, `--check-tasks` fails a task with a gap, `quality/DEVIATIONS.md` records it.
-Seven reader rounds plus a verify pass, clean; `--check-tasks` 10/10 ok on 5ec4dc0. Old runs stay
-in `quality/results/2026-10-29-baseline-void/`.
+techne#255, PR #256 (branch fix/quality-leak-audit, worktree `.claude/worktrees/leak-audit`):
+the leak check reads bash with tree-sitter-bash; `run.py --reaudit [--session-store DIR]`
+recomputes recorded runs. Paused 11-01 ~17:30 on Heph's request (RIT budget).
+
+Done this session (11-01):
+- 59385f8: the previous agent's post-push probing fixes (branches/`||`/loops make the folder
+  unknown, opened files count, globs/braces/`//home`), plus: redirect hung on a list or
+  pipeline credited to its last command; a function redefining itself runs the new body
+  (guard keyed by body); a subshell's functions end with it. Each guard mutation-checked.
+- Round 3 (`/code-review medium`, 8 findings) fixed in the WIP commit after 59385f8:
+  Python code is never cleared as data (it can only confirm "ran"; paths in `-c` code are
+  text); os.exec*/spawn* argv read exactly (`_os_argv`); asyncio.create_subprocess_shell;
+  the last stdout redirect wins in `_to_null`; for-list, case-subject and compared words are
+  text (`_compared`); fresh, failed and re-audited records share `audit_stamp()`;
+  `_text_reading()` dedupes the fallback. Quality test files green.
+- Deferred (Minor): HAS_SUBSTITUTION/MAY_RUN_OUTPUT are module sets saved and restored in
+  shell_reach's finally, not walker attributes; `visit` still recurses on nesting (a
+  RecursionError falls back to the text reading).
 
 Next, in order:
-1. Merge #252 on green.
-2. Restart the Opus baseline from main in a fresh worktree on the RIT account (the default config
-   folder): point `~/.local/state/techne-quality/resume.sh`'s `cd` at that worktree and its
-   QUALITY_OUT at `quality/results/2026-10-29-baseline-2`, then
-   `tmux new-session -d -s quality-resume -e CLAUDE_CONFIG_DIR="$HOME/.claude" "bash
-   ~/.local/state/techne-quality/resume.sh"`. Rerunning resumes; always pass `-e CLAUDE_CONFIG_DIR`.
-   Progress: `grep tests= ~/.local/state/techne-quality/baseline.log`.
-3. Commit the results under `quality/results/` by PR, then start techne#226 measured on them.
+1. `flock /tmp/fleet-heavy.lock timeout 2400 make test` (an earlier run on 59385f8 went to
+   the scratchpad; rerun on the new head).
+2. Re-audit a scratch copy of the baseline (`--reaudit` with `--session-store
+   ~/.claude/projects/-var-tmp-techne-quality-1001-live-run-ws`); update the PR body's
+   numbers (45 on 10 -> ?) and DEVIATIONS.md's note that Python text now stays "text".
+3. Review round 4: a fresh Opus reader (elenchus dispatched reader) + `/code-review medium`,
+   open classes shell-semantics-mismatch (recurred r1-r3: structural fix made), vacuous-guard,
+   unmirrored-parallel-guard. Append r3 findings to the elenchus ledger. Until clean, then
+   merge.
+4. When the baseline (tmux quality-resume, RIT, 11 of 30) finishes: `--reaudit` from main,
+   judge, analyze, results PR, then techne#226.
+5. Then #260 (log cleanup) and #261 (file naming) in one standard pass (research noted:
+   logrotate size+count, tmpfiles.d `D`/age + user clean timer, temp+fsync+os.replace+dir
+   fsync, ULID/UUIDv7), then a klepsydra issue applying both.
 Never wrap `run.py` or `make quality` in `flock /tmp/fleet-heavy.lock`: run.py takes that lock
 itself, so the wrapper deadlocks. A lock held long after every job ended is likely an orphan that
 inherited the fd (klepsydra#193): `lsof /tmp/fleet-heavy.lock`. A skill suite with any "ended on
