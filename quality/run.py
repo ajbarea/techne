@@ -223,7 +223,7 @@ WRAPPERS: dict[str, tuple[int, frozenset[str]]] = {
             {"--with", "--with-editable", "--with-requirements", "--python", "-p", "--project"}
             | {"--directory", "--env-file", "--extra", "--group", "--only-group", "--no-group"}
             | {"--package", "--index", "--default-index", "--index-url", "--extra-index-url"}
-            | {"--find-links", "-f", "--config-file", "--cache-dir", "--color"}
+            | {"--find-links", "-f", "--config-file", "--cache-dir", "--color", "--from"}
         ),
     ),
 }
@@ -237,7 +237,6 @@ FILTERS = SEARCHES | frozenset(
     {"head", "tail", "wc", "sort", "uniq", "cut", "tr", "cat", "less", "more", "nl", "column"}
 )
 WRITERS = frozenset({"cat", "tee", "printf", "echo"})
-LOOKUPS = frozenset({"which", "type", "hash"})  # print where a program is; run nothing
 PYTHON = re.compile(r"python(?:3(?:\.\d+)?)?$")
 # Python calls that run a command line through a shell, and those that run a program.
 PY_SHELL = frozenset(
@@ -263,6 +262,7 @@ LEAK_BYTES = re.compile(LEAK.pattern.encode())
 # An absolute path outside the system folders, and a climb of two or more levels.
 HOME_PATH = re.compile(r"(?<![\w.])/(?:home|root|tmp|mnt|var/tmp)(?:/[^\s'\";|&)]*)?")
 REGISTERED = ("/home", "/root", "/tmp", "/mnt", "/var/tmp")
+TEXT_LABEL = "text: "  # leads a leak flag the parser found only as text
 RESTRICTED = re.compile(f"(?:{'|'.join(REGISTERED)})(?:/|$)")
 ESCAPE = re.compile(r"(?:^|[\s'\"=])(?:\.\./){2,}")
 # What separates path-like tokens inside a word or a block of text.
@@ -621,7 +621,7 @@ def leaks(log: pathlib.Path, ws: pathlib.Path, store: pathlib.Path | None = None
                 if reached == "ran":
                     found.append(f"Bash: {command[:200]}")
                 elif reached == "text" or outside:
-                    found.append(f"text: Bash: {command[:200]}")
+                    found.append(f"{TEXT_LABEL}Bash: {command[:200]}")
             for path in tool_paths(part.get("name", ""), inp, ws):
                 if not inside(path, ws, store):
                     found.append(f"{part.get('name')}: {path}")
@@ -668,14 +668,15 @@ def shell_reach(
     it uses lands in a registered folder (/home, /root, /tmp, /mnt, /var/tmp) outside the
     run's own. "text": a text match the parser neither shows runs nor clears as data,
     including beside a program it cannot read, and the whole text match for a command it
-    cannot parse. "": neither. Only a closed list of shapes clears a match as data: a
-    search's or lookup's words, a local git command's words but its `-c` values, a value
-    assigned to a variable no program runs, a pytest `-k`/`-m` expression, words printed to
-    /dev/null, and a shell script this reader followed itself (never Python code). Text
-    written to a file stays "text": a later call may run the file. Clearing applies to
-    program names: leaks() also labels "text" any registered path in the command's text
-    this does not show used. Both count as leaks; the report also gives the primary metric
-    without "text" (quality/DEVIATIONS.md, 2026-10-31)."""
+    cannot parse. "": neither. Three shapes alone clear a program name as data, the three
+    the recorded baseline needs: a search's words (grep, rg without an option that runs a
+    program), a local git command's words but its `-c` values (not `git grep -O`), and a
+    pytest `-k`/`-m` expression; none clears in a call that defines an alias. A registered
+    climb is never cleared: the folder it is read from can only make it "ran". leaks() also
+    labels "text" any registered path in the command's text this does not show used. Both
+    count as leaks; the report also gives the primary metric without "text", an upper
+    bound on the relief, since some "text" is a run this reader cannot follow
+    (quality/DEVIATIONS.md, 2026-10-31)."""
     verdict, after, _unread = _reach(command, cwd, ws, store, env, functions)
     return verdict, after
 
@@ -706,7 +707,8 @@ def _reach(
             index.clear()
             index.update(ids)
     hits = [m.start() for m in LEAK_BYTES.finditer(command.encode())]
-    uncleared = any(not any(a <= h < b for a, b in walker.data) for h in hits)
+    spans = [] if walker.aliased else walker.data
+    uncleared = any(not any(a <= h < b for a, b in spans) for h in hits)
     if walker.reached:
         return "ran", after, walker.unknown
     text = (walker.unknown and hits) or uncleared or walker.text
@@ -822,11 +824,39 @@ def _command_words(node) -> list:
     return words
 
 
+def _search_runs(prog: str | None, args: list[str | None]) -> bool:
+    """Whether a search's options make it run a program: rg's preprocessor, decompressors
+    and hostname program."""
+    if prog != "rg":
+        return False
+    for a in args:
+        if a is None or a == "--":
+            return a is None
+        if a.startswith(("--pre", "--hostname-bin", "--search-zip")):
+            return True
+        if a.startswith("-") and not a.startswith("--") and "z" in a[1:]:
+            return True
+    return False
+
+
+def _git_runs(args: list[str | None]) -> bool:
+    """Whether a local git command's options run a program: `git grep -O` opens its
+    matches in a command it names."""
+    return _git_subcommand(args) == "grep" and any(
+        a is None or a.startswith(("-O", "--open-files-in-pager")) for a in args
+    )
+
+
 def _tee_files(prog: str | None, args: list[str | None]) -> bool:
     """Whether PROG is tee writing to a file, which it does wherever its stdout goes."""
-    return prog == "tee" and any(
-        a is None or (not a.startswith("-") and a != "/dev/null") for a in args
-    )
+    if prog != "tee":
+        return False
+    ended = False  # after `--` every word is a file
+    for a in args:
+        if a is None or (a != "/dev/null" and (ended or not a.startswith("-"))):
+            return True
+        ended = ended or a == "--"
+    return False
 
 
 def _breaks(node) -> bool:
@@ -976,11 +1006,12 @@ def _program(
             if asks:
                 return "", [], True  # asks whether a program exists; runs nothing
         if name == "uv":  # `uv run P` and `uv tool run P` run P; any other subcommand is uv's
+            while i + 1 < len(values) and (values[i + 1] or "").startswith("-"):
+                i += 2 if values[i + 1] in WRAPPERS["uv"][1] else 1
             sub = values[i + 1 : i + 3]
             if sub[:2] == ["tool", "run"]:
-                i += 3
-                continue
-            if sub[:1] != ["run"]:
+                i += 1  # past `tool`: `run` and its options are skipped below
+            elif sub[:1] != ["run"]:
                 return name, values[i + 1 :], True
         skip, takes_value = WRAPPERS[name]
         i += 1
@@ -1104,7 +1135,8 @@ class _ShellWalk:
         self.reached = False
         self.unknown = False  # a program could not be read: every text match counts
         self.text = False  # a script it followed held an uncleared text match
-        self.followed: set[str] = set()  # scripts this command hands a shell or eval
+        self.aliased = False  # an `alias` ran: any word may run a command
+        self.scripts: set[str] = set()  # scripts this command hands a shell, read nested
         self.python_code = False  # the command runs Python code given as a word (`-c`)
         self.nested_cwd: str | None = None  # where an eval'd script left the folder
         self.data: list[tuple[int, int]] = []
@@ -1270,7 +1302,9 @@ class _ShellWalk:
                 if not _breaks(body):
                     for v in values:
                         self.vars[name] = v
-                        cwd = self.visit(body, cwd)
+                        before, cwd = cwd, self.visit(body, cwd)
+                        if cwd != before and GLOB.search(v or ""):
+                            cwd = None  # a glob names what exists: where it went is unknown
                     return cwd
             self.vars[name] = None
         if self.visit(body, cwd) == cwd:
@@ -1315,6 +1349,13 @@ class _ShellWalk:
             if not t:
                 continue
             if not os.path.isabs(t):
+                if (
+                    cwd is not None
+                    and ESCAPE.search(f" {token}")
+                    and not restricted(os.path.join(cwd, t), self.ws, self.store)
+                ):  # the registered climb, landing inside: a folder read cannot clear it
+                    self._hit(True)
+                    return
                 if cwd is None:
                     if _double_climb(t):
                         self._hit(soft)
@@ -1372,8 +1413,6 @@ class _ShellWalk:
         if val is not None:
             val = self._expand_known(val)
         if value is not None:
-            if not _has_substitution(value) and not EXECUTED_VAR.fullmatch(key):
-                self.data.append((value.start_byte, value.end_byte))
             self._substitutions(value, cwd)
             self._paths(self._word(value), value.text.decode(errors="replace"), cwd, soft=True)
         if keep:
@@ -1435,8 +1474,8 @@ class _ShellWalk:
         here = self._resolve(seen["chdir"], cwd) if "chdir" in seen else cwd
         if not known:
             self.unknown = True
-        self.followed = set()
         self.python_code = False
+        self.scripts = set()
         launched = self._launches(prog, args, here, env, feeds, node)
         if launched is None:
             self.unknown = True
@@ -1444,26 +1483,22 @@ class _ShellWalk:
             self.reached = True
         mark = len(self.data)
         self._data_settings(words, prog, args)
-        if self.followed:  # a script string read on its own: its matches were judged there
-            for w, v in zip(words, values, strict=False):
-                if v in self.followed and not _has_substitution(w):
-                    self.data.append((w.start_byte, w.end_byte))
-        elif prog == "git" and _git_subcommand(args) in GIT_LOCAL:
+        if prog == "alias":  # a word may now run a command no reader sees: clear nothing
+            self.aliased = True
+        if prog == "git" and _git_subcommand(args) in GIT_LOCAL and not _git_runs(args):
             self._data_words(node, words, keep=self._git_config_values(words))
-        elif prog in SEARCHES or prog in LOOKUPS or (prog == "" and values):
+        elif prog in SEARCHES and not _search_runs(prog, args):
             self._data_words(node, words)
-        elif prog in WRITERS and self._to_null(node) and not _tee_files(prog, args):
-            self._data_words(node, words)
-            for _kind, _text, holder in feeds:
-                if holder is not None:
-                    self.data.append((holder.start_byte, holder.end_byte))
         spans = self.data[mark:]
         printed = prog in ("echo", "printf")
         opened = _opened(words, values, prog, args)
         for i, w in enumerate(words):  # printed, or cleared as data and not opened: text
             cleared = any(a <= w.start_byte and w.end_byte <= b for a, b in spans)
             tested = prog in ("test", "[") and i > len(words) - len(args) - 1
-            soft = printed or self.python_code or ((cleared or tested) and i not in opened)
+            # A script read nested had its paths judged there: here they are text.
+            nested = values[i] in self.scripts if i < len(values) else False
+            soft = printed or self.python_code or nested
+            soft = soft or ((cleared or tested) and i not in opened)
             self._paths(self._word(w), w.text.decode(errors="replace"), here, soft)
         if not (prog in SHELLS and launched is not None):  # a shell's feed was read nested
             for _kind, text, holder in feeds:
@@ -1555,28 +1590,15 @@ class _ShellWalk:
         return keep
 
     def _data_settings(self, words: list, prog: str | None, args: list[str | None]) -> None:
-        """Mark as data the values `env NAME=VALUE` sets, as a prefix assignment's are, and a
-        pytest `-k` or `-m` expression, which pytest matches against test names and marks."""
+        """Mark as data a pytest `-k` or `-m` expression, which pytest matches against test
+        names and marks."""
         pytest = prog == "pytest" or (
             prog is not None and PYTHON.match(prog) and args[:2] == ["-m", "pytest"]
         )
-        in_env = skip_value = False
         for i, w in enumerate(words):
             if _has_substitution(w):
-                in_env = False
                 continue
             v = _literal(w)
-            if skip_value:
-                skip_value = False
-            elif v is not None and os.path.basename(v) == "env":
-                in_env = True
-            elif in_env and v is not None and (m := re.match(r"([A-Za-z_]\w*)=", v)):
-                if not EXECUTED_VAR.fullmatch(m.group(1)):
-                    self.data.append((w.start_byte, w.end_byte))
-            elif in_env and (v or "").startswith("-"):
-                skip_value = v in WRAPPERS["env"][1]
-            else:
-                in_env = False
             if pytest and v in ("-k", "-m") and i + 1 < len(words):
                 nxt = words[i + 1]
                 if not _has_substitution(nxt):
@@ -1592,7 +1614,7 @@ class _ShellWalk:
         node: Any = None,
     ) -> bool | None:
         """Whether running PROG with ARGS (and FEEDS on stdin) reaches out; None when what it
-        runs cannot be read. A script it runs is followed, and its text marked as data."""
+        runs cannot be read. A script it runs is read nested."""
         if not prog or prog in self.functions:  # a function is replayed where it is called
             return False
         if prog in NET_PROGRAMS:
@@ -1606,7 +1628,7 @@ class _ShellWalk:
                 return None
             if kind == "c":
                 assert script is not None
-                self.followed.add(script)
+                self.scripts.add(script)
                 return self._nested(script, cwd, {**env, **_positional(positional)})
             if kind == "stdin":
                 if not feeds and node is not None:
@@ -1615,22 +1637,22 @@ class _ShellWalk:
                         return None
                     feeds = [piped] if piped[2] is not None else []
                 reached: bool | None = False
-                for _k, text, holder in feeds:
+                for _k, text, _holder in feeds:
                     if text is None:
                         return None
                     got = self._nested(text, cwd, env)
                     if got is None:
                         return None  # not shown inert: its text is not cleared
                     reached = reached or got
-                    if holder is not None:
-                        self.data.append((holder.start_byte, holder.end_byte))
                 return reached
+            return None  # a script file: what it runs is not read here
+        if prog in ("source", "."):
             return None  # a script file: what it runs is not read here
         if prog == "eval":
             self.nested_cwd = None
             if None in args:
                 return None
-            self.followed.update(a for a in args if a is not None)
+            self.scripts.update(a for a in args if a is not None)
             return self._nested(" ".join(a or "" for a in args), cwd, env, keep_folder=True)
         if prog == "find":
             reached: bool | None = False

@@ -124,8 +124,6 @@ def test_the_run_folder_and_tools_are_not_leaks(tmp_path):
         "git init -q clone && cd clone && git status",
         'grep -rln "urlopen\\|curl \\|requests\\." src',
         "printf 'scratch/\\nclone/\\n' > .gitignore",
-        "command -v curl || echo none",
-        "cd plugins/a/b/c && cd ../../../.. && ls",
     ],
 )
 def test_commands_that_stay_in_the_sandbox_are_not_leaks(tmp_path, command):
@@ -164,9 +162,12 @@ def test_the_working_folder_carries_between_calls(tmp_path):
     ws = run.LIVE / "run" / "ws"
     deep = ("Bash", {"command": "cd plugins/a/b/c"})
     back = ("Bash", {"command": "cat ../../../../README.md"})
-    assert not run.leaks(transcript(tmp_path, deep, back), ws)
-    # Without the first call the same climb lands outside the run.
-    assert run.leaks(transcript(tmp_path, back), ws)
+    # A registered climb is never cleared; landing inside the run, it stays text.
+    assert run.leaks(transcript(tmp_path, deep, back), ws) == [
+        "text: Bash: cat ../../../../README.md"
+    ]
+    # Without the first call the same climb lands outside the run: the folder shows it ran.
+    assert run.leaks(transcript(tmp_path, back), ws) == ["Bash: cat ../../../../README.md"]
 
 
 def test_a_cwd_reset_returns_the_shell_to_the_workspace(tmp_path):
@@ -192,14 +193,15 @@ def test_a_cwd_reset_returns_the_shell_to_the_workspace(tmp_path):
                     {
                         "type": "tool_use",
                         "name": "Bash",
-                        "input": {"command": "cat ../../run/ws/a.py"},
+                        "input": {"command": "cat ../../x"},
                     }
                 ]
             },
         },
     ]
     log.write_text("\n".join(json.dumps(r) for r in recs) + "\n")
-    assert not run.leaks(log, ws)
+    # Back in the workspace, ../../x is the live folder, outside the run; from /opt, /x.
+    assert run.leaks(log, ws) == ["Bash: cat ../../x"]
 
 
 @pytest.mark.parametrize("cd_by", ["toolu_1", None])
@@ -1558,7 +1560,7 @@ def test_only_a_runs_own_sessions_may_read_back_their_saved_outputs(
         ('env GIT_SSH_COMMAND="ssh -x" uv run pytest -q', "text"),
         ('GIT_SSH_COMMAND="ssh -x" uv run pytest -q', "text"),
         ("export GIT_SSH_COMMAND='ssh -x'\nuv run pytest -q", "text"),
-        ("env -u X A='curl x' true", ""),
+        ("env -u X A='curl x' true", "text"),
         ('uv run pytest -q -k "ssh or prompts"', ""),
         ('python3 -m pytest -m "gh and slow"', ""),
         ("env A=1 curl x", "ran"),
@@ -1596,7 +1598,7 @@ def test_each_leak_verdict_names_how_it_was_found(command, want):
         ("python3 -mc \"import os; os.system('curl x')\"", "text"),
         # A subshell's folder and variables end with it; `cd -` returns; `source` loses it.
         ('(cd a/b/c); cat "$PWD/../../../x"', "ran"),
-        ("cd a/b && cd .. && cd - && cat ../../x", ""),
+        ("cd a/b && cd .. && cd - && cat ../../x", "text"),
         ("cd a/b && . ./env.sh && cat ../../x", "ran"),
         # A search whose output a command takes as words is not data.
         ("echo $(grep curl notes.txt)", "text"),
@@ -1626,8 +1628,8 @@ def test_each_leak_verdict_names_how_it_was_found(command, want):
         # Only git's own `-c`, before the subcommand, sets a value git may run.
         ("git log --format=%H -c curl", ""),
         # A redirect after a list's or pipeline's last command is that command's.
-        ("false || printf '%s' 'gh wget' >/dev/null", ""),
-        ("echo y | xargs echo 'curl x' >/dev/null", ""),
+        ("false || printf '%s' 'gh wget' >/dev/null", "text"),
+        ("echo y | xargs echo 'curl x' >/dev/null", "text"),
         ("true || printf 'curl x' >f.sh", "text"),
         # A function that defines its own name anew runs the new body; one defined in a
         # subshell is gone after it.
@@ -1732,7 +1734,7 @@ def test_reaudit_recomputes_the_primary_verdict(tmp_path, monkeypatch):
         # A subshell's `cd` holds inside it, and only there.
         ("(cd / && cat home/u/.ssh/id_rsa)", "ran"),
         ("(cd /usr && cat ../home/u/x)", "ran"),
-        ("(cd sub/deep && cat ../../README)", ""),
+        ("(cd sub/deep && cat ../../README)", "text"),
         ("(cd /) && cat home/u/x", ""),
         ("(cd ..; cd ..; cd ..; ls done)", "ran"),
         ("cd / | cat home/u/x", ""),
@@ -1783,7 +1785,7 @@ def test_reaudit_recomputes_the_primary_verdict(tmp_path, monkeypatch):
         ("cat > Makefile <<'MK'\nall:\n\tcurl http://x\nMK\nmake", "text"),
         ("echo 'curl http://x' > .git/hooks/pre-commit", "text"),
         ("echo 'curl http://x' | tee hook.sh", "text"),
-        ("printf '%s' 'gh wget' >/dev/null", ""),
+        ("printf '%s' 'gh wget' >/dev/null", "text"),
         # A script this reader cannot read is no proof of a run.
         ('eval "$(pyenv init -)"', ""),
         ('bash -c "$X"', ""),
@@ -1791,7 +1793,7 @@ def test_reaudit_recomputes_the_primary_verdict(tmp_path, monkeypatch):
         ('eval "$X" curl x', "text"),
         # A wrapper option that hands a shell its string is read as `sh -c`.
         ("flock f -c 'curl x'", "ran"),
-        ("flock -c 'grep curl f' f", ""),
+        ("flock -c 'grep curl f' f", "text"),
         ("env -S 'curl x'", "ran"),
         ("env --split-string='curl x'", "ran"),
         ("sudo -s curl x", "ran"),
@@ -1811,7 +1813,7 @@ def test_reaudit_recomputes_the_primary_verdict(tmp_path, monkeypatch):
         ("python3 -c 'import asyncio; asyncio.create_subprocess_shell(\"curl x\")'", "ran"),
         # The last redirect of stdout decides where the text goes.
         ("echo 'curl x' >/dev/null >run.sh", "text"),
-        ("echo 'curl x' >run.sh >/dev/null", ""),
+        ("echo 'curl x' >run.sh >/dev/null", "text"),
         # A loop's items, a case subject and a compared string are not paths used.
         ("for f in /home/other/a; do echo; done", "text"),
         ("[[ $x == /home/* ]] && echo hi", "text"),
@@ -1827,7 +1829,7 @@ def test_reaudit_recomputes_the_primary_verdict(tmp_path, monkeypatch):
         ("find /home/u -exec sh -c 'echo hi' \\;", "ran"),
         # A for loop over items runs its body once per item, the variable set to each.
         ('for f in /home/u/*; do cat "$f"; done', "ran"),
-        ('for d in a b; do cd "$d"; done; cat ../../x', ""),
+        ('for d in a b; do cd "$d"; done; cat ../../x', "text"),
         ('for d in a b; do cd "$d"; break; done; cat ../../x', "ran"),
         # eval runs in this shell, with its functions; `bash -c` does not see them.
         ("f(){ curl x; }; eval f", "ran"),
@@ -1843,12 +1845,12 @@ def test_reaudit_recomputes_the_primary_verdict(tmp_path, monkeypatch):
         ("sh -c '$0 x' curl", "ran"),
         ("""bash -c 'cat "$1"' _ /home/aj/x""", "ran"),
         ("""bash -c 'echo "$1"' _ hi""", ""),
-        ("bash -c 'grep curl f'", ""),
+        ("bash -c 'grep curl f'", "text"),
         ("bash -c '$UNSET_THING' 'curl x'", "text"),
         # tee writes its input to its files wherever its stdout goes.
         ("tee s.sh >/dev/null <<'EOF'\ncurl x\nEOF", "text"),
         ("tee s.sh >/dev/null <<< 'curl x'", "text"),
-        ("tee /dev/null >/dev/null <<'EOF'\ncurl x\nEOF", ""),
+        ("tee /dev/null >/dev/null <<'EOF'\ncurl x\nEOF", "text"),
         # A shell the Python code runs does not clear the Python command's words, and the
         # code is judged past the shell's quoting.
         (
@@ -1870,6 +1872,50 @@ def test_reaudit_recomputes_the_primary_verdict(tmp_path, monkeypatch):
     ],
 )
 def test_round_two_shapes(command, want):
+    ws = run.LIVE / "run" / "ws"
+    assert run.shell_reach(command, str(ws), ws)[0] == want
+
+
+@pytest.mark.parametrize(
+    ("command", "want"),
+    [
+        # Three shapes alone clear a program name; a value a variable carries is not one.
+        ("""C='curl x'; awk -v c="$C" 'BEGIN{system(c)}'""", "text"),
+        ("""C='curl x'; trap "$C" EXIT""", "text"),
+        ("""PS4='$(curl x)'; set -x; true""", "text"),
+        ("C=true; printf -v C '%s' 'curl x' >/dev/null; $C", "text"),
+        ("hash -p /x/curl ls; ls x", "text"),
+        # A search clears its words unless an option makes it run a program.
+        ("grep -rn curl .", ""),
+        ("rg -n curl .", ""),
+        ("rg --pre curl x .", "text"),
+        ("rg --pre=curl x .", "text"),
+        ("rg -nz curl .", "text"),
+        ("git grep -n 'curl x'", ""),
+        ("git grep -O'curl x' i", "text"),
+        ("git grep --open-files-in-pager='curl x' i", "text"),
+        ("pytest -q -k 'curl or gh'", ""),
+        # An alias may make any word run: nothing in the call is cleared.
+        ("alias grep='sh -c'\ngrep 'curl x'", "text"),
+        # A registered climb is never cleared, whatever folder the reader thinks it is in.
+        ("cd nosuch; cat ../../secret", "text"),
+        ("cd nosuch; ls ../..", ""),
+        ('for d in */; do cd "$d"; done; cat ../../x', "ran"),
+        # A sourced file is not read, as a script file run by bash is not.
+        ("grep curl notes.txt; source ./run.sh", "text"),
+        # uv's own options come before its subcommand; `tool run` takes `--from`.
+        ("uv --quiet run curl x", "ran"),
+        ("uv tool run --from foo curl x", "ran"),
+        # tee writes its input to every file operand, `--` included; /dev/null is none.
+        ("C=cu; D=rl; tee s.sh >/dev/null <<EOF\n$C$D x\nEOF", "text"),
+        ("C=cu; D=rl; tee -- --x >/dev/null <<EOF\n$C$D x\nEOF", "text"),
+        ("C=cu; D=rl; tee /dev/null >/dev/null <<EOF\n$C$D x\nEOF", ""),
+        # A path in a script read nested was judged there; the outer word is text.
+        ("bash -c '[ /tmp/zz ]; :'", "text"),
+        ("eval '[ -n /tmp/zz ]'", "text"),
+    ],
+)
+def test_round_five_shapes(command, want):
     ws = run.LIVE / "run" / "ws"
     assert run.shell_reach(command, str(ws), ws)[0] == want
 

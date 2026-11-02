@@ -7,39 +7,37 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 ## In flight
 
 techne#255, PR #256 (branch fix/quality-leak-audit, worktree `.claude/worktrees/leak-audit`):
-the leak check reads bash with tree-sitter-bash; `run.py --reaudit [--session-store DIR]`
-recomputes recorded runs. Paused 11-01 ~17:30 on Heph's request (RIT budget).
+the leak check reads bash with tree-sitter-bash; `run.py --reaudit` recomputes recorded runs.
 
-Done this session (11-01):
-- 59385f8: the previous agent's post-push probing fixes (branches/`||`/loops make the folder
-  unknown, opened files count, globs/braces/`//home`), plus: redirect hung on a list or
-  pipeline credited to its last command; a function redefining itself runs the new body
-  (guard keyed by body); a subshell's functions end with it. Each guard mutation-checked.
-- Round 3 (`/code-review medium`, 8 findings) fixed in the WIP commit after 59385f8:
-  Python code is never cleared as data (it can only confirm "ran"; paths in `-c` code are
-  text); os.exec*/spawn* argv read exactly (`_os_argv`); asyncio.create_subprocess_shell;
-  the last stdout redirect wins in `_to_null`; for-list, case-subject and compared words are
-  text (`_compared`); fresh, failed and re-audited records share `audit_stamp()`;
-  `_text_reading()` dedupes the fallback. Quality test files green.
-- Deferred (Minor): HAS_SUBSTITUTION/MAY_RUN_OUTPUT are module sets saved and restored in
-  shell_reach's finally, not walker attributes; `visit` still recurses on nesting (a
-  RecursionError falls back to the text reading).
+Done (11-01 to 11-02): rounds 3-5 (`/code-review medium` + a fresh Opus reader each round;
+findings in the elenchus ledger). shell-semantics-mismatch recurred every round, so round 5
+changed the approach: clearing is proof-based and minimal. Measured on the recorded baseline
+(`leaks()` per transcript, one clearing shape off at a time; scratch `variant_count.py`):
+7 of 10 clearing shapes changed no verdict and were removed (assignment values, env
+settings, followed scripts, shell feeds, lookups, empty program, /dev/null prints). Kept,
+with option deny-lists: search words (`_search_runs`: rg --pre, -z, --hostname-bin),
+local git words (`_git_runs`: git grep -O), pytest -k/-m. An `alias` turns clearing off.
+A registered climb is never cleared (the folder only upgrades it to "ran"). `source`/`.`
+is unread. Every new guard mutation-checked.
 
 Next, in order:
-1. `flock /tmp/fleet-heavy.lock timeout 2400 make test` (an earlier run on 59385f8 went to
-   the scratchpad; rerun on the new head).
-2. Re-audit a scratch copy of the baseline (`--reaudit` with `--session-store
-   ~/.claude/projects/-var-tmp-techne-quality-1001-live-run-ws`); update the PR body's
-   numbers (45 on 10 -> ?) and DEVIATIONS.md's note that Python text now stays "text".
-3. Review round 4: a fresh Opus reader (elenchus dispatched reader) + `/code-review medium`,
-   open classes shell-semantics-mismatch (recurred r1-r3: structural fix made), vacuous-guard,
-   unmirrored-parallel-guard. Append r3 findings to the elenchus ledger. Until clean, then
-   merge.
-4. When the baseline (tmux quality-resume, RIT, 11 of 30) finishes: `--reaudit` from main,
-   judge, analyze, results PR, then techne#226.
-5. Then #260 (log cleanup) and #261 (file naming) in one standard pass (research noted:
-   logrotate size+count, tmpfiles.d `D`/age + user clean timer, temp+fsync+os.replace+dir
-   fsync, ULID/UUIDv7), then a klepsydra issue applying both.
+1. Recount at the round-5 code; update DEVIATIONS.md (structural rule, the measurement,
+   numbers; keep it under its 900-word budget) and the PR body; commit; push.
+2. `flock /tmp/fleet-heavy.lock timeout 2400 make test` on the new head (do not edit the tree
+   while it runs).
+3. Round 6: a fresh Opus reader + `/code-review medium`, open classes as above; until clean,
+   then a verify pass; merge.
+4. Baseline (tmux quality-resume, RIT, pinned to Claude Code 2.1.302 in
+   `~/.local/state/techne-quality/cc-2.1.302`): when it reaches 30 runs, `--reaudit` from
+   main, judge, analyze, results PR, then techne#226. resume.sh's single long `sleep` stalls
+   across a WSL suspend: replace with a wall-clock wait once it is idle (never mid-run).
+5. Then #260 (log cleanup) and #261 (file naming) in one standard pass (research: logrotate
+   size+count, tmpfiles.d `D`/age + the user clean timer, temp+fsync+os.replace+dir fsync,
+   ULID/UUIDv7), then a klepsydra issue applying both.
+Deferred Minors on #256: module-level substitution indexes restored in a finally; recursive
+`visit` (text fallback on RecursionError); audit_stamp digests all of run.py; exported-variable
+tracking; a program named by a substitution; `cmd >f <<< s` does not parse; programs that
+run their arguments but are not modelled (setsid, script -c, watch) read "text", not "ran".
 Never wrap `run.py` or `make quality` in `flock /tmp/fleet-heavy.lock`: run.py takes that lock
 itself, so the wrapper deadlocks. A lock held long after every job ended is likely an orphan that
 inherited the fd (klepsydra#193): `lsof /tmp/fleet-heavy.lock`. A skill suite with any "ended on

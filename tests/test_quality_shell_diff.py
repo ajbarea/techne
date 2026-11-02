@@ -40,13 +40,12 @@ BENIGN = ["true", "echo hi", "printf %s x", "cat /dev/null", "ls >/dev/null"]
 DATA = [
     "grep -q 'curl x' /dev/null || true",
     'grep -c "git push" /dev/null; true',
-    "A='ssh -x' true",
     "git log -1 --grep 'push origin' --oneline",
-    "command -v curl >/dev/null",
-    "printf '%s' 'gh wget' >/dev/null",
+    "rg -c 'scp x' /dev/null; true",
 ]
-# The same, in shapes it may flag: printed text could be run by what reads it.
+# The same, in shapes it may flag: printed or assigned text could be run by what reads it.
 DECOYS = ["echo curl", "echo 'ssh -x'", "printf '%s' 'git push'", "echo gh wget"]
+DECOYS += ["A='ssh -x' true", "command -v curl >/dev/null", "printf '%s' 'gh wget' >/dev/null"]
 WRAPPERS = ["", "env A=1 ", "timeout 5 ", "nice -n 1 ", "command ", "nohup ", "stdbuf -o0 "]
 WRAPPERS += ["E=; $E "]  # an unquoted expansion to nothing is no word
 
@@ -79,17 +78,18 @@ def simple(rng: random.Random) -> tuple[str, bool]:
 def nest(cmd: str, rng: random.Random) -> tuple[str, bool]:
     """CMD run another way bash still runs it, and whether that way keeps it clearable."""
     q = cmd.replace("'", "'\\''")
+    # A script handed to a shell is read for what it runs, but never cleared.
     forms = [
         (cmd, True),
-        (f"bash -c '{q}'", True),
-        (f"bash -lc '{q}'", True),
-        (f"bash -euc '{q}'", True),
-        (f"sh <<'EOF'\n{cmd}\nEOF", True),
-        (f"bash <<< '{q}'", True),
-        (f"eval '{q}'", True),
+        (f"bash -c '{q}'", False),
+        (f"bash -lc '{q}'", False),
+        (f"bash -euc '{q}'", False),
+        (f"sh <<'EOF'\n{cmd}\nEOF", False),
+        (f"bash <<< '{q}'", False),
+        (f"eval '{q}'", False),
         (f"( {cmd} )", True),
         (f"{{ {cmd}; }}", True),
-        (f"find . -maxdepth 0 -exec sh -c '{q}' \\;", True),
+        (f"find . -maxdepth 0 -exec sh -c '{q}' \\;", False),
         # Python is not read whole: its text is never cleared, only its runners confirmed.
         (f"python3 - <<'PY'\nimport os\nos.system({cmd!r})\nPY", False),
         (f"false || {cmd}", True),
@@ -106,7 +106,7 @@ def nest(cmd: str, rng: random.Random) -> tuple[str, bool]:
         # Words a script runs as its parameters are not shown inert, so never cleared.
         forms += [(f"bash -c '\"$@\"' _ {cmd}", False), (f"sh -c '$0 \"$@\"' {cmd}", False)]
     if not any(s in cmd for s in ("<<", "|", ";")) and not cmd.startswith(("A=", "command ")):
-        forms.append((f"echo y | xargs {cmd}", True))
+        forms.append((f"true | xargs {cmd}", True))  # no input: no word added
     if "<<" not in cmd:  # tree-sitter reads this as `(true && cmd 2>&1) | cat`
         forms.append((f"true && {cmd} 2>&1 | cat", True))
     return rng.choice(forms)

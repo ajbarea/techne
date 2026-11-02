@@ -22,7 +22,7 @@ import tomllib
 from collections import defaultdict
 from collections.abc import Sequence
 
-from run import resolve
+from run import TEXT_LABEL, resolve
 
 MARGIN = -0.05
 ALPHA = 0.05
@@ -253,14 +253,7 @@ def task_rows(runs: list[dict]) -> list[dict]:
                     for c in CRITERIA
                 },
                 "flags": sorted({f for r in rs for f in r["flags"]}),
-                "flags_dropped": sorted(
-                    {
-                        f
-                        for r in rs
-                        for f in (r.get("reaudit") or {}).get("leak_flags_as_run", [])
-                        if _bare(f) not in {_bare(x) for x in r["flags"]}
-                    }
-                ),
+                "flags_dropped": sorted({f for r in rs for f in _dropped(r)}),
                 "disagreements": [
                     {
                         "repeat": r["repeat"],
@@ -277,7 +270,14 @@ def task_rows(runs: list[dict]) -> list[dict]:
     return rows
 
 
-TEXT_LEAK = "leak: text: "
+TEXT_LEAK = "leak: " + TEXT_LABEL
+
+
+def _dropped(run: dict) -> list[str]:
+    """RUN's leak flags as first recorded that its re-audit no longer raises."""
+    kept = {_bare(x) for x in run["flags"]}
+    as_run = (run.get("reaudit") or {}).get("leak_flags_as_run", [])
+    return [f for f in as_run if _bare(f) not in kept]
 
 
 def _bare(flag: str) -> str:
