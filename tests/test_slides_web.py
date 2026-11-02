@@ -873,7 +873,7 @@ def test_pdf_keeps_text_pinned_to_the_bottom_of_a_slide(sl, web, tmp_path):
     )
     out = tmp_path / "deck.pdf"
     sl.pdf_html(web.index, out)
-    assert "Where the discussion stops fall" in _pdf_text(out)
+    assert "Where the pauses fall" in _pdf_text(out)
 
 
 @pytest.mark.parametrize("name", ["export.pptx", "export"])
