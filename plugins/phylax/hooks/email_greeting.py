@@ -82,32 +82,59 @@ def visible_text(raw: str) -> str:
 
 # str.splitlines's line boundaries; a kept-ends piece ends with at most one of them.
 _BREAKS = "\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029"
-CHUNK = 8192  # HTML fed to the parser at a time; parsing stops at the first complete line
+
+
+class _Found(Exception):
+    """Raised by _FirstLine once the first non-empty line is complete."""
+
+
+class _FirstLine(_Text):
+    """_Text that stops the parse at the first complete non-empty line. The whole body is fed at
+    once, as visible_text() feeds it: HTMLParser's output depends on where its input is split (a
+    character reference or a `<!-->` comment cut by a boundary parses differently), so only its
+    handlers, not the feeding, may stop early. They see main's events in main's order, and a
+    line followed by a break is final once emitted."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.current: list[str] = []  # the unfinished line's pieces
+        self.line: str | None = None
+
+    def _take(self) -> None:
+        for part in self.parts:
+            for piece in part.splitlines(keepends=True):
+                if piece.rstrip(_BREAKS) == piece:
+                    self.current.append(piece)
+                    continue
+                line = opening("".join(self.current) + piece)
+                if line:
+                    self.line = line
+                    raise _Found
+                self.current = []
+        self.parts = []
+
+    def handle_starttag(self, tag: str, attrs: list) -> None:
+        super().handle_starttag(tag, attrs)
+        self._take()
+
+    def handle_endtag(self, tag: str) -> None:
+        super().handle_endtag(tag)
+        self._take()
+
+    def handle_data(self, data: str) -> None:
+        super().handle_data(data)
+        self._take()
 
 
 def html_opening(raw: str) -> str | None:
-    """opening(visible_text(RAW)), parsing only as far as the first non-empty line: the visible
-    text is written in order, so a line followed by a break is final once the parser emits it."""
-    parser = _Text()
-    current: list[str] = []  # the unfinished line's pieces
-    seen = 0  # parser.parts already split into lines
-    chunks = [raw[i : i + CHUNK] for i in range(0, len(raw), CHUNK)]
-    for chunk in [*chunks, None]:  # None: the end, where close() flushes what the parser holds
-        if chunk is None:
-            parser.close()
-        else:
-            parser.feed(chunk)
-        for part in parser.parts[seen:]:
-            for piece in part.splitlines(keepends=True):
-                if piece.rstrip(_BREAKS) == piece:
-                    current.append(piece)
-                    continue
-                line = opening("".join(current) + piece)
-                if line:
-                    return line
-                current = []
-        seen = len(parser.parts)
-    return opening("".join(current))
+    """opening(visible_text(RAW)), parsing only as far as the first non-empty line."""
+    parser = _FirstLine()
+    try:
+        parser.feed(raw)
+        parser.close()
+    except _Found:
+        return parser.line
+    return opening("".join(parser.current))
 
 
 def now(tz_name: str) -> dt.datetime:

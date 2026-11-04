@@ -237,26 +237,45 @@ def _opening_full(text: str) -> str | None:
     return next((line.strip() for line in text.splitlines() if line.strip()), None)
 
 
+_LONG_DEC = "&#" + "0" * 40 + "10;"  # a character reference longer than HTMLParser's lookahead
+_LONG_HEX = "&#x" + "0" * 40 + "a;"
 _PIECES = (
     "<p>", "</p>", "<div>", "</div>", "<br>", "<br/>", "<li>", "<span>", "</span>", "<b>",
     "<style>p{x:y}</style>", "<script>Good morning,</script>", "<title>Hi</title>", "<template>",
     "</template>", "<!-- Hi -->", "Good morning,", "Hi Dana,", "Dear all", "x", " ", "  ",
     "\n", "\r", "\r\n", "\u2028", "\u200b", "\ufeff", "\u200e", "&amp;", "&#8203;", "&nbsp;",
-    "&#x200B;", "&", "<", "Ünïcödé", "\t",
+    "&#x200B;", "&", "<", "Ünïcödé", "\t", _LONG_DEC, _LONG_HEX, "<!-->", "<!--->", "<!--",
+    "-->", "&#10;", "<![CDATA[Hi]]>", " " * 9000,
 )  # fmt: skip
 
 
-@pytest.mark.parametrize("chunk", [1, 2, 3, 5, 8, 64, 8192])
-def test_html_opening_matches_reading_the_whole_body(monkeypatch, chunk):
-    # The early stop must name the line the full parse names, wherever the chunks split a tag,
-    # a character reference, a \r\n or a hidden block.
+def test_html_opening_matches_reading_the_whole_body():
+    # The early stop must name the line the full parse names: HTMLParser's output depends on
+    # where its input is split, so the body is fed whole and only the handlers stop early.
     import random
 
-    monkeypatch.setattr(g, "CHUNK", chunk)
-    rng = random.Random(277 + chunk)
-    for _ in range(400):
+    rng = random.Random(277)
+    for _ in range(3000):
         raw = "".join(rng.choice(_PIECES) for _ in range(rng.randint(1, 30)))
         assert g.html_opening(raw) == _opening_full(g.visible_text(raw)), repr(raw)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        # A long reference across what was a chunk boundary: main denies "Dana,"; a chunked
+        # parse merged the next line in and let the non-ASCII letter through.
+        "<p>" + " " * 8141 + "Dana," + _LONG_DEC + "Grüße</p>",
+        # A <!--> comment read whole runs to the later -->; read in pieces it closed at once.
+        "<!-->Hi Dana,\n-->Good evening, Dana",
+        "<!-->Good evening, Dana\n-->Hi Dana,",
+    ],
+    ids=["long-charref", "comment-hides-hi", "comment-hides-greeting"],
+)
+def test_html_opening_on_input_a_split_parse_got_wrong(raw):
+    assert g.html_opening(raw) == _opening_full(g.visible_text(raw))
+    tool_input = {"htmlBody": raw}
+    assert g.first_lines(tool_input) == [_opening_full(g.visible_text(raw))]
 
 
 @pytest.mark.parametrize(
@@ -268,21 +287,20 @@ def test_opening_matches_dropping_format_characters_first(text):
 
 def test_html_opening_stops_at_the_first_line(monkeypatch):
     # A long message is parsed only up to its first line, not to its end.
-    fed: list[int] = []
+    seen: list[str] = []
+    handle_data = g._Text.handle_data
 
-    class Counting(g._Text):
-        def feed(self, data):
-            fed.append(len(data))
-            super().feed(data)
+    def counting(self, data):
+        seen.append(data)
+        handle_data(self, data)
 
-    monkeypatch.setattr(g, "_Text", Counting)
+    monkeypatch.setattr(g._Text, "handle_data", counting)
     raw = "<div><p>Good morning,</p>" + "<p>Line of the message.</p>" * 2000 + "</div>"
     assert g.html_opening(raw) == "Good morning,"
-    assert fed == [g.CHUNK]
+    assert seen == ["Good morning,"]
 
 
-def test_html_opening_flushes_text_the_parser_holds_at_the_end(monkeypatch):
-    # Text after the last tag stays in the parser until close(), even one character past a chunk.
-    monkeypatch.setattr(g, "CHUNK", 8)
+def test_html_opening_flushes_text_the_parser_holds_at_the_end():
+    # Text after the last tag stays in the parser until close().
     assert g.html_opening("<p></p>  Good morning,") == "Good morning,"
     assert g.html_opening("<p></p>Hi&amp") == "Hi&"

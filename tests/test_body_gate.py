@@ -1181,11 +1181,10 @@ def test_create_sends_the_file_whatever_the_order(repo, verb):
     assert reverse is None, "the short file is what gh sends"
 
 
-def _check_by_parts(kind: str, body: str) -> tuple[list[str], list[str]]:
+def _check_by_parts(kind: str, body: str) -> tuple[bool, int, list[str]]:
     """check() as it was before it shared one pass: each part reads the body on its own."""
     bg = body_gate
-    if len(body) > bg.GITHUB_MAX:
-        return bg.check(kind, body)
+    assert len(body) <= bg.GITHUB_MAX, "check() refuses a longer body before reading it"
     marker = bool(bg._MARKER.search(bg.blank_code(body)))
     return marker, bg.visible_words(body), bg.long_sentences(body)
 

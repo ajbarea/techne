@@ -204,9 +204,9 @@ def check(kind: str, body: str) -> tuple[list[str], list[str]]:
         )
     long = _long_sentences(shown)
     if long:
-        shown = "; ".join(f"{s[:90]}..." if len(s) > 90 else s for s in long[:3])
+        quoted = "; ".join(f"{s[:90]}..." if len(s) > 90 else s for s in long[:3])
         warnings.append(
             f"phylax: {len(long)} sentence(s) in this {kind} body run over {LONG_SENTENCE} "
-            f"words; split them: {shown}"
+            f"words; split them: {quoted}"
         )
     return denies, warnings
