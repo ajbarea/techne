@@ -29,7 +29,6 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from git_options import BLOCKING, OPTIONS, option_on
 
 
 def mod_checks(data: dict) -> bool:
@@ -53,6 +52,8 @@ def cannot_name_git(payload: str) -> bool:
 
 
 def main() -> int:
+    from git_options import OPTIONS, option_on
+
     payload = sys.stdin.read()
     if not any(option_on(k) for k in OPTIONS) or cannot_name_git(payload):
         return 0
@@ -75,4 +76,10 @@ if __name__ == "__main__":
         sys.exit(main())
     except Exception as exc:
         print(f"phylax git guard error: {exc}", file=sys.stderr)
-        sys.exit(2 if any(option_on(k) for k in BLOCKING) else 1)
+        try:
+            from git_options import BLOCKING, option_on
+
+            blocking = any(option_on(k) for k in BLOCKING)
+        except Exception:
+            blocking = True  # which guards are on cannot be read, so the check fails closed
+        sys.exit(2 if blocking else 1)

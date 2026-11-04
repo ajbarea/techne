@@ -32,6 +32,7 @@ import re
 import shlex
 import statistics
 import subprocess
+import sys
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -94,7 +95,7 @@ CASES = [
         "PreToolUse",
         "Bash",
         "git_guards.py",
-        _bash("ls -la", "List files in the GitHub checkout"),
+        _bash("ls -la", "List the .github workflows"),
         dict.fromkeys(GUARDS, "true"),
     ),
     Case(
@@ -355,6 +356,26 @@ def test_every_case_has_a_baseline_on_every_python():
     ratios = json.loads(BASELINE.read_text())["ratios"]
     for version, by_case in ratios.items():
         assert set(by_case) == {c.id for c in CASES}, version
+
+
+def test_the_git_guard_cases_reach_the_path_they_time(sandbox):
+    # git_guards.cannot_name_git is case-sensitive: "GitHub" would keep the described case on the
+    # unparsed skip it is meant to differ from.
+    import importlib
+
+    sys.path.insert(0, str(ROOT / "plugins" / "phylax" / "hooks"))
+    entry = importlib.import_module("git_guards")
+    skips = {
+        c.id: entry.cannot_name_git(case_stdin(c, sandbox[1]))
+        for c in CASES
+        if c.script == "git_guards.py"
+    }
+    assert skips == {
+        "git_guards-no-git": True,
+        "git_guards-no-git-described": False,
+        "git_guards-git-status": False,
+        "git_guards-gh-view": False,
+    }
 
 
 def test_every_case_runs_a_registered_handler():

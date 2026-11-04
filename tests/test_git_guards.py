@@ -723,6 +723,25 @@ def test_a_command_naming_neither_tool_never_loads_the_checks(tmp_path):
     assert "checks loaded" in run("git status").stderr
 
 
+@pytest.mark.parametrize("broken", ["git_options.py", "git_checks.py"])
+def test_a_module_that_cannot_load_fails_closed(tmp_path, broken):
+    hooks = tmp_path / "hooks"
+    hooks.mkdir()
+    for name in ("git_guards.py", "git_options.py", "git_checks.py"):
+        shutil.copy(GUARDS.parent / name, hooks)
+    (hooks / broken).write_text("raise ImportError('broken install')\n")
+    payload = json.dumps({"cwd": str(tmp_path), "tool_input": {"command": "git commit -m x"}})
+    proc = subprocess.run(
+        [HOOK_PYTHON, str(hooks / "git_guards.py")],
+        input=payload,
+        capture_output=True,
+        text=True,
+        env=hook_env([ATTRIBUTION], drop=("PHYLAX_",)),
+        check=False,
+    )
+    assert proc.returncode == 2 and "broken install" in proc.stderr
+
+
 def test_an_escaped_letter_does_not_hide_a_git_command(scratch):
     (handler,) = _handlers()
     payload = json.dumps({"cwd": str(scratch), "tool_input": {"command": "git add -A"}})
