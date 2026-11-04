@@ -54,23 +54,24 @@ class _Text(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
+        self.emit = self.parts.append  # where each piece of visible text goes
         self.hidden = 0
 
     def handle_starttag(self, tag: str, attrs: list) -> None:
         if tag in HIDDEN:
             self.hidden += 1
         elif tag in BLOCKS:
-            self.parts.append("\n")
+            self.emit("\n")
 
     def handle_endtag(self, tag: str) -> None:
         if tag in HIDDEN:
             self.hidden = max(0, self.hidden - 1)
         elif tag in BLOCKS:
-            self.parts.append("\n")
+            self.emit("\n")
 
     def handle_data(self, data: str) -> None:
         if not self.hidden:
-            self.parts.append(data)
+            self.emit(data)
 
 
 def visible_text(raw: str) -> str:
@@ -93,41 +94,35 @@ class _FirstLine(_Text):
     """_Text that stops the parse at the first complete non-empty line. The whole body is fed at
     once, as visible_text() feeds it: HTMLParser's output depends on where its input is split (a
     character reference or a `<!-->` comment cut by a boundary parses differently), so only its
-    handlers, not the feeding, may stop early. They see visible_text()'s events in its order, and
-    a line followed by a break is final once emitted."""
+    handlers, not the feeding, may stop early. They emit visible_text()'s pieces in its order,
+    and a line followed by a break is final once emitted."""
 
     def __init__(self) -> None:
         super().__init__()
-        self.current: list[str] = []  # the unfinished line's pieces
+        self.current: list[str] = []  # the unfinished line's pieces, none holding a break
         self.line: str | None = None
+        self.emit = self._emit
 
-    def _take(self) -> None:
-        for part in self.parts:
-            if not _HAS_BREAK.search(part):  # most parts of a long line: nothing to split
-                self.current.append(part)
-                continue
-            for piece in part.splitlines(keepends=True):
-                if piece.rstrip(_BREAKS) == piece:
-                    self.current.append(piece)
-                    continue
-                line = opening("".join(self.current) + piece)
-                if line:
-                    self.line = line
-                    raise _Found
-                self.current = []
-        self.parts = []
+    def _end_line(self) -> None:
+        if self.current:
+            line = opening("".join(self.current))
+            if line:
+                self.line = line
+                raise _Found
+            self.current = []
 
-    def handle_starttag(self, tag: str, attrs: list) -> None:
-        super().handle_starttag(tag, attrs)
-        self._take()
-
-    def handle_endtag(self, tag: str) -> None:
-        super().handle_endtag(tag)
-        self._take()
-
-    def handle_data(self, data: str) -> None:
-        super().handle_data(data)
-        self._take()
+    def _emit(self, text: str) -> None:
+        if text == "\n":  # a block tag: the most common piece of a long run of blank lines
+            self._end_line()
+        elif not _HAS_BREAK.search(text):  # most pieces of a long line: nothing to split
+            self.current.append(text)
+        else:
+            for piece in text.splitlines(keepends=True):
+                body = piece.rstrip(_BREAKS)
+                if body:
+                    self.current.append(body)
+                if body != piece:
+                    self._end_line()
 
 
 def html_opening(raw: str) -> str | None:
