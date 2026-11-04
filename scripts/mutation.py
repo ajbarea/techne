@@ -1,7 +1,8 @@
 """Mutation testing of the plugin hooks: mutmut writes the mutants, and this runs the tests.
 
 Usage: uv run python scripts/mutation.py [--changed-since REF] [--module PATH ...]
-           [--shard I/N] [--workers N] [--out FILE] [--summary FILE] [--report-only]
+           [--shard I/N] [--workers N] [--no-confirm] [--out FILE] [--summary FILE]
+           [--report-only]
        uv run python scripts/mutation.py --merge FILE... [--summary FILE] [--report-only]
 
 mutmut 3 picks the tests for a mutant from calls it sees in the pytest process, and it activates a
@@ -17,8 +18,12 @@ source (`mutmut apply`), and the tests run against the real files:
    functions whose lines changed since REF.
 3. For each mutant: write it into the scratch copy, run the tests that reached its function
    (all of the module's tests when none did), restore the file. A mutant that survives the
-   subset is run once more against all of the module's tests before it counts as survived.
-   Each run gets its own bytecode cache, so a stale .pyc cannot stand in for the mutant.
+   subset is run once more against all of the module's tests before it counts as survived,
+   unless --no-confirm (the weekly full run, where this re-run of every survivor cost 70% of
+   the time and turned 3 of about 790 survivors into kills). Each run gets its own bytecode
+   cache, so a stale .pyc cannot stand in for the mutant, and every process it starts is held to
+   MEMORY_LIMIT_KB of data, so a mutant that allocates without end fails its test instead of
+   taking the machine down.
 
 [tool.techne.mutation] in pyproject.toml maps each module to the test files that exercise it.
 A survivor whose mutated function is listed in mutation/equivalent.toml (by the hash of the
@@ -56,6 +61,9 @@ TRACE = pathlib.Path(__file__).resolve().parent / "mutation_trace"
 EQUIVALENT = pathlib.Path("mutation") / "equivalent.toml"  # under the repo root
 MUTMUT_VERSION = "3.8.1"  # generate() uses mutmut internals that this version has
 MIN_TIMEOUT = 30.0
+# RLIMIT_DATA, not RLIMIT_AS: gitleaks (the secret guard tests' scanner) reserves 4 GiB of
+# address space at start and refuses to run under an address-space cap.
+MEMORY_LIMIT_KB = 2 * 1024 * 1024
 
 
 @dataclass
@@ -205,13 +213,20 @@ def run_tests(
     """Run TESTS (pytest node ids or files) in SCRATCH; (passed, failed or timeout, seconds)."""
     env = pytest_env(scratch, extra)
     # A mutant that loops runs in the hook processes the tests start, which outlive a killed
-    # pytest: each process gets the run's budget in CPU seconds (ulimit -t, inherited), and the
-    # run's whole process group is killed when it ends, so nothing it started keeps a core.
+    # pytest: each process gets the run's budget in CPU seconds (ulimit -t, inherited) and
+    # MEMORY_LIMIT_KB of data (ulimit -d), and the run's whole process group is killed when it
+    # ends, so nothing it started keeps a core or fills the memory.
     cpu = max(1, int(timeout))
     command = [sys.executable, "-m", "pytest", "-x", "-q", "-p", "no:cacheprovider", *tests]
     start = time.monotonic()
     proc = subprocess.Popen(
-        ["sh", "-c", f'ulimit -t {cpu} && exec "$@"', "sh", *command],
+        [
+            "sh",
+            "-c",
+            f'ulimit -t {cpu} && ulimit -d {MEMORY_LIMIT_KB} && exec "$@"',
+            "sh",
+            *command,
+        ],
         cwd=scratch,
         env=env,
         stdout=subprocess.DEVNULL,
@@ -268,8 +283,10 @@ def run_mutant(
     tests: list[str],
     everything: list[str],
     budget: float,
+    confirm: bool = True,
 ) -> tuple[str, float, int]:
-    """Write MUTANT into WORKER's copy, run TESTS, then EVERYTHING when it survives; restore."""
+    """Write MUTANT into WORKER's copy, run TESTS, then (with CONFIRM) EVERYTHING when it
+    survives; restore."""
     target = worker / module
     pristine = target.read_bytes()
     try:
@@ -283,7 +300,7 @@ def run_mutant(
             raise RuntimeError(f"mutmut apply {mutant} left {module} unchanged")
         status, took = run_tests(worker, tests or everything, budget)
         ran = len(tests or everything)
-        if status == "passed" and tests and tests != everything:
+        if confirm and status == "passed" and tests and tests != everything:
             status, more = run_tests(worker, everything, budget * 3)
             took += more
             ran = len(everything)
@@ -300,6 +317,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     ap.add_argument("--shard", default="1/1", help="I/N: run every Nth mutant from the Ith")
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) // 2))
+    ap.add_argument(
+        "--no-confirm",
+        action="store_true",
+        help="count a mutant that survives the tests reaching it as survived, without rerunning "
+        "it against all of its module's tests",
+    )
     ap.add_argument("--out", type=pathlib.Path, help="write each mutant's result here (JSON)")
     ap.add_argument("--summary", type=pathlib.Path, help="append the score table here (markdown)")
     ap.add_argument("--report-only", action="store_true", help="exit 0 even when a mutant survived")
@@ -352,7 +375,9 @@ def main(argv: list[str] | None = None) -> int:
             name, module, function = job
             tests = sorted(reached.get((module, function), set()))
             budget = max(MIN_TIMEOUT, 3 * seconds[module])
-            status, took, ran = run_mutant(worker, name, module, tests, config[module], budget)
+            status, took, ran = run_mutant(
+                worker, name, module, tests, config[module], budget, not args.no_confirm
+            )
             key = mutant_key(worker, module, name)
             if status == "survived" and key in equivalent:
                 status = "equivalent"

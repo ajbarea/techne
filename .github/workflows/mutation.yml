@@ -4,7 +4,9 @@ name: mutation
 # (scripts/mutation.py). On a pull request it mutates only the functions the pull request changed
 # and fails when a mutant survives that mutation/equivalent.toml does not explain. Weekly it
 # mutates every function, in 16 shards, and reports the score per module without failing: a
-# survivor already on main is a test to write, not a regression.
+# survivor already on main is a test to write, not a regression. The weekly run skips the
+# confirming rerun of each survivor (--no-confirm), which cost 70% of its time; the pull request
+# run keeps it, since it gates.
 # research(2026-11): diff-scoped runs per change plus a scheduled full run
 # (https://mutants.rs/in-diff.html, https://stryker-mutator.io/blog/announcing-incremental-mode/).
 
@@ -17,6 +19,8 @@ on:
       - "scripts/mutation_trace/**"
       - "mutation/**"
       - ".github/workflows/mutation.yml"
+      - ".github/actions/mutation-deps/**"
+      - "scripts/install_gitleaks.sh"
   schedule:
     - cron: "23 7 * * 3" # Wednesdays 07:23 UTC
   workflow_dispatch:
@@ -39,17 +43,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
-        with:
-          enable-cache: true
-          prune-cache: true
-          save-cache: false
-
-      - name: Install the test dependencies
-        run: uv sync --locked --no-default-groups --group dev
-
-      - name: Install gitleaks for the secret guard tests
-        run: bash scripts/install_gitleaks.sh
+      - uses: $/.github/actions/mutation-deps
 
       - name: Mutate the functions this pull request changed
         env:
@@ -69,22 +63,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
-        with:
-          enable-cache: true
-          prune-cache: true
-          save-cache: false
-
-      - name: Install the test dependencies
-        run: uv sync --locked --no-default-groups --group dev
-
-      - name: Install gitleaks for the secret guard tests
-        run: bash scripts/install_gitleaks.sh
+      - uses: $/.github/actions/mutation-deps
 
       - name: Mutate shard ${{ matrix.shard }} of 16
         env:
           SHARD: ${{ matrix.shard }}
-        run: uv run --no-sync python scripts/mutation.py --shard "$SHARD/16" --out "mutation-$SHARD.json" --report-only
+        run: uv run --no-sync python scripts/mutation.py --shard "$SHARD/16" --no-confirm --out "mutation-$SHARD.json" --report-only
 
       # Also when the shard failed or was stopped: the results file holds every finished mutant.
       - if: always()

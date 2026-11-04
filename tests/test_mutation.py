@@ -287,3 +287,51 @@ def test_a_run_leaves_no_process_behind(tmp_path, ends):
     pid = int(pidfile.read_text())
     with pytest.raises(ProcessLookupError):
         os.kill(pid, 0)
+
+
+def test_every_process_a_run_starts_is_held_to_the_memory_limit(tmp_path):
+    # A mutant that allocates without end runs in a hook process the test started; the data
+    # limit must reach it there, not only pytest. Read back, never exercised: a mutant here
+    # would allocate for real.
+    seen = tmp_path / "limit"
+    (tmp_path / "test_child.py").write_text(
+        textwrap.dedent(
+            f"""
+            import subprocess, sys
+
+            def test_child():
+                code = "import resource; print(resource.getrlimit(resource.RLIMIT_DATA)[0])"
+                out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+                open({str(seen)!r}, "w").write(out.stdout)
+            """
+        )
+    )
+    status, _ = mutation.run_tests(tmp_path, ["test_child.py"], 30)
+    assert status == "passed"
+    assert int(seen.read_text()) == mutation.MEMORY_LIMIT_KB * 1024
+
+
+@pytest.mark.parametrize(("confirm", "runs"), [(True, 2), (False, 1)])
+def test_no_confirm_skips_the_rerun_of_a_survivor(toy, monkeypatch, confirm, runs):
+    calls = []
+
+    def fake_run_tests(worker, tests, budget, extra=None):
+        calls.append(tests)
+        return "passed", 0.1
+
+    monkeypatch.setattr(mutation, "run_tests", fake_run_tests)
+    names = mutation.generate(toy, ["hooks/guard.py"])
+    name = next(n for n in names if "x_refuses" in n)
+    everything = ["tests/test_guard.py"]
+    status, _, ran = mutation.run_mutant(
+        toy, name, "hooks/guard.py", ["tests/test_guard.py::test_x"], everything, 5, confirm
+    )
+    assert status == "survived" and len(calls) == runs
+    assert ran == (1 if not confirm else len(everything))
+    assert (toy / "hooks" / "guard.py").read_text() == TOY_HOOK
+
+
+def test_the_weekly_full_run_does_not_confirm_and_the_pull_request_run_does():
+    workflow = (ROOT / ".github" / "workflows" / "mutation.yml").read_text()
+    changed, full = workflow.split("\n  changed:", 1)[1].split("\n  full:", 1)
+    assert "--no-confirm" not in changed and "--no-confirm" in full
