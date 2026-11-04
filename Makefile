@@ -4,7 +4,7 @@
 ## that techne itself documents at docs/conventions.md.
 ##
 
-.PHONY: help check-env setup manifests citation plugin-validate plugin-test test-hooks-oldest frontmatter fix lint shellcheck guards test-unit test-sandboxed sandbox-warm zizmor test validate build ci clean docs evals evals-bash quality quality-trial quality-skills install-probe heuresis-gold freshness mod-types
+.PHONY: help check-env setup manifests citation plugin-validate plugin-test test-hooks-oldest frontmatter fix lint shellcheck guards test-unit test-sandboxed sandbox-warm zizmor test validate build ci clean docs evals evals-bash quality quality-trial quality-skills install-probe heuresis-gold freshness mod-types bench bench-compare
 .DEFAULT_GOAL := help
 
 check-env:              ## Verify required tools are on PATH
@@ -39,15 +39,15 @@ frontmatter:            ## Verify SKILL.md frontmatter + theoros structural chec
 
 # Paths must match lint's, or fix cannot repair what lint rejects.
 fix:                    ## Auto-fix ruff issues in scripts/ and skill-shipped Python
-	@uv run ruff check --fix scripts/ plugins/ tests/
-	@uv run ruff format scripts/ plugins/ tests/
+	@uv run ruff check --fix scripts/ plugins/ tests/ bench/
+	@uv run ruff format scripts/ plugins/ tests/ bench/
 
 # Covers scripts/ and any Python a skill ships. The catchup skill's sweep.py sat
 # outside scripts/ and so went unlinted entirely until the paths were widened.
 lint:                   ## ruff check + format check + ty on scripts/ and skill-shipped Python
-	@uv run ruff check scripts/ plugins/ tests/
-	@uv run ruff format --check scripts/ plugins/ tests/
-	@uv run ty check scripts/ plugins/ tests/
+	@uv run ruff check scripts/ plugins/ tests/ bench/
+	@uv run ruff format --check scripts/ plugins/ tests/ bench/
+	@uv run ty check scripts/ plugins/ tests/ bench/
 
 shellcheck:             ## shellcheck on repo and skill-shipped shell scripts (shellcheck-py binary)
 	@uv run shellcheck --severity=warning scripts/*.sh $(wildcard plugins/*/_shared/*.sh plugins/*/skills/*/scripts/*.sh plugins/*/bin/*)
@@ -122,6 +122,17 @@ test: manifests frontmatter guards citation test-unit  ## Structural checks + py
 # still abort the site build, and docs.yml only runs on push to main, so
 # nothing else would catch it before it landed.
 validate: lint shellcheck zizmor plugin-validate plugin-test test test-hooks-oldest build  ## Fast pre-push gate
+
+# Whole-command timing of each hook beside the python3 floor (bench/README.md). It times this
+# machine, so run nothing else heavy meanwhile. BENCH_OUT and BENCH_LABEL name the summary.
+BENCH_OUT ?= bench/results/latest.json
+BENCH_LABEL ?= local
+BENCH_BASELINE ?= bench/baseline-ci.json
+bench:                  ## hyperfine over each hook and the python3 floor; writes $(BENCH_OUT)
+	@hf="$$(bash scripts/install_hyperfine.sh)" && HYPERFINE="$$hf" uv run python bench/run.py --out $(BENCH_OUT) --label $(BENCH_LABEL)
+
+bench-compare:          ## Fail when a hook's ratio to the floor in $(BENCH_OUT) grew past $(BENCH_BASELINE)'s
+	@uv run python bench/compare.py $(BENCH_BASELINE) $(BENCH_OUT)
 
 build:                  ## Build docs site (strict; mirrors docs.yml deploy)
 	@uv run zensical build --clean --strict

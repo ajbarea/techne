@@ -1,0 +1,57 @@
+name: bench
+
+# Whole-command timing of each hook with hyperfine, compared with bench/baseline-ci.json: the run
+# fails when a hook's ratio to the python3 floor grew past bench/compare.py's threshold, which
+# catches a slow creep that stays under the per-PR latency budgets in validate.yml. Weekly, and
+# on a pull request that changes the bench itself. bench/README.md says how to read and refresh it.
+
+on:
+  schedule:
+    - cron: "41 6 * * 2" # Tuesdays 06:41 UTC
+  pull_request:
+    paths:
+      - "bench/**"
+      - "scripts/install_hyperfine.sh"
+      - "tests/test_hook_latency.py"
+      - ".github/workflows/bench.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          enable-cache: true
+          prune-cache: true
+          save-cache: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install the test dependencies
+        run: uv sync --locked --no-default-groups --group dev
+
+      - name: Time each hook
+        run: make bench BENCH_LABEL=ci BENCH_OUT=bench/results/latest.json
+
+      - name: Compare with the baseline
+        run: make bench-compare BENCH_BASELINE=bench/baseline-ci.json BENCH_OUT=bench/results/latest.json
+
+      - name: Keep the summary
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bench-summary
+          path: bench/results/latest.json
+          if-no-files-found: ignore
+          retention-days: 90

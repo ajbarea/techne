@@ -28,6 +28,7 @@ SessionStart hook removes finished worktrees, stale_restart's Stop records the t
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import math
 import os
@@ -268,11 +269,9 @@ def time_rounds(
     return times
 
 
-@pytest.fixture(scope="module")
-def sandbox(tmp_path_factory) -> tuple[pathlib.Path, pathlib.Path]:
-    """A HOME with no configuration and a repository with one commit and an IMPL.md."""
-    home = tmp_path_factory.mktemp("home")
-    repo = tmp_path_factory.mktemp("repo")
+def make_sandbox(home: pathlib.Path, repo: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path]:
+    """Fill the empty folders HOME and REPO: a HOME with no configuration and a repository with
+    one commit and an IMPL.md. bench/run.py times the same cases in the same sandbox."""
     git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.com"]
     env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
     subprocess.run([*git, "init", "-q", "-b", "main"], check=True, env=env)
@@ -283,13 +282,27 @@ def sandbox(tmp_path_factory) -> tuple[pathlib.Path, pathlib.Path]:
     return home, repo
 
 
-def skip_unless_no_git_can_skip(sandbox: tuple[pathlib.Path, pathlib.Path], monkeypatch) -> None:
-    """Skip when the git guard's own triage says the no-git input could name git: every input
-    carries the temporary folders' paths, and one that says git or gh (a user named hugh, a
-    TMPDIR under ~/github) or needs a JSON escape (a non-ASCII letter) is parsed."""
-    (entry,) = load_phylax_hooks(monkeypatch, "git_guards")
+@pytest.fixture(scope="module")
+def sandbox(tmp_path_factory) -> tuple[pathlib.Path, pathlib.Path]:
+    return make_sandbox(tmp_path_factory.mktemp("home"), tmp_path_factory.mktemp("repo"))
+
+
+def no_git_input_can_skip(repo: pathlib.Path) -> bool:
+    """Whether the git guard's own triage skips the no-git case's input unparsed in REPO. Every
+    input carries the temporary folders' paths, and one that says git or gh (a user named hugh, a
+    TMPDIR under ~/github) or needs a JSON escape (a non-ASCII letter) is parsed, so that case
+    would time the other path. bench/run.py refuses such a sandbox too."""
+    path = ROOT / "plugins" / "phylax" / "hooks" / "git_guards.py"
+    spec = importlib.util.spec_from_file_location("_git_guards_triage", path)
+    assert spec and spec.loader
+    entry = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(entry)
     no_git = next(c for c in CASES if c.id == "git_guards-no-git")
-    if not entry.cannot_name_git(case_stdin(no_git, sandbox[1])):
+    return entry.cannot_name_git(case_stdin(no_git, repo))
+
+
+def skip_unless_no_git_can_skip(sandbox: tuple[pathlib.Path, pathlib.Path]) -> None:
+    if not no_git_input_can_skip(sandbox[1]):
         pytest.skip(f"the temporary folders' paths could name git: {sandbox[1]}")
 
 
@@ -336,10 +349,10 @@ def _record(case_id: str, ratio: float) -> None:
 
 
 @pytest.mark.parametrize("case", CASES, ids=lambda c: c.id)
-def test_hook_stays_within_its_latency_budget(case, sandbox, request, monkeypatch):
+def test_hook_stays_within_its_latency_budget(case, sandbox, request):
     home, repo = sandbox
     if case.id == "git_guards-no-git":
-        skip_unless_no_git_can_skip(sandbox, monkeypatch)
+        skip_unless_no_git_can_skip(sandbox)
     env, stdin = case_env(case, home), case_stdin(case, repo)
     shells = [(floor_command(), ""), (command(case), case.expect)]
     time_rounds(shells, stdin, env, repo, WARMUP)
@@ -382,7 +395,7 @@ def test_every_case_has_a_baseline_in_every_entry():
 def test_the_git_guard_cases_reach_the_path_they_time(sandbox, monkeypatch):
     # git_guards.cannot_name_git is case-sensitive: "GitHub" would keep the described case on the
     # unparsed skip it is meant to differ from.
-    skip_unless_no_git_can_skip(sandbox, monkeypatch)
+    skip_unless_no_git_can_skip(sandbox)
     (entry,) = load_phylax_hooks(monkeypatch, "git_guards")
     skips = {
         c.id: entry.cannot_name_git(case_stdin(c, sandbox[1]))
