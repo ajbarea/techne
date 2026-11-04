@@ -33,6 +33,7 @@ MANIFEST = PLUGIN / ".claude-plugin" / "plugin.json"
 
 ATTRIBUTION = "block_attribution_trailers"
 COMMITS_MD = "block_commits_md"
+FAIL_CLOSED = "phylax: the git guard could not finish its check, so this command was not run."
 MAIN_CHECKOUT = "warn_main_checkout_commit"
 ALL = (ATTRIBUTION, COMMITS_MD, MAIN_CHECKOUT)
 
@@ -1058,7 +1059,10 @@ def test_input_with_no_folder_fails_closed_for_each_blocking_guard(key, code):
     proc = subprocess.run(
         [HOOK_PYTHON, str(GUARDS)], input=payload, capture_output=True, text=True, env=env
     )
-    assert proc.returncode == code and "names no folder" in proc.stderr
+    lines = ["phylax git guard error: the hook input names no folder"]
+    if code == 2:
+        lines.append(FAIL_CLOSED)
+    assert (proc.returncode, proc.stderr.splitlines(), proc.stdout) == (code, lines, "")
 
 
 def test_a_gone_folder_with_only_the_warning_on_runs_and_says_why(tmp_path):
