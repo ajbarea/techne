@@ -9,23 +9,20 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 **techne#277 performance + mutation testing** (resume 11-04 ~23:30 UTC, account move):
 1. ✅ #282 latency budgets. 2. ✅ #284 CodSpeed. 3. ✅ #287 hyperfine (merged c74686e; its open
    Minors are under Open Minors below).
-4. 🔄 #290 mutation (feat/mutmut, worktree .claude/worktrees/mutmut). Round 1 (5 Should-fix) all
-   fixed in 79fb363 with killing tests: unmutated-pass check before a kill, exit codes 1/2 only,
-   ast function keys, config paths must resolve inside the tree, --changed-since counts only
-   mutants on changed lines (cargo-mutants --in-diff), changed job 4 workers + always upload,
-   kill_group waits the group out. Round 2 in progress: `/code-review medium 290` was started,
-   result lost in the move: rerun it, then a fresh Opus reader with its findings and round 1's
-   classes (vacuous-guard, destructive-op-reachability, undiagnosable-failure, flake-vs-real-red).
-   Deferred Minor: board_add/project_board are never traced (GhStub env drops PYTHONPATH and
-   MUTATION_*), so their mutants run all of test_board_hook.py. Legacy survivors: #289.
-5. 🔄 perf/hook-parsers-dsa (worktree .claude/worktrees/perf-dsa, pushed 2121aa4, no PR yet):
-   greeting check feeds the body whole and stops in its handlers; body gate reads once. Round 2
-   (Should-fix vacuous word-count test) fixed. Next: before/after timing from frozen copies
-   (scratch bench2.py: main vs HEAD, early first line 4/64/512 KB, late-first-line cases, body
-   gate) under the heavy lock, then PR linking #277 with the numbers, verify pass, merge.
-   Earlier measure (pre-fix chunked version): greeting 4 KB 0.60→0.09 ms, 512 KB 68.7→2.3 ms;
-   body gate 36 KB 1.02→0.60 ms. Round 2 noted late-first-line inputs ran 1.1-1.5x slower than
-   main before the no-break fast path; re-measure them.
+4. 🔄 #290 mutation (feat/mutmut, worktree .claude/worktrees/mutmut). Round 1 fixed in e0d91b5.
+   Round 2 (/code-review medium + Opus reader): 3 Should-fix fixed with killing tests (every kill
+   is re-checked unmutated on the list that decided it, confirm rerun included; failed steps
+   print command + output tail, an unappliable mutant is an `error` result; SIGINT/TERM/HUP kill
+   every test group at once and remove the scratch copy) plus Minors (verify --changed-since ref,
+   no empty PYTHONPATH entry, trace teardown hook trylast, timeout = detected as Stryker). Next:
+   PR body scores (Stryker formula), round 3 fresh Opus reader, merge on green.
+   Deferred: per-module budget is a share of test files, not test time (PLAUSIBLE, sweep shows
+   few timeouts); board_add/project_board never traced (GhStub env); legacy survivors #289.
+5. 🔄 perf/hook-parsers-dsa (worktree .claude/worktrees/perf-dsa, no PR yet). Timed 11-04
+   (3 interleaved rounds, frozen copies): greeting early first line 4 KB 0.57→0.026 ms, 64 KB
+   8.7→0.13 ms, 512 KB 71→2.2 ms; body gate 36 KB 0.96→0.55 ms. Regression to fix first: late
+   first line, inline spans 64 KB 18.6→21.6 ms, 20000 leading <br> 46→58 ms. Then PR, verify.
+6. ✅ #293 flaky bench temp-name fix (Heph's request, #292) merged 69bc788.
 Report each merge to Heph (tmux pane in orchestrator.pane); `fleet done` after all four.
 
 techne#249 is fixed in PR #252 (branch results/quality-baseline): the task notes state what the

@@ -24,19 +24,25 @@ source (`mutmut apply`), and the tests run against the real files:
    the time and turned 3 of about 790 survivors into kills). Each run gets its own bytecode
    cache, so a stale .pyc cannot stand in for the mutant, and every process it starts is held to
    MEMORY_LIMIT_KB of data, so a mutant that allocates without end fails its test instead of
-   taking the machine down. A kill counts only when the tests that failed pass on the unmutated
-   copy (checked once per test list); otherwise the mutant is judged by its module's tests.
+   taking the machine down. A kill counts only when the tests that decided it, the subset or
+   the confirming rerun, pass on the unmutated copy (checked once per test list); otherwise the
+   mutant is judged by its module's tests, and a run whose module tests fail unmutated stops.
+   SIGINT, SIGTERM or SIGHUP (a cancelled job, `timeout`) kills every test process at once and
+   removes the scratch copy.
 
 [tool.techne.mutation] in pyproject.toml maps each module to the test files that exercise it.
 A survivor whose mutated function is listed in mutation/equivalent.toml (by the hash of the
-mutated function's source, with the reason) counts as equivalent, not survived. Exit 0 when no
-mutant survived, 1 when one did (0 with --report-only). --merge reads the --out files of several
-shards and prints their combined table.
+mutated function's source, with the reason) counts as equivalent, not survived. A timeout counts
+as detected, as Stryker counts it: the tests did not pass. Exit 0 when no mutant survived, 1 when
+one did (0 with --report-only), and 1 whenever a mutant could not be applied or run. --merge
+reads the --out files of several shards and prints their combined table.
 """
 
 # research(2026-11): mutmut 3 runs mutants from a trampolined copy and selects tests by in-process
 # call stats (https://github.com/boxed/mutmut); diff-scoped runs per PR plus a scheduled full run
-# (https://mutants.rs/in-diff.html, https://stryker-mutator.io/blog/announcing-incremental-mode/).
+# (https://mutants.rs/in-diff.html, https://stryker-mutator.io/blog/announcing-incremental-mode/);
+# score = (killed + timeout) / (killed + timeout + survived)
+# (https://stryker-mutator.io/docs/mutation-testing-elements/mutant-states-and-metrics/).
 
 from __future__ import annotations
 
@@ -50,6 +56,7 @@ import json
 import os
 import pathlib
 import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -68,6 +75,14 @@ MIN_TIMEOUT = 30.0
 # RLIMIT_DATA, not RLIMIT_AS: gitleaks (the secret guard tests' scanner) reserves 4 GiB of
 # address space at start and refuses to run under an address-space cap.
 MEMORY_LIMIT_KB = 2 * 1024 * 1024
+TAIL_LINES = 30  # of a failed step's output, in the message that reports it
+
+# The process groups of the test runs in flight, and whether a signal is stopping the run: a
+# test run starts in its own session, out of reach of a signal sent to this process's group.
+_live: set[int] = set()
+_stopping = threading.Event()
+# GitHub cancels a job with SIGINT, then SIGTERM; `timeout` sends SIGTERM.
+STOP_SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
 
 
 @dataclass
@@ -101,6 +116,24 @@ def inside(root: pathlib.Path, path: str) -> bool:
     absolute PATH replaces ROOT, so it resolves outside)."""
     resolved, top = (root / path).resolve(), root.resolve()
     return resolved != top and resolved.is_relative_to(top)
+
+
+def tail(text: str, lines: int = TAIL_LINES) -> str:
+    return "\n".join(text.rstrip().splitlines()[-lines:])
+
+
+class StepFailed(SystemExit):
+    """A command the run depends on failed; its message names the command and its output."""
+
+
+def run_checked(command: list[str], cwd: pathlib.Path) -> str:
+    """Run COMMAND in CWD and return its stdout; on a non-zero exit raise StepFailed naming the
+    command, its exit code and the end of what it printed."""
+    proc = subprocess.run(command, cwd=cwd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        said = tail(proc.stderr + proc.stdout) or "(nothing printed)"
+        raise StepFailed(f"{shlex.join(command)} exited {proc.returncode}:\n{said}")
+    return proc.stdout
 
 
 def load_equivalent(root: pathlib.Path = ROOT) -> dict[str, str]:
@@ -157,6 +190,14 @@ def changed_functions(ref: str, module: str, root: pathlib.Path = ROOT) -> set[s
     return {name for name, (a, b) in spans.items() if any(a <= n <= b for n in lines)}
 
 
+def verify_ref(ref: str, root: pathlib.Path = ROOT) -> None:
+    """Stop unless REF names a commit: changed_functions reads a module REF lacks as new, so a
+    mistyped or unfetched REF would otherwise mutate every module."""
+    run_checked(
+        ["git", "-C", str(root), "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"], root
+    )
+
+
 def qualname(mutant: str) -> str:
     """The qualified function name in a mutmut mutant name: x_f__mutmut_3 is f, and
     xǁGuardsǁcheck__mutmut_2 is Guards.check."""
@@ -196,9 +237,7 @@ def generate(scratch: pathlib.Path, modules: list[str]) -> list[str]:
         "from mutmut.utils.file_utils import copy_src_dir, setup_source_paths\n"
         "copy_src_dir(); setup_source_paths(); create_mutants(os.cpu_count() or 2)\n"
     )
-    subprocess.run(
-        [sys.executable, "-c", "import os\n" + code], cwd=scratch, check=True, capture_output=True
-    )
+    run_checked([sys.executable, "-c", "import os\n" + code], scratch)
     names = []
     for module in modules:
         meta = json.loads((scratch / "mutants" / f"{module}.meta").read_text())
@@ -246,12 +285,14 @@ def pytest_env(root: pathlib.Path, extra: dict[str, str] | None = None) -> dict[
 
 def run_tests(
     scratch: pathlib.Path, tests: list[str], timeout: float, extra: dict[str, str] | None = None
-) -> tuple[str, float]:
-    """Run TESTS (pytest node ids or files) in SCRATCH; (status, seconds). The status is passed
-    (pytest exit 0), failed (1: a test failed; 2: collection failed, as a mutant that breaks an
-    import does), timeout (the wall budget, or a signal such as the CPU limit's), or error (any
-    other exit: pytest's internal or usage errors, or no tests collected)."""
+) -> tuple[str, float, str]:
+    """Run TESTS (pytest node ids or files) in SCRATCH; (status, seconds, the end of pytest's
+    output). The status is passed (pytest exit 0), failed (1: a test failed; 2: collection
+    failed, as a mutant that breaks an import does), timeout (the wall budget, or a signal such
+    as the CPU limit's), or error (any other exit: pytest's internal or usage errors, or no tests
+    collected)."""
     env = pytest_env(scratch, extra)
+    log = pathlib.Path(env["PYTHONPYCACHEPREFIX"]) / "pytest.log"
     # A mutant that loops runs in the hook processes the tests start, which outlive a killed
     # pytest: each process gets the run's budget in CPU seconds (ulimit -t, inherited) and
     # MEMORY_LIMIT_KB of data (ulimit -d), and the run's whole process group is killed when it
@@ -259,30 +300,52 @@ def run_tests(
     cpu = max(1, int(timeout))
     command = [sys.executable, "-m", "pytest", "-x", "-q", "-p", "no:cacheprovider", *tests]
     start = time.monotonic()
-    proc = subprocess.Popen(
-        [
-            "sh",
-            "-c",
-            f'ulimit -t {cpu} && ulimit -d {MEMORY_LIMIT_KB} && exec "$@"',
-            "sh",
-            *command,
-        ],
-        cwd=scratch,
-        env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
+    output = ""
     try:
-        code = proc.wait(timeout=timeout)
-        status = {0: "passed", 1: "failed", 2: "failed"}.get(code)
-        status = status or ("timeout" if code < 0 else "error")
-    except subprocess.TimeoutExpired:
-        status = "timeout"
+        with log.open("wb") as sink:
+            proc = subprocess.Popen(
+                [
+                    "sh",
+                    "-c",
+                    f'ulimit -t {cpu} && ulimit -d {MEMORY_LIMIT_KB} && exec "$@"',
+                    "sh",
+                    *command,
+                ],
+                cwd=scratch,
+                env=env,
+                stdout=sink,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+        _live.add(proc.pid)
+        try:
+            if _stopping.is_set():  # stop() ran before this group was in _live
+                raise RuntimeError("the run is stopping")
+            code = proc.wait(timeout=timeout)
+            status = {0: "passed", 1: "failed", 2: "failed"}.get(code)
+            status = status or ("timeout" if code < 0 else "error")
+        except subprocess.TimeoutExpired:
+            status = "timeout"
+        finally:
+            kill_group(proc)
+            _live.discard(proc.pid)
+        if status != "passed":
+            output = tail(log.read_text(errors="replace"))
     finally:
-        kill_group(proc)
         shutil.rmtree(env["PYTHONPYCACHEPREFIX"], ignore_errors=True)
-    return status, time.monotonic() - start
+    return status, time.monotonic() - start, output
+
+
+def stop(signum: int, frame: object) -> None:
+    """A STOP_SIGNALS signal: kill every test run's process group, start no more, and leave by
+    SystemExit so each finally restores its file and removes the scratch copy."""
+    _stopping.set()
+    for group in tuple(_live):
+        try:
+            os.killpg(group, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    raise SystemExit(128 + signum)
 
 
 def kill_group(proc: subprocess.Popen, wait: float = 10.0) -> None:
@@ -306,30 +369,30 @@ def kill_group(proc: subprocess.Popen, wait: float = 10.0) -> None:
 def trace(scratch: pathlib.Path, config: dict[str, list[str]], modules: list[str]):
     """Run each module's tests once, unmutated, with the tracer on. Returns ({(module, function):
     {test node ids}}, {module: seconds the module's tests took})."""
-    out = pathlib.Path(tempfile.mkdtemp(prefix="mutation-trace-"))
+    out = scratch.parent / "trace"
+    out.mkdir()
     files = os.pathsep.join(str((scratch / m).resolve()) for m in modules)
     reached: dict[tuple[str, str], set[str]] = {}
     seconds: dict[str, float] = {}
     tests = sorted({t for m in modules for t in config[m]})
+    path = [str(TRACE), *(p for p in os.environ.get("PYTHONPATH", "").split(os.pathsep) if p)]
     extra = {
-        "PYTHONPATH": os.pathsep.join([str(TRACE), os.environ.get("PYTHONPATH", "")]),
+        "PYTHONPATH": os.pathsep.join(path),
         "MUTATION_TRACE_DIR": str(out),
         "MUTATION_TRACE_FILES": files,
     }
-    status, took = run_tests(scratch, ["-p", "mutation_trace_plugin", *tests], 3600, extra)
+    status, took, said = run_tests(scratch, ["-p", "mutation_trace_plugin", *tests], 3600, extra)
     if status != "passed":
-        shutil.rmtree(out, ignore_errors=True)
-        raise SystemExit(f"the unmutated tests did not pass ({status}): {' '.join(tests)}")
+        raise SystemExit(f"the unmutated tests did not pass ({status}): {' '.join(tests)}\n{said}")
     for module in modules:
         seconds[module] = took * len(config[module]) / len(tests)
     by_path = {str((scratch / m).resolve()): m for m in modules}
     for log in out.glob("*.jsonl"):
         for line in log.read_text().splitlines():
             row = json.loads(line)
-            for path, name in row["hits"]:
-                if path in by_path:
-                    reached.setdefault((by_path[path], name), set()).add(row["test"])
-    shutil.rmtree(out, ignore_errors=True)
+            for hit, name in row["hits"]:
+                if hit in by_path:
+                    reached.setdefault((by_path[hit], name), set()).add(row["test"])
     return reached, seconds
 
 
@@ -343,35 +406,37 @@ def run_mutant(
     budget: float,
     confirm: bool = True,
     diff_lines: set[int] | None = None,
-) -> tuple[str, float, int, str, str]:
+) -> tuple[str, float, int, str, str, list[str]]:
     """Write MUTANT into WORKER's copy, run TESTS, then (with CONFIRM) EVERYTHING when it
-    survives; restore. Returns (status, seconds, test count, key, diff). With DIFF_LINES, a
-    mutant that changes none of those lines is not run: its status is outside."""
+    survives; restore. Returns (status, seconds, test count, key, diff, the tests whose run
+    decided the status). With DIFF_LINES, a mutant that changes none of those lines is not run:
+    its status is outside. A mutant that cannot be applied is an error, with the reason as its
+    diff."""
     target = worker / module
     pristine = target.read_bytes()
     try:
-        subprocess.run(
-            [sys.executable, "-m", "mutmut", "apply", mutant],
-            cwd=worker,
-            check=True,
-            capture_output=True,
-        )
-        mutated = target.read_bytes()
-        if mutated == pristine:
-            raise RuntimeError(f"mutmut apply {mutant} left {module} unchanged")
-        lines, diff = mutated_lines(pristine.decode(), mutated.decode())
-        key = function_key(mutated.decode(), module, function)
+        try:
+            run_checked([sys.executable, "-m", "mutmut", "apply", mutant], worker)
+            mutated = target.read_bytes()
+            if mutated == pristine:
+                raise StepFailed(f"mutmut apply {mutant} left {module} unchanged")
+            lines, diff = mutated_lines(pristine.decode(), mutated.decode())
+            key = function_key(mutated.decode(), module, function)
+        except (StepFailed, StopIteration, SyntaxError, UnicodeDecodeError) as e:
+            why = str(e) or f"{function} not found in the mutated {module}"
+            return "error", 0.0, 0, "", why, []
         if diff_lines is not None and not lines & diff_lines:
-            return "outside", 0.0, 0, key, diff
-        status, took = run_tests(worker, tests or everything, budget)
-        ran = len(tests or everything)
+            return "outside", 0.0, 0, key, diff, []
+        decided = tests or everything
+        status, took, _ = run_tests(worker, decided, budget)
         if confirm and status == "passed" and tests and tests != everything:
-            status, more = run_tests(worker, everything, budget * 3)
+            decided = everything
+            status, more, _ = run_tests(worker, everything, budget * 3)
             took += more
-            ran = len(everything)
     finally:
         target.write_bytes(pristine)
-    return {"failed": "killed", "passed": "survived"}.get(status, status), took, ran, key, diff
+    status = {"failed": "killed", "passed": "survived"}.get(status, status)
+    return status, took, len(decided), key, diff, decided
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -409,6 +474,7 @@ def main(argv: list[str] | None = None) -> int:
     wanted: dict[str, set[str] | None] = dict.fromkeys(modules)
     diff_lines: dict[str, set[int] | None] = dict.fromkeys(modules)
     if args.changed_since:
+        verify_ref(args.changed_since, root)
         wanted = {m: changed_functions(args.changed_since, m, root) for m in modules}
         wanted = {m: f for m, f in wanted.items() if f is None or f}
         modules = list(wanted)
@@ -422,7 +488,12 @@ def main(argv: list[str] | None = None) -> int:
         print("no configured module changed")
         return 0
     equivalent = load_equivalent(root)
+    _stopping.clear()
+    handlers = {}
+    if threading.current_thread() is threading.main_thread():
+        handlers = {sig: signal.signal(sig, stop) for sig in STOP_SIGNALS}
     base = pathlib.Path(tempfile.mkdtemp(prefix="mutation-"))
+    results: list[Result] = []
     try:
         scratch = base / "w0"
         scratch_copy(scratch, root)
@@ -441,33 +512,43 @@ def main(argv: list[str] | None = None) -> int:
         for i in range(1, min(args.workers, len(jobs) or 1)):
             workers.append(base / f"w{i}")
             shutil.copytree(scratch, workers[-1], symlinks=True)
-        results: list[Result] = []
-        passes_unmutated: dict[tuple[str, ...], bool] = {}
+        passes_unmutated: dict[tuple[str, ...], tuple[bool, str]] = {}
         lock = threading.Lock()
 
-        def sound(worker: pathlib.Path, tests: list[str], budget: float) -> bool:
+        def sound(worker: pathlib.Path, tests: list[str], budget: float) -> tuple[bool, str]:
             """Whether TESTS pass on the unmutated copy, so that a failure under a mutant is the
-            mutant's: a traced subset can hold a test that needs another to run first."""
+            mutant's: a traced subset can hold a test that needs another to run first, and the
+            module's tests run in their configured order can hold one that fails or flakes.
+            Returns the verdict and, when they fail, the end of pytest's output."""
             with lock:
                 known = passes_unmutated.get(tuple(tests))
             if known is None:
-                known = run_tests(worker, tests, budget)[0] == "passed"
+                status, _, said = run_tests(worker, tests, budget)
+                known = (status == "passed", said)
                 with lock:
                     passes_unmutated[tuple(tests)] = known
             return known
 
         def one(job, worker):
             name, module, function = job
+            everything = config[module]
             tests = sorted(reached.get((module, function), set()))
             budget = max(MIN_TIMEOUT, 3 * seconds[module])
             run = (worker, name, module, function)
             more = (budget, not args.no_confirm, diff_lines[module])
-            status, took, ran, key, diff = run_mutant(*run, tests, config[module], *more)
-            if status == "killed" and tests and not sound(worker, tests, budget):
+            while True:
+                status, took, ran, key, diff, decided = run_mutant(*run, tests, everything, *more)
+                if status != "killed":
+                    break
+                ok, said = sound(worker, decided, budget * 3)
+                if ok:
+                    break
+                if decided == everything:
+                    raise SystemExit(
+                        f"the tests of {module} do not pass unmutated on their own "
+                        f"({' '.join(decided)}):\n{said}"
+                    )
                 tests = []  # the subset fails on its own: judge the mutant by the module's tests
-                status, took, ran, key, diff = run_mutant(*run, tests, config[module], *more)
-            if status == "killed" and not tests and not sound(worker, config[module], budget):
-                raise SystemExit(f"the tests of {module} do not pass unmutated on their own")
             if status == "survived" and key in equivalent:
                 status = "equivalent"
             return Result(name, module, function, status, key, round(took, 2), ran, diff)
@@ -495,6 +576,8 @@ def main(argv: list[str] | None = None) -> int:
                     # what it finished.
                     write_results(args.out, results)
     finally:
+        for sig, previous in handlers.items():
+            signal.signal(sig, previous)
         shutil.rmtree(base, ignore_errors=True)
     write_results(args.out, results)
     return report(results, args.summary, args.report_only)
@@ -520,8 +603,8 @@ def report(results: list[Result], summary: pathlib.Path | None, report_only: boo
 
 
 def score_table(results: list[Result]) -> str:
-    """A markdown table of each module's counts and score, killed / (killed + survived + timeout),
-    then each survivor."""
+    """A markdown table of each module's counts and score, (killed + timeout) / (killed + timeout +
+    survived), then each survivor."""
     rows = [
         "| Module | Mutants | Killed | Survived | Timeout | Equivalent | Score |",
         "|---|---|---|---|---|---|---|",
@@ -533,7 +616,8 @@ def score_table(results: list[Result]) -> str:
             for s in ("killed", "survived", "timeout", "equivalent")
         }
         judged = count["killed"] + count["survived"] + count["timeout"]
-        score = f"{count['killed'] / judged:.1%}" if judged else "-"
+        detected = count["killed"] + count["timeout"]
+        score = f"{detected / judged:.1%}" if judged else "-"
         rows.append(
             f"| `{module}` | {len(mine)} | {count['killed']} | {count['survived']} | "
             f"{count['timeout']} | {count['equivalent']} | {score} |"
@@ -542,9 +626,12 @@ def score_table(results: list[Result]) -> str:
     if errors:
         rows += [
             "",
-            f"Errors (pytest exited with neither a pass nor a test failure): {len(errors)}",
+            f"Errors (the mutant could not be applied, or pytest exited with neither a pass nor "
+            f"a test failure): {len(errors)}",
         ]
-        rows += [f"- `{r.name}` ({r.function})" for r in errors]
+        for r in errors:
+            rows.append(f"- `{r.name}` ({r.function})")
+            rows += [f"  `{line}`" for line in r.diff.splitlines()[:TAIL_LINES]]
     survivors = [r for r in results if r.status == "survived"]
     if survivors:
         rows += ["", "Survivors (the change, and the key for mutation/equivalent.toml):"]

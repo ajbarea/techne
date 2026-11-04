@@ -7,9 +7,11 @@ import json
 import os
 import pathlib
 import shutil
+import signal
 import subprocess
 import sys
 import textwrap
+import time
 
 import pytest
 
@@ -77,14 +79,14 @@ def test_changed_functions_are_the_ones_whose_lines_changed(tmp_path):
     assert mutation.changed_functions("HEAD", "new.py", tmp_path) is None
 
 
-def test_the_score_counts_timeouts_against_and_equivalents_out():
+def test_the_score_counts_timeouts_as_detected_and_equivalents_out():
     def r(status):
         return mutation.Result("m.x_f__mutmut_1", "m.py", "f", status, "k" * 64, 1.0, 1)
 
     table = mutation.score_table(
         [r("killed"), r("killed"), r("survived"), r("timeout"), r("equivalent")]
     )
-    assert "| `m.py` | 5 | 2 | 1 | 1 | 1 | 50.0% |" in table
+    assert "| `m.py` | 5 | 2 | 1 | 1 | 1 | 75.0% |" in table
     assert "Survivors" in table and "m.x_f__mutmut_1" in table
 
 
@@ -199,8 +201,9 @@ def test_changed_since_runs_only_the_changed_functions(toy, tmp_path):
 
 def test_red_unmutated_tests_stop_the_run(toy):
     (toy / "tests" / "test_guard.py").write_text(TOY_TEST.replace("== 2", "== 9"))
-    with pytest.raises(SystemExit, match="did not pass"):
+    with pytest.raises(SystemExit, match="did not pass") as stopped:
         mutation.main(["--root", str(toy), "--workers", "1"])
+    assert "test_refuses_only_the_wipe" in str(stopped.value)  # the log names what failed
 
 
 def test_the_scratch_copy_leaves_the_repo_untouched(toy):
@@ -282,7 +285,7 @@ def test_a_run_leaves_no_process_behind(tmp_path, ends):
             """
         )
     )
-    status, _ = mutation.run_tests(tmp_path, ["test_spawn.py"], 5)
+    status, _, _ = mutation.run_tests(tmp_path, ["test_spawn.py"], 5)
     assert status == ("passed" if ends == "passes" else "timeout")
     pid = int(pidfile.read_text())
     with pytest.raises(ProcessLookupError):
@@ -306,7 +309,7 @@ def test_every_process_a_run_starts_is_held_to_the_memory_limit(tmp_path):
             """
         )
     )
-    status, _ = mutation.run_tests(tmp_path, ["test_child.py"], 30)
+    status, _, _ = mutation.run_tests(tmp_path, ["test_child.py"], 30)
     assert status == "passed"
     assert int(seen.read_text()) == mutation.MEMORY_LIMIT_KB * 1024
 
@@ -317,13 +320,13 @@ def test_no_confirm_skips_the_rerun_of_a_survivor(toy, monkeypatch, confirm, run
 
     def fake_run_tests(worker, tests, budget, extra=None):
         calls.append(tests)
-        return "passed", 0.1
+        return "passed", 0.1, ""
 
     monkeypatch.setattr(mutation, "run_tests", fake_run_tests)
     names = mutation.generate(toy, ["hooks/guard.py"])
     name = next(n for n in names if "x_refuses" in n)
     everything = ["tests/test_guard.py"]
-    status, _, ran, _, _ = mutation.run_mutant(
+    status, _, ran, _, _, _ = mutation.run_mutant(
         toy,
         name,
         "hooks/guard.py",
@@ -471,3 +474,206 @@ def test_changed_since_counts_only_mutants_on_changed_lines(toy, tmp_path):
     results = json.loads(out.read_text())
     assert results and {r["function"] for r in results} == {"unreached"}
     assert all("y = x" in r["diff"] for r in results), [r["diff"] for r in results]
+
+
+def _two_file_repo(tmp_path: pathlib.Path, files: dict[str, str], order: list[str]) -> pathlib.Path:
+    repo = tmp_path / "toy"
+    (repo / "hooks").mkdir(parents=True)
+    (repo / "tests").mkdir()
+    (repo / "hooks" / "guard.py").write_text(TOY_HOOK)
+    for name, body in files.items():
+        (repo / "tests" / name).write_text(body)
+    (repo / "pyproject.toml").write_text(
+        '[tool.pytest.ini_options]\ntestpaths = ["tests"]\n\n'
+        f'[tool.techne.mutation]\n"hooks/guard.py" = {json.dumps(order)}\n'
+    )
+    _git(repo, "init", "-q")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "init")
+    return repo
+
+
+REACH_ONLY = """\
+import os
+import pathlib
+import subprocess
+import sys
+
+HOOK = pathlib.Path(__file__).resolve().parent.parent / "hooks" / "guard.py"
+
+
+def test_reach():
+    subprocess.run([sys.executable, str(HOOK)], input="ls", text=True, env=dict(os.environ))
+
+
+def test_needs_a():
+    assert os.environ.get("TOY_READY")
+"""
+
+
+def test_a_kill_by_the_confirming_rerun_must_pass_unmutated(tmp_path):
+    # The trace runs the test files sorted (a, then b); the confirming rerun runs them in their
+    # configured order (b, then a), where test_needs_a fails whatever the mutant. Nothing
+    # asserts on the hook, so a kill here would be false: the run stops and says why.
+    repo = _two_file_repo(
+        tmp_path,
+        {
+            "test_b.py": REACH_ONLY,
+            "test_a.py": "import os\n\n\ndef test_set():\n    os.environ['TOY_READY'] = '1'\n",
+        },
+        ["tests/test_b.py", "tests/test_a.py"],
+    )
+    with pytest.raises(SystemExit, match="do not pass unmutated") as stopped:
+        mutation.main(["--root", str(repo), "--workers", "1", "--report-only"])
+    assert "test_needs_a" in str(stopped.value)
+
+
+def test_a_mutmut_failure_says_what_mutmut_said(toy, monkeypatch):
+    monkeypatch.setattr(mutation, "MUTMUT_VERSION", "0.0.0")
+    with pytest.raises(mutation.StepFailed, match="AssertionError"):
+        mutation.generate(toy, ["hooks/guard.py"])
+
+
+def test_a_mutant_that_cannot_be_applied_is_an_error_with_its_reason(toy):
+    names = mutation.generate(toy, ["hooks/guard.py"])
+    assert names
+    status, _, ran, _, why, decided = mutation.run_mutant(
+        toy,
+        "hooks.guard.x_refuses__mutmut_99999",
+        "hooks/guard.py",
+        "refuses",
+        [],
+        ["tests/test_guard.py"],
+        5,
+    )
+    assert status == "error" and "mutmut" in why and ran == 0 and decided == []
+    assert (toy / "hooks" / "guard.py").read_text() == TOY_HOOK
+    table = mutation.score_table(
+        [mutation.Result("m", "hooks/guard.py", "refuses", status, "", 0.0, 0, why)]
+    )
+    assert "Errors" in table and why.splitlines()[0] in table
+    assert (
+        mutation.report(
+            [mutation.Result("m", "hooks/guard.py", "refuses", status, "", 0.0, 0, why)], None, True
+        )
+        == 1
+    )
+
+
+def test_a_changed_since_ref_that_names_no_commit_stops_the_run(toy):
+    with pytest.raises(mutation.StepFailed, match="rev-parse"):
+        mutation.main(["--root", str(toy), "--changed-since", "no-such-ref"])
+
+
+def test_the_tracer_counts_what_a_fixture_reaches_in_its_teardown(tmp_path):
+    hook = tmp_path / "h.py"
+    hook.write_text("def f():\n    return 1\n\nf()\n")
+    (tmp_path / "test_fx.py").write_text(
+        textwrap.dedent(
+            f"""
+            import os, subprocess, sys
+            import pytest
+
+            @pytest.fixture
+            def cleanup():
+                yield
+                subprocess.run([sys.executable, {str(hook)!r}], check=True, env=dict(os.environ))
+
+            def test_x(cleanup):
+                pass
+            """
+        )
+    )
+    out = tmp_path / "trace"
+    out.mkdir()
+    extra = {
+        "PYTHONPATH": str(mutation.TRACE),
+        "MUTATION_TRACE_DIR": str(out),
+        "MUTATION_TRACE_FILES": str(hook.resolve()),
+    }
+    status, _, said = mutation.run_tests(
+        tmp_path, ["-p", "mutation_trace_plugin", "test_fx.py"], 60, extra
+    )
+    assert status == "passed", said
+    rows = [json.loads(line) for p in out.glob("*.jsonl") for line in p.read_text().splitlines()]
+    assert any(
+        r["test"] == "test_fx.py::test_x" and [str(hook.resolve()), "f"] in r["hits"] for r in rows
+    ), rows
+
+
+SLEEPER_TEST = """\
+import os
+import pathlib
+import subprocess
+import sys
+import time
+
+HOOK = pathlib.Path(__file__).resolve().parent.parent / "hooks" / "guard.py"
+
+
+def test_refuses_only_the_wipe():
+    if bool(os.environ.get("MUTATION_TRACE_DIR")) == {in_trace}:
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)"])
+        pathlib.Path({pidfile!r}).write_text(str(child.pid))
+        time.sleep(600)
+    run = lambda text: subprocess.run([sys.executable, str(HOOK)], input=text, text=True)
+    assert run("rm -rf /").returncode == 2
+    assert run("ls").returncode == 0
+"""
+
+
+@pytest.mark.parametrize("phase", ["trace", "mutants"])
+def test_sigterm_kills_every_test_process_and_removes_the_scratch_copy(tmp_path, phase):
+    # `timeout` stops a run with SIGTERM, which a test run's own session never receives: the
+    # runner kills each test run's group itself and leaves by SystemExit, so cleanup runs.
+    pidfile = tmp_path / "child.pid"
+    test = SLEEPER_TEST.format(in_trace=phase == "trace", pidfile=str(pidfile))
+    repo = _toy_repo(tmp_path, TOY_HOOK, test)
+    scratch = tmp_path / "tmp"
+    scratch.mkdir()
+    script = str(ROOT / "scripts" / "mutation.py")
+    driver = (
+        "import importlib.util, sys\n"
+        f"spec = importlib.util.spec_from_file_location('m', {script!r})\n"
+        "m = importlib.util.module_from_spec(spec); sys.modules['m'] = m\n"
+        "spec.loader.exec_module(m)\n"
+        f"sys.exit(m.main(['--root', {str(repo)!r}, '--workers', '1']))\n"
+    )
+    proc = subprocess.Popen(
+        [sys.executable, "-c", driver],
+        env={**os.environ, "TMPDIR": str(scratch)},
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        deadline = time.monotonic() + 120
+        while not pidfile.exists() or not pidfile.read_text():
+            assert proc.poll() is None and time.monotonic() < deadline
+            time.sleep(0.1)
+        child = int(pidfile.read_text())
+        proc.send_signal(signal.SIGTERM)
+        # Well inside the 30-second budget a test run would otherwise be left to use up.
+        assert proc.wait(timeout=15) == 128 + signal.SIGTERM
+    finally:
+        proc.kill()
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        try:
+            os.kill(child, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.05)
+    else:
+        os.kill(child, signal.SIGKILL)
+        pytest.fail(f"test process {child} outlived the run")
+    assert list(scratch.iterdir()) == []
+
+
+def test_a_stopping_run_starts_no_test_run(tmp_path):
+    (tmp_path / "test_one.py").write_text("def test_x():\n    pass\n")
+    mutation._stopping.set()
+    try:
+        with pytest.raises(RuntimeError, match="stopping"):
+            mutation.run_tests(tmp_path, ["test_one.py"], 30)
+    finally:
+        mutation._stopping.clear()
