@@ -1,0 +1,30 @@
+{
+  "measured": "2026-11-04 on AJ's PC (WSL2, 6 cores) with tests/test_hook_latency.py: the median ratio to the python3 floor over 15 runs after 2 warm-up, per python3 version",
+  "headroom": 1.25,
+  "ratios": {
+    "3.12": {
+      "git_guards-no-git": 1.13,
+      "git_guards-git-status": 1.74,
+      "git_guards-gh-view": 1.82,
+      "model_guard-agent": 1.45,
+      "budget-agent": 2.11,
+      "budget-prompt": 2.2,
+      "stale_restart-prompt": 2.47,
+      "email_greeting-draft": 1.66,
+      "board_add-bash": 1.35,
+      "resume_brief-start": 3.72
+    },
+    "3.14": {
+      "git_guards-no-git": 1.1,
+      "git_guards-git-status": 2.33,
+      "git_guards-gh-view": 2.2,
+      "model_guard-agent": 1.77,
+      "budget-agent": 3.09,
+      "budget-prompt": 2.83,
+      "stale_restart-prompt": 3.08,
+      "email_greeting-draft": 1.85,
+      "board_add-bash": 1.59,
+      "resume_brief-start": 4.64
+    }
+  }
+}
