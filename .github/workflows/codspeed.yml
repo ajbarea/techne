@@ -16,6 +16,7 @@ on:
       - "plugins/*/hooks/**"
       - "plugins/*/_shared/**"
       - "tests/bench/**"
+      - "tests/fixtures/body_gate/**"
       - "pyproject.toml"
       - "uv.lock"
       - ".github/workflows/codspeed.yml"
@@ -49,8 +50,9 @@ jobs:
           enable-cache: true
           prune-cache: true
           save-cache: ${{ github.ref == 'refs/heads/main' }}
-          # Pinned, so a runner image or uv update does not move main's baseline unseen.
-          python-version: "3.14"
+          # The exact build, so a runner image or uv update cannot move main's baseline: uv uses
+          # the image's python3.14 only while it is this patch release, else downloads this one.
+          python-version: "3.14.4"
 
       - name: Install the test dependencies
         run: uv sync --locked --no-default-groups --group dev

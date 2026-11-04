@@ -60,28 +60,40 @@ BIG_HEREDOC = (
 )
 
 
-def parse(command: str) -> list[list[str]]:
-    """The guard's split of a command into subcommands, as check() runs it."""
-    stripped, _ = git_checks.strip_heredocs(command)
+def parse(command: str) -> tuple[list[list[str]], int, bool]:
+    """The guard's split of a command into subcommands, as check() runs it, with the path it
+    took: how many heredoc bodies it lifted out, and whether shlex tokenized the rest (False
+    means the rough fallback a parse error drops to). Each bench asserts the path its name says."""
+    stripped, bodies = git_checks.strip_heredocs(command)
     tokens = git_checks.tokenize(stripped)
+    shlexed = tokens is not None
     if tokens is None:
         tokens = git_checks.rough_tokenize(stripped)
-    return git_checks.split_subcommands(tokens)
+    return git_checks.split_subcommands(tokens), len(bodies), shlexed
 
 
 def test_git_command_parse_typical(benchmark):
-    groups = benchmark(lambda: [parse(c) for c in TYPICAL_COMMANDS])
-    assert [g[0][0] for g in groups] == ["git", "cd", "git", "gh", "uv"]
+    parsed = benchmark(lambda: [parse(c) for c in TYPICAL_COMMANDS])
+    assert [(g[0][0], n, ok) for g, n, ok in parsed] == [
+        ("git", 0, True),
+        ("cd", 0, True),
+        ("git", 1, True),
+        ("gh", 0, True),
+        ("uv", 0, True),
+    ]
 
 
 def test_git_command_parse_many_subcommands(benchmark):
-    groups = benchmark(parse, LONG_LINE)
-    assert len(groups) == MANY and groups[-1] == ["git", "add", f"file{MANY - 1}.txt"]
+    groups, bodies, shlexed = benchmark(parse, LONG_LINE)
+    assert (bodies, shlexed, len(groups)) == (0, True, MANY)
+    assert groups[-1] == ["git", "add", f"file{MANY - 1}.txt"]
 
 
 def test_git_command_parse_largest_heredoc(benchmark):
-    groups = benchmark(parse, BIG_HEREDOC)
-    assert groups[0][:3] == ["gh", "pr", "create"]
+    # The body is lifted out before tokenizing, so the tokenizer sees a short command.
+    groups, bodies, shlexed = benchmark(parse, BIG_HEREDOC)
+    assert (bodies, shlexed, groups[0][:3]) == (1, True, ["gh", "pr", "create"])
+    assert len(git_checks.strip_heredocs(BIG_HEREDOC)[0]) < 100
 
 
 def test_body_budget_typical_pr(benchmark):
