@@ -1,0 +1,79 @@
+{
+  "label": "ci",
+  "measured": "2026-11-04T20:37:02Z",
+  "commit": "56b53a2",
+  "python": "3.14.4",
+  "hyperfine": "2.0.0",
+  "cpu": "AMD EPYC 7763 64-Core Processor",
+  "cpus": 4,
+  "runs": 30,
+  "warmup": 3,
+  "cases": {
+    "git_guards-no-git": {
+      "floor_ms": 12.24,
+      "hook_ms": 13.14,
+      "ratio": 1.073,
+      "hook_stddev_ms": 0.18
+    },
+    "git_guards-no-git-described": {
+      "floor_ms": 12.15,
+      "hook_ms": 21.07,
+      "ratio": 1.734,
+      "hook_stddev_ms": 0.41
+    },
+    "git_guards-git-status": {
+      "floor_ms": 12.12,
+      "hook_ms": 27.62,
+      "ratio": 2.279,
+      "hook_stddev_ms": 0.36
+    },
+    "git_guards-gh-view": {
+      "floor_ms": 12.21,
+      "hook_ms": 27.88,
+      "ratio": 2.284,
+      "hook_stddev_ms": 0.49
+    },
+    "model_guard-agent": {
+      "floor_ms": 12.7,
+      "hook_ms": 23.95,
+      "ratio": 1.885,
+      "hook_stddev_ms": 0.33
+    },
+    "budget-agent": {
+      "floor_ms": 12.38,
+      "hook_ms": 39.26,
+      "ratio": 3.172,
+      "hook_stddev_ms": 1.66
+    },
+    "budget-prompt": {
+      "floor_ms": 12.57,
+      "hook_ms": 39.02,
+      "ratio": 3.104,
+      "hook_stddev_ms": 0.87
+    },
+    "stale_restart-prompt": {
+      "floor_ms": 12.76,
+      "hook_ms": 43.35,
+      "ratio": 3.398,
+      "hook_stddev_ms": 0.78
+    },
+    "email_greeting-draft": {
+      "floor_ms": 12.67,
+      "hook_ms": 27.99,
+      "ratio": 2.209,
+      "hook_stddev_ms": 0.39
+    },
+    "board_add-bash": {
+      "floor_ms": 12.85,
+      "hook_ms": 21.73,
+      "ratio": 1.691,
+      "hook_stddev_ms": 0.26
+    },
+    "resume_brief-start": {
+      "floor_ms": 13.06,
+      "hook_ms": 64.19,
+      "ratio": 4.914,
+      "hook_stddev_ms": 0.95
+    }
+  }
+}
