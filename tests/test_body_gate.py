@@ -1198,9 +1198,11 @@ _BODY_PIECES = (
 
 
 @pytest.mark.parametrize("kind", ["PR", "issue", "comment"])
-def test_check_reads_the_body_as_its_parts_do(kind):
+def test_check_reads_the_body_as_its_parts_do(kind, monkeypatch):
     # check() blanks the code and builds the visible prose once; it must count what the
-    # separate passes count.
+    # separate passes count. A budget of 0 makes every body with a visible word refused, so
+    # the count check() reports is compared for each body, not only which side of the budget.
+    monkeypatch.setitem(body_gate.BUDGET, kind, 0)
     rng = random.Random(277)
     bodies = [p.read_text() for p in sorted(FIXTURES.glob("*.md"))]
     bodies += [
@@ -1210,8 +1212,6 @@ def test_check_reads_the_body_as_its_parts_do(kind):
         denies, warnings = body_gate.check(kind, body)
         marker, n, long = _check_by_parts(kind, body)
         assert any("`budget:` marker" in d for d in denies) == marker, body
-        assert any(f"has {n} visible words" in d for d in denies) == (
-            n > int(body_gate.BUDGET[kind] * body_gate.SLACK)
-        ), body
+        assert any(f"has {n} visible words" in d for d in denies) == (n > 0), body
         assert (warnings != []) == (long != []), body
         assert not long or f"{len(long)} sentence(s)" in warnings[0], body

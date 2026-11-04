@@ -229,8 +229,8 @@ def test_both_bodies_are_checked():
 
 
 def _opening_full(text: str) -> str | None:
-    """The opening line as the hook read it before it stopped early: Cf dropped from the whole
-    text, then the first non-empty line."""
+    """The opening line read the slow way, as the reference: Cf dropped from the whole text,
+    then the first non-empty line."""
     import unicodedata
 
     text = "".join(c for c in text if unicodedata.category(c) != "Cf")

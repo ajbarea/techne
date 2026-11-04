@@ -82,6 +82,7 @@ def visible_text(raw: str) -> str:
 
 # str.splitlines's line boundaries; a kept-ends piece ends with at most one of them.
 _BREAKS = "\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029"
+_HAS_BREAK = re.compile(f"[{_BREAKS}]")
 
 
 class _Found(Exception):
@@ -92,8 +93,8 @@ class _FirstLine(_Text):
     """_Text that stops the parse at the first complete non-empty line. The whole body is fed at
     once, as visible_text() feeds it: HTMLParser's output depends on where its input is split (a
     character reference or a `<!-->` comment cut by a boundary parses differently), so only its
-    handlers, not the feeding, may stop early. They see main's events in main's order, and a
-    line followed by a break is final once emitted."""
+    handlers, not the feeding, may stop early. They see visible_text()'s events in its order, and
+    a line followed by a break is final once emitted."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -102,6 +103,9 @@ class _FirstLine(_Text):
 
     def _take(self) -> None:
         for part in self.parts:
+            if not _HAS_BREAK.search(part):  # most parts of a long line: nothing to split
+                self.current.append(part)
+                continue
             for piece in part.splitlines(keepends=True):
                 if piece.rstrip(_BREAKS) == piece:
                     self.current.append(piece)
