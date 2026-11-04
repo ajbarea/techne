@@ -1,6 +1,6 @@
 """The secret scan behind phylax's block_secrets guard: engine choice, one scan, the catch log.
 
-git_guards.py calls scan() with the repo's top folder, the git environment to scan in (a
+git_checks.py calls scan() with the repo's top folder, the git environment to scan in (a
 temporary GIT_INDEX_FILE for a commit that stages more), and either a staged scan or git log
 options for a push. Engines: ggshield (GitGuardian's detectors, the same as the GitGuardian PR
 check) for a commit when GITGUARDIAN_API_KEY is set and ggshield is installed; gitleaks

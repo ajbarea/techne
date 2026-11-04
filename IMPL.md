@@ -6,6 +6,19 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 
 ## In flight
 
+**techne#277 performance + mutation testing** (branch feat/perf-mutation, worktree
+`.claude/worktrees/perf`), four PRs in order, each reviewed with /techne:elenchus (Opus):
+1. 🔄 Hook latency budgets (`tests/test_hook_latency.py`) + git_guards cut: git_guards.py is now
+   a triage entry; the checks live in git_checks.py (imported, so bytecode-cached); body_gate,
+   secret_scan, shutil, subprocess, tempfile load lazily; board_add loads project_board only for
+   a command naming gh. Before/after: `$SCRATCH/compare.py` (main's plugins vs the branch,
+   interleaved, under the heavy lock). Next: budgets from the measurement, PR, review.
+2. 📋 pytest-codspeed (simulation) on parsers only + `.github/workflows/codspeed.yml`; read Heph's
+   comment on #277 first (simulation drops syscalls; minutes, not 20; one job; a gate).
+3. 📋 hyperfine whole-command JSON in `bench/` + compare script with a threshold; weekly workflow.
+4. 📋 mutmut on changed modules per PR + weekly full run; per-module scores in the PR body.
+Report each merge to Heph (tmux pane in orchestrator.pane); `fleet done` after all four.
+
 techne#249 is fixed in PR #252 (branch results/quality-baseline): the task notes state what the
 hidden tests check, `--check-tasks` fails a task with a gap, `quality/DEVIATIONS.md` records it.
 Seven reader rounds plus a verify pass, clean; `--check-tasks` 10/10 ok on 5ec4dc0. Old runs stay

@@ -1,4 +1,4 @@
-"""Tests for phylax's block_secrets guard (git_guards.py + secret_scan.py).
+"""Tests for phylax's block_secrets guard (git_checks.py + secret_scan.py).
 
 Each case feeds the guard the PreToolUse JSON on stdin against a throwaway repo with a bare
 remote. The secret is a GitHub token made at runtime, so no credential sits in this file.

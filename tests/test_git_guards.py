@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
 import time
@@ -478,7 +479,7 @@ def test_manifest_options_match_the_guard_and_default_off():
     # test_budget.py.
     others = {"restart_on_update", "require_subagent_model", "email_greeting"}
     guards = {k for k in options if k not in others and not k.startswith(("budget_", "email_"))}
-    # block_secrets and block_long_bodies live in git_guards.py too, tested in
+    # block_secrets and block_long_bodies live in git_checks.py too, tested in
     # test_secret_guard.py and test_body_gate.py.
     assert guards == {*ALL, "block_secrets", "block_long_bodies"}
     assert options["email_timezone"] == {
@@ -559,18 +560,21 @@ def test_rough_split_still_runs_the_commits_md_check(scratch):
     assert denied(run_hook(command, scratch, on=[COMMITS_MD]))
 
 
-def test_crash_in_one_check_keeps_earlier_denies(repo, monkeypatch, capsys):
-    import importlib.util
+def _in_process(monkeypatch):
+    """The entry and the checks module it imports, loaded in this process."""
+    import importlib
 
-    spec = importlib.util.spec_from_file_location("phylax_git_guards", GUARDS)
-    assert spec and spec.loader
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    monkeypatch.syspath_prepend(str(GUARDS.parent))
+    return importlib.import_module("git_guards"), importlib.import_module("git_checks")
+
+
+def test_crash_in_one_check_keeps_earlier_denies(repo, monkeypatch, capsys):
+    entry, checks = _in_process(monkeypatch)
 
     def boom(self, cmd):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(mod.Guards, "check_main_checkout", boom)
+    monkeypatch.setattr(checks.Guards, "check_main_checkout", boom)
     for key in ALL:
         monkeypatch.setenv(f"CLAUDE_PLUGIN_OPTION_{key.upper()}", "true")
     payload = json.dumps(
@@ -578,7 +582,7 @@ def test_crash_in_one_check_keeps_earlier_denies(repo, monkeypatch, capsys):
     )
     monkeypatch.setattr(sys, "stdin", __import__("io").StringIO(payload))
     monkeypatch.setattr(sys, "argv", ["git_guards.py"])
-    assert mod.main() == 0
+    assert entry.main() == 0
     out = capsys.readouterr()
     assert denied(json.loads(out.out)) and "boom" in out.err
 
@@ -656,26 +660,95 @@ def test_gh_repo_flag_after_pr(repo):
 
 
 def test_crash_in_one_subcommand_still_checks_the_next(scratch, monkeypatch, capsys):
-    import importlib.util
-
-    spec = importlib.util.spec_from_file_location("phylax_git_guards_2", GUARDS)
-    assert spec and spec.loader
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    entry, checks = _in_process(monkeypatch)
 
     def boom(self, cmd):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(mod.Guards, "check_main_checkout", boom)
+    monkeypatch.setattr(checks.Guards, "check_main_checkout", boom)
     for key in ALL:
         monkeypatch.setenv(f"CLAUDE_PLUGIN_OPTION_{key.upper()}", "true")
     command = "git commit -m x && git add COMMITS.md"
     payload = json.dumps({"cwd": str(scratch), "tool_input": {"command": command}})
     monkeypatch.setattr(sys, "stdin", __import__("io").StringIO(payload))
     monkeypatch.setattr(sys, "argv", ["git_guards.py"])
-    assert mod.main() == 0
+    assert entry.main() == 0
     out = capsys.readouterr()
     assert "COMMITS.md" in (denied(json.loads(out.out)) or "") and "boom" in out.err
+
+
+# --- the entry's triage, before it loads git_checks.py --------------------------------
+
+
+@pytest.mark.parametrize(
+    ("payload", "skips"),
+    [
+        ('{"tool_input": {"command": "ls -la"}}', True),
+        ('{"tool_input": {"command": "git status"}}', False),
+        ('{"tool_input": {"command": "gh pr view 3"}}', False),
+        ('{"tool_input": {"command": "\\u0067it add ."}}', False),
+        ('{"tool_input": {"command": "ls"}, "cwd": "/srv/github"}', False),
+        ("", True),
+    ],
+)
+def test_triage_skips_only_input_that_cannot_name_git(payload, skips, monkeypatch):
+    entry, _ = _in_process(monkeypatch)
+    assert entry.cannot_name_git(payload) is skips
+
+
+def test_a_command_naming_neither_tool_never_loads_the_checks(tmp_path):
+    hooks = tmp_path / "hooks"
+    hooks.mkdir()
+    shutil.copy(GUARDS, hooks)
+    (hooks / "git_checks.py").write_text("raise SystemExit('checks loaded')\n")
+
+    def run(command: str) -> subprocess.CompletedProcess:
+        payload = json.dumps({"cwd": str(tmp_path), "tool_input": {"command": command}})
+        return subprocess.run(
+            [HOOK_PYTHON, str(hooks / "git_guards.py")],
+            input=payload,
+            capture_output=True,
+            text=True,
+            env=hook_env(ALL),
+            check=False,
+        )
+
+    for command in ("ls -la", "echo digit > high.txt"):
+        quiet = run(command)
+        assert (quiet.returncode, quiet.stdout, quiet.stderr) == (0, "", ""), command
+    assert "checks loaded" in run("git status").stderr
+
+
+def test_an_escaped_letter_does_not_hide_a_git_command(scratch):
+    (handler,) = _handlers()
+    payload = json.dumps({"cwd": str(scratch), "tool_input": {"command": "git add -A"}})
+    payload = payload.replace('"git add -A"', '"\\u0067it add -A"')
+    assert '"\\u0067it' in payload
+    proc = run_hook_handler("phylax", handler, payload, hook_env([COMMITS_MD], drop=("PHYLAX_",)))
+    assert proc.returncode == 0, proc.stderr
+    assert denied(json.loads(proc.stdout))
+
+
+def test_a_gh_command_in_a_folder_without_git_in_its_name_is_checked(tmp_path_factory):
+    (handler,) = _handlers()
+    folder = tmp_path_factory.mktemp("plain")
+    command = f"gh pr create -t x -b '{TRAILER}'"
+    payload = json.dumps({"cwd": str(folder), "tool_input": {"command": command}})
+    if "git" in payload.replace(TRAILER, ""):
+        pytest.skip("the temporary folder's path names git")
+    proc = run_hook_handler("phylax", handler, payload, hook_env([ATTRIBUTION], drop=("PHYLAX_",)))
+    assert proc.returncode == 0, proc.stderr
+    assert denied(json.loads(proc.stdout))
+
+
+@pytest.mark.parametrize(
+    ("payload", "code"),
+    [('{"tool_input": {"command": "git status"', 2), ('{"tool_input": {"command": "ls"', 0)],
+)
+def test_input_that_is_not_json_fails_closed_only_when_it_could_name_git(payload, code):
+    (handler,) = _handlers()
+    proc = run_hook_handler("phylax", handler, payload, hook_env(ALL, drop=("PHYLAX_",)))
+    assert proc.returncode == code, proc.stderr
 
 
 # --- round-three edges ---------------------------------------------------------
