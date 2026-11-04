@@ -16,7 +16,14 @@ import sys
 import time
 
 import pytest
-from conftest import HOOK_PYTHON, hook_env, hook_handlers, hook_shell, run_hook_handler
+from conftest import (
+    HOOK_PYTHON,
+    hook_env,
+    hook_handlers,
+    hook_shell,
+    load_phylax_hooks,
+    run_hook_handler,
+)
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "phylax"
@@ -561,14 +568,8 @@ def test_rough_split_still_runs_the_commits_md_check(scratch):
 
 
 def _in_process(monkeypatch):
-    """The entry and the checks module it imports, loaded fresh in this process, so module
-    state one test sets (git_checks._git_down) never reaches the next."""
-    import importlib
-
-    for name in ("git_guards", "git_checks", "git_options"):
-        monkeypatch.delitem(sys.modules, name, raising=False)
-    monkeypatch.syspath_prepend(str(GUARDS.parent))
-    return importlib.import_module("git_guards"), importlib.import_module("git_checks")
+    """The entry and the checks module it imports, loaded fresh in this process."""
+    return load_phylax_hooks(monkeypatch, "git_guards", "git_checks")
 
 
 def test_crash_in_one_check_keeps_earlier_denies(repo, monkeypatch, capsys):

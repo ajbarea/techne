@@ -89,13 +89,29 @@ def hook_handlers(plugin: str, event: str, matcher: str | None = None) -> list[d
     return [h for g in groups if matcher in (None, g.get("matcher")) for h in g["hooks"]]
 
 
-def hook_shell(plugin: str, handler: Mapping, python: str | None = HOOK_PYTHON) -> str:
-    """HANDLER's shell-form command with the plugin root filled in, and `exec python3` run on
-    PYTHON (None keeps the PATH lookup, for a test that python3 never starts)."""
-    shell = handler["command"].replace("${CLAUDE_PLUGIN_ROOT}", str(ROOT / "plugins" / plugin))
+def hook_shell(
+    plugin: str, handler: Mapping, python: str | None = HOOK_PYTHON, root: pathlib.Path = ROOT
+) -> str:
+    """HANDLER's shell-form command with ROOT's plugin folder filled in, and `exec python3` run
+    on PYTHON (None keeps the PATH lookup, for a test that python3 never starts)."""
+    shell = handler["command"].replace("${CLAUDE_PLUGIN_ROOT}", str(root / "plugins" / plugin))
     return (
         shell if python is None else shell.replace("exec python3 ", f"exec {shlex.quote(python)} ")
     )
+
+
+def load_phylax_hooks(monkeypatch, *names: str) -> list[types.ModuleType]:
+    """The phylax hook modules NAMES, imported fresh from plugins/phylax/hooks in this process,
+    and removed from sys.modules and sys.path after the test, so module state one test sets
+    never reaches the next. The modules they import from that folder load fresh too."""
+    hooks = ROOT / "plugins" / "phylax" / "hooks"
+    for path in hooks.glob("*.py"):
+        # Setting then deleting records the name's state before the test, which teardown
+        # restores: gone if it was gone, the earlier module if there was one.
+        monkeypatch.setitem(sys.modules, path.stem, types.ModuleType(path.stem))
+        monkeypatch.delitem(sys.modules, path.stem)
+    monkeypatch.syspath_prepend(str(hooks))
+    return [importlib.import_module(name) for name in names]
 
 
 def run_hook_handler(

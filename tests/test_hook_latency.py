@@ -32,13 +32,19 @@ import re
 import shlex
 import statistics
 import subprocess
-import sys
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 import pytest
-from conftest import HOOK_PYTHON, LATENCY_LINES, hook_env, hook_handlers
+from conftest import (
+    HOOK_PYTHON,
+    LATENCY_LINES,
+    hook_env,
+    hook_handlers,
+    hook_shell,
+    load_phylax_hooks,
+)
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 BASELINE = pathlib.Path(__file__).resolve().parent / "fixtures" / "hook_latency" / "baseline.json"
@@ -209,11 +215,9 @@ def _handler(case: Case) -> dict:
 def command(case: Case, root: pathlib.Path = ROOT, python: str = HOOK_PYTHON) -> str:
     """CASE's registered command with ROOT's plugin folder filled in and `exec python3` run on
     PYTHON."""
-    shell = _handler(case)["command"].replace(
-        "${CLAUDE_PLUGIN_ROOT}", str(root / "plugins" / case.plugin)
-    )
-    assert "exec python3 " in shell, f"{case.id}: the command never starts python3"
-    return shell.replace("exec python3 ", f"exec {shlex.quote(python)} ")
+    handler = _handler(case)
+    assert "exec python3 " in handler["command"], f"{case.id}: the command never starts python3"
+    return hook_shell(case.plugin, handler, python, root)
 
 
 def floor_command(python: str = HOOK_PYTHON) -> str:
@@ -275,6 +279,13 @@ def sandbox(tmp_path_factory) -> tuple[pathlib.Path, pathlib.Path]:
     return home, repo
 
 
+def skip_if_sandbox_names_git(sandbox: tuple[pathlib.Path, pathlib.Path]) -> None:
+    """Skip when the temporary folders' paths say git or gh (a user named hugh, a TMPDIR under
+    ~/github): every input carries them, so no input could take the unparsed skip."""
+    if any(word in str(path) for path in sandbox for word in ("git", "gh")):
+        pytest.skip(f"the temporary folders' paths name git or gh: {sandbox[1]}")
+
+
 def case_env(case: Case, home: pathlib.Path) -> dict[str, str]:
     return hook_env(
         on=case.on,
@@ -319,6 +330,8 @@ def _record(case_id: str, ratio: float) -> None:
 @pytest.mark.parametrize("case", CASES, ids=lambda c: c.id)
 def test_hook_stays_within_its_latency_budget(case, sandbox, request):
     home, repo = sandbox
+    if case.id == "git_guards-no-git":
+        skip_if_sandbox_names_git(sandbox)
     env, stdin = case_env(case, home), case_stdin(case, repo)
     shells = [(floor_command(), ""), (command(case), case.expect)]
     time_rounds(shells, stdin, env, repo, WARMUP)
@@ -358,13 +371,11 @@ def test_every_case_has_a_baseline_on_every_python():
         assert set(by_case) == {c.id for c in CASES}, version
 
 
-def test_the_git_guard_cases_reach_the_path_they_time(sandbox):
+def test_the_git_guard_cases_reach_the_path_they_time(sandbox, monkeypatch):
     # git_guards.cannot_name_git is case-sensitive: "GitHub" would keep the described case on the
     # unparsed skip it is meant to differ from.
-    import importlib
-
-    sys.path.insert(0, str(ROOT / "plugins" / "phylax" / "hooks"))
-    entry = importlib.import_module("git_guards")
+    skip_if_sandbox_names_git(sandbox)
+    (entry,) = load_phylax_hooks(monkeypatch, "git_guards")
     skips = {
         c.id: entry.cannot_name_git(case_stdin(c, sandbox[1]))
         for c in CASES
