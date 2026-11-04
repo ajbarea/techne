@@ -6,9 +6,12 @@ WARMUP. The floor, `python3 -c pass` through the same `sh -c`, is timed in the s
 interleaved, so a slower or busier machine moves both. A budget is a ratio to that floor: what
 a hook may spend past Python's own startup, derived from the ratios measured in
 fixtures/hook_latency/baseline.json (budget()). Noise only ever adds time, so a case over its
-budget is measured once more and the lower ratio counts. After a change that makes a hook
-deliberately slower or faster, rerun with TECHNE_LATENCY_RECORD=1 on each python3 the baseline
-lists (TECHNE_GUARD_PYTHON picks it) and commit the new baseline.
+budget is measured once more and the lower ratio counts. The floor does not even out every
+difference between machines (a runner whose python3 starts faster shows higher ratios), so the
+baseline holds ratios from each machine and python3 measured, and a budget covers the highest.
+After a change that makes a hook deliberately slower or faster, rerun with
+TECHNE_LATENCY_RECORD=1 for each entry the baseline lists (TECHNE_GUARD_PYTHON picks the
+python3, TECHNE_LATENCY_LABEL names the entry) and commit the new baseline.
 
 Every case runs against a temporary HOME and repository, and the files there must be the same
 after the timed runs as after the warm-up, so no timed call changes what the next one sees.
@@ -48,8 +51,8 @@ from conftest import (
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 BASELINE = pathlib.Path(__file__).resolve().parent / "fixtures" / "hook_latency" / "baseline.json"
-# TECHNE_LATENCY_RECORD=1 writes each case's measured ratio into BASELINE under this python3's
-# version instead of checking it, to set the budgets again after a deliberate change.
+# TECHNE_LATENCY_RECORD=1 writes each case's measured ratio into BASELINE instead of checking
+# it, under TECHNE_LATENCY_LABEL (default: this python3's version, as "3.14").
 RECORD = os.environ.get("TECHNE_LATENCY_RECORD") == "1"
 WARMUP = 2
 RUNS = 15
@@ -195,8 +198,8 @@ CASES = [
 
 def budget(case_id: str, baseline: Mapping | None = None) -> float:
     """The most CASE_ID's median may be, as a multiple of the floor's: the baseline's headroom
-    times the highest ratio it holds for the case on any python3, rounded up to a tenth. A
-    faster-starting python3 has a lower floor, so its ratios run higher."""
+    times the highest ratio it holds for the case on any machine and python3, rounded up to a
+    tenth."""
     data = baseline or json.loads(BASELINE.read_text())
     highest = max(by_case[case_id] for by_case in data["ratios"].values())
     return math.ceil(round(data["headroom"] * highest * 10, 6)) / 10
@@ -323,7 +326,8 @@ def _python_version() -> str:
 
 def _record(case_id: str, ratio: float) -> None:
     data = json.loads(BASELINE.read_text())
-    data["ratios"].setdefault(_python_version(), {})[case_id] = round(ratio, 2)
+    label = os.environ.get("TECHNE_LATENCY_LABEL") or _python_version()
+    data["ratios"].setdefault(label, {})[case_id] = round(ratio, 2)
     BASELINE.write_text(json.dumps(data, indent=2) + "\n")
 
 
@@ -365,7 +369,7 @@ def test_a_budget_is_the_headroom_over_the_highest_ratio_rounded_up(ratios, expe
     assert budget("x", {"headroom": 1.25, "ratios": ratios}) == expected
 
 
-def test_every_case_has_a_baseline_on_every_python():
+def test_every_case_has_a_baseline_in_every_entry():
     ratios = json.loads(BASELINE.read_text())["ratios"]
     for version, by_case in ratios.items():
         assert set(by_case) == {c.id for c in CASES}, version

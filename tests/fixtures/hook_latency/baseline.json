@@ -1,5 +1,5 @@
 {
-  "measured": "2026-11-04 on AJ's PC (WSL2, 6 cores) with tests/test_hook_latency.py: the median ratio to the python3 floor over 15 runs after 2 warm-up, per python3 version",
+  "measured": "2026-11-04: the median ratio to the python3 floor over 15 runs after 2 warm-up, from tests/test_hook_latency.py. 3.12 and 3.14: AJ's PC (WSL2, 6 cores). ci-3.14: GitHub's ubuntu-latest runner, the higher of validate runs 41846057897 and 41862165076 per case (the described case from the second only), read from their pytest summaries.",
   "headroom": 1.25,
   "ratios": {
     "3.12": {
@@ -27,6 +27,19 @@
       "board_add-bash": 1.59,
       "resume_brief-start": 4.64,
       "git_guards-no-git-described": 1.58
+    },
+    "ci-3.14": {
+      "git_guards-no-git": 1.07,
+      "git_guards-git-status": 2.14,
+      "git_guards-gh-view": 2.17,
+      "model_guard-agent": 1.84,
+      "budget-agent": 3.01,
+      "budget-prompt": 3.0,
+      "stale_restart-prompt": 3.34,
+      "email_greeting-draft": 2.03,
+      "board_add-bash": 1.66,
+      "resume_brief-start": 4.51,
+      "git_guards-no-git-described": 1.66
     }
   }
 }
