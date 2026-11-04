@@ -13,6 +13,8 @@ on:
       - "bench/**"
       - "scripts/install_hyperfine.sh"
       - "tests/test_hook_latency.py"
+      - "tests/conftest.py"
+      - "Makefile"
       - ".github/workflows/bench.yml"
   workflow_dispatch:
 

@@ -124,12 +124,13 @@ test: manifests frontmatter guards citation test-unit  ## Structural checks + py
 validate: lint shellcheck zizmor plugin-validate plugin-test test test-hooks-oldest build  ## Fast pre-push gate
 
 # Whole-command timing of each hook beside the python3 floor (bench/README.md). It times this
-# machine, so run nothing else heavy meanwhile. BENCH_OUT and BENCH_LABEL name the summary.
+# machine, so run nothing else heavy meanwhile. BENCH_OUT and BENCH_LABEL name the summary; a
+# HYPERFINE already set (a hyperfine 2 the installer has no build for) skips the install.
 BENCH_OUT ?= bench/results/latest.json
 BENCH_LABEL ?= local
 BENCH_BASELINE ?= bench/baseline-ci.json
 bench:                  ## hyperfine over each hook and the python3 floor; writes $(BENCH_OUT)
-	@hf="$$(bash scripts/install_hyperfine.sh)" && HYPERFINE="$$hf" uv run python bench/run.py --out $(BENCH_OUT) --label $(BENCH_LABEL)
+	@hf="$${HYPERFINE:-$$(bash scripts/install_hyperfine.sh)}" && HYPERFINE="$$hf" uv run python bench/run.py --out $(BENCH_OUT) --label $(BENCH_LABEL)
 
 bench-compare:          ## Fail when a hook's ratio to the floor in $(BENCH_OUT) grew past $(BENCH_BASELINE)'s
 	@uv run python bench/compare.py $(BENCH_BASELINE) $(BENCH_OUT)

@@ -3,11 +3,12 @@
 Usage: uv run python bench/compare.py BASELINE NEW [--threshold X] [--wall-threshold X]
 
 Each case is judged by its ratio to the python3 floor, so a slower or faster machine moves both
-sides alike. When both summaries carry retired-instruction counts, the instruction ratio decides
-(THRESHOLD): it hardly moves from run to run, where wall time moves with whatever else the
-machine runs. Otherwise the wall-clock ratio decides, against the looser WALL_THRESHOLD. Both
-summaries must come from the same python3 minor version: a faster-starting python3 has a lower
-floor, so its ratios run higher. Exit 0 when no case regressed, 1 when one did or the new
+sides alike. A case fails when its wall-clock ratio grew past WALL_THRESHOLD, or, when both
+summaries carry retired-instruction counts, when its instruction ratio grew past the tighter
+THRESHOLD: instructions hardly move from run to run, but they do not count time spent waiting
+(a sleep, a lock, a network call), so wall time is always checked too. Both summaries must come
+from the same python3 minor version: a faster-starting python3 has a lower floor, so its ratios
+run higher. Exit 0 when no case regressed, 1 when one did or the new
 summary lacks a baseline case, 2 when the two cannot be compared.
 """
 
@@ -29,13 +30,15 @@ def minor(version: str) -> str:
 
 def judge(
     base: dict, row: dict, threshold: float, wall_threshold: float
-) -> tuple[str, float, bool]:
-    """The metric that decides, the growth of its ratio, and whether that is past its limit."""
+) -> list[tuple[str, float, bool]]:
+    """Per metric checked: its name, the growth of its ratio, and whether that is past its limit.
+    Wall time always; instructions too when both sides counted them."""
+    growth = row["ratio"] / base["ratio"]
+    checked = [("wall", growth, growth > wall_threshold)]
     if "instructions_ratio" in base and "instructions_ratio" in row:
         growth = row["instructions_ratio"] / base["instructions_ratio"]
-        return "instructions", growth, growth > threshold
-    growth = row["ratio"] / base["ratio"]
-    return "wall", growth, growth > wall_threshold
+        checked.append(("instructions", growth, growth > threshold))
+    return checked
 
 
 def compare(
@@ -52,7 +55,12 @@ def compare(
         lines.append(
             f"note: baseline from {baseline.get('label')}, this run from {new.get('label')}"
         )
-    lines.append(f"{'case':30} {'baseline':>9} {'now':>7} {'change':>8}  decided by")
+    if baseline.get("cpu") != new.get("cpu"):
+        lines.append(
+            f"note: baseline on {baseline.get('cpu')}, this run on {new.get('cpu')}; ratios to "
+            "the floor move less than times, but not by nothing"
+        )
+    lines.append(f"{'case':30} {'baseline':>9} {'now':>7}  change")
     code = 0
     for case_id, base in baseline["cases"].items():
         row = new["cases"].get(case_id)
@@ -60,18 +68,19 @@ def compare(
             lines.append(f"{case_id:30} {base['ratio']:8.2f}x {'-':>7} not measured")
             code = 1
             continue
-        metric, growth, slower = judge(base, row, threshold, wall_threshold)
-        lines.append(
-            f"{case_id:30} {base['ratio']:8.2f}x {row['ratio']:6.2f}x {growth - 1:+8.1%}  "
-            f"{metric}{'  SLOWER' if slower else ''}"
+        checked = judge(base, row, threshold, wall_threshold)
+        change = ", ".join(
+            f"{growth - 1:+.1%} {metric}{' SLOWER' if past else ''}"
+            for metric, growth, past in checked
         )
-        code = code or int(slower)
+        lines.append(f"{case_id:30} {base['ratio']:8.2f}x {row['ratio']:6.2f}x  {change}")
+        code = code or int(any(past for _, _, past in checked))
     for case_id in sorted(new["cases"].keys() - baseline["cases"].keys()):
         lines.append(f"{case_id:30} {'-':>9} {new['cases'][case_id]['ratio']:6.2f}x no baseline")
     if code:
         lines.append(
-            f"FAIL: a case grew past {threshold:g}x its baseline instruction ratio "
-            f"(or {wall_threshold:g}x its wall-clock ratio), or was not measured"
+            f"FAIL: a case grew past {wall_threshold:g}x its baseline wall-clock ratio or "
+            f"{threshold:g}x its instruction ratio, or was not measured"
         )
     return code, lines
 

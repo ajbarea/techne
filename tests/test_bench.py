@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import pathlib
+import platform
+import subprocess
 import sys
 import tempfile
 
@@ -48,7 +51,7 @@ def test_wall_growth_at_its_threshold_passes_and_past_it_fails(now, code):
 
 
 @pytest.mark.parametrize(("now", "code"), [(2.1, 0), (2.12, 1)])
-def test_instruction_counts_decide_when_both_sides_have_them(now, code):
+def test_instruction_counts_are_checked_when_both_sides_have_them(now, code):
     base = summary(instructions=True, a=2.0)
     new = summary(instructions=True, a=2.0)
     new["cases"]["a"]["instructions_ratio"] = now  # wall time unchanged
@@ -60,7 +63,19 @@ def test_wall_time_decides_when_one_side_has_no_counts():
     base = summary(instructions=True, a=2.0)
     got, lines = compare.compare(base, summary(a=2.2))
     assert got == 0 and any(" wall" in line for line in lines)
+    assert not any("instructions" in line for line in lines[1:-1])
     assert compare.compare(base, summary(a=2.6))[0] == 1
+
+
+def test_wall_growth_fails_even_when_instructions_held_still():
+    # A hook that now waits (a sleep, a lock, a network call) retires about the same
+    # instructions but takes longer; the instruction counts must not hide that.
+    base = summary(instructions=True, a=2.0)
+    new = summary(instructions=True, a=2.0)
+    new["cases"]["a"]["ratio"] = 6.0
+    got, lines = compare.compare(base, new)
+    assert got == 1
+    assert any("wall SLOWER" in line and "+0.0% instructions" in line for line in lines)
 
 
 def test_a_baseline_case_the_run_did_not_measure_fails():
@@ -82,6 +97,14 @@ def test_different_python_minor_versions_cannot_be_compared():
 def test_a_different_machine_label_is_noted():
     _, lines = compare.compare(summary(label="ci", a=2.0), summary(label="local", a=2.0))
     assert lines[0].startswith("note:")
+
+
+def test_a_different_cpu_is_noted():
+    base, new = summary(a=2.0), summary(a=2.0)
+    base["cpu"], new["cpu"] = "AMD EPYC 7763", "AMD EPYC 9V74"
+    code, lines = compare.compare(base, new)
+    assert code == 0 and any(line.startswith("note:") and "9V74" in line for line in lines)
+    assert not any("note:" in line for line in compare.compare(base, base)[1])
 
 
 def test_cli_exit_code_and_thresholds(tmp_path, capsys):
@@ -164,3 +187,64 @@ def test_run_refuses_an_unknown_case(tmp_path, monkeypatch, capsys):
     with pytest.raises(SystemExit):
         run.main(["--out", str(tmp_path / "x.json"), "--only", "no-such-case"])
     assert "no case named no-such-case" in capsys.readouterr().err
+
+
+def _fake_hyperfine(tmp_path, monkeypatch, version: str = "2.0.0") -> pathlib.Path:
+    log = tmp_path / "argv.jsonl"
+    fake = tmp_path / "hyperfine"
+    script = FAKE_HYPERFINE.format(python=sys.executable, log=str(log))
+    fake.write_text(script.replace('"hyperfine 2.0.0"', repr(f"hyperfine {version}")))
+    fake.chmod(0o755)
+    monkeypatch.setenv("HYPERFINE", str(fake))
+    return log
+
+
+def test_run_refuses_a_hook_that_does_not_run_as_its_case_expects(tmp_path, monkeypatch, capsys):
+    # hyperfine throws away what a command prints, so a hook that fails fast would read as a
+    # speed-up; the bench runs the latency test's check first and records nothing.
+    log = _fake_hyperfine(tmp_path, monkeypatch)
+    run = _load("run")
+    monkeypatch.setattr(run.cases, "command", lambda case: "echo broken >&2")
+    out = tmp_path / "summary.json"
+    assert run.main(["--out", str(out), "--only", "git_guards-no-git"]) == 1
+    assert "did not run as its latency case expects" in capsys.readouterr().err
+    assert not log.exists() and not out.exists()
+
+
+def test_run_refuses_a_hyperfine_other_than_2(tmp_path, monkeypatch, capsys):
+    log = _fake_hyperfine(tmp_path, monkeypatch, version="1.18.0")
+    run = _load("run")
+    out = tmp_path / "summary.json"
+    assert run.main(["--out", str(out), "--only", "git_guards-no-git"]) == 1
+    assert "hyperfine 1.18.0" in capsys.readouterr().err
+    assert not log.exists() and not out.exists()
+
+
+@pytest.mark.parametrize("flags", [["--runs", "1"], ["--runs", "0"], ["--warmup", "-1"]])
+def test_run_refuses_too_few_runs(tmp_path, monkeypatch, flags):
+    _fake_hyperfine(tmp_path, monkeypatch)
+    run = _load("run")
+    with pytest.raises(SystemExit):
+        run.main(["--out", str(tmp_path / "x.json"), *flags])
+
+
+@pytest.mark.skipif(
+    sys.platform != "linux" or platform.machine() not in ("x86_64", "aarch64"),
+    reason="the installer pins Linux x86_64 and aarch64 builds only",
+)
+def test_installer_refuses_a_download_whose_sha256_differs(tmp_path):
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    curl = bindir / "curl"
+    # Writes junk where curl's --output points, as a tampered or truncated download would.
+    curl.write_text('#!/bin/sh\nwhile [ "$1" != --output ]; do shift; done\necho junk >"$2"\n')
+    curl.chmod(0o755)
+    cache = tmp_path / "cache"
+    proc = subprocess.run(
+        ["bash", str(ROOT / "scripts" / "install_hyperfine.sh")],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PATH": f"{bindir}:{os.environ['PATH']}", "XDG_CACHE_HOME": str(cache)},
+    )
+    assert proc.returncode != 0 and "FAILED" in proc.stderr and not proc.stdout
+    assert not list(cache.rglob("hyperfine"))

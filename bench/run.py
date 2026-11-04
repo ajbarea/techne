@@ -5,11 +5,15 @@ Usage: uv run python bench/run.py --out FILE [--label NAME] [--runs N] [--warmup
 The cases, their inputs and the sandbox they run in are tests/test_hook_latency.py's, so this and
 the latency budgets time the same commands. For each case one hyperfine call times the floor
 (`python3 -c pass`) and the hook's hooks.json command, both through `sh -c` with the case's
-input on stdin; hyperfine fails the run when a command exits non-zero. The summary holds, per
-case, both medians, their ratio, the spread and (where the machine exposes them) the medians of
-retired instructions, plus where and how it was measured. bench/compare.py reads two summaries.
+input on stdin. hyperfine discards what a command prints, so each case first runs once through
+the latency test's own check (exit 0, nothing on stderr, the expected output): a hook that fails
+fast or takes the wrong path is refused rather than recorded as a speed-up. The summary holds,
+per case, both medians, their ratio, the spread and (where the machine exposes them) the medians
+of retired instructions, plus where and how it was measured. bench/compare.py reads two
+summaries.
 
-HYPERFINE names the binary; `make bench` sets it from scripts/install_hyperfine.sh.
+HYPERFINE names the binary, which must be hyperfine 2 (its JSON schema); `make bench` installs
+the pinned one with scripts/install_hyperfine.sh unless HYPERFINE is already set.
 TECHNE_GUARD_PYTHON picks the python3 the hooks run on, as in the tests.
 """
 
@@ -70,11 +74,14 @@ def median_of(result: dict, metric: str) -> float | None:
 def time_case(
     binary: str, case: cases.Case, home: pathlib.Path, repo: pathlib.Path, runs: int, warmup: int
 ) -> dict:
+    shells = [(cases.floor_command(), ""), (cases.command(case), case.expect)]
+    env = cases.case_env(case, home)
+    stdin_text = cases.case_stdin(case, repo)
+    cases.time_rounds(shells, stdin_text, env, repo, 1)
     with tempfile.TemporaryDirectory() as tmp:
         stdin = pathlib.Path(tmp) / "stdin.json"
-        stdin.write_text(cases.case_stdin(case, repo))
+        stdin.write_text(stdin_text)
         out = pathlib.Path(tmp) / "hyperfine.json"
-        shells = [cases.floor_command(), cases.command(case)]
         subprocess.run(
             [
                 binary,
@@ -84,9 +91,9 @@ def time_case(
                 f"--warmup={warmup}",
                 f"--input={stdin}",
                 f"--export-json={out}",
-                *(f"sh -c {shlex.quote(shell)}" for shell in shells),
+                *(f"sh -c {shlex.quote(shell)}" for shell, _ in shells),
             ],
-            env=cases.case_env(case, home),
+            env=env,
             cwd=repo,
             check=True,
             stdout=subprocess.DEVNULL,
@@ -110,16 +117,26 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--out", type=pathlib.Path, required=True)
     ap.add_argument("--label", default="local", help="where this ran, such as ci or local")
-    ap.add_argument("--runs", type=int, default=30)
+    ap.add_argument("--runs", type=int, default=30, help="2 or more (a spread needs two)")
     ap.add_argument("--warmup", type=int, default=3)
     ap.add_argument("--only", action="append", default=[], help="a case id (repeatable)")
     args = ap.parse_args(argv)
+    if args.runs < 2 or args.warmup < 0:
+        ap.error("--runs takes 2 or more and --warmup 0 or more")
     binary = os.environ.get("HYPERFINE") or "hyperfine"
     known = {c.id: c for c in cases.CASES}
     unknown = [i for i in args.only if i not in known]
     if unknown:
         ap.error(f"no case named {', '.join(unknown)}; the cases are {', '.join(known)}")
     chosen = [known[i] for i in args.only] or cases.CASES
+    version = hyperfine_version(binary)
+    if version.split(".")[0] != "2":
+        print(
+            f"bench: {binary} is hyperfine {version}; this reads hyperfine 2's JSON, so install "
+            "2.x (scripts/install_hyperfine.sh) or point HYPERFINE at it.",
+            file=sys.stderr,
+        )
+        return 1
     results = {}
     with tempfile.TemporaryDirectory() as tmp:
         home, repo = pathlib.Path(tmp) / "home", pathlib.Path(tmp) / "repo"
@@ -136,7 +153,14 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 1
         for case in chosen:
-            results[case.id] = time_case(binary, case, home, repo, args.runs, args.warmup)
+            try:
+                results[case.id] = time_case(binary, case, home, repo, args.runs, args.warmup)
+            except AssertionError as e:
+                print(
+                    f"bench: {case.id} did not run as its latency case expects: {e}",
+                    file=sys.stderr,
+                )
+                return 1
             row = results[case.id]
             print(
                 f"{case.id:30} {row['hook_ms']:7.1f} ms  floor {row['floor_ms']:5.1f}  "
@@ -151,7 +175,7 @@ def main(argv: list[str] | None = None) -> int:
         "measured": dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "commit": commit,
         "python": python_version(),
-        "hyperfine": hyperfine_version(binary),
+        "hyperfine": version,
         "cpu": cpu_model(),
         "cpus": os.cpu_count(),
         "runs": args.runs,

@@ -12,7 +12,7 @@ make bench                                    # writes bench/results/latest.json
 make bench-compare BENCH_BASELINE=<summary>   # exit 1 when a hook regressed
 ```
 
-`scripts/install_hyperfine.sh` downloads the pinned hyperfine once into `~/.cache/techne/` and checks its sha256. Run nothing else heavy while it measures. To compare a change locally, run `make bench BENCH_OUT=bench/results/main.json` on main, then `make bench` on the branch, then `make bench-compare BENCH_BASELINE=bench/results/main.json`. `TECHNE_GUARD_PYTHON` picks the python3 the hooks run on.
+`scripts/install_hyperfine.sh` downloads the pinned hyperfine once into `~/.cache/techne/` and checks its sha256 (Linux x86_64 and aarch64; elsewhere install hyperfine 2 yourself and set `HYPERFINE`). Run nothing else heavy while it measures. To compare a change locally, run `make bench BENCH_OUT=bench/results/main.json` on main, then `make bench` on the branch, then `make bench-compare BENCH_BASELINE=bench/results/main.json`. `TECHNE_GUARD_PYTHON` picks the python3 the hooks run on.
 
 ## What it records
 
@@ -22,7 +22,7 @@ For each case: the median wall time of the floor and of the hook, their ratio, t
 
 A case is judged by its ratio to the floor, so a faster or slower machine moves both sides. Both summaries must use the same python3 minor version, since a faster-starting python3 has a lower floor.
 
-When both summaries have instruction counts, the instruction ratio decides, and a growth past 1.05x fails. Otherwise the wall-clock ratio decides, and a growth past 1.25x fails. The thresholds come from repeated runs on one machine (AJ's PC, WSL2, 2026-11-04, 30 runs per case, under the fleet's heavy lock):
+A growth of the wall-clock ratio past 1.25x fails. When both summaries have instruction counts, a growth of the instruction ratio past 1.05x fails too. Instructions alone would miss a hook that now waits on a lock, a sleep or the network, since waiting retires no instructions. GitHub's runners do not count instructions, so against `baseline-ci.json` only wall time is checked. The thresholds come from repeated runs on one machine (AJ's PC, WSL2, 2026-11-04, 30 runs per case, under the fleet's heavy lock):
 
 | Ratio | Largest run-to-run spread of any case |
 |---|---|
