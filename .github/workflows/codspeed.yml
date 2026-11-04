@@ -49,6 +49,8 @@ jobs:
           enable-cache: true
           prune-cache: true
           save-cache: ${{ github.ref == 'refs/heads/main' }}
+          # Pinned, so a runner image or uv update does not move main's baseline unseen.
+          python-version: "3.14"
 
       - name: Install the test dependencies
         run: uv sync --locked --no-default-groups --group dev

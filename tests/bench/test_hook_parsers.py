@@ -8,8 +8,8 @@ by tests/test_hook_latency.py. Each input is built before the timed call, which 
 and each result is asserted, so a plain `pytest` run (where `benchmark` calls the function once)
 checks the same calls.
 
-Every parser gets a typical input and the largest one its caller lets through, where a regex
-or loop with superlinear cost would show.
+The parsers get a typical input and a large one, where a regex or loop with superlinear cost
+would show: the body and heredoc cases are as long as GitHub accepts, the others are long lines.
 """
 
 # research(2026-11): simulation mode excludes system calls from the measure
@@ -94,8 +94,9 @@ def test_body_budget_largest_body(benchmark):
     # GitHub refuses a longer body, so this is the most check() is ever handed.
     sentence = "This sentence keeps going so the counter has words to count. "
     body = (sentence * (body_gate.GITHUB_MAX // len(sentence)))[: body_gate.GITHUB_MAX]
+    assert len(body) <= body_gate.GITHUB_MAX  # past it, check() returns before counting
     denies, _ = benchmark(body_gate.check, "PR", body)
-    assert denies
+    assert len(denies) == 1 and "visible words" in denies[0]
 
 
 def test_board_create_match(benchmark):
@@ -140,7 +141,7 @@ class _Stdin(io.StringIO):
 )
 def test_git_guard_triage(benchmark, guards_on, monkeypatch, description, parsed):
     # A fixed cwd, so the checkout's own path cannot add a "git" that moves a case to the
-    # other path; the assert pins which path each case times.
+    # other path.
     payload = json.dumps(
         {
             "session_id": "0b8f5a2c-6d1e-4f3a-9c7b-2e4d6f8a1b3c",
@@ -149,6 +150,14 @@ def test_git_guard_triage(benchmark, guards_on, monkeypatch, description, parsed
             "tool_input": {"command": "ls -la", "description": description},
         }
     )
-    assert git_guards.cannot_name_git(payload) is not parsed
     monkeypatch.setattr(sys, "stdin", _Stdin(payload))
+    # One untimed call with spies on the triage steps pins the path: the options are read as on,
+    # the raw input is triaged, and only the parsed case goes on to parse the JSON.
+    calls = []
+    with monkeypatch.context() as spy:
+        for name in ("cannot_name_git", "mod_checks"):
+            real = getattr(git_guards, name)
+            spy.setattr(git_guards, name, lambda *a, _n=name, _f=real: calls.append(_n) or _f(*a))
+        assert git_guards.main() == 0
+    assert calls == (["cannot_name_git", "mod_checks"] if parsed else ["cannot_name_git"])
     assert benchmark(git_guards.main) == 0
