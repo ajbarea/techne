@@ -323,8 +323,15 @@ def test_no_confirm_skips_the_rerun_of_a_survivor(toy, monkeypatch, confirm, run
     names = mutation.generate(toy, ["hooks/guard.py"])
     name = next(n for n in names if "x_refuses" in n)
     everything = ["tests/test_guard.py"]
-    status, _, ran = mutation.run_mutant(
-        toy, name, "hooks/guard.py", ["tests/test_guard.py::test_x"], everything, 5, confirm
+    status, _, ran, _, _ = mutation.run_mutant(
+        toy,
+        name,
+        "hooks/guard.py",
+        "refuses",
+        ["tests/test_guard.py::test_x"],
+        everything,
+        5,
+        confirm,
     )
     assert status == "survived" and len(calls) == runs
     assert ran == (1 if not confirm else len(everything))
@@ -335,3 +342,132 @@ def test_the_weekly_full_run_does_not_confirm_and_the_pull_request_run_does():
     workflow = (ROOT / ".github" / "workflows" / "mutation.yml").read_text()
     changed, full = workflow.split("\n  changed:", 1)[1].split("\n  full:", 1)
     assert "--no-confirm" not in changed and "--no-confirm" in full
+
+
+def _toy_repo(tmp_path: pathlib.Path, hook: str, test: str) -> pathlib.Path:
+    repo = tmp_path / "toy"
+    (repo / "hooks").mkdir(parents=True)
+    (repo / "tests").mkdir()
+    (repo / "hooks" / "guard.py").write_text(hook)
+    (repo / "tests" / "test_guard.py").write_text(test)
+    (repo / "pyproject.toml").write_text(
+        '[tool.pytest.ini_options]\ntestpaths = ["tests"]\n\n'
+        '[tool.techne.mutation]\n"hooks/guard.py" = ["tests/test_guard.py"]\n'
+    )
+    _git(repo, "init", "-q")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "init")
+    return repo
+
+
+TIGHT_HOOK = """\
+import sys
+
+
+class G:
+    def check(self, command: str, limit: int = 3) -> bool:
+        return len(command) > limit and "rm" in command
+
+
+# research(2026-11): a comment directly above a wrapped signature
+def resolve(
+    command: str,
+    extra: str = "",
+) -> bool:
+    return G().check(command + extra, 2)
+
+
+def main():
+    return 2 if resolve(sys.stdin.read()) else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+"""
+
+
+def test_every_mutant_of_a_function_gets_its_own_key(tmp_path):
+    # A comment directly above a wrapped def, or a method right after its class line, once
+    # made every mutant of that function hash to the signature alone, so one equivalent.toml
+    # entry would have hidden them all.
+    repo = _toy_repo(tmp_path, TIGHT_HOOK, TOY_TEST.replace("rm -rf /", "rm -rf /x"))
+    out = tmp_path / "results.json"
+    mutation.main(["--root", str(repo), "--workers", "1", "--out", str(out), "--report-only"])
+    results = json.loads(out.read_text())
+    for function in ("resolve", "G.check"):
+        mine = [r for r in results if r["function"] == function]
+        assert len(mine) > 1 and len({r["key"] for r in mine}) == len(mine), function
+        assert all(r["diff"].startswith("-") and "\n+" in r["diff"] for r in mine)
+
+
+@pytest.mark.parametrize(
+    "path", ["/etc/hostname", "../outside.py", "hooks/../../x.py", "link/v.py", "", "."]
+)
+def test_a_configured_path_outside_the_tree_is_refused(tmp_path, path):
+    # mutmut writes mutants/<module> and a run writes each mutant into <scratch>/<module>; a
+    # path that leaves the tree would have them overwrite a real file.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (tmp_path / "elsewhere").mkdir()
+    (repo / "link").symlink_to(tmp_path / "elsewhere")
+    for table in (f'"{path}" = ["tests/t.py"]', f'"hooks/g.py" = ["{path}"]'):
+        (repo / "pyproject.toml").write_text(f"[tool.techne.mutation]\n{table}\n")
+        with pytest.raises(SystemExit, match="not inside"):
+            mutation.load_config(repo)
+
+
+ORDER_TEST = """\
+import os
+import pathlib
+import subprocess
+import sys
+
+HOOK = pathlib.Path(__file__).resolve().parent.parent / "hooks" / "guard.py"
+STATE = {}
+
+
+def test_a_setup():
+    STATE["ready"] = True
+
+
+def test_b_needs_a():
+    assert STATE.get("ready")
+    subprocess.run([sys.executable, str(HOOK)], input="ls", text=True, env=dict(os.environ))
+"""
+
+
+def test_a_subset_that_fails_on_its_own_does_not_kill(tmp_path):
+    # test_b reaches the hook but asserts nothing about it, and passes only after test_a: run
+    # alone, as the traced subset, it fails whatever the mutant, so its failure kills nothing.
+    repo = _toy_repo(tmp_path, TOY_HOOK, ORDER_TEST)
+    out = tmp_path / "results.json"
+    mutation.main(["--root", str(repo), "--workers", "1", "--out", str(out), "--report-only"])
+    results = json.loads(out.read_text())
+    assert results and {r["status"] for r in results} == {"survived"}
+
+
+@pytest.mark.parametrize(
+    ("body", "status"),
+    [("def test_x():\n    pass\n", "passed"), ("def test_x():\n    assert 0\n", "failed"),
+     ("import nonexistent_module_x\n", "failed"), ("x = 1\n", "error")],
+)  # fmt: skip
+def test_only_a_test_failure_or_a_broken_import_counts_as_failed(tmp_path, body, status):
+    (tmp_path / "test_one.py").write_text(body)
+    assert mutation.run_tests(tmp_path, ["test_one.py"], 30)[0] == status
+
+
+def test_changed_since_counts_only_mutants_on_changed_lines(toy, tmp_path):
+    # As cargo-mutants' --in-diff: a survivor on an untouched line of a changed function stays
+    # the weekly run's, so a pull request answers only for the lines it wrote.
+    hook = toy / "hooks" / "guard.py"
+    hook.write_text(
+        hook.read_text().replace(
+            "def unreached(x):\n    return x + 1",
+            "def unreached(x):\n    y = x * 2\n    return x + 1",
+        )
+    )
+    out = tmp_path / "results.json"
+    mutation.main(["--root", str(toy), "--changed-since", "HEAD", "--out", str(out)])
+    results = json.loads(out.read_text())
+    assert results and {r["function"] for r in results} == {"unreached"}
+    assert all("y = x" in r["diff"] for r in results), [r["diff"] for r in results]

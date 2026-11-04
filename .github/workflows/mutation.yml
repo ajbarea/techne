@@ -36,7 +36,9 @@ jobs:
   changed:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Only mutants on changed lines run (--changed-since); the hottest functions hold 300+
+    # mutants, so a pull request rewriting one whole can still take a while.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -45,10 +47,24 @@ jobs:
 
       - uses: $/.github/actions/mutation-deps
 
-      - name: Mutate the functions this pull request changed
+      # The runner has 4 cores; the results file is rewritten after each mutant, so a run
+      # that times out still reports what it finished in the steps below.
+      - name: Mutate the lines this pull request changed
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
-        run: uv run --no-sync python scripts/mutation.py --changed-since "$BASE" --summary "$GITHUB_STEP_SUMMARY"
+        run: uv run --no-sync python scripts/mutation.py --changed-since "$BASE" --workers 4 --out mutation-changed.json
+
+      - name: Score and survivors
+        if: always() && hashFiles('mutation-changed.json') != ''
+        run: python3 scripts/mutation.py --merge mutation-changed.json --summary "$GITHUB_STEP_SUMMARY" --report-only
+
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mutation-changed
+          path: mutation-changed.json
+          if-no-files-found: ignore
+          retention-days: 30
 
   full:
     if: github.event_name != 'pull_request'
