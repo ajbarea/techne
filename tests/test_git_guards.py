@@ -1020,13 +1020,25 @@ def test_a_folder_path_through_a_file_is_named(tmp_path):
     assert reason and "is not an existing folder" in reason
 
 
-def test_input_with_no_folder_fails_closed():
-    env = hook_env([COMMITS_MD])
+@pytest.mark.parametrize(
+    ("key", "code"),
+    [
+        (ATTRIBUTION, 2),
+        (COMMITS_MD, 2),
+        ("block_secrets", 2),
+        ("block_long_bodies", 2),
+        (MAIN_CHECKOUT, 1),
+    ],
+)
+def test_input_with_no_folder_fails_closed_for_each_blocking_guard(key, code):
+    # Each blocking guard alone makes a check that cannot finish refuse the command (exit 2);
+    # the warning alone lets it run (exit 1).
+    env = hook_env([key], drop=("PHYLAX_",))
     payload = json.dumps({"tool_input": {"command": "git commit -m x"}})
     proc = subprocess.run(
         [HOOK_PYTHON, str(GUARDS)], input=payload, capture_output=True, text=True, env=env
     )
-    assert proc.returncode == 2 and "names no folder" in proc.stderr
+    assert proc.returncode == code and "names no folder" in proc.stderr
 
 
 def test_a_gone_folder_with_only_the_warning_on_runs_and_says_why(tmp_path):

@@ -11,10 +11,12 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 1. 🔄 Hook latency budgets (`tests/test_hook_latency.py`) + git_guards cut: git_guards.py is now
    a triage entry; the checks live in git_checks.py (imported, so bytecode-cached); body_gate,
    secret_scan, shutil, subprocess, tempfile load lazily; board_add loads project_board only for
-   a command naming gh. Before/after: `$SCRATCH/compare.py` (main's plugins vs the branch,
-   interleaved, under the heavy lock). Next: budgets from the measurement, PR, review.
-2. 📋 pytest-codspeed (simulation) on parsers only + `.github/workflows/codspeed.yml`; read Heph's
-   comment on #277 first (simulation drops syscalls; minutes, not 20; one job; a gate).
+   a command naming gh. PR #282: /code-review medium + Opus reader r1 clean of Blocking and
+   Should-fix (Minors fixed: per-key fail-closed test kills the BLOCKING mutants); next: one
+   verify pass on the r1 fixes, then merge on green.
+2. 🔄 pytest-codspeed: branch feat/codspeed (worktree `.claude/worktrees/codspeed`, stacked on
+   this branch, 6ded2f7): tests/bench/ + codspeed.yml + architecture.md "Speed". Rebase on main
+   after #282 merges, then PR + review.
 3. 📋 hyperfine whole-command JSON in `bench/` + compare script with a threshold; weekly workflow.
 4. 📋 mutmut on changed modules per PR + weekly full run; per-module scores in the PR body.
 Report each merge to Heph (tmux pane in orchestrator.pane); `fleet done` after all four.
