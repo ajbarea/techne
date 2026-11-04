@@ -19,6 +19,7 @@ on:
       - "tests/fixtures/body_gate/**"
       - "pyproject.toml"
       - "uv.lock"
+      - "scripts/check_python_pin.py"
       - ".github/workflows/codspeed.yml"
   # Path-filtered, so "CodSpeed Performance Analysis" must not become a required check: a
   # required check that never starts holds a pull request that touches none of these paths.
@@ -73,13 +74,7 @@ jobs:
         env:
           PYTHON_PATH: ${{ steps.python.outputs.python-path }}
         run: |
-          uv run --no-sync python - <<'EOF'
-          import os, sys
-          real = os.path.realpath
-          got = (real(sys._base_executable), "%d.%d.%d" % sys.version_info[:3])
-          want = (real(os.environ["PYTHON_PATH"]), os.environ["PYTHON_VERSION"])
-          sys.exit(0 if got == want else f"the venv runs {got}, not the pinned {want}")
-          EOF
+          uv run --no-sync python scripts/check_python_pin.py
           echo "image ${ImageVersion:-unknown}; $(ldd --version | head -n 1)"
 
       - name: Run the benchmarks

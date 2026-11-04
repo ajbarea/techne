@@ -37,3 +37,4 @@ DEPLOYMENT_READY.md
 
 # srt install for make test-sandboxed
 scripts/srt/node_modules/
+bench/results/

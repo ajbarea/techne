@@ -8,18 +8,14 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 
 **techne#277 performance + mutation testing**, four PRs in order, each reviewed with
 /techne:elenchus (Opus readers); worktrees under `.claude/worktrees/`:
-1. ✅ #282 latency budgets + git_guards 48.6→15.8 ms on a non-git call (merged ff820c7).
-2. 🔄 #284 CodSpeed (feat/codspeed): five reader rounds, all fixed (bench path asserts, exact
-   Python build via setup-python on ubuntu-26.04). Merge on green; the gate has no baseline until
-   the first push to main touching the bench paths, which the merge itself is.
-3. 🔄 hyperfine (feat/hyperfine, rebased; bench/run.py refuses a TMPDIR whose path names git,
-   sharing no_git_input_can_skip with the latency test). After #284: rebase, docs line in
-   architecture.md "Speed", PR; its first bench.yml run fails compare (no baseline yet): commit
-   that run's bench-summary artifact as bench/baseline-ci.json, rerun, review, merge.
-4. 🔄 mutation (feat/mutmut, rebased; carries a TEMPORARY push trigger in mutation.yml, commit
-   "ci(tmp)", drop before merge). Full sweep run 41890499735 on Actions: merge the 8 shard
-   artifacts with `scripts/mutation.py --merge`, scores per module in the PR body, a test or a
-   mutation/equivalent.toml entry per guard survivor, docs line, PR, review.
+1. ✅ #282 latency budgets + git_guards 48.6→15.8 ms on a non-git call.
+2. ✅ #284 CodSpeed (simulation, parsers only).
+3. ✅ #287 hyperfine weekly bench: wall gate 1.15x against `bench/baseline-ci.json`, the median of
+   seven pinned runs (`bench/median.py`); README says how to refresh it.
+4. 🔄 #290 mutation (feat/mutmut): full sweep 41919298273 scored 5,641 mutants; review round 1.
+   The 1,269 survivors already on main are #289, one PR per module, smallest first.
+5. 🔄 perf/hook-parsers-dsa: phylax greeting check stops at the first line (whole body fed once,
+   handlers raise), body gate reads the body once; round 2 fixes pushed; timing, PR, verify.
 Report each merge to Heph (tmux pane in orchestrator.pane); `fleet done` after all four.
 
 techne#249 is fixed in PR #252 (branch results/quality-baseline): the task notes state what the
@@ -76,6 +72,11 @@ fake test credentials, to mark as false positives.
 
 ## Open Minors (recorded, not scheduled)
 
+- #287 bench: median.py has no test merging two patch releases of one python3 minor, or runs
+  where only some carry instruction counts; the docs-threshold test matches a bare `1.05x`
+  substring (assert on `past 1.05x`); compare notes "baseline on None" when neither summary has
+  a cpu; median.py trusts the first summary's cpus/runs/warmup, raises KeyError on a missing key,
+  and duplicates compare.minor().
 - #215 repo_meta: a 1-2 word subtitle under the title hides the lead; a 3+ word section heading
   before any prose reads as a tagline; `*args and **kwargs`, `> ## Warning` and pipe-less tables
   are read as prose.

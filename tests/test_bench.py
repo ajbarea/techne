@@ -1,0 +1,341 @@
+"""Tests for bench/run.py (hyperfine over the hook cases) and bench/compare.py (the gate)."""
+
+from __future__ import annotations
+
+import importlib.util
+import json
+import os
+import pathlib
+import platform
+import subprocess
+import sys
+import tempfile
+
+import pytest
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+
+
+def _load(name: str):
+    spec = importlib.util.spec_from_file_location(f"bench_{name}", ROOT / "bench" / f"{name}.py")
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+compare = _load("compare")
+
+
+def summary(python: str = "3.14.4", label: str = "ci", instructions: bool = False, **ratios):
+    """A bench/run.py summary whose cases have these wall-clock ratios (and, with INSTRUCTIONS,
+    the same instruction ratios)."""
+
+    def row(v: float) -> dict:
+        r = {"ratio": v, "floor_ms": 10.0, "hook_ms": 10.0 * v}
+        return {**r, "instructions_ratio": v} if instructions else r
+
+    return {"label": label, "python": python, "cases": {k: row(v) for k, v in ratios.items()}}
+
+
+def test_no_case_grew_past_the_threshold():
+    code, lines = compare.compare(summary(a=2.0, b=1.0), summary(a=2.2, b=0.9))
+    assert code == 0 and not any("SLOWER" in line for line in lines)
+
+
+@pytest.mark.parametrize(("now", "code"), [(2.3, 0), (2.32, 1)])
+def test_wall_growth_at_its_threshold_passes_and_past_it_fails(now, code):
+    got, lines = compare.compare(summary(a=2.0), summary(a=now))
+    assert got == code
+    assert any("wall" in line and ("SLOWER" in line) is bool(code) for line in lines)
+
+
+@pytest.mark.parametrize(("now", "code"), [(2.1, 0), (2.12, 1)])
+def test_instruction_counts_are_checked_when_both_sides_have_them(now, code):
+    base = summary(instructions=True, a=2.0)
+    new = summary(instructions=True, a=2.0)
+    new["cases"]["a"]["instructions_ratio"] = now  # wall time unchanged
+    got, lines = compare.compare(base, new)
+    assert got == code and any("instructions" in line for line in lines)
+
+
+def test_wall_time_decides_when_one_side_has_no_counts():
+    base = summary(instructions=True, a=2.0)
+    got, lines = compare.compare(base, summary(a=2.2))
+    assert got == 0 and any(" wall" in line for line in lines)
+    (row,) = [line for line in lines if line.startswith("a ")]
+    assert "wall" in row and "instructions" not in row
+    assert compare.compare(base, summary(a=2.6))[0] == 1
+
+
+def test_wall_growth_fails_even_when_instructions_held_still():
+    # A hook that now waits (a sleep, a lock, a network call) retires about the same
+    # instructions but takes longer; the instruction counts must not hide that.
+    base = summary(instructions=True, a=2.0)
+    new = summary(instructions=True, a=2.0)
+    new["cases"]["a"]["ratio"] = 6.0
+    got, lines = compare.compare(base, new)
+    assert got == 1
+    assert any("wall SLOWER" in line and "+0.0% instructions" in line for line in lines)
+
+
+def test_a_baseline_case_the_run_did_not_measure_fails():
+    code, lines = compare.compare(summary(a=2.0, b=1.0), summary(a=2.0))
+    assert code == 1 and any(line.startswith("b ") and "not measured" in line for line in lines)
+
+
+def test_a_case_without_a_baseline_is_listed_and_passes():
+    code, lines = compare.compare(summary(a=2.0), summary(a=2.0, c=9.0))
+    assert code == 0 and any(line.startswith("c ") and "no baseline" in line for line in lines)
+
+
+def test_different_python_minor_versions_cannot_be_compared():
+    code, lines = compare.compare(summary("3.12.3", a=2.0), summary("3.14.4", a=2.0))
+    assert code == 2 and "3.14" in lines[0]
+    assert compare.compare(summary("3.14.0", a=2.0), summary("3.14.4", a=2.0))[0] == 0
+
+
+def test_a_different_machine_label_is_noted():
+    _, lines = compare.compare(summary(label="ci", a=2.0), summary(label="local", a=2.0))
+    assert lines[0].startswith("note:")
+
+
+def test_a_different_cpu_is_noted():
+    base, new = summary(a=2.0), summary(a=2.0)
+    base["cpu"], new["cpu"] = "AMD EPYC 7763", "AMD EPYC 9V74"
+    code, lines = compare.compare(base, new)
+    assert code == 0 and any(line.startswith("note:") and "9V74" in line for line in lines)
+    assert not any("note:" in line for line in compare.compare(base, base)[1])
+
+
+def test_cli_exit_code_and_thresholds(tmp_path, capsys):
+    base, new = tmp_path / "base.json", tmp_path / "new.json"
+    base.write_text(json.dumps(summary(a=2.0)))
+    new.write_text(json.dumps(summary(a=3.0)))
+    assert compare.main([str(base), str(new)]) == 1
+    assert compare.main([str(base), str(new), "--wall-threshold", "1.6"]) == 0
+    for flag in ("--threshold", "--wall-threshold"):
+        with pytest.raises(SystemExit):
+            compare.main([str(base), str(new), flag, "0.9"])
+    capsys.readouterr()
+
+
+FAKE_HYPERFINE = """#!{python}
+import json, pathlib, sys
+args = sys.argv[1:]
+if args == ["--version"]:
+    print("hyperfine 2.0.0")
+    sys.exit(0)
+pathlib.Path({log!r}).open("a").write(json.dumps(args) + "\\n")
+out = next(a.split("=", 1)[1] for a in args if a.startswith("--export-json="))
+commands = [a for a in args if not a.startswith("--")]
+def result(command, seconds, instructions):
+    stats = lambda v: {{"median": v, "mean": v, "stddev": v / 100, "min": v, "max": v}}
+    return {{"command": command, "measurements": [],
+             "summary": {{"time_wall_clock": stats(seconds), "instructions": stats(instructions)}}}}
+pathlib.Path(out).write_text(json.dumps({{"schema_version": 2, "results": [
+    result(commands[0], 0.010, 1000), result(commands[1], 0.025, 3000)]}}))
+"""
+
+
+def _fake_hyperfine(tmp_path, monkeypatch, version: str = "2.0.0") -> pathlib.Path:
+    log = tmp_path / "argv.jsonl"
+    fake = tmp_path / "hyperfine"
+    script = FAKE_HYPERFINE.format(python=sys.executable, log=str(log))
+    fake.write_text(script.replace('"hyperfine 2.0.0"', repr(f"hyperfine {version}")))
+    fake.chmod(0o755)
+    monkeypatch.setenv("HYPERFINE", str(fake))
+    return log
+
+
+def test_run_times_each_case_beside_the_floor_and_writes_the_summary(tmp_path, monkeypatch):
+    log = _fake_hyperfine(tmp_path, monkeypatch)
+    run = _load("run")
+    out = tmp_path / "summary.json"
+    assert run.main(["--out", str(out), "--only", "git_guards-no-git", "--label", "test"]) == 0
+    data = json.loads(out.read_text())
+    assert data["label"] == "test" and data["hyperfine"] == "2.0.0" and data["runs"] == 30
+    row = data["cases"]["git_guards-no-git"]
+    assert row == {
+        "floor_ms": 10.0,
+        "hook_ms": 25.0,
+        "ratio": 2.5,
+        "hook_stddev_ms": 0.25,
+        "instructions_ratio": 3.0,
+    }
+    (argv,) = map(json.loads, log.read_text().splitlines())
+    commands = [a for a in argv if not a.startswith("--")]
+    assert (
+        len(commands) == 2 and commands[0].endswith("-c pass'") and "git_guards.py" in commands[1]
+    )
+    assert "--shell=none" in argv and any(a.startswith("--input=") for a in argv)
+
+
+def test_run_refuses_a_temporary_folder_whose_path_names_git(tmp_path, monkeypatch, capsys):
+    # The no-git case's input carries the sandbox path, so under a folder named github the
+    # guard would parse it and the bench would time the other path.
+    log = _fake_hyperfine(tmp_path, monkeypatch)
+    (tmp_path / "github").mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path / "github"))
+    run = _load("run")
+    out = tmp_path / "summary.json"
+    assert run.main(["--out", str(out), "--only", "git_guards-no-git"]) == 1
+    assert "could name git" in capsys.readouterr().err
+    assert not log.exists() and not out.exists()
+
+
+def test_run_refuses_an_unknown_case(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("HYPERFINE", "/bin/false")
+    run = _load("run")
+    with pytest.raises(SystemExit):
+        run.main(["--out", str(tmp_path / "x.json"), "--only", "no-such-case"])
+    assert "no case named no-such-case" in capsys.readouterr().err
+
+
+def test_run_refuses_a_hook_that_does_not_run_as_its_case_expects(tmp_path, monkeypatch, capsys):
+    # hyperfine throws away what a command prints, so a hook that fails fast would read as a
+    # speed-up; the bench runs the latency test's check first and records nothing.
+    log = _fake_hyperfine(tmp_path, monkeypatch)
+    run = _load("run")
+    monkeypatch.setattr(run.cases, "command", lambda case: "echo broken >&2")
+    out = tmp_path / "summary.json"
+    assert run.main(["--out", str(out), "--only", "git_guards-no-git"]) == 1
+    assert "did not run as its latency case expects" in capsys.readouterr().err
+    assert not log.exists() and not out.exists()
+
+
+def test_run_refuses_a_hyperfine_other_than_2(tmp_path, monkeypatch, capsys):
+    log = _fake_hyperfine(tmp_path, monkeypatch, version="1.18.0")
+    run = _load("run")
+    out = tmp_path / "summary.json"
+    assert run.main(["--out", str(out), "--only", "git_guards-no-git"]) == 1
+    assert "hyperfine 1.18.0" in capsys.readouterr().err
+    assert not log.exists() and not out.exists()
+
+
+@pytest.mark.parametrize("flags", [["--runs", "1"], ["--runs", "0"], ["--warmup", "-1"]])
+def test_run_refuses_too_few_runs(tmp_path, monkeypatch, flags):
+    _fake_hyperfine(tmp_path, monkeypatch)
+    run = _load("run")
+    with pytest.raises(SystemExit):
+        run.main(["--out", str(tmp_path / "x.json"), *flags])
+
+
+@pytest.mark.skipif(
+    sys.platform != "linux" or platform.machine() not in ("x86_64", "aarch64"),
+    reason="the installer pins Linux x86_64 and aarch64 builds only",
+)
+def test_installer_refuses_a_download_whose_sha256_differs(tmp_path):
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    curl = bindir / "curl"
+    # Writes a well-formed release tarball holding a stand-in binary where curl's --output
+    # points, as a tampered download would: only the sha256 check stands between it and the cache.
+    curl.write_text(
+        "#!/bin/sh\n"
+        'while [ "$1" != --output ]; do shift; done\n'
+        'out="$2"; name="$(basename "$out" .tar.gz)"; d="$(mktemp -d)"\n'
+        'mkdir "$d/$name" && printf "#!/bin/sh\\n" >"$d/$name/hyperfine"\n'
+        'tar -czf "$out" -C "$d" "$name"\n'
+    )
+    curl.chmod(0o755)
+    cache = tmp_path / "cache"
+    proc = subprocess.run(
+        ["bash", str(ROOT / "scripts" / "install_hyperfine.sh")],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PATH": f"{bindir}:{os.environ['PATH']}", "XDG_CACHE_HOME": str(cache)},
+    )
+    assert proc.returncode != 0 and "FAILED" in proc.stderr and not proc.stdout
+    assert not list(cache.rglob("hyperfine"))
+
+
+def test_run_refuses_a_deny_hook_that_exits_quietly_without_denying(tmp_path, monkeypatch, capsys):
+    # A deny case expects the hook's deny on stdout; a hook that silently allows would time the
+    # cheap path and read as a speed-up.
+    log = _fake_hyperfine(tmp_path, monkeypatch)
+    run = _load("run")
+    monkeypatch.setattr(run.cases, "command", lambda case: "true")
+    out = tmp_path / "summary.json"
+    assert run.main(["--out", str(out), "--only", "model_guard-agent"]) == 1
+    assert "did not run as its latency case expects" in capsys.readouterr().err
+    assert not log.exists() and not out.exists()
+
+
+def test_run_refuses_to_run_with_asserts_off(tmp_path, monkeypatch):
+    # The pre-check's refusals are the latency test's asserts, which python -O drops.
+    _fake_hyperfine(tmp_path, monkeypatch)
+    proc = subprocess.run(
+        [sys.executable, "-O", str(ROOT / "bench" / "run.py"), "--out", str(tmp_path / "x.json")],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "HYPERFINE": str(tmp_path / "hyperfine")},
+    )
+    assert proc.returncode == 1 and "-O" in proc.stderr and not (tmp_path / "x.json").exists()
+
+
+def test_make_bench_keeps_a_hyperfine_already_set():
+    # Where the installer has no build, the README says to set HYPERFINE; the recipe must not
+    # overwrite it with the installer's output.
+    recipe = (ROOT / "Makefile").read_text().split("\nbench:", 1)[1].split("\n\n", 1)[0]
+    assert "${HYPERFINE:-$$(bash scripts/install_hyperfine.sh)}" in recipe
+
+
+def test_the_weekly_wall_threshold_is_tighter_than_every_per_pr_budget():
+    # The bench exists to catch growth the per-PR latency budgets let through. On GitHub's
+    # runner a case may grow by its budget over its recorded ratio before validate fails; the
+    # weekly threshold must sit below that for every case, or the bench adds nothing there.
+    sys.path.insert(0, str(ROOT / "tests"))
+    import test_hook_latency as latency
+
+    ci = json.loads(latency.BASELINE.read_text())["ratios"]["ci-3.14"]
+    room = {case: latency.budget(case) / ratio for case, ratio in ci.items()}
+    assert set(room) == set(json.loads((ROOT / "bench" / "baseline-ci.json").read_text())["cases"])
+    tightest, least = min(room.items(), key=lambda item: item[1])
+    assert compare.WALL_THRESHOLD < least, (tightest, least)
+
+
+median = _load("median")
+
+
+def _run(cpu: str, measured: str, **ratios) -> dict:
+    s = summary(**ratios)
+    s.update(cpu=cpu, measured=measured, commit="abc", hyperfine="2.0.0", cpus=4, runs=30, warmup=3)
+    return s
+
+
+def test_median_takes_each_cases_median_ratio():
+    runs = [
+        _run("A", "t1", a=2.0, b=1.0),
+        _run("B", "t3", a=2.4, b=1.2),
+        _run("A", "t2", a=2.1, b=0.9),
+    ]
+    merged = median.median_summary(runs)
+    assert merged["cases"]["a"]["ratio"] == 2.1 and merged["cases"]["b"]["ratio"] == 1.0
+    assert merged["cpu"] == "A; B" and merged["measured"] == "t3" and len(merged["median_of"]) == 3
+    assert "instructions_ratio" not in merged["cases"]["a"]
+    # compare.py reads the merged summary and notes only a CPU it holds no run from.
+    assert not any("note:" in line for line in compare.compare(merged, runs[1])[1])
+    assert any(
+        "note:" in line for line in compare.compare(merged, _run("C", "t4", a=2.1, b=1.0))[1]
+    )
+
+
+@pytest.mark.parametrize(
+    "change",
+    [{"python": "3.12.3"}, {"label": "local"}, {"hyperfine": "1.18.0"}, {"cases": {}}],
+)
+def test_median_refuses_summaries_that_differ(change):
+    other = {**_run("A", "t2", a=2.0), **change}
+    with pytest.raises(ValueError):
+        median.median_summary([_run("A", "t1", a=2.0), other])
+    with pytest.raises(ValueError):
+        median.median_summary([_run("A", "t1", a=2.0)])
+
+
+def test_the_docs_state_the_thresholds_compare_uses():
+    # The thresholds are typed into the prose that explains them; a change to one must reach it.
+    wall, instr = f"{compare.WALL_THRESHOLD:g}x", f"{compare.THRESHOLD:g}x"
+    for doc in ("bench/README.md", "docs/architecture.md"):
+        text = (ROOT / doc).read_text()
+        assert wall in text and instr in text, doc

@@ -1,0 +1,88 @@
+{
+  "label": "ci",
+  "measured": "2026-11-04T22:21:18Z",
+  "commit": "96c6c7e; c3c6982; f4d0662",
+  "python": "3.14.10",
+  "hyperfine": "2.0.0",
+  "cpu": "AMD EPYC 7763 64-Core Processor; AMD EPYC 9V45 96-Core Processor; AMD EPYC 9V74 80-Core Processor; INTEL(R) XEON(R) PLATINUM 8573C; Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+  "cpus": 4,
+  "runs": 30,
+  "warmup": 3,
+  "median_of": [
+    "2026-11-04T21:52:53Z on AMD EPYC 9V74 80-Core Processor",
+    "2026-11-04T21:47:09Z on AMD EPYC 7763 64-Core Processor",
+    "2026-11-04T21:57:57Z on INTEL(R) XEON(R) PLATINUM 8573C",
+    "2026-11-04T22:17:12Z on AMD EPYC 9V45 96-Core Processor",
+    "2026-11-04T22:18:01Z on INTEL(R) XEON(R) PLATINUM 8573C",
+    "2026-11-04T22:19:31Z on Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "2026-11-04T22:21:18Z on AMD EPYC 7763 64-Core Processor"
+  ],
+  "cases": {
+    "git_guards-no-git": {
+      "floor_ms": 12.51,
+      "hook_ms": 13.56,
+      "ratio": 1.094,
+      "hook_stddev_ms": 0.2
+    },
+    "git_guards-no-git-described": {
+      "floor_ms": 12.53,
+      "hook_ms": 21.94,
+      "ratio": 1.756,
+      "hook_stddev_ms": 0.37
+    },
+    "git_guards-git-status": {
+      "floor_ms": 12.49,
+      "hook_ms": 29.53,
+      "ratio": 2.347,
+      "hook_stddev_ms": 0.5
+    },
+    "git_guards-gh-view": {
+      "floor_ms": 12.67,
+      "hook_ms": 29.54,
+      "ratio": 2.332,
+      "hook_stddev_ms": 0.59
+    },
+    "model_guard-agent": {
+      "floor_ms": 12.48,
+      "hook_ms": 24.7,
+      "ratio": 1.968,
+      "hook_stddev_ms": 0.44
+    },
+    "budget-agent": {
+      "floor_ms": 12.35,
+      "hook_ms": 41.13,
+      "ratio": 3.323,
+      "hook_stddev_ms": 0.85
+    },
+    "budget-prompt": {
+      "floor_ms": 12.32,
+      "hook_ms": 41.46,
+      "ratio": 3.291,
+      "hook_stddev_ms": 0.7
+    },
+    "stale_restart-prompt": {
+      "floor_ms": 12.5,
+      "hook_ms": 47.42,
+      "ratio": 3.728,
+      "hook_stddev_ms": 0.93
+    },
+    "email_greeting-draft": {
+      "floor_ms": 12.51,
+      "hook_ms": 28.18,
+      "ratio": 2.264,
+      "hook_stddev_ms": 0.44
+    },
+    "board_add-bash": {
+      "floor_ms": 12.45,
+      "hook_ms": 22.29,
+      "ratio": 1.766,
+      "hook_stddev_ms": 0.35
+    },
+    "resume_brief-start": {
+      "floor_ms": 12.42,
+      "hook_ms": 63.09,
+      "ratio": 5.147,
+      "hook_stddev_ms": 1.12
+    }
+  }
+}
