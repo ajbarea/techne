@@ -121,6 +121,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--warmup", type=int, default=3)
     ap.add_argument("--only", action="append", default=[], help="a case id (repeatable)")
     args = ap.parse_args(argv)
+    if not __debug__:
+        print(
+            "bench: python -O (or PYTHONOPTIMIZE) drops the asserts that check each hook's "
+            "output before it is timed; run without it.",
+            file=sys.stderr,
+        )
+        return 1
     if args.runs < 2 or args.warmup < 0:
         ap.error("--runs takes 2 or more and --warmup 0 or more")
     binary = os.environ.get("HYPERFINE") or "hyperfine"

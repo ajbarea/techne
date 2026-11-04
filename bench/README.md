@@ -34,4 +34,4 @@ Wall time moves with whatever else the machine runs; instruction counts barely m
 
 ## Refreshing the baseline
 
-After a deliberate change in a hook's cost, rerun the `bench` workflow and commit the `bench-summary` artifact it uploads as `bench/baseline-ci.json`.
+After a deliberate change in a hook's cost, rerun the `bench` workflow and commit the `bench-summary-<attempt>` artifact it uploads as `bench/baseline-ci.json`.

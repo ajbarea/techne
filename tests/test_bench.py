@@ -63,7 +63,8 @@ def test_wall_time_decides_when_one_side_has_no_counts():
     base = summary(instructions=True, a=2.0)
     got, lines = compare.compare(base, summary(a=2.2))
     assert got == 0 and any(" wall" in line for line in lines)
-    assert not any("instructions" in line for line in lines[1:-1])
+    (row,) = [line for line in lines if line.startswith("a ")]
+    assert "wall" in row and "instructions" not in row
     assert compare.compare(base, summary(a=2.6))[0] == 1
 
 
@@ -137,12 +138,18 @@ pathlib.Path(out).write_text(json.dumps({{"schema_version": 2, "results": [
 """
 
 
-def test_run_times_each_case_beside_the_floor_and_writes_the_summary(tmp_path, monkeypatch):
+def _fake_hyperfine(tmp_path, monkeypatch, version: str = "2.0.0") -> pathlib.Path:
     log = tmp_path / "argv.jsonl"
     fake = tmp_path / "hyperfine"
-    fake.write_text(FAKE_HYPERFINE.format(python=sys.executable, log=str(log)))
+    script = FAKE_HYPERFINE.format(python=sys.executable, log=str(log))
+    fake.write_text(script.replace('"hyperfine 2.0.0"', repr(f"hyperfine {version}")))
     fake.chmod(0o755)
     monkeypatch.setenv("HYPERFINE", str(fake))
+    return log
+
+
+def test_run_times_each_case_beside_the_floor_and_writes_the_summary(tmp_path, monkeypatch):
+    log = _fake_hyperfine(tmp_path, monkeypatch)
     run = _load("run")
     out = tmp_path / "summary.json"
     assert run.main(["--out", str(out), "--only", "git_guards-no-git", "--label", "test"]) == 0
@@ -167,11 +174,7 @@ def test_run_times_each_case_beside_the_floor_and_writes_the_summary(tmp_path, m
 def test_run_refuses_a_temporary_folder_whose_path_names_git(tmp_path, monkeypatch, capsys):
     # The no-git case's input carries the sandbox path, so under a folder named github the
     # guard would parse it and the bench would time the other path.
-    log = tmp_path / "argv.jsonl"
-    fake = tmp_path / "hyperfine"
-    fake.write_text(FAKE_HYPERFINE.format(python=sys.executable, log=str(log)))
-    fake.chmod(0o755)
-    monkeypatch.setenv("HYPERFINE", str(fake))
+    log = _fake_hyperfine(tmp_path, monkeypatch)
     (tmp_path / "github").mkdir()
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path / "github"))
     run = _load("run")
@@ -187,16 +190,6 @@ def test_run_refuses_an_unknown_case(tmp_path, monkeypatch, capsys):
     with pytest.raises(SystemExit):
         run.main(["--out", str(tmp_path / "x.json"), "--only", "no-such-case"])
     assert "no case named no-such-case" in capsys.readouterr().err
-
-
-def _fake_hyperfine(tmp_path, monkeypatch, version: str = "2.0.0") -> pathlib.Path:
-    log = tmp_path / "argv.jsonl"
-    fake = tmp_path / "hyperfine"
-    script = FAKE_HYPERFINE.format(python=sys.executable, log=str(log))
-    fake.write_text(script.replace('"hyperfine 2.0.0"', repr(f"hyperfine {version}")))
-    fake.chmod(0o755)
-    monkeypatch.setenv("HYPERFINE", str(fake))
-    return log
 
 
 def test_run_refuses_a_hook_that_does_not_run_as_its_case_expects(tmp_path, monkeypatch, capsys):
@@ -236,8 +229,15 @@ def test_installer_refuses_a_download_whose_sha256_differs(tmp_path):
     bindir = tmp_path / "bin"
     bindir.mkdir()
     curl = bindir / "curl"
-    # Writes junk where curl's --output points, as a tampered or truncated download would.
-    curl.write_text('#!/bin/sh\nwhile [ "$1" != --output ]; do shift; done\necho junk >"$2"\n')
+    # Writes a well-formed release tarball holding a stand-in binary where curl's --output
+    # points, as a tampered download would: only the sha256 check stands between it and the cache.
+    curl.write_text(
+        "#!/bin/sh\n"
+        'while [ "$1" != --output ]; do shift; done\n'
+        'out="$2"; name="$(basename "$out" .tar.gz)"; d="$(mktemp -d)"\n'
+        'mkdir "$d/$name" && printf "#!/bin/sh\\n" >"$d/$name/hyperfine"\n'
+        'tar -czf "$out" -C "$d" "$name"\n'
+    )
     curl.chmod(0o755)
     cache = tmp_path / "cache"
     proc = subprocess.run(
@@ -248,3 +248,34 @@ def test_installer_refuses_a_download_whose_sha256_differs(tmp_path):
     )
     assert proc.returncode != 0 and "FAILED" in proc.stderr and not proc.stdout
     assert not list(cache.rglob("hyperfine"))
+
+
+def test_run_refuses_a_deny_hook_that_exits_quietly_without_denying(tmp_path, monkeypatch, capsys):
+    # A deny case expects the hook's deny on stdout; a hook that silently allows would time the
+    # cheap path and read as a speed-up.
+    log = _fake_hyperfine(tmp_path, monkeypatch)
+    run = _load("run")
+    monkeypatch.setattr(run.cases, "command", lambda case: "true")
+    out = tmp_path / "summary.json"
+    assert run.main(["--out", str(out), "--only", "model_guard-agent"]) == 1
+    assert "did not run as its latency case expects" in capsys.readouterr().err
+    assert not log.exists() and not out.exists()
+
+
+def test_run_refuses_to_run_with_asserts_off(tmp_path, monkeypatch):
+    # The pre-check's refusals are the latency test's asserts, which python -O drops.
+    _fake_hyperfine(tmp_path, monkeypatch)
+    proc = subprocess.run(
+        [sys.executable, "-O", str(ROOT / "bench" / "run.py"), "--out", str(tmp_path / "x.json")],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "HYPERFINE": str(tmp_path / "hyperfine")},
+    )
+    assert proc.returncode == 1 and "-O" in proc.stderr and not (tmp_path / "x.json").exists()
+
+
+def test_make_bench_keeps_a_hyperfine_already_set():
+    # Where the installer has no build, the README says to set HYPERFINE; the recipe must not
+    # overwrite it with the installer's output.
+    recipe = (ROOT / "Makefile").read_text().split("\nbench:", 1)[1].split("\n\n", 1)[0]
+    assert "${HYPERFINE:-$$(bash scripts/install_hyperfine.sh)}" in recipe
