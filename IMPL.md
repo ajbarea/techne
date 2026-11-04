@@ -6,35 +6,20 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 
 ## In flight
 
-**techne#277 performance + mutation testing** (branch feat/perf-mutation, worktree
-`.claude/worktrees/perf`), four PRs in order, each reviewed with /techne:elenchus (Opus):
-1. 🔄 Hook latency budgets (`tests/test_hook_latency.py`) + git_guards cut, PR #282. Reviewed:
-   /code-review medium, an Opus reader, verify passes 1-3 (verify 3: mergeable at e9fb757, CI
-   green, no comments or reviews). Left: one narrow Opus verify of 1966f52 only (the stderr
-   assertion in test_input_with_no_folder_fails_closed_for_each_blocking_guard that kills four
-   git_options.failed() survivors: `any(None)`, `option_on(None)`, `print(None, ...)`,
-   `print(file=...)`; check its FAIL_CLOSED equals git_options.FAIL_CLOSED and each mutant goes
-   red on a copy of the hooks folder). Then re-read PR comments, squash-merge (repo deletes the
-   branch), report to Heph, mark queue.md.
-2. 🔄 CodSpeed: branch feat/codspeed (worktree `.claude/worktrees/codspeed`, 6ded2f7, forked at
-   225a806): tests/bench/, codspeed.yml (simulation, pytest-codspeed 5.0.3, action v5.6.0, past
-   the 7-day cooldown), architecture.md "Speed". After #282 merges:
-   `git rebase --onto origin/main 225a806`, then PR (link #277), review, merge.
-3. 🔄 hyperfine: branch feat/hyperfine (worktree `.claude/worktrees/hyperfine`, 55a26f6, forked at
-   c24e162): scripts/install_hyperfine.sh, bench/run.py, bench/compare.py (instructions at 1.05x,
-   else wall at 1.25x; spreads in bench/README.md), make bench/bench-compare, bench.yml weekly.
-   After #282: `git rebase --onto origin/main c24e162` (test_hook_latency.py make_sandbox may
-   conflict). Owed: bench/baseline-ci.json from the PR's own bench run artifact
-   (bench-summary), a docs line in architecture.md, then PR + review.
-4. 🔄 mutation: branch feat/mutmut (worktree `.claude/worktrees/mutmut`, fbf3d9f, forked at
-   c24e162): scripts/mutation.py (mutmut==3.8.1 generates and applies; sys.monitoring trace map
-   across subprocesses, scripts/mutation_trace/), [tool.techne.mutation] in pyproject,
-   mutation.yml (changed functions per PR, 8 shards weekly), scripts/install_gitleaks.sh shared
-   with validate.yml. Trial: git_options 13 mutants, 9 killed, 4 survivors since killed by
-   1966f52. Owed: rebase, a full run on the guard modules under the heavy lock (git_checks has
-   3664 mutants: run it as the weekly workflow on the PR via workflow_dispatch after merge, or
-   shard locally), per-module scores in the PR body, tests or mutation/equivalent.toml entries
-   for guard survivors, docs line, PR + review.
+**techne#277 performance + mutation testing**, four PRs in order, each reviewed with
+/techne:elenchus (Opus readers); worktrees under `.claude/worktrees/`:
+1. ✅ #282 latency budgets + git_guards 48.6→15.8 ms on a non-git call (merged ff820c7).
+2. 🔄 #284 CodSpeed (feat/codspeed): five reader rounds, all fixed (bench path asserts, exact
+   Python build via setup-python on ubuntu-26.04). Merge on green; the gate has no baseline until
+   the first push to main touching the bench paths, which the merge itself is.
+3. 🔄 hyperfine (feat/hyperfine, rebased; bench/run.py refuses a TMPDIR whose path names git,
+   sharing no_git_input_can_skip with the latency test). After #284: rebase, docs line in
+   architecture.md "Speed", PR; its first bench.yml run fails compare (no baseline yet): commit
+   that run's bench-summary artifact as bench/baseline-ci.json, rerun, review, merge.
+4. 🔄 mutation (feat/mutmut, rebased; carries a TEMPORARY push trigger in mutation.yml, commit
+   "ci(tmp)", drop before merge). Full sweep run 41890499735 on Actions: merge the 8 shard
+   artifacts with `scripts/mutation.py --merge`, scores per module in the PR body, a test or a
+   mutation/equivalent.toml entry per guard survivor, docs line, PR, review.
 Report each merge to Heph (tmux pane in orchestrator.pane); `fleet done` after all four.
 
 techne#249 is fixed in PR #252 (branch results/quality-baseline): the task notes state what the
