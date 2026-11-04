@@ -134,18 +134,21 @@ class _Stdin(io.StringIO):
 
 
 @pytest.mark.parametrize(
-    ("command", "description"),
-    [("ls -la", "List files"), ("ls -la", "List files in the GitHub checkout")],
+    ("description", "parsed"),
+    [("List files", False), ("List the .github workflows", True)],
     ids=["skipped-unparsed", "skipped-parsed"],
 )
-def test_git_guard_triage(benchmark, guards_on, monkeypatch, command, description):
+def test_git_guard_triage(benchmark, guards_on, monkeypatch, description, parsed):
+    # A fixed cwd, so the checkout's own path cannot add a "git" that moves a case to the
+    # other path; the assert pins which path each case times.
     payload = json.dumps(
         {
             "session_id": "0b8f5a2c-6d1e-4f3a-9c7b-2e4d6f8a1b3c",
-            "cwd": str(ROOT),
+            "cwd": "/work/repo",
             "tool_name": "Bash",
-            "tool_input": {"command": command, "description": description},
+            "tool_input": {"command": "ls -la", "description": description},
         }
     )
+    assert git_guards.cannot_name_git(payload) is not parsed
     monkeypatch.setattr(sys, "stdin", _Stdin(payload))
     assert benchmark(git_guards.main) == 0
