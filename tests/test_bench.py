@@ -291,5 +291,5 @@ def test_the_weekly_wall_threshold_is_tighter_than_every_per_pr_budget():
     ci = json.loads(latency.BASELINE.read_text())["ratios"]["ci-3.14"]
     room = {case: latency.budget(case) / ratio for case, ratio in ci.items()}
     assert set(room) == set(json.loads((ROOT / "bench" / "baseline-ci.json").read_text())["cases"])
-    tightest = min(room, key=room.get)
-    assert compare.WALL_THRESHOLD < room[tightest], (tightest, room[tightest])
+    tightest, least = min(room.items(), key=lambda item: item[1])
+    assert compare.WALL_THRESHOLD < least, (tightest, least)
