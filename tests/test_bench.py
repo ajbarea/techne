@@ -43,7 +43,7 @@ def test_no_case_grew_past_the_threshold():
     assert code == 0 and not any("SLOWER" in line for line in lines)
 
 
-@pytest.mark.parametrize(("now", "code"), [(2.5, 0), (2.52, 1)])
+@pytest.mark.parametrize(("now", "code"), [(2.3, 0), (2.32, 1)])
 def test_wall_growth_at_its_threshold_passes_and_past_it_fails(now, code):
     got, lines = compare.compare(summary(a=2.0), summary(a=now))
     assert got == code
@@ -279,3 +279,17 @@ def test_make_bench_keeps_a_hyperfine_already_set():
     # overwrite it with the installer's output.
     recipe = (ROOT / "Makefile").read_text().split("\nbench:", 1)[1].split("\n\n", 1)[0]
     assert "${HYPERFINE:-$$(bash scripts/install_hyperfine.sh)}" in recipe
+
+
+def test_the_weekly_wall_threshold_is_tighter_than_every_per_pr_budget():
+    # The bench exists to catch growth the per-PR latency budgets let through. On GitHub's
+    # runner a case may grow by its budget over its recorded ratio before validate fails; the
+    # weekly threshold must sit below that for every case, or the bench adds nothing there.
+    sys.path.insert(0, str(ROOT / "tests"))
+    import test_hook_latency as latency
+
+    ci = json.loads(latency.BASELINE.read_text())["ratios"]["ci-3.14"]
+    room = {case: latency.budget(case) / ratio for case, ratio in ci.items()}
+    assert set(room) == set(json.loads((ROOT / "bench" / "baseline-ci.json").read_text())["cases"])
+    tightest = min(room, key=room.get)
+    assert compare.WALL_THRESHOLD < room[tightest], (tightest, room[tightest])

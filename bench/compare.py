@@ -21,7 +21,7 @@ import sys
 
 # Measured spreads behind both thresholds are in bench/README.md.
 THRESHOLD = 1.05
-WALL_THRESHOLD = 1.25
+WALL_THRESHOLD = 1.15
 
 
 def minor(version: str) -> str:

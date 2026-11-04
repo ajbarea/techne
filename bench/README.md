@@ -22,15 +22,16 @@ For each case: the median wall time of the floor and of the hook, their ratio, t
 
 A case is judged by its ratio to the floor, so a faster or slower machine moves both sides. Both summaries must use the same python3 minor version, since a faster-starting python3 has a lower floor.
 
-A growth of the wall-clock ratio past 1.25x fails. When both summaries have instruction counts, a growth of the instruction ratio past 1.05x fails too. Instructions alone would miss a hook that now waits on a lock, a sleep or the network, since waiting retires no instructions. GitHub's runners do not count instructions, so against `baseline-ci.json` only wall time is checked. The thresholds come from repeated runs on one machine (AJ's PC, WSL2, 2026-11-04, 30 runs per case, under the fleet's heavy lock):
+A growth of the wall-clock ratio past 1.15x fails. When both summaries have instruction counts, a growth of the instruction ratio past 1.05x fails too. Instructions alone would miss a hook that now waits on a lock, a sleep or the network, since waiting retires no instructions. GitHub's runners do not count instructions, so against `baseline-ci.json` only wall time is checked. The wall threshold comes from seven `bench` workflow runs on four CPU models (2026-11-04); the instruction threshold from repeated runs on AJ's PC (WSL2, 30 runs per case):
 
 | Ratio | Largest run-to-run spread of any case |
 |---|---|
-| Instructions, 4 runs on python3 3.14 and 3 on 3.12 | 1.002x |
-| Wall clock, python3 3.12 | 1.09x |
-| Wall clock, python3 3.14 | 1.71x (one run of one case; the next largest was 1.16x) |
+| Instructions, AJ's PC, 4 runs on python3 3.14 and 3 on 3.12 | 1.002x |
+| Wall clock, GitHub's runner, python3 3.14.10, 7 runs | 1.08x |
+| Wall clock, AJ's PC, python3 3.12 | 1.09x |
+| Wall clock, AJ's PC, python3 3.14 | 1.71x (one run of one case; the next largest was 1.16x) |
 
-Wall time moves with whatever else the machine runs; instruction counts barely move. 1.05x leaves room for a different CPU or C library picking other code paths. 1.25x matches the headroom of the per-PR budgets.
+Wall time moves with whatever else the machine runs; instruction counts barely move. 1.05x leaves room for a different CPU or C library picking other code paths. 1.15x is about twice the runner's spread and, a test checks, below every case's per-PR budget. A busy local machine moves more: rerun a wall-only failure, or pass `--wall-threshold` to `bench/compare.py`.
 
 ## Refreshing the baseline
 
