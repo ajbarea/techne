@@ -244,7 +244,7 @@ guidance below is what a deck adds to it. To check a script, run
   its case part by part ([Throughline](https://www.throughlinegroup.com/2013/10/03/five-times-to-take-questions-from-your-audience/)),
   and the title slide's invitation still lets anyone interrupt.
   An optional discussion prompt lives behind the backup divider, for a quiet
-  Q&A: a dark slide with one short personal question anyone can answer
+  Q&A: a plain slide with one short personal question anyone can answer
   without the paper ("What's one thing you would never let an AI do for
   you?"), and a muted line of example answers that gets the room started
   ("Send a message as you? Spend your money? Grade your work?").
