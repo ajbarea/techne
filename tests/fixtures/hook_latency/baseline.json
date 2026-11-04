@@ -1,0 +1,45 @@
+{
+  "measured": "2026-11-04: the median ratio to the python3 floor over 15 runs after 2 warm-up, from tests/test_hook_latency.py. 3.12 and 3.14: AJ's PC (WSL2, 6 cores). ci-3.14: GitHub's ubuntu-latest runner, the higher of validate runs 41846057897 and 41862165076 per case (the described case from the second only), read from their pytest summaries.",
+  "headroom": 1.25,
+  "ratios": {
+    "3.12": {
+      "git_guards-no-git": 1.13,
+      "git_guards-git-status": 1.74,
+      "git_guards-gh-view": 1.82,
+      "model_guard-agent": 1.45,
+      "budget-agent": 2.11,
+      "budget-prompt": 2.2,
+      "stale_restart-prompt": 2.47,
+      "email_greeting-draft": 1.66,
+      "board_add-bash": 1.35,
+      "resume_brief-start": 3.72,
+      "git_guards-no-git-described": 1.29
+    },
+    "3.14": {
+      "git_guards-no-git": 1.1,
+      "git_guards-git-status": 2.33,
+      "git_guards-gh-view": 2.2,
+      "model_guard-agent": 1.77,
+      "budget-agent": 3.09,
+      "budget-prompt": 2.83,
+      "stale_restart-prompt": 3.08,
+      "email_greeting-draft": 1.85,
+      "board_add-bash": 1.59,
+      "resume_brief-start": 4.64,
+      "git_guards-no-git-described": 1.58
+    },
+    "ci-3.14": {
+      "git_guards-no-git": 1.07,
+      "git_guards-git-status": 2.14,
+      "git_guards-gh-view": 2.17,
+      "model_guard-agent": 1.84,
+      "budget-agent": 3.01,
+      "budget-prompt": 3.0,
+      "stale_restart-prompt": 3.34,
+      "email_greeting-draft": 2.03,
+      "board_add-bash": 1.66,
+      "resume_brief-start": 4.51,
+      "git_guards-no-git-described": 1.66
+    }
+  }
+}

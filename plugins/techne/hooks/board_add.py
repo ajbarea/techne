@@ -17,7 +17,6 @@ import sys
 
 sys.dont_write_bytecode = True  # the plugin cache stays as installed
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "_shared"))
-import project_board as pb  # noqa: E402  # ty: ignore[unresolved-import]
 
 BUDGET_SECONDS = 8.0  # hooks.json gives the hook 15
 LINE_CAP = 300
@@ -41,7 +40,13 @@ def run(payload: dict) -> str | None:
         return None
     tool_input = payload.get("tool_input")
     command = tool_input.get("command") if isinstance(tool_input, dict) else None
-    if not isinstance(command, str) or not pb.creates_item(command):
+    # This runs after every Bash call. A command that never says gh opens nothing, so the board
+    # code loads only for one that does.
+    if not isinstance(command, str) or "gh" not in command:
+        return None
+    import project_board as pb  # ty: ignore[unresolved-import]
+
+    if not pb.creates_item(command):
         return None
     try:
         board = pb.load_board()

@@ -1,4 +1,4 @@
-"""Tests for phylax's body budget (body_gate.py) and its guard in git_guards.py (techne#229).
+"""Tests for phylax's body budget (body_gate.py) and its guard in git_checks.py (techne#229).
 
 The counting is checked against graphe's length_budget.markdown_words, whose rule it
 mirrors; the guard is fed PreToolUse JSON for each way gh writes a body.
@@ -22,6 +22,7 @@ from conftest import HOOK_PYTHON, hook_env
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 HOOKS = ROOT / "plugins" / "phylax" / "hooks"
 GUARDS = HOOKS / "git_guards.py"
+CHECKS = HOOKS / "git_checks.py"
 FIXTURES = pathlib.Path(__file__).resolve().parent / "fixtures" / "body_gate"
 BODIES = "block_long_bodies"
 
@@ -960,14 +961,16 @@ def fake_github(tmp_path):
 @pytest.mark.skipif(
     shutil.which("gh") is None and not os.environ.get("CI"), reason="needs gh (CI has it)"
 )
-def test_the_body_read_is_the_body_gh_sends(tmp_path, fake_github):
+def test_the_body_read_is_the_body_gh_sends(tmp_path, fake_github, monkeypatch):
     """Differential: random body and switch options, long and short, grouped, before and
     after the subcommand, for three subcommands. gh sends the body to a fake GitHub that
     logs it; the hook's walk must read that same body. `create` and `edit` are left out:
     gh first resolves the repository and the PR's projects there, which the fake does not
     serve; their value options are pinned by the fixed cases above."""
     env, log = fake_github
-    guards = _load("phylax_git_guards_diff", GUARDS)
+    guards = _load("phylax_git_guards_diff", CHECKS)
+    # The walk alone is under test: the budget the checks import passes every body.
+    monkeypatch.setattr(importlib.import_module("body_gate"), "check", lambda kind, body: ([], []))
     files = tmp_path / "files"
     files.mkdir()
     subs = {
@@ -1043,12 +1046,7 @@ def test_the_body_read_is_the_body_gh_sends(tmp_path, fake_github):
         read: list[str | None] = []
         walk = g.gh_body
         g.gh_body = lambda *a, walk=walk, read=read, **k: read.append(walk(*a, **k)) or read[-1]
-        real = guards.body_gate.check
-        guards.body_gate.check = lambda kind, body: ([], [])
-        try:
-            g.check_gh(["gh", *args], files, {})
-        finally:
-            guards.body_gate.check = real
+        g.check_gh(["gh", *args], files, {})
         assert ((read[-1] if read else None) or "") == gh_body, (args, gh_body, read)
         sent += 1
     assert sent > 20, f"gh sent only {sent} bodies"

@@ -6,7 +6,7 @@ const GUARDS = ['block_attribution_trailers', 'block_commits_md', 'warn_main_che
 const BLOCKING = ['block_attribution_trailers', 'block_commits_md', 'block_secrets', 'block_long_bodies'] as const
 // git_guards.py looks no further at a command without one of these words.
 const GIT_OR_GH = /\b(git|gh)\b/
-// A commit makes a few git calls of 5 s each and one secret scan of 20 s inside git_guards.py.
+// A commit makes a few git calls of 5 s each and one secret scan of 20 s inside git_checks.py.
 const GUARD_TIMEOUT_MS = 55_000
 
 type Verdict = { deny?: string; warning?: string }

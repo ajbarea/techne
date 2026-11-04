@@ -1,6 +1,6 @@
 """The length budget for issue, PR and comment bodies (techne#229).
 
-git_guards.py calls `check` with a body headed for GitHub. Only the visible
+git_checks.py calls `check` with a body headed for GitHub. Only the visible
 text counts: what sits outside <details> blocks, HTML comments, code and link
 targets, counted as graphe's length_budget.markdown_words counts a markdown
 page (a token holding a letter or digit), so table bars and bullets do not
