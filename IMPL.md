@@ -11,15 +11,20 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 1. 🔄 Hook latency budgets (`tests/test_hook_latency.py`) + git_guards cut: git_guards.py is now
    a triage entry; the checks live in git_checks.py (imported, so bytecode-cached); body_gate,
    secret_scan, shutil, subprocess, tempfile load lazily; board_add loads project_board only for
-   a command naming gh. PR #282: /code-review medium, then an Opus reader (r1 clean of
-   Blocking/Should-fix); verify 1 found a Should-fix (the "GitHub" described case never timed
-   the parse path), fixed in b8c27cc; verify 2 found Minors only, fixed after it. Next: one
-   more verify pass on those fixes, then merge on green.
-2. 🔄 pytest-codspeed: branch feat/codspeed (worktree `.claude/worktrees/codspeed`, stacked on
-   this branch, 6ded2f7): tests/bench/ + codspeed.yml + architecture.md "Speed". Rebase on main
-   after #282 merges, then PR + review.
-3. 📋 hyperfine whole-command JSON in `bench/` + compare script with a threshold; weekly workflow.
-4. 📋 mutmut on changed modules per PR + weekly full run; per-module scores in the PR body.
+   a command naming gh. PR #282: /code-review medium, an Opus reader, then verify passes 1-3
+   (one Should-fix in verify 1, Minors since, all fixed; 1966f52 adds the stderr test that
+   kills git_options' four mutmut survivors). Next: verify 3's report, a last verify of
+   59fa64b + 1966f52, merge on green.
+2. 🔄 pytest-codspeed: branch feat/codspeed (worktree `.claude/worktrees/codspeed`, 6ded2f7):
+   tests/bench/ + codspeed.yml + architecture.md "Speed". Rebase on main after #282, PR, review.
+3. 🔄 hyperfine: branch feat/hyperfine (worktree `.claude/worktrees/hyperfine`, 55a26f6 + uncommitted
+   compare/README edits): bench/run.py, bench/compare.py (instructions at 1.05x, else wall at
+   1.25x, spreads in bench/README.md), make bench/bench-compare, bench.yml weekly. Owed:
+   bench/baseline-ci.json from the PR's own bench run artifact; docs line in architecture.md.
+4. 🔄 mutation: branch feat/mutmut (worktree `.claude/worktrees/mutmut`, fbf3d9f):
+   scripts/mutation.py (mutmut generates and applies; sys.monitoring trace map across
+   subprocesses), mutation.yml (changed functions per PR, 8 shards weekly). Owed: scores per
+   module for the PR body (full run on the guards), tests or equivalents for guard survivors.
 Report each merge to Heph (tmux pane in orchestrator.pane); `fleet done` after all four.
 
 techne#249 is fixed in PR #252 (branch results/quality-baseline): the task notes state what the
