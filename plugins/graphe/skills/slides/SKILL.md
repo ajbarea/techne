@@ -139,6 +139,8 @@ pass is reported on its own, beside the desktop findings.
 | WARN | `overflow` | Something drawn past the edge of the slide canvas, clipped or not. Content inside a container that scrolls sideways is exempt. |
 | BLOCK | `phone-clip` | Content drawn past the slide's edge on a 390px or 360px-wide phone. A phone cannot pan to it: reflow the figure or draw a tall version for the phone. |
 | BLOCK | `contribution` | A web deck with no slide marked `data-contribution`, more than one, the marked slide after slide 5 (title, agenda, then the first content slides), or no script on it. It checks where the slide is, never what it says; see [What we did and why you should care](#what-we-did-and-why-you-should-care). Not checked on a .pptx or PDF. |
+| BLOCK | `conclusion` | A web deck with no slide marked `data-conclusion`, more than one, or the marked slide anywhere but right before the closing slide (the last slide before the backup divider). It checks where the slide is, never what it says; see [The conclusion](#the-conclusion). Not checked on a .pptx or PDF. |
+| WARN | `conclusion` | The conclusion slide titled with a topic word, such as `Conclusion`, `Summary` or `Takeaways`, instead of the main point. |
 | WARN | `phone` | On a 390px-wide phone: text under 12px, a page that scrolls sideways, or no viewport meta tag. Figures that pan sideways are listed as INFO. |
 | WARN | `nested-section` | A `<section>` inside a slide's content, which reveal.js shows as separate slides. |
 | WARN | `motion` | Animation on a slide still running a quarter second after it opens, with reduced motion requested. |
@@ -146,7 +148,8 @@ pass is reported on its own, beside the desktop findings.
 | WARN | `offline` | The deck fetches from the network, so it fails on a projector laptop with no Wi-Fi. |
 | WARN | `no-notes` / `duplicate-title` | A talk slide with no script, in `<aside class="notes">` or `data-notes` (backup slides are exempt), or two slides a screen reader cannot tell apart. |
 | REVIEW | `figures` / `dense` | Percentages, ratios, decimals, `x of y` and long numbers (years and digits inside identifiers are labels), or more than 60 words, on talk slides. Slide 1 is exempt, and so is everything after a divider titled exactly `Backup`, `Backup slides` or `Appendix`, or from `--backup-from`. Words inside figures count: a `dense` on a figure-heavy slide is not a reason to cut the figure. |
-| REVIEW | `jargon` | A `--jargon` term on a talk slide. Use the plain word on the slide and the term in a muted footnote. |
+| REVIEW | `jargon` | A `--jargon` term on a talk slide. Use the plain word on the slide; the term goes in a muted footnote only when the room will meet it again (in Q&A, or in the paper they will read). |
+| REVIEW | `footnotes` | An element with `class="footnote"` on more than half the slides after the title and up to the closing slide. Each footnote must pass the test in [Writing it for the room](#writing-it-for-the-room); a footnote on most slides is usually padding. |
 | REVIEW | `long-title` | Titles over 14 words, on every slide. |
 
 What `check` cannot see: a diagram that reads wrong, a label on the wrong
@@ -178,17 +181,26 @@ guidance below is what a deck adds to it. To check a script, run
   for every talk.
 - **A story arc.** The problem, the catch that makes it hard, the idea, how it
   works, what was found (including where it failed and what is still
-  untested), what comes next, and a plain closing slide: "Thank you", the
+  untested), what comes next, a short [conclusion](#the-conclusion) that
+  sums it up, and a plain closing slide: "Thank you", the
   presenter's name and contact. No tagline or contrast-statement slide; the
   presenter introduces themselves and states the take-home aloud, in the script.
   A general audience keeps three to five main
   points ([Science Communication Toolkit](https://ecampusontario.pressbooks.pub/scicommtoolkit/chapter/talks/)).
   An honest limits slide makes the claims before it believable.
-- **Plain words on the slide, the source's term underneath.** Name each idea
-  in words a newcomer already knows ("Read-only, twice"), and put the paper's
-  name for it in a muted footnote ("Paper term: law documents"). The room
-  follows the plain version; anyone who reads the paper later can map it back.
-  Spell out every acronym.
+- **Plain words on the slide.** Name each idea in words a newcomer already
+  knows ("Read-only, twice"). Add the paper's name for it in a muted footnote
+  ("Paper term: law documents") only when the room will meet that term again:
+  someone may use it in Q&A, or the audience will read the paper. Otherwise the
+  plain words are enough. Spell out every acronym.
+- **A footnote only when the room would miss it.** Footnotes are optional, and
+  no slide needs one. Keep a footnote only if the audience would miss it: the
+  source and date behind a number someone may question, a term they need, a
+  caveat that changes how to read the figure ("Illustrative example", "Bars are
+  not to scale"). Cut a footnote that restates the slide, explains a legend
+  that is already obvious, or carries process detail (commit hashes, tool
+  versions, how the figure was built); that goes in the script or on a backup
+  slide. `check` raises a `footnotes` review when most talk slides carry one.
 - **Define a term on the slide where it first appears**, in one muted line
   ("Air-gapped: cut off from the internet."). A vocabulary slide early in the
   talk collects the few terms that keep coming back, one everyday sentence
@@ -205,7 +217,7 @@ guidance below is what a deck adds to it. To check a script, run
   design: a claim headline over visual evidence, which audiences understand and
   recall better than topic titles over bullets ([Garner and Alley](https://www.researchgate.net/publication/286042632_How_the_Design_of_Presentation_Slides_Affects_Audience_Comprehension_A_Case_for_the_Assertion-Evidence_Approach)).
 - **A figure on every content slide, and the diagram is the last thing cut.**
-  Agenda, closing and divider slides are exempt. A
+  Agenda, conclusion, closing and divider slides are exempt. A
   slide of text cards is a draft: turn it into a picture of the idea. Shapes
   that recur: a concrete before-and-after (what the tool gets wrong, what the
   expert wants), a flow of numbered stages, a two-group comparison, a timeline,
@@ -280,6 +292,39 @@ of the run:
 3. Each major section ties back to it.
 4. The script says the stakes aloud.
 
+## The conclusion
+
+`# research(2026-11)`
+
+The last content slide, right before the closing "Thank you", is a short
+conclusion. It repeats the talk's point so the room leaves with it, and it
+tells the room the talk is over. The structure is the old one: tell them what
+you will tell them (the agenda), tell them, then tell them what you told them.
+Dr. Pengcheng Shi's research-foundations lecture at RIT puts it this way:
+the conclusion gives "a summary of the key results", gives open problems, and
+indicates that the talk is over; summary slides "should be short"; use
+repetition; do not overrun.
+
+- **Mark it `data-conclusion`** (the starter's second-to-last talk slide does).
+  `check` blocks when no slide, or more than one, carries it, or when it is not
+  the slide right before the closing slide.
+- **The title restates the main point in fresh words**, a claim like every
+  other headline, never "Conclusion" or "Summary" (`check` warns on those).
+- **Two to four key results the talk already showed**, one phrase each. No new
+  material: a result first seen here is a result the room cannot weigh.
+- **One or two open problems or next steps**, taken from the source work's own
+  limits or future work, not invented for the slide.
+- **Short.** Phrases, no new figure; it is read in under a minute.
+- **The script ends with a clear "That's my talk."** Then the closing slide's
+  script thanks the room and takes questions.
+- **No `data-chapter`.** The agenda lists the parts of the talk, not the
+  wrap-up: Peyton Jones, Hughes and Launchbury call "introduction" and
+  "conclusion" trivia an outline should never list
+  ([How to give a good research talk](https://www.cvast.tuwien.ac.at/sites/default/files/research-tips/good-talks.pdf)).
+- **The one place the take-home is on a slide.** The no-tagline rule in
+  [A story arc](#writing-it-for-the-room) still holds: the conclusion's
+  headline is a claim the talk has earned, not a slogan.
+
 ## The script
 
 The speaker notes hold the script: the words the presenter says out loud on
@@ -301,6 +346,9 @@ the one the room sees ([reveal.js](https://revealjs.com/speaker-view/)).
 - **Exact wording where it matters.** Where a word would overclaim, the script
   already uses the safe one ("tamper-evident", never "tamper-proof").
 - **End each slide with the line that leads into the next.**
+- **The conclusion's script ends with "That's my talk."** It says the main
+  point once more, in new words, and names the results and the open problem
+  without adding anything.
 - **The closing slide's script ends by taking questions** ("I'm glad to take
   questions."). A backup discussion prompt's script reads the question, offers
   one example answer, and ties it back to the talk.
@@ -325,7 +373,7 @@ cp -r <skill-dir>/templates/web <talk-dir>
 
 | File | Holds |
 |---|---|
-| `index.html` | One `<section>` per slide: title, agenda, what we did and why you should care (`data-contribution`), claim with a figure that builds, concrete case, quick bet, method steps, related-work map, timeline, limits, Thank you, backup divider, backup discussion prompt, backup table. Drop the layouts the talk does not need; copy one to add a slide. |
+| `index.html` | One `<section>` per slide: title, agenda, what we did and why you should care (`data-contribution`), claim with a figure that builds, concrete case, quick bet, method steps, related-work map, timeline, limits, conclusion (`data-conclusion`), Thank you, backup divider, backup discussion prompt, backup table. Drop the layouts the talk does not need; copy one to add a slide. |
 | `deck.css` | Colour tokens (every text colour clears 7:1 on its surface; figure marks use the colour-blind-safe Okabe-Ito hues), layouts, the phone layout, and the reduced-motion rule. |
 | `deck.js` | Builds what comes from data, then starts reveal.js. |
 | `data/deck-data.js` | Every figure and every related-work entry the deck shows. |
@@ -346,7 +394,7 @@ tables are harvested; a key with no data behind it is a console error, which
 
 **The chapter rail and the agenda come from `data-chapter`.** Give each talk
 slide its chapter (`data-chapter="2 · How it works"`, the same words as its
-kicker). The agenda slide lists the chapters in order, and a rail across the top
+kicker); the conclusion and closing slides take none. The agenda slide lists the chapters in order, and a rail across the top
 shows which one the talk is in; click a chapter to jump to it.
 
 **Show how the work differs from related work, from data.** Each entry in
@@ -542,7 +590,9 @@ For a deck that already exists as a `.pptx` or a PDF:
 1. `check` exits 0, and each `REVIEW` item is resolved or deliberately kept.
    The four manual items under [What we did and why you should
    care](#what-we-did-and-why-you-should-care) each pass, and the report says
-   how.
+   how. The conclusion restates the main point as a claim, lists only results
+   the talk showed, takes its open problems from the work's own limits, and
+   its script ends with "That's my talk."
 2. `render` ran, and every slide was looked at, on desktop and on the phone.
 3. Every content slide passes the text-alone and figure-alone reading, and has a
    figure. The script is handed over with the deck; its length is near the

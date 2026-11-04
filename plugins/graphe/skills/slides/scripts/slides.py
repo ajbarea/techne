@@ -675,6 +675,102 @@ def contribution_findings(marked: list[tuple[int, bool]]) -> list[Finding]:
     return out
 
 
+# A topic word where the closing claim belongs; every headline is a claim, the conclusion's too.
+_TOPIC_CONCLUSION = re.compile(
+    r"^\s*(?:in\s+)?(?:summary|conclusions?|concluding\s+remarks|wrap[\s-]?up|recap"
+    r"|(?:(?:key|main)\s+)?take-?aways?|take-?home(?:\s+messages?)?)"
+    r"(?:\s*(?:and|&|/)\s*(?:conclusions?|future\s+(?:work|directions)|next\s+steps|outlook))?"
+    r"\s*[.:!]?\s*$",
+    re.I,
+)
+
+
+def conclusion_findings(
+    marked: list[tuple[int, str]], last_main: int, divider: bool = True
+) -> list[Finding]:
+    """The place of the closing summary, never its wording.
+
+    `marked` is (slide number, title) for each slide carrying `data-conclusion`, and
+    `last_main` is the last slide before the backup (`divider` says whether a divider or
+    `--backup-from` set it): the closing slide. The conclusion is the slide right before it.
+    A title that only names the topic warns.
+    """
+    if not marked:
+        return [
+            Finding(
+                BLOCK,
+                "conclusion",
+                "no slide carries data-conclusion; mark the short slide, right before the "
+                "closing slide, that restates the main point, its key results and what is open",
+            )
+        ]
+    out: list[Finding] = []
+    if len(marked) > 1:
+        out.append(
+            Finding(
+                BLOCK,
+                "conclusion",
+                f"data-conclusion on slides {[n for n, _ in marked]}; one slide sums up the talk",
+            )
+        )
+    number, title = marked[0]
+    if last_main < 2 or number == last_main:
+        out.append(
+            Finding(
+                BLOCK,
+                "conclusion",
+                f"the conclusion slide is slide {number}, and the talk has no closing slide "
+                "after it; end the talk on the conclusion, then a Thank you slide",
+                number,
+            )
+        )
+    elif number != last_main - 1:
+        where = (
+            "the last before the backup"
+            if divider
+            else "the last slide, since none is titled Backup or Appendix"
+        )
+        out.append(
+            Finding(
+                BLOCK,
+                "conclusion",
+                f"the conclusion slide is slide {number}; it goes right before the closing "
+                f"slide (slide {last_main}, {where}), as slide {last_main - 1}",
+                number,
+            )
+        )
+    if _TOPIC_CONCLUSION.match(title):
+        out.append(
+            Finding(
+                WARN,
+                "conclusion",
+                f"the conclusion slide is titled {title!r}; title it with the main point, "
+                "restated in fresh words",
+                number,
+            )
+        )
+    return out
+
+
+# Footnotes on more than this share of talk slides: most of them are probably padding.
+FOOTNOTE_SHARE = 0.5
+
+
+def footnote_findings(with_footnote: list[int], talk_slides: int) -> list[Finding]:
+    """A review when a footnote sits on most talk slides, since each must earn its place."""
+    if talk_slides < 2 or len(with_footnote) <= talk_slides * FOOTNOTE_SHARE:
+        return []
+    return [
+        Finding(
+            REVIEW,
+            "footnotes",
+            f"footnotes on {len(with_footnote)} of {talk_slides} talk slides "
+            f"{with_footnote}; keep one only where the room would miss it (a source behind "
+            "a number, a term they need, a caveat), and move the rest to the script or backup",
+        )
+    ]
+
+
 def duplicate_titles(titles: dict[str, list[int]]) -> list[Finding]:
     return [
         Finding(WARN, "duplicate-title", f"slides {numbers} share the title {title!r}")
@@ -1025,6 +1121,8 @@ _READ_SLIDE = (
     text: s.innerText,
     notes: noteText(s),
     contribution: s.hasAttribute('data-contribution'),
+    conclusion: s.hasAttribute('data-conclusion'),
+    footnote: [...s.querySelectorAll('.footnote')].some((el) => !inNotes(el)),
     spill,
     panned,
   };
@@ -1338,6 +1436,9 @@ def _check_in(
     titles: dict[str, list[int]] = {}
     no_notes: list[int] = []
     contribution: list[tuple[int, bool]] = []
+    conclusion: list[tuple[int, str]] = []
+    footnoted: list[int] = []
+    last_main = 0
     unchecked = 0
     in_backup = False
     for i in range(count):
@@ -1345,6 +1446,8 @@ def _check_in(
         slide = page.evaluate(_READ_SLIDE, i)
         if slide["contribution"]:
             contribution.append((number, bool(slide["notes"])))
+        if slide["conclusion"]:
+            conclusion.append((number, slide["title"]))
         title = slide["title"]
         if title:
             titles.setdefault(title.casefold(), []).append(number)
@@ -1364,6 +1467,10 @@ def _check_in(
         visible = " ".join(lines)
         if not slide["notes"] and not in_backup:
             no_notes.append(number)
+        if not in_backup:
+            last_main = number
+            if slide["footnote"] and number > 1:
+                footnoted.append(number)
         found += text_gates(
             number,
             title,
@@ -1434,6 +1541,8 @@ def _check_in(
             Finding(WARN, "no-notes", f"no script in the speaker notes on slides {no_notes}")
         )
     found += contribution_findings(contribution)
+    found += conclusion_findings(conclusion, last_main, in_backup or backup_from is not None)
+    found += footnote_findings(footnoted, last_main - 1)
     if unchecked:
         found.append(
             Finding(
