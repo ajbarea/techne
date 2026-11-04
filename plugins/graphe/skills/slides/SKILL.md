@@ -169,10 +169,10 @@ guidance below is what a deck adds to it. To check a script, run
   better comprehension and fewer misconceptions than with topic headlines over
   bullets ([2025 study](https://www.sciencedirect.com/science/article/pii/S2307187725001701)).
 - **An agenda slide right after the title.** The talk's parts, in order, in
-  plain words, plus where the pauses fall and which kind each is. It orients
-  the room, and it is the presenter's map when a question pulls the talk off
-  course. Keep the section names identical to the kicker labels on the
-  slides they introduce ("3 · How it works · Before the data").
+  plain words, and nothing else: it never mentions pauses, questions or
+  discussion stops. It orients the room, and it is the presenter's map
+  when a question pulls the talk off course. Keep the section names
+  identical to the kicker labels on the slides they introduce ("3 · How it works · Before the data").
 - **One slide says what we did and why this audience should care.** See
   [below](#what-we-did-and-why-you-should-care). It is a standing requirement
   for every talk.
@@ -205,7 +205,7 @@ guidance below is what a deck adds to it. To check a script, run
   design: a claim headline over visual evidence, which audiences understand and
   recall better than topic titles over bullets ([Garner and Alley](https://www.researchgate.net/publication/286042632_How_the_Design_of_Presentation_Slides_Affects_Audience_Comprehension_A_Case_for_the_Assertion-Evidence_Approach)).
 - **A figure on every content slide, and the diagram is the last thing cut.**
-  Agenda, pause, closing and divider slides are exempt. A
+  Agenda, closing and divider slides are exempt. A
   slide of text cards is a draft: turn it into a picture of the idea. Shapes
   that recur: a concrete before-and-after (what the tool gets wrong, what the
   expert wants), a flow of numbered stages, a two-group comparison, a timeline,
@@ -224,25 +224,18 @@ guidance below is what a deck adds to it. To check a script, run
   none did") and put the figures on backup slides; for a technical one, the
   figure may be the claim. A count drawn as marks (nineteen of twenty dots
   filled) is a figure too: it traces to the same source a typed number would.
-- **Pauses come in two kinds, and a talk usually needs both.** They look
-  alike but do different jobs, so plan each one for what it is:
-  - A **question pause** is a break for the room to ask whatever it wants. A
-    plain slide, its headline the invitation ("Questions so far, about the
-    two apps?"), with no prompt and no example answers. Put one after each
-    part a room is likely to question, and plan for questions in any talk to
-    a lab, a class or a review panel, where people come with their own.
-  - A **discussion pause** asks the room to take part: a dark slide, right
-    after the slide whose idea it generalizes, with one short personal
-    question anyone can answer without the paper ("What's one thing you would
-    never let an AI do for you?"), and a muted line of example answers that gets the room
-    started ("Send a message as you? Spend your money? Grade your work?").
-
-  Not every pause needs a discussion question: a question pause that tacks
-  one on crowds out the room's own questions, and a discussion pause with no
-  question is a question pause. Three two-minute pauses in a lecture improved
-  recall and test scores ([Ruhl, Hughes and Schloss 1987](https://doi.org/10.1177/088840648701000103)).
-  Name each on the agenda by its kind ("questions after part 2, a discussion
-  after the demo").
+- **Questions at the end, never a stop mid-talk.** Invite interruptions on
+  the title slide ("Please stop me any time"), then take questions after the
+  closing slide. Put no questions-only or discussion slide inside the talk:
+  a stop just before the part the room will ask about earns only "I'm about
+  to get to that". Holding questions for the end suits a talk that builds
+  its case part by part ([Throughline](https://www.throughlinegroup.com/2013/10/03/five-times-to-take-questions-from-your-audience/)),
+  and the title slide's invitation still lets anyone interrupt.
+  An optional discussion prompt lives behind the backup divider, for a quiet
+  Q&A: a dark slide with one short personal question anyone can answer
+  without the paper ("What's one thing you would never let an AI do for
+  you?"), and a muted line of example answers that gets the room started
+  ("Send a message as you? Spend your money? Grade your work?").
 - **Talk lean, backup unlimited.** A `Backup slides` divider (or an FAQ
   section, with `--backup-from`) separates the talk from Q&A material. Behind
   it, a slide can be as long and detailed as an answer needs: it is read when
@@ -308,12 +301,9 @@ the one the room sees ([reveal.js](https://revealjs.com/speaker-view/)).
 - **Exact wording where it matters.** Where a word would overclaim, the script
   already uses the safe one ("tamper-evident", never "tamper-proof").
 - **End each slide with the line that leads into the next.**
-- **Question pauses:** the script opens the floor in one line ("Any
-  questions so far?"), leaves room, and closes with the line that leads into
-  the next part. It asks nothing of its own.
-- **Discussion pauses:** the script reads the question, offers one example
-  answer, and ends with the sentence that closes the discussion and ties it
-  back to the talk.
+- **The closing slide's script ends by taking questions** ("I'm glad to take
+  questions."). A backup discussion prompt's script reads the question, offers
+  one example answer, and ties it back to the talk.
 - **Length.** Presenters speak at about 130 to 150 words a minute
   ([VirtualSpeech](https://virtualspeech.com/blog/average-speaking-rate-words-per-minute)).
   `script` prints the total, a guide to the time slot rather than a gate: when
@@ -335,7 +325,7 @@ cp -r <skill-dir>/templates/web <talk-dir>
 
 | File | Holds |
 |---|---|
-| `index.html` | One `<section>` per slide: title, agenda, what we did and why you should care (`data-contribution`), claim with a figure that builds, concrete case, quick bet, method steps, related-work map, timeline, question pause, discussion pause, limits, Thank you, backup divider, backup table. Drop the layouts the talk does not need; copy one to add a slide. |
+| `index.html` | One `<section>` per slide: title, agenda, what we did and why you should care (`data-contribution`), claim with a figure that builds, concrete case, quick bet, method steps, related-work map, timeline, limits, Thank you, backup divider, backup discussion prompt, backup table. Drop the layouts the talk does not need; copy one to add a slide. |
 | `deck.css` | Colour tokens (every text colour clears 7:1 on its surface; figure marks use the colour-blind-safe Okabe-Ito hues), layouts, the phone layout, and the reduced-motion rule. |
 | `deck.js` | Builds what comes from data, then starts reveal.js. |
 | `data/deck-data.js` | Every figure and every related-work entry the deck shows. |

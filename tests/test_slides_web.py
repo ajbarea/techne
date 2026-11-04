@@ -498,9 +498,9 @@ def test_motion_names_only_the_slide_that_moves(sl, web):
     assert len(motion) == 1
     named = {int(n) for n in re.findall(r"\d+", motion[0].message.split("[")[1].split("]")[0])}
     # The spinning slide is named. Slides with nothing that moves are not; with the rule gone,
-    # the starter's dots (6) and timeline (10) animate too, and a fragment's fade may still be
+    # the starter's dots (6) and timeline (9) animate too, and a fragment's fade may still be
     # running when it is read.
-    assert 11 in named and not named & {1, 2, 3, 5, 8, 12, 13}
+    assert 13 in named and not named & {1, 2, 3, 5, 10, 11, 12}
 
 
 @needs_browser
@@ -745,7 +745,7 @@ def test_the_script_reads_the_starter_from_reveal(sl):
     assert "## 4. [Claim headline: one full sentence the figure proves]" in out
     assert "Walk the figure left to right" in out
     _, backup = out.split("# Backup slides")
-    assert "## 14. Backup slides" in backup
+    assert "## 12. Backup slides" in backup
 
 
 @needs_browser
@@ -873,7 +873,7 @@ def test_pdf_keeps_text_pinned_to_the_bottom_of_a_slide(sl, web, tmp_path):
     )
     out = tmp_path / "deck.pdf"
     sl.pdf_html(web.index, out)
-    assert "Where the pauses fall" in _pdf_text(out)
+    assert "Hover or tab to a dot" in _pdf_text(out)
 
 
 @pytest.mark.parametrize("name", ["export.pptx", "export"])
