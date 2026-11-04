@@ -80,6 +80,36 @@ def visible_text(raw: str) -> str:
     return "".join(parser.parts)
 
 
+# str.splitlines's line boundaries; a kept-ends piece ends with at most one of them.
+_BREAKS = "\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029"
+CHUNK = 8192  # HTML fed to the parser at a time; parsing stops at the first complete line
+
+
+def html_opening(raw: str) -> str | None:
+    """opening(visible_text(RAW)), parsing only as far as the first non-empty line: the visible
+    text is written in order, so a line followed by a break is final once the parser emits it."""
+    parser = _Text()
+    current: list[str] = []  # the unfinished line's pieces
+    seen = 0  # parser.parts already split into lines
+    chunks = [raw[i : i + CHUNK] for i in range(0, len(raw), CHUNK)]
+    for chunk in [*chunks, None]:  # None: the end, where close() flushes what the parser holds
+        if chunk is None:
+            parser.close()
+        else:
+            parser.feed(chunk)
+        for part in parser.parts[seen:]:
+            for piece in part.splitlines(keepends=True):
+                if piece.rstrip(_BREAKS) == piece:
+                    current.append(piece)
+                    continue
+                line = opening("".join(current) + piece)
+                if line:
+                    return line
+                current = []
+        seen = len(parser.parts)
+    return opening("".join(current))
+
+
 def now(tz_name: str) -> dt.datetime:
     if not tz_name:
         return dt.datetime.now().astimezone()
@@ -102,9 +132,16 @@ def allowed(minutes: int) -> list[str]:
 
 
 def opening(text: str) -> str | None:
-    """The first non-empty line, with invisible format characters (Unicode Cf) dropped."""
-    text = "".join(c for c in text if unicodedata.category(c) != "Cf")
-    return next((line.strip() for line in text.splitlines() if line.strip()), None)
+    """The first non-empty line, with invisible format characters (Unicode Cf) dropped.
+
+    No Cf character is a line boundary, so dropping them line by line, and only up to the first
+    line left non-empty, gives what dropping them from the whole text first would."""
+    for line in text.splitlines():
+        if line.strip():
+            line = "".join(c for c in line if unicodedata.category(c) != "Cf").strip()
+            if line:
+                return line
+    return None
 
 
 def first_lines(tool_input: dict) -> list[str]:
@@ -113,11 +150,11 @@ def first_lines(tool_input: dict) -> list[str]:
     A rich client shows the HTML body and a plain one shows the text, so both are checked.
     """
     found = []
-    for keys, read in ((BODY_FIELDS, str), (HTML_FIELDS, visible_text)):
+    for keys, read in ((BODY_FIELDS, opening), (HTML_FIELDS, html_opening)):
         for key in keys:
             raw = tool_input.get(key)
             if isinstance(raw, str) and raw.strip():
-                line = opening(read(raw))
+                line = read(raw)
                 if line:
                     found.append(line)
                 break

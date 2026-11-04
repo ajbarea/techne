@@ -114,7 +114,11 @@ def visible(body: str) -> str:
     blocks (nested ones too; an unclosed one hides the rest, as GitHub renders
     it), each folded block's <summary> line, an open block's content, and no
     HTML comment or code."""
-    body = strip_comments(blank_code(body))
+    return _fold(strip_comments(blank_code(body)))
+
+
+def _fold(body: str) -> str:
+    """visible() of a body whose code is already blanked and comments stripped."""
     out: list[str] = []
     shown: list[bool] = []  # one per open <details>: whether its content shows
     summary = False
@@ -155,9 +159,12 @@ def visible_words(body: str) -> int:
 
 def long_sentences(body: str) -> list[str]:
     """Sentences of the visible prose over LONG_SENTENCE words; table rows are not sentences."""
-    text = "\n".join(
-        line for line in prose(visible(body)).splitlines() if not line.lstrip().startswith("|")
-    )
+    return _long_sentences(prose(visible(body)))
+
+
+def _long_sentences(shown: str) -> list[str]:
+    """long_sentences() of SHOWN, a body's visible prose."""
+    text = "\n".join(line for line in shown.splitlines() if not line.lstrip().startswith("|"))
     found = []
     for s in _SENTENCE_END.split(text):
         s = " ".join(s.split())
@@ -176,14 +183,18 @@ def check(kind: str, body: str) -> tuple[list[str], list[str]]:
             f"{GITHUB_MAX}. Cut it to the short top and fold or link the depth."
         )
         return denies, warnings
-    if _MARKER.search(blank_code(body)):
+    # The code is blanked once and the visible prose built once, for the marker, the word count
+    # and the sentences alike.
+    blanked = blank_code(body)
+    if _MARKER.search(blanked):
         denies.append(
             f"phylax: this {kind} body carries a `budget:` marker. GitHub shows the raw text "
             "in mail and notifications, so a body never carries one: remove it and retry."
         )
     budget = BUDGET[kind]
     ceiling = int(budget * SLACK)
-    n = visible_words(body)
+    shown = prose(_fold(strip_comments(blanked)))
+    n = words(shown)
     if n > ceiling:
         denies.append(
             f"phylax: this {kind} body has {n} visible words (outside <details>); the budget "
@@ -191,7 +202,7 @@ def check(kind: str, body: str) -> tuple[list[str], list[str]]:
             "fold the depth into <details> sections, or cut it; keep the evidence. A PR links "
             "its issue instead of restating it."
         )
-    long = long_sentences(body)
+    long = _long_sentences(shown)
     if long:
         shown = "; ".join(f"{s[:90]}..." if len(s) > 90 else s for s in long[:3])
         warnings.append(

@@ -1179,3 +1179,40 @@ def test_create_sends_the_file_whatever_the_order(repo, verb):
     (repo / "short.md").write_text(SHORT)
     reverse = refused(run_guard(f"gh {verb} -t x -b '{words_of(400)}' -F short.md", repo))
     assert reverse is None, "the short file is what gh sends"
+
+
+def _check_by_parts(kind: str, body: str) -> tuple[list[str], list[str]]:
+    """check() as it was before it shared one pass: each part reads the body on its own."""
+    bg = body_gate
+    if len(body) > bg.GITHUB_MAX:
+        return bg.check(kind, body)
+    marker = bool(bg._MARKER.search(bg.blank_code(body)))
+    return marker, bg.visible_words(body), bg.long_sentences(body)
+
+
+_BODY_PIECES = (
+    "Word ", "word. ", "<details>", "</details>", "<details open>", "<summary>Sum</summary>",
+    "`code`", "```\nfenced <details>\n```\n", "<!-- budget: 10 -->", "<!--", "-->", "\n",
+    "| a | b |\n", "[link](https://x.y/z)", "&amp;", "<br>", "> quote ", "- item\n",
+    "This sentence keeps going and going and going on and on with many words in it. ",
+)  # fmt: skip
+
+
+@pytest.mark.parametrize("kind", ["PR", "issue", "comment"])
+def test_check_reads_the_body_as_its_parts_do(kind):
+    # check() blanks the code and builds the visible prose once; it must count what the
+    # separate passes count.
+    rng = random.Random(277)
+    bodies = [p.read_text() for p in sorted(FIXTURES.glob("*.md"))]
+    bodies += [
+        "".join(rng.choice(_BODY_PIECES) for _ in range(rng.randint(1, 80))) for _ in range(300)
+    ]
+    for body in bodies:
+        denies, warnings = body_gate.check(kind, body)
+        marker, n, long = _check_by_parts(kind, body)
+        assert any("`budget:` marker" in d for d in denies) == marker, body
+        assert any(f"has {n} visible words" in d for d in denies) == (
+            n > int(body_gate.BUDGET[kind] * body_gate.SLACK)
+        ), body
+        assert (warnings != []) == (long != []), body
+        assert not long or f"{len(long)} sentence(s)" in warnings[0], body

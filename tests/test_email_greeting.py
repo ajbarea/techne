@@ -226,3 +226,63 @@ def test_both_bodies_are_checked():
         run_handler(payload(TOOLS[2], body=f"{right} Bob,", htmlBody="<p>Hi Bob</p>"))
     )
     assert reason and '"Hi"' in reason
+
+
+def _opening_full(text: str) -> str | None:
+    """The opening line as the hook read it before it stopped early: Cf dropped from the whole
+    text, then the first non-empty line."""
+    import unicodedata
+
+    text = "".join(c for c in text if unicodedata.category(c) != "Cf")
+    return next((line.strip() for line in text.splitlines() if line.strip()), None)
+
+
+_PIECES = (
+    "<p>", "</p>", "<div>", "</div>", "<br>", "<br/>", "<li>", "<span>", "</span>", "<b>",
+    "<style>p{x:y}</style>", "<script>Good morning,</script>", "<title>Hi</title>", "<template>",
+    "</template>", "<!-- Hi -->", "Good morning,", "Hi Dana,", "Dear all", "x", " ", "  ",
+    "\n", "\r", "\r\n", "\u2028", "\u200b", "\ufeff", "\u200e", "&amp;", "&#8203;", "&nbsp;",
+    "&#x200B;", "&", "<", "Ünïcödé", "\t",
+)  # fmt: skip
+
+
+@pytest.mark.parametrize("chunk", [1, 2, 3, 5, 8, 64, 8192])
+def test_html_opening_matches_reading_the_whole_body(monkeypatch, chunk):
+    # The early stop must name the line the full parse names, wherever the chunks split a tag,
+    # a character reference, a \r\n or a hidden block.
+    import random
+
+    monkeypatch.setattr(g, "CHUNK", chunk)
+    rng = random.Random(277 + chunk)
+    for _ in range(400):
+        raw = "".join(rng.choice(_PIECES) for _ in range(rng.randint(1, 30)))
+        assert g.html_opening(raw) == _opening_full(g.visible_text(raw)), repr(raw)
+
+
+@pytest.mark.parametrize(
+    "text", ["\u200b\nGood morning,", "\r\u200b\nHi,", "  \n\t\n x \u200e", "\ufeff", "", "a\x85b"]
+)
+def test_opening_matches_dropping_format_characters_first(text):
+    assert g.opening(text) == _opening_full(text)
+
+
+def test_html_opening_stops_at_the_first_line(monkeypatch):
+    # A long message is parsed only up to its first line, not to its end.
+    fed: list[int] = []
+
+    class Counting(g._Text):
+        def feed(self, data):
+            fed.append(len(data))
+            super().feed(data)
+
+    monkeypatch.setattr(g, "_Text", Counting)
+    raw = "<div><p>Good morning,</p>" + "<p>Line of the message.</p>" * 2000 + "</div>"
+    assert g.html_opening(raw) == "Good morning,"
+    assert fed == [g.CHUNK]
+
+
+def test_html_opening_flushes_text_the_parser_holds_at_the_end(monkeypatch):
+    # Text after the last tag stays in the parser until close(), even one character past a chunk.
+    monkeypatch.setattr(g, "CHUNK", 8)
+    assert g.html_opening("<p></p>  Good morning,") == "Good morning,"
+    assert g.html_opening("<p></p>Hi&amp") == "Hi&"
