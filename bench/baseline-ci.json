@@ -1,79 +1,88 @@
 {
   "label": "ci",
-  "measured": "2026-11-04T21:52:53Z",
-  "commit": "96c6c7e",
+  "measured": "2026-11-04T22:21:18Z",
+  "commit": "96c6c7e; c3c6982; f4d0662",
   "python": "3.14.10",
   "hyperfine": "2.0.0",
-  "cpu": "AMD EPYC 9V74 80-Core Processor",
+  "cpu": "AMD EPYC 7763 64-Core Processor; AMD EPYC 9V45 96-Core Processor; AMD EPYC 9V74 80-Core Processor; INTEL(R) XEON(R) PLATINUM 8573C; Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
   "cpus": 4,
   "runs": 30,
   "warmup": 3,
+  "median_of": [
+    "2026-11-04T21:52:53Z on AMD EPYC 9V74 80-Core Processor",
+    "2026-11-04T21:47:09Z on AMD EPYC 7763 64-Core Processor",
+    "2026-11-04T21:57:57Z on INTEL(R) XEON(R) PLATINUM 8573C",
+    "2026-11-04T22:17:12Z on AMD EPYC 9V45 96-Core Processor",
+    "2026-11-04T22:18:01Z on INTEL(R) XEON(R) PLATINUM 8573C",
+    "2026-11-04T22:19:31Z on Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "2026-11-04T22:21:18Z on AMD EPYC 7763 64-Core Processor"
+  ],
   "cases": {
     "git_guards-no-git": {
-      "floor_ms": 11.67,
-      "hook_ms": 12.77,
+      "floor_ms": 12.51,
+      "hook_ms": 13.56,
       "ratio": 1.094,
-      "hook_stddev_ms": 0.13
+      "hook_stddev_ms": 0.2
     },
     "git_guards-no-git-described": {
-      "floor_ms": 11.72,
-      "hook_ms": 20.03,
-      "ratio": 1.71,
-      "hook_stddev_ms": 0.21
+      "floor_ms": 12.53,
+      "hook_ms": 21.94,
+      "ratio": 1.756,
+      "hook_stddev_ms": 0.37
     },
     "git_guards-git-status": {
-      "floor_ms": 11.68,
-      "hook_ms": 26.11,
-      "ratio": 2.235,
-      "hook_stddev_ms": 0.33
+      "floor_ms": 12.49,
+      "hook_ms": 29.53,
+      "ratio": 2.347,
+      "hook_stddev_ms": 0.5
     },
     "git_guards-gh-view": {
-      "floor_ms": 11.69,
-      "hook_ms": 26.24,
-      "ratio": 2.245,
-      "hook_stddev_ms": 0.28
+      "floor_ms": 12.67,
+      "hook_ms": 29.54,
+      "ratio": 2.332,
+      "hook_stddev_ms": 0.59
     },
     "model_guard-agent": {
-      "floor_ms": 11.59,
-      "hook_ms": 22.4,
-      "ratio": 1.934,
-      "hook_stddev_ms": 0.21
+      "floor_ms": 12.48,
+      "hook_ms": 24.7,
+      "ratio": 1.968,
+      "hook_stddev_ms": 0.44
     },
     "budget-agent": {
-      "floor_ms": 11.65,
-      "hook_ms": 36.65,
-      "ratio": 3.146,
-      "hook_stddev_ms": 0.49
+      "floor_ms": 12.35,
+      "hook_ms": 41.13,
+      "ratio": 3.323,
+      "hook_stddev_ms": 0.85
     },
     "budget-prompt": {
-      "floor_ms": 11.71,
-      "hook_ms": 36.78,
-      "ratio": 3.142,
-      "hook_stddev_ms": 0.43
+      "floor_ms": 12.32,
+      "hook_ms": 41.46,
+      "ratio": 3.291,
+      "hook_stddev_ms": 0.7
     },
     "stale_restart-prompt": {
-      "floor_ms": 11.51,
-      "hook_ms": 41.7,
-      "ratio": 3.623,
-      "hook_stddev_ms": 0.63
+      "floor_ms": 12.5,
+      "hook_ms": 47.42,
+      "ratio": 3.728,
+      "hook_stddev_ms": 0.93
     },
     "email_greeting-draft": {
-      "floor_ms": 11.65,
-      "hook_ms": 25.37,
-      "ratio": 2.177,
-      "hook_stddev_ms": 0.36
+      "floor_ms": 12.51,
+      "hook_ms": 28.18,
+      "ratio": 2.264,
+      "hook_stddev_ms": 0.44
     },
     "board_add-bash": {
-      "floor_ms": 11.62,
-      "hook_ms": 20.07,
-      "ratio": 1.727,
-      "hook_stddev_ms": 0.28
+      "floor_ms": 12.45,
+      "hook_ms": 22.29,
+      "ratio": 1.766,
+      "hook_stddev_ms": 0.35
     },
     "resume_brief-start": {
-      "floor_ms": 11.66,
-      "hook_ms": 57.46,
-      "ratio": 4.928,
-      "hook_stddev_ms": 0.76
+      "floor_ms": 12.42,
+      "hook_ms": 63.09,
+      "ratio": 5.147,
+      "hook_stddev_ms": 1.12
     }
   }
 }

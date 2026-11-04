@@ -22,17 +22,18 @@ For each case: the median wall time of the floor and of the hook, their ratio, t
 
 A case is judged by its ratio to the floor, so a faster or slower machine moves both sides. Both summaries must use the same python3 minor version, since a faster-starting python3 has a lower floor.
 
-A growth of the wall-clock ratio past 1.15x fails. When both summaries have instruction counts, a growth of the instruction ratio past 1.05x fails too. Instructions alone would miss a hook that now waits on a lock, a sleep or the network, since waiting retires no instructions. GitHub's runners do not count instructions, so against `baseline-ci.json` only wall time is checked. The wall threshold comes from seven `bench` workflow runs on four CPU models (2026-11-04); the instruction threshold from repeated runs on AJ's PC (WSL2, 30 runs per case):
+A growth of the wall-clock ratio past 1.15x fails. When both summaries have instruction counts, a growth of the instruction ratio past 1.05x fails too. Instructions alone would miss a hook that now waits on a lock, a sleep or the network, since waiting retires no instructions. GitHub's runners do not count instructions, so against `baseline-ci.json` only wall time is checked. The wall threshold comes from twelve `bench` workflow runs on five CPU models (2026-11-04); the baseline is the per-case median of the seven whose summaries were kept; the instruction threshold from repeated runs on AJ's PC (WSL2, 30 runs per case):
 
-| Ratio | Largest run-to-run spread of any case |
+| Ratio | Largest spread of any case |
 |---|---|
 | Instructions, AJ's PC, 4 runs on python3 3.14 and 3 on 3.12 | 1.002x |
-| Wall clock, GitHub's runner, python3 3.14.10, 7 runs | 1.08x |
+| Wall clock, GitHub's runner, 12 runs: slowest over the baseline | 1.05x |
+| Wall clock, GitHub's runner, 12 runs: slowest over fastest | 1.17x |
 | Wall clock, AJ's PC, python3 3.12 | 1.09x |
 | Wall clock, AJ's PC, python3 3.14 | 1.71x (one run of one case; the next largest was 1.16x) |
 
-Wall time moves with whatever else the machine runs; instruction counts barely move. 1.05x leaves room for a different CPU or C library picking other code paths. 1.15x is about twice the runner's spread and, a test checks, below every case's per-PR budget. A busy local machine moves more: rerun a wall-only failure, or pass `--wall-threshold` to `bench/compare.py`.
+1.05x leaves room for a different CPU or C library picking other code paths. 1.15x is three times the slowest run's distance above the baseline and, a test checks, below every case's per-PR budget. A busy local machine moves more: rerun a wall-only failure, or pass `--wall-threshold` to `bench/compare.py`.
 
 ## Refreshing the baseline
 
-After a deliberate change in a hook's cost, run the `bench` workflow five times (rerun its job, downloading each attempt's `bench-summary-<attempt>` artifact before the next), then commit their per-case median: `uv run python bench/median.py --out bench/baseline-ci.json <summaries>`. One run's baseline sits wherever that run fell in the spread.
+After a deliberate change in a hook's cost, run the `bench` job five times, downloading each attempt's `bench-summary-<attempt>` artifact before the next, and commit their median: `uv run python bench/median.py --out bench/baseline-ci.json <summaries>`.
