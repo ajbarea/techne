@@ -561,9 +561,12 @@ def test_rough_split_still_runs_the_commits_md_check(scratch):
 
 
 def _in_process(monkeypatch):
-    """The entry and the checks module it imports, loaded in this process."""
+    """The entry and the checks module it imports, loaded fresh in this process, so module
+    state one test sets (git_checks._git_down) never reaches the next."""
     import importlib
 
+    for name in ("git_guards", "git_checks", "git_options"):
+        monkeypatch.delitem(sys.modules, name, raising=False)
     monkeypatch.syspath_prepend(str(GUARDS.parent))
     return importlib.import_module("git_guards"), importlib.import_module("git_checks")
 
@@ -699,7 +702,8 @@ def test_triage_skips_only_input_that_cannot_name_git(payload, skips, monkeypatc
 def test_a_command_naming_neither_tool_never_loads_the_checks(tmp_path):
     hooks = tmp_path / "hooks"
     hooks.mkdir()
-    shutil.copy(GUARDS, hooks)
+    for name in ("git_guards.py", "git_options.py"):
+        shutil.copy(GUARDS.parent / name, hooks)
     (hooks / "git_checks.py").write_text("raise SystemExit('checks loaded')\n")
 
     def run(command: str) -> subprocess.CompletedProcess:

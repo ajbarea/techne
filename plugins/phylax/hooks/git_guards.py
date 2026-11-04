@@ -28,19 +28,8 @@ from __future__ import annotations
 import os
 import sys
 
-ATTRIBUTION = "block_attribution_trailers"
-COMMITS_MD = "block_commits_md"
-MAIN_CHECKOUT = "warn_main_checkout_commit"
-SECRETS = "block_secrets"
-BODIES = "block_long_bodies"
-OPTIONS = (ATTRIBUTION, COMMITS_MD, MAIN_CHECKOUT, SECRETS, BODIES)
-# The guards that refuse a command; MAIN_CHECKOUT only warns.
-BLOCKING = (ATTRIBUTION, COMMITS_MD, SECRETS, BODIES)
-FAIL_CLOSED = "phylax: the git guard could not finish its check, so this command was not run."
-
-
-def option_on(key: str) -> bool:
-    return os.environ.get(f"CLAUDE_PLUGIN_OPTION_{key.upper()}") == "true"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from git_options import BLOCKING, OPTIONS, option_on
 
 
 def mod_checks(data: dict) -> bool:
@@ -63,14 +52,6 @@ def cannot_name_git(payload: str) -> bool:
     return "git" not in payload and "gh" not in payload and "\\u" not in payload
 
 
-def failed() -> int:
-    """The exit for a check that could not finish: 2 refuses while a blocking guard is on."""
-    if any(option_on(k) for k in BLOCKING):
-        print(FAIL_CLOSED, file=sys.stderr)
-        return 2
-    return 1
-
-
 def main() -> int:
     payload = sys.stdin.read()
     if not any(option_on(k) for k in OPTIONS) or cannot_name_git(payload):
@@ -84,7 +65,6 @@ def main() -> int:
     raw = (data.get("tool_input") or {}).get("command") or ""
     if not re.search(r"\b(git|gh)\b", raw):
         return 0
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import git_checks
 
     return git_checks.check(data, raw)

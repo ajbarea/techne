@@ -12,7 +12,8 @@
       "stale_restart-prompt": 2.47,
       "email_greeting-draft": 1.66,
       "board_add-bash": 1.35,
-      "resume_brief-start": 3.72
+      "resume_brief-start": 3.72,
+      "git_guards-no-git-described": 1.09
     },
     "3.14": {
       "git_guards-no-git": 1.1,
@@ -24,7 +25,8 @@
       "stale_restart-prompt": 3.08,
       "email_greeting-draft": 1.85,
       "board_add-bash": 1.59,
-      "resume_brief-start": 4.64
+      "resume_brief-start": 4.64,
+      "git_guards-no-git-described": 1.06
     }
   }
 }

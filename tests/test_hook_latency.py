@@ -37,7 +37,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 import pytest
-from conftest import HOOK_PYTHON, hook_env, hook_handlers
+from conftest import HOOK_PYTHON, LATENCY_LINES, hook_env, hook_handlers
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 BASELINE = pathlib.Path(__file__).resolve().parent / "fixtures" / "hook_latency" / "baseline.json"
@@ -65,10 +65,13 @@ class Case:
     script: str  # a substring that picks the one handler among the event's
     stdin: dict
     on: Mapping[str, str] = field(default_factory=dict)
+    # What every run must print on stdout: this text, or nothing when empty. A hook that fails
+    # fast (an error caught and printed, a fail-closed exit) must not pass on its speed.
+    expect: str = ""
 
 
-def _bash(command: str) -> dict:
-    return {"tool_name": "Bash", "tool_input": {"command": command}}
+def _bash(command: str, description: str = "List files") -> dict:
+    return {"tool_name": "Bash", "tool_input": {"command": command, "description": description}}
 
 
 CASES = [
@@ -81,6 +84,17 @@ CASES = [
         "Bash",
         "git_guards.py",
         _bash("ls -la"),
+        dict.fromkeys(GUARDS, "true"),
+    ),
+    # A payload that says git or gh anywhere (here the description) is parsed before the
+    # command is read.
+    Case(
+        "git_guards-no-git-described",
+        "phylax",
+        "PreToolUse",
+        "Bash",
+        "git_guards.py",
+        _bash("ls -la", "List files in the GitHub checkout"),
         dict.fromkeys(GUARDS, "true"),
     ),
     Case(
@@ -109,6 +123,7 @@ CASES = [
         "model_guard.py",
         {"tool_name": "Agent", "tool_input": {"subagent_type": "general-purpose", "prompt": "x"}},
         {"require_subagent_model": "true"},
+        '"permissionDecision": "deny"',
     ),
     Case(
         "budget-agent",
@@ -145,9 +160,10 @@ CASES = [
         "email_greeting.py",
         {
             "tool_name": "mcp__plugin_epistole_epistole__create_draft",
-            "tool_input": {"to": "a@example.com", "subject": "x", "body": "Good morning,\n\nx"},
+            "tool_input": {"to": "a@example.com", "subject": "x", "body": "Hi,\n\nx"},
         },
         {"email_greeting": "true"},
+        '"permissionDecision": "deny"',
     ),
     Case(
         "board_add-bash",
@@ -165,6 +181,7 @@ CASES = [
         "resume_brief.py",
         {"hook_event_name": "SessionStart", "source": "startup"},
         {"resume_brief": "true"},
+        '"additionalContext"',
     ),
 ]
 
@@ -214,12 +231,18 @@ def _snapshot(*roots: pathlib.Path) -> dict[str, str]:
 
 
 def time_rounds(
-    shells: list[str], stdin: str, env: Mapping[str, str], cwd: pathlib.Path, runs: int
+    shells: list[tuple[str, str]],
+    stdin: str,
+    env: Mapping[str, str],
+    cwd: pathlib.Path,
+    runs: int,
 ) -> list[list[float]]:
-    """Wall times in ms of each of SHELLS, RUNS rounds, one run of each per round."""
+    """Wall times in ms of each of SHELLS, RUNS rounds, one run of each per round. Each shell
+    comes with what it must print on stdout (nothing when empty), and must exit 0 with nothing
+    on stderr."""
     times: list[list[float]] = [[] for _ in shells]
     for _ in range(runs):
-        for i, shell in enumerate(shells):
+        for i, (shell, expect) in enumerate(shells):
             start = time.perf_counter()
             proc = subprocess.run(
                 ["sh", "-c", shell],
@@ -231,7 +254,8 @@ def time_rounds(
                 timeout=30,
             )
             times[i].append((time.perf_counter() - start) * 1000)
-            assert "Traceback" not in proc.stderr, proc.stderr
+            assert (proc.returncode, proc.stderr) == (0, ""), (shell, proc.returncode, proc.stderr)
+            assert (expect in proc.stdout) if expect else not proc.stdout, (shell, proc.stdout)
     return times
 
 
@@ -292,15 +316,15 @@ def _record(case_id: str, ratio: float) -> None:
 
 
 @pytest.mark.parametrize("case", CASES, ids=lambda c: c.id)
-def test_hook_stays_within_its_latency_budget(case, sandbox):
+def test_hook_stays_within_its_latency_budget(case, sandbox, request):
     home, repo = sandbox
     env, stdin = case_env(case, home), case_stdin(case, repo)
-    shells = [floor_command(), command(case)]
-    limit = budget(case.id)
+    shells = [(floor_command(), ""), (command(case), case.expect)]
     time_rounds(shells, stdin, env, repo, WARMUP)
     before = _snapshot(home, repo)
     floor, hook = (statistics.median(t) for t in time_rounds(shells, stdin, env, repo, RUNS))
-    if hook > limit * floor and not RECORD:
+    limit = None if RECORD else budget(case.id)
+    if limit is not None and hook > limit * floor:
         again = time_rounds(shells, stdin, env, repo, RUNS)
         floor, hook = min(
             ((statistics.median(again[0]), statistics.median(again[1])), (floor, hook)),
@@ -308,8 +332,9 @@ def test_hook_stays_within_its_latency_budget(case, sandbox):
         )
     assert _snapshot(home, repo) == before, f"{case.id}: a timed run changed files"
     ratio = hook / floor
-    print(f"{case.id}: {hook:.1f} ms, floor {floor:.1f} ms, {ratio:.2f}x (budget {limit}x)")
-    if RECORD:
+    line = f"{case.id}: {hook:.1f} ms, floor {floor:.1f} ms, {ratio:.2f}x (budget {limit}x)"
+    request.config.stash.setdefault(LATENCY_LINES, []).append(line)
+    if limit is None:
         _record(case.id, ratio)
         return
     assert ratio <= limit, (

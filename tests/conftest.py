@@ -487,3 +487,16 @@ def assert_gone(pid: int) -> None:
             os.kill(pid, 9)
         except ProcessLookupError:
             pass
+
+
+# test_hook_latency.py appends one line per case it timed; the run's summary prints them, so a CI
+# log shows each hook's ratio to the python3 floor beside its budget.
+LATENCY_LINES = pytest.StashKey[list[str]]()
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    lines = config.stash.get(LATENCY_LINES, [])
+    if lines:
+        terminalreporter.section("hook latency (median, ratio to the python3 floor)")
+        for line in lines:
+            terminalreporter.write_line(line)

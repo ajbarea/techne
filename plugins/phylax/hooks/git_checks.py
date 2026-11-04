@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from git_guards import (
+from git_options import (
     ATTRIBUTION,
     BLOCKING,
     BODIES,
