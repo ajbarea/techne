@@ -35,8 +35,10 @@ concurrency:
 
 jobs:
   benchmarks:
-    # The image and the Python build are pinned, so main's baseline and a pull request run on
-    # the same interpreter binary; moving either is a deliberate change that resets the baseline.
+    # The OS release and the Python build are pinned, so main's baseline and a pull request run
+    # on the same interpreter binary. GitHub still rebuilds the image weekly, and a system library
+    # such as glibc (CodSpeed counts malloc's instructions) can move the baseline; the check step
+    # logs the image and glibc versions to trace such a jump.
     runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
@@ -53,7 +55,7 @@ jobs:
       # CodSpeed's Python guide installs the interpreter with actions/setup-python, which its
       # tracing needs (https://codspeed.io/docs/benchmarks/python).
       - id: python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
@@ -78,6 +80,7 @@ jobs:
           want = (real(os.environ["PYTHON_PATH"]), os.environ["PYTHON_VERSION"])
           sys.exit(0 if got == want else f"the venv runs {got}, not the pinned {want}")
           EOF
+          echo "image ${ImageVersion:-unknown}; $(ldd --version | head -n 1)"
 
       - name: Run the benchmarks
         uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062 # v5.6.0
