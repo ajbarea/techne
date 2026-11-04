@@ -184,6 +184,33 @@ def test_run_refuses_a_temporary_folder_whose_path_names_git(tmp_path, monkeypat
     assert not log.exists() and not out.exists()
 
 
+def test_run_draws_another_temporary_name_when_the_random_one_says_gh(
+    tmp_path, monkeypatch, capsys
+):
+    # mkdtemp once named the sandbox tmplroghwcl, whose "gh" made the hook parse the no-git
+    # case; the random part is redrawn, so only a TMPDIR that itself names git is refused.
+    log = _fake_hyperfine(tmp_path, monkeypatch)
+    run = _load("run")
+    base, real, names = tmp_path / "t", tempfile.mkdtemp, []
+    base.mkdir()
+
+    def mkdtemp(suffix=None, prefix=None, dir=None):
+        if not names:
+            names.append(base / "tmplroghwcl")
+            names[0].mkdir()
+            return str(names[0])
+        names.append(pathlib.Path(real(suffix, prefix, base)))
+        return str(names[-1])
+
+    monkeypatch.setattr(tempfile, "mkdtemp", mkdtemp)
+    monkeypatch.setattr(run.cases, "command", lambda case: "echo broken >&2")
+    assert run.cases.no_git_input_can_skip(base / "x"), base
+    assert run.main(["--out", str(tmp_path / "summary.json"), "--only", "git_guards-no-git"]) == 1
+    assert "did not run as its latency case expects" in capsys.readouterr().err
+    assert len(names) >= 2 and not names[0].exists()
+    assert not log.exists()
+
+
 def test_run_refuses_an_unknown_case(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("HYPERFINE", "/bin/false")
     run = _load("run")

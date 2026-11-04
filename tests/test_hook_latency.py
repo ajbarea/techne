@@ -291,7 +291,8 @@ def no_git_input_can_skip(repo: pathlib.Path) -> bool:
     """Whether the git guard's own triage skips the no-git case's input unparsed in REPO. Every
     input carries the temporary folders' paths, and one that says git or gh (a user named hugh, a
     TMPDIR under ~/github) or needs a JSON escape (a non-ASCII letter) is parsed, so that case
-    would time the other path. bench/run.py refuses such a sandbox too."""
+    would time the other path. bench/run.py draws another folder, and refuses only a TMPDIR
+    that names git."""
     path = ROOT / "plugins" / "phylax" / "hooks" / "git_guards.py"
     spec = importlib.util.spec_from_file_location("_git_guards_triage", path)
     assert spec and spec.loader
