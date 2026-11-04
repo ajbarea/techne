@@ -382,10 +382,9 @@ body,
   marker-end: url(#arrowhead);
 }
 
+/* The one mark to look at: emphasis in ink. Gold is kept for the speaker's own work. */
 .figure .accent {
-  fill: var(--ours);
-  stroke: var(--ours-line);
-  stroke-width: 2;
+  fill: var(--ink);
 }
 
 .steps {
@@ -524,6 +523,12 @@ table.data td.num {
 .dots .dot.hit {
   fill: var(--ours);
   stroke: var(--ours-line);
+}
+
+/* Dots that count failures take the risk colour. */
+.dots.risk .dot.hit {
+  fill: var(--risk);
+  stroke: var(--risk-line);
 }
 
 .dots.fragment.visible .dot.hit {

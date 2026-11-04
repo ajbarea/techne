@@ -997,8 +997,8 @@ def test_pdf_has_one_vector_page_per_slide_with_text_and_working_links(sl, web, 
         + '<p><a href="https://example.test/paper">the paper</a> <a href="#/agenda">agenda</a></p>',
     )
     web(
-        '<section>\n  <span class="kicker">Today',
-        '<section id="agenda">\n  <span class="kicker">Today',
+        '<section>\n  <h2>[What we will cover]',
+        '<section id="agenda">\n  <h2>[What we will cover]',
     )
     out = tmp_path / "deck.pdf"
     assert sl.pdf_html(index, out) == 0
