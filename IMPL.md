@@ -6,16 +6,26 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 
 ## In flight
 
-**techne#277 performance + mutation testing**, four PRs in order, each reviewed with
-/techne:elenchus (Opus readers); worktrees under `.claude/worktrees/`:
-1. ✅ #282 latency budgets + git_guards 48.6→15.8 ms on a non-git call.
-2. ✅ #284 CodSpeed (simulation, parsers only).
-3. ✅ #287 hyperfine weekly bench: wall gate 1.15x against `bench/baseline-ci.json`, the median of
-   seven pinned runs (`bench/median.py`); README says how to refresh it.
-4. 🔄 #290 mutation (feat/mutmut): full sweep 41919298273 scored 5,641 mutants; review round 1.
-   The 1,269 survivors already on main are #289, one PR per module, smallest first.
-5. 🔄 perf/hook-parsers-dsa: phylax greeting check stops at the first line (whole body fed once,
-   handlers raise), body gate reads the body once; round 2 fixes pushed; timing, PR, verify.
+**techne#277 performance + mutation testing** (resume 11-04 ~23:30 UTC, account move):
+1. ✅ #282 latency budgets. 2. ✅ #284 CodSpeed. 3. ✅ #287 hyperfine (merged c74686e; its open
+   Minors are under Open Minors below).
+4. 🔄 #290 mutation (feat/mutmut, worktree .claude/worktrees/mutmut). Round 1 (5 Should-fix) all
+   fixed in 79fb363 with killing tests: unmutated-pass check before a kill, exit codes 1/2 only,
+   ast function keys, config paths must resolve inside the tree, --changed-since counts only
+   mutants on changed lines (cargo-mutants --in-diff), changed job 4 workers + always upload,
+   kill_group waits the group out. Round 2 in progress: `/code-review medium 290` was started,
+   result lost in the move: rerun it, then a fresh Opus reader with its findings and round 1's
+   classes (vacuous-guard, destructive-op-reachability, undiagnosable-failure, flake-vs-real-red).
+   Deferred Minor: board_add/project_board are never traced (GhStub env drops PYTHONPATH and
+   MUTATION_*), so their mutants run all of test_board_hook.py. Legacy survivors: #289.
+5. 🔄 perf/hook-parsers-dsa (worktree .claude/worktrees/perf-dsa, pushed 2121aa4, no PR yet):
+   greeting check feeds the body whole and stops in its handlers; body gate reads once. Round 2
+   (Should-fix vacuous word-count test) fixed. Next: before/after timing from frozen copies
+   (scratch bench2.py: main vs HEAD, early first line 4/64/512 KB, late-first-line cases, body
+   gate) under the heavy lock, then PR linking #277 with the numbers, verify pass, merge.
+   Earlier measure (pre-fix chunked version): greeting 4 KB 0.60→0.09 ms, 512 KB 68.7→2.3 ms;
+   body gate 36 KB 1.02→0.60 ms. Round 2 noted late-first-line inputs ran 1.1-1.5x slower than
+   main before the no-break fast path; re-measure them.
 Report each merge to Heph (tmux pane in orchestrator.pane); `fleet done` after all four.
 
 techne#249 is fixed in PR #252 (branch results/quality-baseline): the task notes state what the
