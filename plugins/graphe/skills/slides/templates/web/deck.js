@@ -183,6 +183,22 @@
     box.appendChild(fig);
   }
 
+  // "2 · How it works" is shown as a Roman numeral and the name, "II How it works", on the kickers,
+  // the agenda and the rail. The source keeps the plain form, which the gates and exports read.
+  const ROMAN = [[10, "X"], [9, "IX"], [5, "V"], [4, "IV"], [1, "I"]];
+  function roman(n) {
+    let out = "";
+    for (const [v, r] of ROMAN) while (n >= v) { out += r; n -= v; }
+    return out;
+  }
+  function chapterInto(node, text) {
+    const m = /^(\d+)\s*·\s*(.+)$/.exec(text.trim());
+    if (!m) return;
+    node.textContent = "";
+    html("span", { class: "num" }, node, roman(Number(m[1])));
+    node.append(` ${m[2]}`);
+  }
+
   function chapters() {
     const seen = new Map();
     for (const s of document.querySelectorAll(".reveal .slides section[data-chapter]")) {
@@ -194,7 +210,7 @@
   // <ol class="agenda" data-auto>: the chapter names, so agenda and rail never disagree.
   function buildAgenda(chs) {
     for (const ol of document.querySelectorAll("ol.agenda[data-auto]")) {
-      for (const name of chs.keys()) html("li", {}, ol, name);
+      for (const name of chs.keys()) chapterInto(html("li", {}, ol, name), name);
     }
   }
 
@@ -202,7 +218,8 @@
     if (!chs.size) return;
     const rail = html("nav", { class: "rail", "aria-label": "Chapters" }, document.querySelector(".reveal"));
     for (const [name, slide] of chs) {
-      const b = html("button", { type: "button" }, rail, name);
+      const b = html("button", { type: "button", "data-chapter": name }, rail, name);
+      chapterInto(b, name);
       b.addEventListener("click", () => {
         const i = Reveal.getIndices(slide);
         Reveal.slide(i.h, i.v);
@@ -212,7 +229,7 @@
       const current = Reveal.getCurrentSlide();
       const c = current && current.dataset.chapter;
       rail.hidden = !c;
-      for (const b of rail.children) b.setAttribute("aria-current", b.textContent === c ? "step" : "false");
+      for (const b of rail.children) b.setAttribute("aria-current", b.dataset.chapter === c ? "step" : "false");
     };
     Reveal.on("slidechanged", sync);
     sync();
@@ -224,6 +241,7 @@
   document.querySelectorAll(".timeline[data-source]").forEach(buildTimeline);
   const chs = chapters();
   buildAgenda(chs);
+  for (const k of document.querySelectorAll(".reveal .slides .kicker")) chapterInto(k, k.textContent);
   if (phone) {
     document.documentElement.classList.add("phone");
     // A wide figure keeps a readable size and pans sideways instead of shrinking its labels.
@@ -248,6 +266,7 @@
     backgroundTransition: "none",
     autoAnimate: !reduce,
     pdfSeparateFragments: false,
+    controlsTutorial: false,
     // A phone gets a portrait canvas and scroll view, and deck.css stacks the columns, so text
     // stays readable instead of a 16:9 slide shrunk to a third of its size.
     ...(phone ? { view: "scroll" } : {}),

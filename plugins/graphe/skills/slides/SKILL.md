@@ -328,7 +328,10 @@ repetition; do not overrun.
 ## The script
 
 The speaker notes hold the script: the words the presenter says out loud on
-each slide, written to be read from like a teleprompter. It supports the
+each slide, written to be read from like a teleprompter. A presenter who talks
+from the slides rather than reading can keep three glanceable bullets per slide
+in the notes (the points and numbers that must be said) and the full script in a
+file beside the deck, one section per slide, which is the one to time. It supports the
 slides and never replaces them: a presenter giving the talk at a moment's
 notice may not read it, so every point the talk needs is on the slide. A
 presenter who knows the material may never open it; one recording a video
@@ -374,7 +377,8 @@ cp -r <skill-dir>/templates/web <talk-dir>
 | File | Holds |
 |---|---|
 | `index.html` | One `<section>` per slide: title, agenda, what we did and why you should care (`data-contribution`), claim with a figure that builds, concrete case, quick bet, method steps, related-work map, timeline, limits, conclusion (`data-conclusion`), Thank you, backup divider, backup discussion prompt, backup table. Drop the layouts the talk does not need; copy one to add a slide. |
-| `deck.css` | Colour tokens (every text colour clears 7:1 on its surface; figure marks use the colour-blind-safe Okabe-Ito hues), layouts, the phone layout, and the reduced-motion rule. |
+| `deck.css` | The look, "the forge": every slide light (dark slides wash out under a lit room's lights), a cool marble ground, a classical display face for titles and a hyperlegible sans for text. Four colour roles keep one meaning on every slide: gold for the speaker's own work, vermilion for failure or risk, bluish green for the fix, sky blue for context. Every text colour clears 7:1, and the role colours part by lightness, so they read in greyscale and under colour-vision deficiency. Then layouts, the phone layout, and the reduced-motion rule. |
+| `fonts/` | Marcellus and Atkinson Hyperlegible Next (SIL Open Font License), served with the deck so it looks the same offline. |
 | `deck.js` | Builds what comes from data, then starts reveal.js. |
 | `data/deck-data.js` | Every figure and every related-work entry the deck shows. |
 | `vendor/reveal/` | reveal.js 6.0.2 (MIT), so the deck opens with no network. |

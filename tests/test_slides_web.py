@@ -323,7 +323,7 @@ def _conclusion(found):
 
 
 CONCLUSION = "<section data-conclusion>"
-CLOSING = '<section class="dark" data-background-color="#14181f">\n  <h2>Thank you</h2>'
+CLOSING = '<section class="closing">'
 
 
 def test_the_conclusion_sits_right_before_the_closing_slide(sl):
@@ -460,7 +460,7 @@ def test_a_conclusion_titled_conclusion_warns(sl, web):
 def test_a_conclusion_slide_in_the_backup_blocks(sl, web):
     path = web(CONCLUSION, "<section>")
     path = web(
-        '<section class="discussion dark"', '<section data-conclusion class="discussion dark"'
+        '<section class="discussion">', '<section data-conclusion class="discussion">'
     )
     found = _conclusion(_check(sl, path))
     assert len(found) == 1 and found[0].severity == "BLOCK" and found[0].slide == 14
@@ -729,18 +729,20 @@ OPENING = '<section><h2>Opening</h2><aside class="notes">Hi.</aside></section>'
 
 @needs_browser
 def test_a_section_with_its_own_background_is_measured_against_it(sl, web, gates):
-    dark = '<section class="discussion dark" data-background-color="#14181f"'
-    own = '<section class="discussion dark" style="background:#14181f"'
-    assert ("BLOCK", "contrast") not in gates(_check(sl, web(dark, own)))
-    grey = web('<p class="muted">[Example answers', '<p style="color:#3a3a3a">[Example answers')
-    assert ("BLOCK", "contrast") in gates(_check(sl, grey))
+    # The starter's ink passes on its own marble; on a section painted near-black it must fail,
+    # which it can only do if the section's own background is what it is measured against.
+    plain = '<section class="discussion">'
+    white = '<section class="discussion" style="background:#ffffff">'
+    assert ("BLOCK", "contrast") not in gates(_check(sl, web(plain, white)))
+    black = web(white, '<section class="discussion" style="background:#14181f">')
+    assert ("BLOCK", "contrast") in gates(_check(sl, black))
 
 
 @needs_browser
 def test_a_gradient_on_the_section_itself_is_unchecked(sl, web, gates):
-    dark = '<section class="discussion dark" data-background-color="#14181f"'
-    painted = '<section class="discussion" style="background:linear-gradient(#000,#14181f)"'
-    assert ("BLOCK", "contrast") not in gates(_check(sl, web(dark, painted)))
+    plain = '<section class="discussion">'
+    painted = '<section class="discussion" style="background:linear-gradient(#000,#14181f)">'
+    assert ("BLOCK", "contrast") not in gates(_check(sl, web(plain, painted)))
 
 
 @needs_browser
