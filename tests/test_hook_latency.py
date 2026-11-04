@@ -7,8 +7,9 @@ interleaved, so a slower or busier machine moves both. A budget is a ratio to th
 a hook may spend past Python's own startup, derived from the ratios measured in
 fixtures/hook_latency/baseline.json (budget()). Noise only ever adds time, so a case over its
 budget is measured once more and the lower ratio counts. The floor does not even out every
-difference between machines (a runner whose python3 starts faster shows higher ratios), so the
-baseline holds ratios from each machine and python3 measured, and a budget covers the highest.
+difference between machines: a hook's ratio differs from one machine to another, up or down case
+by case, so the baseline holds the ratios of each machine and python3 measured, and a budget
+covers the highest.
 After a change that makes a hook deliberately slower or faster, rerun with
 TECHNE_LATENCY_RECORD=1 for each entry the baseline lists (TECHNE_GUARD_PYTHON picks the
 python3, TECHNE_LATENCY_LABEL names the entry) and commit the new baseline.
@@ -282,11 +283,14 @@ def sandbox(tmp_path_factory) -> tuple[pathlib.Path, pathlib.Path]:
     return home, repo
 
 
-def skip_if_sandbox_names_git(sandbox: tuple[pathlib.Path, pathlib.Path]) -> None:
-    """Skip when the temporary folders' paths say git or gh (a user named hugh, a TMPDIR under
-    ~/github): every input carries them, so no input could take the unparsed skip."""
-    if any(word in str(path) for path in sandbox for word in ("git", "gh")):
-        pytest.skip(f"the temporary folders' paths name git or gh: {sandbox[1]}")
+def skip_unless_no_git_can_skip(sandbox: tuple[pathlib.Path, pathlib.Path], monkeypatch) -> None:
+    """Skip when the git guard's own triage says the no-git input could name git: every input
+    carries the temporary folders' paths, and one that says git or gh (a user named hugh, a
+    TMPDIR under ~/github) or needs a JSON escape (a non-ASCII letter) is parsed."""
+    (entry,) = load_phylax_hooks(monkeypatch, "git_guards")
+    no_git = next(c for c in CASES if c.id == "git_guards-no-git")
+    if not entry.cannot_name_git(case_stdin(no_git, sandbox[1])):
+        pytest.skip(f"the temporary folders' paths could name git: {sandbox[1]}")
 
 
 def case_env(case: Case, home: pathlib.Path) -> dict[str, str]:
@@ -332,10 +336,10 @@ def _record(case_id: str, ratio: float) -> None:
 
 
 @pytest.mark.parametrize("case", CASES, ids=lambda c: c.id)
-def test_hook_stays_within_its_latency_budget(case, sandbox, request):
+def test_hook_stays_within_its_latency_budget(case, sandbox, request, monkeypatch):
     home, repo = sandbox
     if case.id == "git_guards-no-git":
-        skip_if_sandbox_names_git(sandbox)
+        skip_unless_no_git_can_skip(sandbox, monkeypatch)
     env, stdin = case_env(case, home), case_stdin(case, repo)
     shells = [(floor_command(), ""), (command(case), case.expect)]
     time_rounds(shells, stdin, env, repo, WARMUP)
@@ -378,7 +382,7 @@ def test_every_case_has_a_baseline_in_every_entry():
 def test_the_git_guard_cases_reach_the_path_they_time(sandbox, monkeypatch):
     # git_guards.cannot_name_git is case-sensitive: "GitHub" would keep the described case on the
     # unparsed skip it is meant to differ from.
-    skip_if_sandbox_names_git(sandbox)
+    skip_unless_no_git_can_skip(sandbox, monkeypatch)
     (entry,) = load_phylax_hooks(monkeypatch, "git_guards")
     skips = {
         c.id: entry.cannot_name_git(case_stdin(c, sandbox[1]))
