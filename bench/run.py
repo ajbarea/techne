@@ -24,6 +24,7 @@ TECHNE_GUARD_PYTHON picks the python3 the hooks run on, as in the tests.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime as dt
 import json
 import os
@@ -33,6 +34,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+from collections.abc import Generator
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tests"))
@@ -113,6 +115,27 @@ def time_case(
     return row
 
 
+SANDBOX_TRIES = 20
+
+
+@contextlib.contextmanager
+def sandbox_folder(no_git: bool) -> Generator[tuple[pathlib.Path, bool]]:
+    """A temporary folder, and whether the git guard's triage skips the no-git case run in it.
+
+    The case's input carries the folder's path, and the triage skips only input without "git"
+    or "gh" anywhere in it, so a random name such as tmplroghwcl makes the hook parse. Only that
+    random name changes between tries; a TMPDIR that itself names git fails all of them.
+    """
+    for _ in range(SANDBOX_TRIES):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = pathlib.Path(tmp)
+            if not no_git or cases.no_git_input_can_skip(folder / "repo"):
+                yield folder, True
+                return
+    with tempfile.TemporaryDirectory() as tmp:
+        yield pathlib.Path(tmp), False
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--out", type=pathlib.Path, required=True)
@@ -145,20 +168,19 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
     results = {}
-    with tempfile.TemporaryDirectory() as tmp:
-        home, repo = pathlib.Path(tmp) / "home", pathlib.Path(tmp) / "repo"
-        home.mkdir()
-        repo.mkdir()
-        cases.make_sandbox(home, repo)
-        if any(c.id == "git_guards-no-git" for c in chosen) and not cases.no_git_input_can_skip(
-            repo
-        ):
+    no_git = any(c.id == "git_guards-no-git" for c in chosen)
+    with sandbox_folder(no_git) as (tmp, can_skip):
+        home, repo = tmp / "home", tmp / "repo"
+        if not can_skip:
             print(
                 f"bench: the temporary folder's path could name git ({repo}), so the no-git case "
                 "would time the parsed path; set TMPDIR to a folder whose path does not.",
                 file=sys.stderr,
             )
             return 1
+        home.mkdir()
+        repo.mkdir()
+        cases.make_sandbox(home, repo)
         for case in chosen:
             try:
                 results[case.id] = time_case(binary, case, home, repo, args.runs, args.warmup)
