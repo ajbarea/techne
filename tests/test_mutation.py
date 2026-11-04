@@ -262,3 +262,28 @@ def test_merge_combines_shards_and_report_only_exits_zero(tmp_path, capsys):
     assert "| `m.py` | 2 | 1 | 1 | 0 | 0 | 50.0% |" in summary.read_text()
     assert mutation.main(["--merge", str(one), str(two), "--report-only"]) == 0
     capsys.readouterr()
+
+
+@pytest.mark.parametrize("ends", ["passes", "times out"])
+def test_a_run_leaves_no_process_behind(tmp_path, ends):
+    # A mutant that loops does so in a hook process the test started; when the run ends, by
+    # its own exit or by the timeout, every process it started is gone.
+    pidfile = tmp_path / "child.pid"
+    (tmp_path / "test_spawn.py").write_text(
+        textwrap.dedent(
+            f"""
+            import pathlib, subprocess, sys, time
+
+            def test_spawn():
+                child = subprocess.Popen([sys.executable, "-c", "while True: pass"])
+                pathlib.Path({str(pidfile)!r}).write_text(str(child.pid))
+                if {ends == "times out"!r}:
+                    time.sleep(60)
+            """
+        )
+    )
+    status, _ = mutation.run_tests(tmp_path, ["test_spawn.py"], 5)
+    assert status == ("passed" if ends == "passes" else "timeout")
+    pid = int(pidfile.read_text())
+    with pytest.raises(ProcessLookupError):
+        os.kill(pid, 0)

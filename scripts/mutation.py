@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import collections
 import concurrent.futures
 import hashlib
 import json
@@ -42,6 +43,7 @@ import os
 import pathlib
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -202,20 +204,30 @@ def run_tests(
 ) -> tuple[str, float]:
     """Run TESTS (pytest node ids or files) in SCRATCH; (passed, failed or timeout, seconds)."""
     env = pytest_env(scratch, extra)
+    # A mutant that loops runs in the hook processes the tests start, which outlive a killed
+    # pytest: each process gets the run's budget in CPU seconds (ulimit -t, inherited), and the
+    # run's whole process group is killed when it ends, so nothing it started keeps a core.
+    cpu = max(1, int(timeout))
+    command = [sys.executable, "-m", "pytest", "-x", "-q", "-p", "no:cacheprovider", *tests]
     start = time.monotonic()
+    proc = subprocess.Popen(
+        ["sh", "-c", f'ulimit -t {cpu} && exec "$@"', "sh", *command],
+        cwd=scratch,
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
     try:
-        proc = subprocess.run(
-            [sys.executable, "-m", "pytest", "-x", "-q", "-p", "no:cacheprovider", *tests],
-            cwd=scratch,
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        status = "passed" if proc.returncode == 0 else "failed"
+        status = "passed" if proc.wait(timeout=timeout) == 0 else "failed"
     except subprocess.TimeoutExpired:
         status = "timeout"
     finally:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        proc.wait()
         shutil.rmtree(env["PYTHONPYCACHEPREFIX"], ignore_errors=True)
     return status, time.monotonic() - start
 
@@ -349,11 +361,11 @@ def main(argv: list[str] | None = None) -> int:
         free = list(workers)
         with concurrent.futures.ThreadPoolExecutor(len(workers)) as pool:
             pending = {}
-            queue = list(jobs)
+            queue = collections.deque(jobs)
             while queue or pending:
                 while queue and free:
                     worker = free.pop()
-                    pending[pool.submit(one, queue.pop(0), worker)] = worker
+                    pending[pool.submit(one, queue.popleft(), worker)] = worker
                 done, _ = concurrent.futures.wait(pending, return_when="FIRST_COMPLETED")
                 for fut in done:
                     free.append(pending.pop(fut))
@@ -363,11 +375,21 @@ def main(argv: list[str] | None = None) -> int:
                         f"{r.status:10} {r.module}::{r.function} {r.name.rsplit('__', 1)[-1]}",
                         flush=True,
                     )
+                    # Rewritten after each mutant, so a shard whose runner is stopped keeps
+                    # what it finished.
+                    write_results(args.out, results)
     finally:
         shutil.rmtree(base, ignore_errors=True)
-    if args.out:
-        args.out.write_text(json.dumps([asdict(r) for r in results], indent=1) + "\n")
+    write_results(args.out, results)
     return report(results, args.summary, args.report_only)
+
+
+def write_results(out: pathlib.Path | None, results: list[Result]) -> None:
+    if out is None:
+        return
+    partial = out.with_name(out.name + ".partial")
+    partial.write_text(json.dumps([asdict(r) for r in results], indent=1) + "\n")
+    partial.replace(out)
 
 
 def report(results: list[Result], summary: pathlib.Path | None, report_only: bool) -> int:

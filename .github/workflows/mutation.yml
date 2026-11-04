@@ -3,7 +3,7 @@ name: mutation
 # Mutation testing of the hook modules listed under [tool.techne.mutation] in pyproject.toml
 # (scripts/mutation.py). On a pull request it mutates only the functions the pull request changed
 # and fails when a mutant survives that mutation/equivalent.toml does not explain. Weekly it
-# mutates every function, in shards, and reports the score per module without failing: a
+# mutates every function, in 16 shards, and reports the score per module without failing: a
 # survivor already on main is a test to write, not a regression.
 # research(2026-11): diff-scoped runs per change plus a scheduled full run
 # (https://mutants.rs/in-diff.html, https://stryker-mutator.io/blog/announcing-incremental-mode/).
@@ -63,7 +63,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -81,15 +81,18 @@ jobs:
       - name: Install gitleaks for the secret guard tests
         run: bash scripts/install_gitleaks.sh
 
-      - name: Mutate shard ${{ matrix.shard }} of 8
+      - name: Mutate shard ${{ matrix.shard }} of 16
         env:
           SHARD: ${{ matrix.shard }}
-        run: uv run --no-sync python scripts/mutation.py --shard "$SHARD/8" --out "mutation-$SHARD.json" --report-only
+        run: uv run --no-sync python scripts/mutation.py --shard "$SHARD/16" --out "mutation-$SHARD.json" --report-only
 
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      # Also when the shard failed or was stopped: the results file holds every finished mutant.
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: mutation-${{ matrix.shard }}
           path: mutation-${{ matrix.shard }}.json
+          if-no-files-found: ignore
           retention-days: 30
 
   report:
