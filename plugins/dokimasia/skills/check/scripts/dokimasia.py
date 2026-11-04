@@ -1732,8 +1732,11 @@ def _printed_findings(
     return findings
 
 
-def verify(cfg: Config) -> int:
+def verify(cfg: Config, use_cache: bool = True) -> int:
     """Resolve identifiers and compare titles. Returns the number of mismatches.
+
+    With `use_cache` false the cache file is neither read nor written, so the run leaves
+    the project exactly as it found it.
 
     Unresolvable entries are counted separately and never reported as findings. An
     API that is down, rate limiting, or simply missing a record says nothing about
@@ -1750,7 +1753,7 @@ def verify(cfg: Config) -> int:
     why: dict[str, int] = {}
     now = time.time()
     cache_path = cfg.root / cfg.cache
-    store = _load_cache(cache_path)
+    store = _load_cache(cache_path) if use_cache else {}
     refs = _references(cfg)
     any_printed = any(ref.item is not None for ref in refs)
     for ref in refs:
@@ -1801,11 +1804,12 @@ def verify(cfg: Config) -> int:
             print(f"dokimasia: {what} drift: {ref.label}", file=sys.stderr)
             print(f"    file  : {mine}", file=sys.stderr)
             print(f"    source: {theirs}", file=sys.stderr)
-    try:
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        cache_path.write_text(json.dumps(store, indent=0, sort_keys=True))
-    except OSError as error:
-        print(f"dokimasia: cache not written: {cache_path}: {error}", file=sys.stderr)
+    if use_cache:
+        try:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(json.dumps(store, indent=0, sort_keys=True))
+        except OSError as error:
+            print(f"dokimasia: cache not written: {cache_path}: {error}", file=sys.stderr)
     # The count appears only where hand-written entries exist, so a .bib project's summary
     # line reads as it always has.
     unmatched = f", uncompared {len(uncompared)}" if any_printed else ""
@@ -1871,6 +1875,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--require-built", action="store_true", help="rendered: a document with no .bbl fails"
     )
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="verify: neither read nor write the cache, so the project is left untouched",
+    )
     parser.add_argument("mode", nargs="?", default="lint", choices=("lint", "verify", "rendered"))
     parser.add_argument("docs", nargs="*", metavar="DOC.tex", help="rendered: documents to check")
     args = parser.parse_args(argv)
@@ -1880,7 +1889,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.mode == "lint":
             return 1 if lint(cfg) else 0
         if args.mode == "verify":
-            return 1 if verify(cfg) else 0
+            return 1 if verify(cfg, use_cache=not args.no_cache) else 0
         return 1 if rendered(cfg, _resolve_docs(cfg, args.docs), args.require_built) else 0
     except ConfigError as error:
         print(f"dokimasia: config error: {error}", file=sys.stderr)

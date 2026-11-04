@@ -5,7 +5,7 @@ This is the guide for an agent running dokimasia, the bibliography checker, for 
 ## Rules
 
 - Run `lint` and `rendered` freely. They read the project and never touch the network.
-- Run `verify` when the user asks, or on a schedule, not on every push. It calls arXiv and Crossref and waits 3 seconds between arXiv lookups.
+- Run `verify` when the user asks, or on a schedule, not on every push. It calls arXiv and Crossref and waits 3 seconds between arXiv lookups. It writes a cache file into the project root; add `--no-cache` when the project must stay unchanged.
 - Report only what the script printed. Every summary and finding line starts with `dokimasia:`; findings go to stderr and the summary to stdout.
 - A failed lookup is not a finding about the entry. Say the lookup failed and rerun later; never say the entry is wrong.
 
@@ -16,7 +16,7 @@ Run `command -v uv`. If it prints nothing, the user installs it with `curl -LsSf
 ## 2. Pick a mode
 
 ```
-uv run --no-project --quiet python <plugin root>/skills/check/scripts/dokimasia.py [--root DIR] [--require-built] {lint,verify,rendered} [DOC.tex ...]
+uv run --no-project --quiet python <plugin root>/skills/check/scripts/dokimasia.py [--root DIR] [--require-built] [--no-cache] {lint,verify,rendered} [DOC.tex ...]
 ```
 
 | Mode | Network | Use it to |

@@ -15,7 +15,7 @@ Three passes over any LaTeX project's `.bib`, or over a reference list written b
 ## Run it
 
 ```
-uv run --no-project --quiet python <skill-dir>/scripts/dokimasia.py [--root DIR] [--require-built] {lint,verify,rendered} [DOC.tex ...]
+uv run --no-project --quiet python <skill-dir>/scripts/dokimasia.py [--root DIR] [--require-built] [--no-cache] {lint,verify,rendered} [DOC.tex ...]
 ```
 
 The script is one file with no dependencies and needs Python 3.11 or later. Invoke it through
@@ -30,6 +30,8 @@ If the shell says uv is not found, install it with `curl -LsSf https://astral.sh
 
 Run `lint` freely. Run `verify` on request or on a schedule, not on every push: it calls
 arXiv and Crossref and is slow on purpose (3 seconds between arXiv lookups).
+`verify` keeps a cache file in the project root. Pass `--no-cache` to check a project you
+must not change, such as a submission: the run then neither reads nor writes the cache.
 
 ## Exit codes
 

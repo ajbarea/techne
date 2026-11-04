@@ -1016,6 +1016,28 @@ def test_the_cache_path_is_configurable_and_relative_to_the_root(dk, tmp_path, m
     assert not (tmp_path / ".dokimasia-cache.json").exists()
 
 
+def test_no_cache_leaves_the_project_untouched(dk, tmp_path, monkeypatch, capsys):
+    """A read-only check of someone's project must not write into it."""
+    (tmp_path / "references.bib").write_text(CLEAN)
+    record = {"title": "A Perfectly Ordinary Title", "authors": ["Jane Doe"], "year": 2024}
+    monkeypatch.setattr(dk, "_arxiv_record", lambda _id: dict(record))
+    before = sorted(p.name for p in tmp_path.iterdir())
+    assert dk.main(["--root", str(tmp_path), "--no-cache", "verify"]) == 0
+    assert sorted(p.name for p in tmp_path.iterdir()) == before
+    assert "verified 1" in capsys.readouterr().out
+
+
+def test_no_cache_ignores_an_existing_cache(dk, tmp_path, monkeypatch, capsys):
+    (tmp_path / "references.bib").write_text(CLEAN)
+    cache = tmp_path / ".dokimasia-cache.json"
+    cache.write_text("[]")
+    monkeypatch.setattr(dk, "_get", lambda *a, **k: (None, "HTTP 500"))
+    monkeypatch.setattr(dk.time, "sleep", lambda *_: None)
+    assert dk.main(["--root", str(tmp_path), "--no-cache", "verify"]) == 0
+    assert cache.read_text() == "[]"
+    assert "(0 from cache)" in capsys.readouterr().out
+
+
 def test_verify_exits_one_only_on_drift(dk, tmp_path, monkeypatch, capsys):
     (tmp_path / "references.bib").write_text(CLEAN)
     feed = (

@@ -29,7 +29,7 @@ Invoke by name in Claude Code:
 Or run the script directly from a techne checkout. It is one standard-library file and needs Python 3.11 or later. `--no-project` keeps `uv` from creating a `.venv` in your project; `python3` works too:
 
 ```
-uv run --no-project --quiet python plugins/dokimasia/skills/check/scripts/dokimasia.py [--root DIR] [--require-built] [{lint,verify,rendered}] [DOC.tex ...]
+uv run --no-project --quiet python plugins/dokimasia/skills/check/scripts/dokimasia.py [--root DIR] [--require-built] [--no-cache] [{lint,verify,rendered}] [DOC.tex ...]
 ```
 
 | Mode | Network | Checks |
@@ -88,7 +88,7 @@ smith2024x = "arXiv's own title misspells a word"
 [exempt.record]                 # key = reason: skips first author and year
 ```
 
-The sample shows values, and the defaults are `orphans = true`, `cache = ".dokimasia-cache.json"` and `staged_headings = ["not yet positioned", "do not cite"]`; `bib` defaults to every `*.bib` under the root. A configured intake file that does not exist is an error, as is a cache file that is not a JSON object. Cached records expire after 14 days. Hidden directories, `node_modules` and broken symlinks are always skipped, and an unreadable file is named on stderr as `cannot read`. Every exemption needs a reason, and one naming a key that is not in the bibliography is a lint finding. Set `DOKIMASIA_MAILTO` to use Crossref's polite pool.
+The sample shows values, and the defaults are `orphans = true`, `cache = ".dokimasia-cache.json"` and `staged_headings = ["not yet positioned", "do not cite"]`; `bib` defaults to every `*.bib` under the root. A configured intake file that does not exist is an error, as is a cache file that is not a JSON object. Cached records expire after 14 days. `--no-cache` makes `verify` neither read nor write the cache, so a read-only check leaves the project unchanged. Hidden directories, `node_modules` and broken symlinks are always skipped, and an unreadable file is named on stderr as `cannot read`. Every exemption needs a reason, and one naming a key that is not in the bibliography is a lint finding. Set `DOKIMASIA_MAILTO` to use Crossref's polite pool.
 
 ## Output
 
