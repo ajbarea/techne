@@ -421,7 +421,7 @@ and pans sideways. Look at the phone sheets; `check` warns on text under 12px.
   different things (comments, then pairs, then examples), a Sankey's shared
   widths are false. Draw a flow in the CONSORT style, a box per stage with its
   count and its reasons. Bars are to scale within a stage only, and the final
-  count takes the accent colour. CONSORT recommends a flow diagram and
+  count is set apart (ink, or gold when it is the speaker's own result). CONSORT recommends a flow diagram and
   prescribes no format ([CONSORT 2025](https://doi.org/10.1136/bmj-2024-081123)).
   The generator places every step of the source in a stage, or fails.
 - **Parts of one estimate: a forest plot on one scale.** A dot and its interval
@@ -449,7 +449,7 @@ matters. It is never decoration.
   three of three tests ([Mayer, segmenting
   principle](https://www.cambridge.org/core/books/multimedia-learning/segmenting-principle/37240877DDA0362355ADB39936027982)).
 - **Point at the mark.** Bring in the one dot, bar or arrow the claim is about
-  last, in the accent colour. Cues that point at the essential material help
+  last, in ink or the colour of its role. Cues that point at the essential material help
   learning ([signaling](https://u.osu.edu/multimedialearning/?p=88)); the cue does the work, not the movement.
 - **Move no more than the eye can follow.** Viewers track about three to four
   moving objects as a set, and only one or two when each must keep its identity.
