@@ -8,23 +8,33 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 
 **techne#277 performance + mutation testing** (branch feat/perf-mutation, worktree
 `.claude/worktrees/perf`), four PRs in order, each reviewed with /techne:elenchus (Opus):
-1. 🔄 Hook latency budgets (`tests/test_hook_latency.py`) + git_guards cut: git_guards.py is now
-   a triage entry; the checks live in git_checks.py (imported, so bytecode-cached); body_gate,
-   secret_scan, shutil, subprocess, tempfile load lazily; board_add loads project_board only for
-   a command naming gh. PR #282: /code-review medium, an Opus reader, then verify passes 1-3
-   (one Should-fix in verify 1, Minors since, all fixed; 1966f52 adds the stderr test that
-   kills git_options' four mutmut survivors). Next: verify 3's report, a last verify of
-   59fa64b + 1966f52, merge on green.
-2. 🔄 pytest-codspeed: branch feat/codspeed (worktree `.claude/worktrees/codspeed`, 6ded2f7):
-   tests/bench/ + codspeed.yml + architecture.md "Speed". Rebase on main after #282, PR, review.
-3. 🔄 hyperfine: branch feat/hyperfine (worktree `.claude/worktrees/hyperfine`, 55a26f6 + uncommitted
-   compare/README edits): bench/run.py, bench/compare.py (instructions at 1.05x, else wall at
-   1.25x, spreads in bench/README.md), make bench/bench-compare, bench.yml weekly. Owed:
-   bench/baseline-ci.json from the PR's own bench run artifact; docs line in architecture.md.
-4. 🔄 mutation: branch feat/mutmut (worktree `.claude/worktrees/mutmut`, fbf3d9f):
-   scripts/mutation.py (mutmut generates and applies; sys.monitoring trace map across
-   subprocesses), mutation.yml (changed functions per PR, 8 shards weekly). Owed: scores per
-   module for the PR body (full run on the guards), tests or equivalents for guard survivors.
+1. 🔄 Hook latency budgets (`tests/test_hook_latency.py`) + git_guards cut, PR #282. Reviewed:
+   /code-review medium, an Opus reader, verify passes 1-3 (verify 3: mergeable at e9fb757, CI
+   green, no comments or reviews). Left: one narrow Opus verify of 1966f52 only (the stderr
+   assertion in test_input_with_no_folder_fails_closed_for_each_blocking_guard that kills four
+   git_options.failed() survivors: `any(None)`, `option_on(None)`, `print(None, ...)`,
+   `print(file=...)`; check its FAIL_CLOSED equals git_options.FAIL_CLOSED and each mutant goes
+   red on a copy of the hooks folder). Then re-read PR comments, squash-merge (repo deletes the
+   branch), report to Heph, mark queue.md.
+2. 🔄 CodSpeed: branch feat/codspeed (worktree `.claude/worktrees/codspeed`, 6ded2f7, forked at
+   225a806): tests/bench/, codspeed.yml (simulation, pytest-codspeed 5.0.3, action v5.6.0, past
+   the 7-day cooldown), architecture.md "Speed". After #282 merges:
+   `git rebase --onto origin/main 225a806`, then PR (link #277), review, merge.
+3. 🔄 hyperfine: branch feat/hyperfine (worktree `.claude/worktrees/hyperfine`, 55a26f6, forked at
+   c24e162): scripts/install_hyperfine.sh, bench/run.py, bench/compare.py (instructions at 1.05x,
+   else wall at 1.25x; spreads in bench/README.md), make bench/bench-compare, bench.yml weekly.
+   After #282: `git rebase --onto origin/main c24e162` (test_hook_latency.py make_sandbox may
+   conflict). Owed: bench/baseline-ci.json from the PR's own bench run artifact
+   (bench-summary), a docs line in architecture.md, then PR + review.
+4. 🔄 mutation: branch feat/mutmut (worktree `.claude/worktrees/mutmut`, fbf3d9f, forked at
+   c24e162): scripts/mutation.py (mutmut==3.8.1 generates and applies; sys.monitoring trace map
+   across subprocesses, scripts/mutation_trace/), [tool.techne.mutation] in pyproject,
+   mutation.yml (changed functions per PR, 8 shards weekly), scripts/install_gitleaks.sh shared
+   with validate.yml. Trial: git_options 13 mutants, 9 killed, 4 survivors since killed by
+   1966f52. Owed: rebase, a full run on the guard modules under the heavy lock (git_checks has
+   3664 mutants: run it as the weekly workflow on the PR via workflow_dispatch after merge, or
+   shard locally), per-module scores in the PR body, tests or mutation/equivalent.toml entries
+   for guard survivors, docs line, PR + review.
 Report each merge to Heph (tmux pane in orchestrator.pane); `fleet done` after all four.
 
 techne#249 is fixed in PR #252 (branch results/quality-baseline): the task notes state what the
