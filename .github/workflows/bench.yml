@@ -28,9 +28,10 @@ concurrency:
 
 jobs:
   bench:
-    # A pinned image and Python build, as in codspeed.yml: the baseline holds ratios to the
-    # python3 floor, which a new image or Python minor would move. compare.py refuses another
-    # Python minor outright, so an unpinned runner would turn the weekly run red on its own.
+    # A pinned OS release and Python build, as in codspeed.yml (GitHub still rebuilds the
+    # ubuntu-26.04 image weekly): the baseline holds ratios to the python3 floor, which a new
+    # Python minor would move. compare.py refuses another Python minor outright, so an
+    # unpinned runner would turn the weekly run red on its own.
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     env:

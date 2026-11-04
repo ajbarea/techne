@@ -35,4 +35,4 @@ Wall time moves with whatever else the machine runs; instruction counts barely m
 
 ## Refreshing the baseline
 
-After a deliberate change in a hook's cost, rerun the `bench` workflow and commit the `bench-summary-<attempt>` artifact it uploads as `bench/baseline-ci.json`.
+After a deliberate change in a hook's cost, run the `bench` workflow five times (rerun its job, downloading each attempt's `bench-summary-<attempt>` artifact before the next), then commit their per-case median: `uv run python bench/median.py --out bench/baseline-ci.json <summaries>`. One run's baseline sits wherever that run fell in the spread.

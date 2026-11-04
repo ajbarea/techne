@@ -293,3 +293,49 @@ def test_the_weekly_wall_threshold_is_tighter_than_every_per_pr_budget():
     assert set(room) == set(json.loads((ROOT / "bench" / "baseline-ci.json").read_text())["cases"])
     tightest, least = min(room.items(), key=lambda item: item[1])
     assert compare.WALL_THRESHOLD < least, (tightest, least)
+
+
+median = _load("median")
+
+
+def _run(cpu: str, measured: str, **ratios) -> dict:
+    s = summary(**ratios)
+    s.update(cpu=cpu, measured=measured, commit="abc", hyperfine="2.0.0", cpus=4, runs=30, warmup=3)
+    return s
+
+
+def test_median_takes_each_cases_median_ratio():
+    runs = [
+        _run("A", "t1", a=2.0, b=1.0),
+        _run("B", "t3", a=2.4, b=1.2),
+        _run("A", "t2", a=2.1, b=0.9),
+    ]
+    merged = median.median_summary(runs)
+    assert merged["cases"]["a"]["ratio"] == 2.1 and merged["cases"]["b"]["ratio"] == 1.0
+    assert merged["cpu"] == "A; B" and merged["measured"] == "t3" and len(merged["median_of"]) == 3
+    assert "instructions_ratio" not in merged["cases"]["a"]
+    # compare.py reads the merged summary and notes only a CPU it holds no run from.
+    assert not any("note:" in line for line in compare.compare(merged, runs[1])[1])
+    assert any(
+        "note:" in line for line in compare.compare(merged, _run("C", "t4", a=2.1, b=1.0))[1]
+    )
+
+
+@pytest.mark.parametrize(
+    "change",
+    [{"python": "3.12.3"}, {"label": "local"}, {"hyperfine": "1.18.0"}, {"cases": {}}],
+)
+def test_median_refuses_summaries_that_differ(change):
+    other = {**_run("A", "t2", a=2.0), **change}
+    with pytest.raises(ValueError):
+        median.median_summary([_run("A", "t1", a=2.0), other])
+    with pytest.raises(ValueError):
+        median.median_summary([_run("A", "t1", a=2.0)])
+
+
+def test_the_docs_state_the_thresholds_compare_uses():
+    # The thresholds are typed into the prose that explains them; a change to one must reach it.
+    wall, instr = f"{compare.WALL_THRESHOLD:g}x", f"{compare.THRESHOLD:g}x"
+    for doc in ("bench/README.md", "docs/architecture.md"):
+        text = (ROOT / doc).read_text()
+        assert wall in text and instr in text, doc

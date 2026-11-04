@@ -55,7 +55,7 @@ def compare(
         lines.append(
             f"note: baseline from {baseline.get('label')}, this run from {new.get('label')}"
         )
-    if baseline.get("cpu") != new.get("cpu"):
+    if new.get("cpu") not in str(baseline.get("cpu")).split("; "):
         lines.append(
             f"note: baseline on {baseline.get('cpu')}, this run on {new.get('cpu')}; ratios to "
             "the floor move less than times, but not by nothing"
