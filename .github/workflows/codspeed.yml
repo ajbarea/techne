@@ -1,0 +1,89 @@
+name: CodSpeed
+
+# CPU benchmarks of the hooks' parsers (tests/bench/), in CodSpeed's simulation mode: it counts
+# instructions and cache misses, so a shared runner's noise does not move the result, and it
+# leaves system calls out, so only pure in-process code is benchmarked here. A hook's wall time
+# (python3 start, imports, git) is held by tests/test_hook_latency.py in validate.yml.
+# research(2026-11): https://codspeed.io/docs/instruments/cpu,
+# https://codspeed.io/docs/integrations/ci/github-actions; the paths are shared by a YAML anchor
+# (https://github.blog/changelog/2025-09-18-actions-yaml-anchors-and-non-public-workflow-templates/).
+
+on:
+  # The push to main records the baseline every pull request is compared with.
+  push:
+    branches: [main]
+    paths: &bench-paths
+      - "plugins/*/hooks/**"
+      - "plugins/*/_shared/**"
+      - "tests/bench/**"
+      - "tests/fixtures/body_gate/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/codspeed.yml"
+  # Path-filtered, so "CodSpeed Performance Analysis" must not become a required check: a
+  # required check that never starts holds a pull request that touches none of these paths.
+  pull_request:
+    paths: *bench-paths
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  benchmarks:
+    # The OS release and the Python build are pinned, so main's baseline and a pull request run
+    # on the same interpreter binary. GitHub still rebuilds the image weekly, and a system library
+    # such as glibc (CodSpeed counts malloc's instructions) can move the baseline; the check step
+    # logs the image and glibc versions to trace such a jump.
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write # OIDC upload to CodSpeed
+    env:
+      PYTHON_VERSION: "3.14.10"
+      UV_PYTHON_DOWNLOADS: never # use setup-python's build or fail, never a downloaded one
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # CodSpeed's Python guide installs the interpreter with actions/setup-python, which its
+      # tracing needs (https://codspeed.io/docs/benchmarks/python).
+      - id: python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          enable-cache: true
+          prune-cache: true
+          save-cache: ${{ github.ref == 'refs/heads/main' }}
+          python-version: ${{ steps.python.outputs.python-path }}
+
+      - name: Install the test dependencies
+        run: uv sync --locked --no-default-groups --group dev
+
+      - name: Check the benchmarks run on the pinned build
+        env:
+          PYTHON_PATH: ${{ steps.python.outputs.python-path }}
+        run: |
+          uv run --no-sync python - <<'EOF'
+          import os, sys
+          real = os.path.realpath
+          got = (real(sys._base_executable), "%d.%d.%d" % sys.version_info[:3])
+          want = (real(os.environ["PYTHON_PATH"]), os.environ["PYTHON_VERSION"])
+          sys.exit(0 if got == want else f"the venv runs {got}, not the pinned {want}")
+          EOF
+          echo "image ${ImageVersion:-unknown}; $(ldd --version | head -n 1)"
+
+      - name: Run the benchmarks
+        uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062 # v5.6.0
+        with:
+          mode: simulation
+          run: uv run --no-sync pytest tests/bench --codspeed
