@@ -35,27 +35,49 @@ concurrency:
 
 jobs:
   benchmarks:
-    runs-on: ubuntu-latest
+    # The image and the Python build are pinned, so main's baseline and a pull request run on
+    # the same interpreter binary; moving either is a deliberate change that resets the baseline.
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       contents: read
       id-token: write # OIDC upload to CodSpeed
+    env:
+      PYTHON_VERSION: "3.14.10"
+      UV_PYTHON_DOWNLOADS: never # use setup-python's build or fail, never a downloaded one
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      # CodSpeed's Python guide installs the interpreter with actions/setup-python, which its
+      # tracing needs (https://codspeed.io/docs/benchmarks/python).
+      - id: python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: true
           prune-cache: true
           save-cache: ${{ github.ref == 'refs/heads/main' }}
-          # The exact build, so a runner image or uv update cannot move main's baseline: uv uses
-          # the image's python3.14 only while it is this patch release, else downloads this one.
-          python-version: "3.14.4"
+          python-version: ${{ steps.python.outputs.python-path }}
 
       - name: Install the test dependencies
         run: uv sync --locked --no-default-groups --group dev
+
+      - name: Check the benchmarks run on the pinned build
+        env:
+          PYTHON_PATH: ${{ steps.python.outputs.python-path }}
+        run: |
+          uv run --no-sync python - <<'EOF'
+          import os, sys
+          real = os.path.realpath
+          got = (real(sys._base_executable), "%d.%d.%d" % sys.version_info[:3])
+          want = (real(os.environ["PYTHON_PATH"]), os.environ["PYTHON_VERSION"])
+          sys.exit(0 if got == want else f"the venv runs {got}, not the pinned {want}")
+          EOF
 
       - name: Run the benchmarks
         uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062 # v5.6.0
