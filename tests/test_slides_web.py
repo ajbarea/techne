@@ -318,6 +318,167 @@ def test_two_contribution_slides_block(sl, web):
     assert len(found) == 1 and "one slide states it" in found[0].message
 
 
+def _conclusion(found):
+    return [f for f in found if f.gate == "conclusion"]
+
+
+CONCLUSION = "<section data-conclusion>"
+CLOSING = '<section class="dark" data-background-color="#14181f">\n  <h2>Thank you</h2>'
+
+
+def test_the_conclusion_sits_right_before_the_closing_slide(sl):
+    assert sl.conclusion_findings([(11, "Checks that can fail are the ones to trust")], 12) == []
+
+
+@pytest.mark.parametrize("number", [1, 3, 10, 13])
+def test_a_conclusion_anywhere_else_blocks(sl, number):
+    found = sl.conclusion_findings([(number, "The point")], 12)
+    assert [(f.severity, f.slide) for f in found] == [("BLOCK", number)]
+    assert "right before the closing slide (slide 12" in found[0].message
+
+
+def test_no_conclusion_and_two_conclusions_block(sl):
+    none = sl.conclusion_findings([], 12)
+    assert [f.severity for f in none] == ["BLOCK"] and "no slide" in none[0].message
+    two = sl.conclusion_findings([(11, "A"), (14, "B")], 12)
+    assert [f.severity for f in two] == ["BLOCK"] and "sums up" in two[0].message
+
+
+def test_the_placement_message_names_why_the_last_slide_closes(sl):
+    found = sl.conclusion_findings([(5, "The point")], 12, divider=False)
+    assert "none is titled Backup or Appendix" in found[0].message
+    for number, last in ((1, 0), (1, 1), (12, 12)):
+        found = sl.conclusion_findings([(number, "The point")], last)
+        assert [f.severity for f in found] == ["BLOCK"]
+        assert "no closing slide after it" in found[0].message
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "Conclusion",
+        "conclusions",
+        "Summary",
+        "In summary:",
+        "Summary and conclusions",
+        "Conclusion and future work",
+        "Key takeaways",
+        "Conclusions & future work",
+        "Conclusion / Future Work",
+        "Summary and Outlook",
+        "Concluding remarks",
+        "Wrap-up",
+        "Wrap up",
+        "Recap",
+        "Take-home message",
+    ],
+)
+def test_a_topic_word_for_a_conclusion_title_warns(sl, title):
+    found = sl.conclusion_findings([(11, title)], 12)
+    assert [(f.severity, f.gate) for f in found] == [("WARN", "conclusion")]
+
+
+@pytest.mark.parametrize(
+    "title", ["Conclusions you can trust come from checks that fail", "Summary statistics lie"]
+)
+def test_a_claim_that_starts_with_a_topic_word_passes(sl, title):
+    assert sl.conclusion_findings([(11, title)], 12) == []
+
+
+def test_footnotes_on_most_talk_slides_are_reviewed(sl):
+    assert sl.footnote_findings([2, 3, 4, 5, 6], 10) == []
+    found = sl.footnote_findings([2, 3, 4, 5, 6, 7], 10)
+    assert [(f.severity, f.gate) for f in found] == [("REVIEW", "footnotes")]
+    assert "6 of 10" in found[0].message
+    assert sl.footnote_findings([2], 1) == []
+
+
+@needs_browser
+def test_the_starter_ends_on_its_conclusion(sl, web):
+    assert _conclusion(_check(sl, web.index)) == []
+
+
+@needs_browser
+def test_a_deck_with_no_conclusion_slide_blocks(sl, web, gates):
+    found = _check(sl, web(CONCLUSION, "<section>"))
+    assert ("BLOCK", "conclusion") in gates(found)
+    assert sl.verdict(found)[0] == 2
+
+
+@needs_browser
+def test_a_conclusion_before_the_last_talk_slide_blocks(sl, web):
+    text = web.index.read_text()
+    start = text.index(CONCLUSION)
+    end = text.index("</section>", start) + len("</section>\n\n")
+    block = text[start:end]
+    web.index.write_text(text[:start] + text[end:])
+    web(
+        '<section data-chapter="4 · What\'s next">',
+        block + '<section data-chapter="4 · What\'s next">',
+    )
+    found = _conclusion(_check(sl, web.index))
+    assert len(found) == 1 and found[0].severity == "BLOCK"
+    assert "the conclusion slide is slide 10" in found[0].message
+
+
+@needs_browser
+def test_a_conclusion_after_the_closing_slide_blocks(sl, web):
+    path = web(CONCLUSION, "<section>")
+    text = path.read_text()
+    closing = text.index(CLOSING)
+    end = text.index("</section>", closing) + len("</section>")
+    path.write_text(
+        text[:closing]
+        + text[closing:end].replace("<section ", "<section data-conclusion ", 1)
+        + text[end:]
+    )
+    found = _conclusion(_check(sl, path))
+    assert len(found) == 1 and "slide 12, and the talk has no closing slide" in found[0].message
+
+
+@needs_browser
+def test_two_conclusion_slides_block(sl, web):
+    path = web(
+        '<section data-chapter="4 · What\'s next">',
+        '<section data-conclusion data-chapter="4 · What\'s next">',
+    )
+    found = _conclusion(_check(sl, path))
+    assert {f.severity for f in found} == {"BLOCK"}
+    assert any("on slides [10, 11]; one slide sums up the talk" in f.message for f in found)
+
+
+@needs_browser
+def test_a_conclusion_titled_conclusion_warns(sl, web):
+    path = web(
+        "<h2>[The main point again, in fresh words: one full sentence]</h2>", "<h2>Conclusions</h2>"
+    )
+    found = _conclusion(_check(sl, path))
+    assert [(f.severity, f.slide) for f in found] == [("WARN", 11)]
+
+
+@needs_browser
+def test_a_conclusion_slide_in_the_backup_blocks(sl, web):
+    path = web(CONCLUSION, "<section>")
+    path = web(
+        '<section class="discussion dark"', '<section data-conclusion class="discussion dark"'
+    )
+    found = _conclusion(_check(sl, path))
+    assert len(found) == 1 and found[0].severity == "BLOCK" and found[0].slide == 14
+
+
+@needs_browser
+def test_footnotes_on_most_slides_are_reviewed_on_a_web_deck(sl, web, gates):
+    assert ("REVIEW", "footnotes") not in gates(_check(sl, web.index))
+    text = web.index.read_text()
+    for kicker in ("2 · How it works", "3 · Where it stands", "4 · What's next"):
+        text = text.replace(
+            f'<span class="kicker">{kicker}</span>',
+            f'<span class="kicker">{kicker}</span><p class="footnote">[Padding.]</p>',
+        )
+    web.index.write_text(text)
+    assert ("REVIEW", "footnotes") in gates(_check(sl, web.index))
+
+
 @needs_browser
 def test_a_page_that_is_not_a_reveal_deck_is_unreadable(sl, tmp_path, gates):
     page = tmp_path / "page.html"
@@ -500,7 +661,7 @@ def test_motion_names_only_the_slide_that_moves(sl, web):
     # The spinning slide is named. Slides with nothing that moves are not; with the rule gone,
     # the starter's dots (6) and timeline (9) animate too, and a fragment's fade may still be
     # running when it is read.
-    assert 13 in named and not named & {1, 2, 3, 5, 10, 11, 12}
+    assert 14 in named and not named & {1, 2, 3, 5, 10, 11, 12, 13}
 
 
 @needs_browser
@@ -745,7 +906,7 @@ def test_the_script_reads_the_starter_from_reveal(sl):
     assert "## 4. [Claim headline: one full sentence the figure proves]" in out
     assert "Walk the figure left to right" in out
     _, backup = out.split("# Backup slides")
-    assert "## 12. Backup slides" in backup
+    assert "## 13. Backup slides" in backup
 
 
 @needs_browser
