@@ -91,6 +91,25 @@ POSTS = [
     'gh pr create -R "" -t T -b B',
     "GH_REPO=me/tool; gh pr create -t T -b B",  # set, never exported: gh does not see it
     "(export GH_REPO=me/tool); gh pr create -t T -b B",
+    "export GH_REPO=me/tool; GH_REPO=; gh pr create -t T -b B",  # still exported, now empty
+    "export GH_REPO=me/tool; unset GH_REPO; gh pr create -t T -b B",
+    'gh pr comment 3 -b "-R me/tool"',
+    'gh pr comment 3 -b "--repo=me/tool"',
+    'gh pr create -R me/tool -R "" -t T -b B',  # gh takes the last
+    "gh pr create -R $FORK -t T -b B",  # unset
+    "gh secret set FOO --body x",
+    "gh secret delete FOO",
+    "gh discussion create -t T -b B",  # a group this gh may not have is checked too
+    "gh some-extension do-something",
+    "gh repo rename new-name",
+    "gh repo archive --yes",
+    "gh repo deploy-key add key.pub",
+    "gh repo autolink create JIRA- https://example.com/<num>",
+    "gh api -X DELETE repos/{owner}/{repo}/labels/x",
+    "gh api --method=DELETE repos/{owner}/{repo}/labels/x",
+    "gh api -XPOST repos/{owner}/{repo}/issues",
+    "gh api repos/{owner}/{repo}/issues -F title=x",
+    "gh api repos/{owner}/{repo}/issues --input issue.json",
 ]
 
 
@@ -121,6 +140,24 @@ def test_a_subcommand_this_check_cannot_know_is_refused(tmp_path):
         "export GH_REPO=me/tool; gh pr create -t T -b B",
         "GH_REPO=me/tool; export GH_REPO; gh pr create -t T -b B",
         "gh repo edit me/tool --description x",
+        "gh repo edit https://github.com/me/tool --description x",
+        "gh pr create -R https://github.com/me/tool -t T -b B",
+        'gh pr create -R "" -R me/tool -t T -b B',
+        "FORK=me/tool; gh pr create -R $FORK -t T -b B",
+        "gh pr $ACTION 3 -R me/tool",
+        "gh pr comment https://github.com/org/tool/pull/3/files -b B",
+        "gh pr create --help",
+        "gh pr create -h",
+        "gh pr help create",
+        "gh issue develop 3 --list",
+        "gh secret list",
+        "gh secret set FOO --org acme --body x",
+        "gh variable set X --user --body y",
+        "gh repo deploy-key list",
+        "gh repo autolink list",
+        "gh ruleset list",
+        "gh auth status",
+        "gh search repos tool",
         "gh pr comment https://github.com/org/tool/pull/3 -b B",
         "gh issue comment https://github.com/org/tool/issues/3 -b B",
         "gh pr view 3",
@@ -142,6 +179,14 @@ def test_a_named_repo_or_a_read_passes(tmp_path, command):
 def test_gh_repo_in_the_environment_names_the_repo(tmp_path):
     repo = clone(tmp_path, {"origin": FORK, "upstream": PARENT})
     assert refusal("gh pr create -t T -b B", repo, GH_REPO="me/tool") is None
+    # bash passes a changed or removed exported variable on as changed
+    assert refusal("unset GH_REPO; gh pr create -t T -b B", repo, GH_REPO="me/tool")
+    assert refusal("GH_REPO=; gh pr create -t T -b B", repo, GH_REPO="me/tool")
+
+
+def test_a_subcommand_given_as_a_variable_passes_in_a_clone_of_one_repo(tmp_path):
+    repo = clone(tmp_path, {"origin": FORK})
+    assert refusal('gh pr "$SUB" 3', repo) is None
 
 
 def test_an_empty_prefix_assignment_names_nothing(tmp_path):
@@ -169,6 +214,9 @@ def test_an_empty_prefix_assignment_names_nothing(tmp_path):
         ({"Origin": PARENT, "fork": FORK}, {}, False),
         ({"origin": "git@gh-me:me/tool.git", "upstream": "git@gh-me:org/tool.git"}, {}, True),
         ({"origin": FORK, "upstream": "https://ghe.corp.example/org/tool.git"}, {}, True),
+        # one OWNER/NAME on two hosts is two repos
+        ({"origin": "https://ghe.corp.example/org/tool.git", "upstream": PARENT}, {}, True),
+        ({"origin": PARENT, "upstream": "https://ghe.corp.example/org/tool.git"}, {}, True),
         ({"origin": FORK, "upstream": PARENT}, {"upstream": "not-a-repo"}, True),
         ({"origin": "git@github.com:me/tool.git", "upstream": "ssh://git@github.com/ME/tool"},
          {}, False),
@@ -299,6 +347,6 @@ def test_the_target_matches_gh_on_generated_remotes(monkeypatch, tmp_path):
     wrong = [
         (r, m, t, s)
         for (_, t, r, m), s in zip(layouts, seen, strict=True)
-        if t.lower() != (s or "").lower()
+        if git_checks.shown(t).lower() != (s or "").lower()
     ]
     assert not wrong and len(layouts) >= 30, wrong

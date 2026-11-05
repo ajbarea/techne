@@ -101,8 +101,14 @@ CREATORS = {"touch", "tee", "cp", "mv", "install"}
 # Commands whose arguments become file content, for a message file the command writes.
 WRITERS = {"echo", "printf"}
 GH_GLOBAL_VALUE_FLAGS = {"-R", "--repo"}
-# gh command groups that act on the repo gh resolves when none is named, and in each the
-# subcommands that only read; every other subcommand of these groups is checked.
+# gh command groups that never act on the repo gh resolves, or only read it; every other group
+# is checked, so a group this list does not know (a newer gh, an extension) is checked too.
+GH_NO_REPO = {
+    "auth", "browse", "codespace", "cs", "gist", "org", "project", "alias", "attestation",
+    "completion", "config", "copilot", "extension", "ext", "extensions", "gpg-key", "help",
+    "licenses", "preview", "search", "ssh-key", "status", "version", "ruleset", "rs",
+}  # fmt: skip
+# In a checked group, the subcommands that only read.
 GH_REPO_READS = {
     "pr": {"view", "list", "ls", "status", "checks", "diff", "checkout", "co"},
     "issue": {"view", "list", "ls", "status"},
@@ -112,15 +118,28 @@ GH_REPO_READS = {
     "run": {"view", "list", "ls", "watch", "download"},
     "cache": {"list", "ls"},
     "variable": {"list", "ls", "get"},
-}
-# `gh repo` subcommands that change the repo they name, or the resolved one when none is given.
-GH_REPO_WRITES = {"edit", "delete", "archive", "unarchive", "rename", "deploy-key", "autolink"}
+    "secret": {"list", "ls"},
+    "discussion": {"view", "list", "ls"},
+    "agent-task": {"view", "list", "ls"},
+    "repo": {
+        "view", "list", "ls", "clone", "fork", "create", "new", "set-default", "sync",
+        "license", "gitignore", "credits", "garden",
+    },
+}  # fmt: skip
+# Subcommands whose own subcommand decides whether they read (`gh repo deploy-key list`).
+GH_NESTED = {("repo", "deploy-key"), ("repo", "autolink")}
+# Options of the checked subcommands that take a value, besides those GH_TEXT, GH_FILE and
+# GH_VALUE_FLAGS list: their value is never read as -R.
+GH_REPO_VALUE_FLAGS = {"-c", "--comment", "-m", "--message", "--subject", "-A", "--author-email"}
+# `gh secret` and `gh variable` act on an organization or the user with these, not on a repo.
+GH_NOT_REPO_FLAGS = {"-o", "--org", "-u", "--user"}
 # gh's order for its remotes (BaseRepoFunc, by lowercased name): these first, then the rest.
 GH_REMOTE_ORDER = ("upstream", "github", "origin")
-# A repo as -R or GH_REPO names it: [HOST/]OWNER/NAME.
-GH_REPO_RE = re.compile(r"^(?:[\w.-]+/)?[\w.-]+/[\w.-]+$")
+# A repo as -R or GH_REPO names it: [HOST/]OWNER/NAME, or its URL.
+GH_REPO_RE = re.compile(r"^(?:https?://)?(?:[\w.-]+/)?[\w.-]+/[\w.-]+?(?:\.git)?/?$")
+OWNER_NAME_RE = re.compile(r"^[\w.-]+/[\w.-]+$")
 # An issue or PR URL as the first argument names its repo itself.
-GH_ITEM_URL_RE = re.compile(r"^https?://[^/\s]+/[^/\s]+/[^/\s]+/(?:pull|issues)/\d+/?(?:#\S*)?$")
+GH_ITEM_URL_RE = re.compile(r"^https?://[^/\s]+/[^/\s]+/[^/\s]+/(?:pull|issues)/\d+(?:[/#?]\S*)?$")
 # gh api fills these from the resolved repo; a request with fields or --input is a POST.
 GH_API_PLACEHOLDER_RE = re.compile(r"\{owner\}|\{repo\}|:owner\b|:repo\b")
 GH_API_FIELDS = {"-f", "--raw-field", "-F", "--field", "--input"}
@@ -943,18 +962,26 @@ def parse_gh_pr(args: list[str], words: tuple[str, ...] = ()) -> tuple[list[str]
 
 
 def remote_repo(url: str) -> str | None:
-    """The OWNER/NAME a remote URL names, lowercased, or None when it names none. The host is
-    not read: gh maps ssh aliases and Enterprise hosts this check cannot see, and reading every
-    host as one only ever refuses more."""
+    """The HOST/OWNER/NAME a remote URL names, lowercased, or None when it names none. A
+    github.com subdomain (www., ssh.) reads as github.com, as gh folds it; any other host is
+    kept as written, so an ssh alias for github.com reads as a repo of its own, which can only
+    make the check refuse more."""
     m = SCHEME_URL_RE.match(url) or SCP_URL_RE.match(url)
     if not m:
         return None
+    host = m.group(1).lower()
+    host = "github.com" if host.endswith(".github.com") else host
     path = m.group(2).strip("/")
     path = path[:-4] if path.endswith(".git") else path
     parts = path.split("/")
     if len(parts) < 2 or not all(parts[-2:]):
         return None
-    return "/".join(parts[-2:]).lower()
+    return f"{host}/{'/'.join(parts[-2:]).lower()}"
+
+
+def shown(repo: str) -> str:
+    """A repo key as the refusal names it: OWNER/NAME on github.com, else HOST/OWNER/NAME."""
+    return repo[len("github.com/") :] if repo.startswith("github.com/") else repo
 
 
 def gh_target(cwd: Path) -> tuple[str | None, str, str | None, list[str]]:
@@ -989,7 +1016,9 @@ def gh_target(cwd: Path) -> tuple[str | None, str, str | None, list[str]]:
         if value == "base":
             return remotes[name], f"remote `{name}` is gh's default repo", origin, names
         if value:
-            target = value.lower() if GH_REPO_RE.match(value) else f"?{value}"
+            host = remotes[name].split("/")[0] if not remotes[name].startswith("?") else "?"
+            ok = OWNER_NAME_RE.match(value)
+            target = f"{host}/{value.lower()}" if ok else f"?{value}"
             return target, f"gh's default repo, set on remote `{name}`", origin, names
     if not ordered:
         return None, "", origin, names
@@ -997,6 +1026,28 @@ def gh_target(cwd: Path) -> tuple[str | None, str, str | None, list[str]]:
     if first.lower() not in rank and len({remotes[n] for n in ordered}) > 1:
         return None, "its remotes name several repos and none is gh's default", origin, names
     return remotes[first], f"remote `{first}` comes first in gh's order", origin, names
+
+
+def parse_gh_api(args: list[str]) -> tuple[str | None, list[tuple[str, str]]]:
+    """A `gh api` command's endpoint (its first plain word) and its value options in order,
+    as (name, value): `--name=value`, `--name value`, `-Xvalue` and `-X value` alike."""
+    endpoint = None
+    options: list[tuple[str, str]] = []
+    i = 0
+    while i < len(args):
+        tok = args[i]
+        name, eq, value = tok.partition("=") if tok.startswith("--") else (tok, "", "")
+        if not tok.startswith("--") and len(tok) > 2 and tok[:2] in GH_API_VALUE:
+            name, eq, value = tok[:2], "=", tok[2:]
+        if name in GH_API_VALUE:
+            if not eq:
+                value = args[i + 1] if i + 1 < len(args) else ""
+                i += 1
+            options.append((name, value))
+        elif endpoint is None and not tok.startswith("-"):
+            endpoint = tok
+        i += 1
+    return endpoint, options
 
 
 class Verdict:
@@ -1039,8 +1090,9 @@ class Guards:
         # The variables as written, before heredocs and files (`run`'s `raw`).
         self.raw: dict[str, str] = {}
         self.prefix: dict[str, str] = {}
-        # Variables an `export` in this command put in the environment of what runs after it.
-        self.exported: dict[str, str] = {}
+        # What this command changed in the environment of what it runs: a value an `export`
+        # set or an assignment to an exported name changed, or None for an `unset`.
+        self.child_env: dict[str, str | None] = {}
         # Each file's text as `resolve` read it, which READ_RE sentinels name.
         self.captured: list[str] = []
         # The agent the call came from ("" for the main thread), for the catch log.
@@ -1416,16 +1468,16 @@ class Guards:
         # Each variable as written before its heredocs are filled in and its files read,
         # for the body check alone (`raw_value`); `env` holds what bash would.
         raw: dict[str, str] = {}
-        stack: list[tuple[Path, dict[str, str], dict[str, str], dict[str, str]]] = []
+        stack: list[tuple[Path, dict[str, str], dict[str, str], dict[str, str | None]]] = []
         dirstack: list[Path] = []
         for k, (argv, chdirs) in enumerate(unwrapped):
             group = groups[k]
             if group == [PUSH]:
-                stack.append((cwd, dict(env), dict(raw), dict(self.exported)))
+                stack.append((cwd, dict(env), dict(raw), dict(self.child_env)))
                 continue
             if group == [POP]:
                 if stack:
-                    cwd, env, raw, self.exported = stack.pop()
+                    cwd, env, raw, self.child_env = stack.pop()
                 continue
             words = group[group[0] in DECLARERS :] if group else []
             if words and all(ASSIGNMENT_RE.match(t) for t in words):
@@ -1442,8 +1494,14 @@ class Guards:
                         written = self.resolve(expand(value, {**env, **raw}), cwd, env, k)
                     written = held + written
                     raw[name] = written
-                    if group[0] == "export":
-                        self.exported[name] = written
+                    # bash keeps a name exported when it is assigned again.
+                    held_export = (
+                        self.child_env[name] is not None
+                        if name in self.child_env
+                        else name in os.environ
+                    )
+                    if group[0] == "export" or held_export:
+                        self.child_env[name] = written
                     env[name] = self.fill(written)
                 continue
             if not argv:
@@ -1457,7 +1515,12 @@ class Guards:
             if name == "export":  # `export NAME`, naming a variable set earlier
                 for a in argv[1:]:
                     if a in raw:
-                        self.exported[a] = raw[a]
+                        self.child_env[a] = raw[a]
+                continue
+            if name == "unset":
+                for a in argv[1:]:
+                    if not a.startswith("-"):
+                        self.child_env[a] = None
                 continue
             if name in {"cd", "pushd", "popd"}:
                 args = [a for a in argv[1:] if a not in CD_FLAGS]
@@ -1636,16 +1699,17 @@ class Guards:
         # before one takes the word after it: `gh pr -b review TEXT 1`.
         rest = [a for j, a in enumerate(argv) if j and j not in at]
         if unknown is not None:
-            if (
-                self.enabled(BODIES, Command(cwd), local=False)
-                or self.enabled(ATTRIBUTION, Command(cwd), local=False)
-                or self.enabled(IMPLICIT_REPO, Command(cwd))
+            if self.enabled(BODIES, Command(cwd), local=False) or self.enabled(
+                ATTRIBUTION, Command(cwd), local=False
             ):
                 self.verdict.denies.append(
                     f"phylax: `gh` is given {TAG_RE.sub(')', unknown)} before its subcommand, a "
                     "value this check cannot know, so it cannot tell which subcommand runs or "
                     "what it sends. Write the gh command out in full."
                 )
+            elif not (words and words[0] in GH_NO_REPO):
+                # Which subcommand runs is unknown, so it is checked as a write.
+                self.check_gh_target([*words, unknown], argv, at, cwd, env)
             return
         if self.acts_on_resolved_repo(words, argv, at):
             self.check_gh_target(words, argv, at, cwd, env)
@@ -1669,43 +1733,51 @@ class Guards:
                 self.verdict.warnings.extend(warnings)
 
     def acts_on_resolved_repo(self, words: list[str], argv: list[str], at: list[int]) -> bool:
-        """Whether this gh command changes something on the repo gh resolves when none is
-        named: a subcommand of a repo-scoped group that does more than read, a `gh repo`
-        write, or a `gh api` write whose endpoint has an {owner} or {repo} placeholder."""
-        if len(words) == 2 and words[0] in GH_REPO_READS:
-            return words[1] not in GH_REPO_READS[words[0]]
-        if len(words) == 2 and words[0] == "repo":
-            return words[1] in GH_REPO_WRITES
-        if words[:1] != ["api"]:
+        """Whether this gh command may change something on the repo gh resolves when none is
+        named: any subcommand of a group outside GH_NO_REPO except the reads GH_REPO_READS
+        lists, and a `gh api` write whose endpoint has an {owner} or {repo} placeholder. Help
+        (`-h`, `--help`, `gh pr help`) only reads."""
+        if not words or words[0] in GH_NO_REPO or any(a in ("-h", "--help") for a in argv):
             return False
-        rest = [a for j, a in enumerate(argv) if j and j != at[0]]
-        endpoint, method, fields = None, None, False
-        i = 0
-        while i < len(rest):
-            tok = rest[i]
-            name, eq, value = tok.partition("=") if tok.startswith("--") else (tok, "", "")
-            if not tok.startswith("--") and len(tok) > 2 and tok[:2] in GH_API_VALUE:
-                name, eq, value = tok[:2], "=", tok[2:]
-            if name in GH_API_VALUE:
-                if not eq:
-                    value = rest[i + 1] if i + 1 < len(rest) else ""
-                    i += 1
-                if name in ("-X", "--method"):
-                    method = value.upper()
-                fields = fields or name in GH_API_FIELDS
-            elif endpoint is None and not tok.startswith("-"):
-                endpoint = tok
-            i += 1
-        writes = method != "GET" if method else fields
-        return bool(endpoint and writes and GH_API_PLACEHOLDER_RE.search(endpoint))
+        if words[0] == "api":
+            endpoint, options = parse_gh_api(argv[at[0] + 1 :])
+            methods = [v.upper() for n, v in options if n in ("-X", "--method")]
+            fields = any(n in GH_API_FIELDS for n, _ in options)
+            writes = methods[-1] != "GET" if methods else fields
+            return bool(endpoint and writes and GH_API_PLACEHOLDER_RE.search(endpoint))
+        if len(words) < 2 or words[1] == "help":
+            return len(words) < 2 and words[0] not in GH_REPO_READS
+        if words[0] in ("secret", "variable") and any(
+            a.split("=")[0] in GH_NOT_REPO_FLAGS for a in argv
+        ):
+            return False
+        if tuple(words) in GH_NESTED:
+            nested = next((a for a in argv[at[1] + 1 :] if not a.startswith("-")), "")
+            return nested not in ("list", "ls", "view")
+        if tuple(words) == ("issue", "develop") and any(a in ("-l", "--list") for a in argv):
+            return False
+        return words[1] not in GH_REPO_READS.get(words[0], set())
+
+    def gh_repo_value(self, name: str, env: dict[str, str]) -> str | None:
+        """NAME as gh's process would get it: a `NAME=value` prefix, else what this command
+        exported, assigned to an exported name or unset, else this hook's environment."""
+        if name in self.prefix:
+            return self.prefix[name]
+        if name in self.child_env:
+            return self.child_env[name]
+        return os.environ.get(name)
 
     def names_repo(self, words: list[str], argv: list[str], at: list[int], env: dict[str, str]):
         """Whether the command names its repo as gh reads one: the last -R/--repo value shaped
-        [HOST/]OWNER/NAME after expansion, GH_REPO in gh's environment (this hook's, a
-        `NAME=value` prefix or an `export` earlier in the command), or, as its first argument,
-        an issue or PR URL (pr, issue) or OWNER/NAME (repo)."""
+        [HOST/]OWNER/NAME or a repo URL after expansion, GH_REPO as gh's process gets it, or,
+        as its first argument, an issue or PR URL (pr, issue) or a repo (repo). A word with a
+        space in it is a value of another option (`-b "-R me/tool"`), never an option."""
         repo = None
+        values = set(GH_TEXT) | set(GH_FILE) | GH_VALUE_FLAGS.get(tuple(words[:2]), set())
+        values |= GH_REPO_VALUE_FLAGS
         for j, tok in enumerate(argv[1:], 1):
+            if any(c.isspace() for c in tok) or (j > 1 and argv[j - 1] in values):
+                continue
             if tok in GH_GLOBAL_VALUE_FLAGS:
                 repo = argv[j + 1] if j + 1 < len(argv) else ""
             elif tok.startswith("--repo="):
@@ -1713,15 +1785,11 @@ class Guards:
             elif tok.startswith("-R") and len(tok) > 2:
                 repo = tok[2:]
         if repo is not None:
-            return bool(GH_REPO_RE.match(expand(repo, env).strip()))
-        for value in (
-            os.environ.get("GH_REPO"),
-            self.prefix.get("GH_REPO"),
-            self.exported.get("GH_REPO"),
-        ):
-            if value is not None and GH_REPO_RE.match(expand(value, env).strip()):
-                return True
-        first = argv[at[-1] + 1] if len(at) == 2 and at[-1] + 1 < len(argv) else ""
+            return bool(GH_REPO_RE.match(expand(repo, {**env, **self.raw})))
+        value = self.gh_repo_value("GH_REPO", env)
+        if value and GH_REPO_RE.match(expand(value, {**env, **self.raw})):
+            return True
+        first = argv[at[1] + 1] if len(at) == 2 and at[1] + 1 < len(argv) else ""
         if words[0] in ("pr", "issue") and GH_ITEM_URL_RE.match(first):
             return True
         return words[0] == "repo" and bool(GH_REPO_RE.match(first) or GH_ITEM_URL_RE.match(first))
@@ -1739,15 +1807,15 @@ class Guards:
         repos = set(names) | ({target} if target else set())
         if not repos or (target and (len(repos) == 1 or target == origin)):
             return
-        shown = [n for n in names if not n.startswith("?")]
+        known = [shown(n) for n in names if not n.startswith("?")]
         what = f"`gh {' '.join(words)}`"
-        if target and origin and not target.startswith("?"):
-            where = f"gh would send it to {target} ({how}), not to origin's {origin}"
-            fix = f"add `-R {origin}` (or `-R {target}` if that is the repo meant)"
+        if target and origin and not target.startswith("?") and not origin.startswith("?"):
+            where = f"gh would send it to {shown(target)} ({how}), not to origin's {shown(origin)}"
+            fix = f"add `-R {shown(origin)}` (or `-R {shown(target)}` if that is the repo meant)"
         else:
-            where = f"gh would pick from {', '.join(shown) or 'remotes it cannot name'} ({how})"
+            where = f"gh would pick from {', '.join(known) or 'remotes it cannot name'} ({how})"
             fix = "add `-R OWNER/NAME`"
-        home = origin if origin and not origin.startswith("?") else "OWNER/NAME"
+        home = shown(origin) if origin and not origin.startswith("?") else "OWNER/NAME"
         self.verdict.denies.append(
             f"phylax: {what} names no repo, and {where}. Name it: {fix}, or run "
             f"`gh repo set-default {home}` in this clone. To allow this in this repo, run "
@@ -2057,42 +2125,26 @@ class Guards:
         self, args: list[str], cwd: Path, env: dict[str, str]
     ) -> tuple[str | None, str | None]:
         """The kind and `body` field of a `gh api` write to an issue, PR or comment."""
-        endpoint = None
+        endpoint, options = parse_gh_api(args)
         body: str | None = None
-        i = 0
-        while i < len(args):
-            tok = args[i]
-            name, eq, value = tok.partition("=") if tok.startswith("--") else (tok, "", "")
-            if not tok.startswith("--") and len(tok) > 2 and tok[:2] in GH_API_VALUE:
-                name, eq, value = tok[:2], "=", tok[2:]
-            if name in GH_API_VALUE:
-                if not eq:
-                    value = args[i + 1] if i + 1 < len(args) else ""
-                    i += 1
-                if name in {"-f", "--raw-field", "-F", "--field"}:
-                    key, _, field = value.partition("=")
-                    if key == "body":
-                        if name in {"-F", "--field"} and field == "@-":
-                            body = self.stdin_body(cwd, env)
-                        elif name in {"-F", "--field"} and field.startswith("@"):
-                            body = self.body_file(field[1:], cwd, env)
-                        else:
-                            body = self.body_value(field, cwd, env)
-                elif name == "--input":
-                    raw = (
-                        self.stdin_body(cwd, env)
-                        if value == "-"
-                        else self.body_file(value, cwd, env)
-                    )
-                    try:
-                        loaded = json.loads(raw or "null")
-                    except ValueError:
-                        loaded = None
-                    if isinstance(loaded, dict) and isinstance(loaded.get("body"), str):
-                        body = loaded["body"]
-            elif endpoint is None and not tok.startswith("-"):
-                endpoint = tok
-            i += 1
+        for name, value in options:
+            if name in {"-f", "--raw-field", "-F", "--field"}:
+                key, _, field = value.partition("=")
+                if key == "body":
+                    if name in {"-F", "--field"} and field == "@-":
+                        body = self.stdin_body(cwd, env)
+                    elif name in {"-F", "--field"} and field.startswith("@"):
+                        body = self.body_file(field[1:], cwd, env)
+                    else:
+                        body = self.body_value(field, cwd, env)
+            elif name == "--input":
+                raw = self.stdin_body(cwd, env) if value == "-" else self.body_file(value, cwd, env)
+                try:
+                    loaded = json.loads(raw or "null")
+                except ValueError:
+                    loaded = None
+                if isinstance(loaded, dict) and isinstance(loaded.get("body"), str):
+                    body = loaded["body"]
         if endpoint is None or body is None:
             return None, None
         path = expand(endpoint, env, unknown=None).split("?")[0]

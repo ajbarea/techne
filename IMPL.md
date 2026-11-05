@@ -12,10 +12,16 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 2. ✅ #284 CodSpeed (simulation, parsers only).
 3. ✅ #287 hyperfine weekly bench: wall gate 1.15x against `bench/baseline-ci.json`, the median of
    seven pinned runs (`bench/median.py`); README says how to refresh it.
-4. 🔄 #290 mutation (feat/mutmut): full sweep 41919298273 scored 5,641 mutants; review round 1.
-   The 1,269 survivors already on main are #289, one PR per module, smallest first.
-5. 🔄 perf/hook-parsers-dsa: phylax greeting check stops at the first line (whole body fed once,
-   handlers raise), body gate reads the body once; round 2 fixes pushed; timing, PR, verify.
+4. 🔄 #290 mutation (feat/mutmut, head f0a8d4a): five rounds + two verify passes clean
+   (report ~/.local/state/techne-perf/r4-290-report.md); merge once CI `validate` is green.
+5. ✅ #295 phylax parser speed-up merged; ✅ #303 gitleaks retry merged.
+6. 🔄 #304 (#301, this branch): round-2 report at ~/.local/state/techne-perf/r2-304-report.md
+   (hold on N1 host-blind compare, N2 unlisted gh groups; N3-N8 Minor). WIP commit holds the
+   fixes for N1-N5, N7 test cells, N8 (one parse_gh_api walk); test_gh_target + test_git_guards
+   passed before the commit. Next: run ~/.local/state/techne-perf/mut301-run.py (hand mutants
+   P1-P16, `python run.py <scratch>` from the worktree, under the heavy lock) and add a test per
+   survivor; N4 is a whitespace heuristic, not gh's flag walk (say so or finish it); whole-repo
+   `make lint`; update the PR body; a fresh Opus round-3 reader; merge when clean.
 Report each merge to Heph (tmux pane in orchestrator.pane); `fleet done` after all four.
 
 techne#249 is fixed in PR #252 (branch results/quality-baseline): the task notes state what the
