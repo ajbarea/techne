@@ -315,6 +315,20 @@ def test_html_opening_stops_inside_a_run_of_text(monkeypatch):
     assert seen == ["Good morning,\nrest"]
 
 
+def test_html_opening_reads_each_blank_line_once(monkeypatch):
+    # A whitespace-only line is dropped once read, not carried into the next line's text.
+    lengths: list[int] = []
+    opening = g.opening
+
+    def measuring(text):
+        lengths.append(len(text))
+        return opening(text)
+
+    monkeypatch.setattr(g, "opening", measuring)
+    assert g.html_opening("<p> </p>" * 200 + "<p>Good morning,</p>") == "Good morning,"
+    assert max(lengths) == len("Good morning,")
+
+
 def test_breaks_are_exactly_the_line_boundaries():
     # A character in _BREAKS that splitlines does not split on would end the line early.
     import sys
@@ -325,25 +339,28 @@ def test_breaks_are_exactly_the_line_boundaries():
     assert set(g._BREAKS) == boundaries
 
 
-def test_html_body_the_parser_rejects(monkeypatch, capsys):
-    # Older CPython parsers raise on some markup (`<![foo[x]]>`); stand-in: a tag that raises.
+@pytest.mark.parametrize("error", [AssertionError, NotImplementedError])
+def test_html_body_the_parser_rejects(monkeypatch, capsys, error):
+    # Older CPython parsers raise on some markup (`<![foo[x]]>`): NotImplementedError through
+    # 3.9, AssertionError from 3.10. Stand-in: a tag that raises.
     start = g._Text.handle_starttag
+    name = error.__name__
 
     def rejecting(self, tag, attrs):
         if tag == "bad":
-            raise AssertionError("unknown status keyword")
+            raise error("unknown status keyword")
         start(self, tag, attrs)
 
     monkeypatch.setattr(g._Text, "handle_starttag", rejecting)
     lines = g.first_lines({"body": "Good morning,", "htmlBody": "<bad><p>Hi Dana,</p>"})
     assert lines == ["Good morning,"]
     err = capsys.readouterr().err
-    assert "cannot parse htmlBody (AssertionError" in err
+    assert f"cannot parse htmlBody ({name}" in err
     assert err.rstrip().endswith("checked the plain body only")
     # The first HTML field present is the body sent; a later one is not read in its place.
     assert g.first_lines({"html": "<bad>", "htmlBody": "<p>Hi Dana,</p>"}) == []
     err = capsys.readouterr().err
-    assert "cannot parse html (AssertionError" in err
+    assert f"cannot parse html ({name}" in err
     assert err.rstrip().endswith("; allowed")
     # Markup past the first line is never read.
     assert g.first_lines({"htmlBody": "<p>Hi Dana,</p><bad>"}) == ["Hi Dana,"]

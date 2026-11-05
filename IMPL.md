@@ -15,7 +15,7 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 4. 🔄 #290 mutation (feat/mutmut): r4 Minors fixed (7c014d4), r5 Minors fixed (4bb7a24); r5
    reader's hand-mutant sweep of 0a757a8 decides the merge.
 5. 🔄 #295 phylax parser speed-up (perf/hook-parsers-dsa, rebased on main 11-05). r3 Minors
-   fixed in e351000; r4 Minors (stderr wording, _PIECES from _BREAKS) in the next commit: a parser error (NotImplementedError on 3.8, AssertionError on unpatched
+   fixed in e351000; r4 Minors (stderr wording, _PIECES from _BREAKS, blank-line reset test, both parse errors) in 53a33f5 and the commit after: a parser error (NotImplementedError on 3.8, AssertionError on unpatched
    3.10/3.11) is named on stderr and the plain body still checked; _BREAKS equals splitlines'
    boundaries (test); in-text stop test; all five hand mutants of those killed. body_gate verdict
    differential vs main: 0 of 240,420 differ (3.9-3.14). Next: round-4 reader, merge on green.
