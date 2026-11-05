@@ -487,9 +487,9 @@ def test_manifest_options_match_the_guard_and_default_off():
     # test_budget.py.
     others = {"restart_on_update", "require_subagent_model", "email_greeting"}
     guards = {k for k in options if k not in others and not k.startswith(("budget_", "email_"))}
-    # block_secrets and block_long_bodies live in git_checks.py too, tested in
-    # test_secret_guard.py and test_body_gate.py.
-    assert guards == {*ALL, "block_secrets", "block_long_bodies"}
+    # block_secrets, block_long_bodies and block_gh_implicit_repo live in git_checks.py too,
+    # tested in test_secret_guard.py, test_body_gate.py and test_gh_target.py.
+    assert guards == {*ALL, "block_secrets", "block_long_bodies", "block_gh_implicit_repo"}
     assert options["email_timezone"] == {
         **options["email_timezone"],
         "type": "string",
@@ -1048,6 +1048,7 @@ def test_a_folder_path_through_a_file_is_named(tmp_path):
         (COMMITS_MD, 2),
         ("block_secrets", 2),
         ("block_long_bodies", 2),
+        ("block_gh_implicit_repo", 2),
         (MAIN_CHECKOUT, 1),
     ],
 )
