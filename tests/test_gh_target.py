@@ -68,6 +68,29 @@ POSTS = [
     "gh issue create -t T -b B",
     "gh issue new -t T -b B",
     "gh issue comment 3 -b B",
+    "gh pr close 3 --comment B",
+    "gh issue close 3 -c B",
+    "gh pr reopen 3 -c B",
+    "gh pr edit 3 --add-label x",
+    "gh pr merge 3 --squash",
+    "gh issue edit 3 --add-label x",
+    "gh label create x",
+    "gh release create v1",
+    "gh workflow run ci.yml",
+    "gh run rerun 9",
+    "gh variable set X --body y",
+    "gh repo edit --description x",
+    "gh repo delete --yes",
+    "gh api repos/{owner}/{repo}/issues/3/comments -f body=hi",
+    "gh api -X PATCH repos/:owner/:repo/pulls/3 -f title=t",
+    # an argument that only looks like a named repo
+    'gh pr comment 3 -b "https://github.com/org/other/pull/9 is related"',
+    'gh pr comment 3 -b "-Rather not"',
+    "gh pr comment 3 -b https://github.com/org/other/pull/9",
+    'gh pr create -R "$UNSET_REPO" -t T -b B',
+    'gh pr create -R "" -t T -b B',
+    "GH_REPO=me/tool; gh pr create -t T -b B",  # set, never exported: gh does not see it
+    "(export GH_REPO=me/tool); gh pr create -t T -b B",
 ]
 
 
@@ -78,6 +101,11 @@ def test_a_fork_clone_with_an_upstream_remote_refuses_a_post_with_no_repo(tmp_pa
     why = refusal(command, repo)
     assert why and "org/tool" in why and "origin's me/tool" in why and "-R me/tool" in why
     assert "remote `upstream` comes first" in why
+
+
+def test_a_subcommand_this_check_cannot_know_is_refused(tmp_path):
+    repo = clone(tmp_path, {"origin": FORK, "upstream": PARENT})
+    assert refusal("gh $GROUP create -t T -b B", repo)
 
 
 @pytest.mark.parametrize(
@@ -91,12 +119,19 @@ def test_a_fork_clone_with_an_upstream_remote_refuses_a_post_with_no_repo(tmp_pa
         "GH_REPO=me/tool gh pr create -t T -b B",
         "env GH_REPO=me/tool gh pr create -t T -b B",
         "export GH_REPO=me/tool; gh pr create -t T -b B",
+        "GH_REPO=me/tool; export GH_REPO; gh pr create -t T -b B",
+        "gh repo edit me/tool --description x",
         "gh pr comment https://github.com/org/tool/pull/3 -b B",
         "gh issue comment https://github.com/org/tool/issues/3 -b B",
         "gh pr view 3",
         "gh pr list",
         "gh issue list",
         "gh repo view",
+        "gh run list",
+        "gh release download v1",
+        "gh api repos/{owner}/{repo}/issues",  # a read
+        "gh api -X GET repos/{owner}/{repo}/issues -f state=open",
+        "gh api repos/me/tool/issues/3/comments -f body=hi",  # names its repo
     ],
 )
 def test_a_named_repo_or_a_read_passes(tmp_path, command):
@@ -128,7 +163,13 @@ def test_an_empty_prefix_assignment_names_nothing(tmp_path):
         ({"origin": PARENT, "fork": FORK}, {}, False),  # a clone of the parent: origin first
         ({"a": FORK, "b": PARENT}, {}, True),  # no origin, no order between them
         ({"a": FORK, "b": "git@github.com:Me/Tool.git"}, {}, False),  # one repo, two spellings
-        ({"origin": FORK, "upstream": "https://gitlab.com/org/tool.git"}, {}, False),
+        # gh would skip a host it does not use, so would pick origin; read alike, it refuses
+        ({"origin": FORK, "upstream": "https://gitlab.com/org/tool.git"}, {}, True),
+        ({"origin": FORK, "Upstream": PARENT}, {}, True),  # gh ranks names lowercased
+        ({"Origin": PARENT, "fork": FORK}, {}, False),
+        ({"origin": "git@gh-me:me/tool.git", "upstream": "git@gh-me:org/tool.git"}, {}, True),
+        ({"origin": FORK, "upstream": "https://ghe.corp.example/org/tool.git"}, {}, True),
+        ({"origin": FORK, "upstream": PARENT}, {"upstream": "not-a-repo"}, True),
         ({"origin": "git@github.com:me/tool.git", "upstream": "ssh://git@github.com/ME/tool"},
          {}, False),
     ],
@@ -142,6 +183,12 @@ def test_a_remote_is_read_by_its_fetch_url(tmp_path):
     # gh names a remote's repo by where it fetches from; a push URL elsewhere does not count.
     repo = clone(tmp_path, {"origin": FORK, "upstream": PARENT}, push={"origin": PARENT})
     assert refusal("gh pr create -t T -b B", repo)
+
+
+def test_a_fetch_url_that_names_no_repo_falls_back_to_the_push_url(tmp_path):
+    repo = clone(tmp_path, {"origin": "/srv/mirror.git", "upstream": PARENT}, push={"origin": FORK})
+    why = refusal("gh pr create -t T -b B", repo)
+    assert why and "origin's me/tool" in why
 
 
 def test_remotes_of_several_repos_with_no_origin_say_so(tmp_path):
@@ -169,7 +216,7 @@ def test_the_guard_off_or_switched_off_in_the_repo_passes(tmp_path):
 # --- against gh itself ------------------------------------------------------------------------
 
 GH = shutil.which("gh")
-NAMES = ("upstream", "github", "origin", "fork", "mirror")
+NAMES = ("upstream", "github", "origin", "fork", "mirror")  # each drawn in one of three cases
 REPOS = ("me/tool", "org/tool", "Org/Tool", "other/tool")
 FORMS = (
     "https://github.com/{}.git",
@@ -223,7 +270,11 @@ def test_the_target_matches_gh_on_generated_remotes(monkeypatch, tmp_path):
     layouts = []
     for i in range(40):
         names = [n for n in NAMES if rng.random() < 0.5] or ["origin"]
-        remotes = {n: rng.choice(FORMS).format(rng.choice(REPOS)) for n in names}
+        names = [rng.choice((n, n.capitalize(), n.upper())) for n in names]
+        remotes: dict[str, str] = {n: rng.choice(FORMS).format(rng.choice(REPOS)) for n in names}
+        local = {n for n in names if rng.random() < 0.15}  # fetches from a path: push URL counts
+        for n in local:
+            remotes[n] = f"/srv/{n}.git"
         marks = {}
         if rng.random() < 0.4:
             marks[rng.choice(names)] = rng.choice(("base", *REPOS))
@@ -235,11 +286,12 @@ def test_the_target_matches_gh_on_generated_remotes(monkeypatch, tmp_path):
         for n, value in marks.items():
             _git(repo, "config", f"remote.{n}.gh-resolved", value)
         for n in names:
-            if rng.random() < 0.2:
+            if n in local or rng.random() < 0.2:
                 push = rng.choice(FORMS).format(rng.choice(REPOS))
                 _git(repo, "remote", "set-url", "--push", n, push)
-        target = git_checks.gh_target(repo, {})[0]
-        if target is not None:  # a tie among unranked remotes: gh's sort is not stable
+        target = git_checks.gh_target(repo)[0]
+        # A tie among unranked remotes (gh's sort is not stable), or a remote naming no repo.
+        if target is not None and not target.startswith("?"):
             layouts.append((repo, target, remotes, marks))
     with tempfile.TemporaryDirectory() as config, ThreadPoolExecutor(8) as pool:
         seen = list(pool.map(lambda lay: gh_base(lay[0], config), layouts))

@@ -48,8 +48,8 @@
     },
     "block_gh_implicit_repo": {
       "type": "boolean",
-      "title": "Block gh posts that would land on another repo",
-      "description": "Refuse gh pr/issue create, gh pr/issue comment and gh pr review that name no repo (-R, GH_REPO or an item URL) when gh would send them to a repo other than origin's, such as a fork's parent through an upstream remote or a default set on it. Fires for subagents too.",
+      "title": "Block gh writes that would land on another repo",
+      "description": "Refuse a gh command that changes a repo (pr and issue create, comment, close, edit, merge; label, release, workflow, run, cache and variable writes; gh repo edit or delete; gh api writes to {owner}/{repo}) and names none (-R, an exported GH_REPO, or an item URL or OWNER/NAME first) when gh would pick a repo other than origin's, such as a fork's parent through an upstream remote. Fires for subagents too.",
       "default": false
     },
     "require_subagent_model": {
