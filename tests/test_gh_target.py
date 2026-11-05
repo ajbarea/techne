@@ -105,6 +105,9 @@ POSTS = [
     "gh project unlink 1",
     "gh label create bug -d -Rme/tool",  # -Rme/tool is the description
     "gh release create v1 --notes -Rme/tool",
+    "gh pr close 3 -c -Rme/tool",  # -Rme/tool is the closing comment
+    "gh prc -t T -b B",  # one word: an alias for any subcommand
+    "gh api -X GET -X DELETE repos/{owner}/{repo}/labels/x",  # gh takes the last -X
     "gh repo rename new-name",
     "gh repo archive --yes",
     "gh repo deploy-key add key.pub",
@@ -261,6 +264,24 @@ def test_a_fetch_url_that_names_no_repo_falls_back_to_the_push_url(tmp_path):
     repo = clone(tmp_path, {"origin": "/srv/mirror.git", "upstream": PARENT}, push={"origin": FORK})
     why = refusal("gh pr create -t T -b B", repo)
     assert why and "origin's me/tool" in why
+
+
+def test_a_file_url_names_no_repo_so_the_push_url_counts(tmp_path):
+    repo = clone(
+        tmp_path, {"origin": "file:///srv/m.git", "upstream": PARENT}, push={"origin": FORK}
+    )
+    why = refusal("gh pr create -t T -b B", repo)
+    assert why and "origin's me/tool" in why
+
+
+def test_remotes_on_two_hosts_offer_only_the_named_repo(tmp_path):
+    # gh drops a host before it reads a default, so `gh repo set-default` would not settle it
+    repo = clone(tmp_path, {"origin": "https://ghe.corp.example/me/tool.git", "public": PARENT})
+    why = refusal("gh pr create -t T -b B", repo)
+    assert why and "-R ghe.corp.example/me/tool" in why and "set-default" not in why
+    (tmp_path / "one").mkdir()
+    one = clone(tmp_path / "one", {"origin": FORK, "upstream": PARENT})
+    assert "set-default me/tool" in (refusal("gh pr create -t T -b B", one) or "")
 
 
 def test_remotes_of_several_repos_with_no_origin_say_so(tmp_path):
