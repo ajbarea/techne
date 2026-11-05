@@ -244,7 +244,7 @@ guidance below is what a deck adds to it. To check a script, run
   its case part by part ([Throughline](https://www.throughlinegroup.com/2013/10/03/five-times-to-take-questions-from-your-audience/)),
   and the title slide's invitation still lets anyone interrupt.
   An optional discussion prompt lives behind the backup divider, for a quiet
-  Q&A: a dark slide with one short personal question anyone can answer
+  Q&A: a plain slide with one short personal question anyone can answer
   without the paper ("What's one thing you would never let an AI do for
   you?"), and a muted line of example answers that gets the room started
   ("Send a message as you? Spend your money? Grade your work?").
@@ -328,7 +328,10 @@ repetition; do not overrun.
 ## The script
 
 The speaker notes hold the script: the words the presenter says out loud on
-each slide, written to be read from like a teleprompter. It supports the
+each slide, written to be read from like a teleprompter. A presenter who talks
+from the slides rather than reading can keep three glanceable bullets per slide
+in the notes (the points and numbers that must be said) and the full script in a
+file beside the deck, one section per slide, which is the one to time. It supports the
 slides and never replaces them: a presenter giving the talk at a moment's
 notice may not read it, so every point the talk needs is on the slide. A
 presenter who knows the material may never open it; one recording a video
@@ -374,7 +377,8 @@ cp -r <skill-dir>/templates/web <talk-dir>
 | File | Holds |
 |---|---|
 | `index.html` | One `<section>` per slide: title, agenda, what we did and why you should care (`data-contribution`), claim with a figure that builds, concrete case, quick bet, method steps, related-work map, timeline, limits, conclusion (`data-conclusion`), Thank you, backup divider, backup discussion prompt, backup table. Drop the layouts the talk does not need; copy one to add a slide. |
-| `deck.css` | Colour tokens (every text colour clears 7:1 on its surface; figure marks use the colour-blind-safe Okabe-Ito hues), layouts, the phone layout, and the reduced-motion rule. |
+| `deck.css` | The look, "the forge": every slide light (dark slides wash out under a lit room's lights), a cool marble ground, a classical display face for titles and a hyperlegible sans for text. Four colour roles keep one meaning on every slide: gold for the speaker's own work, vermilion for failure or risk, bluish green for the fix, sky blue for context. Every text colour clears 7:1, and the role colours part by lightness, so they read in greyscale and under colour-vision deficiency. Then layouts, the phone layout, and the reduced-motion rule. |
+| `fonts/` | Marcellus and Atkinson Hyperlegible Next (SIL Open Font License), served with the deck so it looks the same offline. |
 | `deck.js` | Builds what comes from data, then starts reveal.js. |
 | `data/deck-data.js` | Every figure and every related-work entry the deck shows. |
 | `vendor/reveal/` | reveal.js 6.0.2 (MIT), so the deck opens with no network. |
@@ -417,7 +421,7 @@ and pans sideways. Look at the phone sheets; `check` warns on text under 12px.
   different things (comments, then pairs, then examples), a Sankey's shared
   widths are false. Draw a flow in the CONSORT style, a box per stage with its
   count and its reasons. Bars are to scale within a stage only, and the final
-  count takes the accent colour. CONSORT recommends a flow diagram and
+  count is set apart (ink, or gold when it is the speaker's own result). CONSORT recommends a flow diagram and
   prescribes no format ([CONSORT 2025](https://doi.org/10.1136/bmj-2024-081123)).
   The generator places every step of the source in a stage, or fails.
 - **Parts of one estimate: a forest plot on one scale.** A dot and its interval
@@ -444,8 +448,12 @@ matters. It is never decoration.
   idea at the presenter's pace. Learner-paced segments improved transfer in
   three of three tests ([Mayer, segmenting
   principle](https://www.cambridge.org/core/books/multimedia-learning/segmenting-principle/37240877DDA0362355ADB39936027982)).
+- **Reveal in the order the speaker talks.** Each click shows what the script
+  says next: a talk that goes column by column builds column by column (a
+  group, its cases and its guard), not one row across every column at once.
+  Set `data-fragment-index` when the order on the page differs from it.
 - **Point at the mark.** Bring in the one dot, bar or arrow the claim is about
-  last, in the accent colour. Cues that point at the essential material help
+  last, in ink or the colour of its role. Cues that point at the essential material help
   learning ([signaling](https://u.osu.edu/multimedialearning/?p=88)); the cue does the work, not the movement.
 - **Move no more than the eye can follow.** Viewers track about three to four
   moving objects as a set, and only one or two when each must keep its identity.

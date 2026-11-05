@@ -15,24 +15,26 @@
 <div class="reveal">
 <div class="slides">
 
-<section class="title-slide dark" data-background-color="#14181f">
-  <h1>[Talk title: the claim in plain words]</h1>
-  <p class="muted">[Presenter name] · [Affiliation] · [Venue, date]</p>
+<section class="title-slide">
+  <div class="title-text">
+    <h1>[Talk title: the claim in plain words]</h1>
+    <p class="subtitle">[One-line subtitle]</p>
+    <p class="byline"><b>[Presenter name]</b><span>[Venue]</span><span>[Affiliation]</span><span>[Month day, year]</span></p>
+  </div>
+  <figure class="mark-figure"><p class="monogram" aria-hidden="true">[AB]</p></figure>
   <aside class="notes">[Hi, I'm ... One sentence on why this matters to the people in this room.]</aside>
 </section>
 
 <section>
-  <span class="kicker">Today</span>
   <h2>[What we will cover]</h2>
   <ol class="agenda" data-auto></ol>
   <aside class="notes">[Here's the plan for the next N minutes. Name each part in the words the rail at the top will show.]</aside>
 </section>
 
 <section data-contribution>
-  <span class="kicker">What we did</span>
   <h2>[What we built, measured or found, with its number: one plain sentence]</h2>
   <div class="cards" style="--n:2">
-    <div class="card"><b>[What we did]</b><p>[The artifact or the result, with its number.]</p></div>
+    <div class="card ours"><b>[What we did]</b><p>[The artifact or the result, with its number.]</p></div>
     <div class="card"><b>[Why you should care]</b><p>[The stakes for this room, in their terms.]</p></div>
   </div>
   <aside class="notes">[Here's what we did: the claim and its number. Here's why you should care: the stakes for this room, said once, plainly. Each later part ties back to it.]</aside>
@@ -47,7 +49,7 @@
       <desc id="f1-desc">[Before: what goes wrong. After: what the idea changes.]</desc>
       <defs>
         <marker id="arrowhead" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-          <path d="M0,0 L10,5 L0,10 z" fill="#0072b2"/>
+          <path d="M0,0 L10,5 L0,10 z" fill="#1b567d"/>
         </marker>
       </defs>
       <g>
@@ -94,7 +96,7 @@
       <div class="card"><b>[Sometimes]</b></div>
       <div class="card"><b>[Most of the time]</b></div>
     </div>
-    <div class="dots fragment" data-dots="results.failShare" data-total="100"></div>
+    <div class="dots risk fragment" data-dots="results.failShare" data-total="100"></div>
   </div>
   <p class="footnote">[Each dot: one in a hundred cases. Filled: it went wrong.]</p>
   <aside class="notes">[Ask for hands on each option before revealing the dots. Then say the answer once, in words.]</aside>
@@ -139,28 +141,37 @@
 </section>
 
 <section data-conclusion>
-  <span class="kicker">In short</span>
   <h2>[The main point again, in fresh words: one full sentence]</h2>
-  <div class="cards" style="--n:3">
-    <div class="card"><b>[Key result]</b><p>[One the talk showed, in one plain line.]</p></div>
-    <div class="card"><b>[Key result]</b><p>[One the talk showed, in one plain line.]</p></div>
-    <div class="card limit"><b>[Still open]</b><p>[From the work's own limits or next steps.]</p></div>
+  <div class="recap" style="--n:3">
+    <div class="tile ours"><p class="num">[Number]</p><p>[A key result the talk showed, in one plain line]</p></div>
+    <div class="tile"><p class="num">[Number]</p><p>[A key result the talk showed, in one plain line]</p></div>
+    <div class="tile"><p class="num">[Number]</p><p>[A key result the talk showed, in one plain line]</p></div>
+  </div>
+  <div class="open">
+    <p class="open-h">Open problems</p>
+    <ul>
+      <li>[From the work's own limits or next steps]</li>
+    </ul>
   </div>
   <aside class="notes">[So, the main point once more, in new words. The two to four results, one sentence each, nothing new. The one question still open. That's my talk.]</aside>
 </section>
 
-<section class="dark" data-background-color="#14181f">
-  <h2>Thank you</h2>
-  <p class="muted">[Presenter name] · [email] · [deck URL]</p>
+<section class="closing">
+  <figure class="mark-figure"><p class="monogram" aria-hidden="true">[AB]</p></figure>
+  <div class="close-text">
+    <h2>Thank you</h2>
+    <p class="asks">I'm glad to take questions.</p>
+    <p class="contact"><b>[Presenter name]</b><br>[Affiliation]</p>
+    <p class="contact">[email]<br>[deck URL]</p>
+  </div>
   <aside class="notes">[Thank you. I'm glad to take questions.]</aside>
 </section>
 
-<section class="dark" data-background-color="#14181f">
+<section class="divider">
   <h2>Backup slides</h2>
 </section>
 
-<section class="discussion dark" data-background-color="#14181f">
-  <span class="kicker">Discussion</span>
+<section class="discussion">
   <h2>[One short personal question anyone can answer?]</h2>
   <p class="muted">[Example answers to get the room started?]</p>
   <aside class="notes">[Read the question. Offer one example answer. Close with the sentence that ties it back to the talk.]</aside>
