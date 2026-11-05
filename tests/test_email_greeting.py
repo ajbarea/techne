@@ -245,7 +245,7 @@ _PIECES = (
     "</template>", "<!-- Hi -->", "Good morning,", "Hi Dana,", "Dear all", "x", " ", "  ",
     "\n", "\r", "\r\n", "\u2028", "\u200b", "\ufeff", "\u200e", "&amp;", "&#8203;", "&nbsp;",
     "&#x200B;", "&", "<", "Ünïcödé", "\t", _LONG_DEC, _LONG_HEX, "<!-->", "<!--->", "<!--",
-    "-->", "&#10;", "<![CDATA[Hi]]>", " " * 9000,
+    "-->", "&#10;", "<![CDATA[Hi]]>", " " * 9000, "\x1f", "\x0b", "\x1c", "\x85",
 )  # fmt: skip
 
 
@@ -298,6 +298,50 @@ def test_html_opening_stops_at_the_first_line(monkeypatch):
     raw = "<div><p>Good morning,</p>" + "<p>Line of the message.</p>" * 2000 + "</div>"
     assert g.html_opening(raw) == "Good morning,"
     assert seen == ["Good morning,"]
+
+
+def test_html_opening_stops_inside_a_run_of_text(monkeypatch):
+    # The first line ends at a break inside text, and inline tags follow: no block tag ends it.
+    seen: list[str] = []
+    handle_data = g._Text.handle_data
+
+    def counting(self, data):
+        seen.append(data)
+        handle_data(self, data)
+
+    monkeypatch.setattr(g._Text, "handle_data", counting)
+    raw = "Good morning,\nrest" + "<span>x</span>" * 2000
+    assert g.html_opening(raw) == "Good morning,"
+    assert seen == ["Good morning,\nrest"]
+
+
+def test_breaks_are_exactly_the_line_boundaries():
+    # A character in _BREAKS that splitlines does not split on would end the line early.
+    import sys
+
+    boundaries = {
+        chr(c) for c in range(sys.maxunicode + 1) if len(("a" + chr(c) + "b").splitlines()) > 1
+    }
+    assert set(g._BREAKS) == boundaries
+
+
+def test_html_body_the_parser_rejects(monkeypatch, capsys):
+    # Older CPython parsers raise on some markup (`<![foo[x]]>`); stand-in: a tag that raises.
+    start = g._Text.handle_starttag
+
+    def rejecting(self, tag, attrs):
+        if tag == "bad":
+            raise AssertionError("unknown status keyword")
+        start(self, tag, attrs)
+
+    monkeypatch.setattr(g._Text, "handle_starttag", rejecting)
+    lines = g.first_lines({"body": "Good morning,", "htmlBody": "<bad><p>Hi Dana,</p>"})
+    assert lines == ["Good morning,"]
+    assert "cannot parse htmlBody (AssertionError" in capsys.readouterr().err
+    # The first HTML field present is the body sent; a later one is not read in its place.
+    assert g.first_lines({"html": "<bad>", "htmlBody": "<p>Hi Dana,</p>"}) == []
+    # Markup past the first line is never read.
+    assert g.first_lines({"htmlBody": "<p>Hi Dana,</p><bad>"}) == ["Hi Dana,"]
 
 
 def test_html_opening_flushes_text_the_parser_holds_at_the_end():

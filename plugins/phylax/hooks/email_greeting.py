@@ -126,7 +126,9 @@ class _FirstLine(_Text):
 
 
 def html_opening(raw: str) -> str | None:
-    """opening(visible_text(RAW)), parsing only as far as the first non-empty line."""
+    """opening(visible_text(RAW)), parsing only as far as the first non-empty line. Markup the
+    parser rejects after that line is never read, so the line is returned where the full parse
+    would raise (see _PARSE_ERRORS)."""
     parser = _FirstLine()
     try:
         parser.feed(raw)
@@ -170,6 +172,11 @@ def opening(text: str) -> str | None:
     return None
 
 
+# What html.parser raises on markup it rejects, such as `<![foo[x]]>`, in CPython releases
+# before the 2025 parser fixes: NotImplementedError through 3.9, AssertionError from 3.10.
+_PARSE_ERRORS = (AssertionError, NotImplementedError)
+
+
 def first_lines(tool_input: dict) -> list[str]:
     """The opening line of each body the call carries: plain text and HTML's visible text.
 
@@ -180,7 +187,15 @@ def first_lines(tool_input: dict) -> list[str]:
         for key in keys:
             raw = tool_input.get(key)
             if isinstance(raw, str) and raw.strip():
-                line = read(raw)
+                try:
+                    line = read(raw)
+                except _PARSE_ERRORS as exc:
+                    print(
+                        f"phylax email_greeting: cannot parse {key} ({type(exc).__name__}: "
+                        f"{exc}); checked the other body only",
+                        file=sys.stderr,
+                    )
+                    break
                 if line:
                     found.append(line)
                 break
