@@ -1,5 +1,5 @@
-"""phylax's block_gh_implicit_repo guard: a gh post that names no repo is refused when gh
-would send it to a repo other than origin's."""
+"""phylax's block_gh_implicit_repo guard: a gh post that names no repo is refused unless every
+remote of the clone names one repo."""
 
 from __future__ import annotations
 
@@ -108,6 +108,8 @@ POSTS = [
     "gh pr close 3 -c -Rme/tool",  # -Rme/tool is the closing comment
     "gh prc -t T -b B",  # one word: an alias for any subcommand
     "gh api -X GET -X DELETE repos/{owner}/{repo}/labels/x",  # gh takes the last -X
+    "gh pr $ACTION 3 -c -Rme/tool",  # with ACTION=close, -Rme/tool is the comment
+    "gh prc -c -Rme/tool",
     "gh repo rename new-name",
     "gh repo archive --yes",
     "gh repo deploy-key add key.pub",
@@ -125,8 +127,8 @@ def test_a_fork_clone_with_an_upstream_remote_refuses_a_post_with_no_repo(tmp_pa
     # gh ranks `upstream` before `origin`, so the post would land on the parent.
     repo = clone(tmp_path, {"origin": FORK, "upstream": PARENT})
     why = refusal(command, repo)
-    assert why and "org/tool" in why and "origin's me/tool" in why and "-R me/tool" in why
-    assert "remote `upstream` comes first" in why
+    assert why and "name github.com/me/tool, github.com/org/tool" in why
+    assert "add `-R github.com/me/tool`" in why
 
 
 def test_a_subcommand_this_check_cannot_know_is_refused(tmp_path):
@@ -159,6 +161,7 @@ def test_a_subcommand_this_check_cannot_know_is_refused(tmp_path):
         "gh project link 1 -R me/tool",
         "gh issue create -R=me/tool -t T -b B",  # pflag drops the = of a joined shorthand
         "gh pr merge 3 -m -R me/tool",  # -m is --merge here, not a value
+        "gh pr review 3 -c -R me/tool -b B",  # -c is --comment here, not a value
         "gh pr create --help",
         "gh pr create -h",
         "gh pr help create",
@@ -211,83 +214,72 @@ def test_an_empty_prefix_assignment_names_nothing(tmp_path):
     ("remotes", "marks", "refused"),
     [
         ({"origin": FORK}, {}, False),  # one remote: gh uses it
-        ({"origin": FORK, "upstream": PARENT}, {"upstream": "base"}, True),  # gh repo fork --clone
-        ({"origin": FORK, "upstream": PARENT}, {"origin": "base"}, False),  # set-default origin
-        ({"origin": FORK, "upstream": PARENT}, {"upstream": "me/tool"}, False),
-        ({"origin": FORK, "upstream": PARENT}, {"upstream": "ME/Tool"}, False),  # any case
-        ({"origin": FORK, "upstream": "https://www.github.com/org/tool"}, {}, True),
+        ({"origin": FORK}, {"origin": "base"}, False),
+        ({"origin": FORK}, {"origin": "ME/Tool"}, False),  # a default naming its own repo
         ({"origin": FORK}, {"origin": "org/tool"}, True),  # a default on the parent
-        ({"origin": FORK, "github": PARENT}, {}, True),
-        ({"origin": PARENT, "fork": FORK}, {}, False),  # a clone of the parent: origin first
-        ({"a": FORK, "b": PARENT}, {}, True),  # no origin, no order between them
+        ({"origin": FORK}, {"origin": "not-a-repo"}, True),
+        ({"origin": FORK, "upstream": PARENT}, {"upstream": "base"}, True),  # gh repo fork --clone
+        # gh secret, variable and project ignore a default, so it never settles two repos
+        ({"origin": FORK, "upstream": PARENT}, {"origin": "base"}, True),
+        ({"origin": FORK, "upstream": PARENT}, {"upstream": "me/tool"}, True),
+        ({"origin": PARENT, "fork": FORK}, {}, True),  # a clone of the parent with a fork remote
+        ({"Origin": PARENT, "fork": FORK}, {}, True),
+        ({"a": FORK, "b": PARENT}, {}, True),
         ({"a": FORK, "b": "git@github.com:Me/Tool.git"}, {}, False),  # one repo, two spellings
-        # upstream ranks first, and sits on a host gh may use
-        ({"origin": FORK, "upstream": "https://gitlab.com/org/tool.git"}, {}, True),
-        ({"origin": FORK, "Upstream": PARENT}, {}, True),  # gh ranks names lowercased
-        ({"Origin": PARENT, "fork": FORK}, {}, False),
-        ({"origin": "git@gh-me:me/tool.git", "upstream": "git@gh-me:org/tool.git"}, {}, True),
-        ({"origin": FORK, "upstream": "https://ghe.corp.example/org/tool.git"}, {}, True),
-        # one OWNER/NAME on two hosts is two repos
-        ({"origin": "https://ghe.corp.example/org/tool.git", "upstream": PARENT}, {}, True),
-        ({"origin": PARENT, "upstream": "https://ghe.corp.example/org/tool.git"}, {}, True),
-        # a default named OWNER/NAME takes its remote's host, as gh's BaseRepo does
-        ({"origin": "https://ghe.corp.example/me/tool.git",
-          "upstream": "https://ghe.corp.example/org/tool.git"}, {"origin": "me/tool"}, False),
-        # gh drops the remotes on a host it is not signed in to (or not GH_HOST) before it
-        # ranks them, so origin first on one host of two may not be gh's pick
-        ({"origin": "https://gitlab.com/me/tool.git", "public": PARENT}, {}, True),
-        ({"origin": FORK, "corp": "https://ghe.corp.example/org/tool.git"}, {}, True),
-        ({"origin": "https://ghe.corp.example/me/tool.git", "public": PARENT}, {}, True),
-        ({"origin": "https://ghe.corp.example/org/tool.git", "upstream": PARENT},
-         {"origin": "org/tool"}, True),
-        # gh drops a remote whose path is not OWNER/NAME
-        ({"origin": "https://gitlab.com/grp/sub/tool.git", "mirror": PARENT}, {}, True),
-        # an ssh alias reads as a host of its own: refused, the safe side
-        ({"origin": "git@gh-me:me/tool.git", "upstream": PARENT}, {"origin": "base"}, True),
-        ({"origin": FORK, "upstream": PARENT}, {"upstream": "not-a-repo"}, True),
+        ({"origin": FORK, "github": "https://www.github.com/me/tool"}, {}, False),
         ({"origin": "git@github.com:me/tool.git", "upstream": "ssh://git@github.com/ME/tool"},
          {}, False),
+        # gh skips a local path or file:// remote
+        ({"origin": FORK, "backup": "/srv/b.git"}, {}, False),
+        ({"origin": FORK, "backup": "file:///srv/b.git"}, {}, False),
+        # a URL with a host but no OWNER/NAME, or one this check does not parse, could be any
+        ({"origin": FORK, "odd": "https://github.com/x/me/tool.git"}, {}, True),
+        ({"origin": "https://github.com/x/me/tool.git", "zzz": PARENT}, {}, True),
+        ({"origin": "https://gitlab.com/me/tool.git", "zzz": "git@github.com://org/tool"},
+         {}, True),
+        ({"origin": "https://gitlab.com/grp/sub/tool.git"}, {}, False),  # its only remote
+        # one OWNER/NAME on two hosts is two repos
+        ({"origin": "https://ghe.corp.example/org/tool.git", "upstream": PARENT}, {}, True),
+        ({"origin": "https://ghe.corp.example/me/tool.git"}, {"origin": "me/tool"}, False),
+        # gh resolves an ssh host through ssh config, an https one as written
+        ({"origin": "https://corp/me/tool.git", "zzz": "git@corp:me/tool.git"}, {}, True),
+        ({"origin": "git@gh-me:me/tool.git", "upstream": "git@gh-me:org/tool.git"}, {}, True),
+        ({"origin": FORK, "upstream": PARENT}, {"upstream": "not-a-repo"}, True),
     ],
 )  # fmt: skip
-def test_the_refusal_follows_the_repo_gh_would_pick(tmp_path, remotes, marks, refused):
+def test_the_guard_passes_only_a_clone_of_one_repo(tmp_path, remotes, marks, refused):
     repo = clone(tmp_path, remotes, marks)
     assert bool(refusal("gh pr create -t T -b B", repo)) is refused
 
 
 def test_a_remote_is_read_by_its_fetch_url(tmp_path):
     # gh names a remote's repo by where it fetches from; a push URL elsewhere does not count.
-    repo = clone(tmp_path, {"origin": FORK, "upstream": PARENT}, push={"origin": PARENT})
-    assert refusal("gh pr create -t T -b B", repo)
+    repo = clone(tmp_path, {"origin": FORK}, push={"origin": PARENT})
+    assert refusal("gh pr create -t T -b B", repo) is None
 
 
-def test_a_fetch_url_that_names_no_repo_falls_back_to_the_push_url(tmp_path):
-    repo = clone(tmp_path, {"origin": "/srv/mirror.git", "upstream": PARENT}, push={"origin": FORK})
+@pytest.mark.parametrize("fetch", ["/srv/mirror.git", "file:///srv/m.git"])
+def test_a_local_fetch_url_falls_back_to_the_push_url(tmp_path, fetch):
+    repo = clone(tmp_path, {"origin": fetch, "upstream": PARENT}, push={"origin": FORK})
     why = refusal("gh pr create -t T -b B", repo)
-    assert why and "origin's me/tool" in why
+    assert why and "github.com/me/tool, github.com/org/tool" in why
 
 
-def test_a_file_url_names_no_repo_so_the_push_url_counts(tmp_path):
-    repo = clone(
-        tmp_path, {"origin": "file:///srv/m.git", "upstream": PARENT}, push={"origin": FORK}
-    )
-    why = refusal("gh pr create -t T -b B", repo)
-    assert why and "origin's me/tool" in why
-
-
-def test_remotes_on_two_hosts_offer_only_the_named_repo(tmp_path):
-    # gh drops a host before it reads a default, so `gh repo set-default` would not settle it
+def test_the_refusal_names_the_host_and_never_offers_a_default(tmp_path):
+    # gh reads a bare OWNER/NAME on its default host, and some commands ignore a default
     repo = clone(tmp_path, {"origin": "https://ghe.corp.example/me/tool.git", "public": PARENT})
     why = refusal("gh pr create -t T -b B", repo)
-    assert why and "-R ghe.corp.example/me/tool" in why and "set-default" not in why
-    (tmp_path / "one").mkdir()
-    one = clone(tmp_path / "one", {"origin": FORK, "upstream": PARENT})
-    assert "set-default me/tool" in (refusal("gh pr create -t T -b B", one) or "")
+    assert why and "add `-R ghe.corp.example/me/tool`" in why and "set-default me" not in why
+    (tmp_path / "alias").mkdir()
+    alias = clone(tmp_path / "alias", {"origin": "git@gh-me:me/tool.git", "upstream": PARENT})
+    assert "add `-R me/tool`" in (refusal("gh pr create -t T -b B", alias) or "")
 
 
 def test_remotes_of_several_repos_with_no_origin_say_so(tmp_path):
-    repo = clone(tmp_path, {"a": FORK, "b": PARENT})
+    repo = clone(tmp_path, {"a": FORK, "b": "https://github.com/x/y/z.git"})
     why = refusal("gh pr create -t T -b B", repo)
-    assert why and "pick from me/tool, org/tool" in why and "none is gh's default" in why
+    assert why and "remote `b` (a URL it cannot read)" in why
+    assert "add `-R HOST/OWNER/NAME`" in why
 
 
 def test_the_check_follows_cd_into_the_clone(tmp_path):
@@ -317,12 +309,17 @@ FORMS = (
     "ssh://git@github.com/{}",
     "https://www.github.com/{}",
 )
-QUERY_RE = re.compile(r'"owner":"([^"]*)","repo":"([^"]*)"')
+# What gh logs for the repo it resolved: GraphQL variables (gh issue list, which reads a
+# `gh repo set-default` mark) or a REST path (gh variable list, which does not).
+QUERIES = {
+    ("issue", "list", "-L", "1"): re.compile(r'"owner":"([^"]*)","repo":"([^"]*)"'),
+    ("variable", "list"): re.compile(r"Request to https://\S+?/repos/([^/]+)/([^/?]+)/actions/"),
+}
 
 
-def gh_base(repo: pathlib.Path, config: str) -> str | None:
-    """The repo gh itself resolves in REPO, read from its logged request. A dead proxy and a
-    fake token keep it off the network; it is stopped once the request is logged."""
+def gh_base(repo: pathlib.Path, config: str, args: tuple[str, ...]) -> str | None:
+    """The repo gh itself resolves in REPO for ARGS, read from its logged request. A dead proxy
+    and a fake token keep it off the network; it is stopped once the request is logged."""
     env = {
         **{k: v for k, v in os.environ.items() if not k.startswith("GH_")},
         "GH_CONFIG_DIR": config,
@@ -333,7 +330,7 @@ def gh_base(repo: pathlib.Path, config: str) -> str | None:
         "NO_PROXY": "",
     }
     proc = subprocess.Popen(
-        [str(GH), "issue", "list", "-L", "1"],
+        [str(GH), *args],
         cwd=repo,
         env=env,
         stdin=subprocess.DEVNULL,
@@ -344,7 +341,7 @@ def gh_base(repo: pathlib.Path, config: str) -> str | None:
     try:
         assert proc.stderr is not None
         for line in proc.stderr:
-            m = QUERY_RE.search(line)
+            m = QUERIES[args].search(line)
             if m:
                 return f"{m.group(1)}/{m.group(2)}"
         return None
@@ -354,23 +351,25 @@ def gh_base(repo: pathlib.Path, config: str) -> str | None:
 
 
 @pytest.mark.skipif(GH is None, reason="no gh")
-def test_the_target_matches_gh_on_generated_remotes(monkeypatch, tmp_path):
-    # Generated remote layouts, URL spellings and set-default marks: the repo the guard says gh
-    # would use is the one gh uses, run without a terminal as Claude runs it.
+def test_whenever_the_guard_passes_gh_acts_on_that_repo(monkeypatch, tmp_path):
+    # Generated remote layouts, URL spellings, local remotes and set-default marks: whenever
+    # the guard lets a command that names no repo through, gh, run without a terminal as
+    # Claude runs it, acts on the one repo the guard found, through both of its resolvers.
     (git_checks,) = load_phylax_hooks(monkeypatch, "git_checks")
 
     rng = random.Random(301)
-    layouts = []
-    for i in range(40):
+    passed, refused = [], 0
+    for i in range(60):
         names = [n for n in NAMES if rng.random() < 0.5] or ["origin"]
         names = [rng.choice((n, n.capitalize(), n.upper())) for n in names]
-        remotes: dict[str, str] = {n: rng.choice(FORMS).format(rng.choice(REPOS)) for n in names}
-        local = {n for n in names if rng.random() < 0.15}  # fetches from a path: push URL counts
+        pool = REPOS[:1] if i % 2 else REPOS  # half the layouts are clones of one repo
+        remotes: dict[str, str] = {n: rng.choice(FORMS).format(rng.choice(pool)) for n in names}
+        local = {n for n in names if rng.random() < 0.15}  # fetches from a path
         for n in local:
             remotes[n] = f"/srv/{n}.git"
         marks = {}
         if rng.random() < 0.4:
-            marks[rng.choice(names)] = rng.choice(("base", *REPOS))
+            marks[rng.choice(names)] = rng.choice(("base", *pool))
         repo = tmp_path / f"r{i}"
         repo.mkdir()
         _git(repo, "init", "-q")
@@ -380,18 +379,22 @@ def test_the_target_matches_gh_on_generated_remotes(monkeypatch, tmp_path):
             _git(repo, "config", f"remote.{n}.gh-resolved", value)
         for n in names:
             if n in local or rng.random() < 0.2:
-                push = rng.choice(FORMS).format(rng.choice(REPOS))
+                push = rng.choice(FORMS).format(rng.choice(pool))
                 _git(repo, "remote", "set-url", "--push", n, push)
-        target = git_checks.gh_target(repo)[0]
-        # A tie among unranked remotes (gh's sort is not stable), or a remote naming no repo.
-        if target is not None and not target.startswith("?"):
-            layouts.append((repo, target, remotes, marks))
+        found = git_checks.implicit_repo(repo)[0]
+        if found:
+            passed.append((repo, found.partition("/")[2], remotes, marks))
+        else:
+            refused += found is None
     with tempfile.TemporaryDirectory() as config, ThreadPoolExecutor(8) as pool:
-        seen = list(pool.map(lambda lay: gh_base(lay[0], config), layouts))
-    assert all(seen), "gh logged no request"
+        seen = {
+            args: list(pool.map(lambda lay, a=args: gh_base(lay[0], config, a), passed))
+            for args in QUERIES
+        }
     wrong = [
-        (r, m, t, s)
-        for (_, t, r, m), s in zip(layouts, seen, strict=True)
-        if git_checks.shown(t).lower() != (s or "").lower()
+        (r, m, want, args, s)
+        for args, got in seen.items()
+        for (_, want, r, m), s in zip(passed, got, strict=True)
+        if (s or "").lower() != want
     ]
-    assert not wrong and len(layouts) >= 30, wrong
+    assert not wrong and len(passed) >= 15 and refused >= 15, (len(passed), refused, wrong)

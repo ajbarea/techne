@@ -49,7 +49,7 @@
     "block_gh_implicit_repo": {
       "type": "boolean",
       "title": "Block gh writes that would land on another repo",
-      "description": "Refuse a gh command that may change a repo (any gh group that can act on the resolved repo, its reads excepted, and gh api writes to {owner}/{repo}) and names none (-R, GH_REPO, or an item URL first) when gh could pick a repo other than origin's: a fork's parent through an upstream remote, a default set on it, or a remote on another host. Fires for subagents too.",
+      "description": "Refuse a gh command that may change a repo (any gh group that can act on the resolved repo, its reads excepted, and gh api writes to {owner}/{repo}) and names none (-R, GH_REPO, or an item URL first) unless every remote of the clone names one repo, so a fork clone's upstream remote or a default set on the parent cannot take the write. Fires for subagents too.",
       "default": false
     },
     "require_subagent_model": {

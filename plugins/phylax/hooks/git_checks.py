@@ -147,10 +147,9 @@ GH_REPO_VALUE_FLAGS = {
     ("release", "create"): {"-n", "--notes", "--notes-file", "--target", "--notes-start-tag"},
     ("release", "edit"): {"-n", "--notes", "--notes-file", "--target", "--tag"},
 }  # fmt: skip
+GH_ANY_VALUES = set().union(*GH_REPO_VALUE_FLAGS.values())
 # `gh secret` and `gh variable` act on an organization or the user with these, not on a repo.
 GH_NOT_REPO_FLAGS = {"-o", "--org", "-u", "--user"}
-# gh's order for its remotes (BaseRepoFunc, by lowercased name): these first, then the rest.
-GH_REMOTE_ORDER = ("upstream", "github", "origin")
 # A repo as -R or GH_REPO names it: [HOST/]OWNER/NAME, or its URL.
 GH_REPO_RE = re.compile(r"^(?:https?://)?(?:[\w.-]+/)?[\w.-]+/[\w.-]+?(?:\.git)?/?$")
 OWNER_NAME_RE = re.compile(r"^[\w.-]+/[\w.-]+$")
@@ -161,6 +160,8 @@ GH_API_PLACEHOLDER_RE = re.compile(r"\{owner\}|\{repo\}|:owner\b|:repo\b")
 GH_API_FIELDS = {"-f", "--raw-field", "-F", "--field", "--input"}
 SCHEME_URL_RE = re.compile(r"^[A-Za-z][\w+.-]*://(?:[^@/]*@)?([^/:]+)(?::\d*)?/(.*)$")
 SCP_URL_RE = re.compile(r"^(?:[^@/:]*@)?([^/:]+):(?!//)(.*)$")
+# A remote URL that is a local path or file://, which gh skips.
+LOCAL_URL_RE = re.compile(r"^(?:[/.~]|file:|[A-Za-z]:[\\/])", re.IGNORECASE)
 ADD_INTERACTIVE = {"-p", "--patch", "-i", "--interactive", "-e", "--edit"}
 # gh pr subcommands that write a PR title/body, or (merge) the squash commit message.
 GH_PR_WRITERS = {"create", "new", "edit", "merge"}
@@ -978,70 +979,79 @@ def parse_gh_pr(args: list[str], words: tuple[str, ...] = ()) -> tuple[list[str]
 
 
 def remote_repo(url: str) -> str | None:
-    """The HOST/OWNER/NAME a remote URL names, lowercased, or None when its path is not
-    exactly OWNER/NAME (gh drops such a remote). A github.com subdomain (www., ssh.) reads as
-    github.com, as gh folds it; any other host is kept as written, so an ssh alias for
-    github.com reads as a host of its own, which can only make the check refuse more."""
-    m = SCHEME_URL_RE.match(url) or SCP_URL_RE.match(url)
-    if not m:
+    """The repo a remote URL names, as HOST/OWNER/NAME lowercased; "" when it names none gh
+    can read (its path is not exactly OWNER/NAME, or its spelling is one this check does not
+    parse); None for a local path or a file:// URL, which gh skips. A github.com subdomain
+    (www., ssh.) reads as github.com, as gh folds it. gh resolves an ssh URL's host through
+    ssh config, so any other ssh host reads as `ssh:HOST`, never the https host spelled alike."""
+    if LOCAL_URL_RE.match(url):
         return None
+    m = SCHEME_URL_RE.match(url)
+    ssh = bool(m) and url.split(":", 1)[0].lower() in ("ssh", "git+ssh", "ssh+git")
+    if not m:
+        m = SCP_URL_RE.match(url)
+        ssh = bool(m)
+    if not m:
+        return ""
     host = m.group(1).lower()
-    host = "github.com" if host.endswith(".github.com") else host
+    host = "github.com" if host == "github.com" or host.endswith(".github.com") else host
+    host = f"ssh:{host}" if ssh and host != "github.com" else host
     path = m.group(2).strip("/")
     path = path[:-4] if path.endswith(".git") else path
     parts = path.split("/")
     if len(parts) != 2 or not all(parts):
-        return None
+        return ""
     return f"{host}/{'/'.join(parts).lower()}"
 
 
-def shown(repo: str) -> str:
-    """A repo key as the refusal names it: OWNER/NAME on github.com, else HOST/OWNER/NAME."""
-    return repo[len("github.com/") :] if repo.startswith("github.com/") else repo
+def repo_flag(repo: str) -> str:
+    """A repo key as `-R` takes it: HOST/OWNER/NAME, so gh does not read it on its default
+    host; OWNER/NAME for an ssh alias, which gh cannot take as a host."""
+    host, _, rest = repo.partition("/")
+    return rest if host.startswith("ssh:") else repo
 
 
-def gh_target(cwd: Path) -> tuple[str | None, str, str | None, list[str]]:
-    """Which repo a gh command run in `cwd` naming none would use, read as gh reads it
-    without a terminal: the first remote, in gh's order, that `gh repo set-default` marked
-    (`remote.<name>.gh-resolved`), else the first remote in that order. Returns the target
-    (None when the first place is a tie between remotes of different repos), how it was
-    chosen, origin's repo, and every repo the remotes name. A remote that names no repo by
-    its fetch URL is read by its push URL, as gh does, else counts as a repo of its own."""
+def implicit_repo(cwd: Path) -> tuple[str | None, str, str]:
+    """The one repo a gh command naming none can act on in `cwd`, read from git config alone:
+    every remote gh can read names it, and no `gh repo set-default` mark names another. gh
+    picks among several remotes by an order, a mark only some commands read and the hosts it
+    is signed in to, so several repos, or a remote this check cannot read, refuse instead of
+    a guess. Returns that repo ("" when no remote is readable: gh stops on its own), or None,
+    why, and the repo to suggest (origin's, else "")."""
     listing = run_git(cwd, [], "remote", "-v") or ""
-    marks = run_git(cwd, [], "config", "--get-regexp", r"^remote\..*\.gh-resolved$") or ""
-    resolved = {}
-    for line in marks.splitlines():
-        key, _, value = line.partition(" ")
-        resolved[key[len("remote.") : -len(".gh-resolved")]] = value.strip()
     urls: dict[str, dict[str, str]] = {}
     for line in listing.splitlines():
         name, _, rest = line.partition("\t")
         url, _, kind = rest.rpartition(" ")
         urls.setdefault(name, {})[kind] = url
-    remotes = {
-        name: remote_repo(u.get("(fetch)", "")) or remote_repo(u.get("(push)", "")) or f"?{name}"
-        for name, u in urls.items()
-    }
-    rank = {name: i for i, name in enumerate(GH_REMOTE_ORDER)}
-    ordered = sorted(remotes, key=lambda n: rank.get(n.lower(), len(rank)))
-    names = list(dict.fromkeys(remotes.values()))
-    home = next((n for n in ordered if n.lower() == "origin"), None)
-    origin = remotes[home] if home else None
-    for name in ordered:
-        value = resolved.get(name)
-        if value == "base":
-            return remotes[name], f"remote `{name}` is gh's default repo", origin, names
-        if value:
-            host = remotes[name].split("/")[0] if not remotes[name].startswith("?") else "?"
-            ok = OWNER_NAME_RE.match(value)
-            target = f"{host}/{value.lower()}" if ok else f"?{value}"
-            return target, f"gh's default repo, set on remote `{name}`", origin, names
-    if not ordered:
-        return None, "", origin, names
-    first = ordered[0]
-    if first.lower() not in rank and len({remotes[n] for n in ordered}) > 1:
-        return None, "its remotes name several repos and none is gh's default", origin, names
-    return remotes[first], f"remote `{first}` comes first in gh's order", origin, names
+    remotes: dict[str, str] = {}
+    for name, u in urls.items():
+        fetch, push = remote_repo(u.get("(fetch)", "")), remote_repo(u.get("(push)", ""))
+        repo = fetch or push  # gh reads the push URL when the fetch URL names no repo
+        if repo:
+            remotes[name] = repo
+        elif fetch is not None or push is not None:
+            remotes[name] = f"?{name}"
+    home = next((r for n, r in remotes.items() if n.lower() == "origin"), "")
+    home = "" if home.startswith("?") else home
+    repos = sorted(set(remotes.values()))
+    if len(repos) > 1:
+        named = ", ".join(
+            f"remote `{r[1:]}` (a URL it cannot read)" if r.startswith("?") else repo_flag(r)
+            for r in repos
+        )
+        return None, f"this clone's remotes name {named}", home
+    if not repos:
+        return "", "", ""
+    repo = repos[0]
+    marks = run_git(cwd, [], "config", "--get-regexp", r"^remote\..*\.gh-resolved$") or ""
+    for line in marks.splitlines():
+        key, _, value = line.partition(" ")
+        name, value = key[len("remote.") : -len(".gh-resolved")], value.strip()
+        own = repo.partition("/")[2]
+        if name in remotes and value != "base" and (repo.startswith("?") or value.lower() != own):
+            return None, f"`gh repo set-default` set remote `{name}` to {value}", home
+    return repo, "", home
 
 
 def parse_gh_api(args: list[str]) -> tuple[str | None, list[tuple[str, str]]]:
@@ -1790,7 +1800,9 @@ class Guards:
         space in it is a value of another option (`-b "-R me/tool"`), never an option."""
         repo = None
         values = set(GH_TEXT) | set(GH_FILE) | GH_VALUE_FLAGS.get(tuple(words[:2]), set())
-        values |= GH_REPO_VALUE_FLAGS.get(tuple(words[:2]), set())
+        # A subcommand given as a variable or by an alias could be any: read every table.
+        known = len(words) == 2 and words[1].replace("-", "").isalpha()
+        values |= GH_REPO_VALUE_FLAGS.get(tuple(words), set()) if known else GH_ANY_VALUES
         for j, tok in enumerate(argv[1:], 1):
             if any(c.isspace() for c in tok) or (j > 1 and argv[j - 1] in values):
                 continue
@@ -1813,49 +1825,22 @@ class Guards:
     def check_gh_target(
         self, words: list[str], argv: list[str], at: list[int], cwd: Path, env: dict[str, str]
     ) -> None:
-        """Refuse a gh write that names no repo when gh would pick one other than origin's: an
-        `upstream` remote, which gh ranks first, a default set on the parent of a fork, or a
-        remote on another host. gh drops the remotes on hosts it is not signed in to (or other
-        than GH_HOST) before it ranks them, so origin's place counts only when every remote
-        that names a repo sits on origin's host."""
+        """Refuse a gh write that names no repo unless every remote of the clone names one repo
+        (implicit_repo): in a fork clone with an `upstream` remote, or with a default set on
+        the parent, gh acts on the parent."""
         if self.names_repo(words, argv, at, env):
             return
         if not self.enabled(IMPLICIT_REPO, Command(cwd)):
             return
-        target, how, origin, names = gh_target(cwd)
-        repos = set(names) | ({target} if target else set())
-        if not repos or (target and len(repos) == 1):
+        repo, why, home = implicit_repo(cwd)
+        if repo is not None:
             return
-        hosts = sorted({n.split("/")[0] for n in names if not n.startswith("?")})
-        if (
-            target
-            and origin
-            and target == origin
-            and not origin.startswith("?")
-            and len(hosts) == 1
-        ):
-            return
-        known = [shown(n) for n in names if not n.startswith("?")]
-        what = f"`gh {' '.join(words)}`"
-        if target and origin and target == origin and not origin.startswith("?"):
-            where = (
-                f"its remotes sit on {', '.join(hosts)}; gh drops those on a host it is not "
-                f"signed in to (or not GH_HOST) before it picks, so it may not pick origin's "
-                f"{shown(origin)}"
-            )
-            fix = f"add `-R {shown(origin)}`"
-        elif target and origin and not target.startswith("?") and not origin.startswith("?"):
-            where = f"gh would send it to {shown(target)} ({how}), not to origin's {shown(origin)}"
-            fix = f"add `-R {shown(origin)}` (or `-R {shown(target)}` if that is the repo meant)"
-        else:
-            where = f"gh would pick from {', '.join(known) or 'remotes it cannot name'} ({how})"
-            fix = "add `-R OWNER/NAME`"
-        home = shown(origin) if origin and not origin.startswith("?") else "OWNER/NAME"
-        # A default only settles it on one host: gh drops a host before it reads the mark.
-        default = f", or run `gh repo set-default {home}` in this clone" if len(hosts) < 2 else ""
+        meant = repo_flag(home) if home else "HOST/OWNER/NAME"
         self.verdict.denies.append(
-            f"phylax: {what} names no repo, and {where}. Name it: {fix}{default}. To allow "
-            f"this in this repo, run `git config {repo_key(IMPLICIT_REPO)} false`."
+            f"phylax: `gh {' '.join(words)}` names no repo, and {why}, so which one gh acts on "
+            "depends on its remote order, `gh repo set-default` (which some commands ignore) "
+            f"and the hosts it is signed in to. Name it: add `-R {meant}`. "
+            f"To allow this in this repo, run `git config {repo_key(IMPLICIT_REPO)} false`."
         )
 
     def substitution(self, groups: list[list[str]], k: int, cwd: Path, env: dict[str, str]) -> str:
