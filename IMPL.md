@@ -12,10 +12,16 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 2. ✅ #284 CodSpeed (simulation, parsers only).
 3. ✅ #287 hyperfine weekly bench: wall gate 1.15x against `bench/baseline-ci.json`, the median of
    seven pinned runs (`bench/median.py`); README says how to refresh it.
-4. 🔄 #290 mutation (feat/mutmut): full sweep 41919298273 scored 5,641 mutants; review round 1.
-   The 1,269 survivors already on main are #289, one PR per module, smallest first.
-5. 🔄 perf/hook-parsers-dsa: phylax greeting check stops at the first line (whole body fed once,
-   handlers raise), body gate reads the body once; round 2 fixes pushed; timing, PR, verify.
+4. 🔄 #290 mutation (feat/mutmut): r5 fixes pushed (25b67a4); a verify pass decides the merge.
+5. ✅ #295 phylax parser speed-up: four review rounds plus a verify pass, clean. Greeting check
+   stops at the first line (x879 same machine), body gate reads the body once (x1.66); a parser
+   error is named on stderr and the plain body still checked; body_gate verdicts equal main's on
+   240,420 comparisons (3.9-3.14).
+6. ✅ #293 flaky bench temp-name fix (Heph's request, #292) merged 69bc788.
+7. 📋 #301 phylax: refuse gh pr/issue create, comment and review that name no repo when gh would
+   pick a repo other than origin's (worktree .claude/worktrees/fork-guard).
+Readers: `flock -o /tmp/fleet-heavy.lock timeout -k 10 900 bash -c 'ulimit -v 3000000; ...'`,
+append findings to the report file as confirmed (the 11-04 OOM was an orphaned pytest).
 Report each merge to Heph (tmux pane in orchestrator.pane); `fleet done` after all four.
 
 techne#249 is fixed in PR #252 (branch results/quality-baseline): the task notes state what the

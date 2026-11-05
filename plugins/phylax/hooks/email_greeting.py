@@ -54,23 +54,24 @@ class _Text(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
+        self.emit = self.parts.append  # where each piece of visible text goes
         self.hidden = 0
 
     def handle_starttag(self, tag: str, attrs: list) -> None:
         if tag in HIDDEN:
             self.hidden += 1
         elif tag in BLOCKS:
-            self.parts.append("\n")
+            self.emit("\n")
 
     def handle_endtag(self, tag: str) -> None:
         if tag in HIDDEN:
             self.hidden = max(0, self.hidden - 1)
         elif tag in BLOCKS:
-            self.parts.append("\n")
+            self.emit("\n")
 
     def handle_data(self, data: str) -> None:
         if not self.hidden:
-            self.parts.append(data)
+            self.emit(data)
 
 
 def visible_text(raw: str) -> str:
@@ -78,6 +79,63 @@ def visible_text(raw: str) -> str:
     parser.feed(raw)
     parser.close()
     return "".join(parser.parts)
+
+
+# str.splitlines's line boundaries; a kept-ends piece ends with at most one of them.
+_BREAKS = "\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029"
+_HAS_BREAK = re.compile(f"[{_BREAKS}]")
+
+
+class _Found(Exception):
+    """Raised by _FirstLine once the first non-empty line is complete."""
+
+
+class _FirstLine(_Text):
+    """_Text that stops the parse at the first complete non-empty line. The whole body is fed at
+    once, as visible_text() feeds it: HTMLParser's output depends on where its input is split (a
+    character reference or a `<!-->` comment cut by a boundary parses differently), so only its
+    handlers, not the feeding, may stop early. They emit visible_text()'s pieces in its order,
+    and a line followed by a break is final once emitted."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.current: list[str] = []  # the unfinished line's pieces, none holding a break
+        self.line: str | None = None
+        self.emit = self._emit
+
+    def _end_line(self) -> None:
+        if self.current:
+            line = opening("".join(self.current))
+            if line:
+                self.line = line
+                raise _Found
+            self.current = []
+
+    def _emit(self, text: str) -> None:
+        if text == "\n":  # a block tag: the most common piece of a long run of blank lines
+            self._end_line()
+        elif not _HAS_BREAK.search(text):  # most pieces of a long line: nothing to split
+            self.current.append(text)
+        else:
+            for piece in text.splitlines(keepends=True):
+                body = piece.rstrip(_BREAKS)
+                if body:
+                    self.current.append(body)
+                if body != piece:
+                    self._end_line()
+
+
+def html_opening(raw: str) -> str | None:
+    """opening(visible_text(RAW)), parsing only as far as the first non-empty line. Markup the
+    parser rejects after that line is never read, so the line is returned where the full parse
+    would raise (see _PARSE_ERRORS)."""
+    parser = _FirstLine()
+    try:
+        parser.feed(raw)
+        parser.close()
+    except _Found:
+        return parser.line
+    return opening("".join(parser.current))
 
 
 def now(tz_name: str) -> dt.datetime:
@@ -102,9 +160,21 @@ def allowed(minutes: int) -> list[str]:
 
 
 def opening(text: str) -> str | None:
-    """The first non-empty line, with invisible format characters (Unicode Cf) dropped."""
-    text = "".join(c for c in text if unicodedata.category(c) != "Cf")
-    return next((line.strip() for line in text.splitlines() if line.strip()), None)
+    """The first non-empty line, with invisible format characters (Unicode Cf) dropped.
+
+    No Cf character is a line boundary, so dropping them line by line, and only up to the first
+    line left non-empty, gives what dropping them from the whole text first would."""
+    for line in text.splitlines():
+        if line.strip():
+            line = "".join(c for c in line if unicodedata.category(c) != "Cf").strip()
+            if line:
+                return line
+    return None
+
+
+# What html.parser raises on markup it rejects, such as `<![foo[x]]>`, in CPython releases
+# before the 2025 parser fixes: NotImplementedError through 3.9, AssertionError from 3.10.
+_PARSE_ERRORS = (AssertionError, NotImplementedError)
 
 
 def first_lines(tool_input: dict) -> list[str]:
@@ -113,11 +183,20 @@ def first_lines(tool_input: dict) -> list[str]:
     A rich client shows the HTML body and a plain one shows the text, so both are checked.
     """
     found = []
-    for keys, read in ((BODY_FIELDS, str), (HTML_FIELDS, visible_text)):
+    for keys, read in ((BODY_FIELDS, opening), (HTML_FIELDS, html_opening)):
         for key in keys:
             raw = tool_input.get(key)
             if isinstance(raw, str) and raw.strip():
-                line = opening(read(raw))
+                try:
+                    line = read(raw)
+                except _PARSE_ERRORS as exc:
+                    rest = "checked the plain body only" if found else "allowed"
+                    print(
+                        f"phylax email_greeting: cannot parse {key} ({type(exc).__name__}: "
+                        f"{exc}); {rest}",
+                        file=sys.stderr,
+                    )
+                    break
                 if line:
                     found.append(line)
                 break
