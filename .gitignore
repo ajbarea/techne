@@ -38,3 +38,6 @@ DEPLOYMENT_READY.md
 # srt install for make test-sandboxed
 scripts/srt/node_modules/
 bench/results/
+
+# scripts/mutation.py works in a scratch copy; mutmut run here would leave its mutants
+mutants/
