@@ -678,7 +678,7 @@ def test_a_stopping_run_starts_no_test_run(tmp_path):
     ("tests", "timeout", "cause"),
     [(["test_one.py::test_gone"], 30, "pytest exited 4"),
      (["test_one.py::test_slow"], 2, "pytest still running after 2 s"),
-     (["test_one.py::test_killed"], 30, "pytest killed by signal 9 (Killed)")],
+     (["test_one.py::test_killed"], 30, f"pytest killed by signal 9 ({signal.strsignal(9)})")],
 )  # fmt: skip
 def test_a_run_that_does_not_pass_names_its_cause(tmp_path, tests, timeout, cause):
     # A node id the trace recorded can vanish under a mutant (a parametrize value the mutated

@@ -14,7 +14,8 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
    shared timeout is an error (exit 1 even with --report-only). A PR changing only the runner,
    mapping or workflow mutates nothing; the weekly run covers it. Deferred: per-module budget is
    a share of test files, not test time; board_add/project_board never traced (GhStub env);
-   legacy survivors #289.
+   legacy survivors #289; the runner is not mutated by itself (each mutant would rerun
+   test_mutation.py, about 3 min; its changes were hand-mutated in review).
 5. 🔄 #295 phylax parser speed-up: resume state is IMPL.md on perf/hook-parsers-dsa.
 6. ✅ #293 flaky bench temp-name fix (Heph's request, #292) merged 69bc788.
 Report each merge to Heph (tmux pane in orchestrator.pane); `fleet done` after all four.
