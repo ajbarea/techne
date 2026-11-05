@@ -6,22 +6,16 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 
 ## In flight
 
-**techne#277 performance + mutation testing** (resume 11-04 ~23:30 UTC, account move):
-1. ✅ #282 latency budgets. 2. ✅ #284 CodSpeed. 3. ✅ #287 hyperfine (merged c74686e; its open
-   Minors are under Open Minors below).
-4. 🔄 #290 mutation (feat/mutmut, worktree .claude/worktrees/mutmut). Round 1 fixed in e0d91b5.
-   Round 2 (/code-review medium + Opus reader): 3 Should-fix fixed with killing tests (every kill
-   is re-checked unmutated on the list that decided it, confirm rerun included; failed steps
-   print command + output tail, an unappliable mutant is an `error` result; SIGINT/TERM/HUP kill
-   every test group at once and remove the scratch copy) plus Minors (verify --changed-since ref,
-   no empty PYTHONPATH entry, trace teardown hook trylast, timeout = detected as Stryker). Next:
-   PR body scores (Stryker formula), round 3 fresh Opus reader, merge on green.
-   Deferred: per-module budget is a share of test files, not test time (PLAUSIBLE, sweep shows
-   few timeouts); board_add/project_board never traced (GhStub env); legacy survivors #289.
-5. 🔄 perf/hook-parsers-dsa (worktree .claude/worktrees/perf-dsa, no PR yet). Timed 11-04
-   (3 interleaved rounds, frozen copies): greeting early first line 4 KB 0.57→0.026 ms, 64 KB
-   8.7→0.13 ms, 512 KB 71→2.2 ms; body gate 36 KB 0.96→0.55 ms. Regression to fix first: late
-   first line, inline spans 64 KB 18.6→21.6 ms, 20000 leading <br> 46→58 ms. Then PR, verify.
+**techne#277 performance + mutation testing**, one PR per step, each reviewed with /techne:elenchus:
+1. ✅ #282 latency budgets. 2. ✅ #284 CodSpeed. 3. ✅ #287 hyperfine (open Minors below).
+4. ✅ #290 mutation (scripts/mutation.py, weekly 16-shard sweep, per-PR --changed-since run).
+   Five review rounds. A kill counts only when the deciding tests pass unmutated; a timeout only
+   when they finish unmutated within the same limit, else the module's tests judge it and a
+   shared timeout is an error (exit 1 even with --report-only). A PR changing only the runner,
+   mapping or workflow mutates nothing; the weekly run covers it. Deferred: per-module budget is
+   a share of test files, not test time; board_add/project_board never traced (GhStub env);
+   legacy survivors #289.
+5. 🔄 #295 phylax parser speed-up: resume state is IMPL.md on perf/hook-parsers-dsa.
 6. ✅ #293 flaky bench temp-name fix (Heph's request, #292) merged 69bc788.
 Report each merge to Heph (tmux pane in orchestrator.pane); `fleet done` after all four.
 

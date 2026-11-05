@@ -3,8 +3,9 @@ name: mutation
 # Mutation testing of the hook modules listed under [tool.techne.mutation] in pyproject.toml
 # (scripts/mutation.py). On a pull request it mutates only the functions the pull request changed
 # and fails when a mutant survives that mutation/equivalent.toml does not explain. Weekly it
-# mutates every function, in 16 shards, and reports the score per module without failing: a
-# survivor already on main is a test to write, not a regression. The weekly run skips the
+# mutates every function, in 16 shards, and reports the score per module without failing on a
+# survivor (an error still fails): a survivor already on main is a test to write, not a
+# regression. The weekly run skips the
 # confirming rerun of each survivor (--no-confirm), which cost 70% of its time; the pull request
 # run keeps it, since it gates. A pull request that changes only the runner, its mapping in
 # pyproject.toml or this workflow mutates nothing ("no configured module changed"): the run proves
