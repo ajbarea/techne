@@ -146,6 +146,8 @@ def test_a_subcommand_this_check_cannot_know_is_refused(tmp_path):
         "FORK=me/tool; gh pr create -R $FORK -t T -b B",
         "gh pr $ACTION 3 -R me/tool",
         "gh pr comment https://github.com/org/tool/pull/3/files -b B",
+        # a value with a space is never an option, though its option is not in any table
+        'gh label create bug -R me/tool -d "-R x y"',
         "gh pr create --help",
         "gh pr create -h",
         "gh pr help create",
@@ -217,6 +219,9 @@ def test_an_empty_prefix_assignment_names_nothing(tmp_path):
         # one OWNER/NAME on two hosts is two repos
         ({"origin": "https://ghe.corp.example/org/tool.git", "upstream": PARENT}, {}, True),
         ({"origin": PARENT, "upstream": "https://ghe.corp.example/org/tool.git"}, {}, True),
+        # a default named OWNER/NAME takes its remote's host, as gh's BaseRepo does
+        ({"origin": "https://ghe.corp.example/org/tool.git", "upstream": PARENT},
+         {"origin": "org/tool"}, False),
         ({"origin": FORK, "upstream": PARENT}, {"upstream": "not-a-repo"}, True),
         ({"origin": "git@github.com:me/tool.git", "upstream": "ssh://git@github.com/ME/tool"},
          {}, False),
