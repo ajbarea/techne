@@ -6,9 +6,10 @@ name: mutation
 # mutates every function, in 16 shards, and reports the score per module without failing on a
 # survivor (an error still fails): a survivor already on main is a test to write, not a
 # regression. The weekly run skips the confirming rerun of each survivor (--no-confirm), which
-# cost 70% of its time; the pull request run keeps it, since it gates. A pull request that changes only the runner, its mapping in
-# pyproject.toml or this workflow mutates nothing ("no configured module changed"): the run proves
-# the setup still installs and starts, and the weekly run checks the mapping.
+# cost 70% of its time; the pull request run keeps it, since it gates. A pull request that
+# changes only the runner, its mapping in pyproject.toml or this workflow mutates nothing ("no
+# configured module changed"): the run proves the setup still installs and starts, and the
+# weekly run checks the mapping.
 # research(2026-11): diff-scoped runs per change plus a scheduled full run
 # (https://mutants.rs/in-diff.html, https://stryker-mutator.io/blog/announcing-incremental-mode/).
 
