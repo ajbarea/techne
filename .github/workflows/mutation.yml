@@ -21,6 +21,7 @@ on:
       - ".github/workflows/mutation.yml"
       - ".github/actions/mutation-deps/**"
       - "scripts/install_gitleaks.sh"
+      - "pyproject.toml" # [tool.techne.mutation] maps each module to its tests
   schedule:
     - cron: "23 7 * * 3" # Wednesdays 07:23 UTC
   workflow_dispatch:

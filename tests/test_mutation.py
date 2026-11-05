@@ -326,7 +326,7 @@ def test_no_confirm_skips_the_rerun_of_a_survivor(toy, monkeypatch, confirm, run
     names = mutation.generate(toy, ["hooks/guard.py"])
     name = next(n for n in names if "x_refuses" in n)
     everything = ["tests/test_guard.py"]
-    status, _, ran, _, _, _ = mutation.run_mutant(
+    out = mutation.run_mutant(
         toy,
         name,
         "hooks/guard.py",
@@ -336,8 +336,9 @@ def test_no_confirm_skips_the_rerun_of_a_survivor(toy, monkeypatch, confirm, run
         5,
         confirm,
     )
-    assert status == "survived" and len(calls) == runs
-    assert ran == (1 if not confirm else len(everything))
+    assert out.status == "survived" and len(calls) == runs
+    assert out.tests == (1 if not confirm else len(everything))
+    assert out.limit == (5 * 3 if confirm else 5)  # the limit of the run that decided
     assert (toy / "hooks" / "guard.py").read_text() == TOY_HOOK
 
 
@@ -537,7 +538,7 @@ def test_a_mutmut_failure_says_what_mutmut_said(toy, monkeypatch):
 def test_a_mutant_that_cannot_be_applied_is_an_error_with_its_reason(toy):
     names = mutation.generate(toy, ["hooks/guard.py"])
     assert names
-    status, _, ran, _, why, decided = mutation.run_mutant(
+    status, _, ran, _, diff, decided, _, why = mutation.run_mutant(
         toy,
         "hooks.guard.x_refuses__mutmut_99999",
         "hooks/guard.py",
@@ -546,18 +547,12 @@ def test_a_mutant_that_cannot_be_applied_is_an_error_with_its_reason(toy):
         ["tests/test_guard.py"],
         5,
     )
-    assert status == "error" and "mutmut" in why and ran == 0 and decided == []
+    assert status == "error" and "mutmut" in why and ran == 0 and decided == [] and diff == ""
     assert (toy / "hooks" / "guard.py").read_text() == TOY_HOOK
-    table = mutation.score_table(
-        [mutation.Result("m", "hooks/guard.py", "refuses", status, "", 0.0, 0, why)]
-    )
+    error = mutation.Result("m", "hooks/guard.py", "refuses", status, "", 0.0, 0, reason=why)
+    table = mutation.score_table([error])
     assert "Errors" in table and why.splitlines()[0] in table
-    assert (
-        mutation.report(
-            [mutation.Result("m", "hooks/guard.py", "refuses", status, "", 0.0, 0, why)], None, True
-        )
-        == 1
-    )
+    assert mutation.report([error], None, True) == 1
 
 
 def test_a_changed_since_ref_that_names_no_commit_stops_the_run(toy):
@@ -677,3 +672,85 @@ def test_a_stopping_run_starts_no_test_run(tmp_path):
             mutation.run_tests(tmp_path, ["test_one.py"], 30)
     finally:
         mutation._stopping.clear()
+
+
+@pytest.mark.parametrize(
+    ("tests", "timeout", "cause"),
+    [(["test_one.py::test_gone"], 30, "pytest exited 4"),
+     (["test_one.py::test_slow"], 2, "pytest still running after 2 s")],
+)  # fmt: skip
+def test_a_run_that_does_not_pass_names_its_cause(tmp_path, tests, timeout, cause):
+    # A node id the trace recorded can vanish under a mutant (a parametrize value the mutated
+    # function computes), and pytest then exits 4; the cause leads what the run reports.
+    (tmp_path / "test_one.py").write_text("import time\n\n\ndef test_slow():\n    time.sleep(30)\n")
+    status, _, said = mutation.run_tests(tmp_path, tests, timeout)
+    assert status in ("error", "timeout") and said.startswith(cause + ":"), said
+
+
+def _fake_mutant_runs(monkeypatch, outcome, unmutated):
+    """run_mutant returns OUTCOME for every mutant; an unmutated run of the tests (sound()'s)
+    returns UNMUTATED; the trace runs for real."""
+    real = mutation.run_tests
+    unmutated_calls = []
+
+    def run_tests(worker, tests, budget, extra=None):
+        if extra:  # the trace
+            return real(worker, tests, budget, extra)
+        unmutated_calls.append((tests, budget))
+        return unmutated
+
+    monkeypatch.setattr(mutation, "run_tests", run_tests)
+    monkeypatch.setattr(mutation, "run_mutant", lambda *a, **k: outcome)
+    return unmutated_calls
+
+
+def test_a_mutant_run_error_carries_pytests_cause_to_the_report(toy, tmp_path, monkeypatch):
+    said = "pytest exited 4:\nERROR: not found: tests/test_guard.py::test_case[a]"
+    outcome = mutation.Outcome("error", 1.0, 1, "k", "-a\n+b", ["t"], 30.0, said)
+    _fake_mutant_runs(monkeypatch, outcome, ("passed", 0.1, ""))
+    out, summary = tmp_path / "results.json", tmp_path / "summary.md"
+    code = mutation.main(["--root", str(toy), "--out", str(out), "--summary", str(summary)])
+    assert code == 1
+    assert {r["reason"] for r in json.loads(out.read_text())} == {said}
+    assert "> pytest exited 4:" in summary.read_text()
+    assert "> ERROR: not found" in summary.read_text()
+
+
+@pytest.mark.parametrize(
+    ("unmutated", "status"),
+    [(("passed", 0.1, ""), "timeout"),
+     (("timeout", 40.0, "pytest still running after 40 s:\n"), "error")],
+)  # fmt: skip
+def test_a_timeout_counts_only_when_the_unmutated_tests_finish_in_time(
+    toy, tmp_path, monkeypatch, unmutated, status
+):
+    everything = ["tests/test_guard.py"]
+    outcome = mutation.Outcome("timeout", 40.0, 1, "k", "-a\n+b", everything, 40.0)
+    calls = _fake_mutant_runs(monkeypatch, outcome, unmutated)
+    out = tmp_path / "results.json"
+    mutation.main(["--root", str(toy), "--workers", "1", "--out", str(out), "--report-only"])
+    results = json.loads(out.read_text())
+    assert results and {r["status"] for r in results} == {status}
+    assert calls and {budget for _, budget in calls} == {40.0}  # the limit the mutant had
+    if status == "error":
+        assert all("also fail within 40 s" in r["reason"] for r in results)
+
+
+def test_an_empty_pythonpath_adds_no_entry(tmp_path, monkeypatch):
+    # An empty entry is the current directory, which would put the scratch root on sys.path.
+    seen = {}
+
+    def run_tests(worker, tests, budget, extra=None):
+        seen.update(extra or {})
+        return "passed", 0.1, ""
+
+    monkeypatch.setattr(mutation, "run_tests", run_tests)
+    monkeypatch.setenv("PYTHONPATH", "")
+    (tmp_path / "w0").mkdir()
+    mutation.trace(tmp_path / "w0", {"m.py": ["t.py"]}, ["m.py"])
+    assert seen["PYTHONPATH"] == str(mutation.TRACE)
+
+
+def test_merging_no_results_file_says_so(tmp_path):
+    with pytest.raises(SystemExit, match=r"no results file at .*mutation-\*\.json"):
+        mutation.main(["--merge", str(tmp_path / "mutation-*.json")])
