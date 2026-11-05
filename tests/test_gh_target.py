@@ -101,6 +101,10 @@ POSTS = [
     "gh secret delete FOO",
     "gh discussion create -t T -b B",  # a group this gh may not have is checked too
     "gh some-extension do-something",
+    "gh project link 1",  # links a project to the resolved repo
+    "gh project unlink 1",
+    "gh label create bug -d -Rme/tool",  # -Rme/tool is the description
+    "gh release create v1 --notes -Rme/tool",
     "gh repo rename new-name",
     "gh repo archive --yes",
     "gh repo deploy-key add key.pub",
@@ -147,7 +151,11 @@ def test_a_subcommand_this_check_cannot_know_is_refused(tmp_path):
         "gh pr $ACTION 3 -R me/tool",
         "gh pr comment https://github.com/org/tool/pull/3/files -b B",
         # a value with a space is never an option, though its option is not in any table
-        'gh label create bug -R me/tool -d "-R x y"',
+        'gh workflow run ci.yml -R me/tool -f "-R x y"',
+        "gh project list",
+        "gh project link 1 -R me/tool",
+        "gh issue create -R=me/tool -t T -b B",  # pflag drops the = of a joined shorthand
+        "gh pr merge 3 -m -R me/tool",  # -m is --merge here, not a value
         "gh pr create --help",
         "gh pr create -h",
         "gh pr help create",
@@ -210,7 +218,7 @@ def test_an_empty_prefix_assignment_names_nothing(tmp_path):
         ({"origin": PARENT, "fork": FORK}, {}, False),  # a clone of the parent: origin first
         ({"a": FORK, "b": PARENT}, {}, True),  # no origin, no order between them
         ({"a": FORK, "b": "git@github.com:Me/Tool.git"}, {}, False),  # one repo, two spellings
-        # gh would skip a host it does not use, so would pick origin; read alike, it refuses
+        # upstream ranks first, and sits on a host gh may use
         ({"origin": FORK, "upstream": "https://gitlab.com/org/tool.git"}, {}, True),
         ({"origin": FORK, "Upstream": PARENT}, {}, True),  # gh ranks names lowercased
         ({"Origin": PARENT, "fork": FORK}, {}, False),
@@ -220,8 +228,19 @@ def test_an_empty_prefix_assignment_names_nothing(tmp_path):
         ({"origin": "https://ghe.corp.example/org/tool.git", "upstream": PARENT}, {}, True),
         ({"origin": PARENT, "upstream": "https://ghe.corp.example/org/tool.git"}, {}, True),
         # a default named OWNER/NAME takes its remote's host, as gh's BaseRepo does
+        ({"origin": "https://ghe.corp.example/me/tool.git",
+          "upstream": "https://ghe.corp.example/org/tool.git"}, {"origin": "me/tool"}, False),
+        # gh drops the remotes on a host it is not signed in to (or not GH_HOST) before it
+        # ranks them, so origin first on one host of two may not be gh's pick
+        ({"origin": "https://gitlab.com/me/tool.git", "public": PARENT}, {}, True),
+        ({"origin": FORK, "corp": "https://ghe.corp.example/org/tool.git"}, {}, True),
+        ({"origin": "https://ghe.corp.example/me/tool.git", "public": PARENT}, {}, True),
         ({"origin": "https://ghe.corp.example/org/tool.git", "upstream": PARENT},
-         {"origin": "org/tool"}, False),
+         {"origin": "org/tool"}, True),
+        # gh drops a remote whose path is not OWNER/NAME
+        ({"origin": "https://gitlab.com/grp/sub/tool.git", "mirror": PARENT}, {}, True),
+        # an ssh alias reads as a host of its own: refused, the safe side
+        ({"origin": "git@gh-me:me/tool.git", "upstream": PARENT}, {"origin": "base"}, True),
         ({"origin": FORK, "upstream": PARENT}, {"upstream": "not-a-repo"}, True),
         ({"origin": "git@github.com:me/tool.git", "upstream": "ssh://git@github.com/ME/tool"},
          {}, False),

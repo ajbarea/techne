@@ -101,14 +101,15 @@ CREATORS = {"touch", "tee", "cp", "mv", "install"}
 # Commands whose arguments become file content, for a message file the command writes.
 WRITERS = {"echo", "printf"}
 GH_GLOBAL_VALUE_FLAGS = {"-R", "--repo"}
-# gh command groups that never act on the repo gh resolves, or only read it; every other group
-# is checked, so a group this list does not know (a newer gh, an extension) is checked too.
+# gh command groups that never act on the repo gh resolves, or only read it (none of their
+# subcommands calls BaseRepo to write); every other group is checked, so a group this list does
+# not know (a newer gh, an extension) is checked too.
 GH_NO_REPO = {
-    "auth", "browse", "codespace", "cs", "gist", "org", "project", "alias", "attestation",
+    "auth", "browse", "codespace", "cs", "gist", "org", "alias", "attestation",
     "completion", "config", "copilot", "extension", "ext", "extensions", "gpg-key", "help",
     "licenses", "preview", "search", "ssh-key", "status", "version", "ruleset", "rs",
 }  # fmt: skip
-# In a checked group, the subcommands that only read.
+# In a checked group, the subcommands that never change the resolved repo.
 GH_REPO_READS = {
     "pr": {"view", "list", "ls", "status", "checks", "diff", "checkout", "co"},
     "issue": {"view", "list", "ls", "status"},
@@ -121,6 +122,12 @@ GH_REPO_READS = {
     "secret": {"list", "ls"},
     "discussion": {"view", "list", "ls"},
     "agent-task": {"view", "list", "ls"},
+    # link and unlink act on the resolved repo; the rest on a project of an owner.
+    "project": {
+        "close", "copy", "create", "delete", "edit", "field-create", "field-delete", "field-list",
+        "item-add", "item-archive", "item-create", "item-delete", "item-edit", "item-list",
+        "list", "ls", "mark-template", "view",
+    },
     "repo": {
         "view", "list", "ls", "clone", "fork", "create", "new", "set-default", "sync",
         "license", "gitignore", "credits", "garden",
@@ -128,9 +135,18 @@ GH_REPO_READS = {
 }  # fmt: skip
 # Subcommands whose own subcommand decides whether they read (`gh repo deploy-key list`).
 GH_NESTED = {("repo", "deploy-key"), ("repo", "autolink")}
-# Options of the checked subcommands that take a value, besides those GH_TEXT, GH_FILE and
-# GH_VALUE_FLAGS list: their value is never read as -R.
-GH_REPO_VALUE_FLAGS = {"-c", "--comment", "-m", "--message", "--subject", "-A", "--author-email"}
+# Options of checked subcommands that take a value, besides those GH_TEXT, GH_FILE and
+# GH_VALUE_FLAGS list: their value is never read as -R. Per subcommand, as gh reads them
+# (`-m` takes a value in `pr edit` but is `--merge` in `pr merge`).
+_CLOSE_VALUES = {"-c", "--comment"}
+_LABEL_VALUES = {"-c", "--color", "-d", "--description"}
+GH_REPO_VALUE_FLAGS = {
+    ("pr", "close"): _CLOSE_VALUES, ("pr", "reopen"): _CLOSE_VALUES,
+    ("issue", "close"): _CLOSE_VALUES, ("issue", "reopen"): _CLOSE_VALUES,
+    ("label", "create"): _LABEL_VALUES, ("label", "edit"): _LABEL_VALUES | {"-n", "--name"},
+    ("release", "create"): {"-n", "--notes", "--notes-file", "--target", "--notes-start-tag"},
+    ("release", "edit"): {"-n", "--notes", "--notes-file", "--target", "--tag"},
+}  # fmt: skip
 # `gh secret` and `gh variable` act on an organization or the user with these, not on a repo.
 GH_NOT_REPO_FLAGS = {"-o", "--org", "-u", "--user"}
 # gh's order for its remotes (BaseRepoFunc, by lowercased name): these first, then the rest.
@@ -962,10 +978,10 @@ def parse_gh_pr(args: list[str], words: tuple[str, ...] = ()) -> tuple[list[str]
 
 
 def remote_repo(url: str) -> str | None:
-    """The HOST/OWNER/NAME a remote URL names, lowercased, or None when it names none. A
-    github.com subdomain (www., ssh.) reads as github.com, as gh folds it; any other host is
-    kept as written, so an ssh alias for github.com reads as a repo of its own, which can only
-    make the check refuse more."""
+    """The HOST/OWNER/NAME a remote URL names, lowercased, or None when its path is not
+    exactly OWNER/NAME (gh drops such a remote). A github.com subdomain (www., ssh.) reads as
+    github.com, as gh folds it; any other host is kept as written, so an ssh alias for
+    github.com reads as a host of its own, which can only make the check refuse more."""
     m = SCHEME_URL_RE.match(url) or SCP_URL_RE.match(url)
     if not m:
         return None
@@ -974,9 +990,9 @@ def remote_repo(url: str) -> str | None:
     path = m.group(2).strip("/")
     path = path[:-4] if path.endswith(".git") else path
     parts = path.split("/")
-    if len(parts) < 2 or not all(parts[-2:]):
+    if len(parts) != 2 or not all(parts):
         return None
-    return f"{host}/{'/'.join(parts[-2:]).lower()}"
+    return f"{host}/{'/'.join(parts).lower()}"
 
 
 def shown(repo: str) -> str:
@@ -1774,7 +1790,7 @@ class Guards:
         space in it is a value of another option (`-b "-R me/tool"`), never an option."""
         repo = None
         values = set(GH_TEXT) | set(GH_FILE) | GH_VALUE_FLAGS.get(tuple(words[:2]), set())
-        values |= GH_REPO_VALUE_FLAGS
+        values |= GH_REPO_VALUE_FLAGS.get(tuple(words[:2]), set())
         for j, tok in enumerate(argv[1:], 1):
             if any(c.isspace() for c in tok) or (j > 1 and argv[j - 1] in values):
                 continue
@@ -1783,7 +1799,7 @@ class Guards:
             elif tok.startswith("--repo="):
                 repo = tok[len("--repo=") :]
             elif tok.startswith("-R") and len(tok) > 2:
-                repo = tok[2:]
+                repo = tok[3:] if tok[2] == "=" else tok[2:]
         if repo is not None:
             return bool(GH_REPO_RE.match(expand(repo, {**env, **self.raw})))
         value = self.gh_repo_value("GH_REPO", env)
@@ -1798,28 +1814,48 @@ class Guards:
         self, words: list[str], argv: list[str], at: list[int], cwd: Path, env: dict[str, str]
     ) -> None:
         """Refuse a gh write that names no repo when gh would pick one other than origin's: an
-        `upstream` remote, which gh ranks first, or a default set on the parent of a fork."""
+        `upstream` remote, which gh ranks first, a default set on the parent of a fork, or a
+        remote on another host. gh drops the remotes on hosts it is not signed in to (or other
+        than GH_HOST) before it ranks them, so origin's place counts only when every remote
+        that names a repo sits on origin's host."""
         if self.names_repo(words, argv, at, env):
             return
         if not self.enabled(IMPLICIT_REPO, Command(cwd)):
             return
         target, how, origin, names = gh_target(cwd)
         repos = set(names) | ({target} if target else set())
-        if not repos or (target and (len(repos) == 1 or target == origin)):
+        if not repos or (target and len(repos) == 1):
+            return
+        hosts = sorted({n.split("/")[0] for n in names if not n.startswith("?")})
+        if (
+            target
+            and origin
+            and target == origin
+            and not origin.startswith("?")
+            and len(hosts) == 1
+        ):
             return
         known = [shown(n) for n in names if not n.startswith("?")]
         what = f"`gh {' '.join(words)}`"
-        if target and origin and not target.startswith("?") and not origin.startswith("?"):
+        if target and origin and target == origin and not origin.startswith("?"):
+            where = (
+                f"its remotes sit on {', '.join(hosts)}; gh drops those on a host it is not "
+                f"signed in to (or not GH_HOST) before it picks, so it may not pick origin's "
+                f"{shown(origin)}"
+            )
+            fix = f"add `-R {shown(origin)}`"
+        elif target and origin and not target.startswith("?") and not origin.startswith("?"):
             where = f"gh would send it to {shown(target)} ({how}), not to origin's {shown(origin)}"
             fix = f"add `-R {shown(origin)}` (or `-R {shown(target)}` if that is the repo meant)"
         else:
             where = f"gh would pick from {', '.join(known) or 'remotes it cannot name'} ({how})"
             fix = "add `-R OWNER/NAME`"
         home = shown(origin) if origin and not origin.startswith("?") else "OWNER/NAME"
+        # A default only settles it on one host: gh drops a host before it reads the mark.
+        default = f", or run `gh repo set-default {home}` in this clone" if len(hosts) < 2 else ""
         self.verdict.denies.append(
-            f"phylax: {what} names no repo, and {where}. Name it: {fix}, or run "
-            f"`gh repo set-default {home}` in this clone. To allow this in this repo, run "
-            f"`git config {repo_key(IMPLICIT_REPO)} false`."
+            f"phylax: {what} names no repo, and {where}. Name it: {fix}{default}. To allow "
+            f"this in this repo, run `git config {repo_key(IMPLICIT_REPO)} false`."
         )
 
     def substitution(self, groups: list[list[str]], k: int, cwd: Path, env: dict[str, str]) -> str:
