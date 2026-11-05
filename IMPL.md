@@ -12,10 +12,31 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 2. ✅ #284 CodSpeed (simulation, parsers only).
 3. ✅ #287 hyperfine weekly bench: wall gate 1.15x against `bench/baseline-ci.json`, the median of
    seven pinned runs (`bench/median.py`); README says how to refresh it.
-4. 🔄 #290 mutation (feat/mutmut): full sweep 41919298273 scored 5,641 mutants; review round 1.
-   The 1,269 survivors already on main are #289, one PR per module, smallest first.
-5. 🔄 perf/hook-parsers-dsa: phylax greeting check stops at the first line (whole body fed once,
-   handlers raise), body gate reads the body once; round 2 fixes pushed; timing, PR, verify.
+4. 🔄 #290 mutation (feat/mutmut, worktree .claude/worktrees/mutmut, head 0a757a8, green). Round 3
+   fixed in 0a757a8. Round 4 verify reader stopped mid-run at the 11-05 account move; findings so far
+   (full text ~/.local/state/techne-perf/r4-290-report.md): F-A Minor, mutation.yml:24 the
+   pyproject.toml / mutation.py / workflow triggers run `changed` with --changed-since, which prints
+   "no configured module changed" and checks nothing: run the full module set when those change, or
+   drop the comment's claim. F-B Minor, scripts/mutation.py:35-38 + docs/architecture.md:67 still say
+   a timeout always counts as detected; since 0a757a8 it counts only if the unmutated tests finish in
+   the same limit, else an error (exit-code sentence too). Cleared: old --out JSON merges. Its
+   hand-mutant sweep of the 0a757a8 fixes never ran. Next: fix F-A/F-B, a fresh round-5 reader
+   (verify + hand mutants of the round-3 fixes), merge on green.
+5. 🔄 #295 phylax parser speed-up (perf/hook-parsers-dsa, head c069f34, green). Same-machine
+   base-vs-head timing done and in the PR body (greeting x879, body gate x1.66; outliers linear).
+   Round 3 reader stopped mid-run at the account move (report + repros in
+   ~/.local/state/techne-perf/r3-295-report.md, r3-295-repro/): differential 0 mismatches on
+   3.9/3.10/3.12/3.13/3.14 (patched parsers). F1 Minor: on 3.8.20/3.11.9 html.parser raises on
+   `<![foo[x]]>`; main crashes open, the PR returns the line before it (stricter); fix by catching
+   parser exceptions in first_lines/visible_text so both paths fail the same named way. F2 Minor
+   vacuous-guard: a test that set(_BREAKS) equals every code point splitlines splits on, plus
+   \x1f \x0b \x1c \x85 in the differential's _PIECES. F3 Minor: a stop test whose first line ends
+   in "\n" inside text then inline tags only, asserting one handle_data call. Not yet run: the
+   body_gate verdict differential against main's body_gate. Next: fix F1-F3, run that
+   differential under the heavy lock, fresh round-4 reader, merge.
+6. ✅ #293 flaky bench temp-name fix (Heph's request, #292) merged 69bc788.
+Readers: `flock -o /tmp/fleet-heavy.lock timeout -k 10 900 bash -c 'ulimit -v 3000000; ...'`,
+append findings to the report file as confirmed (the 11-04 OOM was an orphaned pytest).
 Report each merge to Heph (tmux pane in orchestrator.pane); `fleet done` after all four.
 
 techne#249 is fixed in PR #252 (branch results/quality-baseline): the task notes state what the
