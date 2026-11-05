@@ -226,3 +226,147 @@ def test_both_bodies_are_checked():
         run_handler(payload(TOOLS[2], body=f"{right} Bob,", htmlBody="<p>Hi Bob</p>"))
     )
     assert reason and '"Hi"' in reason
+
+
+def _opening_full(text: str) -> str | None:
+    """The opening line read the slow way, as the reference: Cf dropped from the whole text,
+    then the first non-empty line."""
+    import unicodedata
+
+    text = "".join(c for c in text if unicodedata.category(c) != "Cf")
+    return next((line.strip() for line in text.splitlines() if line.strip()), None)
+
+
+_LONG_DEC = "&#" + "0" * 40 + "10;"  # a character reference longer than HTMLParser's lookahead
+_LONG_HEX = "&#x" + "0" * 40 + "a;"
+_PIECES = (
+    "<p>", "</p>", "<div>", "</div>", "<br>", "<br/>", "<li>", "<span>", "</span>", "<b>",
+    "<style>p{x:y}</style>", "<script>Good morning,</script>", "<title>Hi</title>", "<template>",
+    "</template>", "<!-- Hi -->", "Good morning,", "Hi Dana,", "Dear all", "x", " ", "  ",
+    "\n", "\r", "\r\n", "\u2028", "\u200b", "\ufeff", "\u200e", "&amp;", "&#8203;", "&nbsp;",
+    "&#x200B;", "&", "<", "Ünïcödé", "\t", _LONG_DEC, _LONG_HEX, "<!-->", "<!--->", "<!--",
+    "-->", "&#10;", "<![CDATA[Hi]]>", " " * 9000, "\x1f", *g._BREAKS,
+)  # fmt: skip
+
+
+def test_html_opening_matches_reading_the_whole_body():
+    # The early stop must name the line the full parse names: HTMLParser's output depends on
+    # where its input is split, so the body is fed whole and only the handlers stop early.
+    import random
+
+    rng = random.Random(277)
+    for _ in range(3000):
+        raw = "".join(rng.choice(_PIECES) for _ in range(rng.randint(1, 30)))
+        assert g.html_opening(raw) == _opening_full(g.visible_text(raw)), repr(raw)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        # A long reference across what was a chunk boundary: main denies "Dana,"; a chunked
+        # parse merged the next line in and let the non-ASCII letter through.
+        "<p>" + " " * 8141 + "Dana," + _LONG_DEC + "Grüße</p>",
+        # A <!--> comment read whole runs to the later -->; read in pieces it closed at once.
+        "<!-->Hi Dana,\n-->Good evening, Dana",
+        "<!-->Good evening, Dana\n-->Hi Dana,",
+    ],
+    ids=["long-charref", "comment-hides-hi", "comment-hides-greeting"],
+)
+def test_html_opening_on_input_a_split_parse_got_wrong(raw):
+    assert g.html_opening(raw) == _opening_full(g.visible_text(raw))
+    tool_input = {"htmlBody": raw}
+    assert g.first_lines(tool_input) == [_opening_full(g.visible_text(raw))]
+
+
+@pytest.mark.parametrize(
+    "text", ["\u200b\nGood morning,", "\r\u200b\nHi,", "  \n\t\n x \u200e", "\ufeff", "", "a\x85b"]
+)
+def test_opening_matches_dropping_format_characters_first(text):
+    assert g.opening(text) == _opening_full(text)
+
+
+def test_html_opening_stops_at_the_first_line(monkeypatch):
+    # A long message is parsed only up to its first line, not to its end.
+    seen: list[str] = []
+    handle_data = g._Text.handle_data
+
+    def counting(self, data):
+        seen.append(data)
+        handle_data(self, data)
+
+    monkeypatch.setattr(g._Text, "handle_data", counting)
+    raw = "<div><p>Good morning,</p>" + "<p>Line of the message.</p>" * 2000 + "</div>"
+    assert g.html_opening(raw) == "Good morning,"
+    assert seen == ["Good morning,"]
+
+
+def test_html_opening_stops_inside_a_run_of_text(monkeypatch):
+    # The first line ends at a break inside text, and inline tags follow: no block tag ends it.
+    seen: list[str] = []
+    handle_data = g._Text.handle_data
+
+    def counting(self, data):
+        seen.append(data)
+        handle_data(self, data)
+
+    monkeypatch.setattr(g._Text, "handle_data", counting)
+    raw = "Good morning,\nrest" + "<span>x</span>" * 2000
+    assert g.html_opening(raw) == "Good morning,"
+    assert seen == ["Good morning,\nrest"]
+
+
+def test_html_opening_reads_each_blank_line_once(monkeypatch):
+    # A whitespace-only line is dropped once read, not carried into the next line's text.
+    lengths: list[int] = []
+    opening = g.opening
+
+    def measuring(text):
+        lengths.append(len(text))
+        return opening(text)
+
+    monkeypatch.setattr(g, "opening", measuring)
+    assert g.html_opening("<p> </p>" * 200 + "<p>Good morning,</p>") == "Good morning,"
+    assert max(lengths) == len("Good morning,")
+
+
+def test_breaks_are_exactly_the_line_boundaries():
+    # A character in _BREAKS that splitlines does not split on would end the line early.
+    import sys
+
+    boundaries = {
+        chr(c) for c in range(sys.maxunicode + 1) if len(("a" + chr(c) + "b").splitlines()) > 1
+    }
+    assert set(g._BREAKS) == boundaries
+
+
+@pytest.mark.parametrize("error", [AssertionError, NotImplementedError])
+def test_html_body_the_parser_rejects(monkeypatch, capsys, error):
+    # Older CPython parsers raise on some markup (`<![foo[x]]>`): NotImplementedError through
+    # 3.9, AssertionError from 3.10. Stand-in: a tag that raises.
+    start = g._Text.handle_starttag
+    name = error.__name__
+
+    def rejecting(self, tag, attrs):
+        if tag == "bad":
+            raise error("unknown status keyword")
+        start(self, tag, attrs)
+
+    monkeypatch.setattr(g._Text, "handle_starttag", rejecting)
+    lines = g.first_lines({"body": "Good morning,", "htmlBody": "<bad><p>Hi Dana,</p>"})
+    assert lines == ["Good morning,"]
+    err = capsys.readouterr().err
+    assert f"cannot parse htmlBody ({name}" in err
+    assert err.rstrip().endswith("checked the plain body only")
+    # The first HTML field present is the body sent; a later one is not read in its place.
+    assert g.first_lines({"html": "<bad>", "htmlBody": "<p>Hi Dana,</p>"}) == []
+    err = capsys.readouterr().err
+    assert f"cannot parse html ({name}" in err
+    assert err.rstrip().endswith("; allowed")
+    # Markup past the first line is never read.
+    assert g.first_lines({"htmlBody": "<p>Hi Dana,</p><bad>"}) == ["Hi Dana,"]
+
+
+def test_html_opening_flushes_text_the_parser_holds_at_the_end():
+    # Text after the last tag stays in the parser until close().
+    assert g.html_opening("<p></p>  Good morning,") == "Good morning,"
+    assert g.html_opening("<p></p>Hi&amp") == "Hi&"

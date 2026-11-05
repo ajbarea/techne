@@ -1,0 +1,19 @@
+name: mutation-deps
+description: uv, the locked dev dependencies and the pinned gitleaks, for scripts/mutation.py's jobs
+runs:
+  using: composite
+  steps:
+    - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      with:
+        enable-cache: true
+        prune-cache: true
+        save-cache: false
+
+    - name: Install the test dependencies
+      shell: bash
+      run: uv sync --locked --no-default-groups --group dev
+
+    # The secret guard tests run the real scanner and fail rather than skip without it.
+    - name: Install gitleaks for the secret guard tests
+      shell: bash
+      run: bash scripts/install_gitleaks.sh
