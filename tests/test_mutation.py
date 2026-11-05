@@ -736,6 +736,25 @@ def test_a_timeout_counts_only_when_the_unmutated_tests_finish_in_time(
         assert all("also fail within 40 s" in r["reason"] for r in results)
 
 
+@pytest.mark.parametrize(("status", "limit"), [("killed", 3000.0), ("timeout", 1000.0)])
+def test_a_detected_mutant_is_rechecked_unmutated_and_keeps_no_output(
+    toy, tmp_path, monkeypatch, status, limit
+):
+    # A kill is re-checked unmutated at three times the mutant's budget, a timeout at the limit
+    # the mutant had; only an error keeps the test output.
+    monkeypatch.setattr(mutation, "MIN_TIMEOUT", 1000.0)  # the budget, whatever the trace took
+    everything = ["tests/test_guard.py"]
+    said = "pytest exited 1:\nFAILED tests/test_guard.py::test_case"
+    outcome = mutation.Outcome(status, 1.0, 1, "k", "-a\n+b", everything, 1000.0, said)
+    calls = _fake_mutant_runs(monkeypatch, outcome, ("passed", 0.1, ""))
+    out = tmp_path / "results.json"
+    mutation.main(["--root", str(toy), "--workers", "1", "--out", str(out), "--report-only"])
+    results = json.loads(out.read_text())
+    assert results and {r["status"] for r in results} == {status}
+    assert {r["reason"] for r in results} == {""}
+    assert calls and {budget for _, budget in calls} == {limit}
+
+
 def test_an_empty_pythonpath_adds_no_entry(tmp_path, monkeypatch):
     # An empty entry is the current directory, which would put the scratch root on sys.path.
     seen = {}
