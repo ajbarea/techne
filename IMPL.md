@@ -6,18 +6,28 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 
 ## In flight
 
-**techne#277 performance + mutation testing**, one PR per step, each reviewed with /techne:elenchus:
-1. ✅ #282 latency budgets. 2. ✅ #284 CodSpeed. 3. ✅ #287 hyperfine (open Minors below).
+**techne#277 performance + mutation testing**, four PRs in order, each reviewed with
+/techne:elenchus (Opus readers); worktrees under `.claude/worktrees/`:
+1. ✅ #282 latency budgets + git_guards 48.6→15.8 ms on a non-git call.
+2. ✅ #284 CodSpeed (simulation, parsers only).
+3. ✅ #287 hyperfine weekly bench: wall gate 1.15x against `bench/baseline-ci.json`, the median of
+   seven pinned runs (`bench/median.py`); README says how to refresh it.
 4. ✅ #290 mutation (scripts/mutation.py, weekly 16-shard sweep, per-PR --changed-since run).
-   Five review rounds. A kill counts only when the deciding tests pass unmutated; a timeout only
-   when they finish unmutated within the same limit, else the module's tests judge it and a
-   shared timeout is an error (exit 1 even with --report-only). A PR changing only the runner,
-   mapping or workflow mutates nothing; the weekly run covers it. Deferred: per-module budget is
-   a share of test files, not test time; board_add/project_board never traced (GhStub env);
-   legacy survivors #289; the runner is not mutated by itself (each mutant would rerun
-   test_mutation.py, about 3 min; its changes were hand-mutated in review).
-5. 🔄 #295 phylax parser speed-up: resume state is IMPL.md on perf/hook-parsers-dsa.
+   Five review rounds plus two verify passes. A kill counts only when the deciding tests pass
+   unmutated; a timeout only when they finish unmutated within the same limit, else the module's
+   tests judge it and a shared timeout is an error (exit 1 even with --report-only). Deferred:
+   per-module budget is a share of test files, not test time; board_add/project_board never
+   traced (GhStub env); legacy survivors #289; the runner is not mutated by itself (each mutant
+   would rerun test_mutation.py, about 3 min).
+5. ✅ #295 phylax parser speed-up: four review rounds plus a verify pass, clean. Greeting check
+   stops at the first line (x879 same machine), body gate reads the body once (x1.66); a parser
+   error is named on stderr and the plain body still checked; body_gate verdicts equal main's on
+   240,420 comparisons (3.9-3.14).
 6. ✅ #293 flaky bench temp-name fix (Heph's request, #292) merged 69bc788.
+7. 📋 #301 phylax: refuse gh pr/issue create, comment and review that name no repo when gh would
+   pick a repo other than origin's (worktree .claude/worktrees/fork-guard).
+Readers: `flock -o /tmp/fleet-heavy.lock timeout -k 10 900 bash -c 'ulimit -v 3000000; ...'`,
+append findings to the report file as confirmed (the 11-04 OOM was an orphaned pytest).
 Report each merge to Heph (tmux pane in orchestrator.pane); `fleet done` after all four.
 
 techne#249 is fixed in PR #252 (branch results/quality-baseline): the task notes state what the
