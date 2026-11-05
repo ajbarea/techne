@@ -448,6 +448,10 @@ matters. It is never decoration.
   idea at the presenter's pace. Learner-paced segments improved transfer in
   three of three tests ([Mayer, segmenting
   principle](https://www.cambridge.org/core/books/multimedia-learning/segmenting-principle/37240877DDA0362355ADB39936027982)).
+- **Reveal in the order the speaker talks.** Each click shows what the script
+  says next: a talk that goes column by column builds column by column (a
+  group, its cases and its guard), not one row across every column at once.
+  Set `data-fragment-index` when the order on the page differs from it.
 - **Point at the mark.** Bring in the one dot, bar or arrow the claim is about
   last, in ink or the colour of its role. Cues that point at the essential material help
   learning ([signaling](https://u.osu.edu/multimedialearning/?p=88)); the cue does the work, not the movement.
