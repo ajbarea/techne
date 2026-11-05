@@ -245,7 +245,7 @@ _PIECES = (
     "</template>", "<!-- Hi -->", "Good morning,", "Hi Dana,", "Dear all", "x", " ", "  ",
     "\n", "\r", "\r\n", "\u2028", "\u200b", "\ufeff", "\u200e", "&amp;", "&#8203;", "&nbsp;",
     "&#x200B;", "&", "<", "Ünïcödé", "\t", _LONG_DEC, _LONG_HEX, "<!-->", "<!--->", "<!--",
-    "-->", "&#10;", "<![CDATA[Hi]]>", " " * 9000, "\x1f", "\x0b", "\x1c", "\x85",
+    "-->", "&#10;", "<![CDATA[Hi]]>", " " * 9000, "\x1f", *g._BREAKS,
 )  # fmt: skip
 
 
@@ -337,9 +337,14 @@ def test_html_body_the_parser_rejects(monkeypatch, capsys):
     monkeypatch.setattr(g._Text, "handle_starttag", rejecting)
     lines = g.first_lines({"body": "Good morning,", "htmlBody": "<bad><p>Hi Dana,</p>"})
     assert lines == ["Good morning,"]
-    assert "cannot parse htmlBody (AssertionError" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "cannot parse htmlBody (AssertionError" in err
+    assert err.rstrip().endswith("checked the plain body only")
     # The first HTML field present is the body sent; a later one is not read in its place.
     assert g.first_lines({"html": "<bad>", "htmlBody": "<p>Hi Dana,</p>"}) == []
+    err = capsys.readouterr().err
+    assert "cannot parse html (AssertionError" in err
+    assert err.rstrip().endswith("; allowed")
     # Markup past the first line is never read.
     assert g.first_lines({"htmlBody": "<p>Hi Dana,</p><bad>"}) == ["Hi Dana,"]
 

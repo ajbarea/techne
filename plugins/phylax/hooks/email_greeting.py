@@ -190,9 +190,10 @@ def first_lines(tool_input: dict) -> list[str]:
                 try:
                     line = read(raw)
                 except _PARSE_ERRORS as exc:
+                    rest = "checked the plain body only" if found else "allowed"
                     print(
                         f"phylax email_greeting: cannot parse {key} ({type(exc).__name__}: "
-                        f"{exc}); checked the other body only",
+                        f"{exc}); {rest}",
                         file=sys.stderr,
                     )
                     break
