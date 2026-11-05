@@ -46,6 +46,12 @@
       "description": "Refuse gh pr/issue create, edit and comment, and gh api writes to issues, pulls and their comments, when the body's visible text (outside <details>) runs past its budget: about 150 words for a PR or comment, 300 for an issue. Also refuses a budget: marker in a body, and warns on sentences over 25 words. Fires for subagents too.",
       "default": false
     },
+    "block_gh_implicit_repo": {
+      "type": "boolean",
+      "title": "Block gh writes that would land on another repo",
+      "description": "Refuse a gh command that may change a repo (any gh group that can act on the resolved repo, its reads excepted, and gh api writes to {owner}/{repo}) and names none (-R, GH_REPO, or an item URL first) unless every remote of the clone names one repo, so a fork clone's upstream remote or a default set on the parent cannot take the write. Fires for subagents too.",
+      "default": false
+    },
     "require_subagent_model": {
       "type": "boolean",
       "title": "Require a model on subagent calls",

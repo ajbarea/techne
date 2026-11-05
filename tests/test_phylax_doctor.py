@@ -28,6 +28,7 @@ OPTIONS = (
     "warn_main_checkout_commit",
     "block_secrets",
     "block_long_bodies",
+    "block_gh_implicit_repo",
     "require_subagent_model",
     "restart_on_update",
     "budget_mode",
