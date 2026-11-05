@@ -677,12 +677,16 @@ def test_a_stopping_run_starts_no_test_run(tmp_path):
 @pytest.mark.parametrize(
     ("tests", "timeout", "cause"),
     [(["test_one.py::test_gone"], 30, "pytest exited 4"),
-     (["test_one.py::test_slow"], 2, "pytest still running after 2 s")],
+     (["test_one.py::test_slow"], 2, "pytest still running after 2 s"),
+     (["test_one.py::test_killed"], 30, "pytest killed by signal 9 (Killed)")],
 )  # fmt: skip
 def test_a_run_that_does_not_pass_names_its_cause(tmp_path, tests, timeout, cause):
     # A node id the trace recorded can vanish under a mutant (a parametrize value the mutated
     # function computes), and pytest then exits 4; the cause leads what the run reports.
-    (tmp_path / "test_one.py").write_text("import time\n\n\ndef test_slow():\n    time.sleep(30)\n")
+    (tmp_path / "test_one.py").write_text(
+        "import os\nimport time\n\n\ndef test_slow():\n    time.sleep(30)\n\n\n"
+        "def test_killed():\n    os.kill(os.getpid(), 9)\n"
+    )
     status, _, said = mutation.run_tests(tmp_path, tests, timeout)
     assert status in ("error", "timeout") and said.startswith(cause + ":"), said
 
@@ -713,6 +717,7 @@ def test_a_mutant_run_error_carries_pytests_cause_to_the_report(toy, tmp_path, m
     assert code == 1
     assert {r["reason"] for r in json.loads(out.read_text())} == {said}
     assert "> pytest exited 4:" in summary.read_text()
+    assert "  `-a`" in summary.read_text()  # the mutant that erred
     assert "> ERROR: not found" in summary.read_text()
 
 
@@ -753,6 +758,37 @@ def test_a_detected_mutant_is_rechecked_unmutated_and_keeps_no_output(
     assert results and {r["status"] for r in results} == {status}
     assert {r["reason"] for r in results} == {""}
     assert calls and {budget for _, budget in calls} == {limit}
+
+
+def test_a_timeout_is_not_judged_by_an_unmutated_run_at_a_longer_limit(toy, tmp_path, monkeypatch):
+    # A kill re-checks its tests unmutated at three times the budget; a later timeout on the same
+    # tests asks whether they finish within its own, shorter limit, and must not reuse that pass.
+    monkeypatch.setattr(mutation, "MIN_TIMEOUT", 1000.0)  # the budget, whatever the trace took
+    everything = ["tests/test_guard.py"]
+    outcomes = iter(
+        [
+            mutation.Outcome("killed", 1.0, 1, "a", "-a\n+b", everything, 1000.0, ""),
+            mutation.Outcome("timeout", 1000.0, 1, "b", "-c\n+d", everything, 1000.0, ""),
+        ]
+    )
+    real = mutation.run_tests
+
+    def run_tests(worker, tests, budget, extra=None):
+        if extra:  # the trace
+            return real(worker, tests, budget, extra)
+        if budget > 1500:
+            return "passed", 1200.0, ""
+        return "timeout", 1000.0, "pytest still running after 1000 s:\n"
+
+    def run_mutant(*args, **kwargs):
+        return next(outcomes, mutation.Outcome("survived", 1.0, 1, "z", "", everything, 1000.0))
+
+    monkeypatch.setattr(mutation, "run_tests", run_tests)
+    monkeypatch.setattr(mutation, "run_mutant", run_mutant)
+    out = tmp_path / "results.json"
+    mutation.main(["--root", str(toy), "--workers", "1", "--out", str(out), "--report-only"])
+    statuses = {r["key"]: r["status"] for r in json.loads(out.read_text())}
+    assert statuses["a"] == "killed" and statuses["b"] == "error"
 
 
 def test_an_empty_pythonpath_adds_no_entry(tmp_path, monkeypatch):
