@@ -33,9 +33,12 @@ source (`mutmut apply`), and the tests run against the real files:
 [tool.techne.mutation] in pyproject.toml maps each module to the test files that exercise it.
 A survivor whose mutated function is listed in mutation/equivalent.toml (by the hash of the
 mutated function's source, with the reason) counts as equivalent, not survived. A timeout counts
-as detected, as Stryker counts it: the tests did not pass. Exit 0 when no mutant survived, 1 when
-one did (0 with --report-only), and 1 whenever a mutant could not be applied or run. --merge
-reads the --out files of several shards and prints their combined table.
+as detected, as Stryker counts it, when the same tests finish unmutated within the same limit;
+otherwise it is an error. Exit 0 when no mutant survived, 1 when one did (0 with --report-only),
+and 1 on any error, even with --report-only: a mutant that could not be applied or run, or a
+timeout the unmutated tests share. --changed-since reads only the configured modules' lines, so
+a change to the mapping, this script or the workflow alone mutates nothing; the weekly full run
+covers it. --merge reads the --out files of several shards and prints their combined table.
 """
 
 # research(2026-11): mutmut 3 runs mutants from a trampolined copy and selects tests by in-process
