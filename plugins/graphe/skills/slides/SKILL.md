@@ -17,6 +17,10 @@ handout. Start from the starter deck, write for the room, put a figure on every
 content slide, gate it, render it, look at every slide, publish it, then brief
 the presenter.
 
+Before choosing a look or writing a slide, read
+`<plugin-root>/_shared/lessons/common.md` and `<plugin-root>/_shared/lessons/slides.md`: they
+hold what past decks taught and name the deck to beat.
+
 ## Run it
 
 ```
@@ -468,14 +472,16 @@ Before debugging a deck that loads wrong, draws wrong or checks wrong, read [ref
    how. The conclusion restates the main point as a claim, lists only results
    the talk showed, takes its open problems from the work's own limits, and
    its script ends with "That's my talk."
-2. `render` ran, and every slide was looked at at 1920 wide and on the phone,
+2. The deck was compared with the reference in `lessons/slides.md`, naming one way it is
+   better and one way it is worse.
+3. `render` ran, and every slide was looked at at 1920 wide and on the phone,
    including the ones you did not change. A change of look was shown before it shipped.
-3. Every content slide passes the text-alone and figure-alone reading, and has a
+4. Every content slide passes the text-alone and figure-alone reading, and has a
    figure. The script is handed over with the deck; its length is near the
    slot, and the slides stand without it.
-4. The deck is published (or deliberately kept local) and the link is on the
+5. The deck is published (or deliberately kept local) and the link is on the
    closing slide.
-5. The presenter has been briefed. A polished deck can outrun its owner. Offer a
+6. The presenter has been briefed. A polished deck can outrun its owner. Offer a
    mock Q&A, with questions out of order and no notes, before the talk rather
    than after. Two basic questions about material already in the deck mean stop
    polishing and start drilling.

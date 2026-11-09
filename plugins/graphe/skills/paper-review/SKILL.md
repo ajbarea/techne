@@ -9,6 +9,8 @@ allowed-tools: Bash Glob Grep Read Edit WebSearch WebFetch Agent
 
 `<plugin-root>` is the plugin's root directory, two levels above the directory holding this SKILL.md.
 
+Before starting, read `<plugin-root>/_shared/lessons/paper.md`: it holds what past papers taught and names the reference to beat.
+
 ## Overview
 
 A pre-submission **novelty + reviewer pass** that grounds every judgment in a *retrieved* paper.

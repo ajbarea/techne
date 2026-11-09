@@ -9,6 +9,8 @@ allowed-tools: Bash Glob Grep Read Edit Agent
 
 `<skill-dir>` is the directory holding this SKILL.md, and `<plugin-root>` is the plugin's root directory, two levels above it.
 
+Before changing the site's look or copy, read `<plugin-root>/_shared/lessons/common.md` and `<plugin-root>/_shared/lessons/docs-site.md`: they hold what past sites taught and name the site to beat.
+
 Audit and maintain the documentation site as a build/deploy artifact. `/techne:docsync` answers "does this claim match the code?"; `/techne:docs-site` answers "does this site build, deploy, render, and link correctly?"
 
 ## Repo context

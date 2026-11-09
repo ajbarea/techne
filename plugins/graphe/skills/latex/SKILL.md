@@ -9,6 +9,8 @@ allowed-tools: Bash Glob Grep Read Edit
 
 `<skill-dir>` is the directory holding this SKILL.md, and `<plugin-root>` is the plugin's root directory, two levels above it.
 
+Before starting, read `<plugin-root>/_shared/lessons/paper.md`: it holds what past papers taught and names the reference to beat.
+
 Build and gate in one command. Do not go looking for an engine: the decision is
 made below and the runner is in this skill.
 
