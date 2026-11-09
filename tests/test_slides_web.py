@@ -1231,7 +1231,7 @@ DARK_DECK = ".reveal-viewport, html, body { background-color: #101418 !important
 
 
 @needs_browser
-def test_a_mostly_dark_deck_blocks_and_allow_dark_clears_it(sl, web, gates):
+def test_a_mostly_dark_deck_warns_and_allow_dark_clears_it(sl, web, gates):
     (web.index.parent / "deck.css").write_text(
         (web.index.parent / "deck.css").read_text() + DARK_DECK
     )
