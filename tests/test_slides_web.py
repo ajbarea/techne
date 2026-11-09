@@ -1394,10 +1394,18 @@ PIXEL = (
 
 
 @needs_browser
-def test_dark_slides_does_not_read_a_full_bleed_image(sl, web, gates):
+@pytest.mark.parametrize(
+    "picture",
+    [
+        f'<img class="bleed" src="{PIXEL}" alt="">',
+        '<svg class="bleed" viewBox="0 0 10 10" role="img" aria-label="art"><rect width="10" '
+        'height="10"/></svg>',
+    ],
+)
+def test_dark_slides_does_not_read_a_full_bleed_picture(sl, web, gates, picture):
     text = web.index.read_text().replace(
         '<aside class="notes">',
-        f'<img class="bleed" src="{PIXEL}" alt=""><aside class="notes">',
+        f'{picture}<aside class="notes">',
     )
     web.index.write_text(text)
     (web.index.parent / "deck.css").write_text(

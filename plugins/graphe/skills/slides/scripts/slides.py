@@ -1288,7 +1288,7 @@ _SLIDE_GROUND = """(i) => {
     return [r, g, b].map((v, n) => v * k + under[n] * (1 - k));
   };
   const layer = (el) => {
-    if (['IMG', 'VIDEO', 'CANVAS', 'IFRAME'].includes(el.tagName)) return null;
+    if (['IMG', 'VIDEO', 'CANVAS', 'IFRAME', 'SVG'].includes(el.tagName.toUpperCase())) return null;
     const st = getComputedStyle(el);
     const image = st.backgroundImage;
     if (image.includes('url(')) return null;
