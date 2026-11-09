@@ -94,7 +94,7 @@ pass is reported on its own, beside the desktop findings.
 | BLOCK | `em-dash` | An em-dash in slide text. |
 | BLOCK | `asset` | A file the deck asks for and cannot load: a renamed figure, a missing script. |
 | BLOCK | `script` | A console error, including a `data-value` with no data behind it. |
-| BLOCK | `dark-slides` | A web deck whose talk slides are mostly dark, naming them (solid backgrounds only; title, closing, backup and picture-backed slides do not count). `--allow-dark` is for a deck the presenter asked to be dark. Not checked on a .pptx or PDF. |
+| WARN | `dark-slides` | A web deck whose talk slides are mostly dark, naming them (title, closing and backup slides do not count; a slide over a picture counts as a talk slide but never as dark). It warns rather than blocks because a child or a picture can change what the room sees. `--allow-dark` is for a deck the presenter asked to be dark. Not checked on a .pptx or PDF. |
 | WARN | `small-text` | Text under `--min-pt` (14pt: 19px on a 1280-wide canvas, scaled to the deck's own width). |
 | WARN | `overflow` | Something drawn past the edge of the slide canvas, clipped or not. Content inside a container that scrolls sideways is exempt. |
 | BLOCK | `phone-clip` | Content drawn past the slide's edge on a 390px or 360px-wide phone. A phone cannot pan to it: reflow the figure or draw a tall version for the phone. |
@@ -125,7 +125,7 @@ change.
 The starter is a working skeleton, not a look: it passes the gates and is meant to be replaced. `check` raises an `own-look` review until a deck has its own colours and a real title illustration.
 
 - **Give each talk its own identity.** No shared theme across talks: each talk gets its own ground, type, colour and title illustration, taken from its subject. Styling from a culture or a cast (Greek type, a mascot, a character's colours) belongs only on a talk about it.
-- **Light on the slides the room reads.** Dark slides wash out when the lights stay on, so talk slides sit on a light ground; a dark title or closing slide can be part of a talk's identity. `check` blocks a deck whose talk slides are mostly dark, and `--allow-dark` is for a deck the presenter asked to be dark.
+- **Light on the slides the room reads.** Dark slides wash out when the lights stay on, so talk slides sit on a light ground; a dark title or closing slide can be part of a talk's identity. `check` warns on a deck whose talk slides are mostly dark, and `--allow-dark` is for a deck the presenter asked to be dark.
 - **Read an analogy as a level of care.** "Like X" means "with the care X got", so state the reading in one line before starting, and borrow X's content only when the talk is about X.
 - **Match the subject before raising saturation.** A colour request names a mood. Match the subject's real look first; a full-bleed title bar in the accent colour is rarely what was asked for.
 - **Show a change of look before shipping it.** Before and after at 1920 wide and on a phone, every time the ask is about how it looks. When asked for a look, mock two or three directions on the same three slides (title, a claim with its figure, a table) and let the owner pick; load `frontend-design` when it is installed.

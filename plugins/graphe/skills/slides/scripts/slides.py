@@ -764,18 +764,19 @@ FOOTNOTE_SHARE = 0.5
 def dark_findings(
     grounds: list[tuple[int, str | None]], closing: int, allow_dark: bool
 ) -> list[Finding]:
-    """A deck whose talk slides are mostly dark, naming them. A slide over a picture is unread."""
+    """A deck whose talk slides are mostly dark, naming them. A slide over a picture counts as
+    a talk slide but never as dark, since its colour cannot be read."""
     if allow_dark:
         return []
-    read = [(n, c) for n, c in grounds if n != closing and c is not None]
-    dark = [n for n, c in read if luminance(c) < DARK_GROUND]
-    if len(dark) * 2 <= len(read):
+    talk = [(n, c) for n, c in grounds if n != closing]
+    dark = [n for n, c in talk if c is not None and luminance(c) < DARK_GROUND]
+    if len(dark) * 2 <= len(talk):
         return []
     return [
         Finding(
-            BLOCK,
+            WARN,
             "dark-slides",
-            f"{len(dark)} of {len(read)} talk slides are dark, and dark slides wash out under a "
+            f"{len(dark)} of {len(talk)} talk slides are dark, and dark slides wash out under a "
             f"lit room's lights: slides {dark}. Use a light ground (a dark title or closing "
             "slide is fine), or pass --allow-dark for a deck the presenter asked to be dark",
         )
@@ -1266,17 +1267,14 @@ _AXE_SLIDE = (
 }"""
 )
 
-# Animations on slide i still running a quarter second after it opens, with reduced motion
-# requested. A loop driven by requestAnimationFrame or a timer is invisible to this.
-# The colour behind a slide: the section's own over reveal.js's background layer over the page,
-# read through a canvas so any CSS colour resolves. None over an image, gradient or video.
-_SLIDE_GROUND = (
-    "(i) => { "
-    + _SLIDE_PICTURE
-    + """
+# The colour behind a slide, composited bottom to top: page, reveal.js's layers, the slide's own
+# background layer and section, then any child drawn over nearly all of the slide. Alpha is honoured
+# and a gradient counts as the average of its stops. None when an image or video is in the stack.
+_SLIDE_GROUND = """(i) => {
   const s = __deckSlides()[i];
   const painted = Reveal.getSlideBackground(s);
-  if (pictureBehind(s, painted)) return null;
+  const inner = painted ? [...painted.querySelectorAll('*')] : [];
+  if (inner.some((el) => ['VIDEO', 'IFRAME', 'IMG'].includes(el.tagName))) return null;
   const ctx = document.createElement('canvas').getContext('2d', {willReadFrequently: true});
   const read = (css) => {
     ctx.clearRect(0, 0, 1, 1);
@@ -1285,19 +1283,39 @@ _SLIDE_GROUND = (
     ctx.fillRect(0, 0, 1, 1);
     return [...ctx.getImageData(0, 0, 1, 1).data];
   };
-  const page = document.querySelector('.reveal-viewport') || document.body;
-  let colour = read(getComputedStyle(page).backgroundColor);
-  if (colour[3] === 0) colour = [255, 255, 255, 255];
-  const layers = [painted ? getComputedStyle(painted).backgroundColor : 'transparent',
-    getComputedStyle(s).backgroundColor];
-  for (const css of layers) {
-    const [r, g, b, a] = read(css);
+  const blend = (under, [r, g, b, a]) => {
     const k = a / 255;
-    colour = [r, g, b].map((v, n) => v * k + colour[n] * (1 - k)).concat(255);
+    return [r, g, b].map((v, n) => v * k + under[n] * (1 - k));
+  };
+  const layer = (el) => {
+    const st = getComputedStyle(el);
+    const image = st.backgroundImage;
+    if (image.includes('url(')) return null;
+    if (image === 'none') return [read(st.backgroundColor)];
+    const stops = image.match(/(?:rgba?|color|oklab|oklch|hsla?)\\([^)]*\\)/g) || [];
+    if (!stops.length) return null;
+    const colours = stops.map(read);
+    const mean = [0, 1, 2, 3].map(
+      (n) => colours.reduce((sum, c) => sum + c[n], 0) / colours.length);
+    return [read(st.backgroundColor), mean];
+  };
+  const frame = document.querySelector('.reveal .slides').getBoundingClientRect();
+  const covers = (el) => {
+    const r = el.getBoundingClientRect();
+    return r.width >= frame.width * 0.9 && r.height >= frame.height * 0.9;
+  };
+  const stack = [document.documentElement, document.body,
+    document.querySelector('.reveal-viewport'), document.querySelector('.reveal'),
+    document.querySelector('.reveal .backgrounds'), painted, ...inner, s,
+    ...[...s.querySelectorAll('*')].filter((el) => !el.closest('aside.notes') && covers(el))];
+  let colour = [255, 255, 255];
+  for (const el of new Set(stack.filter(Boolean))) {
+    const parts = layer(el);
+    if (parts === null) return null;
+    for (const part of parts) colour = blend(colour, part);
   }
-  return colour.slice(0, 3).map((v) => Math.round(v).toString(16).padStart(2, '0')).join('');
+  return colour.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('');
 }"""
-)
 # Whether slide 1 still wears the starter's placeholder art or has any picture large enough to be
 # its illustration, and whether the page's colour tokens are still the starter's.
 _OWN_LOOK = """([tokens, share]) => {
@@ -1305,16 +1323,27 @@ _OWN_LOOK = """([tokens, share]) => {
   const same = tokens.length > 0
     && tokens.every(([k, v]) => root.getPropertyValue(k).trim().toLowerCase() === v);
   const s = __deckSlides()[0];
-  const floor = Reveal.getConfig().height * Reveal.getScale() * share;
-  const pics = [...s.querySelectorAll('img, svg, canvas, video')]
-    .filter((el) => !el.closest('aside.notes'));
-  const placeholder = pics.some((el) => el.closest('[data-placeholder]'));
-  const art = pics.some((el) => {
+  const config = Reveal.getConfig();
+  const tall = typeof config.height === 'number' ? config.height * Reveal.getScale() : innerHeight;
+  const floor = tall * share;
+  const big = (el) => {
     const r = el.getBoundingClientRect();
-    return !el.closest('[data-placeholder]') && r.width >= floor && r.height >= floor;
-  });
+    return r.width >= floor && r.height >= floor;
+  };
+  const inSlide = [...s.querySelectorAll('*')].filter((el) => !el.closest('aside.notes'));
+  const pics = inSlide.filter(
+    (el) => ['IMG', 'SVG', 'CANVAS', 'VIDEO'].includes(el.tagName.toUpperCase()));
+  const placeholder = pics.some((el) => el.closest('[data-placeholder]'));
+  const hasImage = (el) => getComputedStyle(el).backgroundImage.includes('url(');
+  const painted = Reveal.getSlideBackground(s);
+  const behind = hasImage(s) || (!!painted && [painted, ...painted.querySelectorAll('*')]
+    .some((el) => hasImage(el) || ['VIDEO', 'IFRAME', 'IMG'].includes(el.tagName)));
+  const art = behind || pics.some((el) => !el.closest('[data-placeholder]') && big(el))
+    || inSlide.some((el) => hasImage(el) && big(el));
   return {same, placeholder, art};
 }"""
+# Animations on slide i still running a quarter second after it opens, with reduced motion
+# requested. A loop driven by requestAnimationFrame or a timer is invisible to this.
 _MOVING = """async (i) => {
   const s = __deckSlides()[i];
   const at = Reveal.getIndices(s);

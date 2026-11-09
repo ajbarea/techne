@@ -727,7 +727,7 @@ OPENING = '<section><h2>Opening</h2><aside class="notes">Hi.</aside></section>'
 
 @needs_browser
 def test_a_section_with_its_own_background_is_measured_against_it(sl, web, gates):
-    # The starter's ink passes on its own marble; on a section painted near-black it must fail,
+    # The starter's ink passes on its own ground; on a section painted near-black it must fail,
     # which it can only do if the section's own background is what it is measured against.
     plain = '<section class="discussion">'
     white = '<section class="discussion" style="background:#ffffff">'
@@ -1235,8 +1235,8 @@ def test_a_mostly_dark_deck_blocks_and_allow_dark_clears_it(sl, web, gates):
     (web.index.parent / "deck.css").write_text(
         (web.index.parent / "deck.css").read_text() + DARK_DECK
     )
-    assert ("BLOCK", "dark-slides") in gates(_check(sl, web.index))
-    assert ("BLOCK", "dark-slides") not in gates(_check(sl, web.index, allow_dark=True))
+    assert ("WARN", "dark-slides") in gates(_check(sl, web.index))
+    assert ("WARN", "dark-slides") not in gates(_check(sl, web.index, allow_dark=True))
 
 
 @needs_browser
@@ -1245,7 +1245,7 @@ def test_a_dark_title_and_closing_slide_are_part_of_a_talks_identity(sl, web, ga
         (web.index.parent / "deck.css").read_text()
         + "section.title-slide, section.closing { background-color: #101418; }"
     )
-    assert ("BLOCK", "dark-slides") not in gates(_check(sl, web.index))
+    assert ("WARN", "dark-slides") not in gates(_check(sl, web.index))
 
 
 @pytest.mark.parametrize(
@@ -1258,8 +1258,10 @@ def test_a_dark_title_and_closing_slide_are_part_of_a_talks_identity(sl, web, ga
         ([(2, "111111"), (3, "111111"), (4, "ffffff")], 9, True, False),
         # The closing slide never counts, and half is not most.
         ([(2, "111111"), (3, "ffffff"), (4, "111111")], 4, False, False),
-        # A slide over a picture is unread, so it counts for neither side.
-        ([(2, None), (3, "111111")], 9, False, True),
+        # A picture slide stays a talk slide but is never dark: one dark among pictures is no flag.
+        ([(2, None), (3, "111111")], 9, False, False),
+        ([(2, None), (3, None), (4, None), (5, None), (6, "111111")], 9, False, False),
+        ([(2, None), (3, "111111"), (4, "111111")], 9, False, True),
     ],
 )
 def test_dark_findings_at_the_boundaries(sl, grounds, closing, allow, blocks):
@@ -1350,3 +1352,80 @@ def test_the_starter_carries_no_forge_look():
         assert word not in css, word
     assert not list((STARTER / "fonts").glob("*marcellus*"))
     assert not list((STARTER / "fonts").glob("OFL-Marcellus*"))
+
+
+GROUND_CSS = [
+    (
+        ".reveal-viewport, body { background: transparent !important; }"
+        " html { background: #101418; }",
+        True,
+    ),
+    ("section { background-color: rgba(0, 0, 0, 0.2); }", False),
+    ("section { background-color: rgba(0, 0, 0, 0.9); }", True),
+    ("section { background-image: linear-gradient(#000000, #101010); }", True),
+    ("section { background-image: linear-gradient(#ffffff, #f0f0f0); }", False),
+]
+
+
+@needs_browser
+@pytest.mark.parametrize("css, dark", GROUND_CSS)
+def test_dark_slides_composites_the_whole_background_stack(sl, web, gates, css, dark):
+    (web.index.parent / "deck.css").write_text((web.index.parent / "deck.css").read_text() + css)
+    assert (("WARN", "dark-slides") in gates(_check(sl, web.index))) is dark
+
+
+@needs_browser
+def test_dark_slides_reads_a_full_bleed_dark_child(sl, web, gates):
+    text = web.index.read_text().replace(
+        '<aside class="notes">', '<div class="bleed"></div><aside class="notes">'
+    )
+    web.index.write_text(text)
+    (web.index.parent / "deck.css").write_text(
+        (web.index.parent / "deck.css").read_text()
+        + ".bleed { position: absolute; inset: 0; background: #101418; }"
+    )
+    assert ("WARN", "dark-slides") in gates(_check(sl, web.index))
+
+
+PIXEL = (
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChw"
+    "GA60e6kgAAAABJRU5ErkJggg=="
+)
+
+
+@needs_browser
+@pytest.mark.parametrize(
+    "kind",
+    ["data-background", "css-section", "css-child"],
+)
+def test_own_look_counts_a_background_illustration(sl, web, kind):
+    _recolour(web)
+    text = re.sub(
+        r'<figure class="title-art".*?</figure>', "", web.index.read_text(), count=1, flags=re.S
+    )
+    web.index.write_text(text)
+    if kind == "data-background":
+        web(
+            '<section class="title-slide">',
+            f'<section class="title-slide" data-background-image="{PIXEL}">',
+        )
+    elif kind == "css-section":
+        (web.index.parent / "deck.css").write_text(
+            (web.index.parent / "deck.css").read_text()
+            + f'.title-slide {{ background-image: url("{PIXEL}"); }}'
+        )
+    else:
+        web(
+            '<aside class="notes">[Hi,',
+            '<div style="position:absolute;right:0;top:0;width:400px;height:400px;'
+            f'background-image:url({PIXEL})"></div><aside class="notes">[Hi,',
+        )
+    assert _own_look(_check(sl, web.index)) == []
+
+
+@needs_browser
+def test_own_look_copes_with_a_percent_slide_height(sl, web):
+    _title_art(web)
+    _recolour(web)
+    web("Reveal.initialize({", 'Reveal.initialize({ width: "100%", height: "100%",', "deck.js")
+    assert _own_look(_check(sl, web.index)) == []
