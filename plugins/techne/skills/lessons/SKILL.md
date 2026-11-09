@@ -31,7 +31,7 @@ Do this at the moment of the correction, in the same turn, instead of writing a 
 
 3. Prefer a gate. If the rule can be computed, add it to the relevant checker with a test, and name both in **Check**. `tests/test_lessons.py` fails a gate whose named test never mentions it.
 4. The file is public. State the general rule: no teammates' names, private incidents, course details or unpublished results. A fact only one repo cares about goes in that repo's `.claude/skill-context.md`.
-5. Raise the file's `budget` line only if the words are needed, or merge entries. In the clone, run `uv run pytest tests/test_lessons.py`.
+5. Raise the file's `budget` line only if the words are needed, or merge entries. In the clone, run `make test-unit` before opening the pull request.
 
 The installed copy updates on the next plugin update.
 

@@ -41,7 +41,7 @@ Read with `common.md`. Rules already in `SKILL.md` (claim titles, no slogan slid
 - **Rule:** Score candidate colour sets with `slides.py palette` (room light 30% of projector white, closest pair across vision types) and keep the set with the widest closest pair; carry state with outlines and symbols, since pale fills disappear under room light.
 - **Why:** Three shades of one hue scored 7.6, plum, orange and sky 20.7, on the same measure.
 - **Since:** 2026-11-08
-- **Check:** gate: plugins/graphe/skills/slides/scripts/slides.py#def palette, test: test_palette_reproduces_the_published_scores
+- **Check:** gate: plugins/graphe/skills/slides/scripts/slides.py#def palette_scores, test: test_palette_reproduces_the_published_scores
 
 ### notes-free-pdf: A submitted PDF carries no speaker notes
 

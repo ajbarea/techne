@@ -135,7 +135,7 @@ def test_a_retired_lesson_names_a_live_replacement(path):
 @pytest.mark.parametrize("path", SURFACES, ids=lambda p: p.name)
 def test_each_surface_names_a_reference_to_beat(path):
     text = path.read_text()
-    section = re.search(r"^## Reference to beat\n(.*?)(?=^##? |\Z)", text, re.S | re.M)
+    section = re.search(r"^## Reference to beat\n(.*?)(?=^#{1,3} |\Z)", text, re.S | re.M)
     assert section, f"{path}: no Reference to beat"
     assert re.search(r"(https?://|talks#|`conventions\.md`)", section[1]), path
 

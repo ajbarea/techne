@@ -50,6 +50,7 @@ Run `/techne:setup`. It checks each item above, the repo's `.claude/skill-contex
 | [`techne:deslop`](../skills/deslop.md) | Find AI-generated filler in comments and docstrings. |
 | [`techne:docs-site`](../skills/docs-site.md) | Audit the Zensical docs site. |
 | [`techne:docsync`](../skills/docsync.md) | Check documentation claims against the code. |
+| [`techne:lessons`](../skills/lessons.md) | Keep a decided quality lesson so the next deck, paper, site or app starts ahead. |
 | [`techne:elenchus`](../skills/elenchus.md) | Review a change adversarially before merge. |
 | [`techne:logging`](../skills/logging.md) | Check logging against the standard and fix it. |
 | [`techne:research-grounded`](../skills/research-grounded.md) | Ground decisions in current sources. |
