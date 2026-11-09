@@ -48,7 +48,7 @@ Read with `common.md`. Rules already in `SKILL.md` (claim titles, no slogan slid
 - **Rule:** Hand out or submit the `pdf` export, which never prints speaker notes.
 - **Why:** A deck that sets reveal.js's `showNotes` otherwise prints its script into the file.
 - **Since:** 2026-11-09
-- **Check:** gate: plugins/graphe/skills/slides/scripts/slides.py#speaker-notes-pdf, test: test_pdf_leaves_the_speaker_notes_out_whatever_the_deck_configures
+- **Check:** gate: plugins/graphe/skills/slides/scripts/slides.py#def pdf_html, test: test_pdf_leaves_the_speaker_notes_out_whatever_the_deck_configures
 
 ### us-dates: Dates read month first
 

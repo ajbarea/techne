@@ -11,11 +11,11 @@ A lesson is a decision that made the work better, kept so the next piece starts 
 
 ## Read them
 
-For an app or a project's user-facing surface, read `<plugin-root>/_shared/lessons/common.md` and `project.md` before starting, then open that file's reference to beat and name one way the new work is better and one way it is worse before calling it done.
+For an app or a project's user-facing surface, read `<plugin-root>/_shared/lessons/common.md` and `<plugin-root>/_shared/lessons/project.md` before starting, then open that file's reference to beat and name one way the new work is better and one way it is worse before calling it done.
 
 ## Add one
 
-Do this at the moment of the correction, in the same turn, instead of writing a memory note or a recap. A lesson goes in the techne repository, through a pull request: never edit the installed plugin cache, which an update overwrites.
+Do this at the moment of the correction, in the same turn, instead of writing a memory note or a recap. A lesson goes in the techne repository, `ajbarea/techne`, through a pull request: never edit the installed plugin cache, which an update overwrites. Use a clone (`gh repo clone ajbarea/techne` if there is none) and a worktree on a new branch; paths below are relative to its root.
 
 1. Pick the surface file. A lesson about every surface goes in `common.md`, kept identical in `plugins/graphe/_shared/lessons/` and `plugins/techne/_shared/lessons/`.
 2. Add one entry at the top of the file's list, in this shape:
@@ -26,12 +26,12 @@ Do this at the moment of the correction, in the same turn, instead of writing a 
    - **Rule:** One line, in the general form, that the next agent can act on.
    - **Why:** One line.
    - **Since:** YYYY-MM-DD
-   - **Check:** gate: <path>#<identifier> or guidance: <why it cannot be computed>.
+   - **Check:** gate: <path>#<identifier>, test: test_name or guidance: <why it cannot be computed>.
    ```
 
-3. Prefer a gate. If the rule can be computed, add it to the relevant checker with a test, and name it in **Check**. `tests/test_lessons.py` fails a gate no test mentions.
+3. Prefer a gate. If the rule can be computed, add it to the relevant checker with a test, and name both in **Check**. `tests/test_lessons.py` fails a gate whose named test never mentions it.
 4. The file is public. State the general rule: no teammates' names, private incidents, course details or unpublished results. A fact only one repo cares about goes in that repo's `.claude/skill-context.md`.
-5. Raise the file's `budget` line only if the words are needed, or merge entries; run `tests/test_lessons.py`.
+5. Raise the file's `budget` line only if the words are needed, or merge entries. In the clone, run `uv run pytest tests/test_lessons.py`.
 
 The installed copy updates on the next plugin update.
 

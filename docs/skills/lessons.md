@@ -20,7 +20,7 @@ Part of [techne](../plugins/techne.md): `/plugin install techne@techne`, then `/
 /techne:lessons
 ```
 
-An entry is one heading and four fields: **Rule**, **Why**, **Since** and **Check**. **Check** names a gate and its test, or says why the lesson stays guidance. `tests/test_lessons.py` fails a gate that no test mentions and a file over its word budget. A retired lesson keeps one line naming what replaced it; git keeps the rest.
+An entry is one heading and four fields: **Rule**, **Why**, **Since** and **Check**. **Check** names a gate and its test, or says why the lesson stays guidance. `tests/test_lessons.py` fails a gate whose named test never mentions it, and a file over its word budget. A retired lesson keeps one line naming what replaced it; git keeps the rest.
 
 Each surface names a reference to beat, so new work is compared with the best one so far.
 

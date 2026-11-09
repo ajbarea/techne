@@ -5,7 +5,7 @@ Read with `plain-prose.md` and `paper-quality.md`, which hold the sentence-level
 
 ## Reference to beat
 
-- The target venue's accepted papers, recorded in the paper's `conventions.md` (`paper-quality.md`, "Learn the genre from accepted papers"). A repo may name its own best accepted paper in `.claude/skill-context.md`, under `## paper-review`, as `exemplar:`.
+- The target venue's accepted papers, recorded in the paper's `conventions.md` (`paper-quality.md`, "Learn the genre from accepted papers").
 - Before calling a draft done, compare it to that reference on title, abstract moves, and how the claim is stated, and say where the new draft falls short.
 
 ### explain-every-equation: Every equation has a plain-words meaning
@@ -20,7 +20,7 @@ Read with `plain-prose.md` and `paper-quality.md`, which hold the sentence-level
 - **Rule:** Declare the budget in the source before drafting; a venue's limit is hard, a self-set budget is a target that may be raised with a one-line reason.
 - **Why:** Review rounds only add, so drafts grow past what anyone will read.
 - **Since:** 2026-10-20
-- **Check:** gate: plugins/graphe/_shared/length_budget.py#def markdown_words, test: test_markdown_words_skip_table_bars_bullets_code_and_comments
+- **Check:** gate: plugins/graphe/_shared/length_budget.py#def assess, test: test_a_page_only_budget_does_not_call_texcount
 
 ### candidate-is-not-a-decision: A candidate reads differently from a decision
 

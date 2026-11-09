@@ -5,7 +5,7 @@ Read with `common.md` before building or restyling a project's user-facing surfa
 
 ## Reference to beat
 
-- [klepsydra](https://github.com/ajbarea/klepsydra), for a live wall that reads at a glance. A repo may name its own in `.claude/skill-context.md` as `exemplar:`.
+- [klepsydra](https://github.com/ajbarea/klepsydra), for a live wall that reads at a glance.
 - Before calling the work done, open the reference and the new work side by side and name one way the new one is better and one way it is worse.
 
 ### look-at-the-gui: A dashboard shows what files hide

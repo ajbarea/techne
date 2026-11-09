@@ -4,6 +4,7 @@ the file for its surface. A lesson that cannot be checked says why, in its Check
 
 from __future__ import annotations
 
+import datetime
 import pathlib
 import re
 
@@ -24,16 +25,15 @@ SURFACES = [f for f in FILES if f.name != "common.md"]
 # Skill -> the surface file it must load at the start of the work.
 LOADERS = {
     "plugins/graphe/skills/slides/SKILL.md": ["common.md", "slides.md"],
-    "plugins/graphe/skills/paper/SKILL.md": ["paper.md"],
-    "plugins/graphe/skills/latex/SKILL.md": ["paper.md"],
-    "plugins/graphe/skills/paper-review/SKILL.md": ["paper.md"],
+    "plugins/graphe/skills/paper/SKILL.md": ["common.md", "paper.md"],
+    "plugins/graphe/skills/latex/SKILL.md": ["common.md", "paper.md"],
+    "plugins/graphe/skills/paper-review/SKILL.md": ["common.md", "paper.md"],
     "plugins/techne/skills/docs-site/SKILL.md": ["common.md", "docs-site.md"],
     "plugins/techne/skills/lessons/SKILL.md": ["common.md", "project.md"],
 }
 HEADING_RE = re.compile(r"^### ([a-z0-9]+(?:-[a-z0-9]+)*): (\S.*)$")
 FIELD_RE = re.compile(r"^- \*\*(\w+):\*\* (\S.*)$")
 FIELDS = ("Rule", "Why", "Since", "Check")
-DATE_RE = re.compile(r"^20\d\d-\d\d-\d\d$")
 GATE_RE = re.compile(r"^gate: (?P<path>\S+?)#(?P<id>[^,]+), test: (?P<test>test_\w+)$")
 RETIRED_RE = re.compile(
     r"^- `(?P<old>[a-z0-9-]+)`, retired (?P<date>20\d\d-\d\d-\d\d) by `(?P<new>[a-z0-9-]+)`: \S"
@@ -50,7 +50,9 @@ def parse(path: pathlib.Path) -> tuple[list[dict], list[str]]:
         if line.startswith("## "):
             section = line[3:].strip()
             current = None
-        elif m := HEADING_RE.match(line):
+        elif line.startswith("### "):
+            m = HEADING_RE.match(line)
+            assert m, f"{path}: malformed heading: {line}"
             current = {"slug": m[1], "name": m[2], "file": path, "fields": {}}
             lessons.append(current)
         elif section == "Retired" and line.startswith("- "):
@@ -80,7 +82,8 @@ def test_each_file_parses_and_stays_in_budget(path):
 @pytest.mark.parametrize("lesson", ALL, ids=ids)
 def test_each_lesson_has_its_fields_in_order(lesson):
     assert tuple(lesson["fields"]) == FIELDS
-    assert DATE_RE.match(lesson["fields"]["Since"]), lesson["fields"]["Since"]
+    since = datetime.date.fromisoformat(lesson["fields"]["Since"])
+    assert since <= datetime.date.today(), f"{lesson['slug']}: a date in the future"
 
 
 @pytest.mark.parametrize("lesson", ALL, ids=ids)
@@ -102,7 +105,10 @@ def test_a_gate_exists_and_a_test_names_it(lesson):
     assert target.is_file(), f"{m['path']} does not exist"
     assert m["id"] in target.read_text(), f"{m['id']} is not in {m['path']}"
     tests = "\n".join(p.read_text() for p in (ROOT / "tests").glob("test_*.py"))
-    assert re.search(rf"\bdef {m['test']}\b", tests), f"no test named {m['test']}"
+    body = re.search(rf"^def {m['test']}\(.*?(?=^\S)", tests + "\n@", re.S | re.M)
+    assert body, f"no test named {m['test']}"
+    wanted = m["id"].removeprefix("def ").replace("-", "_")
+    assert wanted in body[0].replace("-", "_"), f"{m['test']} never mentions {m['id']}"
 
 
 def test_slugs_are_unique_within_a_plugin():
@@ -138,7 +144,7 @@ def test_each_surface_names_a_reference_to_beat(path):
 def test_each_skill_loads_its_surface(skill, files):
     text = (ROOT / skill).read_text()
     for name in files:
-        assert f"lessons/{name}" in text or name in text, f"{skill} never loads {name}"
+        assert f"_shared/lessons/{name}" in text, f"{skill} never loads {name}"
 
 
 def test_a_public_lesson_names_no_private_repo():
