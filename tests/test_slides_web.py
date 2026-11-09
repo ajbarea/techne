@@ -1394,6 +1394,21 @@ PIXEL = (
 
 
 @needs_browser
+def test_dark_slides_does_not_read_a_full_bleed_image(sl, web, gates):
+    text = web.index.read_text().replace(
+        '<aside class="notes">',
+        f'<img class="bleed" src="{PIXEL}" alt=""><aside class="notes">',
+    )
+    web.index.write_text(text)
+    (web.index.parent / "deck.css").write_text(
+        (web.index.parent / "deck.css").read_text()
+        + ".bleed { position: absolute; inset: 0; width: 100%; height: 100%; }"
+        + DARK_DECK
+    )
+    assert ("WARN", "dark-slides") not in gates(_check(sl, web.index))
+
+
+@needs_browser
 @pytest.mark.parametrize(
     "kind",
     ["data-background", "css-section", "css-child"],
@@ -1427,5 +1442,5 @@ def test_own_look_counts_a_background_illustration(sl, web, kind):
 def test_own_look_copes_with_a_percent_slide_height(sl, web):
     _title_art(web)
     _recolour(web)
-    web("Reveal.initialize({", 'Reveal.initialize({ width: "100%", height: "100%",', "deck.js")
+    web("height: phone ? 860 : 720,", 'height: "100%",', "deck.js")
     assert _own_look(_check(sl, web.index)) == []
