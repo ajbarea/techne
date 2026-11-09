@@ -1716,7 +1716,9 @@ def html_slides(path: pathlib.Path) -> list[tuple[str, str]]:
 #   export sets it false as the deck starts, whatever the deck says;
 # - a slide taller than its page (a footnote pinned to the slide's bottom) is cut to the page,
 #   or its bottom is cut off;
-# - reveal.js's own navigation and `.web-only` text mean nothing on paper.
+# - reveal.js's own navigation and `.web-only` text mean nothing on paper;
+# - the file is what goes to a reader or a submission, so the speaker notes stay out of it, even
+#   in a deck that sets reveal.js's `showNotes` (a box over each slide, or a page after it).
 _PDF_FRAGMENTS = """(() => {
   let deck;
   Object.defineProperty(window, 'Reveal', {
@@ -1735,6 +1737,7 @@ _PDF_FRAGMENTS = """(() => {
 # `#/id` is reveal.js's link to a slide by id; on paper the browser needs plain `#id` to make
 # a link of it.
 _PDF_FIT = """() => {
+  for (const notes of document.querySelectorAll('.speaker-notes-pdf')) notes.remove();
   for (const a of document.querySelectorAll('a[href^="#/"]')) {
     const id = decodeURIComponent(a.getAttribute('href').slice(2));
     if (id && document.getElementById(id)) a.setAttribute('href', `#${id}`);

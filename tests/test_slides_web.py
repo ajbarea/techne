@@ -1014,6 +1014,20 @@ def test_pdf_has_one_vector_page_per_slide_with_text_and_working_links(sl, web, 
 
 @needs_browser
 @needs_poppler
+@pytest.mark.parametrize("show", [None, "true", '"separate-page"'])
+def test_pdf_leaves_the_speaker_notes_out_whatever_the_deck_configures(sl, web, tmp_path, show):
+    index = web.index
+    if show is not None:
+        web("Reveal.initialize({", f"Reveal.initialize({{ showNotes: {show},", "deck.js")
+    out = tmp_path / "deck.pdf"
+    assert sl.pdf_html(index, out) == 0
+    assert "Walk the figure" not in _pdf_text(out)
+    info = subprocess.run(["pdfinfo", str(out)], capture_output=True, text=True).stdout
+    assert re.search(rf"Pages:\s+{len(sl.html_slides(index))}\b", info)
+
+
+@needs_browser
+@needs_poppler
 def test_pdf_shows_each_slide_fully_built_whatever_the_deck_configures(sl, web, tmp_path):
     web("pdfSeparateFragments: false,", "", "deck.js")
     index = web(CLAIM, CLAIM + '<p class="fragment">first</p><p class="fragment">second</p>')
