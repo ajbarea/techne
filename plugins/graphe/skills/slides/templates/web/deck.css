@@ -1,38 +1,8 @@
-/* The forge: one look for every talk. A cool marble ground, deep forge ink, a classical display
-   face for titles and a hyperlegible sans for reading. Bronze and gold mark the speaker's own work
-   and nothing else; vermilion is failure or risk; bluish green is the fix or a pass; sky blue is
-   neutral context. Each role keeps its meaning on every slide and in every figure.
-
-   Contrast, measured: every text colour below clears 7:1 on marble and on card white, the gold
-   title colour 5.4:1 for large text. Marks: the four role colours sit at CIELAB lightness 78
-   (sky), 65 (gold), 51 (green) and 39 (vermilion), so they part in greyscale too, and stay apart
-   under simulated protan, deutan and tritan vision (CAM02-UCS distance 21 or more between any
-   pair). A pale mark reaches 3:1 through its darker outline, the *-line colour.
-   Sources: Okabe and Ito (2008) for the hues; Paul Tol's high-contrast scheme for the gold;
-   Machado et al. (2009) for the simulation. */
-/* The display face is Marcellus for letters and Atkinson Hyperlegible for figures: Marcellus
-   draws 1 like a Roman I and 0 like an O, so "71" and "100" misread in a title. */
-@font-face {
-  font-family: "Forge Display";
-  src: url("fonts/marcellus-latin-400-normal.woff2") format("woff2");
-  font-weight: 400;
-  font-display: block;
-  unicode-range: U+0000-002F, U+003A-FFFF;
-}
-@font-face {
-  font-family: "Forge Display";
-  src: url("fonts/atkinson-hyperlegible-next-latin-wght-normal.woff2") format("woff2");
-  font-weight: 400;
-  font-display: block;
-  unicode-range: U+0030-0039;
-  size-adjust: 96%;
-}
-@font-face {
-  font-family: "Marcellus SC";
-  src: url("fonts/marcellus-sc-latin-400-normal.woff2") format("woff2");
-  font-weight: 400;
-  font-display: block;
-}
+/* A starting point, not a look. Every talk gets its own: change this file first (the tokens,
+   the faces, the chapter rail, the other chrome), and draw a real title illustration. "The look" in
+   SKILL.md says how, and `slides.py check` reviews a deck that still wears these colours.
+   What stays whatever the look: text that clears 7:1, a light ground on the slides the room reads
+   (dark ones wash out when the lights stay on), and marks that survive colour-vision deficiency. */
 @font-face {
   font-family: "Atkinson Hyperlegible Next";
   src: url("fonts/atkinson-hyperlegible-next-latin-wght-normal.woff2") format("woff2");
@@ -55,43 +25,34 @@
 }
 
 :root {
-  /* ground and ink */
-  --paper: #f1f4f6;      /* marble */
+  /* ground and ink: replace these */
+  --paper: #ffffff;
   --card: #ffffff;
-  --band: #e4e9ee;
-  --line: #c3ccd5;
-  --ink: #15202b;        /* forge ink, 14.9:1 on marble */
-  --muted: #3b4856;      /* 8.5:1 */
-  --label: #24384c;
-  /* roles: a fill for marks, a -line outline that reaches 3:1, an -ink for text (7:1), a -tint ground */
-  --ours: #cf9426;       /* gold: AJ's own work */
-  --ours-line: #8a5a0c;
-  --ours-ink: #6e4708;
-  --ours-tint: #faf2e3;
-  --risk: #a63309;       /* vermilion: failure, risk */
+  --band: #e8ebef;
+  --line: #c6ccd4;
+  --ink: #14181f;
+  --muted: #434a55;
+  --label: #2a3040;
+  /* roles, each a fill for marks, a -line outline, an -ink for text, a -tint ground: replace these */
+  --ours: #3b2f8f;       /* the talk's own work */
+  --ours-line: #3b2f8f;
+  --ours-ink: #3b2f8f;
+  --ours-tint: #eeedf7;
+  --risk: #a63309;       /* failure or risk */
   --risk-line: #a63309;
   --risk-ink: #8f2a06;
   --risk-tint: #faede7;
-  --fix: #00896a;        /* bluish green: the fix, a pass */
+  --fix: #1aa082;        /* the fix or a pass */
   --fix-line: #006b52;
   --fix-ink: #005b46;
   --fix-tint: #e6f4ef;
-  --neutral: #8cc7ea;    /* sky: context, rivals, the rest */
-  --neutral-line: #1b567d;
-  --neutral-ink: #1b567d;
-  --neutral-tint: #ebf5fb;
-  /* older names, kept so a deck's own rules read the roles */
-  --limit: var(--risk-ink);
+  --neutral: #b6bec7;    /* context and the rest */
+  --neutral-line: #4a5663;
+  --neutral-ink: #38424e;
+  --neutral-tint: #eef0f3;
   --mark: var(--neutral-line);
-  --mark-ours: var(--ours);
-  --mark-rival: var(--neutral);
-  --frame: #5b6876;
-  --night: #15202b;
-  --night-ink: #f1f4f6;
-  --night-muted: #c3ccd5;
-  --night-label: #8cc7ea;
-  --display: "Forge Display", Georgia, serif;
-  --display-sc: "Marcellus SC", "Marcellus", Georgia, serif;
+  /* one reading face and one title face; a talk chooses its own */
+  --display: var(--sans);
   --sans: "Atkinson Hyperlegible Next", system-ui, "Segoe UI", Roboto, Arial, sans-serif;
   --mono: "Atkinson Hyperlegible Mono", ui-monospace, Consolas, Menlo, monospace;
 }
@@ -118,13 +79,11 @@ body,
   height: 100%;
 }
 
-/* Claim titles in the inscription face: one weight, carried by size and spacing rather than bold. */
 .reveal h1,
 .reveal h2 {
   margin: 0 0 20px;
   font-family: var(--display);
-  font-weight: 400;
-  font-variation-settings: "wght" 340; /* the figures, from a variable face, to Marcellus's stroke */
+  font-weight: 700;
   line-height: 1.14;
   letter-spacing: 0;
   color: var(--ink);
@@ -155,15 +114,12 @@ body,
   text-underline-offset: 0.15em;
 }
 
-/* The chapter over a title, in small capitals: a Roman numeral, then its name (deck.js splits
-   "3 · My checker" into the two). */
+/* The chapter over a title: a number, then its name (deck.js splits "3 · My checker" into the two). */
 .kicker {
   display: block;
   margin-bottom: 8px;
-  font-family: var(--display-sc);
   font-size: 0.72em;
-  font-weight: 400;
-  letter-spacing: 0.02em;
+  font-weight: 700;
   color: var(--muted);
 }
 
@@ -186,19 +142,13 @@ body,
 }
 
 /* ------------------------------------------------------- title and closing -- */
-/* The talk's mark: a portrait or monogram standing in a bronze niche, and a Greek key under the title.
-   The title is set in the gold, the one place the talk's own colour is used as type. */
-
-.title-slide h1,
-.closing h2 {
-  color: var(--ours-line);
-}
+/* The illustration is the talk's own picture of its subject, drawn or photographed for it. */
 
 .title-slide .title-text {
   position: absolute;
   left: 8px;
   top: 96px;
-  width: 640px;
+  width: 620px;
 }
 
 .title-slide h1 {
@@ -222,73 +172,28 @@ body,
   color: var(--muted);
 }
 
-.byline b {
-  display: block;
-  font-family: var(--display-sc);
-  font-weight: 400;
-  font-size: 1.25em;
-  color: var(--ink);
-}
-
+.byline b,
 .byline span {
   display: block;
 }
 
-.mark-figure {
+.byline b {
+  font-size: 1.25em;
+  color: var(--ink);
+}
+
+.title-art {
   position: absolute;
-  right: 340px;
-  top: 34px;
-  width: 300px;
-  height: 540px;
+  right: 8px;
+  top: 60px;
+  width: 500px;
+  height: 500px;
   margin: 0;
-  overflow: hidden;
-  background: var(--band);
-  border-radius: 150px 150px 0 0;
 }
 
-/* The niche: a round-headed arch drawn in bronze over the figure, standing on a plinth. */
-.mark-figure::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border: 3px solid var(--ours-line);
-  border-bottom-width: 8px;
-  border-radius: inherit;
-  pointer-events: none;
-}
-
-.mark-figure img {
-  position: absolute;
-  inset: 0 0 8px;
-  width: 100%;
-  height: calc(100% - 8px);
-  max-width: none;
-  max-height: none;
-  margin: 0;
-  object-fit: cover;
-  object-position: var(--mark-x, 50%) 100%;
-  transform: scale(var(--mark-zoom, 1));
-  transform-origin: var(--mark-x, 50%) 100%;
-}
-
-/* The Greek key: a short band under the talk's title and under "Thank you". */
-.title-slide h1::after,
-.closing h2::after {
-  content: "";
-  display: block;
-  width: 200px;
-  height: 20px;
-  margin-top: 26px;
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 20 20'%3E%3Cpath d='M1 19V1H15V13H6V6H10M0 19H20' fill='none' stroke='%238a5a0c' stroke-width='2'/%3E%3C/svg%3E") repeat-x left center / 20px 20px;
-}
-
-.closing .mark-figure {
-  position: relative;
-  right: auto;
-  top: auto;
-  width: 250px;
-  height: 440px;
-}
+.title-art svg { width: 100%; height: 100%; display: block; }
+.title-art .frame { fill: var(--band); stroke: var(--line); stroke-width: 2; stroke-dasharray: 10 8; }
+.title-art text { font-size: 26px; fill: var(--muted); text-anchor: middle; }
 
 .closing h2 {
   font-size: 2.2em;
@@ -306,8 +211,6 @@ body,
 }
 
 .closing .contact b {
-  font-family: var(--display-sc);
-  font-weight: 400;
   font-size: 1.2em;
   color: var(--ink);
 }
@@ -382,7 +285,7 @@ body,
   marker-end: url(#arrowhead);
 }
 
-/* The one mark to look at: emphasis in ink. Gold is kept for the speaker's own work. */
+/* The one mark to look at, in ink. */
 .figure .accent {
   fill: var(--ink);
 }
@@ -408,10 +311,10 @@ body,
 }
 
 .steps li::before {
-  content: counter(step, upper-roman);
+  content: counter(step);
   display: block;
-  font-family: var(--display);
   font-size: 1.5em;
+  font-weight: 700;
   color: var(--ink);
 }
 
@@ -454,8 +357,7 @@ table.data td.num {
   font-variant-numeric: tabular-nums;
 }
 
-/* Every slide is light: dark slides wash out under a lit room's lights. A backup divider is a
-   quiet centred title on the marble. */
+/* A backup divider is a quiet centred title. */
 .reveal .slides section.divider {
   display: grid !important;
   place-content: center;
@@ -490,13 +392,12 @@ table.data td.num {
 /* -------------------------------------------------------------- conclusion -- */
 /* The slide before "Thank you": the main point as a claim, two to four results the talk showed
    (.recap, one .tile each), and the open problems (.open). */
-/* The results read as one inscription line, each set off by a rule, not as a row of cards. */
 .recap { display: grid; grid-template-columns: repeat(var(--n, 3), 1fr); gap: 0; margin-top: 28px; }
 .tile { padding: 6px 28px 10px; border-left: 2px solid var(--line); }
 .tile:first-child { padding-left: 0; border-left: 0; }
 .tile.ours .num { color: var(--ours-line); }
 .tile p { margin: 0; font-size: 0.8em; line-height: 1.3; }
-.tile .num { margin-bottom: 10px; font-family: var(--display); font-variation-settings: "wght" 340; font-size: 2.1em; line-height: 1; color: var(--ink); }
+.tile .num { margin-bottom: 10px; font-weight: 700; font-size: 2.1em; line-height: 1; color: var(--ink); }
 .open { margin-top: 30px; padding: 14px 22px; border-left: 5px solid var(--neutral-line); background: var(--neutral-tint); border-radius: 0 3px 3px 0; }
 .open-h { margin: 0 0 4px; font-size: 0.8em; font-weight: 700; color: var(--neutral-ink); }
 .open ul { margin: 0; padding-left: 22px; font-size: 0.8em; }
@@ -650,32 +551,37 @@ table.data td.num {
   overflow-x: auto;
 }
 
+/* Make the rail this talk's own; these are the working parts to keep. Each chapter is a button a
+   keyboard reaches, 44px under a finger, and the current one is marked by more than colour. */
 .rail button {
   flex: none;
-  padding: 4px 14px;
-  font: 400 16px var(--display-sc);
-  letter-spacing: 0.02em;
+  padding: 4px 10px;
+  font: 600 16px var(--sans);
   white-space: nowrap;
   color: var(--muted);
-  background: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: 2px;
+  background: transparent;
+  border: 0;
+  border-bottom: 3px solid transparent;
   cursor: pointer;
 }
 
 .rail button .num {
-  margin-right: 0.15em;
-  color: var(--ink);
+  margin-right: 0.3em;
 }
 
 .rail button[aria-current="step"] {
-  color: var(--paper);
-  background: var(--ink);
-  border-color: var(--ink);
+  font-weight: 800;
+  color: var(--ink);
+  border-bottom-color: currentColor;
 }
 
-.rail button[aria-current="step"] .num {
-  color: var(--paper);
+.rail button:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: 2px;
+}
+
+@media (pointer: coarse) {
+  .rail button { min-height: 44px; }
 }
 
 /* The number sits left of the arrows (reveal.js puts it under the next arrow, where it takes that
@@ -700,10 +606,11 @@ table.data td.num {
 .phone .steps { grid-template-columns: 1fr; }
 .phone .discussion h2 { margin-top: 60px; }
 .phone .title-slide .title-text,
-.phone .mark-figure { position: static; width: auto; }
+.phone .title-art { position: static; width: auto; }
 .phone .title-slide .title-text { padding-top: 40px; }
 .phone .title-slide h1 { font-size: 2.1em; }
-.phone .mark-figure { position: relative; right: auto; top: auto; width: 180px; height: 300px; margin: 24px 0 20px; }
+.phone .title-art { height: 260px; margin: 24px 0 20px; }
+.phone .title-art text { font-size: 36px; }
 .phone .reveal .slides section.divider { display: block !important; }
 .phone .footnote { position: static; margin-top: 16px; font-size: 0.7em; }
 
@@ -722,27 +629,9 @@ table.data td.num {
   .rail { display: none; }
 }
 
-/* The starter's mark: the presenter's initials in the niche. Replace them with a portrait cutout
-   (<img> inside .mark-figure) when the talk has one. */
-.mark-figure .monogram {
-  position: absolute;
-  inset: 0 0 8px;
-  display: grid;
-  place-items: center;
-  margin: 0;
-  font-family: var(--display);
-  font-size: 4.2em;
-  color: var(--ours-line);
-}
-
-/* Closing: the mark, then the thanks and how to reach the presenter. */
-html:not(.phone) .reveal .slides section.closing[style*="display: block"] { display: grid !important;
-  grid-template-columns: 250px minmax(0, 1fr); column-gap: 56px; align-items: center; height: 100%; top: 0 !important; }
-.phone .closing .mark-figure { width: 180px; height: 300px; margin: 30px 0 20px; }
-
 .agenda .num {
   display: inline-block;
   min-width: 2.4em;
-  font-family: var(--display);
+  font-weight: 700;
   color: var(--muted);
 }

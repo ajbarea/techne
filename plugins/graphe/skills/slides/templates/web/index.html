@@ -21,7 +21,14 @@
     <p class="subtitle">[One-line subtitle]</p>
     <p class="byline"><b>[Presenter name]</b><span>[Venue]</span><span>[Affiliation]</span><span>[Month day, year]</span></p>
   </div>
-  <figure class="mark-figure"><p class="monogram" aria-hidden="true">[AB]</p></figure>
+  <figure class="title-art" data-placeholder>
+    <svg viewBox="0 0 500 500" role="img" aria-labelledby="art-title">
+      <title id="art-title">[What the illustration shows]</title>
+      <rect class="frame" x="4" y="4" width="492" height="492" rx="12"/>
+      <text x="250" y="235">[Title illustration:</text>
+      <text x="250" y="270">a picture of the talk's subject]</text>
+    </svg>
+  </figure>
   <aside class="notes">[Hi, I'm ... One sentence on why this matters to the people in this room.]</aside>
 </section>
 
@@ -157,7 +164,6 @@
 </section>
 
 <section class="closing">
-  <figure class="mark-figure"><p class="monogram" aria-hidden="true">[AB]</p></figure>
   <div class="close-text">
     <h2>Thank you</h2>
     <p class="asks">I'm glad to take questions.</p>
