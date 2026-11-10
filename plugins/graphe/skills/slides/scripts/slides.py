@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import json
 import pathlib
 import posixpath
 import re
@@ -1710,30 +1711,54 @@ def html_slides(path: pathlib.Path) -> list[tuple[str, str]]:
 
 # ---------------------------------------------------------------- print PDF --
 
-# The print PDF is reveal.js's own `?print-pdf` layout printed by Chromium: vector, text
-# selectable, links live. Three things in it need help on any deck:
-# - reveal.js starts one page per fragment unless `pdfSeparateFragments` is false, so the
-#   export sets it false as the deck starts, whatever the deck says;
-# - a slide taller than its page (a footnote pinned to the slide's bottom) is cut to the page,
-#   or its bottom is cut off;
-# - reveal.js's own navigation and `.web-only` text mean nothing on paper;
-# - the file is what goes to a reader or a submission, so the speaker notes stay out of it, even
-#   in a deck that sets reveal.js's `showNotes` (a box over each slide, or a page after it).
-_PDF_FRAGMENTS = """(() => {
+
+# An export is a picture of what the room sees, so whatever the deck says, it starts with
+# reveal.js's `showNotes` off: a deck that sets it draws its script beside or over each slide.
+# The override covers `Reveal.initialize` and any later `Reveal.configure`.
+def _start_with(overrides: dict) -> str:
+    """An init script that applies `overrides` over the deck's own reveal.js config."""
+    return """(() => {
+  const force = FORCE;
+  // reveal.js's initialize copies its whole API onto Reveal, replacing these wrappers, so each
+  // call wraps again.
+  const wrap = (value) => {
+    for (const name of ['initialize', 'configure']) {
+      const call = value[name];
+      if (typeof call !== 'function' || call.forced) continue;
+      const forced = (config) => {
+        const out = call.call(value, { ...config, ...force });
+        wrap(value);
+        return out;
+      };
+      forced.forced = true;
+      value[name] = forced;
+    }
+  };
   let deck;
   Object.defineProperty(window, 'Reveal', {
     configurable: true,
     get: () => deck,
     set: (value) => {
       deck = value;
-      const start = value && value.initialize;
-      if (typeof start === 'function') {
-        value.initialize = (config) =>
-          start.call(value, { ...config, pdfSeparateFragments: false });
-      }
+      if (value) wrap(value);
     },
   });
-})()"""
+})()""".replace("FORCE", json.dumps(overrides))
+
+
+_EXPORT_START = _start_with({"showNotes": False})
+
+# The print PDF is reveal.js's own `?print-pdf` layout printed by Chromium: vector, text
+# selectable, links live. Four things in it need help on any deck:
+# - reveal.js starts one page per fragment unless `pdfSeparateFragments` is false, so the
+#   export sets it false as the deck starts, whatever the deck says;
+# - a slide taller than its page (a footnote pinned to the slide's bottom) is cut to the page,
+#   or its bottom is cut off;
+# - reveal.js's own navigation and `.web-only` text mean nothing on paper;
+# - the file is what goes to a reader or a submission, so the speaker notes stay out of it, even
+#   in a deck that sets reveal.js's `showNotes` (a box over each slide, or a page after it):
+#   the deck starts with it off, and any notes page left is removed.
+_PDF_START = _start_with({"showNotes": False, "pdfSeparateFragments": False})
 # `#/id` is reveal.js's link to a slide by id; on paper the browser needs plain `#id` to make
 # a link of it.
 _PDF_FIT = """() => {
@@ -1762,7 +1787,7 @@ def _open_print(browser, deck: pathlib.Path, count: int):
         query="?print-pdf",
         during=" for print",
         seen=True,
-        init=_PDF_FRAGMENTS,
+        init=_PDF_START,
     )
     try:
         page.wait_for_function("document.querySelectorAll('.pdf-page').length > 0")
@@ -1840,12 +1865,19 @@ def render_html(deck: pathlib.Path, out: pathlib.Path) -> int:
 def _render_in(browser, deck: pathlib.Path, out: pathlib.Path):
     # Every pass must start before render claims the folder, so a deck that fails in any of
     # them leaves no marker and no half-written render.
-    page, _ = _open(browser, deck, SCREEN)
+    page, _ = _open(browser, deck, SCREEN, init=_EXPORT_START)
     count = page.evaluate(_COUNT)
     if not count:
         raise DeckError("no slides")
     phone, _ = _open(
-        browser, deck, PHONE, during=" on a phone", seen=True, is_mobile=True, has_touch=True
+        browser,
+        deck,
+        PHONE,
+        during=" on a phone",
+        seen=True,
+        init=_EXPORT_START,
+        is_mobile=True,
+        has_touch=True,
     )
     printed = _open_print(browser, deck, count)
     prepare_out(out)
@@ -1938,7 +1970,7 @@ def pptx_html(
     with _playwright()() as pw:
         browser = _launch(pw)
         try:
-            page, _ = _open(browser, deck, SCREEN)
+            page, _ = _open(browser, deck, SCREEN, init=_EXPORT_START)
             count = page.evaluate(_COUNT)
             if not count:
                 raise DeckError("no slides")
@@ -2004,7 +2036,7 @@ def _open_any(browser, deck: pathlib.Path, viewport: dict, **context):
         raise DeckError(
             'not a deck: no reveal.js (.reveal .slides) and no <section class="slide"> elements'
         )
-    page, _ = _open(browser, deck, viewport, **context)
+    page, _ = _open(browser, deck, viewport, init=_EXPORT_START, **context)
     page.evaluate(pptx_editable.REVEAL_SLIDES)
     return page
 

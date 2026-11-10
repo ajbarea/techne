@@ -234,6 +234,24 @@ def test_the_starter_reveal_deck_exports_editable(sl, web, tmp_path):  # noqa: F
 
 
 @needs_browser
+def test_an_editable_export_keeps_the_notes_off_the_slide(sl, web, tmp_path):  # noqa: F811
+    from pptx import Presentation  # ty: ignore[unresolved-import]
+
+    web("Reveal.initialize({", "Reveal.initialize({ showNotes: true,", "deck.js")
+    target = tmp_path / "noted.pptx"
+    assert sl.pptx_html(web.index, target, editable=True) == 0
+    prs = Presentation(str(target))
+    on_slides = " ".join(
+        shape.text_frame.text
+        for slide in prs.slides
+        for shape in slide.shapes
+        if shape.has_text_frame
+    )
+    assert "Walk the figure" not in on_slides
+    assert any("Walk the figure" in s.notes_slide.notes_text_frame.text for s in prs.slides)
+
+
+@needs_browser
 def test_a_page_that_is_not_a_deck_is_refused(sl, tmp_path):
     page = tmp_path / "page.html"
     page.write_text("<!doctype html><title>t</title><h1>Hello</h1>")

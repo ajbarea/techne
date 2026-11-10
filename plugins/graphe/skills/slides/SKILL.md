@@ -102,7 +102,8 @@ vector text you can select and search, and live links (`#/slide-id` links are
 rewritten to anchors, which the browser turns into links). A footnote pinned to
 the slide's bottom stays on the page, and `class="web-only"` text and reveal.js's
 own navigation are left out, as in `pptx`. Speaker notes never appear in it, even
-in a deck that sets reveal.js's `showNotes`, so it is safe to submit. It is the file
+in a deck that sets reveal.js's `showNotes`, so it is safe to submit (`pptx`'s
+and `render`'s pictures leave them out too). It is the file
 to hand out or print; use `pptx` when the audience will present from PowerPoint. Build it, never commit
 it. `render`'s `<deck>.pdf` is the same file.
 

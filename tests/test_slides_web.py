@@ -1026,6 +1026,42 @@ def test_pdf_leaves_the_speaker_notes_out_whatever_the_deck_configures(sl, web, 
     assert re.search(rf"Pages:\s+{len(sl.html_slides(index))}\b", info)
 
 
+# Each way a deck can turn reveal.js's notes on: at start, as a page of its own, or later.
+SHOW_NOTES = {
+    "start": ("Reveal.initialize({", "Reveal.initialize({ showNotes: true,"),
+    "separate-page": ("Reveal.initialize({", 'Reveal.initialize({ showNotes: "separate-page",'),
+    "configure": (
+        "if (!phone) buildRail(chs);",
+        "if (!phone) buildRail(chs);\n    Reveal.configure({ showNotes: true });",
+    ),
+}
+
+
+def _pictures(folder):
+    return [p.read_bytes() for p in sorted(folder.glob("slide-*.png"))]
+
+
+@needs_browser
+@pytest.mark.parametrize("how", sorted(SHOW_NOTES))
+def test_render_and_pptx_pictures_leave_the_speaker_notes_out(sl, web, tmp_path, how):
+    clean_render, clean_pptx = tmp_path / "clean-render", tmp_path / "clean-images"
+    assert sl.render(web.index, clean_render) == 0
+    assert sl.pptx_html(web.index, tmp_path / "clean.pptx", clean_pptx) == 0
+    web(*SHOW_NOTES[how], "deck.js")
+    noted_render, noted_pptx = tmp_path / "render", tmp_path / "images"
+    assert sl.render(web.index, noted_render) == 0
+    out = tmp_path / "deck.pptx"
+    assert sl.pptx_html(web.index, out, noted_pptx) == 0
+    # The pictures are the same pixels as a deck that never asked for notes.
+    assert _pictures(noted_render) == _pictures(clean_render)
+    assert _pictures(noted_pptx) == _pictures(clean_pptx)
+    from pptx import Presentation  # ty: ignore[unresolved-import]
+
+    # The script still reaches PowerPoint's notes, where the presenter reads it.
+    notes = [s.notes_slide.notes_text_frame.text for s in Presentation(str(out)).slides]
+    assert notes == [n for _, n in sl.html_slides(web.index)]
+
+
 @needs_browser
 @needs_poppler
 def test_pdf_shows_each_slide_fully_built_whatever_the_deck_configures(sl, web, tmp_path):
