@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import os
 import sys
 import time
 from collections.abc import Generator
@@ -23,8 +24,9 @@ SESSION = "session-cookies.json"  # in the profile; Chromium drops session cooki
 # (its restore-last-session preference would keep them but reopen the last tab on every run)
 EXIT_CODES = """exit codes:
   0    done
-  1    a missing or bad setting (schole.toml, --site, --timezone), or sign-in not finished
-  2    an unknown option or a --since that is not a number
+  1    a missing or bad setting (schole.toml, --site, --timezone, --classes, a bad state file),
+       a state file that could not be saved, or sign-in not finished
+  2    an unknown option, a --since that is not a number, or schole-fetch without --list
   3    needs login: run !schole-login
   4    the site or the browser failed; the line names the fix
   127  uv is not on PATH"""
@@ -235,12 +237,21 @@ def sweep(args: argparse.Namespace) -> int:
     return 0
 
 
+def user_path(text: str) -> Path:
+    """A path argument as typed: `uv run --directory` moves the process, so bin/schole-fetch
+    passes the caller's folder in SCHOLE_CWD."""
+    path = Path(text).expanduser()
+    return path if path.is_absolute() else Path(os.environ.get("SCHOLE_CWD") or ".") / path
+
+
 def fetch_list(args: argparse.Namespace) -> int:
     base = config.home()
     cfg = config.load(base)
-    path = Path(args.state).expanduser() if args.state else fetch.state_path()
+    path = user_path(args.state) if args.state else fetch.state_path()
     seen = fetch.load_state(path)
-    classes = Path(args.classes).expanduser() if args.classes else None
+    classes = user_path(args.classes) if args.classes else None
+    if classes is not None and not classes.is_dir():
+        raise config.ConfigError(f"--classes {args.classes!r} is not a folder.")
     with browser(base, cfg.site, headless=True) as ctx:
         try:
             lines, state = fetch.list_lines(getter(ctx, cfg.site), cfg.term, seen, classes)
@@ -250,7 +261,11 @@ def fetch_list(args: argparse.Namespace) -> int:
     print(f"{cfg.site}: {sum(1 for x in lines if x.startswith(('COURSE ', 'APIFAIL ')))} courses")
     print("\n".join(lines))
     if args.record:
-        fetch.save_state(path, state)
+        try:
+            fetch.save_state(path, state)
+        except OSError as exc:
+            print(f"schole: could not save {path}: {exc}", file=sys.stderr)
+            return 1
         print(f"recorded {path}")
     return 0
 

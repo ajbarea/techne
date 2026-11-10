@@ -40,12 +40,12 @@ def test_an_older_or_equal_server_date_is_not_a_change():
     assert fetch.diff(modules(), seen)[0] == []
 
 
-def test_a_missing_date_is_new_once_and_never_changed():
+def test_a_missing_date_is_new_once_then_seen_after_a_record():
     toc = json.loads(FIXTURE.read_text())
     toc["Modules"][0]["Topics"][0]["LastModifiedDate"] = None
     mods, now = fetch.diff(toc["Modules"], {})
-    assert "11" not in now and mods[0].new == ["Lecture One Slides"]
-    assert fetch.diff(toc["Modules"], {"11": SEEN["11"]})[0][0].path != "Week 1"
+    assert now["11"] == "" and mods[0].new == ["Lecture One Slides"]
+    assert "Week 1" not in [m.path for m in fetch.diff(toc["Modules"], now)[0]]
 
 
 @pytest.mark.parametrize("bad", [True, "7", None, 1.5])
@@ -76,23 +76,43 @@ def test_a_tree_nested_past_the_cap_is_a_site_error():
         list(fetch.file_topics([top]))
 
 
+def make_repos(root, *names, agents=()):
+    for d in names:
+        (root / d / ".git").mkdir(parents=True)
+        if d in agents:
+            (root / d / "AGENTS.md").write_text("x")
+
+
 @pytest.mark.parametrize(
     ("name", "code", "want"),
     [
-        ("CSCI.739.01 - Topics", "CSCI73901.2261", ["csci739-ml"]),
-        ("Topics in AI", "CSCI73901.2261", ["csci739-ml"]),
-        ("ISTE.476782.01 - Cross", "ISTE47601.2261", ["iste476-a", "iste782-b"]),
-        ("ISTE.476/782.01 - Cross", "ISTE78201.2261", ["iste476-a", "iste782-b"]),
-        ("Sample", "PSYC71901.2261", []),
-        ("", "", []),
-        ("../x", "../x", []),
+        ("ABCD.111.01 - Topics", "ABCD11101.2261", "abcd111-ml"),
+        ("Topics in AI", "ABCD11101.2261", "abcd111-ml"),
+        ("ABCD.222/333.01 - Cross", "ABCD33301.2261", "none (ambiguous: abcd222-a, abcd333-b)"),
+        ("Sample", "WXYZ44401.2261", "none (no repo)"),
+        ("", "", "none (no course number)"),
+        ("../x", "../x", "none (no course number)"),
     ],
 )
-def test_course_names_its_class_repos(tmp_path, name, code, want):
-    for d in ("csci739-ml", "iste476-a", "iste782-b", "other"):
-        (tmp_path / d).mkdir()
-    (tmp_path / "csci739-file").write_text("not a dir")
-    assert [p.name for p in fetch.course_dirs(tmp_path, name, code)] == want
+def test_course_names_its_class_repo(tmp_path, name, code, want):
+    make_repos(tmp_path, "abcd111-ml", "abcd222-a", "abcd333-b", "other", agents=("abcd111-ml",))
+    (tmp_path / "abcd111-file").write_text("not a repo")
+    (tmp_path / "abcd444-nogit").mkdir()
+    repo, why = fetch.course_repo(tmp_path, name, code)
+    assert (repo.name if repo else f"none ({why})") == want
+
+
+def test_two_repos_without_one_agents_file_are_ambiguous_as_in_mycourses_sync(tmp_path):
+    make_repos(tmp_path, "abcd111-a", "abcd111-b", agents=("abcd111-a", "abcd111-b"))
+    repo, why = fetch.course_repo(tmp_path, "ABCD.111.01", "")
+    assert repo is None and why == "ambiguous: abcd111-a, abcd111-b"
+    make_repos(tmp_path, "abcd222-a", "abcd222-b")
+    assert fetch.course_repo(tmp_path, "ABCD.222.01", "")[1] == "ambiguous: abcd222-a, abcd222-b"
+
+
+def test_a_cross_listed_course_with_one_agents_repo_resolves(tmp_path):
+    make_repos(tmp_path, "abcd222-a", "abcd333-b", agents=("abcd333-b",))
+    assert fetch.course_repo(tmp_path, "ABCD.222/333.01", "")[0] == tmp_path / "abcd333-b"
 
 
 def test_title_match_is_advisory_and_ignores_short_titles(tmp_path):
@@ -112,7 +132,7 @@ def course_site(toc_status=200, toc=None):
         "/d2l/api/lp/1.30/enrollments/myenrollments/?orgUnitTypeId=3&pageSize=200": json.dumps(
             {
                 "Items": [
-                    {"OrgUnit": {"Id": 7, "Code": "CSCI73901.2261", "Name": "Sample Course"}}
+                    {"OrgUnit": {"Id": 7, "Code": "ABCD11101.2261", "Name": "Sample Course"}}
                 ],
                 "PagingInfo": {"HasMoreItems": False},
             }
@@ -131,15 +151,15 @@ def course_site(toc_status=200, toc=None):
 
 def test_list_only_reads_the_enrollments_and_the_toc(tmp_path):
     get, seen = course_site()
-    (tmp_path / "csci739-ml").mkdir()
+    make_repos(tmp_path, "abcd111-ml", agents=("abcd111-ml",))
     lines, state = fetch.list_lines(get, "", {"7": SEEN}, tmp_path)
     assert seen == [
         "/d2l/api/lp/1.30/enrollments/myenrollments/?orgUnitTypeId=3&pageSize=200",
         "/d2l/api/le/1.30/7/content/toc",
     ]
-    assert lines[0] == "COURSE Sample Course :: repo csci739-ml :: 1 modules with changes"
+    assert lines[0] == "COURSE Sample Course :: repo abcd111-ml :: 1 modules with changes"
     assert lines[1] == (
-        "MODULE Sample Course :: Week 2 :: 0 new, 1 changed :: in repo by title 0/1"
+        "MODULE Sample Course :: Week 2 :: 0 new, 1 changed :: new in repo by title 0/0"
     )
     assert set(state["7"]) == {"11", "21", "22", "31"}
 
@@ -176,7 +196,7 @@ def test_state_round_trips_privately(tmp_path):
     fetch.save_state(path, {"7": SEEN})
     assert fetch.load_state(path) == {"7": SEEN}
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
-    assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
+    assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700  # a folder schole made
 
 
 def test_a_missing_state_is_empty(tmp_path):
@@ -219,3 +239,130 @@ def test_fixture_holds_no_real_course_data():
     text = FIXTURE.read_text()
     assert "rit.edu" not in text and "mycourses" not in text.lower()
     assert os.path.getsize(FIXTURE) < 20_000
+
+
+def test_recording_keeps_topics_that_are_hidden_for_a_while():
+    get, _ = course_site()
+    _, state = fetch.list_lines(get, "", {"7": {"999": "2026-01-01T00:00:00.000Z"}}, None)
+    assert "999" in state["7"] and "11" in state["7"]
+
+
+def test_a_course_nested_too_deep_fails_alone():
+    node: dict = {"Title": "x", "Topics": [], "Modules": []}
+    top = node
+    for _ in range(fetch.MAX_DEPTH + 5):
+        child: dict = {"Title": "x", "Topics": [], "Modules": []}
+        node["Modules"].append(child)
+        node = child
+    get, _ = course_site(toc={"Modules": [top]})
+    lines, _ = fetch.list_lines(get, "", {}, None)
+    assert lines[0].startswith("APIFAIL Sample Course ::")
+
+
+class FakeBrowser:
+    def __init__(self, lines=None, error=None):
+        self.lines, self.error = lines or ["COURSE x :: repo none :: 0 modules with changes"], error
+
+    def __call__(self, base, site, headless):
+        import contextlib
+
+        @contextlib.contextmanager
+        def ctx():
+            yield object()
+
+        return ctx()
+
+
+@pytest.fixture
+def entry(monkeypatch, tmp_path):
+    from schole import cli
+
+    monkeypatch.setenv("SCHOLE_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("SCHOLE_STATE_HOME", str(tmp_path / "state"))
+    config.save(tmp_path / "home", config.Config("https://lms.example.edu", "", None))
+    monkeypatch.setattr(cli, "browser", FakeBrowser())
+    monkeypatch.setattr(cli, "getter", lambda ctx, site: None)
+    return cli
+
+
+def run_fetch(entry, monkeypatch, behaviour, *argv):
+    monkeypatch.setattr(
+        fetch,
+        "list_lines",
+        behaviour
+        if callable(behaviour)
+        else lambda *a: (["COURSE c :: repo none :: 0"], {"7": {}}),
+    )
+    return entry.main(["fetch", *argv])
+
+
+def test_entry_lists_and_records(entry, monkeypatch, tmp_path, capsys):
+    assert run_fetch(entry, monkeypatch, None, "--list", "--record") == 0
+    assert (tmp_path / "state" / "fetch-state.json").is_file()
+    assert "recorded" in capsys.readouterr().out
+
+
+def test_entry_without_record_writes_nothing(entry, monkeypatch, tmp_path):
+    assert run_fetch(entry, monkeypatch, None, "--list") == 0
+    assert not (tmp_path / "state").exists()
+
+
+def test_entry_requires_list(entry, monkeypatch):
+    with pytest.raises(SystemExit) as e:
+        run_fetch(entry, monkeypatch, None)
+    assert e.value.code == 2
+
+
+def raises(exc):
+    def f(*a):
+        raise exc
+
+    return f
+
+
+def test_entry_exit_codes(entry, monkeypatch, capsys):
+    assert run_fetch(entry, monkeypatch, raises(d2l.NoSession("x")), "--list") == 3
+    assert "needs login" in capsys.readouterr().err
+    assert run_fetch(entry, monkeypatch, raises(d2l.SiteError("x")), "--list") == 4
+
+
+def test_entry_refuses_a_missing_classes_folder(entry, monkeypatch, tmp_path, capsys):
+    assert run_fetch(entry, monkeypatch, None, "--list", "--classes", str(tmp_path / "nope")) == 1
+    assert "not a folder" in capsys.readouterr().err
+
+
+def test_entry_refuses_a_bad_state_file_without_touching_it(entry, monkeypatch, tmp_path):
+    bad = tmp_path / "s.json"
+    bad.write_text("{}")
+    assert run_fetch(entry, monkeypatch, None, "--list", "--state", str(bad), "--record") == 1
+    assert bad.read_text() == "{}"
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can write a read-only folder")
+def test_a_failed_save_is_an_exit_code_not_a_traceback(entry, monkeypatch, tmp_path, capsys):
+    ro = tmp_path / "ro"
+    ro.mkdir(mode=0o500)
+    try:
+        code = run_fetch(
+            entry, monkeypatch, None, "--list", "--state", str(ro / "s.json"), "--record"
+        )
+    finally:
+        ro.chmod(0o700)
+    assert code == 1 and "could not save" in capsys.readouterr().err
+
+
+def test_relative_arguments_resolve_against_the_callers_folder(entry, monkeypatch, tmp_path):
+    caller = tmp_path / "caller"
+    (caller / "classes").mkdir(parents=True)
+    monkeypatch.setenv("SCHOLE_CWD", str(caller))
+    assert entry.user_path("classes") == caller / "classes"
+    assert entry.user_path("/abs") == Path("/abs")
+    assert run_fetch(entry, monkeypatch, None, "--list", "--classes", "classes") == 0
+
+
+def test_saving_leaves_a_named_folders_mode_alone(tmp_path):
+    folder = tmp_path / "notes"
+    folder.mkdir(mode=0o755)
+    folder.chmod(0o755)
+    fetch.save_state(folder / "s.json", {})
+    assert stat.S_IMODE(folder.stat().st_mode) == 0o755

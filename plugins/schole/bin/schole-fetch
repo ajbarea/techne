@@ -6,6 +6,7 @@ command -v uv >/dev/null 2>&1 || {
   exit 127
 }
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export SCHOLE_CWD="$PWD"
 export PYTHONDONTWRITEBYTECODE=1
 export PYTHONPATH="$root${PYTHONPATH:+:$PYTHONPATH}"
 exec uv run --quiet --no-project --directory "$root" --with playwright==1.63.0 python -P -m schole.cli fetch "$@"

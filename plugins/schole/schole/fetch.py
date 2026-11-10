@@ -71,8 +71,9 @@ def load_state(path: Path) -> dict[str, dict[str, str]]:
 
 
 def save_state(path: Path, courses: dict[str, dict[str, str]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    os.chmod(path.parent, 0o700)
+    path.parent.mkdir(
+        mode=0o700, parents=True, exist_ok=True
+    )  # a folder the user named keeps its mode
     config.write_private(path, json.dumps({"version": 1, "courses": courses}, sort_keys=True))
 
 
@@ -111,8 +112,8 @@ def diff(modules: list, seen: dict[str, str]) -> tuple[list[Module], dict[str, s
     for path, t in file_topics(modules):
         tid, stamp = str(t["TopicId"]), t.get("LastModifiedDate")
         title = d2l.clean(t.get("Title") or "(untitled)")
-        if isinstance(stamp, str) and d2l.parse_time(stamp):
-            now[tid] = stamp
+        # an unparseable or missing date is recorded as "" so the topic is seen, never new again
+        now[tid] = stamp if isinstance(stamp, str) and d2l.parse_time(stamp) else ""
         mod = by_path.setdefault(path, Module(path))
         if tid not in seen:
             mod.new.append(title)
@@ -123,15 +124,23 @@ def diff(modules: list, seen: dict[str, str]) -> tuple[list[Module], dict[str, s
     return [m for m in by_path.values() if m.new or m.changed], now
 
 
-def course_dirs(classes: Path, name: str, code: str) -> list[Path]:
-    """The class repos for a course (CSCI.739.01 - Topics... -> csci739-*), as mycourses-sync
-    does: the dotted course name first, then the compact code."""
+def course_repo(classes: Path, name: str, code: str) -> tuple[Path | None, str]:
+    """The class repo for a course (CSCI.739.01 - Topics... -> csci739-*) and why there is none,
+    chosen as mycourses-sync does: git repos only, then the one holding AGENTS.md."""
     m = CODE.match(name) or COMPACT.match(code)
-    if not m or not classes.is_dir():
-        return []
+    if not m:
+        return None, "no course number"
     dept, digits = m.group(1).lower(), m.group(2).replace("/", "")
     prefixes = [f"{dept}{digits[i : i + 3]}" for i in range(0, len(digits), 3)]
-    return sorted({p for pre in prefixes for p in classes.glob(pre + "-*") if p.is_dir()})
+    found = sorted(
+        {p for pre in prefixes for p in classes.glob(pre + "-*") if (p / ".git").exists()}
+    )
+    course = [p for p in found if (p / "AGENTS.md").is_file()]
+    if len(course) == 1:
+        return course[0], ""
+    if not found:
+        return None, "no repo"
+    return None, "ambiguous: " + ", ".join(d2l.clean(p.name) for p in (course or found))
 
 
 def norm(text: str) -> str:
@@ -179,16 +188,20 @@ def list_lines(
         if not isinstance(toc, dict) or not isinstance(toc.get("Modules"), list):
             lines.append(f"APIFAIL {name} :: toc:{status}")
             continue
-        mods, now = diff(toc["Modules"], seen.get(str(c.ou), {}))
-        state[str(c.ou)] = now
-        repos = course_dirs(classes, c.name, c.code) if classes else []
-        index = repo_index(repos) if repos else ""
-        where = ", ".join(d2l.clean(r.name) for r in repos) or "none"
+        try:
+            mods, now = diff(toc["Modules"], seen.get(str(c.ou), {}))
+        except d2l.SiteError as exc:
+            lines.append(f"APIFAIL {name} :: {exc}")
+            continue
+        # merged, so a topic hidden for a while is not new again when it returns
+        state[str(c.ou)] = {**seen.get(str(c.ou), {}), **now}
+        repo, why = course_repo(classes, c.name, c.code) if classes else (None, "")
+        index = repo_index([repo]) if repo else ""
+        where = d2l.clean(repo.name) if repo else "none" + (f" ({why})" if why else "")
         lines.append(f"COURSE {name} :: repo {where} :: {len(mods)} modules with changes")
         for m in mods:
-            items = [(t, "new") for t in m.new] + [(t, "changed") for t in m.changed]
-            held = sum(in_repo(t, index) for t, _ in items)
-            tail = f" :: in repo by title {held}/{len(items)}" if repos else ""
+            held = sum(in_repo(t, index) for t in m.new)
+            tail = f" :: new in repo by title {held}/{len(m.new)}" if repo else ""
             counts = f"{len(m.new)} new, {len(m.changed)} changed"
             lines.append(f"MODULE {name} :: {d2l.clean(m.path)} :: {counts}{tail}")
     return lines, state
