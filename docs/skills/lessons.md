@@ -4,7 +4,7 @@ description: "Keep a decided quality lesson so the next deck, paper, docs site o
 
 # `techne:lessons`
 
-Each lesson is a decision that made the work better. Lessons live with the plugin that uses them, one file per surface, and a skill loads only its own: decks and papers in graphe, docs sites and app UI in techne, with a shared file carried by both. Only techne's maintainers change the files, through a pull request; for anyone else the skill offers to add the rule to the instruction files their agents already load, `AGENTS.md`, `CLAUDE.md` or both, and never starts a `CLAUDE.md` that would hide an `AGENTS.md` ([Claude Code memory docs](https://code.claude.com/docs/en/memory#agents-md)).
+Each lesson is a decision that made the work better. Lessons live with the plugin that uses them, one file per surface, and a skill loads only its own: decks and papers in graphe, docs sites and app UI in techne, with a shared file carried by both. Only techne's maintainers change the files, through a pull request; for anyone else the skill offers to add the rule to the instruction files their agents load, `AGENTS.md`, `CLAUDE.md` or both (creating `AGENTS.md` when there are none), and never starts a `CLAUDE.md` that would hide an `AGENTS.md` ([Claude Code memory docs](https://code.claude.com/docs/en/memory#agents-md)).
 
 Part of [techne](../plugins/techne.md): `/plugin install techne@techne`, then `/techne:setup`.
 
