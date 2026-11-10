@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import os
 import sys
 import time
 from collections.abc import Generator
@@ -13,7 +14,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from schole import config, d2l
+from schole import config, d2l, fetch
 
 LOGIN_WAIT = 600  # seconds the login window waits for the user to finish signing in
 POLL = 3
@@ -23,8 +24,9 @@ SESSION = "session-cookies.json"  # in the profile; Chromium drops session cooki
 # (its restore-last-session preference would keep them but reopen the last tab on every run)
 EXIT_CODES = """exit codes:
   0    done
-  1    a missing or bad setting (schole.toml, --site, --timezone), or sign-in not finished
-  2    an unknown option or a --since that is not a number
+  1    a missing or bad setting (schole.toml, --site, --timezone, --classes, a bad state file),
+       a state file that could not be saved, or sign-in not finished
+  2    an unknown option, a --since that is not a number, or schole-fetch without --list
   3    needs login: run !schole-login
   4    the site or the browser failed; the line names the fix
   127  uv is not on PATH"""
@@ -39,6 +41,14 @@ SWEEP_EPILOG = f"""examples:
   schole-sweep --since "$(date -d '7 days ago' +%s)"   (macOS: date -v-7d +%s)
 
 output lines: OK, APIFAIL, ANNOUNCE, CONTENT, DUE, PASTDUE (see /schole:courses)
+
+{EXIT_CODES}"""
+FETCH_EPILOG = f"""examples:
+  schole-fetch --list --classes ~/classes           what is new, and what repos hold
+  schole-fetch --list --classes ~/classes --record  the same, then mark it seen
+
+output lines: COURSE, MODULE, APIFAIL. Reads each course's content tree only: nothing is
+opened or downloaded, so nothing is marked read.
 
 {EXIT_CODES}"""
 CHROMIUM = "uv run --no-project --with playwright==1.63.0 playwright install chromium"
@@ -227,6 +237,44 @@ def sweep(args: argparse.Namespace) -> int:
     return 0
 
 
+def user_path(text: str) -> Path:
+    """A path argument as typed: `uv run --directory` moves the process, so bin/schole-fetch
+    passes the caller's folder in SCHOLE_CWD."""
+    if not text.strip():
+        raise config.ConfigError("an empty path was given; name a folder or file.")
+    try:
+        path = Path(text).expanduser()
+    except RuntimeError:
+        raise config.ConfigError(f"cannot expand {text!r}: no such user.") from None
+    return path if path.is_absolute() else Path(os.environ.get("SCHOLE_CWD") or ".") / path
+
+
+def fetch_list(args: argparse.Namespace) -> int:
+    base = config.home()
+    cfg = config.load(base)
+    path = fetch.state_path() if args.state is None else user_path(args.state)
+    seen = fetch.load_state(path)
+    classes = None if args.classes is None else user_path(args.classes)
+    if classes is not None and not classes.is_dir():
+        raise config.ConfigError(f"--classes {args.classes!r} is not a folder.")
+    with browser(base, cfg.site, headless=True) as ctx:
+        try:
+            lines, state = fetch.list_lines(getter(ctx, cfg.site), cfg.term, seen, classes)
+        except d2l.NoSession:
+            print(NEEDS_LOGIN + last_confirmed(base, cfg), file=sys.stderr)
+            return 3
+    print(f"{cfg.site}: {sum(1 for x in lines if x.startswith(('COURSE ', 'APIFAIL ')))} courses")
+    print("\n".join(lines))
+    if args.record:
+        try:
+            fetch.save_state(path, state)
+        except OSError as exc:
+            print(f"schole: could not save {path}: {exc}", file=sys.stderr)
+            return 1
+        print(f"recorded {path}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="schole")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -251,9 +299,26 @@ def main(argv: list[str] | None = None) -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     sw.add_argument("--since", type=int, help="epoch seconds; default 24 hours ago")
+    ft = sub.add_parser(
+        "fetch",
+        prog="schole-fetch",
+        help="which course modules hold new or changed files",
+        description="List the modules with new or changed files, from the content tree alone.",
+        epilog=FETCH_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    ft.add_argument("--list", action="store_true", required=True, help="list; downloads nothing")
+    ft.add_argument("--classes", help="folder of class repos to compare file titles against")
+    ft.add_argument("--state", help="state file; default under ~/.local/state/schole")
+    ft.add_argument("--record", action="store_true", help="save what the list showed as seen")
     args = parser.parse_args(argv)
     try:
+        if args.cmd == "fetch":
+            return fetch_list(args)
         return login(args) if args.cmd == "login" else sweep(args)
+    except fetch.StateError as exc:
+        print(f"schole: {exc}", file=sys.stderr)
+        return 1
     except config.ConfigError as exc:
         print(f"schole: {exc}", file=sys.stderr)
         return 1
