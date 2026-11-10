@@ -1014,6 +1014,92 @@ def test_pdf_has_one_vector_page_per_slide_with_text_and_working_links(sl, web, 
 
 @needs_browser
 @needs_poppler
+@pytest.mark.parametrize("show", [None, "true", '"separate-page"'])
+def test_pdf_leaves_the_speaker_notes_out_whatever_the_deck_configures(sl, web, tmp_path, show):
+    index = web.index
+    if show is not None:
+        web("Reveal.initialize({", f"Reveal.initialize({{ showNotes: {show},", "deck.js")
+    out = tmp_path / "deck.pdf"
+    assert sl.pdf_html(index, out) == 0
+    assert "Walk the figure" not in _pdf_text(out)
+    info = subprocess.run(["pdfinfo", str(out)], capture_output=True, text=True).stdout
+    assert re.search(rf"Pages:\s+{len(sl.html_slides(index))}\b", info)
+
+
+# Each way a deck can turn reveal.js's notes on: at start, as a page of its own, or later.
+SHOW_NOTES = {
+    "start": [("deck.js", "Reveal.initialize({", "Reveal.initialize({ showNotes: true,")],
+    "separate-page": [
+        ("deck.js", "Reveal.initialize({", 'Reveal.initialize({ showNotes: "separate-page",')
+    ],
+    "configure": [
+        (
+            "deck.js",
+            "if (!phone) buildRail(chs);",
+            "if (!phone) buildRail(chs);\n    Reveal.configure({ showNotes: true });",
+        )
+    ],
+    # A module deck: reveal.js loaded as CommonJS, window.Reveal set only once it is ready.
+    "module-late": [
+        (
+            "index.html",
+            '<script src="vendor/reveal/reveal.js"></script>',
+            "<script>window.exports = {}; window.module = {exports: window.exports};</script>"
+            '<script src="vendor/reveal/reveal.js"></script>'
+            "<script>window.RevealModule = module.exports;"
+            " delete window.module; delete window.exports;</script>",
+        ),
+        ("deck.js", '"use strict";', '"use strict";\n  const Reveal = window.RevealModule;'),
+        ("deck.js", "Reveal.initialize({", "Reveal.initialize({ showNotes: true,"),
+        ("deck.js", "}).then(() => {", "}).then(() => {\n    window.Reveal = Reveal;"),
+    ],
+}
+
+
+def _pictures(folder):
+    return [p.read_bytes() for p in sorted(folder.glob("slide-*.png"))]
+
+
+@needs_browser
+@pytest.mark.parametrize("how", sorted(SHOW_NOTES))
+def test_render_and_pptx_pictures_leave_the_speaker_notes_out(sl, web, tmp_path, how):
+    clean_render, clean_pptx = tmp_path / "clean-render", tmp_path / "clean-images"
+    assert sl.render(web.index, clean_render) == 0
+    assert sl.pptx_html(web.index, tmp_path / "clean.pptx", clean_pptx) == 0
+    for name, old, new in SHOW_NOTES[how]:
+        web(old, new, name)
+    noted_render, noted_pptx = tmp_path / "render", tmp_path / "images"
+    assert sl.render(web.index, noted_render) == 0
+    out = tmp_path / "deck.pptx"
+    assert sl.pptx_html(web.index, out, noted_pptx) == 0
+    # The pictures are the same pixels as a deck that never asked for notes.
+    assert _pictures(noted_render) == _pictures(clean_render)
+    assert _pictures(noted_pptx) == _pictures(clean_pptx)
+    from pptx import Presentation  # ty: ignore[unresolved-import]
+
+    # The script still reaches PowerPoint's notes, where the presenter reads it.
+    notes = [s.notes_slide.notes_text_frame.text for s in Presentation(str(out)).slides]
+    assert notes == [n for _, n in sl.html_slides(web.index)]
+
+
+@needs_browser
+def test_an_export_leaves_a_deck_without_notes_as_it_started(sl, web):
+    # reveal.js's configure restarts autoSlide, so an export must not call it on this deck.
+    web("Reveal.initialize({", "Reveal.initialize({ autoSlide: 400,", "deck.js")
+    web("}).then(() => {", "}).then(() => {\n    Reveal.toggleAutoSlide(false);", "deck.js")
+    with sl._playwright()() as pw:
+        browser = sl._launch(pw)
+        try:
+            page, _ = sl._open_export(browser, web.index, sl.SCREEN)
+            page.wait_for_timeout(1200)
+            assert page.evaluate("Reveal.isAutoSliding()") is False
+            assert page.evaluate("Reveal.getIndices().h") == 0
+        finally:
+            browser.close()
+
+
+@needs_browser
+@needs_poppler
 def test_pdf_shows_each_slide_fully_built_whatever_the_deck_configures(sl, web, tmp_path):
     web("pdfSeparateFragments: false,", "", "deck.js")
     index = web(CLAIM, CLAIM + '<p class="fragment">first</p><p class="fragment">second</p>')
