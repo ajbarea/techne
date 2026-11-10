@@ -1083,6 +1083,22 @@ def test_render_and_pptx_pictures_leave_the_speaker_notes_out(sl, web, tmp_path,
 
 
 @needs_browser
+def test_an_export_leaves_a_deck_without_notes_as_it_started(sl, web):
+    # reveal.js's configure restarts autoSlide, so an export must not call it on this deck.
+    web("Reveal.initialize({", "Reveal.initialize({ autoSlide: 400,", "deck.js")
+    web("}).then(() => {", "}).then(() => {\n    Reveal.toggleAutoSlide(false);", "deck.js")
+    with sl._playwright()() as pw:
+        browser = sl._launch(pw)
+        try:
+            page, _ = sl._open_export(browser, web.index, sl.SCREEN)
+            page.wait_for_timeout(1200)
+            assert page.evaluate("Reveal.isAutoSliding()") is False
+            assert page.evaluate("Reveal.getIndices().h") == 0
+        finally:
+            browser.close()
+
+
+@needs_browser
 @needs_poppler
 def test_pdf_shows_each_slide_fully_built_whatever_the_deck_configures(sl, web, tmp_path):
     web("pdfSeparateFragments: false,", "", "deck.js")

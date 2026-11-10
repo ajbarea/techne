@@ -1748,8 +1748,10 @@ def _start_with(overrides: dict) -> str:
 
 _EXPORT_START = _start_with({"showNotes": False})
 # A module deck may call initialize before it sets window.Reveal, out of the init script's
-# reach; once the deck is ready, a configure through the wrapper applies the override.
-_FORCE_NOW = "() => window.Reveal && typeof Reveal.configure === 'function' && Reveal.configure({})"
+# reach; once the deck is ready, a configure through the wrapper applies the override. Only a
+# deck with notes still on is touched: configure also restarts autoSlide and reshuffles.
+_FORCE_NOW = """() => window.Reveal && typeof Reveal.configure === 'function'
+  && Reveal.getConfig().showNotes && Reveal.configure({})"""
 
 
 def _open_export(browser, deck: pathlib.Path, viewport: dict, **kw):
