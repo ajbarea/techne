@@ -1,0 +1,247 @@
+{
+ "Modules": [
+  {
+   "DefaultPath": "",
+   "Description": {
+    "Text": "",
+    "Html": ""
+   },
+   "EndDateTime": null,
+   "IsHidden": false,
+   "IsLocked": false,
+   "LastModifiedDate": "2026-09-01T12:00:00.000Z",
+   "ModuleId": 1,
+   "Modules": [],
+   "PacingEndDate": null,
+   "PacingStartDate": null,
+   "SortOrder": 0,
+   "StartDateTime": null,
+   "Title": "Week 1",
+   "Topics": [
+    {
+     "ActivityId": null,
+     "ActivityType": 1,
+     "Bookmarked": false,
+     "CompletionType": 1,
+     "Description": {
+      "Text": "",
+      "Html": ""
+     },
+     "EndDateTime": null,
+     "GradeItemId": null,
+     "Identifier": "11",
+     "IsBroken": false,
+     "IsExempt": false,
+     "IsHidden": false,
+     "IsLocked": false,
+     "LastModifiedDate": "2026-09-01T12:00:00.000Z",
+     "SortOrder": 0,
+     "StartDateTime": null,
+     "Title": "Lecture One Slides",
+     "ToolId": null,
+     "ToolItemId": null,
+     "TopicId": 11,
+     "TypeIdentifier": "File",
+     "Unread": true,
+     "Url": "/content/enforced/0000-SAMPLE/Lecture One Slides.pdf"
+    },
+    {
+     "ActivityId": null,
+     "ActivityType": 2,
+     "Bookmarked": false,
+     "CompletionType": 1,
+     "Description": {
+      "Text": "",
+      "Html": ""
+     },
+     "EndDateTime": null,
+     "GradeItemId": null,
+     "Identifier": "12",
+     "IsBroken": false,
+     "IsExempt": false,
+     "IsHidden": false,
+     "IsLocked": false,
+     "LastModifiedDate": "2026-09-01T12:00:00.000Z",
+     "SortOrder": 0,
+     "StartDateTime": null,
+     "Title": "Reading List",
+     "ToolId": null,
+     "ToolItemId": null,
+     "TopicId": 12,
+     "TypeIdentifier": "Link",
+     "Unread": true,
+     "Url": "/content/enforced/0000-SAMPLE/Reading List.pdf"
+    }
+   ]
+  },
+  {
+   "DefaultPath": "",
+   "Description": {
+    "Text": "",
+    "Html": ""
+   },
+   "EndDateTime": null,
+   "IsHidden": false,
+   "IsLocked": false,
+   "LastModifiedDate": "2026-09-01T12:00:00.000Z",
+   "ModuleId": 2,
+   "Modules": [
+    {
+     "DefaultPath": "",
+     "Description": {
+      "Text": "",
+      "Html": ""
+     },
+     "EndDateTime": null,
+     "IsHidden": false,
+     "IsLocked": false,
+     "LastModifiedDate": "2026-09-01T12:00:00.000Z",
+     "ModuleId": 3,
+     "Modules": [],
+     "PacingEndDate": null,
+     "PacingStartDate": null,
+     "SortOrder": 0,
+     "StartDateTime": null,
+     "Title": "Extras",
+     "Topics": [
+      {
+       "ActivityId": null,
+       "ActivityType": 1,
+       "Bookmarked": false,
+       "CompletionType": 1,
+       "Description": {
+        "Text": "",
+        "Html": ""
+       },
+       "EndDateTime": null,
+       "GradeItemId": null,
+       "Identifier": "31",
+       "IsBroken": false,
+       "IsExempt": false,
+       "IsHidden": false,
+       "IsLocked": false,
+       "LastModifiedDate": "2026-09-09T12:00:00.000Z",
+       "SortOrder": 0,
+       "StartDateTime": null,
+       "Title": "Practice Notebook",
+       "ToolId": null,
+       "ToolItemId": null,
+       "TopicId": 31,
+       "TypeIdentifier": "File",
+       "Unread": true,
+       "Url": "/content/enforced/0000-SAMPLE/Practice Notebook.pdf"
+      }
+     ]
+    }
+   ],
+   "PacingEndDate": null,
+   "PacingStartDate": null,
+   "SortOrder": 0,
+   "StartDateTime": null,
+   "Title": "Week 2",
+   "Topics": [
+    {
+     "ActivityId": null,
+     "ActivityType": 1,
+     "Bookmarked": false,
+     "CompletionType": 1,
+     "Description": {
+      "Text": "",
+      "Html": ""
+     },
+     "EndDateTime": null,
+     "GradeItemId": null,
+     "Identifier": "21",
+     "IsBroken": false,
+     "IsExempt": false,
+     "IsHidden": false,
+     "IsLocked": false,
+     "LastModifiedDate": "2026-09-08T12:00:00.000Z",
+     "SortOrder": 0,
+     "StartDateTime": null,
+     "Title": "Lecture Two Slides",
+     "ToolId": null,
+     "ToolItemId": null,
+     "TopicId": 21,
+     "TypeIdentifier": "File",
+     "Unread": true,
+     "Url": "/content/enforced/0000-SAMPLE/Lecture Two Slides.pdf"
+    },
+    {
+     "ActivityId": null,
+     "ActivityType": 1,
+     "Bookmarked": false,
+     "CompletionType": 1,
+     "Description": {
+      "Text": "",
+      "Html": ""
+     },
+     "EndDateTime": null,
+     "GradeItemId": null,
+     "Identifier": "22",
+     "IsBroken": false,
+     "IsExempt": false,
+     "IsHidden": false,
+     "IsLocked": false,
+     "LastModifiedDate": "2026-09-20T12:00:00.000Z",
+     "SortOrder": 0,
+     "StartDateTime": null,
+     "Title": "Homework Two",
+     "ToolId": null,
+     "ToolItemId": null,
+     "TopicId": 22,
+     "TypeIdentifier": "File",
+     "Unread": true,
+     "Url": "/content/enforced/0000-SAMPLE/Homework Two.pdf"
+    }
+   ]
+  },
+  {
+   "DefaultPath": "",
+   "Description": {
+    "Text": "",
+    "Html": ""
+   },
+   "EndDateTime": null,
+   "IsHidden": false,
+   "IsLocked": false,
+   "LastModifiedDate": "2026-09-01T12:00:00.000Z",
+   "ModuleId": 4,
+   "Modules": [],
+   "PacingEndDate": null,
+   "PacingStartDate": null,
+   "SortOrder": 0,
+   "StartDateTime": null,
+   "Title": "Draft",
+   "Topics": [
+    {
+     "ActivityId": null,
+     "ActivityType": 1,
+     "Bookmarked": false,
+     "CompletionType": 1,
+     "Description": {
+      "Text": "",
+      "Html": ""
+     },
+     "EndDateTime": null,
+     "GradeItemId": null,
+     "Identifier": "41",
+     "IsBroken": false,
+     "IsExempt": false,
+     "IsHidden": true,
+     "IsLocked": false,
+     "LastModifiedDate": "2026-09-10T12:00:00.000Z",
+     "SortOrder": 0,
+     "StartDateTime": null,
+     "Title": "Unreleased Notes",
+     "ToolId": null,
+     "ToolItemId": null,
+     "TopicId": 41,
+     "TypeIdentifier": "File",
+     "Unread": true,
+     "Url": "/content/enforced/0000-SAMPLE/Unreleased Notes.pdf"
+    }
+   ]
+  }
+ ]
+}

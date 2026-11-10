@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from schole import config, d2l
+from schole import config, d2l, fetch
 
 LOGIN_WAIT = 600  # seconds the login window waits for the user to finish signing in
 POLL = 3
@@ -39,6 +39,14 @@ SWEEP_EPILOG = f"""examples:
   schole-sweep --since "$(date -d '7 days ago' +%s)"   (macOS: date -v-7d +%s)
 
 output lines: OK, APIFAIL, ANNOUNCE, CONTENT, DUE, PASTDUE (see /schole:courses)
+
+{EXIT_CODES}"""
+FETCH_EPILOG = f"""examples:
+  schole-fetch --list --classes ~/ajsoftworks/classes           what is new, and what repos hold
+  schole-fetch --list --classes ~/ajsoftworks/classes --record  the same, then mark it seen
+
+output lines: COURSE, MODULE, APIFAIL. Reads each course's content tree only: nothing is
+opened or downloaded, so nothing is marked read.
 
 {EXIT_CODES}"""
 CHROMIUM = "uv run --no-project --with playwright==1.63.0 playwright install chromium"
@@ -227,6 +235,26 @@ def sweep(args: argparse.Namespace) -> int:
     return 0
 
 
+def fetch_list(args: argparse.Namespace) -> int:
+    base = config.home()
+    cfg = config.load(base)
+    path = Path(args.state).expanduser() if args.state else fetch.state_path()
+    seen = fetch.load_state(path)
+    classes = Path(args.classes).expanduser() if args.classes else None
+    with browser(base, cfg.site, headless=True) as ctx:
+        try:
+            lines, state = fetch.list_lines(getter(ctx, cfg.site), cfg.term, seen, classes)
+        except d2l.NoSession:
+            print(NEEDS_LOGIN + last_confirmed(base, cfg), file=sys.stderr)
+            return 3
+    print(f"{cfg.site}: {sum(1 for x in lines if x.startswith(('COURSE ', 'APIFAIL ')))} courses")
+    print("\n".join(lines))
+    if args.record:
+        fetch.save_state(path, state)
+        print(f"recorded {path}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="schole")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -251,9 +279,26 @@ def main(argv: list[str] | None = None) -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     sw.add_argument("--since", type=int, help="epoch seconds; default 24 hours ago")
+    ft = sub.add_parser(
+        "fetch",
+        prog="schole-fetch",
+        help="which course modules hold new or changed files",
+        description="List the modules with new or changed files, from the content tree alone.",
+        epilog=FETCH_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    ft.add_argument("--list", action="store_true", required=True, help="list; downloads nothing")
+    ft.add_argument("--classes", help="folder of class repos to compare file titles against")
+    ft.add_argument("--state", help="state file; default under ~/.local/state/schole")
+    ft.add_argument("--record", action="store_true", help="save what the list showed as seen")
     args = parser.parse_args(argv)
     try:
+        if args.cmd == "fetch":
+            return fetch_list(args)
         return login(args) if args.cmd == "login" else sweep(args)
+    except fetch.StateError as exc:
+        print(f"schole: {exc}", file=sys.stderr)
+        return 1
     except config.ConfigError as exc:
         print(f"schole: {exc}", file=sys.stderr)
         return 1

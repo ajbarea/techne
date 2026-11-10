@@ -4,6 +4,14 @@ The active TODO list for whatever's in flight **right now**: current PR, open de
 immediate next pickup. Queued specs and ordering live in [ROADMAP.md](./ROADMAP.md); landed work
 moves to its dated Shipped log. Over ~50 lines means something referential crept in.
 
+## schole-fetch (branch feat/schole-fetch-list, issue #316)
+
+- ✅ Issue #316 with research and design. ✅ Slice 1: `schole-fetch --list [--classes DIR] [--state F] [--record]`
+  (`schole/fetch.py`, `tests/test_schole_fetch.py`, `tests/fixtures/schole_toc.json`), read-only: one toc GET per course.
+- Next: review rounds (fresh Opus reader each, bug-class catalog), then wait for the module Download address and the
+  visit-recording answer before any `--download` (opt-in flag, off by default).
+- Verify: `make lint`; `uv run pytest tests/test_schole_fetch.py tests/test_schole_d2l.py`.
+
 ## In flight
 
 **techne#277 performance + mutation testing**, four PRs in order, each reviewed with
