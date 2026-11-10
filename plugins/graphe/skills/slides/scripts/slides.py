@@ -1296,9 +1296,11 @@ _SLIDE_GROUND = """(i) => {
     const stops = image.match(/(?:rgba?|color|oklab|oklch|hsla?)\\([^)]*\\)/g) || [];
     if (!stops.length) return null;
     const colours = stops.map(read);
-    const mean = [0, 1, 2, 3].map(
-      (n) => colours.reduce((sum, c) => sum + c[n], 0) / colours.length);
-    return [read(st.backgroundColor), mean];
+    // Each stop's colour counts by its opacity, so a transparent stop adds no colour.
+    const opacity = colours.reduce((sum, c) => sum + c[3], 0);
+    const mean = [0, 1, 2].map((n) =>
+      opacity ? colours.reduce((sum, c) => sum + c[n] * c[3], 0) / opacity : 0);
+    return [read(st.backgroundColor), [...mean, opacity / colours.length]];
   };
   const frame = document.querySelector('.reveal .slides').getBoundingClientRect();
   const covers = (el) => {

@@ -1364,6 +1364,13 @@ GROUND_CSS = [
     ("section { background-color: rgba(0, 0, 0, 0.9); }", True),
     ("section { background-image: linear-gradient(#000000, #101010); }", True),
     ("section { background-image: linear-gradient(#ffffff, #f0f0f0); }", False),
+    # Half white over black is mid grey, which reads light: a transparent stop adds no black.
+    (
+        ".reveal-viewport, body { background: transparent !important; }"
+        " html { background: #000000; }"
+        " section { background-image: linear-gradient(#ffffff, rgba(0, 0, 0, 0)); }",
+        False,
+    ),
 ]
 
 
