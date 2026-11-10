@@ -55,7 +55,7 @@ def parse(path: pathlib.Path) -> tuple[list[dict], list[str]]:
             assert m, f"{path}: malformed heading: {line}"
             current = {"slug": m[1], "name": m[2], "file": path, "fields": {}}
             lessons.append(current)
-        elif section == "Retired" and line.lstrip().startswith(("- ", "* ", "+ ")):
+        elif section == "Retired" and re.match(r"\s*(?:[-*+]|\d+[.)])\s", line):
             retired.append(line)
         elif current is not None and (m := FIELD_RE.match(line)):
             current["fields"][m[1]] = m[2]
@@ -120,7 +120,7 @@ def test_slugs_are_unique_within_a_plugin():
 
 
 def test_every_lessons_file_is_checked():
-    on_disk = {*GRAPHE.glob("*.md"), *TECHNE.glob("*.md")}
+    on_disk = {*GRAPHE.rglob("*.md"), *TECHNE.rglob("*.md")}
     assert on_disk == set(FILES), sorted(str(p) for p in on_disk ^ set(FILES))
 
 

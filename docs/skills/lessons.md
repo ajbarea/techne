@@ -4,7 +4,7 @@ description: "Keep a decided quality lesson so the next deck, paper, docs site o
 
 # `techne:lessons`
 
-Each lesson is a decision that made the work better. Lessons live with the plugin that uses them, one file per surface, and a skill loads only its own: decks and papers in graphe, docs sites and app UI in techne, with a shared file carried by both.
+Each lesson is a decision that made the work better. Lessons live with the plugin that uses them, one file per surface, and a skill loads only its own: decks and papers in graphe, docs sites and app UI in techne, with a shared file carried by both. Only techne's maintainers change the files, through a pull request; for anyone else the skill writes the rule for their project's `CLAUDE.md` or `AGENTS.md`.
 
 Part of [techne](../plugins/techne.md): `/plugin install techne@techne`, then `/techne:setup`.
 

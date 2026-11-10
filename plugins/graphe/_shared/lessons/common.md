@@ -1,7 +1,7 @@
 <!-- budget: 635 words -->
 # Lessons every surface shares
 
-Decided lessons that made the work better. Read this and your surface's file before starting. To add or retire one, follow `/techne:lessons` or the rules at the end of this file.
+Decided lessons that made the work better. Read this and your surface's file before starting. To add or retire one, follow `/techne:lessons`, which first checks that you maintain techne; the rules at the end of this file give the shape.
 
 ### like-x-means-care: "Like X" means X's level of care
 
