@@ -1269,7 +1269,7 @@ _AXE_SLIDE = (
 
 # The colour behind a slide, composited bottom to top: page, reveal.js's layers, the slide's own
 # background layer and section, then any child drawn over nearly all of the slide. Alpha is honoured
-# and a gradient counts as the average of its stops. None when an image or video is in the stack.
+# and a gradient as its stops averaged by opacity. None when an image or video is in the stack.
 _SLIDE_GROUND = """(i) => {
   const s = __deckSlides()[i];
   const painted = Reveal.getSlideBackground(s);
