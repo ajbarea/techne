@@ -9,6 +9,8 @@ allowed-tools: Bash Glob Grep Read Edit Write
 
 `<plugin-root>` is the plugin's root directory, two levels above the directory holding this SKILL.md.
 
+Before starting, read `<plugin-root>/_shared/lessons/common.md` and `<plugin-root>/_shared/lessons/paper.md`: they hold what past papers taught and name the reference to beat.
+
 ## Overview
 
 Papers in a research monorepo follow one shape: a per-paper LaTeX directory that shares the
