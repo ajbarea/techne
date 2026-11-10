@@ -20,7 +20,7 @@ Read with `plain-prose.md` and `paper-quality.md`, which hold the sentence-level
 - **Rule:** Declare the budget in the source before drafting; a venue's limit is hard, a self-set budget is a target that may be raised with a one-line reason.
 - **Why:** Review rounds only add, so drafts grow past what anyone will read.
 - **Since:** 2026-10-20
-- **Check:** gate: plugins/graphe/_shared/length_budget.py#def assess, test: test_a_page_only_budget_does_not_call_texcount
+- **Check:** gate: plugins/graphe/skills/latex/scripts/latex.py#def budget_findings, test: test_latex_over_budget_is_not_submittable
 
 ### candidate-is-not-a-decision: A candidate reads differently from a decision
 

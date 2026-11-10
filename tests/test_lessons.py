@@ -55,7 +55,7 @@ def parse(path: pathlib.Path) -> tuple[list[dict], list[str]]:
             assert m, f"{path}: malformed heading: {line}"
             current = {"slug": m[1], "name": m[2], "file": path, "fields": {}}
             lessons.append(current)
-        elif section == "Retired" and line.startswith("- "):
+        elif section == "Retired" and line.lstrip().startswith(("- ", "* ", "+ ")):
             retired.append(line)
         elif current is not None and (m := FIELD_RE.match(line)):
             current["fields"][m[1]] = m[2]
@@ -108,13 +108,20 @@ def test_a_gate_exists_and_a_test_names_it(lesson):
     body = re.search(rf"^def {m['test']}\(.*?(?=^\S)", tests + "\n@", re.S | re.M)
     assert body, f"no test named {m['test']}"
     wanted = m["id"].removeprefix("def ").replace("-", "_")
-    assert wanted in body[0].replace("-", "_"), f"{m['test']} never mentions {m['id']}"
+    # The test's own name does not count: a test named after the gate could do nothing.
+    rest = body[0].removeprefix(f"def {m['test']}")
+    assert wanted in rest.replace("-", "_"), f"{m['test']} never mentions {m['id']}"
 
 
 def test_slugs_are_unique_within_a_plugin():
     for files in (FILES[:3], FILES[3:]):
         slugs = [lesson["slug"] for f in files for lesson in parse(f)[0]]
         assert len(slugs) == len(set(slugs)), sorted(s for s in slugs if slugs.count(s) > 1)
+
+
+def test_every_lessons_file_is_checked():
+    on_disk = {*GRAPHE.glob("*.md"), *TECHNE.glob("*.md")}
+    assert on_disk == set(FILES), sorted(str(p) for p in on_disk ^ set(FILES))
 
 
 def test_common_is_the_same_in_both_plugins():

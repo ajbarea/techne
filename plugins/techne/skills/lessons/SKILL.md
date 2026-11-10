@@ -15,7 +15,9 @@ For an app or a project's user-facing surface, read `<plugin-root>/_shared/lesso
 
 ## Add one
 
-Do this at the moment of the correction, in the same turn, instead of writing a memory note or a recap. A lesson goes in the techne repository, `ajbarea/techne`, through a pull request: never edit the installed plugin cache, which an update overwrites. Use a clone (`gh repo clone ajbarea/techne` if there is none) and a worktree on a new branch; paths below are relative to its root.
+Do this at the moment of the correction, in the same turn, instead of writing a memory note or a recap. Never edit the installed plugin cache, which an update overwrites.
+
+The lesson files belong to the techne repository, `ajbarea/techne`. First check that the user maintains it: `gh repo view ajbarea/techne --json viewerPermission` must print `ADMIN`, `MAINTAIN` or `WRITE`. If it does not, or `gh` cannot tell, open no pull request: add the lesson, in the shape below, under a `## Lessons` heading in the current repository's `.claude/skill-context.md`, and stop. Otherwise use a clone (`gh repo clone ajbarea/techne` if there is none) and a worktree on a new branch; paths below are relative to its root.
 
 1. Pick the surface file. A lesson about every surface goes in `common.md`, kept identical in `plugins/graphe/_shared/lessons/` and `plugins/techne/_shared/lessons/`.
 2. Add one entry at the top of the file's list, in this shape:
