@@ -116,9 +116,9 @@ def _check(sl, path, **kw):
 
 
 @needs_browser
-def test_the_starter_passes_with_nothing_to_review(sl, web):
+def test_the_starter_passes_with_only_its_own_look_to_review(sl, web):
     found = _check(sl, web.index)
-    assert [str(f) for f in found if f.severity != "INFO"] == []
+    assert [f.gate for f in found if f.severity != "INFO"] == ["own-look", "own-look"]
     assert sl.verdict(found)[0] == 0
 
 
@@ -727,7 +727,7 @@ OPENING = '<section><h2>Opening</h2><aside class="notes">Hi.</aside></section>'
 
 @needs_browser
 def test_a_section_with_its_own_background_is_measured_against_it(sl, web, gates):
-    # The starter's ink passes on its own marble; on a section painted near-black it must fail,
+    # The starter's ink passes on its own ground; on a section painted near-black it must fail,
     # which it can only do if the section's own background is what it is measured against.
     plain = '<section class="discussion">'
     white = '<section class="discussion" style="background:#ffffff">'
@@ -1171,3 +1171,291 @@ def test_the_sideways_check_fires_only_when_a_phone_pans(sl, viewport_tag, width
         page.set_content(page_html)
         assert page.evaluate(sl._SIDEWAYS) is sideways
         browser.close()
+
+
+def _title_art(web):
+    """Replace the starter's placeholder illustration with a real picture."""
+    web(
+        '<figure class="title-art" data-placeholder>',
+        '<figure class="title-art">',
+    )
+
+
+def _recolour(web):
+    web("--paper: #ffffff;", "--paper: #fdf6ea;", "deck.css")
+    web("--ours: #3b2f8f;", "--ours: #7a2405;", "deck.css")
+
+
+def _own_look(found):
+    return [f for f in found if f.gate == "own-look"]
+
+
+@needs_browser
+def test_own_look_clears_once_the_colours_and_the_art_are_the_talks_own(sl, web):
+    _title_art(web)
+    _recolour(web)
+    assert _own_look(_check(sl, web.index)) == []
+
+
+@needs_browser
+def test_own_look_reviews_a_deck_that_kept_the_starter_colours(sl, web):
+    _title_art(web)
+    found = _own_look(_check(sl, web.index))
+    assert len(found) == 1 and "starter's colours" in found[0].message
+
+
+@needs_browser
+def test_own_look_reviews_a_placeholder_and_a_title_slide_with_no_picture(sl, web):
+    _recolour(web)
+    found = _own_look(_check(sl, web.index))
+    assert len(found) == 1 and "placeholder" in found[0].message and found[0].slide == 1
+    text = web.index.read_text()
+    web.index.write_text(
+        re.sub(r'<figure class="title-art".*?</figure>', "", text, count=1, flags=re.S)
+    )
+    found = _own_look(_check(sl, web.index))
+    assert len(found) == 1 and "no picture" in found[0].message
+
+
+@needs_browser
+def test_own_look_does_not_count_a_small_picture_as_the_illustration(sl, web):
+    _recolour(web)
+    index = web(
+        '<figure class="title-art" data-placeholder>',
+        '<figure class="title-art" style="width:100px;height:100px">',
+    )
+    assert any("no picture" in f.message for f in _own_look(_check(sl, index)))
+
+
+DARK_DECK = ".reveal-viewport, html, body { background-color: #101418 !important; }"
+
+
+@needs_browser
+def test_a_mostly_dark_deck_warns_and_allow_dark_clears_it(sl, web, gates):
+    (web.index.parent / "deck.css").write_text(
+        (web.index.parent / "deck.css").read_text() + DARK_DECK
+    )
+    assert ("WARN", "dark-slides") in gates(_check(sl, web.index))
+    assert ("WARN", "dark-slides") not in gates(_check(sl, web.index, allow_dark=True))
+
+
+@needs_browser
+def test_a_dark_title_and_closing_slide_are_part_of_a_talks_identity(sl, web, gates):
+    (web.index.parent / "deck.css").write_text(
+        (web.index.parent / "deck.css").read_text()
+        + "section.title-slide, section.closing { background-color: #101418; }"
+    )
+    assert ("WARN", "dark-slides") not in gates(_check(sl, web.index))
+
+
+@pytest.mark.parametrize(
+    "grounds, closing, allow, blocks",
+    [
+        ([], 5, False, False),
+        ([(2, None), (3, None)], 9, False, False),
+        ([(2, "111111"), (3, "ffffff"), (4, "ffffff")], 9, False, False),
+        ([(2, "111111"), (3, "111111"), (4, "ffffff")], 9, False, True),
+        ([(2, "111111"), (3, "111111"), (4, "ffffff")], 9, True, False),
+        # The closing slide never counts, and half is not most.
+        ([(2, "111111"), (3, "ffffff"), (4, "111111")], 4, False, False),
+        # A picture slide stays a talk slide but is never dark: one dark among pictures is no flag.
+        ([(2, None), (3, "111111")], 9, False, False),
+        ([(2, None), (3, None), (4, None), (5, None), (6, "111111")], 9, False, False),
+        ([(2, None), (3, "111111"), (4, "111111")], 9, False, True),
+    ],
+)
+def test_dark_findings_at_the_boundaries(sl, grounds, closing, allow, blocks):
+    assert bool(sl.dark_findings(grounds, closing, allow)) is blocks
+
+
+def test_starter_tokens_read_the_starter(sl):
+    tokens = dict(sl.starter_tokens())
+    assert set(tokens) == set(sl.LOOK_TOKENS)
+    assert all(v.startswith("#") and v == v.lower() for v in tokens.values())
+
+
+@needs_browser
+def test_the_rail_keeps_its_function_whatever_its_look(sl, web):
+    with sl._playwright()() as pw:
+        browser = sl._launch(pw)
+        try:
+            page, _ = sl._open(browser, web.index, sl.CANVAS)
+            page.evaluate("Reveal.slide(3)")
+            rail = page.evaluate(
+                """() => {
+                const read = (b) => { const s = getComputedStyle(b);
+                  return [s.fontWeight, s.borderBottomColor, b.tagName]; };
+                const on = document.querySelector('.rail button[aria-current="step"]');
+                const off = document.querySelector('.rail button[aria-current="false"]');
+                return {on: read(on), off: read(off), radius: getComputedStyle(off).borderRadius};
+            }"""
+            )
+        finally:
+            browser.close()
+    assert rail["on"][2] == "BUTTON"
+    # The current chapter differs in weight and underline, not just text colour.
+    assert rail["on"][0] != rail["off"][0] and rail["on"][1] != rail["off"][1]
+    assert rail["radius"] == "0px"
+
+
+def test_the_rail_has_a_44px_target_on_touch():
+    css = (STARTER / "deck.css").read_text()
+    assert re.search(r"pointer: coarse\)\s*\{\s*\.rail button \{ min-height: 44px", css)
+
+
+@pytest.mark.parametrize(
+    "colours, published",
+    [
+        (["#7a2405", "#c4512b", "#edaa8e"], 7.6),
+        (["#6a1b6e", "#e66100", "#33bbee"], 20.7),
+    ],
+)
+def test_palette_reproduces_the_published_scores(sl, colours, published):
+    # talks#92 printed these two closest-pair distances for its old and new failure colours.
+    scores = sl.palette_scores(colours, sl.ROOM_LIGHT)
+    assert min(v[0] for v in scores.values()) == pytest.approx(published, abs=0.05)
+    assert set(scores) == {"normal", "protanomaly", "deuteranomaly", "tritanomaly"}
+
+
+def test_palette_flags_a_pale_mark_and_scores_a_lit_room(sl, capsys):
+    assert sl.palette("#33bbee,#1b1b1b", "#ffffff", 0.3) == 0
+    out = capsys.readouterr().out
+    assert "#33bbee" in out and "pale: give it a darker outline" in out
+    assert "#1b1b1b" in out and out.count("pale:") == 1
+    # Room light lowers every contrast; a mark with no room light keeps its screen ratio.
+    assert sl._lit_contrast("#1b1b1b", "#ffffff", 0.3) < sl.contrast("1b1b1b", "ffffff")
+    assert sl._lit_contrast("#1b1b1b", "#ffffff", 0.0) == pytest.approx(
+        sl.contrast("1b1b1b", "ffffff")
+    )
+
+
+@pytest.mark.parametrize(
+    "colours, ground, room",
+    [
+        ("#ffffff", "#ffffff", 0.3),
+        ("#ffffff,#ffffff", "#ffffff", 0.3),
+        ("red,#000000", "#ffffff", 0.3),
+        ("#abc,#000000", "#ffffff", 0.3),
+        ("#ffffff,#000000", "#000000,#111111", 0.3),
+        ("#ffffff,#000000", "#ffffff", -0.1),
+        ("#ffffff,#000000", "#ffffff", 1.5),
+    ],
+)
+def test_palette_refuses_bad_input(sl, colours, ground, room):
+    with pytest.raises(SystemExit):
+        sl.palette(colours, ground, room)
+
+
+def test_the_starter_carries_no_forge_look():
+    css = (STARTER / "deck.css").read_text().lower()
+    for word in ("marcellus", "marble", "forge", "greek", "upper-roman", "niche"):
+        assert word not in css, word
+    assert not list((STARTER / "fonts").glob("*marcellus*"))
+    assert not list((STARTER / "fonts").glob("OFL-Marcellus*"))
+
+
+GROUND_CSS = [
+    (
+        ".reveal-viewport, body { background: transparent !important; }"
+        " html { background: #101418; }",
+        True,
+    ),
+    ("section { background-color: rgba(0, 0, 0, 0.2); }", False),
+    ("section { background-color: rgba(0, 0, 0, 0.9); }", True),
+    ("section { background-image: linear-gradient(#000000, #101010); }", True),
+    ("section { background-image: linear-gradient(#ffffff, #f0f0f0); }", False),
+    # Half white over black is mid grey, which reads light: a transparent stop adds no black.
+    (
+        ".reveal-viewport, body { background: transparent !important; }"
+        " html { background: #000000; }"
+        " section { background-image: linear-gradient(#ffffff, rgba(0, 0, 0, 0)); }",
+        False,
+    ),
+]
+
+
+@needs_browser
+@pytest.mark.parametrize("css, dark", GROUND_CSS)
+def test_dark_slides_composites_the_whole_background_stack(sl, web, gates, css, dark):
+    (web.index.parent / "deck.css").write_text((web.index.parent / "deck.css").read_text() + css)
+    assert (("WARN", "dark-slides") in gates(_check(sl, web.index))) is dark
+
+
+@needs_browser
+def test_dark_slides_reads_a_full_bleed_dark_child(sl, web, gates):
+    text = web.index.read_text().replace(
+        '<aside class="notes">', '<div class="bleed"></div><aside class="notes">'
+    )
+    web.index.write_text(text)
+    (web.index.parent / "deck.css").write_text(
+        (web.index.parent / "deck.css").read_text()
+        + ".bleed { position: absolute; inset: 0; background: #101418; }"
+    )
+    assert ("WARN", "dark-slides") in gates(_check(sl, web.index))
+
+
+PIXEL = (
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChw"
+    "GA60e6kgAAAABJRU5ErkJggg=="
+)
+
+
+@needs_browser
+@pytest.mark.parametrize(
+    "picture",
+    [
+        f'<img class="bleed" src="{PIXEL}" alt="">',
+        '<svg class="bleed" viewBox="0 0 10 10" role="img" aria-label="art"><rect width="10" '
+        'height="10"/></svg>',
+    ],
+)
+def test_dark_slides_does_not_read_a_full_bleed_picture(sl, web, gates, picture):
+    text = web.index.read_text().replace(
+        '<aside class="notes">',
+        f'{picture}<aside class="notes">',
+    )
+    web.index.write_text(text)
+    (web.index.parent / "deck.css").write_text(
+        (web.index.parent / "deck.css").read_text()
+        + ".bleed { position: absolute; inset: 0; width: 100%; height: 100%; }"
+        + DARK_DECK
+    )
+    assert ("WARN", "dark-slides") not in gates(_check(sl, web.index))
+
+
+@needs_browser
+@pytest.mark.parametrize(
+    "kind",
+    ["data-background", "css-section", "css-child"],
+)
+def test_own_look_counts_a_background_illustration(sl, web, kind):
+    _recolour(web)
+    text = re.sub(
+        r'<figure class="title-art".*?</figure>', "", web.index.read_text(), count=1, flags=re.S
+    )
+    web.index.write_text(text)
+    if kind == "data-background":
+        web(
+            '<section class="title-slide">',
+            f'<section class="title-slide" data-background-image="{PIXEL}">',
+        )
+    elif kind == "css-section":
+        (web.index.parent / "deck.css").write_text(
+            (web.index.parent / "deck.css").read_text()
+            + f'.title-slide {{ background-image: url("{PIXEL}"); }}'
+        )
+    else:
+        web(
+            '<aside class="notes">[Hi,',
+            '<div style="position:absolute;right:0;top:0;width:400px;height:400px;'
+            f'background-image:url({PIXEL})"></div><aside class="notes">[Hi,',
+        )
+    assert _own_look(_check(sl, web.index)) == []
+
+
+@needs_browser
+def test_own_look_copes_with_a_percent_slide_height(sl, web):
+    _title_art(web)
+    _recolour(web)
+    web("height: phone ? 860 : 720,", 'height: "100%",', "deck.js")
+    assert _own_look(_check(sl, web.index)) == []

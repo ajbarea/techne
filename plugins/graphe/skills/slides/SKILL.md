@@ -21,11 +21,12 @@ the presenter.
 
 ```
 B="uv run --no-project --quiet --with playwright==1.63.0 --with axe-playwright-python==0.1.8 --with pillow --with python-pptx==1.0.2"
-$B python <skill-dir>/scripts/slides.py check  <deck/index.html> [--jargon "term,term"] [--backup-from N]
+$B python <skill-dir>/scripts/slides.py check  <deck/index.html> [--jargon "term,term"] [--backup-from N] [--allow-dark]
 $B python <skill-dir>/scripts/slides.py render <deck/index.html> <out-dir>
 $B python <skill-dir>/scripts/slides.py script <deck/index.html> > <deck>-script.md
 $B python <skill-dir>/scripts/slides.py pptx   <deck/index.html> <deck>.pptx [--images <dir>] [--editable]
 $B python <skill-dir>/scripts/slides.py pdf    <deck/index.html> <deck>.pdf
+uv run --no-project --quiet --with colorspacious==1.1.2 --with numpy python <skill-dir>/scripts/slides.py palette "#6a1b6e,#e66100,#33bbee"
 ```
 
 A web deck is checked and rendered in Chromium through Playwright. Install the
@@ -35,7 +36,7 @@ what the speaker view shows.
 
 `check`, `render` and `script` also take a `.pptx`, and `check` and `render`
 take a PDF (a Typst or Beamer deck), for decks that already exist in those
-formats; see [Other formats](#other-formats).
+formats; see [references/exports.md](references/exports.md).
 
 `pptx` exports a web deck for PowerPoint: each slide becomes one picture of it at
 1920x1080, fully built, with its script in the speaker notes and its title kept
@@ -47,53 +48,9 @@ a file; the pictures cannot be edited, links in them do not work, and nothing
 animates. Build it, never commit it: it is regenerated from the web deck.
 `--images` also writes the slide PNGs to a folder render's rules govern.
 
-`pptx --editable` is for a deck someone will edit in PowerPoint or Google Slides.
-Chromium lays out each slide fully built, and the export places native shapes
-where the browser put them:
-
-- text becomes text boxes, one per block, keeping bold, italic, colour, size,
-  letter-spacing, links and native list bullets and numbers; inline TeX
-  (`data-tex`, KaTeX or MathJax source) becomes Unicode (`\alpha^{2}` reads α²);
-- tables become native tables with their fills, borders and alignment, and no
-  theme table style, so Google Slides does not repaint them;
-- figures (`img`, `svg`, `canvas`, `video`) and display equations become
-  pictures with alt text (an equation's alt text is its TeX), since slide math
-  renders blank outside PowerPoint;
-- everything else (cards, rules, decoration, icons inside text) is baked into
-  the slide background, taken with the text made transparent, so it cannot be
-  dragged by mistake; a background of one colour becomes a solid fill. Text the
-  page cannot hand over stays there too, still visible: CSS counters
-  (`content: counter(n)`) and gradient text (`background-clip: text`);
-- the first `h1` to `h3` fills the title placeholder where it stands, and the
-  notes carry over. Text sits above pictures and tables, so none is hidden
-  under a figure.
-
-Text boxes are about 6% wider than the browser's, and a line the browser did not
-wrap is set not to wrap, because PowerPoint and Google Slides set most fonts a
-little wider than Chromium; tables get the same slack. The summary lists the
-fonts the deck uses and names any PowerPoint does not ship: install those where
-the deck is presented, or text rewraps in a substitute font. Generic families
-(`sans-serif`, `monospace`) become Arial and Courier New.
-
-It reads a reveal.js deck or a custom one: one `<section class="slide">` per
-slide, the slide on screen marked with the class `active` (the export sets it),
-fragments revealed with `visible`, and notes in `<template class="speaker-notes">`
-or `<aside class="notes">`. Whatever is not inside the slide, such as the deck's
-own buttons, stays out. A slide larger than the browser window is captured
-whole: the window grows until it fits. One that never fits (sized to the window,
-or pushed off its edge) is exported as far as it shows, and the summary names it. A .pptx has one slide size, taken from slide 1; the summary names any
-slide of another shape, whose content past the page's height is off the slide.
-`check`, `render`, `script` and `pdf` still need reveal.js. Render the result (`render <deck>.pptx`) and compare it with the
-browser before handing it over; `--images` writes the browser's pictures for that.
-
-`# research(2026-10)` The choices follow what Microsoft's html2pptx hit in
-production ([GOTCHAS](https://github.com/microsoft/ResearchStudio/blob/main/ResearchStudio-Reel/skills/paper2poster/html2pptx/GOTCHAS.md)):
-colours read through a canvas so `oklab()` and `color-mix()` resolve (G5), blocks
-told apart by tag rather than CSS display (G6), native bullets with a hanging
-indent (G10), no wrap on a line the browser kept whole (G16), equations as
-pictures because slide math is blank outside PowerPoint (G19), hairline borders
-kept at one pixel (G20). Google Slides repaints a table that keeps a theme
-style; "No Style, No Grid" leaves it as drawn.
+`pptx --editable` is for a deck someone will edit in PowerPoint or Google Slides: native text and
+tables where the browser laid them out, figures and equations as pictures. How it works and what it
+leaves out: [references/exports.md](references/exports.md).
 
 `pdf` exports the same web deck as a PDF: reveal.js's `?print-pdf` layout printed by
 Chromium, one page per slide with every fragment shown (it sets
@@ -137,6 +94,7 @@ pass is reported on its own, beside the desktop findings.
 | BLOCK | `em-dash` | An em-dash in slide text. |
 | BLOCK | `asset` | A file the deck asks for and cannot load: a renamed figure, a missing script. |
 | BLOCK | `script` | A console error, including a `data-value` with no data behind it. |
+| WARN | `dark-slides` | A web deck whose talk slides are mostly dark, naming them (title, closing and backup slides do not count; a slide over a picture counts as a talk slide but never as dark). It warns rather than blocks because a child or a picture can change what the room sees. `--allow-dark` is for a deck the presenter asked to be dark. Not checked on a .pptx or PDF. |
 | WARN | `small-text` | Text under `--min-pt` (14pt: 19px on a 1280-wide canvas, scaled to the deck's own width). |
 | WARN | `overflow` | Something drawn past the edge of the slide canvas, clipped or not. Content inside a container that scrolls sideways is exempt. |
 | BLOCK | `phone-clip` | Content drawn past the slide's edge on a 390px or 360px-wide phone. A phone cannot pan to it: reflow the figure or draw a tall version for the phone. |
@@ -149,6 +107,7 @@ pass is reported on its own, beside the desktop findings.
 | WARN | `unbound-data` | A path in `window.DECK_DATA` that no `data-*` attribute binds, in the page as built or in its source; a binding in the speaker notes counts, one on a `data-visibility="hidden"` slide does not, and reveal.js's own attributes never do. The data file is published with the deck, so a figure no slide shows (a withheld reading, a cut slide's numbers) still ships: cut it from the file, or generate only the paths `index.html` binds. |
 | WARN | `offline` | The deck fetches from the network, so it fails on a projector laptop with no Wi-Fi. |
 | WARN | `no-notes` / `duplicate-title` | A talk slide with no script, in `<aside class="notes">` or `data-notes` (backup slides are exempt), or two slides a screen reader cannot tell apart. |
+| REVIEW | `own-look` | A web deck that kept the starter's colours, whose title slide still shows the placeholder illustration, or whose title slide has no picture at a quarter of the slide's height or more. It sees only those three things; whether the look suits the talk is yours to judge. See [The look](#the-look). |
 | REVIEW | `figures` / `dense` | Percentages, ratios, decimals, `x of y` and long numbers (years and digits inside identifiers are labels), or more than 60 words, on talk slides. Slide 1 is exempt, and so is everything after a divider titled exactly `Backup`, `Backup slides` or `Appendix`, or from `--backup-from`. Words inside figures count: a `dense` on a figure-heavy slide is not a reason to cut the figure. |
 | REVIEW | `jargon` | A `--jargon` term on a talk slide. Use the plain word on the slide; the term goes in a muted footnote only when the room will meet it again (in Q&A, or in the paper they will read). |
 | REVIEW | `footnotes` | An element with `class="footnote"` on more than half the slides after the title and up to the closing slide. Each footnote must pass the test in [Writing it for the room](#writing-it-for-the-room); a footnote on most slides is usually padding. |
@@ -158,6 +117,21 @@ What `check` cannot see: a diagram that reads wrong, a label on the wrong
 mark, a build order that gives away the punchline. That is what `render` is
 for. Look at every slide, desktop and phone, including the ones you did not
 change.
+
+## The look
+
+`# research(2026-11)`
+
+The starter is a working skeleton, not a look: it passes the gates and is meant to be replaced. `check` raises an `own-look` review until a deck has its own colours and a real title illustration.
+
+- **Give each talk its own identity.** No shared theme across talks: each talk gets its own ground, type, colour and title illustration, taken from its subject. Styling from a culture or a cast (Greek type, a mascot, a character's colours) belongs only on a talk about it.
+- **Light on the slides the room reads.** Dark slides wash out when the lights stay on, so talk slides sit on a light ground; a dark title or closing slide can be part of a talk's identity. `check` warns on a deck whose talk slides are mostly dark, and `--allow-dark` is for a deck the presenter asked to be dark.
+- **Read an analogy as a level of care.** "Like X" means "with the care X got", so state the reading in one line before starting, and borrow X's content only when the talk is about X.
+- **Match the subject before raising saturation.** A colour request names a mood. Match the subject's real look first; a full-bleed title bar in the accent colour is rarely what was asked for.
+- **Show a change of look before shipping it.** Before and after at 1920 wide and on a phone, every time the ask is about how it looks. When asked for a look, mock two or three directions on the same three slides (title, a claim with its figure, a table) and let the owner pick; load `frontend-design` when it is installed.
+- **Chrome is part of the identity.** Style the chapter rail and the other chrome in the talk's own CSS, never one rail across talks, and not rounded pills. Keep what they do: keyboard reach, 44px under a finger, and the current chapter marked by more than colour.
+- **Colour is for one job each.** Give each colour one meaning across the talk and put names on the figure instead of a legend. Carry state with outlines and symbols: pale fills disappear under room light. When a figure needs a group of colours, score the candidates with `palette` and keep the set with the widest closest pair; see [references/look.md](references/look.md). A mark's meaning cannot be computed, so this is judgment, not a gate.
+- **Judge at 1920 wide and on a phone.** `render` writes both; read the sheets as the room and a reader will see them.
 
 ## Writing it for the room
 
@@ -369,8 +343,9 @@ should not have to find the notes pane to see it.
 
 ## The starter deck
 
-`templates/web/` is a whole deck that passes `check` with nothing to review.
-Copy it and replace every bracketed placeholder:
+`templates/web/` is a whole deck that passes `check` with one thing to review, its
+`own-look`: it is a skeleton, not a look. Copy it, replace every bracketed placeholder, then
+give it its own look (see [The look](#the-look)):
 
 ```
 cp -r <skill-dir>/templates/web <talk-dir>
@@ -378,9 +353,9 @@ cp -r <skill-dir>/templates/web <talk-dir>
 
 | File | Holds |
 |---|---|
-| `index.html` | One `<section>` per slide: title, agenda, what we did and why you should care (`data-contribution`), claim with a figure that builds, concrete case, quick bet, method steps, related-work map, timeline, limits, conclusion (`data-conclusion`), Thank you, backup divider, backup discussion prompt, backup table. Drop the layouts the talk does not need; copy one to add a slide. |
-| `deck.css` | The look, "the forge": every slide light (dark slides wash out under a lit room's lights), a cool marble ground, a classical display face for titles and a hyperlegible sans for text. Four colour roles keep one meaning on every slide: gold for the speaker's own work, vermilion for failure or risk, bluish green for the fix, sky blue for context. Every text colour clears 7:1, and the role colours part by lightness, so they read in greyscale and under colour-vision deficiency. Then layouts, the phone layout, and the reduced-motion rule. |
-| `fonts/` | Marcellus and Atkinson Hyperlegible Next (SIL Open Font License), served with the deck so it looks the same offline. |
+| `index.html` | One `<section>` per slide: title with a placeholder illustration, agenda, what we did and why you should care (`data-contribution`), claim with a figure that builds, concrete case, quick bet, method steps, related-work map, timeline, limits, conclusion (`data-conclusion`), Thank you, backup divider, backup discussion prompt, backup table. Drop the layouts the talk does not need; copy one to add a slide. |
+| `deck.css` | A plain placeholder look, every slide light. The first block is the talk's tokens (ground, ink, four colour roles, faces) to replace. Then layouts, the chapter rail (working parts to keep, styling to replace), the phone layout, and the reduced-motion rule. |
+| `fonts/` | Atkinson Hyperlegible Next and Mono (SIL Open Font License), served with the deck so it looks the same offline; a talk adds or swaps its own faces. |
 | `deck.js` | Builds what comes from data, then starts reveal.js. |
 | `data/deck-data.js` | Every figure and every related-work entry the deck shows. |
 | `vendor/reveal/` | reveal.js 6.0.2 (MIT), so the deck opens with no network. |
@@ -479,121 +454,11 @@ matters. It is never decoration.
 
 ## Publish
 
-A web deck is published with GitHub Pages, and the link is the handout.
-Publish only what is cleared for release: a Pages site is public even when its
-repo is private, and a private repo needs a paid plan for Pages at all.
-
-**Keep every talk in one talks repo.** A repository has one Pages site, but the
-site serves folders, so one public repo with a folder per talk gives each talk
-its own address (`<owner>.github.io/talks/<talk>/`), and every future deck has
-the same home. Research repos stay where they are and supply the figures: each
-talk's build reads them. [ajbarea/talks](https://github.com/ajbarea/talks) is
-the worked example: reveal.js shared at `vendor/reveal/`, a `scripts/site.py`
-that lays out every folder holding an `index.html` and writes an index page from
-each talk's `<title>` and description, and one workflow that checks every talk
-on each pull request and daily, and publishes on `main`.
-
-To add a talk there:
-
-1. Copy the starter into a new folder named for the talk; the folder name is its
-   address. Point its `vendor/reveal/` links at `../vendor/reveal/` and delete
-   its own copy.
-2. Give the page a `<title>` and a `<meta name="description">`; the index lists
-   the talk by them.
-3. If its figures come from research artifacts, add a `figures.py` that writes
-   them into `data/` and fails with `--check` when they are stale.
-4. Open a pull request; merging it publishes the talk. Put its link on the
-   closing slide.
-
-**One deck in its own repo**, when a talk must stay apart from the rest:
-
-1. Commit the deck folder to the repo.
-2. Copy `<skill-dir>/templates/pages.yml` to `.github/workflows/deck.yml`
-   and replace `DECK_DIR` with the deck folder's path.
-3. Set the Pages source to GitHub Actions:
-   `gh api -X POST repos/<owner>/<repo>/pages -f build_type=workflow`
-   (or `-X PUT` if Pages already exists). In a repo that already publishes a
-   site (docs, say), this replaces it.
-4. Push. The deploy job prints the URL; put it on the closing slide.
-
-The template's actions are pinned to commit SHAs, and techne's guard keeps them
-equal to the pins techne's own workflows use.
-
-## The toolchain, and why
-
-`# research(2026-10)`
-
-- **reveal.js 6.0.2** for new talks. It is MIT-licensed and maintained, has a
-  speaker view, PDF export, and a scroll view for phones, and needs no build
-  step: the deck is the HTML file. Slidev, the main alternative, builds through
-  Vite and Vue. Hosted builders such as Claude Design export standalone HTML
-  that `check` cannot read; borrow the look, and build the deck from the
-  starter.
-- **Playwright and axe-core** check and render in the same Chromium that will
-  show the deck. axe-core 4.12.1 comes bundled in `axe-playwright-python`.
-- **Typst + Touying** for a deck that must be a PDF, with math or generated
-  figures. The compiler ships in the `typst` wheel `graphe:pdf` pins. Its
-  `simple` theme takes a different signature and fails with "missing argument:
-  body"; `metropolis`, `university` and `dewdrop` work.
-- **pptxgenjs** only when the deck must be a `.pptx`: co-edited in PowerPoint,
-  or delivered on a template. The Anthropic `pptx` skill covers the API.
+A web deck is published with GitHub Pages, and the link is the handout. Publish only what is cleared for release, and put the link on the closing slide: [references/publish.md](references/publish.md) holds the one-repo-per-talk layout and the steps.
 
 ## Traps
 
-- **Build before `Reveal.initialize`.** reveal.js counts fragments when it
-  starts. A fragment added later is never shown; `deck.js` builds everything
-  first.
-- **Scroll view hides fragments by scroll position.** On a phone a fragment
-  appears as the page scrolls past it and hides again on the way back, so a
-  screenshot taken after `Reveal.slide()` can show the slide half-built.
-  `render` shows every fragment on the phone pass.
-- **reveal.js paints the page white.** `.reveal-viewport` sets
-  `background-color: #fff` on the body, so a background set only on `html` or
-  `body` loses. `deck.css` sets it on `.reveal-viewport` too.
-- **Slide backgrounds live on a separate layer.** `data-background-color`
-  paints a layer beside the slides, which axe reads as an element overlapping
-  the text. `check` gives each slide its own background colour while axe runs.
-- **axe's 7:1 rule skips text that fails 4.5:1.** `color-contrast-enhanced`
-  reports only text between the two thresholds; `check` runs both rules.
-- **`file://` cannot fetch JSON.** A deck opened from disk cannot read a
-  `.json` file, so data lives in a `.js` file that sets `window.DECK_DATA`.
-- **The print PDF lays out after `ready`.** Wait for `.pdf-page` elements
-  before printing, and set `pdfSeparateFragments: false` or each fragment
-  becomes its own page.
-- **The motion gate sees CSS animations and transitions.** A loop driven by
-  `requestAnimationFrame` or a timer is invisible to it; check such a loop
-  reads `matchMedia('(prefers-reduced-motion: reduce)')` by hand.
-- **Notes come from reveal.js itself.** `check` and `script` read each slide's
-  notes through reveal.js's speaker-view call, so `data-notes`, an `<aside
-  class="notes">` and a markdown slide's `Note:` read exactly as the speaker view
-  shows them.
-- **A `<section>` inside slide content becomes slides.** reveal.js turns the slide
-  holding it into a vertical stack and shows each nested section as its own
-  slide. `check` warns (`nested-section`); use a `<div>` for columns.
-- **`window.Reveal` must exist.** `check` and `render` drive the deck through the
-  global `Reveal`. A deck that imports reveal.js as a module sets
-  `window.Reveal = deck` after creating it.
-- **SVG text is not contrast-checked.** axe skips text inside a figure marked
-  `role="img"`. Colour figure text with the `deck.css` tokens, which clear 7:1.
-- **A 16:9 canvas shrunk to a phone is unreadable.** At 390px wide it is
-  scaled to about a third, and 30px text becomes 9px. The starter switches
-  phones to a portrait canvas and stacks the columns.
-
-## Other formats
-
-For a deck that already exists as a `.pptx` or a PDF:
-
-- **`.pptx`**: `check` reads the XML directly: title placeholders, contrast
-  resolved through fills and backgrounds, alt text, fonts that render in both
-  PowerPoint and Google Slides (`font`), and speaker notes. `render` exports
-  through PowerPoint when it is installed (natively or from WSL), otherwise
-  LibreOffice, which substitutes fonts and can show overflow the real deck does
-  not have. PowerPoint is single-instance, so `render` quits only an instance it
-  started. pptxgenjs table margins are in inches since v3.8.0.
-- **PDF** (Typst, Beamer): `check` reads each page's text with poppler's
-  `pdftotext`, a page's first line standing for its title, and runs the gates
-  text can answer; contrast, alt text and notes live in the source and are
-  reported as not checked. `render` rasterises it as built.
+Before debugging a deck that loads wrong, draws wrong or checks wrong, read [references/traps.md](references/traps.md): the reveal.js, axe and print-layout pitfalls, and why the toolchain is what it is.
 
 ## Done means
 
@@ -603,7 +468,8 @@ For a deck that already exists as a `.pptx` or a PDF:
    how. The conclusion restates the main point as a claim, lists only results
    the talk showed, takes its open problems from the work's own limits, and
    its script ends with "That's my talk."
-2. `render` ran, and every slide was looked at, on desktop and on the phone.
+2. `render` ran, and every slide was looked at at 1920 wide and on the phone,
+   including the ones you did not change. A change of look was shown before it shipped.
 3. Every content slide passes the text-alone and figure-alone reading, and has a
    figure. The script is handed over with the deck; its length is near the
    slot, and the slides stand without it.
