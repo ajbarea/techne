@@ -44,8 +44,8 @@ output lines: OK, APIFAIL, ANNOUNCE, CONTENT, DUE, PASTDUE (see /schole:courses)
 
 {EXIT_CODES}"""
 FETCH_EPILOG = f"""examples:
-  schole-fetch --list --classes ~/ajsoftworks/classes           what is new, and what repos hold
-  schole-fetch --list --classes ~/ajsoftworks/classes --record  the same, then mark it seen
+  schole-fetch --list --classes ~/classes           what is new, and what repos hold
+  schole-fetch --list --classes ~/classes --record  the same, then mark it seen
 
 output lines: COURSE, MODULE, APIFAIL. Reads each course's content tree only: nothing is
 opened or downloaded, so nothing is marked read.

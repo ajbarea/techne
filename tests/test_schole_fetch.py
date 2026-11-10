@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import stat
 from pathlib import Path
 
@@ -387,3 +388,90 @@ def test_an_unreadable_new_date_keeps_the_recorded_one():
 def test_empty_or_unexpandable_paths_are_refused(entry, monkeypatch, tmp_path, capsys, flag, value):
     assert run_fetch(entry, monkeypatch, None, "--list", flag, value) == 1
     assert capsys.readouterr().err.startswith("schole:")
+
+
+def test_output_lines_are_single_clean_lines():
+    toc = {
+        "Modules": [
+            {
+                "Title": "Top\nMODULE fake :: x\x1b[2J",
+                "Topics": [],
+                "Modules": [
+                    {
+                        "Title": "Sub\r\nAPIFAIL x",
+                        "Topics": [{"TopicId": 1, "TypeIdentifier": "File", "Title": "T"}],
+                    }
+                ],
+            }
+        ]
+    }
+    get, _ = course_site(toc=toc)
+    enroll = "/d2l/api/lp/1.30/enrollments/myenrollments/?orgUnitTypeId=3&pageSize=200"
+    hostile = json.dumps(
+        {
+            "Items": [
+                {
+                    "OrgUnit": {
+                        "Id": 7,
+                        "Code": "X",
+                        "Name": "Sample\nMODULE fake :: x :: 99 new\x1b[2J",
+                    }
+                }
+            ],
+            "PagingInfo": {"HasMoreItems": False},
+        }
+    )
+
+    def site(path):
+        if path == enroll:
+            return 200, hostile
+        return get(path)
+
+    lines, _ = fetch.list_lines(site, "", {}, None)
+    assert len(lines) == 2
+    assert all(re.fullmatch(r"[^\x00-\x1f\x7f-\x9f]*", line) for line in lines)
+    assert lines[0].startswith("COURSE Sample MODULE fake")
+
+
+def test_short_titles_never_match(tmp_path):
+    (tmp_path / "abc.pdf").write_text("x")
+    assert not fetch.in_repo("abc", fetch.repo_index([tmp_path]))
+    assert fetch.in_repo("abcd", "xabcdx")
+
+
+def test_a_longer_course_number_does_not_match_a_shorter_one(tmp_path):
+    make_repos(tmp_path, "abcd111-a", agents=("abcd111-a",))
+    assert fetch.course_repo(tmp_path, "ABCD.1112.01", "")[1] == "no course number"
+
+
+def test_the_reason_appears_on_the_course_line(tmp_path):
+    get, _ = course_site()
+    make_repos(tmp_path, "abcd111-a", "abcd111-b")
+    lines, _ = fetch.list_lines(get, "", {}, tmp_path)
+    assert "repo none (no AGENTS.md" not in lines[0]
+    assert "repo none (ambiguous: abcd111-a, abcd111-b)" in lines[0]
+
+
+def test_one_repo_without_agents_says_so(tmp_path):
+    make_repos(tmp_path, "abcd111-a")
+    assert fetch.course_repo(tmp_path, "ABCD.111.01", "")[1] == "no AGENTS.md in: abcd111-a"
+
+
+def test_a_relative_xdg_state_home_is_ignored(monkeypatch, tmp_path):
+    monkeypatch.delenv("SCHOLE_STATE_HOME", raising=False)
+    monkeypatch.setenv("XDG_STATE_HOME", "relative")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert fetch.state_path() == tmp_path / ".local" / "state" / "schole" / "fetch-state.json"
+
+
+def test_a_deeply_nested_state_file_is_refused_not_a_traceback(tmp_path):
+    path = tmp_path / "s.json"
+    path.write_text("[" * 100_000)
+    with pytest.raises(fetch.StateError):
+        fetch.load_state(path)
+
+
+def test_state_home_with_an_unknown_user_is_a_config_error(monkeypatch):
+    monkeypatch.setenv("SCHOLE_STATE_HOME", "~no-such-user-xyz/s")
+    with pytest.raises(config.ConfigError):
+        fetch.state_path()

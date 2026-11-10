@@ -21,7 +21,7 @@ MAX_DEPTH = 40
 MAX_REPO_FILES = 50_000
 MIN_TITLE = 4
 SKIP_DIRS = {".git", "node_modules", ".venv", "__pycache__"}
-# ABCD.111222 joins two course numbers (ABCD-111 and ABCD-222); mycourses-sync reads it the same way
+# ABCD.111222 or ABCD.111/222 joins two course numbers (ABCD-111 and ABCD-222)
 CODE = re.compile(r"^([A-Za-z]{3,4})\.(\d{3}(?:/?\d{3})*)(?!\d)")
 # the compact code RIT stores: CISC82001.2261 is CISC 820, section 01
 COMPACT = re.compile(r"^([A-Za-z]{3,4})(\d{3})\d{2}(?!\d)")
@@ -35,7 +35,10 @@ def state_path() -> Path:
     """SCHOLE_STATE_HOME (absolute), else $XDG_STATE_HOME or ~/.local/state, then schole/."""
     env = os.environ.get("SCHOLE_STATE_HOME")
     if env:
-        path = Path(env).expanduser()
+        try:
+            path = Path(env).expanduser()
+        except RuntimeError:
+            raise config.ConfigError(f"SCHOLE_STATE_HOME {env!r} names no such user.") from None
         if not path.is_absolute():
             raise config.ConfigError(f"SCHOLE_STATE_HOME must be absolute, not {env!r}.")
     else:
@@ -63,7 +66,7 @@ def load_state(path: Path) -> dict[str, dict[str, str]]:
             and all(isinstance(k, str) and isinstance(d, str) for k, d in v.items())
             for v in courses.values()
         )
-    except (ValueError, KeyError, TypeError, AttributeError):
+    except (ValueError, KeyError, TypeError, AttributeError, RecursionError):
         ok = False
     if not ok:
         raise StateError(f"{path} is not schole-fetch state; move it aside to start again.")
@@ -126,7 +129,7 @@ def diff(modules: list, seen: dict[str, str]) -> tuple[list[Module], dict[str, s
 
 def course_repo(classes: Path, name: str, code: str) -> tuple[Path | None, str]:
     """The class repo for a course (CSCI.739.01 - Topics... -> csci739-*) and why there is none,
-    chosen as mycourses-sync does: git repos only, then the one holding AGENTS.md."""
+    git repos only, then the one holding AGENTS.md."""
     m = CODE.match(name) or COMPACT.match(code)
     if not m:
         return None, "no course number"
@@ -140,7 +143,8 @@ def course_repo(classes: Path, name: str, code: str) -> tuple[Path | None, str]:
         return course[0], ""
     if not found:
         return None, "no repo"
-    return None, "ambiguous: " + ", ".join(d2l.clean(p.name) for p in (course or found))
+    names = ", ".join(d2l.clean(p.name) for p in (course or found))
+    return None, ("ambiguous: " if course or len(found) > 1 else "no AGENTS.md in: ") + names
 
 
 def norm(text: str) -> str:
@@ -165,7 +169,7 @@ def repo_index(repos: list[Path]) -> str:
 
 def in_repo(title: str, index: str) -> bool:
     """Advisory: the normalized topic title sits inside some file stem. The hash inventory in
-    mycourses-sync is the exact check."""
+    hashing the downloaded files is the exact check."""
     t = norm(title)
     return len(t) >= MIN_TITLE and t in index
 
