@@ -17,7 +17,12 @@ For an app or a project's user-facing surface, read `<plugin-root>/_shared/lesso
 
 The lesson files belong to the techne repository, `ajbarea/techne`, and change only through a pull request there: never edit the installed plugin cache, which an update overwrites. Before adding or retiring a lesson, check that the user maintains it: `gh repo view ajbarea/techne --json viewerPermission` must print `ADMIN`, `MAINTAIN` or `WRITE`.
 
-- If it does not, or `gh` cannot tell, change no lesson file and open no pull request. Write the rule in the entry shape below and, if the user agrees, add it to the project's `CLAUDE.md` (or `AGENTS.md`), which the agent reads at the start of every session.
+- If it does not, or `gh` cannot tell, change no lesson file and open no pull request. Write the rule and its why in one or two lines (a lesson that no longer fits the project gets a line saying what to do instead) and, if the user agrees, add them to the instruction files the project's agents load at the start of every session. Here "a `CLAUDE.md`" means any of `CLAUDE.md`, `.claude/CLAUDE.md` and `CLAUDE.local.md`:
+  - Neither an `AGENTS.md` nor a `CLAUDE.md`: create `AGENTS.md`, which Claude Code, Codex and Copilot CLI all read.
+  - An `AGENTS.md`, and every `CLAUDE.md` present imports it (`@AGENTS.md`) or links to it: `AGENTS.md`.
+  - Otherwise: the `CLAUDE.md` holding the project's instructions, which Claude Code reads in place of `AGENTS.md`, and `AGENTS.md` too when there is one, since Codex reads only that.
+
+  Never create a `CLAUDE.md` beside an `AGENTS.md` without an `@AGENTS.md` import: by default Claude Code then reads the `CLAUDE.md` instead.
 - Otherwise use a clone (`gh repo clone ajbarea/techne` if there is none) and a worktree on a new branch; paths below are relative to its root.
 
 ## Add one
