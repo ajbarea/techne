@@ -128,8 +128,8 @@ def diff(modules: list, seen: dict[str, str]) -> tuple[list[Module], dict[str, s
 
 
 def course_repo(classes: Path, name: str, code: str) -> tuple[Path | None, str]:
-    """The class repo for a course (CSCI.739.01 - Topics... -> csci739-*) and why there is none,
-    git repos only, then the one holding AGENTS.md."""
+    """The class repo for a course (CSCI.739.01 - Topics... -> csci739-*), or None and why.
+    Only git repos count; of those, the one holding AGENTS.md is the course repo."""
     m = CODE.match(name) or COMPACT.match(code)
     if not m:
         return None, "no course number"
@@ -168,8 +168,8 @@ def repo_index(repos: list[Path]) -> str:
 
 
 def in_repo(title: str, index: str) -> bool:
-    """Advisory: the normalized topic title sits inside some file stem. The hash inventory in
-    hashing the downloaded files is the exact check."""
+    """Advisory: the normalized topic title sits inside some file stem. Hashing the downloaded
+    files is the exact check."""
     t = norm(title)
     return len(t) >= MIN_TITLE and t in index
 

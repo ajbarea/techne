@@ -104,7 +104,7 @@ def test_course_names_its_class_repo(tmp_path, name, code, want):
     assert (repo.name if repo else f"none ({why})") == want
 
 
-def test_two_repos_without_one_agents_file_are_ambiguous_as_in_mycourses_sync(tmp_path):
+def test_two_repos_without_one_agents_file_are_ambiguous(tmp_path):
     make_repos(tmp_path, "abcd111-a", "abcd111-b", agents=("abcd111-a", "abcd111-b"))
     repo, why = fetch.course_repo(tmp_path, "ABCD.111.01", "")
     assert repo is None and why == "ambiguous: abcd111-a, abcd111-b"
@@ -475,3 +475,8 @@ def test_state_home_with_an_unknown_user_is_a_config_error(monkeypatch):
     monkeypatch.setenv("SCHOLE_STATE_HOME", "~no-such-user-xyz/s")
     with pytest.raises(config.ConfigError):
         fetch.state_path()
+
+
+def test_a_longer_compact_code_does_not_match(tmp_path):
+    make_repos(tmp_path, "abcd111-a", agents=("abcd111-a",))
+    assert fetch.course_repo(tmp_path, "Sample", "ABCD111012.2261")[1] == "no course number"
