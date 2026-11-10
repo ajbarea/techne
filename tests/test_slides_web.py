@@ -1028,12 +1028,31 @@ def test_pdf_leaves_the_speaker_notes_out_whatever_the_deck_configures(sl, web, 
 
 # Each way a deck can turn reveal.js's notes on: at start, as a page of its own, or later.
 SHOW_NOTES = {
-    "start": ("Reveal.initialize({", "Reveal.initialize({ showNotes: true,"),
-    "separate-page": ("Reveal.initialize({", 'Reveal.initialize({ showNotes: "separate-page",'),
-    "configure": (
-        "if (!phone) buildRail(chs);",
-        "if (!phone) buildRail(chs);\n    Reveal.configure({ showNotes: true });",
-    ),
+    "start": [("deck.js", "Reveal.initialize({", "Reveal.initialize({ showNotes: true,")],
+    "separate-page": [
+        ("deck.js", "Reveal.initialize({", 'Reveal.initialize({ showNotes: "separate-page",')
+    ],
+    "configure": [
+        (
+            "deck.js",
+            "if (!phone) buildRail(chs);",
+            "if (!phone) buildRail(chs);\n    Reveal.configure({ showNotes: true });",
+        )
+    ],
+    # A module deck: reveal.js loaded as CommonJS, window.Reveal set only once it is ready.
+    "module-late": [
+        (
+            "index.html",
+            '<script src="vendor/reveal/reveal.js"></script>',
+            "<script>window.exports = {}; window.module = {exports: window.exports};</script>"
+            '<script src="vendor/reveal/reveal.js"></script>'
+            "<script>window.RevealModule = module.exports;"
+            " delete window.module; delete window.exports;</script>",
+        ),
+        ("deck.js", '"use strict";', '"use strict";\n  const Reveal = window.RevealModule;'),
+        ("deck.js", "Reveal.initialize({", "Reveal.initialize({ showNotes: true,"),
+        ("deck.js", "}).then(() => {", "}).then(() => {\n    window.Reveal = Reveal;"),
+    ],
 }
 
 
@@ -1047,7 +1066,8 @@ def test_render_and_pptx_pictures_leave_the_speaker_notes_out(sl, web, tmp_path,
     clean_render, clean_pptx = tmp_path / "clean-render", tmp_path / "clean-images"
     assert sl.render(web.index, clean_render) == 0
     assert sl.pptx_html(web.index, tmp_path / "clean.pptx", clean_pptx) == 0
-    web(*SHOW_NOTES[how], "deck.js")
+    for name, old, new in SHOW_NOTES[how]:
+        web(old, new, name)
     noted_render, noted_pptx = tmp_path / "render", tmp_path / "images"
     assert sl.render(web.index, noted_render) == 0
     out = tmp_path / "deck.pptx"

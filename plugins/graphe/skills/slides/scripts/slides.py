@@ -1747,6 +1747,17 @@ def _start_with(overrides: dict) -> str:
 
 
 _EXPORT_START = _start_with({"showNotes": False})
+# A module deck may call initialize before it sets window.Reveal, out of the init script's
+# reach; once the deck is ready, a configure through the wrapper applies the override.
+_FORCE_NOW = "() => window.Reveal && typeof Reveal.configure === 'function' && Reveal.configure({})"
+
+
+def _open_export(browser, deck: pathlib.Path, viewport: dict, **kw):
+    """_open for a picture of the deck: reveal.js's showNotes off, whatever the deck says."""
+    page, watch = _open(browser, deck, viewport, init=_EXPORT_START, **kw)
+    page.evaluate(_FORCE_NOW)
+    return page, watch
+
 
 # The print PDF is reveal.js's own `?print-pdf` layout printed by Chromium: vector, text
 # selectable, links live. Four things in it need help on any deck:
@@ -1865,17 +1876,16 @@ def render_html(deck: pathlib.Path, out: pathlib.Path) -> int:
 def _render_in(browser, deck: pathlib.Path, out: pathlib.Path):
     # Every pass must start before render claims the folder, so a deck that fails in any of
     # them leaves no marker and no half-written render.
-    page, _ = _open(browser, deck, SCREEN, init=_EXPORT_START)
+    page, _ = _open_export(browser, deck, SCREEN)
     count = page.evaluate(_COUNT)
     if not count:
         raise DeckError("no slides")
-    phone, _ = _open(
+    phone, _ = _open_export(
         browser,
         deck,
         PHONE,
         during=" on a phone",
         seen=True,
-        init=_EXPORT_START,
         is_mobile=True,
         has_touch=True,
     )
@@ -1970,7 +1980,7 @@ def pptx_html(
     with _playwright()() as pw:
         browser = _launch(pw)
         try:
-            page, _ = _open(browser, deck, SCREEN, init=_EXPORT_START)
+            page, _ = _open_export(browser, deck, SCREEN)
             count = page.evaluate(_COUNT)
             if not count:
                 raise DeckError("no slides")
@@ -2036,7 +2046,7 @@ def _open_any(browser, deck: pathlib.Path, viewport: dict, **context):
         raise DeckError(
             'not a deck: no reveal.js (.reveal .slides) and no <section class="slide"> elements'
         )
-    page, _ = _open(browser, deck, viewport, init=_EXPORT_START, **context)
+    page, _ = _open_export(browser, deck, viewport, **context)
     page.evaluate(pptx_editable.REVEAL_SLIDES)
     return page
 

@@ -236,19 +236,23 @@ def test_the_starter_reveal_deck_exports_editable(sl, web, tmp_path):  # noqa: F
 @needs_browser
 def test_an_editable_export_keeps_the_notes_off_the_slide(sl, web, tmp_path):  # noqa: F811
     from pptx import Presentation  # ty: ignore[unresolved-import]
+    from pptx.enum.shapes import MSO_SHAPE_TYPE  # ty: ignore[unresolved-import]
 
+    def pictures(target):
+        assert sl.pptx_html(web.index, target, editable=True) == 0
+        prs = Presentation(str(target))
+        notes = [s.notes_slide.notes_text_frame.text for s in prs.slides]
+        return [
+            [p.image.blob for p in s.shapes if p.shape_type == MSO_SHAPE_TYPE.PICTURE]
+            for s in prs.slides
+        ], notes
+
+    clean, _ = pictures(tmp_path / "clean.pptx")
     web("Reveal.initialize({", "Reveal.initialize({ showNotes: true,", "deck.js")
-    target = tmp_path / "noted.pptx"
-    assert sl.pptx_html(web.index, target, editable=True) == 0
-    prs = Presentation(str(target))
-    on_slides = " ".join(
-        shape.text_frame.text
-        for slide in prs.slides
-        for shape in slide.shapes
-        if shape.has_text_frame
-    )
-    assert "Walk the figure" not in on_slides
-    assert any("Walk the figure" in s.notes_slide.notes_text_frame.text for s in prs.slides)
+    noted, notes = pictures(tmp_path / "noted.pptx")
+    # The backgrounds and figures are the pixels of a deck that never asked for notes.
+    assert noted == clean
+    assert any("Walk the figure" in n for n in notes)
 
 
 @needs_browser
