@@ -240,16 +240,21 @@ def sweep(args: argparse.Namespace) -> int:
 def user_path(text: str) -> Path:
     """A path argument as typed: `uv run --directory` moves the process, so bin/schole-fetch
     passes the caller's folder in SCHOLE_CWD."""
-    path = Path(text).expanduser()
+    if not text.strip():
+        raise config.ConfigError("an empty path was given; name a folder or file.")
+    try:
+        path = Path(text).expanduser()
+    except RuntimeError:
+        raise config.ConfigError(f"cannot expand {text!r}: no such user.") from None
     return path if path.is_absolute() else Path(os.environ.get("SCHOLE_CWD") or ".") / path
 
 
 def fetch_list(args: argparse.Namespace) -> int:
     base = config.home()
     cfg = config.load(base)
-    path = user_path(args.state) if args.state else fetch.state_path()
+    path = fetch.state_path() if args.state is None else user_path(args.state)
     seen = fetch.load_state(path)
-    classes = user_path(args.classes) if args.classes else None
+    classes = None if args.classes is None else user_path(args.classes)
     if classes is not None and not classes.is_dir():
         raise config.ConfigError(f"--classes {args.classes!r} is not a folder.")
     with browser(base, cfg.site, headless=True) as ctx:

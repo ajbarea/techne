@@ -21,7 +21,7 @@ MAX_DEPTH = 40
 MAX_REPO_FILES = 50_000
 MIN_TITLE = 4
 SKIP_DIRS = {".git", "node_modules", ".venv", "__pycache__"}
-# ISTE.476782 joins two course numbers (ISTE-476 and ISTE-782); mycourses-sync reads it the same way
+# ABCD.111222 joins two course numbers (ABCD-111 and ABCD-222); mycourses-sync reads it the same way
 CODE = re.compile(r"^([A-Za-z]{3,4})\.(\d{3}(?:/?\d{3})*)(?!\d)")
 # the compact code RIT stores: CISC82001.2261 is CISC 820, section 01
 COMPACT = re.compile(r"^([A-Za-z]{3,4})(\d{3})\d{2}(?!\d)")
@@ -113,13 +113,13 @@ def diff(modules: list, seen: dict[str, str]) -> tuple[list[Module], dict[str, s
         tid, stamp = str(t["TopicId"]), t.get("LastModifiedDate")
         title = d2l.clean(t.get("Title") or "(untitled)")
         # an unparseable or missing date is recorded as "" so the topic is seen, never new again
-        now[tid] = stamp if isinstance(stamp, str) and d2l.parse_time(stamp) else ""
+        now[tid] = stamp if isinstance(stamp, str) and d2l.parse_time(stamp) else seen.get(tid, "")
         mod = by_path.setdefault(path, Module(path))
         if tid not in seen:
             mod.new.append(title)
             continue
         before, after = d2l.parse_time(seen[tid]), d2l.parse_time(stamp)
-        if before and after and after > before:
+        if after and (before is None or after > before):
             mod.changed.append(title)
     return [m for m in by_path.values() if m.new or m.changed], now
 

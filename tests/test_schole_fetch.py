@@ -90,6 +90,7 @@ def make_repos(root, *names, agents=()):
         ("Topics in AI", "ABCD11101.2261", "abcd111-ml"),
         ("ABCD.222/333.01 - Cross", "ABCD33301.2261", "none (ambiguous: abcd222-a, abcd333-b)"),
         ("Sample", "WXYZ44401.2261", "none (no repo)"),
+        ("ABCD.444.01", "", "none (no repo)"),
         ("", "", "none (no course number)"),
         ("../x", "../x", "none (no course number)"),
     ],
@@ -366,3 +367,23 @@ def test_saving_leaves_a_named_folders_mode_alone(tmp_path):
     folder.chmod(0o755)
     fetch.save_state(folder / "s.json", {})
     assert stat.S_IMODE(folder.stat().st_mode) == 0o755
+
+
+def test_a_later_real_date_after_a_missing_one_is_a_change():
+    mods, now = fetch.diff(modules(), {"22": ""})
+    assert "Homework Two" in [t for m in mods for t in m.changed]
+    assert now["22"] == TOC["Modules"][1]["Topics"][1]["LastModifiedDate"]
+
+
+def test_an_unreadable_new_date_keeps_the_recorded_one():
+    toc = json.loads(FIXTURE.read_text())
+    toc["Modules"][1]["Topics"][1]["LastModifiedDate"] = None
+    _, now = fetch.diff(toc["Modules"], {"22": SEEN["22"]})
+    assert now["22"] == SEEN["22"]
+
+
+@pytest.mark.parametrize("flag", ["--classes", "--state"])
+@pytest.mark.parametrize("value", ["", "  ", "~no-such-user-xyz/a"])
+def test_empty_or_unexpandable_paths_are_refused(entry, monkeypatch, tmp_path, capsys, flag, value):
+    assert run_fetch(entry, monkeypatch, None, "--list", flag, value) == 1
+    assert capsys.readouterr().err.startswith("schole:")
