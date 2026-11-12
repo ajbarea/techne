@@ -47,6 +47,10 @@ def test_a_rubric_without_the_block_is_an_error_not_an_empty_list(pc, tmp_path):
         ("We leverage the registry to resolve entries.", "ornate-verb"),
         ("We cache records in order to limit load.", "filler"),
         ("The throttle may potentially recur.", "stacked-hedge"),
+        ("Happy to walk through it.", "llm-tell"),
+        ("Let me know if you have any questions about the code.", "llm-tell"),
+        ("I can walk them through the results.", "llm-tell"),
+        ("Feel free to reach out.", "llm-tell"),
     ],
 )
 def test_each_pattern_fires_on_its_case(pc, text, name):
