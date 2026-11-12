@@ -1,12 +1,12 @@
 # Exemplars: the bar for research communication
 
-The pages, decks and videos that set AJ's quality bar. Read this before building or reviewing a talk deck, a paper's web page, a playground or a research video, and compare the draft against each exemplar side by side. "Like X" means X's level of care, never its assets. Update this file, not the skills.
+The pages, decks and videos that set the user's quality bar for research communication. Read this before building or reviewing a talk deck, a paper's web page, a playground or a research video, and compare the draft against each exemplar side by side. "Like X" means X's level of care, never its assets. Update this file, not the skills.
 
 ## e-means (Meta FAIR, 2026)
 
-https://e-means.github.io/ (AJ, 2026-11-12: "this is the kinda stuff I want to aim for when I constantly repeat that we are aiming for highest quality and SOTA user experiences").
+https://e-means.github.io/, named by the user (2026-11-12) as the concrete meaning of "highest quality and state-of-the-art user experience".
 
-**The principle AJ liked most:** every visitor picks their own way in. They can **watch** the video, **play** with the playground or **read** the blog and paper. Each stands alone, and each links to the other two.
+**The principle that matters most:** every visitor picks their own way in. They can **watch** the video, **play** with the playground or **read** the blog and paper. Each stands alone, and each links to the other two.
 
 | Part | What sets the bar |
 |---|---|
@@ -21,9 +21,9 @@ https://e-means.github.io/ (AJ, 2026-11-12: "this is the kinda stuff I want to a
 
 **Gaps to beat:** the video has no captions track (only burned-in text), there is no dark mode, and the favicon is missing.
 
-## Pharos explorer (ours, 2026)
+## Pharos explorer (2026)
 
-https://ajbarea.github.io/pharos/explorer/ is a research tool built as its own app, not a slide. AJ named it as the model for taking a talk's live lab out of the deck. Patterns to reuse:
+https://ajbarea.github.io/pharos/explorer/ is a research tool built as its own app, not a slide: the model for taking a talk's live lab out of the deck. Patterns to reuse:
 
 - A top bar of tabs, one per view.
 - The whole state in the URL (`#tab=corpus&seed=7`), so any view can be shared exactly.
@@ -32,6 +32,6 @@ https://ajbarea.github.io/pharos/explorer/ is a research tool built as its own a
 
 ## Rules these exemplars set
 
-- **Web first.** The website gets the full web platform: Workers, live many-seed runs, rich motion. A downloaded copy or a PDF only needs a clean static print (AJ, 2026-11-12: "learning is fun!").
+- **Web first.** The website gets the full web platform: Workers, live many-seed runs, rich motion. A downloaded copy or a PDF only needs a clean static print. Learning should be fun.
 - **A toy is honest.** It shows the mechanism and carries its own many-draw number next to the paper's. A seed picked to make a point is labeled as picked.
 - **Pace for humans.** Motion slow enough to follow, with pause, step and replay for the presenter.
