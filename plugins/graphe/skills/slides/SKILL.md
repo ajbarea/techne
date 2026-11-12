@@ -142,6 +142,8 @@ The starter is a working skeleton, not a look: it passes the gates and is meant 
 `# research(2026-10)`
 
 The test for every slide: someone who has never heard the terms follows it.
+Before building or reviewing a deck, a paper page, a playground or a research video, read `<plugin-root>/_shared/exemplars.md` and compare the draft with each exemplar side by side.
+
 The slide text and the script follow `<plugin-root>/_shared/plain-prose.md`; the
 guidance below is what a deck adds to it. To check a script, run
 `uv run --no-project --quiet python <plugin-root>/_shared/prose_check.py <deck>-script.md`.
