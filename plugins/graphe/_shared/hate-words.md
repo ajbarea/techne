@@ -40,7 +40,7 @@ Easy to grep for, high signal.
 - `not just \w+, but \w+`, `it'?s not just about \w+, it'?s about \w+` (antithesis pattern)
 - `ever[- ]evolving`, `ever[- ]changing`, `rapidly evolving`
 - `nor\b` (any use; recast as two plain clauses)
-- `happy to (walk|talk|help|explain|discuss|chat|meet|answer)`, `glad to (walk|talk|help|explain|discuss|chat|meet|answer)`, `walk (you|them|him|her|everyone) through`, `let me know if you have (any )?questions`, `feel free to reach out` (unrequested offers to explain, in anything written under the user's name; state the point instead)
+- `(happy|glad|willing|more than happy) to (walk|talk|explain|go over|step) (\w+ )?(through|over|it|this|them)`, `(happy|glad) to (meet|hop on a call|chat|present|demo)` (volunteering the user to explain live what the message itself can say; "let me know if you have questions" and "feel free to reach out" are fine)
 
 ## Unsupported quantitative / comparative claims
 
