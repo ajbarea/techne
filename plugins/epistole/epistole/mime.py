@@ -98,6 +98,11 @@ def _header_value(value: str) -> str:
 _BODY_END = re.compile(r"(?i)</body\s*>")
 
 
+def _page(body: str) -> str:
+    """body as HTML: escaped, each line break a <br>."""
+    return escape(body.replace("\r\n", "\n"), quote=False).replace("\n", "<br>")
+
+
 def sign(body: str, html: str | None, signature: str) -> tuple[str, str | None]:
     """body and html with a Gmail signature (HTML) appended, as Gmail's composer adds it: the
     HTML part in a gmail_signature block, the plain part after a "-- " line. With no html, the
@@ -116,8 +121,7 @@ def sign(body: str, html: str | None, signature: str) -> tuple[str, str | None]:
         f'data-smartmail="gmail_signature">{signature}</div>'
     )
     if not html:
-        page = escape(body, quote=False).replace("\n", "<br>")
-        return text, f'<div dir="ltr">{page}{block}</div>'
+        return text, f'<div dir="ltr">{_page(body)}{block}</div>'
     ends = list(_BODY_END.finditer(html))
     if ends:
         cut = ends[-1].start()
@@ -170,9 +174,12 @@ def build(
     else:
         msg["Subject"] = _header_value(subject)
     body, html = sign(body, html, signature)
+    # Every draft carries an HTML part: Gmail opens a text-only draft in plain-text
+    # mode, which hard-wraps its lines at about 78 characters when the user sends it.
+    if not html:
+        html = f'<div dir="ltr">{_page(body)}</div>'
     msg.set_content(body)
-    if html:
-        msg.add_alternative(html, subtype="html")
+    msg.add_alternative(html, subtype="html")
     for path in attachments:
         ctype, _ = mimetypes.guess_type(path.name)
         maintype, subtype = (ctype or "application/octet-stream").split("/", 1)

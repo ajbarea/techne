@@ -755,9 +755,12 @@ def test_build_with_signature_has_both_parts():
     assert 'class="gmail_signature"' in html and "https://x.example" in html
 
 
-def test_build_without_signature_stays_plain_text():
+def test_build_without_signature_adds_no_signature():
     msg = mime.build(sender="me@example.edu", to=["b@example.com"], subject="s", body="hi")
-    assert msg.get_content_type() == "text/plain"
+    parsed = decode(mime.encode(msg))
+    assert parsed.get_content_type() == "multipart/alternative"
+    assert "gmail_signature" not in parsed.get_body(("html",)).get_content()
+    assert parsed.get_body(("plain",)).get_content().rstrip() == "hi"
 
 
 def test_sign_treats_empty_html_like_none():
@@ -776,3 +779,28 @@ def test_sign_image_only_signature_leaves_plain_part_unsigned():
     text, html = mime.sign("hi", None, '<img src="https://x.example/logo.png">')
     assert text == "hi\n"
     assert html is not None and "logo.png" in html
+
+
+def test_every_draft_carries_an_html_part_so_gmail_does_not_rewrap_it():
+    # Gmail opens a text-only draft in plain-text mode and hard-wraps it at ~78 chars on send.
+    line = "Thank you again for your answers in September; " * 4
+    body = f"Good evening Dr. Kondo,\r\n\r\n{line.strip()}\n\n<b>Best</b>, AJ"
+    for reply in (None, mime.Reply("<a@x>", "", "Plan")):
+        msg = mime.build(
+            sender="a@example.com", to=["b@example.com"], subject="x", body=body, reply=reply
+        )
+        parsed = decode(mime.encode(msg))
+        assert parsed.get_content_type() == "multipart/alternative"
+        html = parsed.get_body(("html",)).get_content()
+        assert line.strip() in html  # one long line, no break inside it
+        assert html.count("<br>") == 4 and "\r" not in html
+        assert "&lt;b&gt;Best&lt;/b&gt;" in html  # body text is escaped, never markup
+        assert parsed.get_body(("plain",)).get_content().rstrip() == body.replace("\r\n", "\n")
+
+
+def test_a_given_html_part_is_kept_as_written():
+    msg = mime.build(
+        sender="a@example.com", to=["b@example.com"], subject="x", body="hi", html="<p>hi</p>"
+    )
+    parsed = decode(mime.encode(msg))
+    assert parsed.get_body(("html",)).get_content().strip() == "<p>hi</p>"

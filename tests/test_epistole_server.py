@@ -285,7 +285,7 @@ def test_update_reply_draft_keeps_threading(env):
     assert "<m1@example.com>" in parsed["References"]
     assert parsed["Subject"] == "Re: Plan"
     assert svc.drafts["d1"]["message"]["threadId"] == "t1"
-    assert parsed.get_body().get_content().strip() == "edited"
+    assert parsed.get_body(("plain",)).get_content().strip() == "edited"
 
 
 def test_update_plain_draft_takes_new_subject(env):
@@ -1709,11 +1709,11 @@ def test_signature_false_and_unsigned_account_send_no_signature(env):
     args = dict(account="school", to=["b@example.com"], subject="x", body="ok")
     out = text(call(app, "create_draft", signature=False, **args))
     assert "Signature: none appended" in out
-    assert stored(svc, "d1").get_content_type() == "text/plain"
+    assert stored(svc, "d1").get_content_type() == "multipart/alternative"
     svc.send_as = [{"sendAsEmail": "user@example.edu", "isDefault": True, "signature": ""}]
     out = text(call(app, "create_draft", **args))
     assert "Signature: none appended" in out
-    assert stored(svc, "d2").get_content_type() == "text/plain"
+    assert stored(svc, "d2").get_content_type() == "multipart/alternative"
 
 
 def test_update_draft_appends_the_signature_once(env):
@@ -1751,7 +1751,7 @@ def test_update_reply_draft_stays_unsigned_and_false_unsigns(env):
     args = dict(draft_id="school:d2", to=["b@example.com"], subject="x", body="e")
     out = text(call(app, "update_draft", signature=False, **args))
     assert "Signature: none appended" in out
-    assert stored(svc, "d2").get_content_type() == "text/plain"
+    assert stored(svc, "d2").get_content_type() == "multipart/alternative"
 
 
 def test_failed_signature_lookup_reports_none(env):
