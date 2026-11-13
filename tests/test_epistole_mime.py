@@ -793,7 +793,7 @@ def test_every_draft_carries_an_html_part_so_gmail_does_not_rewrap_it():
         assert parsed.get_content_type() == "multipart/alternative"
         html = parsed.get_body(("html",)).get_content()
         assert line.strip() in html  # one long line, no break inside it
-        assert html.count("<br>") == 4 and "\r" not in html
+        assert html.count("<br>") == 4
         assert "&lt;b&gt;Best&lt;/b&gt;" in html  # body text is escaped, never markup
         assert parsed.get_body(("plain",)).get_content().rstrip() == body.replace("\r\n", "\n")
 
@@ -804,3 +804,11 @@ def test_a_given_html_part_is_kept_as_written():
     )
     parsed = decode(mime.encode(msg))
     assert parsed.get_body(("html",)).get_content().strip() == "<p>hi</p>"
+
+
+def test_html_part_keeps_spacing_and_lone_carriage_returns():
+    body = "Steps:\n    1. indent\n\tcol1  col2\ra"
+    msg = mime.build(sender="a@example.com", to=["b@example.com"], subject="x", body=body)
+    html = decode(mime.encode(msg)).get_body(("html",)).get_content()
+    assert "<br>&nbsp;&nbsp;&nbsp;&nbsp;1. indent<br>" in html
+    assert "<br>&nbsp;&nbsp;&nbsp;&nbsp;col1 &nbsp;col2<br>a" in html

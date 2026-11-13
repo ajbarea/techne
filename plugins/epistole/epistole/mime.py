@@ -98,9 +98,17 @@ def _header_value(value: str) -> str:
 _BODY_END = re.compile(r"(?i)</body\s*>")
 
 
+def _space(line: str) -> str:
+    # HTML collapses runs of spaces; keep them as Gmail's composer does, one plain space
+    # then &nbsp; for the rest, and a leading space as &nbsp;.
+    line = re.sub(r" {2,}", lambda m: " " + "&nbsp;" * (len(m.group()) - 1), line)
+    return "&nbsp;" + line[1:] if line.startswith(" ") else line
+
+
 def _page(body: str) -> str:
-    """body as HTML: escaped, each line break a <br>."""
-    return escape(body.replace("\r\n", "\n"), quote=False).replace("\n", "<br>")
+    """body as HTML: escaped, its spacing kept, each line break a <br>."""
+    text = body.replace("\r\n", "\n").replace("\r", "\n").expandtabs(4)
+    return "<br>".join(_space(line) for line in escape(text, quote=False).split("\n"))
 
 
 def sign(body: str, html: str | None, signature: str) -> tuple[str, str | None]:
