@@ -131,7 +131,8 @@ DISSENT: for each ballot whose first choice is not your pick, one clause on what
 NO_NAMES = "Do not say which model you are, and do not address the other seats."
 NONE = re.compile(r"\W*(none|nothing|n/a)\b", re.I)
 HEDGE = re.compile(r"[\s\])(*.,;\u2013\u2014-]*(?:(?i:or|and|vs|versus)\b|&|/|\+)")
-TOKEN = re.compile(r"(?<![A-Za-z0-9'\u2019])([A-Za-z]{1,2})(?![A-Za-z0-9])")
+# A word of one or two letters. The s of "B's" and the d of "I'd" are not words; a quoted 'C' is.
+TOKEN = re.compile(r"(?<![A-Za-z0-9])(?<![A-Za-z]['\u2019])([A-Za-z]{1,2})(?![A-Za-z0-9])")
 TIE = re.compile(r"\b(?:tie[ds]?|tying|joint(?:ly)?|equal(?:s|ly)?|both|either)\b", re.I)
 NO_OBJECTION = re.compile(
     r"\W*(?:no|(?:none|nothing|n/a)(?: given| noted| that i can see| to (?:add|note|raise|report))?"
@@ -1151,7 +1152,7 @@ def second(rest: str, picked: str, ids: list[str], own: str = "") -> bool:
         rest = re.sub(re.escape(own), " ", " ".join(rest.split()), count=1, flags=re.I)
     if HEDGE.match(rest) or TIE.search(rest):
         return True
-    for t in TOKEN.finditer(rest):
+    for t in TOKEN.finditer(picked + rest):
         word = t.group(1)
         if word.upper() == picked.upper() or word.upper() not in ids:
             continue
@@ -1178,12 +1179,14 @@ def parse_ruling(text: str, ids: list[str], texts: dict[str, str] | None = None)
         value = re.sub(r"\n[-*] +", "; ", "\n" + value.strip()).lstrip("; \n")  # a bullet list
         if key in ruling and not ruling[key] and clean(value):
             ruling[key] = clean(value)
+        elif key == "PICK" and clean(value):  # a second PICK line is read with the first
+            ruling[key] += "\n" + clean(value)
     # A letter alone, a capital followed by punctuation, or a capital that is not also a word
     # followed by text: "G", "[G]", "G. The title", "G (as is)", "G because it is short".
     # "A good title is B" and "I pick B" name nothing, and the report asks the chair again.
     pick = re.sub(r"^\W*(?:candidate|option|change|letter)[:\s]+", "", ruling["PICK"], flags=re.I)
     m = (
-        re.match(r"\W*([A-Za-z]{1,2})\W*$", pick)
+        re.match(r"\W*([A-Za-z]|[A-Z]{2})\W*$", pick)
         or re.match(
             r"\W*(?!I\s*['\u2019])(?![A-Za-z]\.[A-Za-z]\.)"  # not "I'd", not "E.g."
             r"([A-Z]{1,2})\s*[\]).:,;(*'\u2019\u2013\u2014-]",

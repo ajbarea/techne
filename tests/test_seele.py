@@ -607,6 +607,17 @@ def test_the_word_i_is_not_candidate_i(pick):
     assert lib(f"seele.parse_ruling({owned!r}, {wide!r})")["PICK"] == "B"
     assert lib(f"seele.parse_ruling('PICK: B, AA', {[*wide, 'AA']!r})")["PICK"] == ""
     assert lib(f"seele.parse_ruling('PICK: AA, as is', {[*wide, 'AA']!r})")["PICK"] == "AA"
+    assert lib(f"seele.parse_ruling('PICK: AA', {[*wide, 'AA']!r})")["PICK"] == "AA"
+    for word in ("Aa", "aa"):  # a two-letter word is an id only in capitals
+        assert lib(f"seele.parse_ruling('PICK: {word}', {[*wide, 'AA']!r})")["PICK"] == ""
+    assert lib(f"""seele.parse_ruling("PICK: B's wording", {wide!r})""")["PICK"] == "B"
+    for quoted in ("B, 'C' too", "'B', 'C'", "B (also 'C')", "B, \u2019C\u2019 too", "B 'C'"):
+        assert lib(f"seele.parse_ruling({'PICK: ' + quoted!r}, {wide!r})")["PICK"] == ""
+    two = "PICK: B\nWHY: it is short.\nPICK: C"
+    assert lib(f"seele.parse_ruling({two!r}, {wide!r})")["PICK"] == ""
+    assert (
+        lib(f"seele.parse_ruling({two.replace('PICK: C', 'PICK: B')!r}, {wide!r})")["PICK"] == "B"
+    )
     assert lib(f"seele.parse_ruling('PICK: B or I', {ids!r})")["PICK"] == ""
     assert lib(f"seele.parse_ruling('PICK: B, or I', {ids!r})")["PICK"] == ""
     assert lib(f"seele.parse_ruling('PICK: E.g. B', {ids!r})")["PICK"] == ""
