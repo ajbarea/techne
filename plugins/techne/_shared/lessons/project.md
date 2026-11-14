@@ -1,4 +1,4 @@
-<!-- budget: 339 words -->
+<!-- budget: 420 words -->
 # Lessons for projects and app UI
 
 Read with `common.md` before building or restyling a project's user-facing surface.
@@ -7,6 +7,13 @@ Read with `common.md` before building or restyling a project's user-facing surfa
 
 - [klepsydra](https://github.com/ajbarea/klepsydra), for a live wall that reads at a glance.
 - Before calling the work done, open the reference and the new work side by side and name one way the new one is better and one way it is worse.
+
+### cutting-edge-ux: Build motion and character at the level the owner describes
+
+- **Rule:** Aim for the highest-quality UI and current state-of-the-art UX; when the owner names a bar ("like a video game idle", "like a visual novel"), research how that is done today and build it with purpose-made assets, never a CSS stand-in.
+- **Why:** A plan to make the wall's cast "breathe" with a scale wobble was rejected; the owner wanted realistic idle loops, which generated start-equals-end-frame video delivers.
+- **Since:** 2026-11-14
+- **Check:** guidance: the owner judges the feel; a gate cannot.
 
 ### look-at-the-gui: A dashboard shows what files hide
 
