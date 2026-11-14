@@ -130,7 +130,10 @@ SPLITS: where they split, and what the split turns on
 DISSENT: for each ballot whose first choice is not your pick, one clause on what it saw"""
 NO_NAMES = "Do not say which model you are, and do not address the other seats."
 NONE = re.compile(r"\W*(none|nothing|n/a)\b", re.I)
-HEDGE = re.compile(r"[\s\])*.,;]*(?:or|and|vs\.?|versus|&(?:amp;)?|/)\s*[A-Z]{1,2}\b")
+HEDGE = re.compile(
+    r"[\s\])(*.,;\u2013\u2014-]*(?:(?i:or|and|vs\.?|versus)|&(?:amp;)?|/|\+)[\s,-]*"
+    r"(?:(?i:perhaps|maybe|rather|possibly|even)[\s,]+)?([A-Z]{1,2})\b"
+)
 NO_OBJECTION = re.compile(
     r"\W*(?:no|(?:none|nothing|n/a)(?: given| noted| that i can see| to (?:add|note|raise|report))?"
     r"|no (?:\w+ )?objections?(?: given| noted| to (?:note|raise|report))?)\W*$",
@@ -1138,6 +1141,15 @@ def docket(data: dict) -> str:
 # ---------------------------------------------------------------- report
 
 
+def hedged(rest: str, ids: list[str]) -> bool:
+    """Whether the text after a picked letter names a second candidate: "B, or C", "B / C".
+    A letter that is no candidate, and the word I ("B, and I would trim it"), do not count."""
+    m = HEDGE.match(rest)
+    if not m or m.group(1) not in ids:
+        return False
+    return not (m.group(1) == "I" and re.match(r"['\u2019]|\s+[a-z]", rest[m.end(1) :]))
+
+
 def parse_ruling(text: str, ids: list[str]) -> dict:
     ruling = {
         k: ""
@@ -1163,10 +1175,9 @@ def parse_ruling(text: str, ids: list[str]) -> dict:
     m = (
         re.match(r"\W*([A-Za-z]{1,2})\W*$", pick)
         or re.match(r"\W*(?!I\s*['\u2019])([A-Z]{1,2})\s*[\]).:,;(*'\u2019\u2013\u2014-]", pick)
-        or re.match(r"\W*([B-HJ-Z])\s+(?!(?:or|and|vs)\b)", pick)
+        or re.match(r"\W*([B-HJ-Z])\s+\S", pick)
     )
-    # "B, or C" and "B / C" name two candidates, which is no pick.
-    if m and HEDGE.match(pick[m.end(1) :]):
+    if m and hedged(pick[m.end(1) :], ids):
         m = None
     ruling["PICK"] = m.group(1).upper() if m and m.group(1).upper() in ids else ""
     if ruling["AMENDED"].casefold().rstrip(".") in ("none", "no", "n/a", "-"):

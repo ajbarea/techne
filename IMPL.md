@@ -10,12 +10,14 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 - ✅ `plugins/techne/skills/seele/` (SKILL.md, `scripts/seele.py`, references, logo), `plugins/techne/agents/seele-seat.md`,
   `tests/test_seele.py` (in `HOOK_TESTS`, so it also runs on the oldest python3), docs page, registrations, routing evals.
 - ✅ First live run: Opus, Sonnet, `fleet:agy`, `fleet:copilot`, Fable chair.
-- ✅ PR #340 open (not merged). Three review rounds by fresh readers (one full, two verify passes); every should-fix
-  and all but one nit fixed. The round-3 fixes (a slow match on a padded key line, `I'd go with C` read as
-  candidate I, a hedged pick, form text matched per key) are in the second commit.
+- ✅ PR #340 open (not merged). Review rounds by fresh readers (one full, then verify passes on each set of fixes);
+  every should-fix fixed. The round-3 and round-4 fixes (a slow match on a padded key line, `I'd go with C` read as
+  candidate I, hedged picks, form text matched per key) are the commits after the first.
+  Also open, both unlikely: `REASON: One sentence.` followed by more lines is read as a copied form line, and
+  `PICK: B, and A is close` is refused as a hedge (the chair is asked again).
   Left open on purpose: the 2,000-character cap is per candidate, so a review-mode panel with many long changes can
   still pass a lane's page limit in round 2; the lane then refuses with both sizes and says what to shorten.
-- ✅ 44 guards mutation-checked by hand (all killed); the list is in the PR.
+- ✅ 46 guards mutation-checked by hand (all killed); the list is in the PR.
 - 📋 Next: answer review on the PR. The routing evals for `fires-seele` and `never-seele-code-review` have not run
   (`make evals`: real sessions, not part of `validate`). A live `ollama:` seat has only ever run against a stub.
 - A run folder written before the second seat folder (`dir2`) existed cannot be tallied by this version; none were kept.

@@ -503,7 +503,8 @@ def test_a_chair_that_overrules_the_vote_is_reported_beside_it(voted):
     "pick",
     [
         *["the second one", "A good name is B", "I pick B", "B or C", "B and C tie", "A Council"],
-        *["B, or C", "B / C", "B & C", "B; and C"],
+        *["B, or C", "B / C", "B & C", "B; and C", "B, OR C", "B (or C)", "B, or perhaps C"],
+        *["B + C", "B-or-C", "B \u2014 or rather, C"],
     ],
 )
 def test_a_ruling_that_names_no_candidate_is_refused(voted, pick):
@@ -524,6 +525,11 @@ def test_a_ruling_that_names_no_candidate_is_refused(voted, pick):
             "Letter B",
             "B Council",
             "B because it fits",
+            "B, and I would trim it",
+            "B and the amendment below",
+            "B or nothing",
+            "B / I think",
+            "B, and IT is fine",
         ],
     ],
 )
@@ -541,6 +547,8 @@ def test_the_word_i_is_not_candidate_i(pick):
     ids = list("ABCDEFGHIJK")
     assert lib(f"seele.parse_ruling({'PICK: ' + pick!r}, {ids!r})")["PICK"] == ""
     assert lib(f"seele.parse_ruling('PICK: I. Council', {ids!r})")["PICK"] == "I"
+    assert lib(f"seele.parse_ruling('PICK: B, and I would trim it', {ids!r})")["PICK"] == "B"
+    assert lib(f"seele.parse_ruling('PICK: B or I', {ids!r})")["PICK"] == ""
 
 
 def test_a_key_line_padded_with_spaces_does_not_stall_the_clerk():
