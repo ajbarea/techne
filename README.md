@@ -50,6 +50,7 @@ Install only the ones you use: every enabled plugin's skill list sits in the age
 | `techne:logging` | Checks a repo's logging against techne's standard (linter gates, secrets in log calls, uncapped log files, errors on stdout, CI logs lost on failure) and fixes what falls short. |
 | `techne:research-grounded` | Flags decisions (technology, data release, study design, access rules, claim wording) in IMPL, ROADMAP and decision records that lack `# research(YYYY-MM):` provenance, then web-searches to ground them. |
 | `techne:reslop` | Rewrites docstrings grounded in the implementation rather than deleting them outright. |
+| `techne:seele` | Puts a decision (a title, a name, a wording, a design choice, a review) to a blind panel of models: each seat answers alone, the pooled answers are ranked blind, a chair rules, and the report shows the vote and every dissent. |
 | `techne:sisters` | Cross-repo drift audit across the sister repos listed in `~/.claude/techne.toml`. |
 | `techne:theoros` | Starts an observed live dev session: Claude drives the REPL in a named `tmux` session; you spectate read-only via `tmux attach -r`. |
 | `techne:setup` | Checks what the techne skills need on this machine and prints the install command for each gap. |
@@ -126,7 +127,7 @@ copilot plugin install techne@techne
 agy plugin install https://github.com/ajbarea/techne/tree/main/plugins/techne
 ```
 
-Swap `techne` for `graphe` or `dokimasia` to add those. Ask for a skill by name ("use the techne audit skill") or describe the task. graphe's optional OpenAlex and Semantic Scholar keys come from Claude Code's plugin settings; in other CLIs, export `OPENALEX_API_KEY` and `S2_API_KEY` in your shell instead. techne's opt-in cleanup at session start is a Claude Code hook, and several techne skills (elenchus, docs-site, deslop, reslop, docsync, research-grounded) hand part of their work to Claude Code subagents or `/code-review`; in other CLIs that step depends on what the agent offers. The other plugins rely on Claude Code's hooks, plugin settings or subagents and run there alone for now.
+Swap `techne` for `graphe` or `dokimasia` to add those. Ask for a skill by name ("use the techne audit skill") or describe the task. graphe's optional OpenAlex and Semantic Scholar keys come from Claude Code's plugin settings; in other CLIs, export `OPENALEX_API_KEY` and `S2_API_KEY` in your shell instead. techne's opt-in cleanup at session start is a Claude Code hook, and several techne skills (elenchus, seele, docs-site, deslop, reslop, docsync, research-grounded) hand part of their work to Claude Code subagents or `/code-review`; in other CLIs that step depends on what the agent offers. The other plugins rely on Claude Code's hooks, plugin settings or subagents and run there alone for now.
 
 ## Configuration
 
@@ -172,6 +173,7 @@ techne (marketplace: ajbarea/techne)
 │   ├── logging           ── logs that name the cause, locally and in CI
 │   ├── research-grounded ── flags un-grounded design decisions
 │   ├── reslop            ── rewrites docstrings from code
+│   ├── seele             ── a blind panel of models decides; dissents reported
 │   ├── sisters           ── cross-repo drift across sisters
 │   ├── theoros           ── observed tmux REPL session
 │   └── setup             ── checks prerequisites, prints each fix

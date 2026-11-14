@@ -1,6 +1,6 @@
 # techne
 
-Code-repo skills: toolchain audits, CI log review, adversarial pre-merge review, commit planning, GitHub catch-up, a cross-repo project board, cross-repo drift, slop cleanup, and doc/code drift.
+Code-repo skills: toolchain audits, CI log review, adversarial pre-merge review, commit planning, GitHub catch-up, a cross-repo project board, cross-repo drift, a blind panel of models for decisions, slop cleanup, and doc/code drift.
 
 ```
 /plugin marketplace add ajbarea/techne
