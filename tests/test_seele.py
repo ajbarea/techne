@@ -515,6 +515,19 @@ def test_a_chair_that_overrules_the_vote_is_reported_beside_it(voted):
             "B, C",
             "B; **C**",
             "B or the third one",
+            "B, C, or A",
+            "B, C and A",
+            "B (tied with C)",
+            "B, C are tied",
+            "B ties C",
+            "B as well as C",
+            "B plus C",
+            "B, else C",
+            "B = C",
+            "B | C",
+            "B-C",
+            "B, jointly with C",
+            "B. It beats C and A",
             "B and whichever the seats prefer",
         ],
     ],
@@ -540,7 +553,15 @@ def test_a_ruling_that_names_no_candidate_is_refused(voted, pick):
             "B, and I would trim it",
             "B, and only B",
             "B, or as amended below",
-            "B. It beats C and A",
+            "B. It beats C",
+            "B over C",
+            "B, not C",
+            "B with C's opening",
+            "B, ahead of C",
+            "B; C is the runner-up",
+            "B (runner-up: C)",
+            "B. A Study of Bots",
+            "B, and As amended",
             "B, C is close",
             "B, and a shorter subtitle",
             "B, B",
@@ -559,7 +580,10 @@ def test_an_answer_that_reads_like_another_field_s_form_text_is_kept():
     assert [p["text"] for p in got["proposals"]] == ["One sentence."]
 
 
-@pytest.mark.parametrize("pick", ["I'd go with C", "I\u2019d pick D", "I'm torn; C", "I 'd say B"])
+@pytest.mark.parametrize(
+    "pick",
+    ["I'd go with C", "I\u2019d pick D", "I'm torn; C", "I 'd say B", "I'd keep the first one"],
+)
 def test_the_word_i_is_not_candidate_i(pick):
     ids = list("ABCDEFGHIJK")
     assert lib(f"seele.parse_ruling({'PICK: ' + pick!r}, {ids!r})")["PICK"] == ""
@@ -568,6 +592,7 @@ def test_the_word_i_is_not_candidate_i(pick):
     assert lib(f"seele.parse_ruling('PICK: B or I', {ids!r})")["PICK"] == ""
     assert lib(f"seele.parse_ruling('PICK: B, or I', {ids!r})")["PICK"] == ""
     assert lib(f"seele.parse_ruling('PICK: E.g. B', {ids!r})")["PICK"] == ""
+    assert lib(f"seele.parse_ruling('PICK: E.g. the second one', {ids!r})")["PICK"] == ""
     assert lib(f"seele.parse_ruling('PICK: E. Council', {ids!r})")["PICK"] == "E"
 
 

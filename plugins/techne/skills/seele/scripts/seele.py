@@ -132,6 +132,12 @@ NO_NAMES = "Do not say which model you are, and do not address the other seats."
 NONE = re.compile(r"\W*(none|nothing|n/a)\b", re.I)
 HEDGE = re.compile(r"[\s\])(*.,;\u2013\u2014-]*(?:(?i:or|and|vs|versus)\b|&|/|\+)")
 TOKEN = re.compile(r"(?<![A-Za-z0-9])([A-Za-z]{1,2})(?![A-Za-z0-9])")
+TIE = re.compile(r"\b(?:tie[ds]?|tying|joint(?:ly)?|equal(?:s|ly)?|both|either)\b", re.I)
+PRONOUN = re.compile(r"['\u2019]|\s+[a-z]")
+RANKED = re.compile(
+    r"\b(?:over|not|than|beats?|above|against|of|to|runner-?up)[\s:*\[(\"']*$", re.I
+)
+ALONE = re.compile(r"\s*(?:$|[,.;:)\](*\"\u201d/&+|=])")
 NO_OBJECTION = re.compile(
     r"\W*(?:no|(?:none|nothing|n/a)(?: given| noted| that i can see| to (?:add|note|raise|report))?"
     r"|no (?:\w+ )?objections?(?: given| noted| to (?:note|raise|report))?)\W*$",
@@ -1140,25 +1146,29 @@ def docket(data: dict) -> str:
 
 
 def hedged(rest: str, picked: str, ids: list[str]) -> bool:
-    """Whether the text after a picked letter goes on to name another candidate: "B, or C",
-    "B / **C**", "B, or, if amended, C". The text must open with or, and, vs, &, / or +.
-    Any other candidate id after that counts, in capitals or as one small letter. The words
-    I ("B, and I would trim it") and a do not count, and neither does a small two-letter word."""
-    m = HEDGE.match(rest)
-    if not m:
-        # A bare list, "B, C": nothing but a second candidate after the comma.
-        m = re.match(r"[\s\])*]*[,;]\W*([A-Z]{1,2})\W*$", rest)
-        return bool(m) and m.group(1) in ids and m.group(1) != picked.upper()
-    tail = rest[m.end() :]
-    for t in TOKEN.finditer(tail):
+    """Whether the text after a picked letter names another candidate as a second pick.
+    Reading two picks as one would announce the wrong winner, so a doubtful line is refused.
+
+    After an opening or, and, vs, &, / or +, or beside a word for a tie, any other candidate
+    id counts: "B, or **C**", "B, C are tied". Otherwise a capital id counts when it stands
+    alone, "B, C" or "B (with C)", but not as the loser of a comparison ("B over C") or
+    inside running text ("B; C is close", "B with C's opening"). The words
+    I and a, and a two-letter word that is not all capitals, are never candidates."""
+    loose = bool(HEDGE.match(rest) or TIE.search(rest))
+    for t in TOKEN.finditer(rest):
         word = t.group(1)
         if word.upper() not in ids or word.upper() == picked.upper():
             continue
-        if word.islower() and (len(word) == 2 or word in "ai"):
+        if not word.isupper() and not (loose and len(word) == 1 and word not in "ai"):
             continue
-        if word == "I" and re.match(r"['\u2019]|\s+[a-z]", tail[t.end() :]):
+        if word == "I" and PRONOUN.match(rest, t.end()):
             continue
-        return True
+        if loose:
+            return True
+        if RANKED.search(rest[max(0, t.start() - 30) : t.start()]):
+            continue
+        if ALONE.match(rest, t.end()):
+            return True
     return False
 
 
@@ -1261,7 +1271,7 @@ def cmd_report(args: argparse.Namespace) -> int:
     if ruling is not None and not ruling["PICK"]:
         raise Stop(
             f"the chair's ruling names no candidate on its PICK line ({ruling_path}); "
-            f"the candidates are {' '.join(by_id)}. Ask the chair again."
+            f"the candidates are {' '.join(by_id)}. Ask the chair again for one letter alone."
         )
     review = data["mode"] == "review"
     seats = {s["n"]: s for s in data["seats"]}
