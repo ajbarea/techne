@@ -18,7 +18,8 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
   a misread would report the wrong winner.
   Open, known and unlikely: a second pick written as a small `a` or `i`, as a two-letter id in small letters, or as
   an ordinal (`B, the third too`), or with a look-alike letter from another alphabet, is not seen, and the line
-  reads as B. `REASON: One sentence.` followed by more
+  reads as B. So is an id straight after the pick's apostrophe (`B'C`), and a later `PICK: none` line
+  under a real pick. The last verify pass (round 9) came back with these two nits and nothing else. `REASON: One sentence.` followed by more
   lines is read as a copied form line.
   Left open on purpose: the 2,000-character cap is per candidate, so a review-mode panel with many long changes can
   still pass a lane's page limit in round 2; the lane then refuses with both sizes and says what to shorten.
