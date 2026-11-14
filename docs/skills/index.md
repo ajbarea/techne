@@ -31,6 +31,7 @@ Skills ship as plugins: `techne` for work in a code repo, `graphe` for documents
 | [`techne:board`](board.md) | Keeps one GitHub Projects board of every repo's work by stage (Idea, Issue, In PR, Merged, Live), and files each issue or PR a `gh` command opens. |
 | [`techne:catchup`](catchup.md) | Reads every comment, review, and state change on one repo since you last participated, then reports who is blocked on whom. |
 | [`techne:elenchus`](elenchus.md) | Adversarial pre-merge review: an independent reviewer sized to the change's risk (plus `/code-review` for risky changes) reproduces the load-bearing claim, traces every consumer, and applies a fixed bug-class rubric. |
+| [`techne:seele`](seele.md) | Puts a decision (a title, a name, a wording, a design choice, a review) to a blind panel of models: each seat answers alone, the pooled answers are ranked blind, a chair rules, and the report shows the vote and every dissent. |
 | [`techne:lessons`](lessons.md) | Reads, adds and retires the decided quality lessons that carry forward to the next deck, paper, docs site or app. |
 
 ## Site and cross-repo

@@ -4,6 +4,21 @@ The active TODO list for whatever's in flight **right now**: current PR, open de
 immediate next pickup. Queued specs and ordering live in [ROADMAP.md](./ROADMAP.md); landed work
 moves to its dated Shipped log. Over ~50 lines means something referential crept in.
 
+## seele (branch feat/seele, issue #339)
+
+- Slice: `/techne:seele`, a blind panel of models with a chair that holds no seat. One PR, not merged by the author.
+- ✅ `plugins/techne/skills/seele/` (SKILL.md, `scripts/seele.py`, references, logo), `plugins/techne/agents/seele-seat.md`,
+  `tests/test_seele.py` (in `HOOK_TESTS`, so it also runs on the oldest python3), docs page, registrations, routing evals.
+- ✅ First live run: Opus, Sonnet, `fleet:agy`, `fleet:copilot`, Fable chair.
+- ✅ Three review rounds by fresh readers (one full, two verify passes); every should-fix and all but one nit fixed.
+  Left open on purpose: the 2,000-character cap is per candidate, so a review-mode panel with many long changes can
+  still pass a lane's page limit in round 2; the lane then refuses with both sizes and says what to shorten.
+- ✅ Forty guards mutation-checked by hand (all killed); the list is in the PR.
+- 📋 Next: answer review on the PR. The routing evals for `fires-seele` and `never-seele-code-review` have not run
+  (`make evals`: real sessions, not part of `validate`). A live `ollama:` seat has only ever run against a stub.
+- A run folder written before the second seat folder (`dir2`) existed cannot be tallied by this version; none were kept.
+- Verify: `make lint`; `uv run pytest tests/test_seele.py`; `make validate` under the heavy lock.
+
 ## schole-fetch (branch feat/schole-fetch-list, issue #316)
 
 - ✅ Issue #316 with research and design. ✅ Slice 1: `schole-fetch --list [--classes DIR] [--state F] [--record]`

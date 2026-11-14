@@ -55,6 +55,7 @@ Run `/techne:setup`. It checks each item above, the repo's `.claude/skill-contex
 | [`techne:logging`](../skills/logging.md) | Check logging against the standard and fix it. |
 | [`techne:research-grounded`](../skills/research-grounded.md) | Ground decisions in current sources. |
 | [`techne:reslop`](../skills/reslop.md) | Rewrite docstrings from the implementation. |
+| [`techne:seele`](../skills/seele.md) | Put a decision to a blind panel of models and see who disagreed. |
 | [`techne:setup`](../skills/techne-setup.md) | Check what techne needs on this machine. |
 | [`techne:sisters`](../skills/sisters.md) | Audit linked repos for drift. |
 | [`techne:theoros`](../skills/theoros.md) | Drive a REPL in tmux while you watch. |
