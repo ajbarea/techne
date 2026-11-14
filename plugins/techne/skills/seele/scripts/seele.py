@@ -130,8 +130,9 @@ SPLITS: where they split, and what the split turns on
 DISSENT: for each ballot whose first choice is not your pick, one clause on what it saw"""
 NO_NAMES = "Do not say which model you are, and do not address the other seats."
 NONE = re.compile(r"\W*(none|nothing|n/a)\b", re.I)
+HEDGE = re.compile(r"[\s\])*.,;]*(?:or|and|vs\.?|versus|&(?:amp;)?|/)\s*[A-Z]{1,2}\b")
 NO_OBJECTION = re.compile(
-    r"\W*(?:(?:none|nothing|n/a)(?: given| noted| that i can see| to (?:note|raise|report))?"
+    r"\W*(?:no|(?:none|nothing|n/a)(?: given| noted| that i can see| to (?:add|note|raise|report))?"
     r"|no (?:\w+ )?objections?(?: given| noted| to (?:note|raise|report))?)\W*$",
     re.I,
 )
@@ -572,7 +573,8 @@ def fields(text: str) -> list[tuple[str, str, str]]:
     for raw in text.splitlines():
         if raw.strip().startswith("```"):
             continue
-        m = KEY_LINE.match(raw)
+        # One space per run: a key line padded with spaces must not stall the match.
+        m = KEY_LINE.match(re.sub(r"[ \t]+", " ", raw))
         if m:
             value = m.group(4)
             if "**" in m.group(1) and value.startswith("**"):  # **KEY:** value
@@ -603,16 +605,18 @@ def same(text: str) -> str:
 
 
 FORM_TEXT = frozenset(
-    same(clean(v))
-    for v in (
+    (k, same(clean(v)))
+    for k, v in (
         *(
-            v
+            (k, v)
             for form in (*ROUND1.values(), RULING_VERDICT + RULING_FORM)
-            for _, _, v in fields(form)
+            for k, _, v in fields(form)
         ),
-        *(ASSESS_HELP, RANKING_HELP, OBJECTION_HELP, *REJECT_HELP.values()),
+        *(("ASSESS", ASSESS_HELP), ("RANKING", RANKING_HELP), ("OBJECTION", OBJECTION_HELP)),
+        *(("REJECT", v) for v in REJECT_HELP.values()),
     )
-) - {""}
+    if same(clean(v))
+)
 
 
 def answers(text: str) -> list[tuple[str, str, str]]:
@@ -621,7 +625,8 @@ def answers(text: str) -> list[tuple[str, str, str]]:
     return [
         (k, t, v)
         for k, t, v in fields(text)
-        if same(clean(v)) not in FORM_TEXT and same(clean(v.split("\n", 1)[0])) not in FORM_TEXT
+        if (k, same(clean(v))) not in FORM_TEXT
+        and (k, same(clean(v.split("\n", 1)[0]))) not in FORM_TEXT
     ]
 
 
@@ -1157,9 +1162,12 @@ def parse_ruling(text: str, ids: list[str]) -> dict:
     pick = re.sub(r"^\W*(?:candidate|option|change|letter)[:\s]+", "", ruling["PICK"], flags=re.I)
     m = (
         re.match(r"\W*([A-Za-z]{1,2})\W*$", pick)
-        or re.match(r"\W*([A-Z]{1,2})\s*[\]).:,;(*'\u2019\u2013\u2014-]", pick)
+        or re.match(r"\W*(?!I\s*['\u2019])([A-Z]{1,2})\s*[\]).:,;(*'\u2019\u2013\u2014-]", pick)
         or re.match(r"\W*([B-HJ-Z])\s+(?!(?:or|and|vs)\b)", pick)
     )
+    # "B, or C" and "B / C" name two candidates, which is no pick.
+    if m and HEDGE.match(pick[m.end(1) :]):
+        m = None
     ruling["PICK"] = m.group(1).upper() if m and m.group(1).upper() in ids else ""
     if ruling["AMENDED"].casefold().rstrip(".") in ("none", "no", "n/a", "-"):
         ruling["AMENDED"] = ""

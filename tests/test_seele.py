@@ -360,6 +360,9 @@ def test_a_seat_s_labels_are_translated_in_its_reasons():
         ("No objection.", ""),
         ("No real objection to raise", ""),
         ("None given.", ""),
+        ("No.", ""),
+        ("Nothing to add.", ""),
+        ("No candidate names the cause", "No candidate names the cause"),
         ("None of the others names the cause", "None of the others names the cause"),
     ):
         got = lib(
@@ -497,7 +500,11 @@ def test_a_chair_that_overrules_the_vote_is_reported_beside_it(voted):
 
 
 @pytest.mark.parametrize(
-    "pick", ["the second one", "A good name is B", "I pick B", "B or C", "B and C tie", "A Council"]
+    "pick",
+    [
+        *["the second one", "A good name is B", "I pick B", "B or C", "B and C tie", "A Council"],
+        *["B, or C", "B / C", "B & C", "B; and C"],
+    ],
 )
 def test_a_ruling_that_names_no_candidate_is_refused(voted, pick):
     voted.rule(f"PICK: {pick}\nWHY: it is best\n")
@@ -522,6 +529,32 @@ def test_a_ruling_that_names_no_candidate_is_refused(voted, pick):
 )
 def test_a_pick_is_read_in_the_shapes_a_chair_writes(pick):
     assert lib(f"seele.parse_ruling({'PICK: ' + pick!r}, ['A', 'B', 'C'])")["PICK"] == "B"
+
+
+def test_an_answer_that_reads_like_another_field_s_form_text_is_kept():
+    got = lib("seele.parse_proposal('PROPOSAL 1: One sentence.', 2)")
+    assert [p["text"] for p in got["proposals"]] == ["One sentence."]
+
+
+@pytest.mark.parametrize("pick", ["I'd go with C", "I\u2019d pick D", "I'm torn; C", "I 'd say B"])
+def test_the_word_i_is_not_candidate_i(pick):
+    ids = list("ABCDEFGHIJK")
+    assert lib(f"seele.parse_ruling({'PICK: ' + pick!r}, {ids!r})")["PICK"] == ""
+    assert lib(f"seele.parse_ruling('PICK: I. Council', {ids!r})")["PICK"] == "I"
+
+
+def test_a_key_line_padded_with_spaces_does_not_stall_the_clerk():
+    start = time.monotonic()
+    padded = (
+        "PROPOSAL"
+        + " " * 20000
+        + "\nASSESS K7 (short)"
+        + " \t" * 10000
+        + "x\nPROPOSAL 1:   Council"
+    )
+    got = lib(f"seele.parse_proposal({padded!r}, 2)")
+    assert [p["text"] for p in got["proposals"]] == ["Council"]
+    assert time.monotonic() - start < 5
 
 
 def test_a_chair_nobody_named_is_not_called_none(voted):
