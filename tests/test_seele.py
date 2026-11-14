@@ -504,7 +504,19 @@ def test_a_chair_that_overrules_the_vote_is_reported_beside_it(voted):
     [
         *["the second one", "A good name is B", "I pick B", "B or C", "B and C tie", "A Council"],
         *["B, or C", "B / C", "B & C", "B; and C", "B, OR C", "B (or C)", "B, or perhaps C"],
-        *["B + C", "B-or-C", "B \u2014 or rather, C"],
+        *["B + C", "B-or-C", "B \u2014 or rather, C", "B or **C**", "B or [C]", "B or Candidate C"],
+        *["B and/or C", "B or else C", "B or c", "B, or c", "B or, if amended, C", "B OR C"],
+        *[
+            "B, or **C**",
+            "B, and/or C",
+            "B, or option C",
+            "B, and I would also keep C",
+            "E.g. B",
+            "B, C",
+            "B; **C**",
+            "B or the third one",
+            "B and whichever the seats prefer",
+        ],
     ],
 )
 def test_a_ruling_that_names_no_candidate_is_refused(voted, pick):
@@ -526,8 +538,13 @@ def test_a_ruling_that_names_no_candidate_is_refused(voted, pick):
             "B Council",
             "B because it fits",
             "B, and I would trim it",
-            "B and the amendment below",
-            "B or nothing",
+            "B, and only B",
+            "B, or as amended below",
+            "B. It beats C and A",
+            "B, C is close",
+            "B, and a shorter subtitle",
+            "B, B",
+            "B, Z",
             "B / I think",
             "B, and IT is fine",
         ],
@@ -549,6 +566,9 @@ def test_the_word_i_is_not_candidate_i(pick):
     assert lib(f"seele.parse_ruling('PICK: I. Council', {ids!r})")["PICK"] == "I"
     assert lib(f"seele.parse_ruling('PICK: B, and I would trim it', {ids!r})")["PICK"] == "B"
     assert lib(f"seele.parse_ruling('PICK: B or I', {ids!r})")["PICK"] == ""
+    assert lib(f"seele.parse_ruling('PICK: B, or I', {ids!r})")["PICK"] == ""
+    assert lib(f"seele.parse_ruling('PICK: E.g. B', {ids!r})")["PICK"] == ""
+    assert lib(f"seele.parse_ruling('PICK: E. Council', {ids!r})")["PICK"] == "E"
 
 
 def test_a_key_line_padded_with_spaces_does_not_stall_the_clerk():

@@ -130,10 +130,8 @@ SPLITS: where they split, and what the split turns on
 DISSENT: for each ballot whose first choice is not your pick, one clause on what it saw"""
 NO_NAMES = "Do not say which model you are, and do not address the other seats."
 NONE = re.compile(r"\W*(none|nothing|n/a)\b", re.I)
-HEDGE = re.compile(
-    r"[\s\])(*.,;\u2013\u2014-]*(?:(?i:or|and|vs\.?|versus)|&(?:amp;)?|/|\+)[\s,-]*"
-    r"(?:(?i:perhaps|maybe|rather|possibly|even)[\s,]+)?([A-Z]{1,2})\b"
-)
+HEDGE = re.compile(r"[\s\])(*.,;\u2013\u2014-]*(?:(?i:or|and|vs|versus)\b|&|/|\+)")
+TOKEN = re.compile(r"(?<![A-Za-z0-9])([A-Za-z]{1,2})(?![A-Za-z0-9])")
 NO_OBJECTION = re.compile(
     r"\W*(?:no|(?:none|nothing|n/a)(?: given| noted| that i can see| to (?:add|note|raise|report))?"
     r"|no (?:\w+ )?objections?(?: given| noted| to (?:note|raise|report))?)\W*$",
@@ -1141,13 +1139,27 @@ def docket(data: dict) -> str:
 # ---------------------------------------------------------------- report
 
 
-def hedged(rest: str, ids: list[str]) -> bool:
-    """Whether the text after a picked letter names a second candidate: "B, or C", "B / C".
-    A letter that is no candidate, and the word I ("B, and I would trim it"), do not count."""
+def hedged(rest: str, picked: str, ids: list[str]) -> bool:
+    """Whether the text after a picked letter goes on to name another candidate: "B, or C",
+    "B / **C**", "B, or, if amended, C". The text must open with or, and, vs, &, / or +.
+    Any other candidate id after that counts, in capitals or as one small letter. The words
+    I ("B, and I would trim it") and a do not count, and neither does a small two-letter word."""
     m = HEDGE.match(rest)
-    if not m or m.group(1) not in ids:
-        return False
-    return not (m.group(1) == "I" and re.match(r"['\u2019]|\s+[a-z]", rest[m.end(1) :]))
+    if not m:
+        # A bare list, "B, C": nothing but a second candidate after the comma.
+        m = re.match(r"[\s\])*]*[,;]\W*([A-Z]{1,2})\W*$", rest)
+        return bool(m) and m.group(1) in ids and m.group(1) != picked.upper()
+    tail = rest[m.end() :]
+    for t in TOKEN.finditer(tail):
+        word = t.group(1)
+        if word.upper() not in ids or word.upper() == picked.upper():
+            continue
+        if word.islower() and (len(word) == 2 or word in "ai"):
+            continue
+        if word == "I" and re.match(r"['\u2019]|\s+[a-z]", tail[t.end() :]):
+            continue
+        return True
+    return False
 
 
 def parse_ruling(text: str, ids: list[str]) -> dict:
@@ -1174,10 +1186,14 @@ def parse_ruling(text: str, ids: list[str]) -> dict:
     pick = re.sub(r"^\W*(?:candidate|option|change|letter)[:\s]+", "", ruling["PICK"], flags=re.I)
     m = (
         re.match(r"\W*([A-Za-z]{1,2})\W*$", pick)
-        or re.match(r"\W*(?!I\s*['\u2019])([A-Z]{1,2})\s*[\]).:,;(*'\u2019\u2013\u2014-]", pick)
-        or re.match(r"\W*([B-HJ-Z])\s+\S", pick)
+        or re.match(
+            r"\W*(?!I\s*['\u2019])(?![A-Za-z]\.[A-Za-z]\.)"  # not "I'd", not "E.g."
+            r"([A-Z]{1,2})\s*[\]).:,;(*'\u2019\u2013\u2014-]",
+            pick,
+        )
+        or re.match(r"\W*([B-HJ-Z])\s+(?!(?i:or|and|vs|versus)\b)", pick)
     )
-    if m and hedged(pick[m.end(1) :], ids):
+    if m and hedged(pick[m.end(1) :], m.group(1), ids):
         m = None
     ruling["PICK"] = m.group(1).upper() if m and m.group(1).upper() in ids else ""
     if ruling["AMENDED"].casefold().rstrip(".") in ("none", "no", "n/a", "-"):

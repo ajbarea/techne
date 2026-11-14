@@ -14,10 +14,11 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
   every should-fix fixed. The round-3 and round-4 fixes (a slow match on a padded key line, `I'd go with C` read as
   candidate I, hedged picks, form text matched per key) are the commits after the first.
   Also open, both unlikely: `REASON: One sentence.` followed by more lines is read as a copied form line, and
-  `PICK: B, and A is close` is refused as a hedge (the chair is asked again).
+  a `PICK` line that names a second candidate after or, and, vs, `/`, `&` or `+`
+  (`B, and A is close`) is refused, so the chair is asked again; a refusal is the safe side, a misread is not.
   Left open on purpose: the 2,000-character cap is per candidate, so a review-mode panel with many long changes can
   still pass a lane's page limit in round 2; the lane then refuses with both sizes and says what to shorten.
-- ✅ 46 guards mutation-checked by hand (all killed); the list is in the PR.
+- ✅ 50 guards mutation-checked by hand (all killed); the list is in the PR.
 - 📋 Next: answer review on the PR. The routing evals for `fires-seele` and `never-seele-code-review` have not run
   (`make evals`: real sessions, not part of `validate`). A live `ollama:` seat has only ever run against a stub.
 - A run folder written before the second seat folder (`dir2`) existed cannot be tallied by this version; none were kept.
