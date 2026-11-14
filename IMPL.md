@@ -10,15 +10,18 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 - ✅ `plugins/techne/skills/seele/` (SKILL.md, `scripts/seele.py`, references, logo), `plugins/techne/agents/seele-seat.md`,
   `tests/test_seele.py` (in `HOOK_TESTS`, so it also runs on the oldest python3), docs page, registrations, routing evals.
 - ✅ First live run: Opus, Sonnet, `fleet:agy`, `fleet:copilot`, Fable chair.
-- ✅ PR #340 open (not merged). Review rounds by fresh readers (one full, then verify passes on each set of fixes);
-  every should-fix fixed. The round-3 and round-4 fixes (a slow match on a padded key line, `I'd go with C` read as
-  candidate I, hedged picks, form text matched per key) are the commits after the first.
-  Also open, both unlikely: `REASON: One sentence.` followed by more lines is read as a copied form line, and
-  a `PICK` line that names a second candidate (`B, and A is close`, `B (tied with C)`, `B: Plan A`) is refused,
-  so the chair is asked again for one letter alone; a refusal is the safe side, a misread is not (`hedged()`).
+- ✅ PR #340 open (not merged). Reviewed by fresh readers: one full review, then seven verify passes on the fixes
+  (past the ceiling of five; rounds 4 to 7 each found one more shape the chair's `PICK` line could be misread in).
+  The parser now has one rule in place of a list of shapes (`second()`): the line may name one candidate id,
+  the picked candidate's own text may be quoted, and anything else that names a candidate (`B over C`,
+  `B; C is close`, `B: Plan A`) or a tie is refused, so the chair is asked again. A refusal costs one dispatch;
+  a misread would report the wrong winner.
+  Open, known and unlikely: a second pick written as a small `a` or `i`, as a two-letter id in small letters, or as
+  an ordinal (`B, the third too`) is not seen, and the line reads as B. `REASON: One sentence.` followed by more
+  lines is read as a copied form line.
   Left open on purpose: the 2,000-character cap is per candidate, so a review-mode panel with many long changes can
   still pass a lane's page limit in round 2; the lane then refuses with both sizes and says what to shorten.
-- ✅ 55 guards mutation-checked by hand (all killed); the list is in the PR.
+- ✅ 55 guards mutation-checked by hand (all killed); the list is in the PR. 167 tests.
 - 📋 Next: answer review on the PR. The routing evals for `fires-seele` and `never-seele-code-review` have not run
   (`make evals`: real sessions, not part of `validate`). A live `ollama:` seat has only ever run against a stub.
 - A run folder written before the second seat folder (`dir2`) existed cannot be tallied by this version; none were kept.

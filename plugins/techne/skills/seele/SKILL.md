@@ -147,7 +147,7 @@ python3 "<plugin-root>/skills/seele/scripts/seele.py" report --run <run> --chair
 
 Relay what it prints to the user as it is. It is the deliverable: the monoliths, the seat table, the pick, the vote, the strongest objection to the pick, and every dissent. The same text is saved as `report.md` in the run folder, with the logo. [references/report.md](references/report.md) explains each part.
 
-- If `report` says the ruling names no candidate, dispatch the chair once more, then run `report` again.
+- If `report` says the ruling names no candidate, or more than one, dispatch the chair once more and tell it the `PICK` line takes one letter alone. Then run `report` again.
 - After the report you may add up to three lines of your own: what a flag means for this decision, and what the user might do next. If you disagree with the pick, say so in one line marked as the clerk's view. Never fold your view into the report.
 - The panel advises and the user decides. Do not rename the file, retitle the paper or apply the change unless the user asked for that.
 

@@ -121,7 +121,7 @@ ASSESS_HELP = "one line: its main strength and its main weakness"
 RANKING_HELP = "every label, from best to worst, with > between them"
 OBJECTION_HELP = "the strongest objection to your own first choice, in one or two sentences"
 RULING_VERDICT = "VERDICT: your own verdict, from the outcomes the brief names\n"
-RULING_FORM = """PICK: one letter
+RULING_FORM = """PICK: one letter, alone on the line
 AMENDED: the repaired text, or none
 WHY: two to four sentences, grounded in the brief and the ballots
 OBJECTION: the strongest objection to your pick, whether or not a seat raised it
@@ -131,13 +131,8 @@ DISSENT: for each ballot whose first choice is not your pick, one clause on what
 NO_NAMES = "Do not say which model you are, and do not address the other seats."
 NONE = re.compile(r"\W*(none|nothing|n/a)\b", re.I)
 HEDGE = re.compile(r"[\s\])(*.,;\u2013\u2014-]*(?:(?i:or|and|vs|versus)\b|&|/|\+)")
-TOKEN = re.compile(r"(?<![A-Za-z0-9])([A-Za-z]{1,2})(?![A-Za-z0-9])")
+TOKEN = re.compile(r"(?<![A-Za-z0-9'\u2019])([A-Za-z]{1,2})(?![A-Za-z0-9])")
 TIE = re.compile(r"\b(?:tie[ds]?|tying|joint(?:ly)?|equal(?:s|ly)?|both|either)\b", re.I)
-PRONOUN = re.compile(r"['\u2019]|\s+[a-z]")
-RANKED = re.compile(
-    r"\b(?:over|not|than|beats?|above|against|of|to|runner-?up)[\s:*\[(\"']*$", re.I
-)
-ALONE = re.compile(r"\s*(?:$|[,.;:)\](*\"\u201d/&+|=])")
 NO_OBJECTION = re.compile(
     r"\W*(?:no|(?:none|nothing|n/a)(?: given| noted| that i can see| to (?:add|note|raise|report))?"
     r"|no (?:\w+ )?objections?(?: given| noted| to (?:note|raise|report))?)\W*$",
@@ -1145,34 +1140,27 @@ def docket(data: dict) -> str:
 # ---------------------------------------------------------------- report
 
 
-def hedged(rest: str, picked: str, ids: list[str]) -> bool:
-    """Whether the text after a picked letter names another candidate as a second pick.
-    Reading two picks as one would announce the wrong winner, so a doubtful line is refused.
-
-    After an opening or, and, vs, &, / or +, or beside a word for a tie, any other candidate
-    id counts: "B, or **C**", "B, C are tied". Otherwise a capital id counts when it stands
-    alone, "B, C" or "B (with C)", but not as the loser of a comparison ("B over C") or
-    inside running text ("B; C is close", "B with C's opening"). The words
-    I and a, and a two-letter word that is not all capitals, are never candidates."""
-    loose = bool(HEDGE.match(rest) or TIE.search(rest))
+def second(rest: str, picked: str, ids: list[str], own: str = "") -> bool:
+    """Whether the text after a picked letter could name a second pick. Reading two picks as
+    one would announce the wrong winner, and a refusal only costs one more ruling, so the rule
+    is strict: the line may name one candidate. The picked candidate's own text, when the
+    chair quotes it, is set aside first. Then the line is refused when what follows opens with
+    or, and, vs, &, / or +, has a word for a tie, or holds another candidate's id (in
+    capitals, or as one small letter other than a and i)."""
+    if len(own) > 2:  # a text as short as an id could itself be read as one
+        rest = re.sub(re.escape(own), " ", " ".join(rest.split()), count=1, flags=re.I)
+    if HEDGE.match(rest) or TIE.search(rest):
+        return True
     for t in TOKEN.finditer(rest):
         word = t.group(1)
-        if word.upper() not in ids or word.upper() == picked.upper():
+        if word.upper() == picked.upper() or word.upper() not in ids:
             continue
-        if not word.isupper() and not (loose and len(word) == 1 and word not in "ai"):
-            continue
-        if word == "I" and PRONOUN.match(rest, t.end()):
-            continue
-        if loose:
-            return True
-        if RANKED.search(rest[max(0, t.start() - 30) : t.start()]):
-            continue
-        if ALONE.match(rest, t.end()):
+        if word.isupper() or (len(word) == 1 and word not in "ai"):
             return True
     return False
 
 
-def parse_ruling(text: str, ids: list[str]) -> dict:
+def parse_ruling(text: str, ids: list[str], texts: dict[str, str] | None = None) -> dict:
     ruling = {
         k: ""
         for k in (
@@ -1201,9 +1189,9 @@ def parse_ruling(text: str, ids: list[str]) -> dict:
             r"([A-Z]{1,2})\s*[\]).:,;(*'\u2019\u2013\u2014-]",
             pick,
         )
-        or re.match(r"\W*([B-HJ-Z])\s+(?!(?i:or|and|vs|versus)\b)", pick)
+        or re.match(r"\W*([B-HJ-Z])\s+", pick)
     )
-    if m and hedged(pick[m.end(1) :], m.group(1), ids):
+    if m and second(pick[m.end(1) :], m.group(1), ids, (texts or {}).get(m.group(1).upper(), "")):
         m = None
     ruling["PICK"] = m.group(1).upper() if m and m.group(1).upper() in ids else ""
     if ruling["AMENDED"].casefold().rstrip(".") in ("none", "no", "n/a", "-"):
@@ -1267,11 +1255,15 @@ def cmd_report(args: argparse.Namespace) -> int:
     if len(cands) > 1 and not tally:
         raise Stop("the ballots are not counted yet: run `tally` first")
     ruling_path = pathlib.Path(data["chair"]["dir"]) / "ruling.md"
-    ruling = parse_ruling(read_capped(ruling_path), list(by_id)) if ruling_path.is_file() else None
+    texts = {cid: c["text"] for cid, c in by_id.items()}
+    ruling = None
+    if ruling_path.is_file():
+        ruling = parse_ruling(read_capped(ruling_path), list(by_id), texts)
     if ruling is not None and not ruling["PICK"]:
         raise Stop(
-            f"the chair's ruling names no candidate on its PICK line ({ruling_path}); "
-            f"the candidates are {' '.join(by_id)}. Ask the chair again for one letter alone."
+            "the chair's ruling names no candidate, or more than one, on its PICK line "
+            f"({ruling_path}); the candidates are {' '.join(by_id)}. "
+            "Ask the chair again for one letter alone."
         )
     review = data["mode"] == "review"
     seats = {s["n"]: s for s in data["seats"]}

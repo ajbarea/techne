@@ -515,6 +515,31 @@ def test_a_chair_that_overrules_the_vote_is_reported_beside_it(voted):
             "B, C",
             "B; **C**",
             "B or the third one",
+            "B, C co-winners",
+            "B, C too",
+            "B in addition to C",
+            "B on top of C",
+            "B, C if amended",
+            "B, second to C",
+            "B, C!",
+            "B, c too",
+            "B, tied with the third one",
+            "B, and I would trim it",
+            "B, and only B",
+            "B, or as amended below",
+            "B. It beats C",
+            "B over C",
+            "B, not C",
+            "B with C's opening",
+            "B, ahead of C",
+            "B; C is the runner-up",
+            "B (runner-up: C)",
+            "B. A Study of Bots",
+            "B, and As amended",
+            "B, C is close",
+            "B, and a shorter subtitle",
+            "B / I think",
+            "B, and IT is fine",
             "B, C, or A",
             "B, C and A",
             "B (tied with C)",
@@ -550,24 +575,11 @@ def test_a_ruling_that_names_no_candidate_is_refused(voted, pick):
             "Letter B",
             "B Council",
             "B because it fits",
-            "B, and I would trim it",
-            "B, and only B",
-            "B, or as amended below",
-            "B. It beats C",
-            "B over C",
-            "B, not C",
-            "B with C's opening",
-            "B, ahead of C",
-            "B; C is the runner-up",
-            "B (runner-up: C)",
-            "B. A Study of Bots",
-            "B, and As amended",
-            "B, C is close",
-            "B, and a shorter subtitle",
+            "B. It is the clearest",
+            "B, a clear winner",
+            "B (9 of 12 points)",
             "B, B",
             "B, Z",
-            "B / I think",
-            "B, and IT is fine",
         ],
     ],
 )
@@ -588,11 +600,20 @@ def test_the_word_i_is_not_candidate_i(pick):
     ids = list("ABCDEFGHIJK")
     assert lib(f"seele.parse_ruling({'PICK: ' + pick!r}, {ids!r})")["PICK"] == ""
     assert lib(f"seele.parse_ruling('PICK: I. Council', {ids!r})")["PICK"] == "I"
-    assert lib(f"seele.parse_ruling('PICK: B, and I would trim it', {ids!r})")["PICK"] == "B"
+    assert lib(f"seele.parse_ruling('PICK: B, and I would trim it', {ids!r})")["PICK"] == ""
+    assert lib(f"seele.parse_ruling('PICK: B. I would trim it', {ids!r})")["PICK"] == ""
+    owned = "PICK: B (it is the panel's choice)"
+    wide = [chr(65 + i) for i in range(26)]  # S is a candidate here
+    assert lib(f"seele.parse_ruling({owned!r}, {wide!r})")["PICK"] == "B"
+    assert lib(f"seele.parse_ruling('PICK: B, AA', {[*wide, 'AA']!r})")["PICK"] == ""
+    assert lib(f"seele.parse_ruling('PICK: AA, as is', {[*wide, 'AA']!r})")["PICK"] == "AA"
     assert lib(f"seele.parse_ruling('PICK: B or I', {ids!r})")["PICK"] == ""
     assert lib(f"seele.parse_ruling('PICK: B, or I', {ids!r})")["PICK"] == ""
     assert lib(f"seele.parse_ruling('PICK: E.g. B', {ids!r})")["PICK"] == ""
     assert lib(f"seele.parse_ruling('PICK: E.g. the second one', {ids!r})")["PICK"] == ""
+    few = ["A", "B", "C", "D", "E"]
+    assert lib(f"seele.parse_ruling('PICK: E.g. the second one', {few!r})")["PICK"] == ""
+    assert lib(f"seele.parse_ruling('PICK: E or the second one', {few!r})")["PICK"] == ""
     assert lib(f"seele.parse_ruling('PICK: E. Council', {ids!r})")["PICK"] == "E"
 
 
@@ -608,6 +629,28 @@ def test_a_key_line_padded_with_spaces_does_not_stall_the_clerk():
     got = lib(f"seele.parse_proposal({padded!r}, 2)")
     assert [p["text"] for p in got["proposals"]] == ["Council"]
     assert time.monotonic() - start < 5
+
+
+def test_the_picked_candidate_s_own_text_may_be_quoted_on_the_pick_line(tmp_path):
+    quoted = "seele.parse_ruling('PICK: B, {}', ['A', 'B', 'C'], {{'B': '{}'}})"
+    assert lib(quoted.format("Plan A over C", "Plan A over C"))["PICK"] == "B"
+    assert lib(quoted.format("Plan A over C", "Plan A"))["PICK"] == ""
+    assert lib(quoted.format("A", "A"))["PICK"] == ""
+    panel = Panel(tmp_path)
+    panel.propose(2, "A B C first")
+    panel.propose(3, "A B C second")
+    panel.propose(4, "A B C third")
+    assert panel("pool").returncode == 0
+    c = panel.ids()
+    order = c["A B C first"] + c["A B C second"] + c["A B C third"]
+    for n in (2, 3, 4):
+        panel.vote(n, order)
+    assert panel("tally").returncode == 0
+    panel.rule(f"PICK: {order[0]}. a b c  First\nWHY: it is best\n")
+    assert panel("report").returncode == 0
+    panel.rule(f"PICK: {order[0]}. A B C second\nWHY: it is best\n")
+    out = panel("report")
+    assert out.returncode == 1 and "more than one" in out.stderr
 
 
 def test_a_chair_nobody_named_is_not_called_none(voted):
