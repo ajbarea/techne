@@ -101,6 +101,7 @@ describe('git guard', () => {
       CLAUDE_PLUGIN_OPTION_WARN_MAIN_CHECKOUT_COMMIT: 'false',
       CLAUDE_PLUGIN_OPTION_BLOCK_SECRETS: 'false',
       CLAUDE_PLUGIN_OPTION_BLOCK_LONG_BODIES: 'false',
+      CLAUDE_PLUGIN_OPTION_BLOCK_GH_IMPLICIT_REPO: 'false',
     })
   })
 

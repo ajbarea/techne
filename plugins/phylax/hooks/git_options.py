@@ -13,9 +13,10 @@ COMMITS_MD = "block_commits_md"
 MAIN_CHECKOUT = "warn_main_checkout_commit"
 SECRETS = "block_secrets"
 BODIES = "block_long_bodies"
-OPTIONS = (ATTRIBUTION, COMMITS_MD, MAIN_CHECKOUT, SECRETS, BODIES)
+IMPLICIT_REPO = "block_gh_implicit_repo"
+OPTIONS = (ATTRIBUTION, COMMITS_MD, MAIN_CHECKOUT, SECRETS, BODIES, IMPLICIT_REPO)
 # The guards that refuse a command; MAIN_CHECKOUT only warns.
-BLOCKING = (ATTRIBUTION, COMMITS_MD, SECRETS, BODIES)
+BLOCKING = (ATTRIBUTION, COMMITS_MD, SECRETS, BODIES, IMPLICIT_REPO)
 FAIL_CLOSED = "phylax: the git guard could not finish its check, so this command was not run."
 
 

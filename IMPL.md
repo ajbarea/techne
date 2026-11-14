@@ -45,22 +45,15 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 2. ✅ #284 CodSpeed (simulation, parsers only).
 3. ✅ #287 hyperfine weekly bench: wall gate 1.15x against `bench/baseline-ci.json`, the median of
    seven pinned runs (`bench/median.py`); README says how to refresh it.
-4. ✅ #290 mutation (scripts/mutation.py, weekly 16-shard sweep, per-PR --changed-since run).
-   Five review rounds plus two verify passes. A kill counts only when the deciding tests pass
-   unmutated; a timeout only when they finish unmutated within the same limit, else the module's
-   tests judge it and a shared timeout is an error (exit 1 even with --report-only). Deferred:
-   per-module budget is a share of test files, not test time; board_add/project_board never
-   traced (GhStub env); legacy survivors #289; the runner is not mutated by itself (each mutant
-   would rerun test_mutation.py, about 3 min).
-5. ✅ #295 phylax parser speed-up: four review rounds plus a verify pass, clean. Greeting check
-   stops at the first line (x879 same machine), body gate reads the body once (x1.66); a parser
-   error is named on stderr and the plain body still checked; body_gate verdicts equal main's on
-   240,420 comparisons (3.9-3.14).
-6. ✅ #293 flaky bench temp-name fix (Heph's request, #292) merged 69bc788.
-7. 📋 #301 phylax: refuse gh pr/issue create, comment and review that name no repo when gh would
-   pick a repo other than origin's (worktree .claude/worktrees/fork-guard).
-Readers: `flock -o /tmp/fleet-heavy.lock timeout -k 10 900 bash -c 'ulimit -v 3000000; ...'`,
-append findings to the report file as confirmed (the 11-04 OOM was an orphaned pytest).
+4. ✅ #290 mutation (mutmut per PR + weekly sweep) merged.
+5. ✅ #295 phylax parser speed-up merged; ✅ #303 gitleaks retry merged.
+6. 🔄 #304 (#301, this branch, head e291edf): round 4 (~/.local/state/techne-perf/r4-304-report.md,
+   R4-1 to R4-6) answered by a simpler rule: a gh write naming no repo passes only when every
+   remote names one repo and no set-default mark names another; refusal offers host-qualified -R.
+   Deferred shell-parsing cases tracked in #306. Lint + test_gh_target + test_git_guards pass.
+   ⏸ PAUSED 11-05 16:00 (Heph: RIT weekly limit spent, Personal at 9%); resumes after the
+   Wed 11-11 reset. Next: fresh Opus round-5 reader (report ~/.local/state/techne-perf/r5-304-report.md); fix,
+   verify pass, merge when clean; report to Heph; `fleet done` (all four #277 PRs merged).
 Report each merge to Heph (tmux pane in orchestrator.pane); `fleet done` after all four.
 
 techne#249 is fixed in PR #252 (branch results/quality-baseline): the task notes state what the
