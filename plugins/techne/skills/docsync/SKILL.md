@@ -1,6 +1,6 @@
 ---
 name: docsync
-description: Check a documentation file, and the repo's GitHub description, homepage and topics, for drift against the actual codebase (CLI commands, file paths, config keys, function signatures, version numbers, environment variables, the feature set the README opening names) and correct it: applied directly on a solo repo, proposed for confirmation on a team repo. Use when the user wants to audit README.md, docs/*.md, or similar for claims that no longer match reality. Drift usually comes from refactors that forgot to update the docs.
+description: "Check a documentation file, and the repo's GitHub description, homepage and topics, for drift against the actual codebase (CLI commands, file paths, config keys, function signatures, version numbers, environment variables, the feature set the README opening names) and correct it: applied directly on a solo repo, proposed for confirmation on a team repo. Use when the user wants to audit README.md, docs/*.md, or similar for claims that no longer match reality. Drift usually comes from refactors that forgot to update the docs."
 disable-model-invocation: false
 allowed-tools: Bash Glob Grep Read Edit Agent WebSearch WebFetch
 ---

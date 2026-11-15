@@ -1,6 +1,6 @@
 ---
 name: theoros
-description: Run an observed live dev session: Claude drives an interactive REPL in a named tmux session while the human spectates read-only via `tmux attach -r`. Use when the user wants to play through, debug, or explore a service's REPL together. Trigger phrases include "let's do a live smoke", "run a theoros session", "I want to spectate while you drive the CLI", "start an observed dev run". Reads per-repo facts from the `## theoros` section of `.claude/skill-context.md`. Not for launching an app just to confirm a change works when nobody is watching.
+description: "Run an observed live dev session: Claude drives an interactive REPL in a named tmux session while the human spectates read-only via `tmux attach -r`. Use when the user wants to play through, debug, or explore a service's REPL together. Trigger phrases include \"let's do a live smoke\", \"run a theoros session\", \"I want to spectate while you drive the CLI\", \"start an observed dev run\". Reads per-repo facts from the `## theoros` section of `.claude/skill-context.md`. Not for launching an app just to confirm a change works when nobody is watching."
 disable-model-invocation: false
 allowed-tools: Bash Read Grep
 ---
