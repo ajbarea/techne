@@ -27,6 +27,7 @@ OPTIONS = (
     "warn_main_checkout_commit",
     "block_secrets",
     "block_long_bodies",
+    "block_gh_implicit_repo",
     "require_subagent_model",
     "email_greeting",
     "restart_on_update",
@@ -49,6 +50,7 @@ GUARDS = (
     "warn_main_checkout_commit",
     "block_secrets",
     "block_long_bodies",
+    "block_gh_implicit_repo",
 )
 MOD_ADDED = (2, 1, 287)
 # 2.1.288 fixed a mod's tool.call hook breaking Bash in subagents that run in a worktree.

@@ -14,6 +14,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/setup/scripts/doctor.py" \
   'warn_main_checkout_commit=${user_config.warn_main_checkout_commit}' \
   'block_secrets=${user_config.block_secrets}' \
   'block_long_bodies=${user_config.block_long_bodies}' \
+  'block_gh_implicit_repo=${user_config.block_gh_implicit_repo}' \
   'require_subagent_model=${user_config.require_subagent_model}' \
   'email_greeting=${user_config.email_greeting}' \
   'restart_on_update=${user_config.restart_on_update}' \
