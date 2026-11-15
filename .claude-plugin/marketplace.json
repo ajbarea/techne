@@ -15,7 +15,7 @@
     },
     {
       "name": "graphe",
-      "description": "Document skills: build and gate LaTeX papers, markdown-to-PDF renders and talk decks, scaffold a research paper, and run a pre-submission novelty review.",
+      "description": "Document skills: build and gate LaTeX papers, markdown-to-PDF renders, talk decks and Google Vids videos, scaffold a research paper, and run a pre-submission novelty review.",
       "source": "./plugins/graphe",
       "category": "productivity"
     },

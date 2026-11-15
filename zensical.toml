@@ -56,6 +56,7 @@ nav = [
         { "graphe:pdf" = "skills/pdf.md" },
         { "graphe:setup" = "skills/graphe-setup.md" },
         { "graphe:slides" = "skills/slides.md" },
+        { "graphe:vids" = "skills/vids.md" },
       ]},
       { "dokimasia" = [
         { "dokimasia:check" = "skills/check.md" },
@@ -191,6 +192,7 @@ markdown_description = """techne is a Claude Code plugin marketplace (ajbarea/te
   { "skills/pdf.md" = "Render markdown to print-quality PDFs with a Typst template and verify the output against the source." },
   { "skills/graphe-setup.md" = "graphe:setup checks what the graphe document skills need on this machine (uv, TeX Live, poppler, strings, Chromium, pptx tools) and prints the install command for each gap." },
   { "skills/slides.md" = "Build a talk deck and gate it before it is presented: titles, contrast, alt text, missing files and phone fit." },
+  { "skills/vids.md" = "Make a Google Vids video with your digital-twin avatar: script, two takes per clip, checks without playback, song, mix and export." },
   { "skills/check.md" = "Verify a LaTeX project's bibliography: lint offline, verify against arXiv and Crossref, and check every cited key rendered." },
   { "skills/idea.md" = "Capture an idea and triage it against papers, patents, products and your own work, then file it as trash, later, do or merged." },
   { "skills/heuresis-setup.md" = "heuresis:setup checks uv, git and gh, the ideas repository and repos folder, and which search API keys are set, and creates the private ideas repository when it does not exist." },
