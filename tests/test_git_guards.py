@@ -1075,3 +1075,58 @@ def test_a_gone_folder_with_only_the_warning_on_runs_and_says_why(tmp_path):
     )
     assert proc.returncode == 1 and not proc.stdout.strip()
     assert "not an existing folder" in proc.stderr
+
+
+def test_agy_payload_attribution_denied(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-b", "main")
+    _git(repo, "commit", "--allow-empty", "-m", "init")
+    env = hook_env([ATTRIBUTION])
+    payload = json.dumps(
+        {
+            "hookEventName": "PreToolUse",
+            "conversationId": "test-agy-conv",
+            "workspacePaths": [str(repo)],
+            "toolCall": {
+                "name": "run_command",
+                "args": {
+                    "CommandLine": "git commit -m 'feat: test\n\nCo-Authored-By: Claude'",
+                },
+            },
+        }
+    )
+    proc = subprocess.run(
+        [HOOK_PYTHON, str(GUARDS)], input=payload, capture_output=True, text=True, env=env
+    )
+    assert proc.returncode == 0
+    decision = json.loads(proc.stdout)
+    assert decision.get("decision") == "deny"
+    assert "attribution" in decision.get("reason", "").lower()
+    assert decision.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
+
+
+def test_agy_payload_clean_allowed(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-b", "main")
+    _git(repo, "commit", "--allow-empty", "-m", "init")
+    env = hook_env([ATTRIBUTION])
+    payload = json.dumps(
+        {
+            "hookEventName": "PreToolUse",
+            "conversationId": "test-agy-conv",
+            "workspacePaths": [str(repo)],
+            "toolCall": {
+                "name": "run_command",
+                "args": {
+                    "CommandLine": "git commit -m 'feat: clean commit'",
+                },
+            },
+        }
+    )
+    proc = subprocess.run(
+        [HOOK_PYTHON, str(GUARDS)], input=payload, capture_output=True, text=True, env=env
+    )
+    assert proc.returncode == 0
+    assert proc.stdout == "" or "deny" not in proc.stdout

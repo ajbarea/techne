@@ -30,7 +30,7 @@ import re
 import stat
 import sys
 
-TOOLS = ("Agent", "Task")
+TOOLS = ("Agent", "Task", "invoke_subagent")
 # Built-in agent types that run on the session's model; an omitted type is general-purpose.
 INHERITING = ("general-purpose", "claude", "Explore", "Plan")
 # The ones with no model of their own, which CLAUDE_CODE_SUBAGENT_MODEL reaches.
@@ -240,7 +240,7 @@ def default_decides(kind: str, start: str) -> bool:
 
 
 def names_model(tool_input: dict) -> bool:
-    model = tool_input.get("model")
+    model = tool_input.get("model") or tool_input.get("Model")
     return isinstance(model, str) and bool(model.strip())
 
 
@@ -253,15 +253,20 @@ def main() -> int:
     if not isinstance(data, dict):
         print("phylax model_guard: payload is not an object; allowing the call", file=sys.stderr)
         return 0
-    if data.get("tool_name") not in TOOLS:
+    tool_name = data.get("tool_name") or (data.get("toolCall") or {}).get("name") or ""
+    if tool_name not in TOOLS:
         return 0
-    tool_input = data.get("tool_input")
+    tool_input = data.get("tool_input") or (data.get("toolCall") or {}).get("args")
     if not isinstance(tool_input, dict):
         print("phylax model_guard: tool_input is not an object; allowing the call", file=sys.stderr)
         return 0
     # Claude Code reads project definitions from where the session started, not where it
     # has since moved; the payload's cwd stands in when the variable is missing.
-    start = os.environ.get("CLAUDE_PROJECT_DIR") or data.get("cwd")
+    start = (
+        os.environ.get("CLAUDE_PROJECT_DIR")
+        or data.get("cwd")
+        or (data.get("workspacePaths") or [None])[0]
+    )
     if not isinstance(start, str) or not start:
         start = os.getcwd()
     if names_model(tool_input) or default_decides(agent_type(tool_input), start):
@@ -269,11 +274,13 @@ def main() -> int:
     print(
         json.dumps(
             {
+                "decision": "deny",
+                "reason": REASON,
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
                     "permissionDecision": "deny",
                     "permissionDecisionReason": REASON,
-                }
+                },
             }
         )
     )

@@ -16,7 +16,32 @@
         ]
       },
       {
+        "matcher": "run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "for on in \"$CLAUDE_PLUGIN_OPTION_BLOCK_ATTRIBUTION_TRAILERS\" \"$CLAUDE_PLUGIN_OPTION_BLOCK_COMMITS_MD\" \"$CLAUDE_PLUGIN_OPTION_WARN_MAIN_CHECKOUT_COMMIT\" \"$CLAUDE_PLUGIN_OPTION_BLOCK_SECRETS\" \"$CLAUDE_PLUGIN_OPTION_BLOCK_LONG_BODIES\"; do case \"$on\" in true) exec python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/git_guards.py\" ;; esac; done",
+            "timeout": 75
+          }
+        ]
+      },
+      {
         "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "case \"$CLAUDE_PLUGIN_OPTION_REQUIRE_SUBAGENT_MODEL\" in true) exec python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/model_guard.py\" ;; esac",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "case \"$CLAUDE_PLUGIN_OPTION_BUDGET_MODE\" in true) exec python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/budget.py\" agent ;; esac",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "invoke_subagent",
         "hooks": [
           {
             "type": "command",

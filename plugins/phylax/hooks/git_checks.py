@@ -923,17 +923,22 @@ class Verdict:
 
     def emit(self) -> None:
         if self.denies:
+            reason = "\n".join(dict.fromkeys(self.denies))
             out = {
+                "decision": "deny",
+                "reason": reason,
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
                     "permissionDecision": "deny",
-                    "permissionDecisionReason": "\n".join(dict.fromkeys(self.denies)),
-                }
+                    "permissionDecisionReason": reason,
+                },
             }
         elif self.warnings:
             text = "\n".join(self.warnings)
             out = {
+                "decision": "allow",
                 "systemMessage": text,
+                "additionalContext": text,
                 "hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": text},
             }
         else:
