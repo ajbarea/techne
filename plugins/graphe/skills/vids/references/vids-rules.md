@@ -1,7 +1,7 @@
 <!-- budget: 900 words -->
 # Google Vids writing rules
 
-Every Vids script follows these rules. They come from the YouTube director skill (its Mode A phases, segment fields, quotation rule and anti-slop rule), from the author's own Vids sessions, and from the working example, 01 Federated Agents. `check_script.py` enforces the ones a script can check.
+Every Vids script follows these rules. They come from live Vids sessions and the scripts made in them. The skill's `scripts/check_script.py` enforces the ones a script can check.
 
 ## Why the rules exist
 
@@ -32,7 +32,7 @@ Vids makes each clip with Gemini Omni from that clip's prompt alone, and an Omni
 
 1. The header: title, mode, formats and lengths, tone, the look, and the sources.
 2. `## Long version` and `## Short`, each a run of segments.
-3. The audio prompt: one 30-second loop under both cuts, since Vids generates music 30 seconds at a time (the director skill's workaround).
+3. The audio prompt: Vids' Music panel makes a 30-second clip or a full song; a full song trimmed to the cut avoids a loop seam.
 4. The transitions and SFX schedule: each cut's sound, half before the cut and half after, 0.5 to 1.2 seconds.
 5. The YouTube metadata for each cut: title, description with chapters and sources, the AI-avatar disclosure, the pinned comment, tags.
 6. The assets: the avatar, each overlay to make, and the audio.
@@ -50,9 +50,8 @@ Vids makes each clip with Gemini Omni from that clip's prompt alone, and an Omni
 ## The lint
 
 ```
-python3 scripts/check_script.py path/a.md path/b.md  # several scripts
-python3 scripts/check_script.py path/script.md     # one script
-make videos-check                              # the same, from make
+python3 scripts/check_script.py path/script.md         # one script, from the skill folder
+python3 scripts/check_script.py path/a.md path/b.md    # several
 ```
 
-It prints `path:line: problem` for a heading that looks like a segment but does not parse, and for each segment with a missing field, a double quote outside the spoken line, more than one quoted span, a [direction] inside the quotes, a pointer to another segment, a gesture time outside the segment, a gap or overlap with the segment before, or a clip or spoken line that does not fit in 10 seconds. `make test` runs it on every script too, so CI fails a script that breaks a rule.
+It prints `path:line: problem` for a heading that looks like a segment but does not parse, and for each segment with a missing field, a double quote outside the spoken line, more than one quoted span, a [direction] inside the quotes, a pointer to another segment, a gesture time outside the segment, a gap or overlap with the segment before, or a clip or spoken line that does not fit in 15 seconds. It exits 1 when any script has a problem, so a script repo can run it in CI.

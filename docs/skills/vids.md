@@ -4,13 +4,13 @@ description: "Make a Google Vids video with your digital-twin avatar: script, tw
 
 # `graphe:vids`
 
-Make a short video in Google Vids with your own AI avatar: write the script, lint it, read it aloud, then generate each clip twice in the Vids editor, keep the better take, add a song from Vids' own music generator, mix it and export the MP4.
+Make a short video in Google Vids with your own AI avatar: write the script, lint it, approve it after reading it aloud, then generate each clip twice in the Vids editor, keep the better take, add a song from Vids' own music generator, mix it and export the MP4.
 
-Part of [graphe](../plugins/graphe.md): `/plugin install graphe@techne`, then `/graphe:setup`.
+Part of [graphe](../plugins/graphe.md): `/plugin install graphe@techne`. It needs `ffmpeg`, `uv` and a browser signed in to your Google account with Vids access.
 
 ## When to use
 
-- "Make a video of me skating a mega ramp," or "turn this script into a Short."
+- "Make a Google Vids video of me skating a mega ramp," or "turn this Vids script into a Short."
 - A Google Vids project with your personal avatar (Vids calls it **Me**).
 - Checking a finished clip or export for slop before it is posted.
 

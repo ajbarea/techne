@@ -9,7 +9,7 @@ Docs for agents: <https://ajbarea.github.io/techne/llms.txt> lists every page wi
 | The user wants to | Plugin | Setup skill |
 | --- | --- | --- |
 | Audit a build, review CI or a change before merge, plan commits, catch up on GitHub threads, check docs against code, keep linked repos in step | `techne` | `/techne:setup` |
-| Build LaTeX, render markdown to PDF, make a talk deck, scaffold or review a paper | `graphe` | `/graphe:setup` |
+| Build LaTeX, render markdown to PDF, make a talk deck or a Google Vids video, scaffold or review a paper | `graphe` | `/graphe:setup` |
 | Verify a bibliography against arXiv and Crossref | `dokimasia` | none (needs only uv) |
 | Capture an idea and check it against prior work | `heuresis` | `/heuresis:setup` |
 | Search, read and draft Gmail across accounts, catch up on mail | `epistole` | `/epistole:setup` |

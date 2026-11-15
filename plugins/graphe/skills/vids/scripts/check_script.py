@@ -12,7 +12,6 @@ import re
 import sys
 from dataclasses import dataclass, field
 
-HERE = pathlib.Path(__file__).resolve().parent
 #: A Gemini Omni clip in Vids runs at most 15 seconds (Omni 1.2 Flash, 2026-11-05; 10 before).
 MAX_SECONDS = 15
 #: US conversational rate, about 150 words a minute; a spoken line is timed at it.
@@ -173,7 +172,7 @@ def check(text: str) -> list[tuple[int, str]]:
             need = spoken_seconds(spoken)
             length = end - start if span and start is not None and end is not None else MAX_SECONDS
             room = min(length, MAX_SECONDS) - HEADROOM_SECONDS
-            if need > room:
+            if length > 0 and need > room:
                 problems.append(
                     (
                         n,
@@ -195,7 +194,13 @@ def main(argv: list[str]) -> int:
             print(f"{path}: no such file", file=sys.stderr)
             failed += 1
             continue
-        problems = check(path.read_text(encoding="utf-8"))
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError as err:
+            print(f"{path}: not UTF-8 text ({err.reason} at byte {err.start})", file=sys.stderr)
+            failed += 1
+            continue
+        problems = check(text)
         for line, message in problems:
             print(f"{path}:{line}: {message}", file=sys.stderr)
         failed += bool(problems)

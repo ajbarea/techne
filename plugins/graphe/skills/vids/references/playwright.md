@@ -1,11 +1,11 @@
 # Driving Google Vids from Playwright
 
-Verified in a live session on the user's personal account.
+Verified in live sessions. Where a step records one session's observation, it says so.
 
-1. **Open** `docs.google.com/videos/?authuser=<personal email>`; without `authuser` the work account loads and the page returns 403. The user signs in first.
+1. **Open** `docs.google.com/videos/?authuser=<personal email>`; with several Google accounts signed in, `authuser` picks the right one (one session got a 403 page without it). The user signs in first.
 2. **New video:** Blank video. Set the canvas with the toolbar's Video size combobox: Landscape 16:9, Portrait 9:16 (a Short) or Square 1:1.
 3. **AI clip:** right rail **AI Video** > **Create**. The **Avatar** slot (next to Ingredients) opens the Avatars dialog: pick **Me** (Personal avatar, the user's digital twin) > **Select**. That inserts a real `Me` chip (`prompt-chip-wrapper`) at the start of the prompt.
-4. **Prompt:** click the box, Ctrl+End, Shift+Enter (a new line after the chip), then type with real key presses. Never `fill()`: it replaces the box and deletes the chip. The newline lands a beat late, so the first letters split off onto their own text node every time: after typing, put the caret at the start of the second fragment and press Backspace, then confirm the box reads `Me` then your first word. Start the text with a space so the prompt does not read `@MeStands`.
+4. **Prompt:** click the box, Ctrl+End, Shift+Enter (a new line after the chip), then type with real key presses. Never `fill()`: it replaces the box and deletes the chip. The newline lands a beat late, so the first letters can split off onto their own text node (waiting 500 ms after Shift+Enter prevents it): if they do, put the caret at the start of the second fragment and press Backspace, then confirm the box reads `Me` then your first word. Start the text with a space so the prompt does not read `@MeStands`.
 5. **Clothes, always:** describe the outfit in words in every clip, or the twin renders shirtless. A clothing image as an ingredient also works.
 6. **Settings:** the button under the prompt (`Generation settings: Omni, 720p, Landscape, 10 seconds`) opens model, resolution (720p or 1080p), aspect ratio radios (Landscape, Portrait) and a duration slider (arrow keys move 1 s, the cap is 15 s since Omni 1.2; read its value from `aria-valuetext`, since `aria-valuenow` is empty). Set orientation here, not in the prompt.
 7. **Quotes:** anything in double quotes is spoken; on-screen text goes in single quotes.
@@ -17,10 +17,9 @@ Verified in a live session on the user's personal account.
 13. **Check a clip without playing it:** sample frames into a contact sheet with ffmpeg and transcribe the audio locally (faster-whisper `base.en`) to confirm the spoken lines word for word.
 14. **Insert:** the first clip goes in with Insert; later clips offer **Insert in new scene**. Scenes can be dragged to reorder in the timeline.
 15. **Music:** right rail **Music** opens "Generate a song" (Lyria 3.5): describe genre and mood and paste lyrics; options are Duration (30s or Full) and an Instrumental toggle. Use it before any outside music tool.
-
-16. **Mix:** select the song track, open **Sound**: set Volume (about 20%), click the label text of **Background: lower the volume of this clip while narrative clips play** (clicking the radio itself did not stick), and a 2 s fade out. Then File > Download > MP4 and transcribe the mix: every spoken line must come through word for word.
-17. **Hearing it:** the Playwright browser is muted (`--mute-audio`) and runs in WSL, so the user listens in their own browser or from the exported MP4.
-18. **Retakes (the user's practice):** generate each clip twice and keep the better one; a contact sheet at 2 fps catches the slop a transcript misses (props that never fully exist, a shot wider than asked, logo or lettering drift such as 'the user' rendering as 'AI').
+16. **Mix:** select the song track, open **Sound**: set a fixed Volume with ducking Off (see step 20), and a 2 s fade out. To change a ducking radio, clicking its label text worked where clicking the radio did not. Then File > Download > MP4 and transcribe the mix: every spoken line must come through word for word.
+17. **Hearing it:** the Playwright MCP browser starts with `--mute-audio`, so verify by transcript and let the user listen in their own browser or from the exported MP4.
+18. **Retakes:** generate each clip twice and keep the better one; a contact sheet at 2 fps catches the slop a transcript misses (props that never fully exist, a shot wider than asked, logo or lettering drift such as a jersey's two initials rendering as 'AI').
 19. **Generated clips are temporary:** the AI panel's takes live in temp storage and are gone after a page reload; only clips inserted into the timeline persist. Insert (or download) every take worth keeping before leaving the page. After a reload the generation settings reset too (720p, 10 s), so set them again.
 20. **Ducking pitfall:** marking clips **Narrative** lowers every other track for the whole time each clip plays, not only while someone speaks; with every clip narrative, the song stays buried whatever its volume. Usually leave ducking Off and set the song's fixed volume (80% put the song about 5 dB under the AI clips' dialogue, -25 vs -20 dB mean, with every line still transcribed).
 21. **Export only what is saved:** wait for **Saved to Drive** before File > Download > MP4, or the export can be the previous version (two exports came out byte-identical after an unsaved change).
@@ -31,4 +30,4 @@ Verified in a live session on the user's personal account.
 26. **Volume is not linear:** on one clip, 60% measured 16 dB quieter than 100%, and 85% about 6 dB quieter. Set a level, export, measure `mean_volume` with ffmpeg, and adjust.
 27. **Song lyrics as karaoke:** Vids captions transcribe speech, not singing. For on-screen lyrics, take word times from a faster-whisper `word_timestamps` pass over the song, render the scene locally (Pillow frames piped to ffmpeg, words filling in as sung), and upload it as its own scene.
 28. **Trimming an audio track:** drag its right edge (the cursor turns to `ew-resize`) so it stops where the next track starts.
-29. **Memory:** WSL caps the browser's RAM (`memory=` in `.wslconfig`). Reload the Vids tab every few clips; a long session reached 4 GB.
+29. **Memory:** reload the Vids tab every few clips; one long session grew the tab to 4 GB. Under WSL, `memory=` in `.wslconfig` caps what the browser can use.

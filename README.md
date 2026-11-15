@@ -64,6 +64,7 @@ Install only the ones you use: every enabled plugin's skill list sits in the age
 | `graphe:paper-review` | Pre-submission novelty + reviewer pass for a draft paper: grounds every novelty/claim verdict in retrieved prior work, flags related-work gaps, and surfaces lab-overlap for disclosure. |
 | `graphe:pdf` | Renders markdown to print-quality PDFs through a Typst template, then verifies fonts and content against the source. |
 | `graphe:slides` | Builds and gates a talk deck: an animated web deck on GitHub Pages from a starter, checked for titles, contrast, alt text, missing files and phone fit, then rendered and published. |
+| `graphe:vids` | Makes a short video in Google Vids with the user's AI avatar: script and lint, two takes per clip checked without playback, a Vids song, mix, export and a disclosed YouTube upload. |
 | `graphe:setup` | Checks the document tools (TeX Live, poppler, Chromium, uv) and prints the install command for each gap. |
 
 ### dokimasia
@@ -183,6 +184,7 @@ techne (marketplace: ajbarea/techne)
 │   ├── paper-review      ── grounded novelty + reviewer pass for a draft
 │   ├── pdf               ── markdown to print PDF via Typst, verified
 │   ├── slides            ── talk deck gated and rendered, presenter briefed
+│   ├── vids              ── Google Vids video with the user's avatar, checked
 │   └── setup             ── checks prerequisites, prints each fix
 ├── dokimasia (plugin, plugins/dokimasia)
 │   └── check             ── lints, verifies and render-checks a .bib

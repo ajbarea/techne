@@ -1,0 +1,105 @@
+"""graphe:vids `check_script.py`: the Vids script lint, one rule per test."""
+
+# ruff: noqa: RUF001  # segment spans use an en dash, as the lint expects
+from __future__ import annotations
+
+import importlib.util
+import pathlib
+
+import pytest
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+_spec = importlib.util.spec_from_file_location(
+    "vids_check_script",
+    ROOT / "plugins" / "graphe" / "skills" / "vids" / "scripts" / "check_script.py",
+)
+assert _spec and _spec.loader
+cs = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(cs)
+
+
+def segment(n: int, span: str, spoken: str = "Short line.", extra: str = "") -> str:
+    return (
+        f"### Segment {n} ({span}): Title\n"
+        "- **Environment & Lighting:** a desert ramp at sunset, close-up.\n"
+        "- **Avatar (Wardrobe & Physicality):** orange jersey, black shorts, helmet.\n"
+        "- **Visual Overlay:** None.\n"
+        f'- **Spoken Script:** "{spoken}"\n'
+        f"- **Vocal Direction:** flat and dry.{extra}\n"
+    )
+
+
+def messages(text: str) -> list[str]:
+    return [m for _, m in cs.check(text)]
+
+
+def test_a_clean_two_segment_script_passes():
+    assert cs.check(segment(1, "0:00 – 0:12") + segment(2, "0:12 – 0:24")) == []
+
+
+def test_a_script_with_no_segments_is_refused():
+    assert messages("# Title\nno segments here\n")
+
+
+def test_a_heading_without_a_span_is_flagged():
+    assert any("span" in m for m in messages(segment(1, "soon")))
+
+
+def test_a_clip_longer_than_the_cap_is_flagged():
+    assert any("a clip is 1 to" in m for m in messages(segment(1, "0:00 – 0:20")))
+
+
+def test_a_backwards_span_is_flagged_once_and_not_timed():
+    out = messages(segment(1, "0:20 – 0:10"))
+    assert any("a clip is 1 to" in m for m in out)
+    assert not any("spoken line needs" in m for m in out)
+
+
+def test_a_spoken_line_too_long_for_its_clip_is_flagged():
+    long_line = " ".join(["word"] * 60)
+    assert any("spoken line needs" in m for m in messages(segment(1, "0:00 – 0:15", long_line)))
+
+
+def test_a_gap_between_segments_is_flagged():
+    out = messages(segment(1, "0:00 – 0:10") + segment(2, "0:12 – 0:20"))
+    assert any("but the one before ends" in m for m in out)
+
+
+def test_a_direction_inside_the_quotes_is_flagged():
+    assert any(
+        "[direction]" in m for m in messages(segment(1, "0:00 – 0:10", "Hi [smiles] there."))
+    )
+
+
+def test_a_second_quoted_span_is_flagged():
+    out = messages(segment(1, "0:00 – 0:10", extra=' Then say "again".'))
+    assert out
+
+
+def test_a_missing_field_is_flagged():
+    text = segment(1, "0:00 – 0:10").replace("- **Visual Overlay:** None.\n", "")
+    assert any("Visual Overlay" in m for m in messages(text))
+
+
+def test_main_needs_a_path(capsys):
+    assert cs.main([]) == 2
+    assert "usage" in capsys.readouterr().err
+
+
+def test_main_reports_a_missing_file(tmp_path):
+    assert cs.main([str(tmp_path / "nope.md")]) == 1
+
+
+@pytest.mark.parametrize("data", [b"\xff\xfe\x00bad", b"caf\xe9"])
+def test_main_reports_non_utf8_without_a_traceback(tmp_path, capsys, data):
+    p = tmp_path / "bad.md"
+    p.write_bytes(data)
+    assert cs.main([str(p)]) == 1
+    assert "not UTF-8" in capsys.readouterr().err
+
+
+def test_main_passes_a_clean_file(tmp_path, capsys):
+    p = tmp_path / "ok.md"
+    p.write_text(segment(1, "0:00 – 0:12"), encoding="utf-8")
+    assert cs.main([str(p)]) == 0
+    assert "ok" in capsys.readouterr().out
