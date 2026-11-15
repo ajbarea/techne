@@ -114,9 +114,29 @@ Invoke a skill as `/techne:<name>`, `/graphe:<name>`, `/dokimasia:check`, `/heur
 
 After installing, run each plugin's setup skill: `/techne:setup`, `/graphe:setup`, `/heuresis:setup`, `/phylax:setup`, `/epistole:setup`, `/schole:setup`. Each checks what the plugin needs and prints the install command for anything missing. The techne skills follow a few conventions (Makefile pattern, dev-runner archive, `.claude/skill-context.md`); [Conventions](docs/conventions.md) lists the minimum each skill needs.
 
-### Codex, Copilot CLI and Antigravity CLI
+### Antigravity CLI
 
-techne, graphe and dokimasia run in these agent CLIs too. Codex and Copilot CLI read this repo's marketplace; Antigravity CLI installs one plugin from its folder URL:
+Antigravity natively converts and installs Claude Code plugins via `agy plugin`:
+
+```bash
+# Recommended: install the core techne plugin for code-repo skills
+agy plugin install https://github.com/ajbarea/techne/tree/main/plugins/techne
+
+# Or install the entire marketplace (all 7 plugins) at once
+agy plugin install https://github.com/ajbarea/techne
+```
+
+If you already use Claude Code on this machine, import every plugin installed in `~/.claude` without re-downloading:
+
+```bash
+agy plugin import claude
+```
+
+Run `agy plugin list` to verify installed plugins. Antigravity loads skills dynamically on demand: call a skill by name (e.g. `audit`, `auto-commit`, `dokimasia:check`) or describe the task. Run `python3 ~/.gemini/config/plugins/techne/skills/setup/scripts/doctor.py` to confirm your local tools (`gh`, `uv`, `tmux`) are ready.
+
+### Codex and Copilot CLI
+
+techne, graphe and dokimasia run in these agent CLIs too. Codex and Copilot CLI read this repo's marketplace:
 
 ```bash
 codex plugin marketplace add ajbarea/techne
@@ -124,8 +144,6 @@ codex plugin add techne@techne
 
 copilot plugin marketplace add ajbarea/techne
 copilot plugin install techne@techne
-
-agy plugin install https://github.com/ajbarea/techne/tree/main/plugins/techne
 ```
 
 Swap `techne` for `graphe` or `dokimasia` to add those. Ask for a skill by name ("use the techne audit skill") or describe the task. graphe's optional OpenAlex and Semantic Scholar keys come from Claude Code's plugin settings; in other CLIs, export `OPENALEX_API_KEY` and `S2_API_KEY` in your shell instead. techne's opt-in cleanup at session start is a Claude Code hook, and several techne skills (elenchus, seele, docs-site, deslop, reslop, docsync, research-grounded) hand part of their work to Claude Code subagents or `/code-review`; in other CLIs that step depends on what the agent offers. The other plugins rely on Claude Code's hooks, plugin settings or subagents and run there alone for now.
