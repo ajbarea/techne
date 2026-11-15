@@ -121,9 +121,29 @@ def test_the_timing_is_150_words_a_minute_with_a_second_to_spare():
     assert any("spoken line needs" in m for m in messages(segment(1, "0:00 – 0:15", over)))
 
 
-def test_a_missing_field_is_flagged():
-    text = segment(1, "0:00 – 0:10").replace("- **Visual Overlay:** None.\n", "")
-    assert any("Visual Overlay" in m for m in messages(text))
+@pytest.mark.parametrize(
+    "field",
+    [
+        "Environment & Lighting",
+        "Avatar (Wardrobe & Physicality)",
+        "Visual Overlay",
+        "Spoken Script",
+        "Vocal Direction",
+    ],
+)
+def test_a_missing_field_is_flagged(field):
+    lines = [
+        ln
+        for ln in segment(1, "0:00 – 0:10").splitlines(keepends=True)
+        if f"**{field}:**" not in ln
+    ]
+    assert any(f"missing {field}" in m for m in messages("".join(lines)))
+
+
+def test_segment_one_may_restart_the_clock_for_a_second_cut():
+    long_cut = segment(1, "0:00 – 0:10") + segment(2, "0:10 – 0:20")
+    short_cut = segment(1, "0:00 – 0:12").replace("Segment 1", "Segment S1")
+    assert cs.check(long_cut + short_cut) == []
 
 
 def test_main_needs_a_path(capsys):

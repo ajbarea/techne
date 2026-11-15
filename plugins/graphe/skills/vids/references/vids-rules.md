@@ -50,9 +50,9 @@ Vids makes each clip with Gemini Omni from that clip's prompt alone, and an Omni
 ## The lint
 
 ```
-python3 SKILL_FOLDER/scripts/check_script.py path/script.md       # one script
-python3 SKILL_FOLDER/scripts/check_script.py path/a.md path/b.md  # several
-# SKILL_FOLDER is the folder holding the graphe:vids SKILL.md
+python3 SKILL_DIR/scripts/check_script.py path/script.md       # one script
+python3 SKILL_DIR/scripts/check_script.py path/a.md path/b.md  # several
+# SKILL_DIR is the folder holding the graphe:vids SKILL.md
 ```
 
 It prints `path:line: problem` for a heading that looks like a segment but does not parse, and for each segment with a missing field, a double quote outside the spoken line, more than one quoted span, a [direction] inside the quotes, a pointer to another segment, a gesture time outside the segment, a gap or overlap with the segment before, or a clip or spoken line that does not fit in 15 seconds. It exits 1 when any script has a problem, so a script repo can run it in CI.
