@@ -27,3 +27,8 @@ Verified in a live session on AJ's personal account.
 22. **Replacing a scene:** right-click the scene > Delete, then Insert > Upload (or File menu, or right-click > upload from computer) a downloaded take; uploading can add the clip twice, so check the timeline and delete the duplicate. Scenes reorder by drag, after **Zoom to fit timeline** (the magnifier with a square).
 23. **Transitions:** the double-circle icon between scenes adds a transition with a length; it eats into each clip's generated time, so a fade can cut audio. Do not drag a clip past its generated length (it fills with blank frames).
 24. **More tools:** text, images, shapes and animations insert from the right rail; names can be spoken without anyone shown (first-person POV puts the viewer in a person's place).
+25. **Uploading from a script:** after `fileChooser.setFiles()` inside `browser_run_code`, cancel the MCP's own pending file chooser (`browser_file_upload` with no paths). Answering it again uploads the file a second time.
+26. **Volume is not linear:** on one clip, 60% measured 16 dB quieter than 100%, and 85% about 6 dB quieter. Set a level, export, measure `mean_volume` with ffmpeg, and adjust.
+27. **Song lyrics as karaoke:** Vids captions transcribe speech, not singing. For on-screen lyrics, take word times from a faster-whisper `word_timestamps` pass over the song, render the scene locally (Pillow frames piped to ffmpeg, words filling in as sung), and upload it as its own scene.
+28. **Trimming an audio track:** drag its right edge (the cursor turns to `ew-resize`) so it stops where the next track starts.
+29. **Memory:** WSL caps the browser's RAM (`memory=` in `.wslconfig`). Reload the Vids tab every few clips; a long session reached 4 GB.
