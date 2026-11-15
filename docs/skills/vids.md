@@ -35,7 +35,7 @@ python3 plugins/graphe/skills/vids/scripts/check_script.py path/to/script.md
 
 - Describe the clothes in every prompt; an avatar left undressed in the prompt renders shirtless.
 - Generated takes are temporary until inserted into the timeline, and a long session can grow the editor tab to several GB; reload the tab every few clips.
-- YouTube export uploads as Private. Tick **Altered or synthetic content** before making it public.
+- Upload in YouTube Studio as Unlisted with **AI use: Yes**; make it public after checking it on a phone.
 
 The click-level steps are in [`references/playwright.md`](https://github.com/ajbarea/techne/blob/main/plugins/graphe/skills/vids/references/playwright.md).
 

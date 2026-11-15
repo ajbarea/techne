@@ -5,7 +5,7 @@ Every Vids script follows these rules. They come from live Vids sessions and the
 
 ## Why the rules exist
 
-Vids makes each clip with Gemini Omni from that clip's prompt alone, and an Omni clip is 15 seconds at most since [Gemini Omni 1.2 Flash, Nov 5 2026](https://the-decoder.com/googles-gemini-omni-1-2-flash-stretches-ai-video-clips-to-15-seconds-and-cuts-pricing-by-30-percent/) (10 seconds before, [Opus Clip's Gemini Omni guide](https://www.opus.pro/blog/how-to-use-gemini-omni-beginners-guide); the author's sessions agree). Whatever a prompt leaves out, Vids makes up, and the made-up parts read as AI slop. Anything inside double quotes is spoken aloud.
+Vids makes each clip with Gemini Omni from that clip's prompt alone, and an Omni clip is 15 seconds at most since [Gemini Omni 1.2 Flash, Nov 5 2026](https://the-decoder.com/googles-gemini-omni-1-2-flash-stretches-ai-video-clips-to-15-seconds-and-cuts-pricing-by-30-percent/) (10 seconds before, [Opus Clip's Gemini Omni guide](https://www.opus.pro/blog/how-to-use-gemini-omni-beginners-guide); live sessions agree). Whatever a prompt leaves out, Vids makes up, and the made-up parts read as AI slop. Anything inside double quotes is spoken aloud.
 
 ## The rules
 
@@ -45,13 +45,14 @@ Vids makes each clip with Gemini Omni from that clip's prompt alone, and an Omni
 - [ ] The outfit and sets read the same in every segment.
 - [ ] Hard words have a pronunciation in `Vocal Direction`.
 - [ ] Enough Vids generations are left this month for every segment, plus retakes.
-- [ ] The description says an AI avatar of the user narrates, and 'Altered or synthetic content' is ticked on upload.
+- [ ] The description says an AI avatar of the user narrates, and **AI use: Yes** is set in YouTube Studio on upload.
 
 ## The lint
 
 ```
-python3 scripts/check_script.py path/script.md         # one script, from the skill folder
-python3 scripts/check_script.py path/a.md path/b.md    # several
+python3 SKILL_FOLDER/scripts/check_script.py path/script.md       # one script
+python3 SKILL_FOLDER/scripts/check_script.py path/a.md path/b.md  # several
+# SKILL_FOLDER is the folder holding the graphe:vids SKILL.md
 ```
 
 It prints `path:line: problem` for a heading that looks like a segment but does not parse, and for each segment with a missing field, a double quote outside the spoken line, more than one quoted span, a [direction] inside the quotes, a pointer to another segment, a gesture time outside the segment, a gap or overlap with the segment before, or a clip or spoken line that does not fit in 15 seconds. It exits 1 when any script has a problem, so a script repo can run it in CI.

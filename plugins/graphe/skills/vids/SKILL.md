@@ -10,7 +10,7 @@ description: "Make a short video in Google Vids with the user's own AI avatar (V
 
 Make the video in this order, and stop at the user's approval before anything is generated. The click-level steps for the editor are in [references/playwright.md](references/playwright.md); the script rules are in [references/vids-rules.md](references/vids-rules.md).
 
-**Needs:** a browser signed in to the user's Google account with Vids access (Playwright MCP), `ffmpeg`, and `uv`, which runs faster-whisper and Pillow through `uvx` on demand.
+**Needs:** a browser signed in to the user's Google account with Vids access (Playwright MCP), `ffmpeg`, and `uv`. Transcribe with `uv run --with faster-whisper python`, loading the audio as a 16 kHz numpy array and using model `base.en`.
 
 ## 1. Write the script and get it approved
 
@@ -45,9 +45,11 @@ Generate the song in Vids' **Music** panel before any outside tool. It lands on 
 
 Set the song to a fixed volume with ducking Off. Marking clips Narrative lowers the song for each clip's whole length, so a fully narrated video buries it. The slider is not linear: export, measure each part's `mean_volume` with ffmpeg, and adjust until the dialogue sits a few dB above the song.
 
-Wait for **Saved to Drive**, then File > Download > MP4. An export started before the save can be the previous version. Transcribe the whole export: every spoken line must come through word for word. Hand the MP4 to the user.
+Wait for **Saved to Drive**, then File > Download > MP4. An export started before the save can be the previous version.
 
-On-screen lyrics or other text drawn over the finished cut are rendered locally (Pillow frames piped to ffmpeg); keep them clear of the Shorts overlay at the bottom of the frame, which covers about 30% of a phone screen.
+Sung lyrics need local rendering, since Vids captions only speech. Draw them over the export with Pillow frames piped to ffmpeg, and keep them above the Shorts overlay at the bottom of the frame (see playwright.md step 30).
+
+Transcribe the final file: every spoken line must come through word for word. Hand the MP4 to the user.
 
 ## 4. YouTube
 
@@ -60,7 +62,7 @@ Upload in YouTube Studio as Unlisted, after reading the channel name to the user
 - A prop must be shown arriving before it is used.
 - State the framing (close-up, first-person POV, wide).
 - Ask for each line to be said once; a repeated line is a retake.
-- Read every take's frames, not only its words: hands, lettering and props drift.
+- Check every take's frames as well as its words: hands, lettering and props drift.
 
 ## Driving the editor
 

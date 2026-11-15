@@ -111,9 +111,8 @@ def check(text: str) -> list[tuple[int, str]]:
         else:
             start, end = clock(*span.groups()[:2]), clock(*span.groups()[2:])
             if not 0 < end - start <= MAX_SECONDS:
-                problems.append(
-                    (seg.line, f"segment runs {end - start} s; a clip is 1 to {MAX_SECONDS} s")
-                )
+                runs = f"runs {end - start} s" if end > start else "runs backwards or for 0 s"
+                problems.append((seg.line, f"segment {runs}; a clip is 1 to {MAX_SECONDS} s"))
             number = NUMBER.match(seg.heading)
             first = number is not None and number.group(1) == "1"
             if not first and previous_end is not None and start != previous_end:

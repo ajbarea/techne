@@ -51,7 +51,8 @@ def test_a_clip_longer_than_the_cap_is_flagged():
 
 def test_a_backwards_span_is_flagged_once_and_not_timed():
     out = messages(segment(1, "0:20 – 0:10"))
-    assert any("a clip is 1 to" in m for m in out)
+    assert any("runs backwards" in m for m in out)
+    assert not any("-" in m.split(";")[0] for m in out if "segment runs" in m)
     assert not any("spoken line needs" in m for m in out)
 
 
@@ -71,9 +72,53 @@ def test_a_direction_inside_the_quotes_is_flagged():
     )
 
 
-def test_a_second_quoted_span_is_flagged():
+def test_a_second_quoted_span_in_the_spoken_line_is_flagged():
+    text = segment(1, "0:00 – 0:10").replace('"Short line."', '"Short line." and "again."')
+    assert any("exactly one double-quoted span" in m for m in messages(text))
+
+
+def test_double_quotes_in_another_field_are_flagged():
     out = messages(segment(1, "0:00 – 0:10", extra=' Then say "again".'))
-    assert out
+    assert any("double quotes in Vocal Direction" in m for m in out)
+
+
+def test_double_quotes_on_a_loose_line_are_flagged():
+    text = segment(1, "0:00 – 0:10").replace(
+        "): Title\n", '): Title\nA stray note with "quotes".\n'
+    )
+    assert any("outside the spoken line" in m for m in messages(text))
+
+
+def test_double_quotes_in_the_heading_are_flagged():
+    text = segment(1, "0:00 – 0:10").replace("Title", '"Title"')
+    assert any("in the heading" in m for m in messages(text))
+
+
+def test_a_pointer_to_another_segment_is_flagged():
+    text = segment(1, "0:00 – 0:10").replace("a desert ramp at sunset", "same as Segment 2")
+    assert any("points elsewhere" in m for m in messages(text))
+
+
+def test_a_gesture_time_outside_its_segment_is_flagged():
+    text = segment(1, "0:00 – 0:10").replace("helmet.", "helmet. At 0:14, waves.")
+    assert any("falls outside this segment" in m for m in messages(text))
+
+
+def test_a_gesture_time_inside_its_segment_passes():
+    text = segment(1, "0:00 – 0:10").replace("helmet.", "helmet. At 0:04, waves.")
+    assert cs.check(text) == []
+
+
+def test_a_lookalike_heading_is_flagged():
+    text = segment(1, "0:00 – 0:10") + "## Clip 2 (0:10 – 0:20): Next\n"
+    assert any("looks like a segment heading" in m for m in messages(text))
+
+
+def test_the_timing_is_150_words_a_minute_with_a_second_to_spare():
+    fits = " ".join(["word"] * 35)  # 14.0 s at 150 wpm, inside 15 - 1
+    over = " ".join(["word"] * 36)  # 14.4 s
+    assert not any("spoken line needs" in m for m in messages(segment(1, "0:00 – 0:15", fits)))
+    assert any("spoken line needs" in m for m in messages(segment(1, "0:00 – 0:15", over)))
 
 
 def test_a_missing_field_is_flagged():
@@ -103,3 +148,7 @@ def test_main_passes_a_clean_file(tmp_path, capsys):
     p.write_text(segment(1, "0:00 – 0:12"), encoding="utf-8")
     assert cs.main([str(p)]) == 0
     assert "ok" in capsys.readouterr().out
+
+
+def test_a_number_is_timed_one_slot_per_two_digits():
+    assert cs.spoken_seconds("2025") == cs.spoken_seconds("twenty twenty-five")
