@@ -1,11 +1,11 @@
 <!-- budget: 900 words -->
 # Google Vids writing rules
 
-Every script in `videos/` follows these rules. They come from the [YouTube director skill](youtube-director/SKILL.md) (its Mode A phases, segment fields, quotation rule and anti-slop rule), from AJ's own Vids sessions, and from the working example, [01 Federated Agents](01-federated-agents/script.md). `check_script.py` enforces the ones a script can check.
+Every Vids script follows these rules. They come from the YouTube director skill (its Mode A phases, segment fields, quotation rule and anti-slop rule), from the author's own Vids sessions, and from the working example, 01 Federated Agents. `check_script.py` enforces the ones a script can check.
 
 ## Why the rules exist
 
-Vids makes each clip with Gemini Omni from that clip's prompt alone, and an Omni clip is 15 seconds at most since [Gemini Omni 1.2 Flash, Nov 5 2026](https://the-decoder.com/googles-gemini-omni-1-2-flash-stretches-ai-video-clips-to-15-seconds-and-cuts-pricing-by-30-percent/) (10 seconds before, [Opus Clip's Gemini Omni guide](https://www.opus.pro/blog/how-to-use-gemini-omni-beginners-guide); AJ's sessions agree). Whatever a prompt leaves out, Vids makes up, and the made-up parts read as AI slop. Anything inside double quotes is spoken aloud.
+Vids makes each clip with Gemini Omni from that clip's prompt alone, and an Omni clip is 15 seconds at most since [Gemini Omni 1.2 Flash, Nov 5 2026](https://the-decoder.com/googles-gemini-omni-1-2-flash-stretches-ai-video-clips-to-15-seconds-and-cuts-pricing-by-30-percent/) (10 seconds before, [Opus Clip's Gemini Omni guide](https://www.opus.pro/blog/how-to-use-gemini-omni-beginners-guide); the author's sessions agree). Whatever a prompt leaves out, Vids makes up, and the made-up parts read as AI slop. Anything inside double quotes is spoken aloud.
 
 ## The rules
 
@@ -21,7 +21,7 @@ Vids makes each clip with Gemini Omni from that clip's prompt alone, and an Omni
 5. **Double quotes go only around the spoken words.** One quoted span per segment, because every quoted span is voiced, a repeat included. On-screen text, labels and directions take single quotes; code takes backticks, and code shown on screen uses single-quoted strings.
 6. **No directions inside the spoken quotes.** Write a pause as '...' in the line; put '[smiles]', '[0.6 s pause]' and the like in `Vocal Direction`.
 7. **Keep the look the same.** Name the outfit and the sets once in the header, then repeat them in every segment, unless the script means the change.
-8. **Any voice, any cast.** The narrator is AJ's avatar, so a script may use any voice, or several characters played by the avatar. Name each character's wardrobe, set and voice in the header, and start each segment's avatar field with its character.
+8. **Any voice, any cast.** The narrator is the user's avatar, so a script may use any voice, or several characters played by the avatar. Name each character's wardrobe, set and voice in the header, and start each segment's avatar field with its character.
 9. **Plain language.** Most sentences 20 words or fewer, about an 8th to 10th grade reading level. Name a field term once and explain it in the same line.
 10. **Every fact traces to its source.** List the sources at the top of the file, with the segments each one backs. Sources are never voiced.
 11. **Where a talk deck exists, the narration comes from the deck's speaker notes** (`graphe:slides`), so the video and the talk say the same thing.
@@ -39,19 +39,19 @@ Vids makes each clip with Gemini Omni from that clip's prompt alone, and an Omni
 
 ## Pre-flight, before recording
 
-- [ ] `python3 videos/check_script.py` passes on the script.
+- [ ] The skill's `scripts/check_script.py` passes on the script.
 - [ ] Every overlay is listed under Assets, and none shows a private repository, account, email or key.
 - [ ] Each fact matches a source at the top; nothing comes from a paper in review or an unpublished result.
 - [ ] The outfit and sets read the same in every segment.
 - [ ] Hard words have a pronunciation in `Vocal Direction`.
 - [ ] Enough Vids generations are left this month for every segment, plus retakes.
-- [ ] The description says an AI avatar of AJ narrates, and 'Altered or synthetic content' is ticked on upload.
+- [ ] The description says an AI avatar of the user narrates, and 'Altered or synthetic content' is ticked on upload.
 
 ## The lint
 
 ```
-python3 videos/check_script.py                 # every videos/*/script.md
-python3 videos/check_script.py path/script.md  # one script
+python3 scripts/check_script.py path/a.md path/b.md  # several scripts
+python3 scripts/check_script.py path/script.md     # one script
 make videos-check                              # the same, from make
 ```
 
