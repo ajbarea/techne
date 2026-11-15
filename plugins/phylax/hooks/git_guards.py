@@ -63,7 +63,14 @@ def main() -> int:
     data = json.loads(payload or "{}")
     if mod_checks(data):
         return 0
-    raw = (data.get("tool_input") or {}).get("command") or ""
+    if not data.get("cwd") and data.get("workspacePaths"):
+        data["cwd"] = data["workspacePaths"][0]
+    tool_input = data.get("tool_input") or {}
+    tool_call = data.get("toolCall") or {}
+    tool_args = tool_call.get("args") or {}
+    raw = (
+        tool_input.get("command") or tool_args.get("CommandLine") or tool_args.get("command") or ""
+    )
     if not re.search(r"\b(git|gh)\b", raw):
         return 0
     import git_checks
