@@ -84,6 +84,7 @@ def run_guard(command, cwd, state, *, on=(SECRETS,), extra_env=None):
     assert proc.returncode == 0, proc.stderr
     out = json.loads(proc.stdout) if proc.stdout.strip() else None
     if out and out["hookSpecificOutput"].get("permissionDecision") == "deny":
+        assert set(out) == {"hookSpecificOutput"}, out  # Claude Code ignores any other shape
         return out["hookSpecificOutput"]["permissionDecisionReason"]
     return None
 

@@ -41,21 +41,6 @@
         ]
       },
       {
-        "matcher": "invoke_subagent",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "case \"$CLAUDE_PLUGIN_OPTION_REQUIRE_SUBAGENT_MODEL\" in true) exec python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/model_guard.py\" ;; esac",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "case \"$CLAUDE_PLUGIN_OPTION_BUDGET_MODE\" in true) exec python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/budget.py\" agent ;; esac",
-            "timeout": 10
-          }
-        ]
-      },
-      {
         "matcher": "^(mcp__plugin_epistole_epistole__(create|update)_draft|mcp__claude_ai_Gmail(_[A-Za-z0-9]+)?__(create_draft|update_draft|send_message|reply))$",
         "hooks": [
           {

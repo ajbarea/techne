@@ -63,8 +63,6 @@ def main() -> int:
     data = json.loads(payload or "{}")
     if mod_checks(data):
         return 0
-    if not data.get("cwd") and data.get("workspacePaths"):
-        data["cwd"] = data["workspacePaths"][0]
     tool_input = data.get("tool_input") or {}
     tool_call = data.get("toolCall") or {}
     tool_args = tool_call.get("args") or {}
@@ -74,7 +72,14 @@ def main() -> int:
     if not re.search(r"\b(git|gh)\b", raw):
         return 0
     import git_checks
+    import hook_output
 
+    # agy names the folder a command runs in with run_command's Cwd, else the workspace.
+    paths = data.get("workspacePaths")
+    if hook_output.from_agy(data) and isinstance(tool_args.get("Cwd"), str) and tool_args["Cwd"]:
+        data["cwd"] = tool_args["Cwd"]
+    elif not data.get("cwd") and isinstance(paths, list) and paths:
+        data["cwd"] = paths[0]
     return git_checks.check(data, raw)
 
 

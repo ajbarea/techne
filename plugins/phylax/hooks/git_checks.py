@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import hook_output
 from git_options import (
     ATTRIBUTION,
     BLOCKING,
@@ -917,30 +918,16 @@ def parse_gh_pr(args: list[str], words: tuple[str, ...] = ()) -> tuple[list[str]
 
 
 class Verdict:
-    def __init__(self) -> None:
+    def __init__(self, agy: bool = False) -> None:
         self.denies: list[str] = []
         self.warnings: list[str] = []
+        self.agy = agy
 
     def emit(self) -> None:
         if self.denies:
-            reason = "\n".join(dict.fromkeys(self.denies))
-            out = {
-                "decision": "deny",
-                "reason": reason,
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "permissionDecision": "deny",
-                    "permissionDecisionReason": reason,
-                },
-            }
+            out = hook_output.deny("\n".join(dict.fromkeys(self.denies)), self.agy)
         elif self.warnings:
-            text = "\n".join(self.warnings)
-            out = {
-                "decision": "allow",
-                "systemMessage": text,
-                "additionalContext": text,
-                "hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": text},
-            }
+            out = hook_output.warn("\n".join(self.warnings), self.agy)
         else:
             return
         json.dump(out, sys.stdout)
@@ -1934,6 +1921,7 @@ def check(data: dict, raw: str) -> int:
     stripped, bodies = strip_heredocs(raw)
     tokens = tokenize(stripped)
     guards = Guards(bodies, str(data.get("agent_type") or data.get("agent_id") or ""))
+    guards.verdict.agy = hook_output.from_agy(data)
     errored = False
     try:
         if tokens is None:

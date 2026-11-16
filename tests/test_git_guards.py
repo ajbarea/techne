@@ -18,6 +18,7 @@ import time
 import pytest
 from conftest import (
     HOOK_PYTHON,
+    _load,
     hook_env,
     hook_handlers,
     hook_shell,
@@ -77,14 +78,22 @@ def run_hook(command: str, cwd: pathlib.Path, *, on=ALL) -> dict | None:
     return json.loads(proc.stdout) if proc.stdout.strip() else None
 
 
+# Claude Code ignores hook JSON that fails its schema, deny included: a top-level `decision` of
+# "deny" or "allow" fails it. So a verdict for Claude Code carries no other top-level field.
+CLAUDE_DENY_KEYS = {"hookSpecificOutput"}
+CLAUDE_WARN_KEYS = {"systemMessage", "hookSpecificOutput"}
+
+
 def denied(out: dict | None) -> str | None:
     if out and out["hookSpecificOutput"].get("permissionDecision") == "deny":
+        assert set(out) == CLAUDE_DENY_KEYS, out
         return out["hookSpecificOutput"]["permissionDecisionReason"]
     return None
 
 
 def warned(out: dict | None) -> str | None:
     if out and "permissionDecision" not in out["hookSpecificOutput"]:
+        assert set(out) == CLAUDE_WARN_KEYS, out
         assert out["systemMessage"] == out["hookSpecificOutput"]["additionalContext"]
         return out["systemMessage"]
     return None
@@ -725,11 +734,11 @@ def test_a_command_naming_neither_tool_never_loads_the_checks(tmp_path):
     assert "checks loaded" in run("git status").stderr
 
 
-@pytest.mark.parametrize("broken", ["git_options.py", "git_checks.py"])
+@pytest.mark.parametrize("broken", ["git_options.py", "git_checks.py", "hook_output.py"])
 def test_a_module_that_cannot_load_fails_closed(tmp_path, broken):
     hooks = tmp_path / "hooks"
     hooks.mkdir()
-    for name in ("git_guards.py", "git_options.py", "git_checks.py"):
+    for name in ("git_guards.py", "git_options.py", "git_checks.py", "hook_output.py"):
         shutil.copy(GUARDS.parent / name, hooks)
     (hooks / broken).write_text("raise ImportError('broken install')\n")
     payload = json.dumps({"cwd": str(tmp_path), "tool_input": {"command": "git commit -m x"}})
@@ -1101,9 +1110,9 @@ def test_agy_payload_attribution_denied(tmp_path):
     )
     assert proc.returncode == 0
     decision = json.loads(proc.stdout)
-    assert decision.get("decision") == "deny"
-    assert "attribution" in decision.get("reason", "").lower()
-    assert decision.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
+    assert set(decision) == {"decision", "reason"}, decision
+    assert decision["decision"] == "deny"
+    assert "attribution" in decision["reason"].lower()
 
 
 def test_agy_payload_clean_allowed(tmp_path):
@@ -1130,3 +1139,144 @@ def test_agy_payload_clean_allowed(tmp_path):
     )
     assert proc.returncode == 0
     assert proc.stdout == "" or "deny" not in proc.stdout
+
+
+def test_agy_payload_warning_is_an_allow_with_its_reason(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-b", "main")
+    _git(repo, "commit", "--allow-empty", "-m", "init")
+    _git(repo, "worktree", "add", "-q", str(tmp_path / "wt"), "-b", "side")
+    payload = json.dumps(
+        {
+            "hookEventName": "PreToolUse",
+            "workspacePaths": [str(repo)],
+            "toolCall": {"name": "run_command", "args": {"CommandLine": "git commit -m 'feat: x'"}},
+        }
+    )
+    proc = subprocess.run(
+        [HOOK_PYTHON, str(GUARDS)],
+        input=payload,
+        capture_output=True,
+        text=True,
+        env=hook_env([MAIN_CHECKOUT]),
+    )
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    assert set(out) == {"decision", "reason"}, out
+    assert out["decision"] == "allow" and "main checkout" in out["reason"]
+
+
+def test_only_a_toolcall_payload_without_tool_name_reads_as_agy():
+    out = _load("hook_output", GUARDS.parent / "hook_output.py")
+    assert out.from_agy({"toolCall": {"name": "run_command"}})
+    assert not out.from_agy({"tool_name": "Bash", "toolCall": {"name": "run_command"}})
+    assert not out.from_agy({"tool_name": "Bash", "tool_input": {"command": "git status"}})
+    assert not out.from_agy({"toolCall": "run_command"})
+    assert not out.from_agy([])
+
+
+@pytest.mark.parametrize("agy", [False, True])
+def test_a_verdict_joins_its_denies_once_each_and_its_warnings_in_order(monkeypatch, capsys, agy):
+    (checks,) = load_phylax_hooks(monkeypatch, "git_checks")
+    v = checks.Verdict(agy=agy)
+    v.denies += ["first", "second", "first"]
+    v.warnings.append("ignored while a deny stands")
+    v.emit()
+    out = json.loads(capsys.readouterr().out)
+    reason = out["reason"] if agy else out["hookSpecificOutput"]["permissionDecisionReason"]
+    assert reason == "first\nsecond"
+    w = checks.Verdict(agy=agy)
+    w.warnings += ["one", "two"]
+    w.emit()
+    out = json.loads(capsys.readouterr().out)
+    text = out["reason"] if agy else out["hookSpecificOutput"]["additionalContext"]
+    assert text == "one\ntwo"
+    assert agy or out["systemMessage"] == "one\ntwo"
+    checks.Verdict(agy=agy).emit()
+    assert capsys.readouterr().out == ""
+
+
+def test_agy_runs_the_checks_in_the_folder_run_command_names(tmp_path):
+    # Only the folder Cwd names has a linked worktree, so only a check run there warns.
+    work = tmp_path / "work"
+    other = tmp_path / "other"
+    for repo in (work, other):
+        repo.mkdir()
+        _git(repo, "init", "-b", "main")
+        _git(repo, "commit", "--allow-empty", "-m", "init")
+    _git(other, "worktree", "add", "-q", str(tmp_path / "wt"), "-b", "side")
+    payload = json.dumps(
+        {
+            "hookEventName": "PreToolUse",
+            "workspacePaths": [str(work)],
+            "toolCall": {
+                "name": "run_command",
+                "args": {"CommandLine": "git commit -m 'feat: x'", "Cwd": str(other)},
+            },
+        }
+    )
+    proc = subprocess.run(
+        [HOOK_PYTHON, str(GUARDS)],
+        input=payload,
+        capture_output=True,
+        text=True,
+        env=hook_env([MAIN_CHECKOUT]),
+    )
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["decision"] == "allow" and str(other) in out["reason"]
+
+
+def test_a_claude_payload_never_takes_its_folder_from_a_toolcall_cwd(tmp_path):
+    here = tmp_path / "here"
+    elsewhere = tmp_path / "elsewhere"
+    for repo in (here, elsewhere):
+        repo.mkdir()
+        _git(repo, "init", "-b", "main")
+        _git(repo, "commit", "--allow-empty", "-m", "init")
+    _git(elsewhere, "worktree", "add", "-q", str(tmp_path / "wt"), "-b", "side")
+    payload = json.dumps(
+        {
+            "tool_name": "Bash",
+            "cwd": str(here),
+            "tool_input": {"command": "git commit -m 'feat: x'"},
+            "toolCall": {"args": {"Cwd": str(elsewhere)}},
+        }
+    )
+    proc = subprocess.run(
+        [HOOK_PYTHON, str(GUARDS)],
+        input=payload,
+        capture_output=True,
+        text=True,
+        env=hook_env([MAIN_CHECKOUT]),
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert not proc.stdout.strip()  # here has no linked worktree; elsewhere would warn
+
+
+def test_an_agy_payload_with_its_own_cwd_keeps_it_over_the_workspace(tmp_path):
+    named = tmp_path / "named"
+    workspace = tmp_path / "workspace"
+    for repo in (named, workspace):
+        repo.mkdir()
+        _git(repo, "init", "-b", "main")
+        _git(repo, "commit", "--allow-empty", "-m", "init")
+    _git(named, "worktree", "add", "-q", str(tmp_path / "wt"), "-b", "side")
+    payload = json.dumps(
+        {
+            "hookEventName": "PreToolUse",
+            "cwd": str(named),
+            "workspacePaths": [str(workspace)],
+            "toolCall": {"name": "run_command", "args": {"CommandLine": "git commit -m 'feat: x'"}},
+        }
+    )
+    proc = subprocess.run(
+        [HOOK_PYTHON, str(GUARDS)],
+        input=payload,
+        capture_output=True,
+        text=True,
+        env=hook_env([MAIN_CHECKOUT]),
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert str(named) in json.loads(proc.stdout)["reason"]
