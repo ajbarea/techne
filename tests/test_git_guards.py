@@ -1174,3 +1174,24 @@ def test_only_a_toolcall_payload_without_tool_name_reads_as_agy():
     assert not out.from_agy({"tool_name": "Bash", "tool_input": {"command": "git status"}})
     assert not out.from_agy({"toolCall": "run_command"})
     assert not out.from_agy([])
+
+
+@pytest.mark.parametrize("agy", [False, True])
+def test_a_verdict_joins_its_denies_once_each_and_its_warnings_in_order(monkeypatch, capsys, agy):
+    (checks,) = load_phylax_hooks(monkeypatch, "git_checks")
+    v = checks.Verdict(agy=agy)
+    v.denies += ["first", "second", "first"]
+    v.warnings.append("ignored while a deny stands")
+    v.emit()
+    out = json.loads(capsys.readouterr().out)
+    reason = out["reason"] if agy else out["hookSpecificOutput"]["permissionDecisionReason"]
+    assert reason == "first\nsecond"
+    w = checks.Verdict(agy=agy)
+    w.warnings += ["one", "two"]
+    w.emit()
+    out = json.loads(capsys.readouterr().out)
+    text = out["reason"] if agy else out["hookSpecificOutput"]["additionalContext"]
+    assert text == "one\ntwo"
+    assert agy or out["systemMessage"] == "one\ntwo"
+    checks.Verdict(agy=agy).emit()
+    assert capsys.readouterr().out == ""
