@@ -734,11 +734,11 @@ def test_a_command_naming_neither_tool_never_loads_the_checks(tmp_path):
     assert "checks loaded" in run("git status").stderr
 
 
-@pytest.mark.parametrize("broken", ["git_options.py", "git_checks.py"])
+@pytest.mark.parametrize("broken", ["git_options.py", "git_checks.py", "hook_output.py"])
 def test_a_module_that_cannot_load_fails_closed(tmp_path, broken):
     hooks = tmp_path / "hooks"
     hooks.mkdir()
-    for name in ("git_guards.py", "git_options.py", "git_checks.py"):
+    for name in ("git_guards.py", "git_options.py", "git_checks.py", "hook_output.py"):
         shutil.copy(GUARDS.parent / name, hooks)
     (hooks / broken).write_text("raise ImportError('broken install')\n")
     payload = json.dumps({"cwd": str(tmp_path), "tool_input": {"command": "git commit -m x"}})
@@ -1226,3 +1226,30 @@ def test_agy_runs_the_checks_in_the_folder_run_command_names(tmp_path):
     assert proc.returncode == 0, proc.stderr
     out = json.loads(proc.stdout)
     assert out["decision"] == "allow" and str(other) in out["reason"]
+
+
+def test_a_claude_payload_never_takes_its_folder_from_a_toolcall_cwd(tmp_path):
+    here = tmp_path / "here"
+    elsewhere = tmp_path / "elsewhere"
+    for repo in (here, elsewhere):
+        repo.mkdir()
+        _git(repo, "init", "-b", "main")
+        _git(repo, "commit", "--allow-empty", "-m", "init")
+    _git(elsewhere, "worktree", "add", "-q", str(tmp_path / "wt"), "-b", "side")
+    payload = json.dumps(
+        {
+            "tool_name": "Bash",
+            "cwd": str(here),
+            "tool_input": {"command": "git commit -m 'feat: x'"},
+            "toolCall": {"args": {"Cwd": str(elsewhere)}},
+        }
+    )
+    proc = subprocess.run(
+        [HOOK_PYTHON, str(GUARDS)],
+        input=payload,
+        capture_output=True,
+        text=True,
+        env=hook_env([MAIN_CHECKOUT]),
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert not proc.stdout.strip()  # here has no linked worktree; elsewhere would warn
