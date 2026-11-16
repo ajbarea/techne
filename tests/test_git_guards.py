@@ -1195,3 +1195,34 @@ def test_a_verdict_joins_its_denies_once_each_and_its_warnings_in_order(monkeypa
     assert agy or out["systemMessage"] == "one\ntwo"
     checks.Verdict(agy=agy).emit()
     assert capsys.readouterr().out == ""
+
+
+def test_agy_runs_the_checks_in_the_folder_run_command_names(tmp_path):
+    # Only the folder Cwd names has a linked worktree, so only a check run there warns.
+    work = tmp_path / "work"
+    other = tmp_path / "other"
+    for repo in (work, other):
+        repo.mkdir()
+        _git(repo, "init", "-b", "main")
+        _git(repo, "commit", "--allow-empty", "-m", "init")
+    _git(other, "worktree", "add", "-q", str(tmp_path / "wt"), "-b", "side")
+    payload = json.dumps(
+        {
+            "hookEventName": "PreToolUse",
+            "workspacePaths": [str(work)],
+            "toolCall": {
+                "name": "run_command",
+                "args": {"CommandLine": "git commit -m 'feat: x'", "Cwd": str(other)},
+            },
+        }
+    )
+    proc = subprocess.run(
+        [HOOK_PYTHON, str(GUARDS)],
+        input=payload,
+        capture_output=True,
+        text=True,
+        env=hook_env([MAIN_CHECKOUT]),
+    )
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["decision"] == "allow" and str(other) in out["reason"]

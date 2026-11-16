@@ -30,7 +30,7 @@ import re
 import stat
 import sys
 
-TOOLS = ("Agent", "Task", "invoke_subagent")
+TOOLS = ("Agent", "Task")
 # Built-in agent types that run on the session's model; an omitted type is general-purpose.
 INHERITING = ("general-purpose", "claude", "Explore", "Plan")
 # The ones with no model of their own, which CLAUDE_CODE_SUBAGENT_MODEL reaches.
@@ -240,7 +240,7 @@ def default_decides(kind: str, start: str) -> bool:
 
 
 def names_model(tool_input: dict) -> bool:
-    model = tool_input.get("model") or tool_input.get("Model")
+    model = tool_input.get("model")
     return isinstance(model, str) and bool(model.strip())
 
 
@@ -253,27 +253,30 @@ def main() -> int:
     if not isinstance(data, dict):
         print("phylax model_guard: payload is not an object; allowing the call", file=sys.stderr)
         return 0
-    tool_name = data.get("tool_name") or (data.get("toolCall") or {}).get("name") or ""
-    if tool_name not in TOOLS:
+    if data.get("tool_name") not in TOOLS:
         return 0
-    tool_input = data.get("tool_input") or (data.get("toolCall") or {}).get("args")
+    tool_input = data.get("tool_input")
     if not isinstance(tool_input, dict):
         print("phylax model_guard: tool_input is not an object; allowing the call", file=sys.stderr)
         return 0
     # Claude Code reads project definitions from where the session started, not where it
     # has since moved; the payload's cwd stands in when the variable is missing.
-    start = (
-        os.environ.get("CLAUDE_PROJECT_DIR")
-        or data.get("cwd")
-        or (data.get("workspacePaths") or [None])[0]
-    )
+    start = os.environ.get("CLAUDE_PROJECT_DIR") or data.get("cwd")
     if not isinstance(start, str) or not start:
         start = os.getcwd()
     if names_model(tool_input) or default_decides(agent_type(tool_input), start):
         return 0
-    import hook_output  # beside this script, which python3 puts first on sys.path
-
-    print(json.dumps(hook_output.deny(REASON, hook_output.from_agy(data))))
+    print(
+        json.dumps(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": REASON,
+                }
+            }
+        )
+    )
     return 0
 
 

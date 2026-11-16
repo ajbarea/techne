@@ -740,25 +740,16 @@ def test_a_multi_line_value_is_unknown(mg, tmp_path):
     assert mg.frontmatter(str(path))["model"] is mg.UNKNOWN
 
 
-def agy_call(**args) -> str:
-    return json.dumps(
+def test_an_agy_subagent_call_is_not_guarded():
+    # agy hides a subagent's model from the model that dispatches it, so no call of its
+    # could ever name one: the guard reads Claude Code's Agent and Task alone.
+    stdin = json.dumps(
         {
             "hookEventName": "PreToolUse",
             "workspacePaths": [str(PLACES["repo"])],
-            "toolCall": {"name": "invoke_subagent", "args": args},
+            "toolCall": {"name": "invoke_subagent", "args": {"Subagents": [{"Prompt": "do it"}]}},
         }
     )
-
-
-def test_an_agy_subagent_call_with_no_model_is_refused_in_agy_shape():
-    proc = run_guard(agy_call(Prompt="do it"))
-    assert proc.returncode == 0, proc.stderr
-    out = json.loads(proc.stdout)
-    assert set(out) == {"decision", "reason"}, out
-    assert out["decision"] == "deny" and "model" in out["reason"]
-
-
-def test_an_agy_subagent_call_naming_its_model_passes():
-    proc = run_guard(agy_call(Prompt="do it", Model="gemini-3-flash"))
+    proc = run_guard(stdin)
     assert proc.returncode == 0, proc.stderr
     assert not proc.stdout.strip()
