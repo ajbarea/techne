@@ -271,19 +271,9 @@ def main() -> int:
         start = os.getcwd()
     if names_model(tool_input) or default_decides(agent_type(tool_input), start):
         return 0
-    print(
-        json.dumps(
-            {
-                "decision": "deny",
-                "reason": REASON,
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "permissionDecision": "deny",
-                    "permissionDecisionReason": REASON,
-                },
-            }
-        )
-    )
+    import hook_output  # beside this script, which python3 puts first on sys.path
+
+    print(json.dumps(hook_output.deny(REASON, hook_output.from_agy(data))))
     return 0
 
 

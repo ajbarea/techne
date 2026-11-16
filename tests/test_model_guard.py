@@ -75,7 +75,11 @@ def decision(proc: subprocess.CompletedProcess) -> str | None:
     assert proc.returncode == 0, proc.stderr
     if not proc.stdout.strip():
         return None
-    out = json.loads(proc.stdout)["hookSpecificOutput"]
+    whole = json.loads(proc.stdout)
+    # Claude Code ignores hook JSON that fails its schema, deny included; a top-level
+    # `decision` of "deny" fails it.
+    assert set(whole) == {"hookSpecificOutput"}, whole
+    out = whole["hookSpecificOutput"]
     assert out["hookEventName"] == "PreToolUse"
     assert out["permissionDecision"] == "deny"
     return out["permissionDecisionReason"]
@@ -734,3 +738,27 @@ def test_a_multi_line_value_is_unknown(mg, tmp_path):
     path = tmp_path / "d.md"
     path.write_text("---\nname: Explore\nmodel:\n  haiku\n---\n")
     assert mg.frontmatter(str(path))["model"] is mg.UNKNOWN
+
+
+def agy_call(**args) -> str:
+    return json.dumps(
+        {
+            "hookEventName": "PreToolUse",
+            "workspacePaths": [str(PLACES["repo"])],
+            "toolCall": {"name": "invoke_subagent", "args": args},
+        }
+    )
+
+
+def test_an_agy_subagent_call_with_no_model_is_refused_in_agy_shape():
+    proc = run_guard(agy_call(Prompt="do it"))
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    assert set(out) == {"decision", "reason"}, out
+    assert out["decision"] == "deny" and "model" in out["reason"]
+
+
+def test_an_agy_subagent_call_naming_its_model_passes():
+    proc = run_guard(agy_call(Prompt="do it", Model="gemini-3-flash"))
+    assert proc.returncode == 0, proc.stderr
+    assert not proc.stdout.strip()

@@ -18,6 +18,7 @@ import time
 import pytest
 from conftest import (
     HOOK_PYTHON,
+    _load,
     hook_env,
     hook_handlers,
     hook_shell,
@@ -77,14 +78,22 @@ def run_hook(command: str, cwd: pathlib.Path, *, on=ALL) -> dict | None:
     return json.loads(proc.stdout) if proc.stdout.strip() else None
 
 
+# Claude Code ignores hook JSON that fails its schema, deny included: a top-level `decision` of
+# "deny" or "allow" fails it. So a verdict for Claude Code carries no other top-level field.
+CLAUDE_DENY_KEYS = {"hookSpecificOutput"}
+CLAUDE_WARN_KEYS = {"systemMessage", "hookSpecificOutput"}
+
+
 def denied(out: dict | None) -> str | None:
     if out and out["hookSpecificOutput"].get("permissionDecision") == "deny":
+        assert set(out) == CLAUDE_DENY_KEYS, out
         return out["hookSpecificOutput"]["permissionDecisionReason"]
     return None
 
 
 def warned(out: dict | None) -> str | None:
     if out and "permissionDecision" not in out["hookSpecificOutput"]:
+        assert set(out) == CLAUDE_WARN_KEYS, out
         assert out["systemMessage"] == out["hookSpecificOutput"]["additionalContext"]
         return out["systemMessage"]
     return None
@@ -1101,9 +1110,9 @@ def test_agy_payload_attribution_denied(tmp_path):
     )
     assert proc.returncode == 0
     decision = json.loads(proc.stdout)
-    assert decision.get("decision") == "deny"
-    assert "attribution" in decision.get("reason", "").lower()
-    assert decision.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
+    assert set(decision) == {"decision", "reason"}, decision
+    assert decision["decision"] == "deny"
+    assert "attribution" in decision["reason"].lower()
 
 
 def test_agy_payload_clean_allowed(tmp_path):
@@ -1130,3 +1139,38 @@ def test_agy_payload_clean_allowed(tmp_path):
     )
     assert proc.returncode == 0
     assert proc.stdout == "" or "deny" not in proc.stdout
+
+
+def test_agy_payload_warning_is_an_allow_with_its_reason(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-b", "main")
+    _git(repo, "commit", "--allow-empty", "-m", "init")
+    _git(repo, "worktree", "add", "-q", str(tmp_path / "wt"), "-b", "side")
+    payload = json.dumps(
+        {
+            "hookEventName": "PreToolUse",
+            "workspacePaths": [str(repo)],
+            "toolCall": {"name": "run_command", "args": {"CommandLine": "git commit -m 'feat: x'"}},
+        }
+    )
+    proc = subprocess.run(
+        [HOOK_PYTHON, str(GUARDS)],
+        input=payload,
+        capture_output=True,
+        text=True,
+        env=hook_env([MAIN_CHECKOUT]),
+    )
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    assert set(out) == {"decision", "reason"}, out
+    assert out["decision"] == "allow" and "main checkout" in out["reason"]
+
+
+def test_only_a_toolcall_payload_without_tool_name_reads_as_agy():
+    out = _load("hook_output", GUARDS.parent / "hook_output.py")
+    assert out.from_agy({"toolCall": {"name": "run_command"}})
+    assert not out.from_agy({"tool_name": "Bash", "toolCall": {"name": "run_command"}})
+    assert not out.from_agy({"tool_name": "Bash", "tool_input": {"command": "git status"}})
+    assert not out.from_agy({"toolCall": "run_command"})
+    assert not out.from_agy([])
