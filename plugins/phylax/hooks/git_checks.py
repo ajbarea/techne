@@ -18,9 +18,8 @@ import shlex
 import sys
 from pathlib import Path
 
-import hook_output
-
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import hook_output
 from git_options import (
     ATTRIBUTION,
     BLOCKING,
