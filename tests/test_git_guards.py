@@ -1253,3 +1253,30 @@ def test_a_claude_payload_never_takes_its_folder_from_a_toolcall_cwd(tmp_path):
     )
     assert proc.returncode == 0, proc.stderr
     assert not proc.stdout.strip()  # here has no linked worktree; elsewhere would warn
+
+
+def test_an_agy_payload_with_its_own_cwd_keeps_it_over_the_workspace(tmp_path):
+    named = tmp_path / "named"
+    workspace = tmp_path / "workspace"
+    for repo in (named, workspace):
+        repo.mkdir()
+        _git(repo, "init", "-b", "main")
+        _git(repo, "commit", "--allow-empty", "-m", "init")
+    _git(named, "worktree", "add", "-q", str(tmp_path / "wt"), "-b", "side")
+    payload = json.dumps(
+        {
+            "hookEventName": "PreToolUse",
+            "cwd": str(named),
+            "workspacePaths": [str(workspace)],
+            "toolCall": {"name": "run_command", "args": {"CommandLine": "git commit -m 'feat: x'"}},
+        }
+    )
+    proc = subprocess.run(
+        [HOOK_PYTHON, str(GUARDS)],
+        input=payload,
+        capture_output=True,
+        text=True,
+        env=hook_env([MAIN_CHECKOUT]),
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert str(named) in json.loads(proc.stdout)["reason"]
