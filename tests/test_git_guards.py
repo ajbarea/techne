@@ -494,7 +494,15 @@ def test_manifest_options_match_the_guard_and_default_off():
     # require_subagent_model to model_guard.py, tested in test_model_guard.py; email_* to
     # email_greeting.py, tested in test_email_greeting.py; budget_* to budget.py, tested in
     # test_budget.py.
-    others = {"restart_on_update", "require_subagent_model", "email_greeting"}
+    # block_background_loops and block_pkill_full to command_shapes.py, tested in
+    # test_command_shapes.py.
+    others = {
+        "restart_on_update",
+        "require_subagent_model",
+        "email_greeting",
+        "block_background_loops",
+        "block_pkill_full",
+    }
     guards = {k for k in options if k not in others and not k.startswith(("budget_", "email_"))}
     # block_secrets and block_long_bodies live in git_checks.py too, tested in
     # test_secret_guard.py and test_body_gate.py.
