@@ -100,8 +100,9 @@ LOOP_DENY = (
     "`until CHECK || [ $SECONDS -gt 1800 ]; do sleep 30; done`."
 )
 LOOP_DENY_AMP = (
-    "phylax: this command has a `&`, so every `while` or `until` loop in it counts as a "
-    "background loop, and none here is bounded. Bound the loop itself: wrap only the loop in "
+    "phylax: this command backgrounds something (a `&` or `setsid -f`), so every `while` or "
+    "`until` loop in it counts as a background loop, and none here is bounded. Bound the loop "
+    "itself: wrap only the loop in "
     "`timeout 1800 bash -c 'until CHECK; do sleep 30; done'`, or end it on a clock "
     "(`until CHECK || [ $SECONDS -gt 1800 ]; do sleep 30; done`). Or start the background job "
     "in its own call and wait in the next."
@@ -513,7 +514,9 @@ def on_clock(commands: Sequence[list[str]], k: int) -> bool:
                 break  # a `;` or a newline ends the test's own and-or list
             braces += nxt[: command_start(nxt)].count("{")
             if nxt[:1] == ["}"]:
-                braces -= sum(w == "}" for w in nxt)  # `} }` closes two
+                # `} }` closes two; a `{` on the test's own command was never counted, so
+                # the count stops at zero rather than going negative (and so truthy).
+                braces = max(0, braces - sum(w == "}" for w in nxt))
                 continue
             if getattr(commands[m], "parens", 0) != own:
                 continue

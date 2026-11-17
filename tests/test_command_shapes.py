@@ -488,6 +488,11 @@ def test_an_unbounded_background_wait_is_refused(cs, command):
         ("pkill \\\n-f marker", True),
         ("./time pkill -x x", False),
         ("./scripts/pkill -f x", False),  # a program of its own, not procps
+        ("ionice -c 3 pkill -f x", True),
+        ("ionice -c2 -n7 pgrep -f x", True),
+        ("unbuffer pgrep -f x", True),
+        ("doas -u root pkill -f x", True),
+        ("ionice -c 3 pkill -x x", False),
         ("watch 'pgrep -f x'", True),  # watch runs its words under sh -c
         ("watch -n 5 -- pkill -f x", True),
         ("watch -n 5 pkill -x x", False),
@@ -521,12 +526,25 @@ def test_wrappers_that_run_a_command_string(cs, command, want):
         ("sudo -u timeout bash -c 'while true; do :; done'", [True]),  # a flag's value
         ("timeout 60 bash -c 'while true; do :; done'", [False]),
         ("gtimeout 60 bash -c 'while true; do :; done'", [False]),
+        ("ionice -c 3 bash -c 'while true; do :; done'", [True]),
+        ("timeout 60 ionice -c 3 bash -c 'while true; do :; done'", [False]),
+        ("doas -u root bash -c 'until x; do :; done'", [True]),
         # shells given option clusters: each `o` of `-euo pipefail` takes a word
         ("bash -euo pipefail -c 'while true; do :; done'", [True]),
         ("bash -eo pipefail -c 'while true; do :; done'", [True]),
         ("bash -o pipefail -c 'while true; do :; done'", [True]),
         ("bash -euo pipefail -c 'until x || [ $SECONDS -gt 9 ]; do :; done'", [False]),
         ("timeout 60 bash -euo pipefail -c 'while true; do :; done'", [False]),
+        # a `{` on the test's own command is never counted: the count must not go negative
+        (
+            "while true; do { [ $SECONDS -gt 1800 ] && { echo late; } }; curl -sf x && break;"
+            " sleep 5; done",
+            [True],
+        ),
+        (
+            "while true; do { [ $SECONDS -gt 1800 ] && { echo late; exit 1; } }; sleep 5; done",
+            [False],
+        ),
         # `} }` closes two groups: the exit is the test's own consequent
         ("while true; do [ $SECONDS -gt 60 ] && { { echo; } }; curl -s x && break; done", [True]),
         ("/opt/homebrew/bin/gtimeout 60 bash -c 'while true; do :; done'", [False]),
@@ -632,7 +650,7 @@ def test_a_foreground_refusal_says_the_ampersand_is_why(cs):
     """A foreground call is refused only for its `&`; the message says so and how to retry."""
     refused = cs.check("npm run dev & until curl -s x; do sleep 1; done", False, {LOOPS})
     assert refused == [cs.LOOP_DENY_AMP]
-    assert "has a `&`" in refused[0] and "wrap only the loop" in refused[0]
+    assert "backgrounds something" in refused[0] and "wrap only the loop" in refused[0]
     assert cs.check("until curl -s x; do sleep 1; done", True, {LOOPS}) == [cs.LOOP_DENY]
     # the retry the message names passes
     retry = "npm run dev & timeout 1800 bash -c 'until curl -s x; do sleep 1; done'"

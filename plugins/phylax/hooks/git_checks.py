@@ -88,6 +88,9 @@ WRAPPERS: dict[str, tuple[set[str], set[str]]] = {
     "nice": ({"-n", "--adjustment"}, set()),
     "nohup": (set(), set()),
     "setsid": (set(), set()),
+    "ionice": ({"-c", "-n", "--class", "--classdata"}, set()),
+    "unbuffer": (set(), set()),
+    "doas": ({"-u", "-C"}, set()),
     "stdbuf": ({"-i", "-o", "-e", "--input", "--output", "--error"}, set()),
     "timeout": ({"-k", "-s", "--kill-after", "--signal"}, set()),
     "gtimeout": ({"-k", "-s", "--kill-after", "--signal"}, set()),  # Homebrew coreutils
