@@ -26,20 +26,26 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Sequence
 from pathlib import Path
 
-from git_checks import SENTINEL_RE, strip_heredocs, unwrap
+from git_checks import SENTINEL_RE, strip_heredocs, unwrap_wrappers
 from git_options import BACKGROUND_LOOPS, PKILL_FULL
 
-# Deeper nesting than this is not read; a real command nests two or three levels.
-MAX_DEPTH = 8
+# Nesting deeper than this is refused, as it cannot be read through; a real command nests
+# two or three levels.
+MAX_DEPTH = 16
 # `$(` nested deeper than this is refused: past it the check cannot finish reading it.
 MAX_NEST = 50
 SHELLS = {"bash", "sh", "dash", "zsh", "ksh", "ash"}
 # Shell options that take the next word as their value.
 SHELL_VALUE = {"-o", "+o", "-O", "+O", "--rcfile", "--init-file"}
 # Words that may come before a loop keyword at the start of a command.
-LEAD = {"!", "{", "if", "then", "elif", "else", "do", "time"}
+LEAD = {"!", "{", "if", "then", "elif", "else", "do", "time", "coproc"}
+# Wrappers that run the rest of their words as a command, besides git_checks.WRAPPERS.
+RUNNERS = {"coproc", "busybox"}
+# `$(cat <<EOF ... EOF)`, the whole of a `bash -c` string: the heredoc's body is the code.
+CAT_HEREDOC_RE = re.compile("\\$\\(\\s*cat\\s+<<-?\x00H(\\d+)\x00\\s*\\)")
 OPERATORS = (
     "<<<", "&>>", "<<", ">>", "&&", "||", ";;", ";&", "|&", "&>", ">&", "<&", ">|", "<>",
     "<", ">", "&", "|", ";", "(", ")", "\n",
@@ -71,11 +77,17 @@ SIGNALS = set(
 SIGNAL_RE = re.compile(r"-(?:\d+|(?:SIG)?[A-Z]+[0-9]*|(?:RTMIN|RTMAX)[+-]\d+)$", re.IGNORECASE)
 FLOCK_VALUE = {"-w", "--timeout", "-E", "--conflict-exit-code"}
 TIMEOUT_VALUE = {"-k", "-s", "--kill-after", "--signal"}
-# Words that end a loop from its body.
-EXITS = {"break", "exit", "return"}
 # bash's clock in a loop condition: `$SECONDS`, `${SECONDS}`, or `SECONDS` inside `(( ))`.
 SECONDS_RE = re.compile(r"^SECONDS$|\$\{?SECONDS\b")
 
+UNCLOSED = (
+    "a quote, substitution or ${...} in the command is never closed, so this check cannot tell "
+    "its code from its text (bash rejects it too). Close it, or write the script to a file"
+)
+TOO_DEEP = (
+    f"the command nests code (substitutions, bash -c, eval) more than {MAX_DEPTH} deep, past "
+    "what this check reads"
+)
 LOOP_DENY = (
     "phylax: this background command runs a `while` or `until` loop that no `timeout` bounds, "
     "so it can wait for hours: a network error reads as pending, and a removed worktree leaves "
@@ -133,6 +145,9 @@ class Lexer:
         self.i = 0
         self.subs: list[Sub] = []
         self.nest = nest  # how many `$(` this lexer reads inside
+        # A quote, substitution or `${` the text ends inside: bash rejects such a command, and
+        # what follows the opening cannot be told from code, so the check refuses it.
+        self.unclosed = False
 
     def tokens(self, closer: bool = False) -> list[str]:
         """Words and operators up to the end, or (CLOSER) the `)` closing a `$(`."""
@@ -160,7 +175,9 @@ class Lexer:
                 self.i += 2
             elif c == "'":
                 j = t.find("'", i + 1)
-                j = n if j < 0 else j
+                if j < 0:
+                    self.unclosed = True
+                    j = n
                 parts.append(t[i + 1 : j])
                 inword = quoted = True
                 self.i = j + 1
@@ -193,6 +210,7 @@ class Lexer:
                 out.append(Op(op))
                 self.i += len(op)
         end()
+        self.unclosed = self.unclosed or closer  # the text ended before the `)`
         return out
 
     def dquote(self) -> str:
@@ -204,7 +222,7 @@ class Lexer:
             c = t[i]
             if c == '"':
                 self.i += 1
-                break
+                return "".join(parts)
             if c == "\\" and t[i + 1 : i + 2] in ('"', "\\", "$", "`"):
                 parts.append(t[i + 1])
                 self.i += 2
@@ -215,6 +233,7 @@ class Lexer:
             else:
                 parts.append(c)
                 self.i += 1
+        self.unclosed = True
         return "".join(parts)
 
     def substitution(self) -> str:
@@ -228,8 +247,9 @@ class Lexer:
             while i < len(t) and t[i] != "`":
                 if t[i] == "\\" and t[i + 1 : i + 2] in ("`", "\\", "$"):
                     i += 1
-                body.append(t[i])
+                body.append(t[i : i + 1])
                 i += 1
+            self.unclosed = self.unclosed or i >= len(t)
             self.i = i + 1
             self.subs.append(Sub(None, [], "".join(body)))
             return t[start : self.i]
@@ -241,6 +261,7 @@ class Lexer:
         child.i = start + 2
         tokens = child.tokens(closer=True)
         self.i = child.i
+        self.unclosed = self.unclosed or child.unclosed
         # `$((` is arithmetic only when it closes with `))`; `$( (a)\n)` is a subshell.
         if t.startswith("$((", start) and t[self.i - 2 : self.i] == "))":
             self.subs.extend(child.subs)
@@ -265,7 +286,8 @@ class Lexer:
 
     def braces(self) -> str:
         """Read a `${...}` expansion from self.i, nested braces included, as written, recording
-        the substitutions in it (`${PID:-$(pgrep -x x)}` runs pgrep when PID is unset)."""
+        the substitutions in it (`${PID:-$(pgrep -x x)}` runs pgrep when PID is unset). Quotes
+        in it hide braces (`${x:-'}'}`), inside double quotes too, as bash matches them."""
         t, start, depth = self.text, self.i, 0
         i = start + 1
         while i < len(t):
@@ -276,46 +298,86 @@ class Lexer:
                 self.substitution()
                 i = self.i
                 continue
+            elif t[i] == "'":
+                j = t.find("'", i + 1)
+                if j < 0:
+                    break
+                i = j
+            elif t[i] == '"':
+                self.i = i + 1
+                self.dquote()
+                i = self.i
+                continue
             elif t[i] == "{":
                 depth += 1
             elif t[i] == "}":
                 depth -= 1
                 if depth == 0:
-                    break
+                    self.i = i + 1
+                    return t[start : self.i]
             i += 1
-        self.i = i + 1
-        return t[start : self.i]
+        self.unclosed = True
+        self.i = len(t)
+        return t[start:]
 
 
-def commands(tokens: list[str]) -> list[list[str]]:
+class Group(list):
+    """One simple command's words and redirections, and how many `(` subshells it sits in."""
+
+    parens = 0
+
+
+def commands(tokens: list[str]) -> list[Group]:
     """Split at separators; each simple command keeps its redirections."""
-    out: list[list[str]] = [[]]
+    out: list[Group] = [Group()]
+    depth = 0
     for tok in tokens:
         if isinstance(tok, Op) and "<" not in tok and ">" not in tok:
-            out.append([])
+            depth += (tok == "(") - (tok == ")")
+            out.append(Group())
+            out[-1].parens = depth
         else:
             out[-1].append(tok)
     return [c for c in out if c]
+
+
+def command_start(words: list[str]) -> int:
+    """Where the command in WORDS starts: past `!`, `{`, `if`, `then`, `do`, `coproc` and the
+    like, a `function NAME` header and `time -p`. A quoted word is never a keyword."""
+    k = 0
+    while k < len(words):
+        tok = words[k]
+        if isinstance(tok, Op) or getattr(tok, "quoted", False):
+            return k
+        if tok == "function":
+            k += 2
+        elif tok == "time":
+            k += 1
+            while k < len(words) and words[k] in ("-p", "--"):
+                k += 1
+        elif tok in LEAD:
+            k += 1
+        else:
+            return k
+    return k
 
 
 def loops(command: list[str]) -> str:
     """Whether COMMAND opens a `while` or `until` loop: the keyword unquoted in command
     position, after any `!`, `{`, `if`, `do` and the like. "read" for a loop whose condition is
     `read`, which ends with its input; "wait" for any other; "" for no loop."""
-    for k, tok in enumerate(command):
-        if isinstance(tok, Op) or getattr(tok, "quoted", False):
-            return ""
-        if tok in ("while", "until"):
-            rest = [w for w in command[k + 1 :] if not isinstance(w, Op)]
-            while rest and "=" in rest[0] and not rest[0].startswith("="):
-                rest.pop(0)  # `while IFS= read -r line`
-            return "read" if rest and rest[0] == "read" else "wait"
-        if tok not in LEAD:
-            return ""
-    return ""
+    k = command_start(command)
+    tok = command[k] if k < len(command) else ""
+    if isinstance(tok, Op) or getattr(tok, "quoted", False) or tok not in ("while", "until"):
+        return ""
+    rest = [w for w in command[k + 1 :] if not isinstance(w, Op)]
+    while rest and "=" in rest[0] and not rest[0].startswith("="):
+        rest.pop(0)  # `while IFS= read -r line`
+    # `until read` loops forever at the end of its input; only `while read` ends with it.
+    return "read" if tok == "while" and rest and rest[0] == "read" else "wait"
 
 
-def loop_extent(commands: list[list[str]], k: int) -> tuple[int | None, int | None]:
+def loop_extent(commands: Sequence[list[str]], k: int) -> tuple[int | None, int | None]:
     """Where the body of the loop COMMANDS[K] opens starts (its `do`) and ends (its `done`)."""
     body = next((j for j in range(k + 1, len(commands)) if commands[j][0] == "do"), None)
     if body is None:
@@ -328,7 +390,7 @@ def loop_extent(commands: list[list[str]], k: int) -> tuple[int | None, int | No
     return body, None
 
 
-def reads_to_end(commands: list[list[str]], k: int) -> bool:
+def reads_to_end(commands: Sequence[list[str]], k: int) -> bool:
     """Whether the `read` loop COMMANDS[K] opens takes its input from a file, a heredoc or a
     here-string on its `done`, which ends; a pipe or a process substitution may never end."""
     _, done = loop_extent(commands, k)
@@ -342,31 +404,64 @@ def reads_to_end(commands: list[list[str]], k: int) -> bool:
     return False
 
 
-def _head(command: list[str]) -> str:
-    """COMMAND's first word after the keywords that may lead it (`then break`: break)."""
-    for tok in command:
-        if isinstance(tok, Op) or tok not in LEAD or tok == "do":
-            return "" if isinstance(tok, Op) else tok
-    return ""
-
-
 def _reads_clock(command: list[str]) -> bool:
     return any(not isinstance(w, Op) and SECONDS_RE.search(w) for w in command)
 
 
-def on_clock(commands: list[list[str]], k: int) -> bool:
+def on_clock(commands: Sequence[list[str]], k: int) -> bool:
     """Whether bash's clock, `$SECONDS`, bounds the loop that COMMANDS[K] opens: read in its
     condition (the commands before the one that starts with `do`), or by a test in its body
-    followed by `break`, `exit` or `return`."""
+    with a `break`, `exit` or `return` after it in the body (`then echo late; exit 1`)."""
     body, done = loop_extent(commands, k)
     if any(_reads_clock(c) for c in commands[k : body if body is not None else len(commands)]):
         return True
     if body is None:
         return False
-    for j in range(body, len(commands) if done is None else done):
-        following = commands[j + 1] if j + 1 < len(commands) else []
-        if _reads_clock(commands[j]) and _head(following) in EXITS:
+    end = len(commands) if done is None else done
+    own = getattr(commands[k], "parens", 0)
+    tested = False
+    level = 0  # how many loops deep, counting this one
+    for j in range(body, end):
+        first = commands[j][0]
+        level += (first == "do") - (first == "done")
+        tested = tested or _reads_clock(commands[j])
+        if not tested or getattr(commands[j], "parens", 0) != own:
+            continue  # an exit in a `( )` subshell leaves only the subshell
+        words = [w for w in commands[j][command_start(commands[j]) :] if not isinstance(w, Op)]
+        if words[:1] == ["exit"]:
             return True
+        if words[:1] == ["break"]:
+            reach = words[1] if len(words) > 1 and words[1].isdigit() else "1"
+            if int(reach) >= level:
+                return True
+    return False
+
+
+def endless_for(tokens: list[str]) -> bool:
+    """Whether TOKENS hold an arithmetic `for ((init; ; step))` with no condition, which never
+    ends; one with a condition counts its own way out."""
+    for k in range(len(tokens) - 2):
+        if (
+            tokens[k] == "for"
+            and not isinstance(tokens[k], Op)
+            and tokens[k + 1 : k + 3]
+            == [
+                "(",
+                "(",
+            ]
+        ):
+            if not (isinstance(tokens[k + 1], Op) and isinstance(tokens[k + 2], Op)):
+                continue
+            parts: list[list[str]] = [[]]
+            for tok in tokens[k + 3 :]:
+                if isinstance(tok, Op) and tok == ")":
+                    break
+                if isinstance(tok, Op) and set(tok) == {";"}:
+                    parts.extend([] for _ in tok)  # `;;` lexes as one operator
+                else:
+                    parts[-1].append(tok)
+            if len(parts) == 3 and not parts[1]:
+                return True
     return False
 
 
@@ -391,66 +486,73 @@ def peel(argv: list[str]) -> tuple[list[str], bool, str | None]:
     bounds it; and the code of a `flock -c` string, when that is what runs."""
     bounded = False
     while argv:
-        out, _ = unwrap(argv)
-        bounded = bounded or _timeout_bounds(argv[: len(argv) - len(out)])
-        argv = out
+        argv, _, wrappers = unwrap_wrappers(argv)
+        bounded = bounded or any(name == "timeout" and _limits(took) for name, took in wrappers)
         name = Path(argv[0]).name if argv else ""
-        if name == "script":  # util-linux script runs -c's string in a shell
-            rest = argv[1:]
-            for j, flag in enumerate(rest):
-                if flag.startswith("--command"):
-                    _, eq, value = flag.partition("=")
-                    if eq or flag == "--command":
-                        return [], bounded, value if eq else _next(rest, j)
-                elif flag[:1] == "-" and flag[1:2] != "-" and "c" in flag[1:]:
-                    value = flag[flag.index("c") + 1 :]  # `-qc CMD`, `-cCMD`
-                    return [], bounded, value or _next(rest, j)
-            break
-        if name == "flock":
-            rest = argv[1:]
-            while rest and rest[0].startswith("-") and rest[0] != "--":
-                flag = rest.pop(0)
-                if flag in ("-c", "--command"):
-                    return [], bounded, rest[0] if rest else ""
-                if flag in FLOCK_VALUE and rest:
-                    rest.pop(0)
-            if rest[:1] == ["--"]:
-                rest.pop(0)
-            rest = rest[1:]  # the lock file or descriptor
-            if rest[:1] in (["-c"], ["--command"]):
-                return [], bounded, rest[1] if len(rest) > 1 else ""
-            argv = rest
+        if name in RUNNERS:
+            argv = argv[1:]
+        elif name in ("script", "flock"):
+            # Both run a -c / --command string in a shell; flock's first operand is its lock.
+            flock = name == "flock"
+            code, rest = _command_option(argv[1:], "wE" if flock else "EIOBTmo", stop=flock)
+            if code is not None:
+                return [], bounded, code
+            if name == "script":
+                break
+            argv = rest[1:]
         else:
             break
     return argv, bounded, None
 
 
-def _next(words: list[str], j: int) -> str:
-    return words[j + 1] if j + 1 < len(words) else ""
-
-
-def _timeout_bounds(prefix: list[str]) -> bool:
-    """Whether a `timeout` among the wrapper words PREFIX sets a limit: GNU timeout reads a
-    duration of 0 as none. A duration this check cannot read (`$T`) counts as a limit."""
-    for k, word in enumerate(prefix):
-        if Path(word).name != "timeout":
+def _command_option(
+    args: list[str], valued: str, stop: bool = False
+) -> tuple[str | None, list[str]]:
+    """The string of a `-c CMD`, `-xc CMD`, `-cCMD`, `--command CMD` or `--command=CMD` option
+    in ARGS (VALUED: the short options taking a value), else None and the operands. STOP reads
+    as util-linux flock does: options up to the lock file, then the string only from a
+    separate `-c` or `--command` word after it (before it, flock rejects them)."""
+    operands: list[str] = []
+    j = 0
+    while j < len(args):
+        tok = args[j]
+        j += 1
+        if tok == "--":
+            operands.extend(args[j:])
+            break
+        if tok.startswith("--"):
+            flag, eq, value = tok.partition("=")
+            if flag == "--command" and not stop:
+                return (value if eq else (args[j] if j < len(args) else "")), operands
+            if flag in FLOCK_VALUE and not eq:
+                j += 1
             continue
-        rest = prefix[k + 1 :]
-        while rest and rest[0].startswith("-") and rest[0] != "-":
-            flag = rest.pop(0)
-            if flag == "--":
+        if tok[:1] != "-" or tok == "-":
+            if stop:
+                if args[j : j + 1] in (["-c"], ["--command"]):
+                    return (args[j + 1] if j + 1 < len(args) else ""), [tok]
+                return None, args[j - 1 :]
+            operands.append(tok)
+            continue
+        for k in range(1, len(tok)):
+            if tok[k] == "c" and not stop:
+                value = tok[k + 1 :]
+                return (value or (args[j] if j < len(args) else "")), operands
+            if tok[k] in valued:
+                j += not tok[k + 1 :]  # its value is the next word
                 break
-            if flag in TIMEOUT_VALUE and rest:
-                rest.pop(0)
-        duration = rest[0] if rest else ""
-        try:
-            limit = float(duration.rstrip("smhd") or "x")
-            if limit == 0 or math.isinf(limit) or math.isnan(limit):
-                continue  # 0, inf and infinity set no limit
-        except ValueError:
-            pass
+    return None, operands
+
+
+def _limits(took: list[str]) -> bool:
+    """Whether a `timeout` given the words TOOK sets a limit: its duration, the last word, read
+    as GNU timeout reads it (0, inf and infinity set none; one this check cannot read counts)."""
+    duration = took[-1] if took else ""
+    try:
+        limit = float(duration.rstrip("smhd") or "x")
+    except ValueError:
         return True
-    return False
+    return not (limit == 0 or math.isinf(limit) or math.isnan(limit))
 
 
 def full_match(name: str, args: list[str]) -> bool:
@@ -471,7 +573,8 @@ def full_match(name: str, args: list[str]) -> bool:
             continue
         if not tok.startswith("-") or tok == "-":
             continue
-        if name == "pkill" and SIGNAL_RE.match(tok) and _signal(tok):
+        # pkill reads a -SIGNAL from its first argument only; later, `-fpe` is -f -p e.
+        if name == "pkill" and i == 1 and SIGNAL_RE.match(tok) and _signal(tok):
             continue
         for k in range(1, len(tok)):
             if tok[k] == "f":
@@ -494,7 +597,7 @@ def _signal(tok: str) -> bool:
 def shell_code(args: list[str]) -> tuple[str | None, bool]:
     """The `-c` string a shell given ARGS runs, and whether it reads its commands from stdin
     (no `-c` and no script file)."""
-    has_c = False
+    has_c = from_stdin = False
     i = 0
     while i < len(args):
         tok = args[i]
@@ -505,14 +608,19 @@ def shell_code(args: list[str]) -> tuple[str | None, bool]:
             i += 1
             continue
         if tok[:1] in ("-", "+") and len(tok) > 1:
-            if not tok.startswith("--") and "c" in tok[1:]:
-                has_c = True
+            if not tok.startswith("--"):
+                has_c = has_c or "c" in tok[1:]
+                from_stdin = from_stdin or "s" in tok[1:]  # -s: commands from stdin
             continue
+        if from_stdin and not has_c:
+            return None, True  # the words are positional parameters
+        if not has_c and tok in ("-", "/dev/stdin"):
+            return None, True
         return (tok if has_c else None), False
     rest = args[i:]
     if has_c:
         return (rest[0] if rest else None), False
-    return None, not rest
+    return None, from_stdin or not rest or rest[0] in ("-", "/dev/stdin")
 
 
 class Scan:
@@ -525,17 +633,33 @@ class Scan:
     def text(self, text: str, bounded: bool = False, depth: int = 0) -> None:
         """Read shell source: strip its heredocs, lex it once, then walk what it runs."""
         if depth > MAX_DEPTH:
-            return
+            raise ValueError(TOO_DEEP)
         text, bodies = strip_heredocs(text)
         # bash runs the substitutions in a heredoc whose delimiter is unquoted.
         for _, body, quoted in bodies:
             if not quoted:
                 expanded = Lexer(body)
                 expanded.expansions()
+                if expanded.unclosed:
+                    raise ValueError(UNCLOSED)
                 for sub in expanded.subs:
                     self.text(sub.code, bounded, depth + 1)
         lexer = Lexer(text)
-        self.walk(lexer.tokens(), lexer.subs, bounded, bodies, depth)
+        tokens = lexer.tokens()
+        if lexer.unclosed:
+            raise ValueError(UNCLOSED)
+        self.walk(tokens, lexer.subs, bounded, bodies, depth)
+
+    def code(
+        self, code: str, bounded: bool, bodies: list[tuple[str, str, bool]], depth: int
+    ) -> None:
+        """Read CODE, a `bash -c` or `eval` string. When the whole of it is `$(cat <<EOF ...)`,
+        the code is that heredoc's body."""
+        whole = CAT_HEREDOC_RE.fullmatch(code.strip())
+        if whole and int(whole.group(1)) < len(bodies):
+            self.text(bodies[int(whole.group(1))][1], bounded, depth + 1)
+        else:
+            self.text(code, bounded, depth + 1)
 
     def walk(
         self,
@@ -547,7 +671,9 @@ class Scan:
     ) -> None:
         """Walk lexed TOKENS and their substitutions SUBS, read in the same pass."""
         if depth > MAX_DEPTH:
-            return
+            raise ValueError(TOO_DEEP)
+        if endless_for(tokens):
+            self.loops.append(bounded)
         for sub in subs:
             if sub.tokens is None:
                 self.text(sub.code, bounded, depth + 1)
@@ -565,6 +691,7 @@ class Scan:
         self, command: list[str], bounded: bool, bodies: list[tuple[str, str, bool]], depth: int
     ) -> None:
         words, redirects = split_redirects(command)
+        words = words[command_start(words) :]
         argv, wrapped, flock_code = peel(list(words))
         bounded = bounded or wrapped
         if flock_code is not None:
@@ -574,11 +701,11 @@ class Scan:
         if name in ("pkill", "pgrep") and full_match(name, argv[1:]):
             self.full.append(name)
         elif name == "eval":
-            self.text(" ".join(argv[1:]), bounded, depth + 1)
+            self.code(" ".join(argv[1:]), bounded, bodies, depth)
         elif name in SHELLS:
             code, reads_stdin = shell_code(argv[1:])
             if code is not None:
-                self.text(code, bounded, depth + 1)
+                self.code(code, bounded, bodies, depth)
             elif reads_stdin:
                 for op, target in redirects:
                     if op == "<<<":

@@ -612,8 +612,16 @@ def drop_redirections(argv: list[str]) -> list[str]:
 
 def unwrap(argv: list[str]) -> tuple[list[str], list[str]]:
     """Strip leading assignments and wrappers; return the command and any chdir targets."""
+    out, chdirs, _ = unwrap_wrappers(argv)
+    return out, chdirs
+
+
+def unwrap_wrappers(argv: list[str]) -> tuple[list[str], list[str], list[tuple[str, list[str]]]]:
+    """As unwrap, and each wrapper it stripped: its name and the words it took (its options and
+    their values, and for `timeout` its duration, last)."""
     out = list(argv)
     chdirs: list[str] = []
+    wrappers: list[tuple[str, list[str]]] = []
     while out and (
         ASSIGNMENT_RE.match(out[0]) or Path(out[0]).name in WRAPPERS or out[0] in RESERVED
     ):
@@ -622,17 +630,20 @@ def unwrap(argv: list[str]) -> tuple[list[str], list[str]]:
             continue
         word = Path(word).name
         value_flags, chdir_flags = WRAPPERS[word]
+        took: list[str] = []
         while out and out[0].startswith("-") and out[0] != "-":
-            flag, eq, value = out.pop(0).partition("=")
+            took.append(out.pop(0))
+            flag, eq, value = took[-1].partition("=")
             if flag == "--":
                 break
             if flag in chdir_flags and (eq or out):
                 chdirs.append(value if eq else out.pop(0))
             elif flag in value_flags and not eq and out:
-                out.pop(0)
+                took.append(out.pop(0))
         if word == "timeout" and out:
-            out.pop(0)
-    return out, chdirs
+            took.append(out.pop(0))
+        wrappers.append((word, took))
+    return out, chdirs, wrappers
 
 
 def expand(text: str, env: dict[str, str], unknown: str | None = "") -> str:

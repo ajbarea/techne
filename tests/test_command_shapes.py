@@ -66,6 +66,11 @@ with open(log, "a") as f:
 
 def bash_ran(command: str, tmp_path: pathlib.Path) -> list[str]:
     """Run COMMAND under bash in a scratch folder; the stand-ins' log lines."""
+    return bash_run(command, tmp_path)[0]
+
+
+def bash_run(command: str, tmp_path: pathlib.Path) -> tuple[list[str], str]:
+    """Run COMMAND under bash in a scratch folder; the stand-ins' log lines and bash's stderr."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
     for name in ("pkill", "pgrep", "probe", "probe_ok"):
@@ -82,10 +87,16 @@ def bash_ran(command: str, tmp_path: pathlib.Path) -> list[str]:
     }
     work = tmp_path / "work"
     work.mkdir(exist_ok=True)
-    subprocess.run(
+    proc = subprocess.run(
         [str(BASH), "-c", command], cwd=work, env=env, capture_output=True, timeout=30, check=False
     )
-    return log.read_text().splitlines()
+    return log.read_text().splitlines(), proc.stderr.decode(errors="replace")
+
+
+def bash_parses(command: str) -> bool:
+    """Whether bash's own parser accepts COMMAND (`bash -n`: read, never run)."""
+    proc = subprocess.run([str(BASH), "-n", "-c", command], capture_output=True, timeout=30)
+    return proc.returncode == 0
 
 
 # Each case names pkill/pgrep only with -f and loops only on a probe, so what bash ran decides
@@ -121,6 +132,20 @@ DIFFERENTIAL = [
     "kill ${PID:-$(pgrep -f marker)} 2>/dev/null",
     "cat <<EOF\n${x:-$(pgrep -f marker)}\nEOF",
     "echo '${x:-$(pkill -f marker)}'",
+    # quotes inside ${...} hide braces
+    "echo ${x:-'{'}; pkill -f marker",
+    "echo ${x:-'}'}; pkill -f marker",
+    'echo "${x:-"}"}"; pkill -f marker',
+    'echo ${x:-"{"}; pgrep -f marker',
+    "echo \"${x:-'{'}\"; pkill -f marker",
+    "echo ${x:-'a'}${y:-\"{\"}; pkill -f marker",
+    # shells reading their commands from stdin
+    "bash -s -- arg <<'EOF'\npkill -f marker\nEOF",
+    "bash - <<'EOF'\npkill -f marker\nEOF",
+    "bash /dev/stdin <<'EOF'\npgrep -f marker\nEOF",
+    "eval \"$(cat <<'EOF'\npkill -f marker\nEOF\n)\"",
+    "coproc pgrep -f marker",
+    "time -p pkill -f marker",
     "bash <<'EOF'\npkill -f marker\nEOF",
     "bash <<< 'pgrep -f marker'",
     "cat <(pgrep -f marker)",
@@ -245,7 +270,8 @@ WRAPS = [
     # Each heredoc's delimiter is its own: a nested one ending on the outer's line is a syntax
     # error, which bash runs nothing of and the guard reads leniently (refusing).
     lambda c: f"cat > f <<'E{len(c)}'\n{c}\nE{len(c)}",
-    lambda c: f"cat <<E{len(c)}\n{c}\nE{len(c)}",
+    # An unquoted heredoc holding a nested heredoc inside $(...) is a known over-refusal (below).
+    lambda c: f"cat <<E{len(c)}\n{c}\nE{len(c)}" if "<<" not in c else c,
     lambda c: f"bash <<'E{len(c)}'\n{c}\nE{len(c)}",
     lambda c: f"timeout 5 bash <<'E{len(c)}'\n{c}\nE{len(c)}",
     lambda c: f"bash <<< {shlex.quote(c)}",
@@ -253,6 +279,16 @@ WRAPS = [
     # an unset name: the guard reads a default's code as run, which it is only when unset
     lambda c: f'echo "${{unset_369:-$({c}\n)}}"',
     lambda c: f"script -qc {shlex.quote(c)} /dev/null",
+    lambda c: f"function f{len(c)} {{ {c}\n}}; f{len(c)}",
+    lambda c: f"bash -s x <<'E{len(c)}'\n{c}\nE{len(c)}",
+    lambda c: f"bash -c \"$(cat <<'E{len(c)}'\n{c}\nE{len(c)}\n)\"",
+    lambda c: f"flock lock{len(c)} --command {shlex.quote(c)}",
+    lambda c: f"flock lock{len(c)} bash -c {shlex.quote(c)}",
+    lambda c: f"echo ${{unset_369:-'}}'}}; {c}",
+    lambda c: f'echo "${{unset_369:-"{{"}}"; {c}',
+    lambda c: f"echo \"${{unset_369:-'}}'}}\"; {c}",
+    lambda c: f"bash -s -- arg <<'E{len(c)}'\n{c}\nE{len(c)}",
+    lambda c: f"eval \"$(cat <<'E{len(c)}'\n{c}\nE{len(c)}\n)\"",
 ]
 GENERATED = 250
 
@@ -271,10 +307,27 @@ def generated(seed: int = int(os.environ.get("SHAPE_SEED", "369"))) -> list[str]
 @needs_bash
 def test_generated_verdicts_match_what_bash_runs(cs, tmp_path):
     cases = generated()
-    found = [disagreement(cs, c, bash_ran(c, tmp_path)) for c in cases]
+    found = []
+    for c in cases:
+        ran, stderr = bash_run(c, tmp_path)
+        try:
+            found.append(disagreement(cs, c, ran))
+        except ValueError as exc:
+            # The check may fail closed only on text bash rejects too, when it parses it or
+            # when it reaches it (a broken `eval` or `bash -c` string).
+            broken = "syntax error" in stderr or "unexpected EOF" in stderr
+            if bash_parses(c) and not broken:
+                found.append(f"{c!r}: the check raised on valid bash: {exc}")
     assert [f for f in found if f] == []
+
     # The generator reached every verdict, so the agreement is not vacuous.
-    verdicts = {tuple(cs.check(c, True, BOTH)) for c in cases}
+    def verdict(c: str) -> tuple[str, ...]:
+        try:
+            return tuple(cs.check(c, True, BOTH))
+        except ValueError:
+            return ("raised",)
+
+    verdicts = {verdict(c) for c in cases}
     assert (cs.LOOP_DENY,) in verdicts and () in verdicts
     assert any(cs.FULL_DENY["pkill"] in v for v in verdicts)
     assert any(cs.FULL_DENY["pgrep"] in v for v in verdicts)
@@ -389,6 +442,69 @@ def test_an_unbounded_background_wait_is_refused(cs, command):
 
 
 @pytest.mark.parametrize(
+    ("command", "want"),
+    [
+        ("pkill -x -fpe foo", True),  # procps reads -SIGNAL from argv[1] only: -f -p e
+        ("pkill -fpe foo", False),  # the first argument: SIGFPE, any case (checked on procps 4)
+        ("pkill -FPE foo", False),
+        ("flock /tmp/l --command 'pkill -f x'", True),
+        ("flock /tmp/l -c 'pkill -f x'", True),
+        # flock rejects these (exit 64, or runs a program named --command=...), so nothing runs
+        ("flock /tmp/l --command='pkill -f x'", False),
+        ("flock -xc 'pkill -f x' /tmp/l", False),
+        ("flock -w 5 /tmp/l -c 'pkill -f x'", True),
+        ("flock /tmp/l pkill -f x", True),  # flock stops reading options at its lock file
+        ("flock /tmp/l pkill -x x", False),
+        ("script -qc 'pkill -f x' /dev/null", True),
+        ("script --command='pkill -f x' /dev/null", True),
+        ("script -q log.txt", False),
+        ("busybox sh -c 'pkill -f x'", True),
+        ("coproc pkill -f x", True),
+    ],
+)
+def test_wrappers_that_run_a_command_string(cs, command, want):
+    assert (cs.check(command, False, {FULL}) != []) is want
+
+
+@pytest.mark.parametrize(
+    ("command", "want"),
+    [
+        ("function w { while true; do sleep 5; done; }; w", [True]),
+        ("coproc while true; do sleep 1; done", [True]),
+        ("bash -c \"$(cat <<'EOF'\nwhile true; do sleep 5; done\nEOF\n)\"", [True]),
+        ("bash -s x <<'EOF'\nwhile true; do sleep 5; done\nEOF", [True]),
+        ("bash -s <<< 'while true; do sleep 5; done'", [True]),
+        ("for ((;;)); do sleep 5; done", [True]),
+        ("for (( ; ; )); do sleep 5; done", [True]),
+        ("for ((i=0; i<3; i++)); do sleep 1; done", [False]),
+        ("T=/usr/bin/timeout bash -c 'while true; do :; done'", [True]),  # an assignment
+        ("sudo -u timeout bash -c 'while true; do :; done'", [True]),  # a flag's value
+        ("timeout 60 bash -c 'while true; do :; done'", [False]),
+        (
+            "until gh pr checks 1; do if (( SECONDS > 1800 )); then echo late >&2; exit 1; fi;"
+            " sleep 30; done",
+            [False],
+        ),
+        ("until x; do [ $SECONDS -gt 1800 ] && { echo late; exit 1; }; sleep 30; done", [False]),
+        ("until x; do echo $SECONDS; sleep 30; done; exit 1", [True]),  # the exit is after done
+        # a break that leaves only an inner loop, an exit that leaves only a subshell
+        ("while true; do for i in 1; do [ $SECONDS -gt 9 ] && break; done; sleep 1; done", [True]),
+        ("while true; do ( [ $SECONDS -gt 9 ] && exit ); sleep 1; done", [True]),
+        (
+            "while true; do for i in 1; do [ $SECONDS -gt 9 ] && break 2; done; sleep 1; done",
+            [False],
+        ),
+        ("while true; do [ $SECONDS -gt 9 ] && return; sleep 1; done", [True]),  # not a function
+        ("until read l; do sleep 1; done < notes.txt", [True]),  # loops forever at end of input
+        ("time -p while true; do sleep 1; done", [True]),
+    ],
+)
+def test_review_round_2_loop_shapes(cs, command, want):
+    """Each loop shape: whether it is refused in the background."""
+    assert [cs.LOOP_DENY in cs.check(command, True, {LOOPS})] == want
+
+
+@pytest.mark.parametrize(
     "command",
     [
         "pkill -f mutate.py",  # 11-02 and 11-09: exit 144, a mutant left in a tracked file
@@ -425,24 +541,30 @@ def test_refusals_name_the_form_that_works(cs):
     assert "pgrep -x NAME" in cs.FULL_DENY["pgrep"]
 
 
-def test_nesting_past_the_limit_is_not_read(cs):
-    """A bound on recursion: a command nested deeper than MAX_DEPTH is not followed."""
-    inner = "pkill -f x"
-    for _ in range(cs.MAX_DEPTH + 2):
-        inner = f"eval {json.dumps(inner)}"
-    assert cs.check(inner, False, {FULL}) == []
-    inner = "pkill -f x"
-    for _ in range(cs.MAX_DEPTH - 1):
-        inner = f"eval {json.dumps(inner)}"
-    assert cs.check(inner, False, {FULL}) == [cs.FULL_DENY["pkill"]]
+@pytest.mark.parametrize("wrap", ["eval {}", "echo $({})", "bash -c {}"])
+def test_nesting_past_the_limit_refuses(cs, wrap):
+    """A command nested deeper than MAX_DEPTH cannot be read through, so the check fails (and
+    the hook refuses, saying why); one level less is read."""
+
+    def nest(levels: int, inner: str) -> str:
+        for _ in range(levels):
+            inner = wrap.format(shlex.quote(inner) if "{}" == wrap[-2:] else inner)
+        return inner
+
+    with pytest.raises(ValueError, match="more than 16 deep"):
+        cs.check(nest(cs.MAX_DEPTH + 1, "true"), False, {FULL})
+    assert cs.check(nest(cs.MAX_DEPTH - 1, "pkill -f x"), False, {FULL}) == [cs.FULL_DENY["pkill"]]
 
 
 @pytest.mark.parametrize(
     "command",
     ["echo 'unterminated", 'echo "unterminated', "echo $(unterminated", "echo ${x", "`x"],
 )
-def test_text_bash_would_reject_still_parses(cs, command):
-    assert cs.check(command, True, BOTH) == []
+def test_text_bash_would_reject_is_refused(cs, command):
+    """An open quote, substitution or ${ runs to the end, hiding whatever follows it: bash
+    rejects the command, so refusing it costs an honest command nothing."""
+    with pytest.raises(ValueError, match="never closed"):
+        cs.check(command, True, BOTH)
 
 
 # --- known gaps, pinned so a change to them is seen --------------------------------------
@@ -459,9 +581,15 @@ KNOWN_GAPS = [
     "while [ $SECONDS -ge 0 ]; do sleep 30; done",
     # a `case` pattern's `)` inside $(...) ends the substitution early here
     "x=$(case a in a) while true; do sleep 1; done;; esac)",
-    # loops other than while and until
-    "for ((;;)); do sleep 1; done",
 ]
+
+
+def test_known_over_refusal_nested_heredoc_in_an_unquoted_heredoc(cs, tmp_path):
+    """Bash runs nothing for this; the guard reads the inner body as code and refuses, which
+    errs toward safety on a shape no honest command takes."""
+    command = "cat <<E1\nbash <<< 'bash -c \"$(cat <<'\"'\"'E2'\"'\"'\npkill -f m\nE2\n)\"'\nE1"
+    assert bash_ran(command, tmp_path) == []
+    assert cs.check(command, False, {FULL}) != []
 
 
 @pytest.mark.parametrize("command", KNOWN_GAPS)
