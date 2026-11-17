@@ -501,7 +501,7 @@ def strip_heredocs(text: str) -> tuple[str, list[tuple[str, str, bool]]]:
             continue
         elif ch == "}" and top == "${":
             stack.pop()
-        elif ch == "(":
+        elif ch == "(" and top != "${":
             # `((` and `$((` open arithmetic, where `<<` is a shift; any other `(` is a
             # subshell, a group or a process substitution that its own `)` closes.
             if text[i - 1 : i] == "(" and top in ("(", "$(") and is_arith(text, i - 1):

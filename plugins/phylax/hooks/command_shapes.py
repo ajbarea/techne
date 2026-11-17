@@ -333,6 +333,7 @@ class Group(list):
 
     parens = 0
     detached = False  # ended by `&`: it runs in the background of the shell
+    sep = ""  # the separator before it: `;`, `&&`, `|`, a newline and so on
 
 
 def commands(tokens: list[str]) -> list[Group]:
@@ -344,12 +345,12 @@ def commands(tokens: list[str]) -> list[Group]:
     chain = 0  # where the current pipeline or `&&` list starts in OUT
     opens: list[int] = []  # where each open `(` group starts
     closed = 0  # where the `( )` group that just closed started
-    previous = ""
+    after_close = False  # a `( )` group closed, and no separator has come since
     for tok in tokens:
         if isinstance(tok, Op) and "<" not in tok and ">" not in tok:
             if tok == "&":
                 start = chain
-                if previous == ")":
+                if after_close:
                     start = closed
                 elif out[-1][:1] == ["}"]:
                     start = _brace_start(out)
@@ -362,11 +363,12 @@ def commands(tokens: list[str]) -> list[Group]:
             depth += (tok == "(") - (tok == ")")
             out.append(Group())
             out[-1].parens = depth
+            out[-1].sep = str(tok)
+            after_close = tok == ")"
             if tok not in ("&&", "||", "|", "|&"):
                 chain = len(out) - 1
         else:
             out[-1].append(tok)
-        previous = tok if isinstance(tok, Op) else ""
     return [c for c in out if c]
 
 
@@ -463,8 +465,9 @@ def _reads_clock(command: list[str]) -> bool:
 def on_clock(commands: Sequence[list[str]], k: int) -> bool:
     """Whether bash's clock, `$SECONDS`, bounds the loop that COMMANDS[K] opens: read in its
     condition (the commands before the one that starts with `do`), or tested in its body with
-    an `exit`, `return` or `break` that leaves this loop as that test's own consequent
-    (`[ $SECONDS -gt N ] && break`, or `then echo late; exit 1` of an `if` on the test)."""
+    an `exit` or a `break` that leaves this loop as that test's own consequent (`[ $SECONDS
+    -gt N ] && break`, a `{ ...; exit 1; }` after `&&`, or `then echo late; exit 1` of an `if`
+    on the test): the next command after a `;` or a newline is no consequent of it."""
     body, done = loop_extent(commands, k)
     if any(_reads_clock(c) for c in commands[k : body if body is not None else len(commands)]):
         return True
@@ -486,19 +489,27 @@ def on_clock(commands: Sequence[list[str]], k: int) -> bool:
         before = commands[j - 1][-1:] if j > body else []  # `if` of `if (( SECONDS > N ))`
         lead = commands[j][: command_start(commands[j])]  # `do if` before the test
         opens_if = before in (["if"], ["elif"]) or "if" in lead or "elif" in lead
+        in_then, braces = False, 0
         for m in range(j + 1, end):
             nxt = commands[m]
             head = nxt[0]
             if head in STOPPERS or (head == "then" and not opens_if):
                 break
             if head == "then":
+                in_then = True
                 nxt = nxt[1:]
-            if getattr(nxt, "parens", getattr(commands[m], "parens", 0)) != own:
+            elif not (getattr(nxt, "sep", "") in ("&&", "||") or braces or in_then):
+                break  # a `;` or a newline ends the test's own and-or list
+            braces += "{" in nxt[: command_start(nxt)]
+            if nxt[:1] == ["}"]:
+                braces -= 1
+                continue
+            if getattr(commands[m], "parens", 0) != own:
                 continue
             if _reads_clock(nxt) or _is_test(nxt):
                 break
             words = [w for w in nxt[command_start(nxt) :] if not isinstance(w, Op)]
-            if words[:1] in (["exit"], ["return"]):
+            if words[:1] == ["exit"]:  # `return` outside a function only errors
                 return True
             if words[:1] == ["break"]:
                 reach = words[1] if len(words) > 1 and words[1].isdigit() else "1"
@@ -556,13 +567,23 @@ def split_redirects(command: list[str]) -> tuple[list[str], list[tuple[str, str]
     return words, redirects
 
 
-def peel(argv: list[str]) -> tuple[list[str], bool, str | None]:
+def _forks(took: list[str]) -> bool:
+    """Whether the options TOOK of a `setsid` include -f / --fork (it forks and exits)."""
+    return any(t == "--fork" or (t[:1] == "-" and t[1:2] != "-" and "f" in t[1:]) for t in took)
+
+
+def peel(argv: list[str]) -> tuple[list[str], bool, str | None, bool]:
     """The command ARGV runs once its wrappers are stripped; whether a `timeout` among them
-    bounds it; and the code of a `flock -c` string, when that is what runs."""
-    bounded = False
+    bounds it (one before a `setsid -f` bounds only the setsid, which exits at once); the code
+    of a `flock -c` string, when that is what runs; and whether a `setsid -f` forks it off."""
+    bounded = forked = False
     while argv:
         argv, _, wrappers = unwrap_wrappers(argv)
-        bounded = bounded or any(name == "timeout" and _limits(took) for name, took in wrappers)
+        for name, took in wrappers:
+            if name == "timeout" and _limits(took):
+                bounded = True
+            elif name == "setsid" and _forks(took):
+                bounded, forked = False, True
         name = wrapper_name(argv[0]) if argv else ""
         if name in RUNNERS:
             argv = argv[1:]
@@ -571,13 +592,13 @@ def peel(argv: list[str]) -> tuple[list[str], bool, str | None]:
             flock = name == "flock"
             code, rest = _command_option(argv[1:], "wE" if flock else "EIOBTmo", stop=flock)
             if code is not None:
-                return [], bounded, code
+                return [], bounded, code, forked
             if name == "script":
                 break
             argv = rest[1:]
         else:
             break
-    return argv, bounded, None
+    return argv, bounded, None, forked
 
 
 def _command_option(
@@ -777,8 +798,10 @@ class Scan:
             if kind:
                 ends = kind == "read" and reads_to_end(found, k)
                 _, done = loop_extent(found, k)
-                detached = outer or (done is not None and found[done].detached)
-                self.loops.append((bounded or ends or on_clock(found, k), detached))
+                own = done is not None and found[done].detached  # `done &` in this shell
+                self.loops.append(
+                    ((bounded and not own) or ends or on_clock(found, k), outer or own)
+                )
             self.detached = outer or getattr(command, "detached", False)
             self.command(command, bounded, bodies, depth)
         self.detached = outer
@@ -788,8 +811,13 @@ class Scan:
     ) -> None:
         words, redirects = split_redirects(command)
         words = words[command_start(words) :]
-        argv, wrapped, flock_code = peel(list(words))
-        bounded = bounded or wrapped
+        argv, wrapped, flock_code, forked = peel(list(words))
+        # A timeout around an enclosing shell does not reach what this command forks off with
+        # `&` or `setsid -f`: it outlives that shell.
+        detaching = getattr(command, "detached", False) or forked
+        bounded = (bounded and not detaching) or wrapped
+        if forked:
+            self.detached = True  # what `setsid -f` runs is in the background of this call
         if flock_code is not None:
             self.text(flock_code, bounded, depth + 1)
             return

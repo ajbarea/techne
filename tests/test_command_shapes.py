@@ -550,7 +550,15 @@ def test_wrappers_that_run_a_command_string(cs, command, want):
             "while true; do for i in 1; do [ $SECONDS -gt 9 ] && break 2; done; sleep 1; done",
             [False],
         ),
-        ("while true; do [ $SECONDS -gt 9 ] && return; sleep 1; done", [False]),  # in a function
+        # `return` outside a function only errors, and a bash -c runs at the top level
+        ("while true; do [ $SECONDS -gt 9 ] && return; sleep 1; done", [True]),
+        # the consequent is the test's own and-or list, not what follows a `;` or a newline
+        ("while true; do [ $SECONDS -gt 0 ] && echo slow; false && break; sleep 1; done", [True]),
+        ("while true; do [ $SECONDS -gt 600 ] && echo slow; gh pr checks 1 && break; done", [True]),
+        ("while true; do (( e = SECONDS )); false && exit 0; sleep 1; done", [True]),
+        ("while true; do [ $SECONDS -gt 9 ]\nbreak; done", [True]),
+        ("while true; do [ $SECONDS -gt 9 ] && { echo late; exit 1; }; sleep 1; done", [False]),
+        ("while true; do if [ $SECONDS -gt 9 ]; then echo late; break; fi; sleep 1; done", [False]),
         ("until read l; do sleep 1; done < notes.txt", [True]),  # loops forever at end of input
         ("time -p while true; do sleep 1; done", [True]),
     ],
@@ -593,6 +601,16 @@ def test_a_foreground_loop_passes(cs):
         ("for ((;;)); do [ $SECONDS -gt 9 ] && break; sleep 1; done &", False),
         ("for ((i=0;i<3;i++)); do sleep 1; done &", False),
         ("while true; do sleep 1; done; echo hi &", False),
+        ("{ while true; do sleep 1; done; } > log 2>&1 &", True),
+        ("(while true; do sleep 1; done) > log 2>&1 &", True),
+        ("while true; do sleep 1; done | tee log &", True),
+        ("while true; do sleep 1; done |& tee log &", True),
+        # a loop detached inside a timeout shell outlives the timeout
+        ("timeout 60 bash -c 'while true; do sleep 1; done &'", True),
+        ("timeout 60 bash -c 'nohup bash -c \"while true; do sleep 1; done\" &'", True),
+        ("timeout 60 setsid -f bash -c 'while true; do sleep 1; done'", True),
+        ("setsid -f timeout 60 bash -c 'while true; do sleep 1; done'", False),
+        ("timeout 60 setsid bash -c 'while true; do sleep 1; done'", False),
         ("timeout 60 bash -c 'while true; do sleep 1; done' &", False),
         ("nohup sleep 5 &", False),
         ("while true; do sleep 1; done; echo done &", False),
@@ -601,6 +619,23 @@ def test_a_foreground_loop_passes(cs):
 )
 def test_a_loop_that_ampersand_detaches_counts_as_background(cs, command, refused):
     assert (cs.check(command, False, {LOOPS}) != []) is refused
+
+
+@pytest.mark.parametrize(
+    ("word", "name"),
+    [
+        ("sudo", "sudo"),
+        ("/usr/bin/sudo", "sudo"),
+        ("/bin/timeout", "timeout"),
+        ("/usr/local/bin/nice", "nice"),
+        ("./timeout", ""),
+        ("scripts/timeout", ""),
+        ("/home/u/bin/sudo", ""),
+        ("~/bin/pkill", ""),
+    ],
+)
+def test_wrapper_name_counts_a_path_only_in_a_system_folder(cs, word, name):
+    assert cs.wrapper_name(word) == name
 
 
 def test_flock_long_options_read_as_getopt_long_reads_them(cs):

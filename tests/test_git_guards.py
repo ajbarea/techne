@@ -529,6 +529,15 @@ def test_manifest_options_match_the_guard_and_default_off():
         "(( x = 1 << 2 )); git add COMMITS.md",
         "echo $((1<<2)); git add COMMITS.md",
         "(( x = 1 )); git add -F - <<'EOF'\nbody\nEOF\ngit add COMMITS.md",
+        # a shift by a name, and `#` inside ${...}, are no heredoc and no comment
+        "(( m = 1 << n ))\ngit add COMMITS.md",
+        "echo $((1<<n)); git add COMMITS.md",
+        "echo ${x:- #}; git add COMMITS.md",
+        "echo ${x:-((}; git add COMMITS.md",
+        # a heredoc after a closed ${...} is still one
+        f"echo ${{x}}; git commit -F - <<'EOF'\nfeat: x\n\n{TRAILER}\nEOF",
+        f"(( m = 1 << n ))\ngit commit -F - <<'EOF'\nfeat: x\n\n{TRAILER}\nEOF",
+        f"echo ${{x:- #}}\ngit commit -F - <<'EOF'\nfeat: x\n\n{TRAILER}\nEOF",
     ],
 )
 def test_parentheses_and_arithmetic_do_not_hide_what_follows(scratch, command):
