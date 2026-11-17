@@ -645,12 +645,18 @@ def test_nesting_past_the_limit_refuses(cs, wrap):
     the hook refuses, saying why); one level less is read."""
 
     def nest(levels: int, inner: str) -> str:
+        # json.dumps escapes a quote by one backslash a level, so the text roughly doubles a
+        # level; shlex.quote grows about fivefold a level and runs a 17-level case out of memory.
         for _ in range(levels):
-            inner = wrap.format(shlex.quote(inner) if "{}" == wrap[-2:] else inner)
+            inner = wrap.format(
+                json.dumps(inner) if wrap.endswith("{}") and "$(" not in wrap else inner
+            )
         return inner
 
+    deep = nest(cs.MAX_DEPTH + 1, "pkill -x a")
+    assert len(deep) < 1 << 21  # a bound on the case itself: the test must stay cheap
     with pytest.raises(ValueError, match="more than 16 deep"):
-        cs.check(nest(cs.MAX_DEPTH + 1, "pkill -x a"), False, {FULL})
+        cs.check(deep, False, {FULL})
     assert cs.check(nest(cs.MAX_DEPTH - 1, "pkill -f x"), False, {FULL}) == [cs.FULL_DENY["pkill"]]
 
 
