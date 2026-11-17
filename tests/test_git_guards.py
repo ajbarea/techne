@@ -520,6 +520,20 @@ def test_manifest_options_match_the_guard_and_default_off():
 # --- parser edge cases ---------------------------------------------------------
 
 
+@pytest.mark.parametrize(
+    "command",
+    [
+        "/usr/bin/sudo -n git add COMMITS.md",
+        "/usr/bin/env A=1 git add COMMITS.md",
+        "setsid git add COMMITS.md",
+        "stdbuf -o L git add COMMITS.md",
+        "timeout --kill-after 5 10 git add COMMITS.md",
+    ],
+)
+def test_wrappers_by_path_and_long_options_are_looked_through(scratch, command):
+    assert denied(run_hook(command, scratch))
+
+
 def test_comment_with_apostrophe_does_not_hide_add(scratch):
     command = "# don't forget\ngit add -A && git commit -F - <<'EOF'\nIt's done\nEOF"
     assert denied(run_hook(command, scratch, on=[COMMITS_MD]))

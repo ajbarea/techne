@@ -28,6 +28,8 @@ OPTIONS = (
     "warn_main_checkout_commit",
     "block_secrets",
     "block_long_bodies",
+    "block_background_loops",
+    "block_pkill_full",
     "require_subagent_model",
     "restart_on_update",
     "budget_mode",
@@ -115,6 +117,15 @@ def test_guards_on_needs_python3_and_git(tmp_path, env):
     old = {**STUBS, "python3": "echo 3.8.10"}
     proc, found = doctor(tmp_path, args(block_commits_md=True), env, stubs=old)
     assert found["python3"][0] == "missing" and "need 3.9 or newer" in found["python3"][1]
+
+
+@pytest.mark.parametrize("option", ["block_background_loops", "block_pkill_full"])
+def test_a_shape_guard_needs_python3_only(tmp_path, env, option):
+    proc, found = doctor(tmp_path, args(**{option: True}), env, links=())
+    assert proc.returncode == 0
+    assert found[option] == ("ok", "on")
+    assert found["python3"][0] == "ok"
+    assert found["git"][0] == "n/a" and found["mod"][0] == "n/a"
 
 
 def test_subagent_model_needs_python3_only(tmp_path, env):

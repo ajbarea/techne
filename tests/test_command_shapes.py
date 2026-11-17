@@ -104,10 +104,23 @@ DIFFERENTIAL = [
     "bash -lc 'pkill -f marker'",
     "eval 'pkill -f marker'",
     "timeout 5 pkill -f marker",
+    "/usr/bin/timeout 5 pkill -f marker",
+    "timeout --kill-after 5 10 pkill -f marker",
+    "timeout --signal KILL 10 pgrep -f marker",
+    "env --unset X pkill -f marker",
+    "setsid pkill -f marker",
+    "stdbuf -o L pgrep -f marker",
     "env A=1 pkill -f marker",
+    "/usr/bin/env A=1 pkill -f marker",
     "echo x | xargs pkill -f",
     "flock -o lock pkill -f marker",
     "flock -o lock -c 'pkill -f marker'",
+    "flock -o lock --command 'pkill -f marker'",
+    'echo "${x:-$(pkill -f marker)}"',
+    "echo ${x:-`pkill -f marker`}",
+    "kill ${PID:-$(pgrep -f marker)} 2>/dev/null",
+    "cat <<EOF\n${x:-$(pgrep -f marker)}\nEOF",
+    "echo '${x:-$(pkill -f marker)}'",
     "bash <<'EOF'\npkill -f marker\nEOF",
     "bash <<< 'pgrep -f marker'",
     "cat <(pgrep -f marker)",
@@ -151,12 +164,16 @@ DIFFERENTIAL = [
     "timeout 5 true; while probe; do :; done",
     "until timeout 5 probe_ok; do :; done",
     "timeout 5 bash -c 'true' && while probe; do :; done",
+    "/usr/bin/nohup bash -c 'while probe; do :; done' >/dev/null 2>&1",
     # loops bounded by timeout
+    "/usr/bin/timeout 5 bash -c 'while probe; do :; done'",
+    "timeout --kill-after 2 5 bash -c 'until probe_ok; do :; done'",
     "timeout 5 bash -c 'while probe; do :; done'",
     "timeout -k 2 5 bash -c 'until probe_ok; do :; done'",
     "flock -o lock timeout 5 bash -c 'while probe; do :; done'",
     "timeout 5 bash <<'EOF'\nwhile probe; do :; done\nEOF",
     'timeout 5 bash -c "echo $(echo hi) && while probe; do :; done"',
+    'echo "${x:-$(while probe; do :; done)}"',
     # loops as text
     "echo 'while probe; do :; done'",
     "cat > w.sh <<'EOF'\nwhile probe; do :; done\nEOF",
@@ -233,6 +250,9 @@ WRAPS = [
     lambda c: f"timeout 5 bash <<'E{len(c)}'\n{c}\nE{len(c)}",
     lambda c: f"bash <<< {shlex.quote(c)}",
     lambda c: f"nohup bash -c {shlex.quote(c)} >/dev/null 2>&1",
+    # an unset name: the guard reads a default's code as run, which it is only when unset
+    lambda c: f'echo "${{unset_369:-$({c}\n)}}"',
+    lambda c: f"script -qc {shlex.quote(c)} /dev/null",
 ]
 GENERATED = 250
 
@@ -329,6 +349,14 @@ def test_pgrep_reads_a_signal_name_as_options(cs):
         "gh pr checks 3 --watch --fail-fast",
         "sleep 600",
         "for i in 1 2 3; do sleep 1; done",
+        "until x; do [ $SECONDS -gt 9 ] && break; sleep 1; done",  # a clock test that breaks out
+        "while true; do if [ $SECONDS -gt 60 ]; then break; fi; sleep 1; done",
+        "while true; do (( SECONDS > 60 )) && exit 1; sleep 1; done",
+        "while read -r l; do echo $l; done < notes.txt",
+        "while IFS= read -r l; do echo $l; done <<< 'a b'",
+        "while read -r l; do echo $l; done <<'EOF'\na\nEOF",
+        "timeout $T bash -c 'until x; do sleep 1; done'",  # a duration this check cannot read
+        "timeout 1.5m bash -c 'until x; do sleep 1; done'",
     ],
 )
 def test_a_bounded_background_wait_passes(cs, command):
@@ -341,8 +369,19 @@ def test_a_bounded_background_wait_passes(cs, command):
         "until gh pr checks 3; do sleep 30; done",
         "while true; do sleep 1; done",
         "until x; do sleep 1; done; echo $SECONDS",  # the clock is read after the loop
-        "until x; do [ $SECONDS -gt 9 ] && break; sleep 1; done",  # in the body, not the test
+        "until x; do echo $SECONDS; sleep 1; done",  # read in the body, but nothing breaks out
         "while [ 1 ]; do while [ $SECONDS -lt 9 ]; do sleep 1; done; done",
+        "timeout 0 bash -c 'while true; do sleep 1; done'",  # GNU timeout: 0 is no limit
+        "timeout -s KILL 0s bash -c 'while true; do sleep 1; done'",
+        "/usr/bin/nohup bash -c 'while true; do sleep 1; done'",
+        "while read -r l; do :; done < f; until x; do sleep 1; done",
+        "tail -f log | while read l; do echo $l; done",  # a pipe that never ends
+        "gh run watch 5 | while read l; do echo $l; done",
+        "git ls-files | while read f; do echo $f; done",
+        "while read l; do echo $l; done < <(tail -f log)",
+        "timeout inf bash -c 'while true; do sleep 1; done'",
+        "timeout infinity bash -c 'while true; do sleep 1; done'",
+        "script -qc 'while true; do sleep 1; done' /dev/null",
     ],
 )
 def test_an_unbounded_background_wait_is_refused(cs, command):
@@ -416,6 +455,12 @@ KNOWN_GAPS = [
     "echo 'pkill -f marker' | bash",
     "printf 'pkill -f marker' > s.sh; bash s.sh",
     'bash -c "$CMD"',
+    # a clock test that is always true still reads as a bound
+    "while [ $SECONDS -ge 0 ]; do sleep 30; done",
+    # a `case` pattern's `)` inside $(...) ends the substitution early here
+    "x=$(case a in a) while true; do sleep 1; done;; esac)",
+    # loops other than while and until
+    "for ((;;)); do sleep 1; done",
 ]
 
 
@@ -440,9 +485,10 @@ def bash_payload(command: str, background: bool | None = None) -> str:
     return json.dumps({"tool_name": "Bash", "tool_input": tool_input, "cwd": str(ROOT)})
 
 
-def run_guard(stdin: str, on) -> subprocess.CompletedProcess:
+def run_guard(stdin: str, on, shapes: bool = True) -> subprocess.CompletedProcess:
+    """Run git_guards.py as hooks.json does: with --shapes while a shape option is on."""
     return subprocess.run(
-        [HOOK_PYTHON, str(GUARDS)],
+        [HOOK_PYTHON, str(GUARDS), *(["--shapes"] if shapes else [])],
         input=stdin,
         capture_output=True,
         text=True,
@@ -505,6 +551,20 @@ def test_the_guard_refuses_only_an_enabled_shape(stdin, on, want):
     assert (got is None) if want is None else (got is not None and want in got), got
 
 
+def test_antigravity_commands_count_as_background():
+    """agy backgrounds every run_command after at most 10 s, so an untimed loop is refused."""
+    loop = "until gh pr checks 3; do sleep 30; done"
+    stdin = json.dumps({"toolCall": {"name": "run_command", "args": {"CommandLine": loop}}})
+    assert "no `timeout`" in (reason(run_guard(stdin, [LOOPS])) or "")
+
+
+def test_nesting_too_deep_to_read_is_refused_with_its_reason():
+    command = "echo " + "$(" * 60 + "pkill -x a" + ")" * 60  # the word passes the prefilter
+    proc = run_guard(bash_payload(command), [FULL])
+    assert proc.returncode == 2 and proc.stdout == ""
+    assert "nests $(...) more than 50 deep" in proc.stderr
+
+
 def test_a_shape_refusal_reaches_antigravity_in_its_own_shape():
     stdin = json.dumps({"toolCall": {"name": "run_command", "args": {"CommandLine": "pkill -f x"}}})
     proc = run_guard(stdin, [FULL])
@@ -522,7 +582,7 @@ def test_a_mod_checked_call_still_gets_the_shape_checks(monkeypatch):
     stdin["tool_use_id"] = "toolu_1"
     env = hook_env([FULL, "block_commits_md"], PHYLAX_GUARD_CHECKED="toolu_1")
     proc = subprocess.run(
-        [HOOK_PYTHON, str(GUARDS)],
+        [HOOK_PYTHON, str(GUARDS), "--shapes"],
         input=json.dumps(stdin),
         capture_output=True,
         text=True,
@@ -539,20 +599,81 @@ def test_a_shape_check_that_crashes_refuses_the_command():
     stdin = json.dumps({"tool_name": "Bash", "tool_input": {"command": ["pkill", "-f", "x"]}})
     proc = run_guard(stdin, [FULL])
     assert proc.returncode == 2
-    assert "phylax git guard error" in proc.stderr
+    assert "phylax shape guard error" in proc.stderr and "not run" in proc.stderr
+
+
+def test_a_git_check_crash_still_follows_the_git_guards_rule():
+    """A shape option on does not make a crash in the git checks refuse: with only the warning
+    git guard on, a git check that fails lets the command run (exit 1), as before."""
+    stdin = json.dumps({"tool_name": "Bash", "tool_input": {"command": "git commit -m x"}})
+    proc = run_guard(stdin, [FULL, "warn_main_checkout_commit"])  # no cwd: the check fails
+    assert proc.returncode == 1, proc.stderr
 
 
 def test_a_call_without_the_words_starts_no_check(monkeypatch):
     """The prefilter: a call that cannot hold a shape exits before command_shapes loads."""
     (gg,) = load_phylax_hooks(monkeypatch, "git_guards")
-    assert gg.may_hold_shape('{"tool_input": {"command": "ls"}}', BOTH) is False
-    assert gg.may_hold_shape('{"command": "pkill -x a"}', {FULL}) is True
-    assert gg.may_hold_shape('{"command": "pgrep -x a"}', {FULL}) is True
-    assert gg.may_hold_shape('{"command": "pkill -f a"}', {LOOPS}) is False
+    assert gg.may_hold_shape('{"tool_input": {"command": "ls"}}') is False
+    assert gg.may_hold_shape('{"command": "pkill -x a"}') is True
+    assert gg.may_hold_shape('{"command": "pgrep -x a"}') is True
     loop = '{"command": "while x", "run_in_background": true}'
-    assert gg.may_hold_shape(loop, {LOOPS}) is True
-    assert gg.may_hold_shape(loop.replace("while", "until"), {LOOPS}) is True
-    assert gg.may_hold_shape(loop, {FULL}) is False
-    assert gg.may_hold_shape('{"command": "while x"}', {LOOPS}) is False
-    assert gg.may_hold_shape('{"command": "sleep 1", "run_in_background": true}', {LOOPS}) is False
-    assert gg.may_hold_shape('{"command": "\\u0070kill"}', {FULL}) is True
+    assert gg.may_hold_shape(loop) is True
+    assert gg.may_hold_shape(loop.replace("while", "until")) is True
+    assert gg.may_hold_shape('{"command": "while x"}') is False
+    assert gg.may_hold_shape('{"command": "sleep 1", "run_in_background": true}') is False
+    agy = '{"toolCall": {"name": "run_command", "args": {"CommandLine": "until x"}}}'
+    assert gg.may_hold_shape(agy) is True
+    assert gg.may_hold_shape(agy.replace("until", "sleep")) is False
+    assert gg.may_hold_shape('{"command": "\\u0070kill"}') is True
+
+
+def test_no_option_is_read_for_a_call_without_the_words(monkeypatch):
+    """The hot path: a call that cannot hold a shape reads no shape option at all."""
+    (gg, go) = load_phylax_hooks(monkeypatch, "git_guards", "git_options")
+    read: list[str] = []
+    real = go.option_on
+    monkeypatch.setattr(go, "option_on", lambda k: read.append(k) or real(k))
+    monkeypatch.setattr(sys, "argv", ["git_guards.py", "--shapes"])
+    monkeypatch.setattr(sys, "stdin", __import__("io").StringIO(bash_payload("ls -la")))
+    monkeypatch.setenv("CLAUDE_PLUGIN_OPTION_BLOCK_PKILL_FULL", "true")
+    assert gg.main() == 0
+    assert not set(read) & BOTH
+
+
+def test_without_the_flag_no_shape_is_checked():
+    """hooks.json passes --shapes only while a shape option is on; without it, none runs."""
+    assert reason(run_guard(bash_payload("pkill -f marker"), [FULL], shapes=False)) is None
+
+
+@pytest.mark.parametrize(
+    ("on", "flag"),
+    [([FULL], True), ([LOOPS], True), (BOTH, True), (["block_commits_md"], False)],
+)
+def test_hooks_json_passes_the_flag_exactly_while_a_shape_option_is_on(tmp_path, on, flag):
+    """The handler's own sh decides --shapes: a stand-in python3 prints its arguments."""
+    fake = tmp_path / "bin"
+    fake.mkdir()
+    (fake / "python3").write_text('#!/bin/sh\necho "$@"\n')
+    (fake / "python3").chmod(0o755)
+    for handler in hook_handlers("phylax", "PreToolUse", "Bash"):
+        shell = handler["command"].replace("${CLAUDE_PLUGIN_ROOT}", str(PLUGIN))
+        env = {**hook_env(on), "PATH": f"{fake}:/usr/bin:/bin"}
+        proc = subprocess.run(
+            ["sh", "-c", shell], input="{}", capture_output=True, text=True, env=env, check=False
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert proc.stdout.strip().endswith("--shapes") is flag, proc.stdout
+
+
+@pytest.mark.parametrize("handler", hook_handlers("phylax", "PreToolUse", "Bash"))
+def test_a_missing_python3_refuses_while_a_shape_option_is_on(tmp_path, handler):
+    """No python3 means no check: with a shape option on the call is refused (exit 2) and says
+    why, rather than running unchecked."""
+    empty = tmp_path / "bin"
+    empty.mkdir()
+    shell = handler["command"].replace("${CLAUDE_PLUGIN_ROOT}", str(PLUGIN))
+    env = {**hook_env([FULL]), "PATH": str(empty)}
+    proc = subprocess.run(
+        ["/bin/sh", "-c", shell], input="{}", capture_output=True, text=True, env=env, check=False
+    )
+    assert proc.returncode == 2 and "python3 is not on PATH" in proc.stderr

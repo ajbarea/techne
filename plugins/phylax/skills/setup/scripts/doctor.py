@@ -52,6 +52,8 @@ GUARDS = (
     "block_secrets",
     "block_long_bodies",
 )
+# The command-shape guards: python3 only, no git, and no mod.
+SHAPES = ("block_background_loops", "block_pkill_full")
 MOD_ADDED = (2, 1, 287)
 # 2.1.288 fixed a mod's tool.call hook breaking Bash in subagents that run in a worktree.
 MOD_MINIMUM = (2, 1, 288)
@@ -271,9 +273,10 @@ def checks(
     greeting_on = options["email_greeting"] is True
     restart_on = options["restart_on_update"] is True
     budget_on = options["budget_mode"] is True
+    shapes_on = any(options[key] is True for key in SHAPES)
     found = [option_line(key, options[key]) for key in OPTIONS]
     found.append(d.guarded("mod", False, lambda: mod(platform, guards_on)))
-    if guards_on or model_on or greeting_on or restart_on or budget_on:
+    if guards_on or shapes_on or model_on or greeting_on or restart_on or budget_on:
         found.append(
             d.program(
                 platform,

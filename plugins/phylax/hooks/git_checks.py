@@ -78,17 +78,26 @@ COMMIT_LONG_VALUE = {
 COMMIT_LONG_KNOWN = COMMIT_LONG_VALUE | {"--all", "--include", "--only"}
 ADD_SUBCOMMANDS = {"add", "stage"}
 # Words that run the next command: wrapper -> (flags taking a value, flags naming a dir).
+# A wrapper named by its path (`/usr/bin/sudo`) is the same wrapper.
 WRAPPERS: dict[str, tuple[set[str], set[str]]] = {
-    "env": ({"-u", "-S"}, {"-C", "--chdir"}),
+    "env": ({"-u", "-S", "--unset", "--split-string"}, {"-C", "--chdir"}),
     "command": (set(), set()),
     "builtin": (set(), set()),
     "exec": ({"-a"}, set()),
-    "time": ({"-f", "-o"}, set()),
-    "nice": ({"-n"}, set()),
+    "time": ({"-f", "-o", "--format", "--output"}, set()),
+    "nice": ({"-n", "--adjustment"}, set()),
     "nohup": (set(), set()),
-    "timeout": ({"-k", "-s"}, set()),
-    "sudo": ({"-u", "-g", "-h", "-p", "-C", "-r", "-t", "-U"}, {"-D", "--chdir"}),
-    "xargs": ({"-I", "-d", "-L", "-P", "-a", "-E", "-s", "-n"}, set()),
+    "setsid": (set(), set()),
+    "stdbuf": ({"-i", "-o", "-e", "--input", "--output", "--error"}, set()),
+    "timeout": ({"-k", "-s", "--kill-after", "--signal"}, set()),
+    "sudo": (
+        {"-u", "-g", "-h", "-p", "-C", "-r", "-t", "-U", "--user", "--group", "--host", "--prompt"},
+        {"-D", "--chdir"},
+    ),
+    "xargs": (
+        {"-I", "-d", "-L", "-P", "-a", "-E", "-s", "-n", "--delimiter", "--arg-file", "--max-args"},
+        set(),
+    ),
 }
 # Shell keywords that can precede a command in a list or compound command.
 RESERVED = {"{", "}", "!", "if", "then", "else", "elif", "fi", "do", "done", "while", "until"}
@@ -605,10 +614,13 @@ def unwrap(argv: list[str]) -> tuple[list[str], list[str]]:
     """Strip leading assignments and wrappers; return the command and any chdir targets."""
     out = list(argv)
     chdirs: list[str] = []
-    while out and (ASSIGNMENT_RE.match(out[0]) or out[0] in WRAPPERS or out[0] in RESERVED):
+    while out and (
+        ASSIGNMENT_RE.match(out[0]) or Path(out[0]).name in WRAPPERS or out[0] in RESERVED
+    ):
         word = out.pop(0)
-        if word not in WRAPPERS:
+        if ASSIGNMENT_RE.match(word) or Path(word).name not in WRAPPERS:
             continue
+        word = Path(word).name
         value_flags, chdir_flags = WRAPPERS[word]
         while out and out[0].startswith("-") and out[0] != "-":
             flag, eq, value = out.pop(0).partition("=")

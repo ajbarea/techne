@@ -3,15 +3,19 @@
 git_guards.py calls check() on a Bash call that may hold one of these shapes while its option is
 on, before its git checks. Two shapes are refused:
 
-- `block_background_loops`: a `run_in_background` command whose `while` or `until` loop is
-  bounded neither by a `timeout` around the shell that runs it nor by `$SECONDS` in its
-  condition. Such a wait can run for hours (a network error reads as "pending").
+- `block_background_loops`: a background command (Claude Code's `run_in_background`, or any
+  Antigravity `run_command`, which backgrounds every command after 10 s) whose `while` or
+  `until` loop is bounded neither by a nonzero `timeout` around the shell that runs it nor by
+  bash's clock, `$SECONDS`, in its condition or in a test that breaks out of its body. Such a
+  wait can run for hours (a network error reads as "pending"). A `while read` loop whose input
+  is a file or a here-string ends with it and passes; one fed by a pipe may never end.
 - `block_pkill_full`: `pkill -f` and `pgrep -f`. The pattern also matches the shell running the
   call, whose command line holds it, so pkill kills its own shell (exit 144).
 
 The command is read as bash reads it: text in quotes, a heredoc body or a comment is not a
 command. The code bash would run is read too: `$(...)`, backticks, `<(...)`, the string of
-`bash -c` and `flock -c`, the words of `eval`, and a heredoc or here-string fed to a shell. A
+`bash -c`, `flock -c` and `script -c`, the words of `eval`, `${...}` defaults, and a heredoc
+or here-string fed to a shell. A
 script file a command runs is not read. These checks catch an honest agent's slip, not a
 hostile one: a command spelled to hide the word (`p''kill`) is not seen.
 
@@ -20,6 +24,7 @@ Runs on the system python3, so it stays compatible with 3.9 (macOS's).
 
 from __future__ import annotations
 
+import math
 import re
 from pathlib import Path
 
@@ -28,6 +33,8 @@ from git_options import BACKGROUND_LOOPS, PKILL_FULL
 
 # Deeper nesting than this is not read; a real command nests two or three levels.
 MAX_DEPTH = 8
+# `$(` nested deeper than this is refused: past it the check cannot finish reading it.
+MAX_NEST = 50
 SHELLS = {"bash", "sh", "dash", "zsh", "ksh", "ash"}
 # Shell options that take the next word as their value.
 SHELL_VALUE = {"-o", "+o", "-O", "+O", "--rcfile", "--init-file"}
@@ -63,7 +70,9 @@ SIGNALS = set(
 )
 SIGNAL_RE = re.compile(r"-(?:\d+|(?:SIG)?[A-Z]+[0-9]*|(?:RTMIN|RTMAX)[+-]\d+)$", re.IGNORECASE)
 FLOCK_VALUE = {"-w", "--timeout", "-E", "--conflict-exit-code"}
-WRAPPED = {"setsid", "stdbuf"}
+TIMEOUT_VALUE = {"-k", "-s", "--kill-after", "--signal"}
+# Words that end a loop from its body.
+EXITS = {"break", "exit", "return"}
 # bash's clock in a loop condition: `$SECONDS`, `${SECONDS}`, or `SECONDS` inside `(( ))`.
 SECONDS_RE = re.compile(r"^SECONDS$|\$\{?SECONDS\b")
 
@@ -105,15 +114,25 @@ def _word(parts: list[str], quoted: bool) -> Word:
     return w
 
 
+class Sub:
+    """A command substitution: its tokens and its own substitutions, read in the same pass as
+    the text around it, or (a backtick string, whose escapes change its text) its code."""
+
+    def __init__(self, tokens: list[str] | None, subs: list[Sub], code: str) -> None:
+        self.tokens = tokens
+        self.subs = subs
+        self.code = code
+
+
 class Lexer:
     """Split stripped shell text (strip_heredocs's output) into words and operators, as bash
-    does, collecting the source of each command substitution in `subs`."""
+    does, collecting each command substitution in `subs`."""
 
-    def __init__(self, text: str) -> None:
+    def __init__(self, text: str, nest: int = 0) -> None:
         self.text = text
         self.i = 0
-        self.subs: list[str] = []
-        self.nest = 0  # inside a substitution: its own substitutions are read with it
+        self.subs: list[Sub] = []
+        self.nest = nest  # how many `$(` this lexer reads inside
 
     def tokens(self, closer: bool = False) -> list[str]:
         """Words and operators up to the end, or (CLOSER) the `)` closing a `$(`."""
@@ -199,8 +218,9 @@ class Lexer:
         return "".join(parts)
 
     def substitution(self) -> str:
-        """Read `$(...)`, `<(...)`, `>(...)` or a backtick string from self.i; record the code
-        it runs (an arithmetic `$((...))` runs none) and return its text as written."""
+        """Read `$(...)`, `<(...)`, `>(...)` or a backtick string from self.i, record what it
+        runs, and return its text as written. An arithmetic `$((...))` runs only the
+        substitutions inside it."""
         t, start = self.text, self.i
         if t[start] == "`":
             body: list[str] = []
@@ -211,21 +231,21 @@ class Lexer:
                 body.append(t[i])
                 i += 1
             self.i = i + 1
-            code = "".join(body)
+            self.subs.append(Sub(None, [], "".join(body)))
+            return t[start : self.i]
+        if self.nest >= MAX_NEST:
+            raise ValueError(
+                f"the command nests $(...) more than {MAX_NEST} deep, past what this check reads"
+            )
+        child = Lexer(t, self.nest + 1)
+        child.i = start + 2
+        tokens = child.tokens(closer=True)
+        self.i = child.i
+        # `$((` is arithmetic only when it closes with `))`; `$( (a)\n)` is a subshell.
+        if t.startswith("$((", start) and t[self.i - 2 : self.i] == "))":
+            self.subs.extend(child.subs)
         else:
-            arithmetic = t.startswith("$((", start)
-            self.i = start + 2
-            self.nest += 1
-            try:
-                self.tokens(closer=True)
-            finally:
-                self.nest -= 1
-            # `$((` is arithmetic only when it closes with `))`; `$( (a)\n)` is a subshell.
-            if arithmetic and t[self.i - 2 : self.i] == "))":
-                return t[start : self.i]
-            code = t[start + 2 : self.i - 1]
-        if self.nest == 0:
-            self.subs.append(code)
+            self.subs.append(Sub(tokens, child.subs, t[start + 2 : self.i - 1]))
         return t[start : self.i]
 
     def expansions(self) -> None:
@@ -244,12 +264,18 @@ class Lexer:
                 self.i += 1
 
     def braces(self) -> str:
-        """Read a `${...}` expansion from self.i, nested braces included, as written."""
+        """Read a `${...}` expansion from self.i, nested braces included, as written, recording
+        the substitutions in it (`${PID:-$(pgrep -x x)}` runs pgrep when PID is unset)."""
         t, start, depth = self.text, self.i, 0
         i = start + 1
         while i < len(t):
             if t[i] == "\\":
                 i += 1
+            elif t[i] == "`" or t.startswith("$(", i):
+                self.i = i
+                self.substitution()
+                i = self.i
+                continue
             elif t[i] == "{":
                 depth += 1
             elif t[i] == "}":
@@ -272,26 +298,74 @@ def commands(tokens: list[str]) -> list[list[str]]:
     return [c for c in out if c]
 
 
-def loops(command: list[str]) -> bool:
+def loops(command: list[str]) -> str:
     """Whether COMMAND opens a `while` or `until` loop: the keyword unquoted in command
-    position, after any `!`, `{`, `if`, `do` and the like."""
-    for tok in command:
+    position, after any `!`, `{`, `if`, `do` and the like. "read" for a loop whose condition is
+    `read`, which ends with its input; "wait" for any other; "" for no loop."""
+    for k, tok in enumerate(command):
         if isinstance(tok, Op) or getattr(tok, "quoted", False):
-            return False
+            return ""
         if tok in ("while", "until"):
-            return True
+            rest = [w for w in command[k + 1 :] if not isinstance(w, Op)]
+            while rest and "=" in rest[0] and not rest[0].startswith("="):
+                rest.pop(0)  # `while IFS= read -r line`
+            return "read" if rest and rest[0] == "read" else "wait"
         if tok not in LEAD:
-            return False
+            return ""
+    return ""
+
+
+def loop_extent(commands: list[list[str]], k: int) -> tuple[int | None, int | None]:
+    """Where the body of the loop COMMANDS[K] opens starts (its `do`) and ends (its `done`)."""
+    body = next((j for j in range(k + 1, len(commands)) if commands[j][0] == "do"), None)
+    if body is None:
+        return None, None
+    depth = 0
+    for j in range(body, len(commands)):
+        depth += (commands[j][0] == "do") - (commands[j][0] == "done")
+        if depth == 0:
+            return body, j
+    return body, None
+
+
+def reads_to_end(commands: list[list[str]], k: int) -> bool:
+    """Whether the `read` loop COMMANDS[K] opens takes its input from a file, a heredoc or a
+    here-string on its `done`, which ends; a pipe or a process substitution may never end."""
+    _, done = loop_extent(commands, k)
+    if done is None:
+        return False
+    command = commands[done]
+    for j, tok in enumerate(command):
+        if isinstance(tok, Op) and tok.lstrip("0123456789") in ("<", "<<", "<<<"):
+            target = command[j + 1] if j + 1 < len(command) else ""
+            return not target.startswith(("<(", "/dev/stdin", "/dev/fd/"))
     return False
 
 
+def _head(command: list[str]) -> str:
+    """COMMAND's first word after the keywords that may lead it (`then break`: break)."""
+    for tok in command:
+        if isinstance(tok, Op) or tok not in LEAD or tok == "do":
+            return "" if isinstance(tok, Op) else tok
+    return ""
+
+
+def _reads_clock(command: list[str]) -> bool:
+    return any(not isinstance(w, Op) and SECONDS_RE.search(w) for w in command)
+
+
 def on_clock(commands: list[list[str]], k: int) -> bool:
-    """Whether the condition of the loop that COMMANDS[K] opens reads `$SECONDS`, bash's clock:
-    the words up to the command that starts with `do`."""
-    for j in range(k, len(commands)):
-        if j > k and commands[j][0] == "do" and not getattr(commands[j][0], "quoted", False):
-            return False
-        if any(not isinstance(w, Op) and SECONDS_RE.search(w) for w in commands[j]):
+    """Whether bash's clock, `$SECONDS`, bounds the loop that COMMANDS[K] opens: read in its
+    condition (the commands before the one that starts with `do`), or by a test in its body
+    followed by `break`, `exit` or `return`."""
+    body, done = loop_extent(commands, k)
+    if any(_reads_clock(c) for c in commands[k : body if body is not None else len(commands)]):
+        return True
+    if body is None:
+        return False
+    for j in range(body, len(commands) if done is None else done):
+        following = commands[j + 1] if j + 1 < len(commands) else []
+        if _reads_clock(commands[j]) and _head(following) in EXITS:
             return True
     return False
 
@@ -318,10 +392,20 @@ def peel(argv: list[str]) -> tuple[list[str], bool, str | None]:
     bounded = False
     while argv:
         out, _ = unwrap(argv)
-        if any(Path(w).name == "timeout" for w in argv[: len(argv) - len(out)]):
-            bounded = True
+        bounded = bounded or _timeout_bounds(argv[: len(argv) - len(out)])
         argv = out
         name = Path(argv[0]).name if argv else ""
+        if name == "script":  # util-linux script runs -c's string in a shell
+            rest = argv[1:]
+            for j, flag in enumerate(rest):
+                if flag.startswith("--command"):
+                    _, eq, value = flag.partition("=")
+                    if eq or flag == "--command":
+                        return [], bounded, value if eq else _next(rest, j)
+                elif flag[:1] == "-" and flag[1:2] != "-" and "c" in flag[1:]:
+                    value = flag[flag.index("c") + 1 :]  # `-qc CMD`, `-cCMD`
+                    return [], bounded, value or _next(rest, j)
+            break
         if name == "flock":
             rest = argv[1:]
             while rest and rest[0].startswith("-") and rest[0] != "--":
@@ -336,18 +420,37 @@ def peel(argv: list[str]) -> tuple[list[str], bool, str | None]:
             if rest[:1] in (["-c"], ["--command"]):
                 return [], bounded, rest[1] if len(rest) > 1 else ""
             argv = rest
-        elif name in WRAPPED:
-            rest = argv[1:]
-            while rest and rest[0].startswith("-") and rest[0] != "-":
-                flag = rest.pop(0)
-                if flag == "--":
-                    break
-                if name == "stdbuf" and flag in ("-i", "-o", "-e") and rest:
-                    rest.pop(0)
-            argv = rest
         else:
             break
     return argv, bounded, None
+
+
+def _next(words: list[str], j: int) -> str:
+    return words[j + 1] if j + 1 < len(words) else ""
+
+
+def _timeout_bounds(prefix: list[str]) -> bool:
+    """Whether a `timeout` among the wrapper words PREFIX sets a limit: GNU timeout reads a
+    duration of 0 as none. A duration this check cannot read (`$T`) counts as a limit."""
+    for k, word in enumerate(prefix):
+        if Path(word).name != "timeout":
+            continue
+        rest = prefix[k + 1 :]
+        while rest and rest[0].startswith("-") and rest[0] != "-":
+            flag = rest.pop(0)
+            if flag == "--":
+                break
+            if flag in TIMEOUT_VALUE and rest:
+                rest.pop(0)
+        duration = rest[0] if rest else ""
+        try:
+            limit = float(duration.rstrip("smhd") or "x")
+            if limit == 0 or math.isinf(limit) or math.isnan(limit):
+                continue  # 0, inf and infinity set no limit
+        except ValueError:
+            pass
+        return True
+    return False
 
 
 def full_match(name: str, args: list[str]) -> bool:
@@ -419,32 +522,43 @@ class Scan:
         self.loops: list[bool] = []  # one per loop: whether a `timeout` bounds it
         self.full: list[str] = []  # each `pkill -f` or `pgrep -f`: its name
 
-    def text(
-        self,
-        text: str,
-        bounded: bool = False,
-        bodies: list[tuple[str, str, bool]] | None = None,
-        depth: int = 0,
-    ) -> None:
+    def text(self, text: str, bounded: bool = False, depth: int = 0) -> None:
+        """Read shell source: strip its heredocs, lex it once, then walk what it runs."""
         if depth > MAX_DEPTH:
             return
-        if bodies is None:
-            text, bodies = strip_heredocs(text)
-            # bash runs the substitutions in a heredoc whose delimiter is unquoted.
-            for _, body, quoted in bodies:
-                if not quoted:
-                    expanded = Lexer(body)
-                    expanded.expansions()
-                    for code in expanded.subs:
-                        self.text(code, bounded, None, depth + 1)
+        text, bodies = strip_heredocs(text)
+        # bash runs the substitutions in a heredoc whose delimiter is unquoted.
+        for _, body, quoted in bodies:
+            if not quoted:
+                expanded = Lexer(body)
+                expanded.expansions()
+                for sub in expanded.subs:
+                    self.text(sub.code, bounded, depth + 1)
         lexer = Lexer(text)
-        tokens = lexer.tokens()
-        for code in lexer.subs:
-            self.text(code, bounded, bodies, depth + 1)
+        self.walk(lexer.tokens(), lexer.subs, bounded, bodies, depth)
+
+    def walk(
+        self,
+        tokens: list[str],
+        subs: list[Sub],
+        bounded: bool,
+        bodies: list[tuple[str, str, bool]],
+        depth: int,
+    ) -> None:
+        """Walk lexed TOKENS and their substitutions SUBS, read in the same pass."""
+        if depth > MAX_DEPTH:
+            return
+        for sub in subs:
+            if sub.tokens is None:
+                self.text(sub.code, bounded, depth + 1)
+            else:
+                self.walk(sub.tokens, sub.subs, bounded, bodies, depth + 1)
         found = commands(tokens)
         for k, command in enumerate(found):
-            if loops(command):
-                self.loops.append(bounded or on_clock(found, k))
+            kind = loops(command)
+            if kind:
+                ends = kind == "read" and reads_to_end(found, k)
+                self.loops.append(bounded or ends or on_clock(found, k))
             self.command(command, bounded, bodies, depth)
 
     def command(
@@ -454,29 +568,30 @@ class Scan:
         argv, wrapped, flock_code = peel(list(words))
         bounded = bounded or wrapped
         if flock_code is not None:
-            self.text(flock_code, bounded, None, depth + 1)
+            self.text(flock_code, bounded, depth + 1)
             return
         name = Path(argv[0]).name if argv else ""
         if name in ("pkill", "pgrep") and full_match(name, argv[1:]):
             self.full.append(name)
         elif name == "eval":
-            self.text(" ".join(argv[1:]), bounded, None, depth + 1)
+            self.text(" ".join(argv[1:]), bounded, depth + 1)
         elif name in SHELLS:
             code, reads_stdin = shell_code(argv[1:])
             if code is not None:
-                self.text(code, bounded, None, depth + 1)
+                self.text(code, bounded, depth + 1)
             elif reads_stdin:
                 for op, target in redirects:
                     if op == "<<<":
-                        self.text(target, bounded, None, depth + 1)
+                        self.text(target, bounded, depth + 1)
                     elif op == "<<" and (m := SENTINEL_RE.fullmatch(target.lstrip("-"))):
                         index = int(m.group(1))
                         if index < len(bodies):
-                            self.text(bodies[index][1], bounded, None, depth + 1)
+                            self.text(bodies[index][1], bounded, depth + 1)
 
 
 def check(command: str, background: bool, on: set[str]) -> list[str]:
-    """The refusals for COMMAND under the options in ON; BACKGROUND is its run_in_background."""
+    """The refusals for COMMAND under the options in ON; BACKGROUND is whether it runs in the
+    background."""
     scan = Scan()
     scan.text(command)
     denies: list[str] = []
