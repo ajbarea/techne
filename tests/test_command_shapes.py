@@ -158,7 +158,20 @@ DIFFERENTIAL = [
     "eval 'true # $(pgrep -f marker)'",
     "echo $(( echo $(pkill -f marker)\n)\n)",  # `$((` not closed by `))` is a subshell
     "echo $(( 1 + 2 ))",
+    # arithmetic shifts are no heredocs; parentheses inside $(...) keep their own `)`
+    "echo $((1<<2))\npkill -f marker",
+    "(( mask = 1 << 2 ))\npgrep -f marker",
+    "x=$(( 1<<2 )) && pkill -f marker",
+    'echo "$(\nn=$((1+1))  # count what is left\necho $n\n)"; pkill -f marker',
+    'echo "$( (echo a) # it\'s\n)"; pkill -f marker',
+    'f() { :; }; echo "$(f() { :; }; f)"; pgrep -f marker',
+    "echo ${x:- #}; pkill -f marker",
+    "bash -c \"$(cat<<'EOF'\npkill -f marker\nEOF\n)\"",
+    "flock --wait 5 lk pkill -f marker",
+    "flock --wai 5 lk pkill -f marker",
+    "flock --timeout 5 lk pgrep -f marker",
     # pkill / pgrep as text
+    "echo $((1<<2)) # pkill -f marker",
     "cat <<'EOF'\necho $(pgrep -af marker)\nEOF",
     "echo 'pkill -f marker'",
     'echo "pkill -f marker"',
@@ -284,6 +297,13 @@ WRAPS = [
     lambda c: f"bash -c \"$(cat <<'E{len(c)}'\n{c}\nE{len(c)}\n)\"",
     lambda c: f"flock lock{len(c)} --command {shlex.quote(c)}",
     lambda c: f"flock lock{len(c)} bash -c {shlex.quote(c)}",
+    # arithmetic shifts, parentheses and comments with apostrophes before and inside $(...)
+    lambda c: f"echo $((1<<2))\n{c}",
+    lambda c: f"(( m = 1 << 2 ))\n{c}",
+    lambda c: f'echo "$(\nn=$((1+1))  # what\'s left\n{c}\n)"',
+    lambda c: f'echo "$( (echo a) # it\'s\n{c}\n)"',
+    lambda c: f"echo ${{unset_369:- #}}; {c}",
+    lambda c: f"x=1 # it's a comment\n{c}",
     lambda c: f"echo ${{unset_369:-'}}'}}; {c}",
     lambda c: f'echo "${{unset_369:-"{{"}}"; {c}',
     lambda c: f"echo \"${{unset_369:-'}}'}}\"; {c}",
@@ -460,6 +480,9 @@ def test_an_unbounded_background_wait_is_refused(cs, command):
         ("script -q log.txt", False),
         ("busybox sh -c 'pkill -f x'", True),
         ("coproc pkill -f x", True),
+        # a line continuation joins the lines, as bash reads it
+        ("pkill \\\n-f marker", True),
+        ("./time pkill -x x", False),
     ],
 )
 def test_wrappers_that_run_a_command_string(cs, command, want):
@@ -486,6 +509,36 @@ def test_wrappers_that_run_a_command_string(cs, command, want):
             [False],
         ),
         ("until x; do [ $SECONDS -gt 1800 ] && { echo late; exit 1; }; sleep 30; done", [False]),
+        # a clock that is only printed bounds nothing
+        (
+            'while true; do echo "t=$SECONDS"; if gh pr checks 1; then break; fi; sleep 30; done',
+            [True],
+        ),
+        ("while true; do echo $SECONDS; [ -f done ] && break; sleep 1; done", [True]),
+        ("while true; do read l < /dev/tty; done", [True]),
+        # `&` detaches the loop even in a foreground call: refused (see the foreground table)
+        (
+            "while true; do [ $SECONDS -gt 600 ] && echo slow;"
+            " if gh pr checks 1; then break; fi; sleep 30; done",
+            [True],
+        ),
+        (
+            "while true; do [ $SECONDS -gt 9 ] && echo late; [ -f done ] && break; sleep 1; done",
+            [True],
+        ),
+        (
+            "while true; do if [ $SECONDS -gt 9 ]; then echo late; else break; fi; sleep 1; done",
+            [True],
+        ),
+        (
+            "while true; do if [ $SECONDS -gt 9 ]; then echo late; exit 1; fi; sleep 1; done",
+            [False],
+        ),
+        ("while read l; do :; done < /dev/tty", [True]),
+        ("while read l; do :; done < /dev/null", [False]),
+        # a script that shares a wrapper's name is no wrapper
+        ("./timeout 5 bash -c 'while true; do :; done'", [False]),  # a script: its args unread
+        ("/usr/bin/timeout 5 bash -c 'while true; do :; done'", [False]),
         ("until x; do echo $SECONDS; sleep 30; done; exit 1", [True]),  # the exit is after done
         # a break that leaves only an inner loop, an exit that leaves only a subshell
         ("while true; do for i in 1; do [ $SECONDS -gt 9 ] && break; done; sleep 1; done", [True]),
@@ -494,7 +547,7 @@ def test_wrappers_that_run_a_command_string(cs, command, want):
             "while true; do for i in 1; do [ $SECONDS -gt 9 ] && break 2; done; sleep 1; done",
             [False],
         ),
-        ("while true; do [ $SECONDS -gt 9 ] && return; sleep 1; done", [True]),  # not a function
+        ("while true; do [ $SECONDS -gt 9 ] && return; sleep 1; done", [False]),  # in a function
         ("until read l; do sleep 1; done < notes.txt", [True]),  # loops forever at end of input
         ("time -p while true; do sleep 1; done", [True]),
     ],
@@ -519,6 +572,40 @@ def test_the_live_failures_are_refused(cs, command):
 
 def test_a_foreground_loop_passes(cs):
     assert cs.check("while true; do sleep 1; done", False, BOTH) == []
+
+
+@pytest.mark.parametrize(
+    ("command", "refused"),
+    [
+        # `&` runs the loop in the background of a foreground call (the 11-17 failure)
+        ("nohup bash -c 'until gh pr checks 1; do sleep 30; done' >/dev/null 2>&1 &", True),
+        ("while true; do sleep 1; done &", True),
+        ("setsid bash -c 'while true; do sleep 1; done' &", True),
+        ("(while true; do sleep 1; done) &", True),
+        ("timeout 60 bash -c 'while true; do sleep 1; done' &", False),
+        ("nohup sleep 5 &", False),
+        ("while true; do sleep 1; done; echo done &", False),
+        ("until x || [ $SECONDS -gt 9 ]; do sleep 1; done &", False),
+    ],
+)
+def test_a_loop_that_ampersand_detaches_counts_as_background(cs, command, refused):
+    assert (cs.check(command, False, {LOOPS}) != []) is refused
+
+
+def test_flock_long_options_read_as_getopt_long_reads_them(cs):
+    """--wait is --timeout's alias and any unique prefix works (util-linux 2.39)."""
+    assert cs._long("--wai", cs.FLOCK_LONG) == "--wait"
+    assert cs._long("--timeout", cs.FLOCK_LONG) == "--timeout"
+    assert cs._long("--no", cs.FLOCK_LONG) == "--no"  # --nonblock or --no-fork: ambiguous
+    assert cs._long("--", cs.FLOCK_LONG) == "--"
+    # before its lock file flock rejects --command, so nothing is read from it
+    assert cs.check("flock --command 'pkill -f x' lk", False, {FULL}) == []
+
+
+def test_an_unclosed_unquoted_heredoc_substitution_refuses(cs):
+    """The body of an unquoted heredoc runs its $(...): one that never closes is refused."""
+    with pytest.raises(ValueError, match="never closed"):
+        cs.check("cat <<EOF\nx $(pkill -x y\nEOF", False, {FULL})
 
 
 def test_each_option_refuses_only_its_own_shape(cs):
@@ -797,11 +884,23 @@ def test_hooks_json_passes_the_flag_exactly_while_a_shape_option_is_on(tmp_path,
 def test_a_missing_python3_refuses_while_a_shape_option_is_on(tmp_path, handler):
     """No python3 means no check: with a shape option on the call is refused (exit 2) and says
     why, rather than running unchecked."""
-    empty = tmp_path / "bin"
+    empty = tmp_path / "bin"  # a PATH with cat, as any machine has, and no python3
     empty.mkdir()
+    (empty / "cat").symlink_to(shutil.which("cat") or "/bin/cat")
     shell = handler["command"].replace("${CLAUDE_PLUGIN_ROOT}", str(PLUGIN))
     env = {**hook_env([FULL]), "PATH": str(empty)}
-    proc = subprocess.run(
-        ["/bin/sh", "-c", shell], input="{}", capture_output=True, text=True, env=env, check=False
-    )
-    assert proc.returncode == 2 and "python3 is not on PATH" in proc.stderr
+
+    def run(command: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["/bin/sh", "-c", shell],
+            input=bash_payload(command),
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+        )
+
+    refused = run("pkill -x server")
+    assert refused.returncode == 2 and "python3 is not on PATH" in refused.stderr
+    # A call that cannot hold a shape still runs, so the user can install python3.
+    assert run("ls -la").returncode == 0

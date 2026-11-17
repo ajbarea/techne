@@ -462,7 +462,7 @@ def strip_heredocs(text: str) -> tuple[str, list[tuple[str, str, bool]]]:
             out.append(ch)
             i += 1
             continue
-        if ch == "#" and (i == 0 or text[i - 1] in " \t\n;&|()"):
+        if ch == "#" and top != "${" and (i == 0 or text[i - 1] in " \t\n;&|()"):
             j = text.find("\n", i)
             i = n if j < 0 else j
             continue
@@ -478,8 +478,27 @@ def strip_heredocs(text: str) -> tuple[str, list[tuple[str, str, bool]]]:
             out.append("$(")
             i += 2
             continue
-        elif ch == ")" and top == "$(":
+        elif text.startswith("${", i):
+            stack.append("${")
+            out.append("${")
+            i += 2
+            continue
+        elif ch == "}" and top == "${":
             stack.pop()
+        elif ch == "(":
+            # `((` and `$((` open arithmetic, where `<<` is a shift; any other `(` is a
+            # subshell, a group or a process substitution that its own `)` closes.
+            if text[i - 1 : i] == "(" and top in ("(", "$("):
+                stack[-1] = "$((" if top == "$(" and text[i - 2 : i - 1] == "$" else "(("
+            else:
+                stack.append("(")
+        elif ch == ")" and top in ("$(", "(", "$((", "(("):
+            stack.pop()
+            if top in ("$((", "((") and text[i + 1 : i + 2] == ")":
+                out.append(")")
+                i += 1  # arithmetic closes with `))`
+        elif ch == "<" and top in ("$((", "(("):
+            pass  # a shift, not a heredoc
         elif ch == "<":
             m = HEREDOC_RE.match(text, i)
             if m and not text.startswith("<<<", i) and not text.endswith("<", 0, i):
@@ -610,6 +629,19 @@ def drop_redirections(argv: list[str]) -> list[str]:
     return out
 
 
+# Folders the system's own tools live in: `/usr/bin/sudo` is sudo, `./sudo` is a script.
+SYSTEM_BINS = {"/usr/bin", "/bin", "/usr/local/bin", "/usr/sbin", "/sbin", "/usr/local/sbin"}
+
+
+def wrapper_name(word: str) -> str:
+    """The command WORD names: the bare name, or the basename of a path into a system folder;
+    a path anywhere else (`./time`, `scripts/timeout`) is a program of its own, so ''."""
+    if "/" not in word:
+        return word
+    folder, _, name = word.rpartition("/")
+    return name if folder in SYSTEM_BINS else ""
+
+
 def unwrap(argv: list[str]) -> tuple[list[str], list[str]]:
     """Strip leading assignments and wrappers; return the command and any chdir targets."""
     out, chdirs, _ = unwrap_wrappers(argv)
@@ -623,12 +655,12 @@ def unwrap_wrappers(argv: list[str]) -> tuple[list[str], list[str], list[tuple[s
     chdirs: list[str] = []
     wrappers: list[tuple[str, list[str]]] = []
     while out and (
-        ASSIGNMENT_RE.match(out[0]) or Path(out[0]).name in WRAPPERS or out[0] in RESERVED
+        ASSIGNMENT_RE.match(out[0]) or wrapper_name(out[0]) in WRAPPERS or out[0] in RESERVED
     ):
         word = out.pop(0)
-        if ASSIGNMENT_RE.match(word) or Path(word).name not in WRAPPERS:
+        if ASSIGNMENT_RE.match(word) or wrapper_name(word) not in WRAPPERS:
             continue
-        word = Path(word).name
+        word = wrapper_name(word)
         value_flags, chdir_flags = WRAPPERS[word]
         took: list[str] = []
         while out and out[0].startswith("-") and out[0] != "-":

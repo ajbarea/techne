@@ -45,7 +45,7 @@ LEAD = {"!", "{", "if", "then", "elif", "else", "do", "time", "coproc"}
 # Wrappers that run the rest of their words as a command, besides git_checks.WRAPPERS.
 RUNNERS = {"coproc", "busybox"}
 # `$(cat <<EOF ... EOF)`, the whole of a `bash -c` string: the heredoc's body is the code.
-CAT_HEREDOC_RE = re.compile("\\$\\(\\s*cat\\s+<<-?\x00H(\\d+)\x00\\s*\\)")
+CAT_HEREDOC_RE = re.compile("\\$\\(\\s*cat\\s*<<-?\x00H(\\d+)\x00\\s*\\)")
 OPERATORS = (
     "<<<", "&>>", "<<", ">>", "&&", "||", ";;", ";&", "|&", "&>", ">&", "<&", ">|", "<>",
     "<", ">", "&", "|", ";", "(", ")", "\n",
@@ -75,7 +75,12 @@ SIGNALS = set(
     "CONT STOP TSTP TTIN TTOU URG XCPU XFSZ VTALRM PROF WINCH IO POLL PWR SYS".split()
 )
 SIGNAL_RE = re.compile(r"-(?:\d+|(?:SIG)?[A-Z]+[0-9]*|(?:RTMIN|RTMAX)[+-]\d+)$", re.IGNORECASE)
-FLOCK_VALUE = {"-w", "--timeout", "-E", "--conflict-exit-code"}
+FLOCK_VALUE = {"-w", "--timeout", "--wait", "-E", "--conflict-exit-code"}
+# flock's long options (util-linux 2.39): getopt_long takes any unique prefix of one.
+FLOCK_LONG = (
+    "--shared", "--exclusive", "--unlock", "--nonblock", "--nb", "--timeout", "--wait",
+    "--conflict-exit-code", "--close", "--no-fork", "--verbose", "--command", "--help", "--version",
+)  # fmt: skip
 TIMEOUT_VALUE = {"-k", "-s", "--kill-after", "--signal"}
 # bash's clock in a loop condition: `$SECONDS`, `${SECONDS}`, or `SECONDS` inside `(( ))`.
 SECONDS_RE = re.compile(r"^SECONDS$|\$\{?SECONDS\b")
@@ -191,6 +196,9 @@ class Lexer:
             elif t.startswith("${", i):
                 parts.append(self.braces())
                 inword = True
+            elif c == "#" and not inword:  # a comment runs to the end of the line
+                j = t.find("\n", i)
+                self.i = n if j < 0 else j
             elif closer and c == ")" and depth == 0:
                 end()
                 self.i += 1
@@ -325,6 +333,7 @@ class Group(list):
     """One simple command's words and redirections, and how many `(` subshells it sits in."""
 
     parens = 0
+    detached = False  # ended by `&`: it runs in the background of the shell
 
 
 def commands(tokens: list[str]) -> list[Group]:
@@ -333,6 +342,10 @@ def commands(tokens: list[str]) -> list[Group]:
     depth = 0
     for tok in tokens:
         if isinstance(tok, Op) and "<" not in tok and ">" not in tok:
+            if tok == "&":  # detaches the command before it, or the `( )` group's last one
+                last = next((g for g in reversed(out) if g), None)
+                if last is not None:
+                    last.detached = True
             depth += (tok == "(") - (tok == ")")
             out.append(Group())
             out[-1].parens = depth
@@ -400,18 +413,31 @@ def reads_to_end(commands: Sequence[list[str]], k: int) -> bool:
     for j, tok in enumerate(command):
         if isinstance(tok, Op) and tok.lstrip("0123456789") in ("<", "<<", "<<<"):
             target = command[j + 1] if j + 1 < len(command) else ""
-            return not target.startswith(("<(", "/dev/stdin", "/dev/fd/"))
+            # A file ends; a pipe, a terminal or a device (`/dev/tty`) may not.
+            return not target.startswith("<(") and (
+                not target.startswith("/dev/") or target == "/dev/null"
+            )
     return False
 
 
 def _reads_clock(command: list[str]) -> bool:
-    return any(not isinstance(w, Op) and SECONDS_RE.search(w) for w in command)
+    """Whether COMMAND is a test of bash's clock: `[ $SECONDS -gt N ]`, `test ...`, `[[ ... ]]`
+    or an arithmetic `(( SECONDS > N ))`. An `echo "t=$SECONDS"` only prints it."""
+    words = [w for w in command if not isinstance(w, Op)]
+    start = command_start(command)
+    if words[start : start + 1] in (["while"], ["until"]):
+        start += 1  # the condition's own first word
+    head = words[start:][:1]
+    if head not in (["["], ["[["], ["test"]) and "SECONDS" not in words:
+        return False
+    return any(SECONDS_RE.search(w) for w in words)
 
 
 def on_clock(commands: Sequence[list[str]], k: int) -> bool:
     """Whether bash's clock, `$SECONDS`, bounds the loop that COMMANDS[K] opens: read in its
-    condition (the commands before the one that starts with `do`), or by a test in its body
-    with a `break`, `exit` or `return` after it in the body (`then echo late; exit 1`)."""
+    condition (the commands before the one that starts with `do`), or tested in its body with
+    an `exit`, `return` or `break` that leaves this loop as that test's own consequent
+    (`[ $SECONDS -gt N ] && break`, or `then echo late; exit 1` of an `if` on the test)."""
     body, done = loop_extent(commands, k)
     if any(_reads_clock(c) for c in commands[k : body if body is not None else len(commands)]):
         return True
@@ -419,22 +445,48 @@ def on_clock(commands: Sequence[list[str]], k: int) -> bool:
         return False
     end = len(commands) if done is None else done
     own = getattr(commands[k], "parens", 0)
-    tested = False
     level = 0  # how many loops deep, counting this one
+    levels = []
     for j in range(body, end):
         first = commands[j][0]
         level += (first == "do") - (first == "done")
-        tested = tested or _reads_clock(commands[j])
-        if not tested or getattr(commands[j], "parens", 0) != own:
-            continue  # an exit in a `( )` subshell leaves only the subshell
-        words = [w for w in commands[j][command_start(commands[j]) :] if not isinstance(w, Op)]
-        if words[:1] == ["exit"]:
-            return True
-        if words[:1] == ["break"]:
-            reach = words[1] if len(words) > 1 and words[1].isdigit() else "1"
-            if int(reach) >= level:
+        levels.append(level)
+    for j in range(body, end):
+        if not _reads_clock(commands[j]):
+            continue
+        # The exit is the test's own consequent: what follows it up to the next test, loop or
+        # the end of its `if`. A `then` follows only a test that opened with `if`.
+        before = commands[j - 1][-1:] if j > body else []  # `if` of `if (( SECONDS > N ))`
+        lead = commands[j][: command_start(commands[j])]  # `do if` before the test
+        opens_if = before in (["if"], ["elif"]) or "if" in lead or "elif" in lead
+        for m in range(j + 1, end):
+            nxt = commands[m]
+            head = nxt[0]
+            if head in STOPPERS or (head == "then" and not opens_if):
+                break
+            if head == "then":
+                nxt = nxt[1:]
+            if getattr(nxt, "parens", getattr(commands[m], "parens", 0)) != own:
+                continue
+            if _reads_clock(nxt) or _is_test(nxt):
+                break
+            words = [w for w in nxt[command_start(nxt) :] if not isinstance(w, Op)]
+            if words[:1] in (["exit"], ["return"]):
                 return True
+            if words[:1] == ["break"]:
+                reach = words[1] if len(words) > 1 and words[1].isdigit() else "1"
+                if int(reach) >= levels[m - body]:
+                    return True
     return False
+
+
+STOPPERS = {"if", "while", "until", "for", "fi", "else", "elif", "done", "do", "case", "esac"}
+
+
+def _is_test(command: list[str]) -> bool:
+    """Whether COMMAND is a bracket test or `test`, which a later `break` may hang on."""
+    words = [w for w in command if not isinstance(w, Op)]
+    return words[command_start(command) :][:1] in (["["], ["[["], ["test"])
 
 
 def endless_for(tokens: list[str]) -> bool:
@@ -522,6 +574,7 @@ def _command_option(
             break
         if tok.startswith("--"):
             flag, eq, value = tok.partition("=")
+            flag = _long(flag, FLOCK_LONG)
             if flag == "--command" and not stop:
                 return (value if eq else (args[j] if j < len(args) else "")), operands
             if flag in FLOCK_VALUE and not eq:
@@ -542,6 +595,14 @@ def _command_option(
                 j += not tok[k + 1 :]  # its value is the next word
                 break
     return None, operands
+
+
+def _long(flag: str, names: Sequence[str]) -> str:
+    """The long option FLAG names among NAMES, a unique prefix included (getopt_long)."""
+    if flag in names:
+        return flag
+    found = [n for n in names if n.startswith(flag)] if len(flag) > 2 else []
+    return found[0] if len(found) == 1 else flag
 
 
 def _limits(took: list[str]) -> bool:
@@ -627,7 +688,9 @@ class Scan:
     """What a command runs that these guards refuse, read through the nesting bash runs."""
 
     def __init__(self) -> None:
-        self.loops: list[bool] = []  # one per loop: whether a `timeout` bounds it
+        # One per loop: whether a `timeout` or a clock bounds it, and whether `&` detaches it.
+        self.loops: list[tuple[bool, bool]] = []
+        self.detached = False  # inside a command that `&` runs in the background
         self.full: list[str] = []  # each `pkill -f` or `pgrep -f`: its name
 
     def text(self, text: str, bounded: bool = False, depth: int = 0) -> None:
@@ -673,19 +736,24 @@ class Scan:
         if depth > MAX_DEPTH:
             raise ValueError(TOO_DEEP)
         if endless_for(tokens):
-            self.loops.append(bounded)
+            self.loops.append((bounded, self.detached))
         for sub in subs:
             if sub.tokens is None:
                 self.text(sub.code, bounded, depth + 1)
             else:
                 self.walk(sub.tokens, sub.subs, bounded, bodies, depth + 1)
         found = commands(tokens)
+        outer = self.detached
         for k, command in enumerate(found):
             kind = loops(command)
             if kind:
                 ends = kind == "read" and reads_to_end(found, k)
-                self.loops.append(bounded or ends or on_clock(found, k))
+                _, done = loop_extent(found, k)
+                detached = outer or (done is not None and getattr(found[done], "detached", False))
+                self.loops.append((bounded or ends or on_clock(found, k), detached))
+            self.detached = outer or getattr(command, "detached", False)
             self.command(command, bounded, bodies, depth)
+        self.detached = outer
 
     def command(
         self, command: list[str], bounded: bool, bodies: list[tuple[str, str, bool]], depth: int
@@ -722,7 +790,10 @@ def check(command: str, background: bool, on: set[str]) -> list[str]:
     scan = Scan()
     scan.text(command)
     denies: list[str] = []
-    if BACKGROUND_LOOPS in on and background and not all(scan.loops):
+    # A loop in a background call, or one `&` detaches in a foreground call, must be bounded.
+    if BACKGROUND_LOOPS in on and any(
+        not bounded and (background or detached) for bounded, detached in scan.loops
+    ):
         denies.append(LOOP_DENY)
     if PKILL_FULL in on:
         denies.extend(FULL_DENY[name] for name in dict.fromkeys(scan.full))
