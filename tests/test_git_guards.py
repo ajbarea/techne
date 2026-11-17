@@ -520,6 +520,16 @@ def test_manifest_options_match_the_guard_and_default_off():
 # --- parser edge cases ---------------------------------------------------------
 
 
+def test_deeply_nested_parentheses_stay_linear(scratch):
+    """is_arith looks a bounded way ahead, so thousands of nested `(` cost little."""
+    import time
+
+    command = "(" * 6000 + "true" + ")" * 6000 + "; git add COMMITS.md"
+    start = time.perf_counter()
+    assert denied(run_hook(command, scratch))
+    assert time.perf_counter() - start < 10
+
+
 @pytest.mark.parametrize(
     "command",
     [

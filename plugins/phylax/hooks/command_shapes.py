@@ -356,15 +356,19 @@ def commands(tokens: list[str]) -> list[Group]:
                     start = _brace_start(out)
                 for g in out[start:]:
                     g.detached = True
+            if tok == "\n" and not out[-1] and out[-1].sep in CONTINUES:
+                continue  # a newline after `&&`, `||` or `|` continues the list
+            had_open = bool(opens)
             if tok == "(":
                 opens.append(len(out))
             elif tok == ")" and opens:
                 closed = opens.pop()
-            depth += (tok == "(") - (tok == ")")
+            # A `case` arm's `pattern)` has no `(`: it closes nothing.
+            depth = max(0, depth + (tok == "(") - (tok == ")"))
             out.append(Group())
             out[-1].parens = depth
             out[-1].sep = str(tok)
-            after_close = tok == ")"
+            after_close = tok == ")" and had_open
             if tok not in ("&&", "||", "|", "|&"):
                 chain = len(out) - 1
         else:
@@ -500,7 +504,7 @@ def on_clock(commands: Sequence[list[str]], k: int) -> bool:
                 nxt = nxt[1:]
             elif not (getattr(nxt, "sep", "") in ("&&", "||") or braces or in_then):
                 break  # a `;` or a newline ends the test's own and-or list
-            braces += "{" in nxt[: command_start(nxt)]
+            braces += nxt[: command_start(nxt)].count("{")
             if nxt[:1] == ["}"]:
                 braces -= 1
                 continue
@@ -518,6 +522,7 @@ def on_clock(commands: Sequence[list[str]], k: int) -> bool:
     return False
 
 
+CONTINUES = ("&&", "||", "|", "|&")
 STOPPERS = {"if", "while", "until", "for", "fi", "else", "elif", "done", "do", "case", "esac"}
 
 
@@ -779,30 +784,31 @@ class Scan:
         """Walk lexed TOKENS and their substitutions SUBS, read in the same pass."""
         if depth > MAX_DEPTH:
             raise ValueError(TOO_DEEP)
-
+        # A `&` anywhere in this text backgrounds something in it, and which command it
+        # backgrounds is not worth telling (`( L ) | cat &`, `if x; then L; fi &`, `x=$(L) &`):
+        # every loop in this text, and below it, counts as detached, and a timeout around an
+        # enclosing shell no longer bounds them. A command that backgrounds a job and also
+        # waits in a loop is refused too, and told to bound the wait.
+        outer = self.detached
+        amp = any(isinstance(t, Op) and t == "&" for t in tokens)
+        self.detached = outer or amp
+        held = bounded and not amp
         for sub in subs:
             if sub.tokens is None:
-                self.text(sub.code, bounded, depth + 1)
+                self.text(sub.code, held, depth + 1)
             else:
-                self.walk(sub.tokens, sub.subs, bounded, bodies, depth + 1)
+                self.walk(sub.tokens, sub.subs, held, bodies, depth + 1)
         found = commands(tokens)
-        outer = self.detached
         endless = iter(arithmetic_fors(tokens))
         for k, command in enumerate(found):
             if command[-1:] == ["for"] and command_start(command) == len(command) - 1:
                 if next(endless, False):  # an arithmetic for: its header's `;` split the group
-                    _, done = loop_extent(found, k)
-                    detached = outer or (done is not None and found[done].detached)
-                    self.loops.append((bounded or on_clock(found, k), detached))
+                    self.loops.append((held or on_clock(found, k), outer or amp))
             kind = loops(command)
             if kind:
                 ends = kind == "read" and reads_to_end(found, k)
-                _, done = loop_extent(found, k)
-                own = done is not None and found[done].detached  # `done &` in this shell
-                self.loops.append(
-                    ((bounded and not own) or ends or on_clock(found, k), outer or own)
-                )
-            self.detached = outer or getattr(command, "detached", False)
+                self.loops.append((held or ends or on_clock(found, k), outer or amp))
+            self.detached = outer or amp or getattr(command, "detached", False)
             self.command(command, bounded, bodies, depth)
         self.detached = outer
 

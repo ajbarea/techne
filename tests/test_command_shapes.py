@@ -512,6 +512,18 @@ def test_wrappers_that_run_a_command_string(cs, command, want):
             [False],
         ),
         ("until x; do [ $SECONDS -gt 1800 ] && { echo late; exit 1; }; sleep 30; done", [False]),
+        # a `case` arm's `pattern)` closes no paren: the exit still counts
+        (
+            "until false; do s=$(gh run view 1); case $s in completed) break;; esac;"
+            " [ $SECONDS -gt 1800 ] && exit 1; sleep 30; done",
+            [False],
+        ),
+        # a newline after && continues the list
+        ("while true; do [ $SECONDS -gt 1800 ] &&\n  exit 1; sleep 1; done", [False]),
+        ("while true; do [ $SECONDS -gt 1800 ] && { { echo a; }; break; }; sleep 1; done", [False]),
+        # guards a hand mutation found vacuous
+        ("while true; do if foo && [ $SECONDS -gt 1 ]; then break; fi; sleep 1; done", [True]),
+        ("while true; do [ $SECONDS -gt 10 ] && { echo; }; break; done", [True]),
         # a clock that is only printed bounds nothing
         (
             'while true; do echo "t=$SECONDS"; if gh pr checks 1; then break; fi; sleep 30; done',
@@ -581,6 +593,14 @@ def test_the_live_failures_are_refused(cs, command):
     assert cs.check(command, False, {FULL}) != []
 
 
+def test_a_heredoc_body_in_a_double_paren_subshell_is_text(cs):
+    """`((` whose inner paren closes early is two subshells, so the body is the heredoc's."""
+    assert cs.check("((cat <<'EOF'\npkill -f m\nEOF\n) )", False, {FULL}) == []
+    # a paren inside quotes is text: this `((` is arithmetic and the next line is code
+    command = '(( m = $(echo ")") + 1 << n ))\npkill -f m'
+    assert cs.check(command, False, {FULL}) != []
+
+
 def test_a_foreground_loop_passes(cs):
     assert cs.check("while true; do sleep 1; done", False, BOTH) == []
 
@@ -600,7 +620,19 @@ def test_a_foreground_loop_passes(cs):
         ("for ((;;)); do sleep 1; done &", True),
         ("for ((;;)); do [ $SECONDS -gt 9 ] && break; sleep 1; done &", False),
         ("for ((i=0;i<3;i++)); do sleep 1; done &", False),
-        ("while true; do sleep 1; done; echo hi &", False),
+        # a `&` anywhere backgrounds something, so the loop in the same text counts as detached
+        ("while true; do sleep 1; done; echo hi &", True),
+        # any `&` in the text backgrounds something in it: every shape a `&` can hold
+        ("( while true; do sleep 1; done ) | cat &", True),
+        ("{ while true; do sleep 1; done; } | tee log &", True),
+        ("if true; then while true; do sleep 1; done; fi &", True),
+        ("for f in a; do while true; do sleep 1; done; done &", True),
+        ("while true; do sleep 1; done &&\n true &", True),
+        ("while true; do sleep 1; done |\n tee log &", True),
+        ("x=$(while true; do sleep 1; done) &", True),
+        ("timeout 60 bash -c 'for ((;;)); do sleep 1; done &'", True),
+        ("timeout 60 bash -c '( for ((;;)); do sleep 1; done ) &'", True),
+        ("timeout 60 bash -c 'x=$(while true; do sleep 1; done) &'", True),
         ("{ while true; do sleep 1; done; } > log 2>&1 &", True),
         ("(while true; do sleep 1; done) > log 2>&1 &", True),
         ("while true; do sleep 1; done | tee log &", True),
@@ -613,7 +645,8 @@ def test_a_foreground_loop_passes(cs):
         ("timeout 60 setsid bash -c 'while true; do sleep 1; done'", False),
         ("timeout 60 bash -c 'while true; do sleep 1; done' &", False),
         ("nohup sleep 5 &", False),
-        ("while true; do sleep 1; done; echo done &", False),
+        # the `&` backgrounds `echo`, but any `&` in the text counts: the wait is refused too
+        ("while true; do sleep 1; done; echo done &", True),
         ("until x || [ $SECONDS -gt 9 ]; do sleep 1; done &", False),
     ],
 )

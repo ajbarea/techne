@@ -387,12 +387,20 @@ def run_git(
     return proc.stdout if proc.returncode == 0 or not check else None
 
 
+ARITH_SCAN = 2000
+
+
 def is_arith(text: str, start: int) -> bool:
     """Whether the `((` at TEXT[START] opens arithmetic: its inner paren closes right before the
     outer one (`((1+1))`, `((a*(b+c)))`), not earlier (`((cd a); (cd b))` is two subshells)."""
-    depth, inner = 0, None
-    for j in range(start, len(text)):
-        if text[j] == "(":
+    depth, inner, quote = 0, None, ""
+    # Arithmetic is short; looking no further than ARITH_SCAN keeps deep nesting linear.
+    for j in range(start, min(len(text), start + ARITH_SCAN)):
+        if quote:  # a paren in quotes is text
+            quote = "" if text[j] == quote else quote
+        elif text[j] in "'\"":
+            quote = text[j]
+        elif text[j] == "(":
             depth += 1
         elif text[j] == ")":
             depth -= 1
