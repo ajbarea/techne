@@ -27,9 +27,8 @@ from __future__ import annotations
 import math
 import re
 from collections.abc import Sequence
-from pathlib import Path
 
-from git_checks import SENTINEL_RE, strip_heredocs, unwrap_wrappers
+from git_checks import SENTINEL_RE, strip_heredocs, unwrap_wrappers, wrapper_name
 from git_options import BACKGROUND_LOOPS, PKILL_FULL
 
 # Nesting deeper than this is refused, as it cannot be read through; a real command nests
@@ -337,21 +336,49 @@ class Group(list):
 
 
 def commands(tokens: list[str]) -> list[Group]:
-    """Split at separators; each simple command keeps its redirections."""
+    """Split at separators; each simple command keeps its redirections. A `&` marks as detached
+    everything it backgrounds: the whole pipeline or `&&` list before it, or the `( )` or
+    `{ }` group it follows."""
     out: list[Group] = [Group()]
     depth = 0
+    chain = 0  # where the current pipeline or `&&` list starts in OUT
+    opens: list[int] = []  # where each open `(` group starts
+    closed = 0  # where the `( )` group that just closed started
+    previous = ""
     for tok in tokens:
         if isinstance(tok, Op) and "<" not in tok and ">" not in tok:
-            if tok == "&":  # detaches the command before it, or the `( )` group's last one
-                last = next((g for g in reversed(out) if g), None)
-                if last is not None:
-                    last.detached = True
+            if tok == "&":
+                start = chain
+                if previous == ")":
+                    start = closed
+                elif out[-1][:1] == ["}"]:
+                    start = _brace_start(out)
+                for g in out[start:]:
+                    g.detached = True
+            if tok == "(":
+                opens.append(len(out))
+            elif tok == ")" and opens:
+                closed = opens.pop()
             depth += (tok == "(") - (tok == ")")
             out.append(Group())
             out[-1].parens = depth
+            if tok not in ("&&", "||", "|", "|&"):
+                chain = len(out) - 1
         else:
             out[-1].append(tok)
+        previous = tok if isinstance(tok, Op) else ""
     return [c for c in out if c]
+
+
+def _brace_start(groups: list[Group]) -> int:
+    """Where the `{ ... }` group that ends the last of GROUPS starts."""
+    depth = 0
+    for i in range(len(groups) - 1, -1, -1):
+        head = groups[i][:1]
+        depth += (head == ["}"]) - (head == ["{"])
+        if depth == 0 and head == ["{"]:
+            return i
+    return 0
 
 
 def command_start(words: list[str]) -> int:
@@ -489,21 +516,18 @@ def _is_test(command: list[str]) -> bool:
     return words[command_start(command) :][:1] in (["["], ["[["], ["test"])
 
 
-def endless_for(tokens: list[str]) -> bool:
-    """Whether TOKENS hold an arithmetic `for ((init; ; step))` with no condition, which never
-    ends; one with a condition counts its own way out."""
+def arithmetic_fors(tokens: list[str]) -> list[bool]:
+    """For each arithmetic `for ((init; cond; step))` in TOKENS, in order, whether it has no
+    condition and so never ends on its own."""
+    found: list[bool] = []
     for k in range(len(tokens) - 2):
         if (
             tokens[k] == "for"
             and not isinstance(tokens[k], Op)
-            and tokens[k + 1 : k + 3]
-            == [
-                "(",
-                "(",
-            ]
+            and isinstance(tokens[k + 1], Op)
+            and isinstance(tokens[k + 2], Op)
+            and tokens[k + 1 : k + 3] == ["(", "("]
         ):
-            if not (isinstance(tokens[k + 1], Op) and isinstance(tokens[k + 2], Op)):
-                continue
             parts: list[list[str]] = [[]]
             for tok in tokens[k + 3 :]:
                 if isinstance(tok, Op) and tok == ")":
@@ -512,9 +536,8 @@ def endless_for(tokens: list[str]) -> bool:
                     parts.extend([] for _ in tok)  # `;;` lexes as one operator
                 else:
                     parts[-1].append(tok)
-            if len(parts) == 3 and not parts[1]:
-                return True
-    return False
+            found.append(len(parts) == 3 and not parts[1])
+    return found
 
 
 def split_redirects(command: list[str]) -> tuple[list[str], list[tuple[str, str]]]:
@@ -540,7 +563,7 @@ def peel(argv: list[str]) -> tuple[list[str], bool, str | None]:
     while argv:
         argv, _, wrappers = unwrap_wrappers(argv)
         bounded = bounded or any(name == "timeout" and _limits(took) for name, took in wrappers)
-        name = Path(argv[0]).name if argv else ""
+        name = wrapper_name(argv[0]) if argv else ""
         if name in RUNNERS:
             argv = argv[1:]
         elif name in ("script", "flock"):
@@ -735,8 +758,7 @@ class Scan:
         """Walk lexed TOKENS and their substitutions SUBS, read in the same pass."""
         if depth > MAX_DEPTH:
             raise ValueError(TOO_DEEP)
-        if endless_for(tokens):
-            self.loops.append((bounded, self.detached))
+
         for sub in subs:
             if sub.tokens is None:
                 self.text(sub.code, bounded, depth + 1)
@@ -744,12 +766,18 @@ class Scan:
                 self.walk(sub.tokens, sub.subs, bounded, bodies, depth + 1)
         found = commands(tokens)
         outer = self.detached
+        endless = iter(arithmetic_fors(tokens))
         for k, command in enumerate(found):
+            if command[-1:] == ["for"] and command_start(command) == len(command) - 1:
+                if next(endless, False):  # an arithmetic for: its header's `;` split the group
+                    _, done = loop_extent(found, k)
+                    detached = outer or (done is not None and found[done].detached)
+                    self.loops.append((bounded or on_clock(found, k), detached))
             kind = loops(command)
             if kind:
                 ends = kind == "read" and reads_to_end(found, k)
                 _, done = loop_extent(found, k)
-                detached = outer or (done is not None and getattr(found[done], "detached", False))
+                detached = outer or (done is not None and found[done].detached)
                 self.loops.append((bounded or ends or on_clock(found, k), detached))
             self.detached = outer or getattr(command, "detached", False)
             self.command(command, bounded, bodies, depth)
@@ -765,7 +793,7 @@ class Scan:
         if flock_code is not None:
             self.text(flock_code, bounded, depth + 1)
             return
-        name = Path(argv[0]).name if argv else ""
+        name = wrapper_name(argv[0]) if argv else ""
         if name in ("pkill", "pgrep") and full_match(name, argv[1:]):
             self.full.append(name)
         elif name == "eval":
@@ -784,9 +812,19 @@ class Scan:
                             self.text(bodies[index][1], bounded, depth + 1)
 
 
+# A command without one of these cannot hold a shape the guards refuse.
+WORDS = ("pkill", "pgrep", "while", "until", "((")
+
+
+def may_hold(command: str) -> bool:
+    return any(word in command for word in WORDS)
+
+
 def check(command: str, background: bool, on: set[str]) -> list[str]:
     """The refusals for COMMAND under the options in ON; BACKGROUND is whether it runs in the
     background."""
+    if not may_hold(command):
+        return []
     scan = Scan()
     scan.text(command)
     denies: list[str] = []

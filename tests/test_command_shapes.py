@@ -186,8 +186,6 @@ DIFFERENTIAL = [
     "pkill -x marker",
     "pgrep -x marker",
     "pkill -- -f",
-    "p''kill -f marker",
-    "pk\\ill -f marker",
     # loops as code
     "while probe; do :; done",
     "until probe_ok; do sleep 0; done",
@@ -483,6 +481,9 @@ def test_an_unbounded_background_wait_is_refused(cs, command):
         # a line continuation joins the lines, as bash reads it
         ("pkill \\\n-f marker", True),
         ("./time pkill -x x", False),
+        ("./scripts/pkill -f x", False),  # a program of its own, not procps
+        ("~/bin/pgrep -f x", False),
+        ("/usr/bin/pkill -f x", True),
     ],
 )
 def test_wrappers_that_run_a_command_string(cs, command, want):
@@ -498,6 +499,8 @@ def test_wrappers_that_run_a_command_string(cs, command, want):
         ("bash -s x <<'EOF'\nwhile true; do sleep 5; done\nEOF", [True]),
         ("bash -s <<< 'while true; do sleep 5; done'", [True]),
         ("for ((;;)); do sleep 5; done", [True]),
+        ("for ((;;)); do [ $SECONDS -gt 1800 ] && break; sleep 1; done", [False]),
+        ("for ((;;)); do sleep 1; done; for ((;;)); do sleep 1; done", [True]),
         ("for (( ; ; )); do sleep 5; done", [True]),
         ("for ((i=0; i<3; i++)); do sleep 1; done", [False]),
         ("T=/usr/bin/timeout bash -c 'while true; do :; done'", [True]),  # an assignment
@@ -582,6 +585,14 @@ def test_a_foreground_loop_passes(cs):
         ("while true; do sleep 1; done &", True),
         ("setsid bash -c 'while true; do sleep 1; done' &", True),
         ("(while true; do sleep 1; done) &", True),
+        ("while true; do sleep 1; done | tee log &", True),
+        ("{ while true; do sleep 1; done; } &", True),
+        ("until a; do :; done && echo hi &", True),
+        ("(sleep 1; while true; do sleep 1; done) &", True),
+        ("for ((;;)); do sleep 1; done &", True),
+        ("for ((;;)); do [ $SECONDS -gt 9 ] && break; sleep 1; done &", False),
+        ("for ((i=0;i<3;i++)); do sleep 1; done &", False),
+        ("while true; do sleep 1; done; echo hi &", False),
         ("timeout 60 bash -c 'while true; do sleep 1; done' &", False),
         ("nohup sleep 5 &", False),
         ("while true; do sleep 1; done; echo done &", False),
@@ -639,13 +650,19 @@ def test_nesting_past_the_limit_refuses(cs, wrap):
         return inner
 
     with pytest.raises(ValueError, match="more than 16 deep"):
-        cs.check(nest(cs.MAX_DEPTH + 1, "true"), False, {FULL})
+        cs.check(nest(cs.MAX_DEPTH + 1, "pkill -x a"), False, {FULL})
     assert cs.check(nest(cs.MAX_DEPTH - 1, "pkill -f x"), False, {FULL}) == [cs.FULL_DENY["pkill"]]
 
 
 @pytest.mark.parametrize(
     "command",
-    ["echo 'unterminated", 'echo "unterminated', "echo $(unterminated", "echo ${x", "`x"],
+    [
+        "pkill -x a; echo 'unterminated",
+        'pkill -x a; echo "unterminated',
+        "pkill -x a; echo $(unterminated",
+        "pkill -x a; echo ${x",
+        "pkill -x a; `x",
+    ],
 )
 def test_text_bash_would_reject_is_refused(cs, command):
     """An open quote, substitution or ${ runs to the end, hiding whatever follows it: bash
@@ -685,8 +702,10 @@ def test_known_gaps_pass_unseen(cs, command):
 
 
 @pytest.mark.parametrize("command", ["p''kill -f marker", "pk\\ill -f marker"])
-def test_known_gap_a_split_name_passes_the_hook_prefilter(command):
-    """check() reads `p''kill` as bash does, but the hook's word prefilter never starts it."""
+def test_known_gap_a_split_name_has_no_word_to_find(cs, command):
+    """bash runs pkill, but the text holds no `pkill`: the word check, which keeps every other
+    call off the lexer, never starts, in check() or in the hook."""
+    assert cs.check(command, False, {FULL}) == []
     assert reason(run_guard(bash_payload(command), [FULL])) is None
 
 
@@ -829,17 +848,19 @@ def test_a_call_without_the_words_starts_no_check(monkeypatch):
     """The prefilter: a call that cannot hold a shape exits before command_shapes loads."""
     (gg,) = load_phylax_hooks(monkeypatch, "git_guards")
     assert gg.may_hold_shape('{"tool_input": {"command": "ls"}}') is False
-    assert gg.may_hold_shape('{"command": "pkill -x a"}') is True
-    assert gg.may_hold_shape('{"command": "pgrep -x a"}') is True
-    loop = '{"command": "while x", "run_in_background": true}'
-    assert gg.may_hold_shape(loop) is True
-    assert gg.may_hold_shape(loop.replace("while", "until")) is True
-    assert gg.may_hold_shape('{"command": "while x"}') is False
+    for word in ("pkill", "pgrep", "while", "until", "((", "\\u0070kill"):
+        assert gg.may_hold_shape('{"command": "x ' + word + ' y"}') is True, word
+    # no run_in_background needed: `&` detaches a loop in a foreground call
+    assert gg.may_hold_shape('{"command": "nohup bash -c \'until x\' &"}') is True
     assert gg.may_hold_shape('{"command": "sleep 1", "run_in_background": true}') is False
-    agy = '{"toolCall": {"name": "run_command", "args": {"CommandLine": "until x"}}}'
-    assert gg.may_hold_shape(agy) is True
-    assert gg.may_hold_shape(agy.replace("until", "sleep")) is False
-    assert gg.may_hold_shape('{"command": "\\u0070kill"}') is True
+
+
+@pytest.mark.parametrize("command", ["ls -la", "git status", "echo hi"])
+def test_a_decoded_command_without_the_words_is_not_lexed(cs, command):
+    """A payload that holds a `\\u` escape (an em dash) is decoded and checked for the words
+    first, so an ordinary command never reaches the lexer."""
+    assert cs.may_hold(command) is False
+    assert cs.check(command + " # \u2014", True, BOTH) == []
 
 
 def test_no_option_is_read_for_a_call_without_the_words(monkeypatch):

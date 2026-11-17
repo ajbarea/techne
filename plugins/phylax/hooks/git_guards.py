@@ -61,11 +61,10 @@ def may_hold_shape(payload: str) -> bool:
     return (
         "pkill" in payload
         or "pgrep" in payload
-        or "\\u" in payload
-        or (
-            ("run_in_background" in payload or "run_command" in payload)
-            and ("while" in payload or "until" in payload)
-        )
+        or "while" in payload
+        or "until" in payload
+        or "((" in payload
+        or "\\u" in payload  # a letter JSON wrote as an escape: check_shapes decodes it first
     )
 
 

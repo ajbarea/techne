@@ -387,6 +387,22 @@ def run_git(
     return proc.stdout if proc.returncode == 0 or not check else None
 
 
+def is_arith(text: str, start: int) -> bool:
+    """Whether the `((` at TEXT[START] opens arithmetic: its inner paren closes right before the
+    outer one (`((1+1))`, `((a*(b+c)))`), not earlier (`((cd a); (cd b))` is two subshells)."""
+    depth, inner = 0, None
+    for j in range(start, len(text)):
+        if text[j] == "(":
+            depth += 1
+        elif text[j] == ")":
+            depth -= 1
+            if depth == 1 and inner is None:
+                inner = j
+            if depth == 0:
+                return inner == j - 1
+    return False
+
+
 def strip_heredocs(text: str) -> tuple[str, list[tuple[str, str, bool]]]:
     """Remove heredoc bodies and line continuations so the command tokenizes.
 
@@ -488,7 +504,7 @@ def strip_heredocs(text: str) -> tuple[str, list[tuple[str, str, bool]]]:
         elif ch == "(":
             # `((` and `$((` open arithmetic, where `<<` is a shift; any other `(` is a
             # subshell, a group or a process substitution that its own `)` closes.
-            if text[i - 1 : i] == "(" and top in ("(", "$("):
+            if text[i - 1 : i] == "(" and top in ("(", "$(") and is_arith(text, i - 1):
                 stack[-1] = "$((" if top == "$(" and text[i - 2 : i - 1] == "$" else "(("
             else:
                 stack.append("(")

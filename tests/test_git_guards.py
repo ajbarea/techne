@@ -523,6 +523,21 @@ def test_manifest_options_match_the_guard_and_default_off():
 @pytest.mark.parametrize(
     "command",
     [
+        # `((` is arithmetic only when its inner paren closes right before the outer one
+        "((cd .); git add COMMITS.md)",
+        "((cd .); cat <<EOF\nx\nEOF\n); git add COMMITS.md",
+        "(( x = 1 << 2 )); git add COMMITS.md",
+        "echo $((1<<2)); git add COMMITS.md",
+        "(( x = 1 )); git add -F - <<'EOF'\nbody\nEOF\ngit add COMMITS.md",
+    ],
+)
+def test_parentheses_and_arithmetic_do_not_hide_what_follows(scratch, command):
+    assert denied(run_hook(command, scratch))
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
         "/usr/bin/sudo -n git add COMMITS.md",
         "/usr/bin/env A=1 git add COMMITS.md",
         "setsid git add COMMITS.md",
