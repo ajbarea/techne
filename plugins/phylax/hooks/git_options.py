@@ -1,4 +1,5 @@
-"""The git guard's options and its fail-closed exit, shared by git_guards.py and git_checks.py.
+"""The Bash guards' options and the git guard's fail-closed exit, shared by git_guards.py,
+git_checks.py and command_shapes.py.
 
 Runs on the system python3, so it stays compatible with 3.9 (macOS's).
 """
@@ -16,6 +17,10 @@ BODIES = "block_long_bodies"
 OPTIONS = (ATTRIBUTION, COMMITS_MD, MAIN_CHECKOUT, SECRETS, BODIES)
 # The guards that refuse a command; MAIN_CHECKOUT only warns.
 BLOCKING = (ATTRIBUTION, COMMITS_MD, SECRETS, BODIES)
+# command_shapes.py's options: they refuse a command shape, git or not, and read no repo.
+BACKGROUND_LOOPS = "block_background_loops"
+PKILL_FULL = "block_pkill_full"
+SHAPES = (BACKGROUND_LOOPS, PKILL_FULL)
 FAIL_CLOSED = "phylax: the git guard could not finish its check, so this command was not run."
 
 

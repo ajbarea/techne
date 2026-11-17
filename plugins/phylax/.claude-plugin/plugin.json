@@ -46,6 +46,18 @@
       "description": "Refuse gh pr/issue create, edit and comment, and gh api writes to issues, pulls and their comments, when the body's visible text (outside <details>) runs past its budget: about 150 words for a PR or comment, 300 for an issue. Also refuses a budget: marker in a body, and warns on sentences over 25 words. Fires for subagents too.",
       "default": false
     },
+    "block_background_loops": {
+      "type": "boolean",
+      "title": "Block untimed background wait loops",
+      "description": "Refuse a background Bash command whose while or until loop no timeout bounds, and name the bounded forms: timeout N bash -c '...', or gh pr checks N --watch --fail-fast. Fires for subagents too.",
+      "default": false
+    },
+    "block_pkill_full": {
+      "type": "boolean",
+      "title": "Block pkill -f and pgrep -f",
+      "description": "Refuse pkill -f and pgrep -f, whose pattern also matches the calling shell's own command line, and name kill on the PID you started, or pkill -x NAME. Fires for subagents too.",
+      "default": false
+    },
     "require_subagent_model": {
       "type": "boolean",
       "title": "Require a model on subagent calls",
