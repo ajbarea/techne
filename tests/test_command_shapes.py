@@ -13,6 +13,7 @@ import json
 import os
 import pathlib
 import random
+import re
 import shlex
 import shutil
 import subprocess
@@ -160,6 +161,9 @@ DIFFERENTIAL = [
     "echo $(( 1 + 2 ))",
     # arithmetic shifts are no heredocs; parentheses inside $(...) keep their own `)`
     "echo $((1<<2))\npkill -f marker",
+    "y=$(( (a<<b) ))\npkill -f marker",
+    "(( x = (1<<2) ))\npgrep -f marker",
+    "y=$(( 1 + $(cat <<EOF\n2\nEOF\n) ))\npkill -f marker",
     "(( mask = 1 << 2 ))\npgrep -f marker",
     "x=$(( 1<<2 )) && pkill -f marker",
     'echo "$(\nn=$((1+1))  # count what is left\necho $n\n)"; pkill -f marker',
@@ -306,6 +310,8 @@ WRAPS = [
     lambda c: f'echo "${{unset_369:-"{{"}}"; {c}',
     lambda c: f"echo \"${{unset_369:-'}}'}}\"; {c}",
     lambda c: f"bash -s -- arg <<'E{len(c)}'\n{c}\nE{len(c)}",
+    lambda c: f"bash -euo pipefail -c {shlex.quote(c)}",
+    lambda c: f"bash -eo pipefail -c {shlex.quote(c)}",
     lambda c: f"eval \"$(cat <<'E{len(c)}'\n{c}\nE{len(c)}\n)\"",
 ]
 GENERATED = 250
@@ -482,6 +488,14 @@ def test_an_unbounded_background_wait_is_refused(cs, command):
         ("pkill \\\n-f marker", True),
         ("./time pkill -x x", False),
         ("./scripts/pkill -f x", False),  # a program of its own, not procps
+        ("watch 'pgrep -f x'", True),  # watch runs its words under sh -c
+        ("watch -n 5 -- pkill -f x", True),
+        ("watch -n 5 pkill -x x", False),
+        ("su -c 'pkill -f x' root", True),
+        ("su -s /bin/sh -c 'pgrep -f x'", True),
+        ("su root", False),
+        ("/opt/homebrew/bin/gtimeout 5 pkill -f x", True),
+        ("gtimeout 5 pkill -f x", True),
         ("~/bin/pgrep -f x", False),
         ("/usr/bin/pkill -f x", True),
     ],
@@ -506,6 +520,19 @@ def test_wrappers_that_run_a_command_string(cs, command, want):
         ("T=/usr/bin/timeout bash -c 'while true; do :; done'", [True]),  # an assignment
         ("sudo -u timeout bash -c 'while true; do :; done'", [True]),  # a flag's value
         ("timeout 60 bash -c 'while true; do :; done'", [False]),
+        ("gtimeout 60 bash -c 'while true; do :; done'", [False]),
+        # shells given option clusters: each `o` of `-euo pipefail` takes a word
+        ("bash -euo pipefail -c 'while true; do :; done'", [True]),
+        ("bash -eo pipefail -c 'while true; do :; done'", [True]),
+        ("bash -o pipefail -c 'while true; do :; done'", [True]),
+        ("bash -euo pipefail -c 'until x || [ $SECONDS -gt 9 ]; do :; done'", [False]),
+        ("timeout 60 bash -euo pipefail -c 'while true; do :; done'", [False]),
+        # `} }` closes two groups: the exit is the test's own consequent
+        ("while true; do [ $SECONDS -gt 60 ] && { { echo; } }; curl -s x && break; done", [True]),
+        ("/opt/homebrew/bin/gtimeout 60 bash -c 'while true; do :; done'", [False]),
+        # a parenthesised sub-expression in arithmetic: `<<` is still a shift
+        ("y=$(( (a<<b) ))\nwhile true; do sleep 1; done", [True]),
+        ("(( x = (1<<2) ))\nwhile true; do sleep 1; done", [True]),
         (
             "until gh pr checks 1; do if (( SECONDS > 1800 )); then echo late >&2; exit 1; fi;"
             " sleep 30; done",
@@ -601,6 +628,17 @@ def test_a_heredoc_body_in_a_double_paren_subshell_is_text(cs):
     assert cs.check(command, False, {FULL}) != []
 
 
+def test_a_foreground_refusal_says_the_ampersand_is_why(cs):
+    """A foreground call is refused only for its `&`; the message says so and how to retry."""
+    refused = cs.check("npm run dev & until curl -s x; do sleep 1; done", False, {LOOPS})
+    assert refused == [cs.LOOP_DENY_AMP]
+    assert "has a `&`" in refused[0] and "wrap only the loop" in refused[0]
+    assert cs.check("until curl -s x; do sleep 1; done", True, {LOOPS}) == [cs.LOOP_DENY]
+    # the retry the message names passes
+    retry = "npm run dev & timeout 1800 bash -c 'until curl -s x; do sleep 1; done'"
+    assert cs.check(retry, False, {LOOPS}) == []
+
+
 def test_a_foreground_loop_passes(cs):
     assert cs.check("while true; do sleep 1; done", False, BOTH) == []
 
@@ -633,6 +671,13 @@ def test_a_foreground_loop_passes(cs):
         ("timeout 60 bash -c 'for ((;;)); do sleep 1; done &'", True),
         ("timeout 60 bash -c '( for ((;;)); do sleep 1; done ) &'", True),
         ("timeout 60 bash -c 'x=$(while true; do sleep 1; done) &'", True),
+        # a nested shell inside an `&`-ed compound command is not bounded by the outer timeout
+        (
+            "timeout 60 bash -c 'if true; then bash -c \"until curl -s x; do :; done\"; fi &'",
+            True,
+        ),
+        ("timeout 60 bash -c 'for f in a; do bash -c \"while true; do :; done\"; done &'", True),
+        ("timeout 60 bash -c 'eval \"while true; do :; done\" &'", True),
         ("{ while true; do sleep 1; done; } > log 2>&1 &", True),
         ("(while true; do sleep 1; done) > log 2>&1 &", True),
         ("while true; do sleep 1; done | tee log &", True),
@@ -669,6 +714,21 @@ def test_a_loop_that_ampersand_detaches_counts_as_background(cs, command, refuse
 )
 def test_wrapper_name_counts_a_path_only_in_a_system_folder(cs, word, name):
     assert cs.wrapper_name(word) == name
+
+
+def test_the_three_keyword_lists_are_one(cs, monkeypatch):
+    """The hook's prefilter, the lexer's word check and hooks.json's python3-missing fallback
+    name the same words (git_options.SHAPE_WORDS)."""
+    gg, git_options = load_phylax_hooks(monkeypatch, "git_guards", "git_options")
+    assert tuple(git_options.SHAPE_WORDS) == ("pkill", "pgrep", "while", "until", "((")
+    for word in git_options.SHAPE_WORDS:
+        assert gg.may_hold_shape(f'{{"command": "x {word} y"}}') is True
+        assert cs.may_hold(f"x {word} y") is True
+    for handler in hook_handlers("phylax", "PreToolUse", "Bash"):
+        patterns = re.search(r'case "\$p" in (.*?)\) ', handler["command"])
+        assert patterns, handler["command"]
+        listed = [w.strip('*"') for w in patterns.group(1).split("|")]
+        assert listed == list(git_options.SHAPE_WORDS), listed
 
 
 def test_flock_long_options_read_as_getopt_long_reads_them(cs):

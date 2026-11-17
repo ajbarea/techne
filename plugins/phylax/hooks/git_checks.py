@@ -90,6 +90,7 @@ WRAPPERS: dict[str, tuple[set[str], set[str]]] = {
     "setsid": (set(), set()),
     "stdbuf": ({"-i", "-o", "-e", "--input", "--output", "--error"}, set()),
     "timeout": ({"-k", "-s", "--kill-after", "--signal"}, set()),
+    "gtimeout": ({"-k", "-s", "--kill-after", "--signal"}, set()),  # Homebrew coreutils
     "sudo": (
         {"-u", "-g", "-h", "-p", "-C", "-r", "-t", "-U", "--user", "--group", "--host", "--prompt"},
         {"-D", "--chdir"},
@@ -390,6 +391,15 @@ def run_git(
 ARITH_SCAN = 2000
 
 
+def in_arithmetic(stack: list[str]) -> bool:
+    """Whether the innermost open frame, past plain `(` groups inside it, is arithmetic
+    (`$(( (a<<b) ))`): there `<<` is a shift. A `$(` inside arithmetic runs commands."""
+    for frame in reversed(stack):
+        if frame != "(":
+            return frame in ("$((", "((")
+    return False
+
+
 def is_arith(text: str, start: int) -> bool:
     """Whether the `((` at TEXT[START] opens arithmetic: its inner paren closes right before the
     outer one (`((1+1))`, `((a*(b+c)))`), not earlier (`((cd a); (cd b))` is two subshells)."""
@@ -408,7 +418,9 @@ def is_arith(text: str, start: int) -> bool:
                 inner = j
             if depth == 0:
                 return inner == j - 1
-    return False
+    # Past the scan, or never closed: read it as arithmetic. The other mistake, taking
+    # arithmetic for subshells, would read its `<<` as a heredoc and hide the lines after it.
+    return True
 
 
 def strip_heredocs(text: str) -> tuple[str, list[tuple[str, str, bool]]]:
@@ -521,7 +533,7 @@ def strip_heredocs(text: str) -> tuple[str, list[tuple[str, str, bool]]]:
             if top in ("$((", "((") and text[i + 1 : i + 2] == ")":
                 out.append(")")
                 i += 1  # arithmetic closes with `))`
-        elif ch == "<" and top in ("$((", "(("):
+        elif ch == "<" and in_arithmetic(stack):
             pass  # a shift, not a heredoc
         elif ch == "<":
             m = HEREDOC_RE.match(text, i)
@@ -654,7 +666,12 @@ def drop_redirections(argv: list[str]) -> list[str]:
 
 
 # Folders the system's own tools live in: `/usr/bin/sudo` is sudo, `./sudo` is a script.
-SYSTEM_BINS = {"/usr/bin", "/bin", "/usr/local/bin", "/usr/sbin", "/sbin", "/usr/local/sbin"}
+SYSTEM_BINS = {
+    "/usr/bin", "/bin", "/usr/local/bin", "/usr/sbin", "/sbin", "/usr/local/sbin",
+    "/opt/homebrew/bin", "/opt/homebrew/sbin", "/opt/homebrew/opt/coreutils/libexec/gnubin",
+    "/usr/local/opt/coreutils/libexec/gnubin", "/run/current-system/sw/bin",
+    "/nix/var/nix/profiles/default/bin", "/snap/bin",
+}  # fmt: skip
 
 
 def wrapper_name(word: str) -> str:
@@ -696,7 +713,7 @@ def unwrap_wrappers(argv: list[str]) -> tuple[list[str], list[str], list[tuple[s
                 chdirs.append(value if eq else out.pop(0))
             elif flag in value_flags and not eq and out:
                 took.append(out.pop(0))
-        if word == "timeout" and out:
+        if word in ("timeout", "gtimeout") and out:
             took.append(out.pop(0))
         wrappers.append((word, took))
     return out, chdirs, wrappers

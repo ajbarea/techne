@@ -29,7 +29,7 @@ import re
 from collections.abc import Sequence
 
 from git_checks import SENTINEL_RE, strip_heredocs, unwrap_wrappers, wrapper_name
-from git_options import BACKGROUND_LOOPS, PKILL_FULL
+from git_options import BACKGROUND_LOOPS, PKILL_FULL, SHAPE_WORDS
 
 # Nesting deeper than this is refused, as it cannot be read through; a real command nests
 # two or three levels.
@@ -98,6 +98,13 @@ LOOP_DENY = (
     "it running. Bound the wait: `timeout 1800 bash -c 'until CHECK; do sleep 30; done'`, or "
     "for CI `gh pr checks N --watch --fail-fast`, or end the loop on a clock: "
     "`until CHECK || [ $SECONDS -gt 1800 ]; do sleep 30; done`."
+)
+LOOP_DENY_AMP = (
+    "phylax: this command has a `&`, so every `while` or `until` loop in it counts as a "
+    "background loop, and none here is bounded. Bound the loop itself: wrap only the loop in "
+    "`timeout 1800 bash -c 'until CHECK; do sleep 30; done'`, or end it on a clock "
+    "(`until CHECK || [ $SECONDS -gt 1800 ]; do sleep 30; done`). Or start the background job "
+    "in its own call and wait in the next."
 )
 FULL_DENY = {
     "pkill": (
@@ -506,7 +513,7 @@ def on_clock(commands: Sequence[list[str]], k: int) -> bool:
                 break  # a `;` or a newline ends the test's own and-or list
             braces += nxt[: command_start(nxt)].count("{")
             if nxt[:1] == ["}"]:
-                braces -= 1
+                braces -= sum(w == "}" for w in nxt)  # `} }` closes two
                 continue
             if getattr(commands[m], "parens", 0) != own:
                 continue
@@ -585,7 +592,7 @@ def peel(argv: list[str]) -> tuple[list[str], bool, str | None, bool]:
     while argv:
         argv, _, wrappers = unwrap_wrappers(argv)
         for name, took in wrappers:
-            if name == "timeout" and _limits(took):
+            if name in ("timeout", "gtimeout") and _limits(took):
                 bounded = True
             elif name == "setsid" and _forks(took):
                 bounded, forked = False, True
@@ -719,6 +726,7 @@ def shell_code(args: list[str]) -> tuple[str | None, bool]:
             continue
         if tok[:1] in ("-", "+") and len(tok) > 1:
             if not tok.startswith("--"):
+                i += sum(c in "oO" for c in tok[1:])  # each `o` of `-euo pipefail` takes a word
                 has_c = has_c or "c" in tok[1:]
                 from_stdin = from_stdin or "s" in tok[1:]  # -s: commands from stdin
             continue
@@ -809,7 +817,7 @@ class Scan:
                 ends = kind == "read" and reads_to_end(found, k)
                 self.loops.append((held or ends or on_clock(found, k), outer or amp))
             self.detached = outer or amp or getattr(command, "detached", False)
-            self.command(command, bounded, bodies, depth)
+            self.command(command, held, bodies, depth)
         self.detached = outer
 
     def command(
@@ -832,6 +840,17 @@ class Scan:
             self.full.append(name)
         elif name == "eval":
             self.code(" ".join(argv[1:]), bounded, bodies, depth)
+        elif name == "watch":  # runs its words under `sh -c`
+            rest = argv[1:]
+            while rest and rest[0].startswith("-") and rest[0] != "--":
+                flag = rest.pop(0)
+                if flag in ("-n", "--interval") and rest:
+                    rest.pop(0)
+            self.text(" ".join(rest[1:] if rest[:1] == ["--"] else rest), bounded, depth + 1)
+        elif name == "su":
+            code, _ = _command_option(argv[1:], "gGsTw")
+            if code is not None:
+                self.text(code, bounded, depth + 1)
         elif name in SHELLS:
             code, reads_stdin = shell_code(argv[1:])
             if code is not None:
@@ -846,12 +865,8 @@ class Scan:
                             self.text(bodies[index][1], bounded, depth + 1)
 
 
-# A command without one of these cannot hold a shape the guards refuse.
-WORDS = ("pkill", "pgrep", "while", "until", "((")
-
-
 def may_hold(command: str) -> bool:
-    return any(word in command for word in WORDS)
+    return any(word in command for word in SHAPE_WORDS)
 
 
 def check(command: str, background: bool, on: set[str]) -> list[str]:
@@ -866,7 +881,7 @@ def check(command: str, background: bool, on: set[str]) -> list[str]:
     if BACKGROUND_LOOPS in on and any(
         not bounded and (background or detached) for bounded, detached in scan.loops
     ):
-        denies.append(LOOP_DENY)
+        denies.append(LOOP_DENY if background else LOOP_DENY_AMP)
     if PKILL_FULL in on:
         denies.extend(FULL_DENY[name] for name in dict.fromkeys(scan.full))
     return denies

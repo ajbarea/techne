@@ -49,7 +49,7 @@
     "block_background_loops": {
       "type": "boolean",
       "title": "Block untimed background wait loops",
-      "description": "Refuse a background Bash command whose while or until loop neither a nonzero timeout nor a $SECONDS test bounds, and name the bounded forms: timeout N bash -c '...', or gh pr checks N --watch --fail-fast. Fires for subagents too.",
+      "description": "Refuse a background Bash command, or one with a & (which backgrounds something in it), whose while or until loop neither a nonzero timeout nor a $SECONDS test bounds, and name the bounded forms: timeout N bash -c '...', or gh pr checks N --watch --fail-fast. Fires for subagents too.",
       "default": false
     },
     "block_pkill_full": {

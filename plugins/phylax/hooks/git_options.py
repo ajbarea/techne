@@ -21,6 +21,10 @@ BLOCKING = (ATTRIBUTION, COMMITS_MD, SECRETS, BODIES)
 BACKGROUND_LOOPS = "block_background_loops"
 PKILL_FULL = "block_pkill_full"
 SHAPES = (BACKGROUND_LOOPS, PKILL_FULL)
+# A command without one of these cannot hold a shape the shape guards refuse. git_guards.py
+# scans the raw hook input for them and command_shapes.py the decoded command; hooks.json
+# spells the same words in its python3-missing fallback (a test holds the three equal).
+SHAPE_WORDS = ("pkill", "pgrep", "while", "until", "((")
 FAIL_CLOSED = "phylax: the git guard could not finish its check, so this command was not run."
 
 

@@ -539,6 +539,10 @@ def test_deeply_nested_parentheses_stay_linear(scratch):
         "(( x = 1 << 2 )); git add COMMITS.md",
         "echo $((1<<2)); git add COMMITS.md",
         "(( x = 1 )); git add -F - <<'EOF'\nbody\nEOF\ngit add COMMITS.md",
+        # a parenthesised sub-expression or a very long expression in arithmetic: still a shift
+        "y=$(( (a<<b) ))\ngit add COMMITS.md\nb",
+        "(( x = (1<<2) ))\ngit add COMMITS.md\n2",
+        "(( x = " + " + ".join(["1"] * 900) + " << 2 ))\ngit add COMMITS.md\n2",
         # a shift by a name, and `#` inside ${...}, are no heredoc and no comment
         "(( m = 1 << n ))\ngit add COMMITS.md",
         "echo $((1<<n)); git add COMMITS.md",

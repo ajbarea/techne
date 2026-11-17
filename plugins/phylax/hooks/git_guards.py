@@ -58,14 +58,10 @@ def may_hold_shape(payload: str) -> bool:
     """Whether the raw hook input can hold a shape command_shapes.py refuses: the same test as
     cannot_name_git, for the words each shape needs. It reads no option, so a call without
     the words costs a few substring scans and nothing else."""
-    return (
-        "pkill" in payload
-        or "pgrep" in payload
-        or "while" in payload
-        or "until" in payload
-        or "((" in payload
-        or "\\u" in payload  # a letter JSON wrote as an escape: check_shapes decodes it first
-    )
+    from git_options import SHAPE_WORDS
+
+    # `\u` is a letter JSON wrote as an escape: check_shapes decodes it before it lexes.
+    return "\\u" in payload or any(word in payload for word in SHAPE_WORDS)
 
 
 def check_shapes(payload: str, shapes: set[str]) -> tuple[dict, int | None]:
