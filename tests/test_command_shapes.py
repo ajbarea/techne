@@ -349,6 +349,19 @@ def test_an_unbounded_background_wait_is_refused(cs, command):
     assert cs.check(command, True, BOTH) == [cs.LOOP_DENY]
 
 
+@pytest.mark.parametrize(
+    "command",
+    [
+        "pkill -f mutate.py",  # 11-02 and 11-09: exit 144, a mutant left in a tracked file
+        'pkill -f "http.server 8765" 2>/dev/null; python3 -m http.server 8765 &',  # 11-14
+        "kill $(pgrep -f 'scripts/mutation.py') 2>/dev/null || true",
+    ],
+)
+def test_the_live_failures_are_refused(cs, command):
+    """The commands that ended their own shell (techne#331), each refused."""
+    assert cs.check(command, False, {FULL}) != []
+
+
 def test_a_foreground_loop_passes(cs):
     assert cs.check("while true; do sleep 1; done", False, BOTH) == []
 
