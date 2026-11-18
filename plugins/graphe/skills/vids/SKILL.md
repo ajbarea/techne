@@ -1,6 +1,6 @@
 ---
 name: vids
-description: "Make a short video in Google Vids with the user's own AI avatar (Vids' Me avatar): write and lint the script, generate each clip twice and keep the better take, check every take without playback, add a song from Vids' music generator, mix, export, and upload to YouTube with the AI disclosure. Use when the user asks for a Google Vids video, a Short or skit starring their avatar or digital twin, or a check of a Vids clip or export for slop. Not for a talk deck or its recording (graphe:slides), and not for editing footage outside Google Vids."
+description: "Make a short video in Google Vids with the user's own AI avatar (Vids' Me avatar): write and lint the script, generate each clip twice and keep the better take, check every take without playback, add a song from Vids' music generator, mix, export, and upload to YouTube with the AI disclosure. Use when the user asks for a Google Vids video, a Short or skit starring their avatar or digital twin, a still image animated into a seamless idle loop, or a check of a Vids clip or export for slop. Not for a talk deck or its recording (graphe:slides), and not for editing footage outside Google Vids."
 ---
 
 <!-- budget: 900 words -->
@@ -8,7 +8,7 @@ description: "Make a short video in Google Vids with the user's own AI avatar (V
 
 `<skill-dir>` is the directory holding this SKILL.md.
 
-Make the video in this order, and stop at the user's approval before anything is generated. The click-level steps for the editor are in [references/playwright.md](references/playwright.md); the script rules are in [references/vids-rules.md](references/vids-rules.md).
+Make the video in this order, and stop at the user's approval before anything is generated. Click-level steps: [references/playwright.md](references/playwright.md); script rules: [references/vids-rules.md](references/vids-rules.md). To animate a still image into a seamless idle loop instead, follow [references/idle-loop.md](references/idle-loop.md).
 
 **Needs:** a browser signed in to the user's Google account with Vids access (Playwright MCP), `ffmpeg`, and `uv`. Run Python with `uv run --with faster-whisper --with pillow python`; transcribe by loading the audio as a 16 kHz numpy array and using model `base.en`.
 

@@ -13,6 +13,7 @@ Part of [graphe](../plugins/graphe.md): `/plugin install graphe@techne`. It need
 - "Make a Google Vids video of me skating a mega ramp," or "turn this Vids script into a Short."
 - A Google Vids project with your personal avatar (Vids calls it **Me**).
 - Checking a finished clip or export for slop before it is posted.
+- Turning a still illustration into a seamless idle loop with Vids' Animate tab, scored on loop seam, breathing, blink length and identity ([`references/idle-loop.md`](https://github.com/ajbarea/techne/blob/main/plugins/graphe/skills/vids/references/idle-loop.md)).
 
 ## Usage
 

@@ -4,6 +4,18 @@ The active TODO list for whatever's in flight **right now**: current PR, open de
 immediate next pickup. Queued specs and ordering live in [ROADMAP.md](./ROADMAP.md); landed work
 moves to its dated Shipped log. Over ~50 lines means something referential crept in.
 
+## graphe:vids idle loop (branch docs/vids-animate-image-loop, issue #380, PR not yet opened)
+
+- Slice: docs only. New `plugins/graphe/skills/vids/references/idle-loop.md` (899/900 words), Animate-tab
+  steps 31-38 in `references/playwright.md`, pointer + trigger in `SKILL.md` (825/900) and `docs/skills/vids.md`.
+- ✅ `make lint` clean. `make test` stopped at 60% (account move), no failures up to then.
+- 📋 Next: `flock -o /tmp/fleet-heavy.lock timeout 1500 make test`; then `gh pr create --label documentation
+  --assignee ajbarea` closing #380, assign #380 to ajbarea. PR top: why (graphe:vids covers animating a still
+  into a seamless idle loop, from six scored takes), table of the three files, status docs only + tests pass;
+  details: numbers from the klepsydra#388 spike, scorer self-test (synthetic 1.85 % bob read 1.88 %, 3.00 s,
+  SSIM 0.97), scorer script left out (needs numpy in sandboxed, type-checked CI). Heph runs the Opus review and merges.
+- Source data: the private heph-idle-vids review folder (README, scores.json, tools).
+
 ## phylax command-shape guards (branch feat/phylax-369-command-shapes, issue #369, PR #371)
 
 - Slice: `block_background_loops` and `block_pkill_full` (PreToolUse), `plugins/phylax/hooks/command_shapes.py`
