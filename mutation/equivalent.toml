@@ -1,4 +1,4 @@
-# Mutants that cannot change what a function returns, by the `hash` of the mutated function's
+# Mutants that cannot change what a function returns, by the hash of the mutated function's
 # source (scripts/mutation.py). A key goes stale when its function changes.
 
 [[mutant]]
@@ -104,6 +104,10 @@ why = "loops: a Word always carries `quoted`; a default of None is as falsy as F
 [[mutant]]
 hash = "49fcf3d657b62771e6e9caa30d286b5a80f886b42805046a13119035f5430029"
 why = "loops: a filler word is no `while` or `until` either way"
+
+[[mutant]]
+hash = "4ac9da64bb2a3f597598a3e6fef8abc8d09314a47631c14ae3d7af58eb8c4b6f"
+why = "on_clock: j = body only differs for a `then` with no `if`, which bash rejects"
 
 [[mutant]]
 hash = "e442b339b8231fed12ed07a79165344f1269f0287d9a203a17adbc1324ef19b9"
