@@ -28,13 +28,24 @@ SHAPE_WORDS = ("pkill", "pgrep", "while", "until", "((")
 FAIL_CLOSED = "phylax: the git guard could not finish its check, so this command was not run."
 
 
+def off_switch() -> str:
+    """How to switch off the Bash guards that are on, for a refusal a broken guard causes."""
+    names = [k for k in (*OPTIONS, *SHAPES) if option_on(k)] or ["its option"]
+    return (
+        f"To switch it off, turn off the phylax option {', '.join(names)} in /config, "
+        "or run /phylax:setup."
+    )
+
+
 def option_on(key: str) -> bool:
     return os.environ.get(f"CLAUDE_PLUGIN_OPTION_{key.upper()}") == "true"
 
 
 def failed() -> int:
-    """The exit for a check that could not finish: 2 refuses while a blocking guard is on."""
+    """The exit for a check that could not finish: 2 refuses while a blocking guard is on. With
+    only the warning guard on it is 0, since hooks.json's onFailure "block" refuses on any
+    exit but 0 and 2."""
     if any(option_on(k) for k in BLOCKING):
-        print(FAIL_CLOSED, file=sys.stderr)
+        print(FAIL_CLOSED, off_switch(), file=sys.stderr)
         return 2
-    return 1
+    return 0

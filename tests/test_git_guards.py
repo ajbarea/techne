@@ -485,7 +485,7 @@ def test_a_failed_check_beside_a_warning_still_fails(repo, linked):
     assert proc.returncode == 2
     assert warned(json.loads(proc.stdout))
     only_warn = run_raw(command, repo, on=[MAIN_CHECKOUT])
-    assert only_warn.returncode == 1
+    assert only_warn.returncode == 0
 
 
 def test_manifest_options_match_the_guard_and_default_off():
@@ -1117,12 +1117,12 @@ def test_a_folder_path_through_a_file_is_named(tmp_path):
         (COMMITS_MD, 2),
         ("block_secrets", 2),
         ("block_long_bodies", 2),
-        (MAIN_CHECKOUT, 1),
+        (MAIN_CHECKOUT, 0),
     ],
 )
 def test_input_with_no_folder_fails_closed_for_each_blocking_guard(key, code):
     # Each blocking guard alone makes a check that cannot finish refuse the command (exit 2);
-    # the warning alone lets it run (exit 1).
+    # the warning alone lets it run (exit 0, since onFailure "block" refuses on exit 1).
     env = hook_env([key], drop=("PHYLAX_",))
     payload = json.dumps({"tool_input": {"command": "git commit -m x"}})
     proc = subprocess.run(
@@ -1130,7 +1130,10 @@ def test_input_with_no_folder_fails_closed_for_each_blocking_guard(key, code):
     )
     lines = ["phylax git guard error: the hook input names no folder"]
     if code == 2:
-        lines.append(FAIL_CLOSED)
+        lines.append(
+            f"{FAIL_CLOSED} To switch it off, turn off the phylax option {key} in /config, "
+            "or run /phylax:setup."
+        )
     assert (proc.returncode, proc.stderr.splitlines(), proc.stdout) == (code, lines, "")
 
 
@@ -1142,7 +1145,7 @@ def test_a_gone_folder_with_only_the_warning_on_runs_and_says_why(tmp_path):
     proc = subprocess.run(
         [HOOK_PYTHON, str(GUARDS)], input=payload, capture_output=True, text=True, env=env
     )
-    assert proc.returncode == 1 and not proc.stdout.strip()
+    assert proc.returncode == 0 and not proc.stdout.strip()
     assert "not an existing folder" in proc.stderr
 
 

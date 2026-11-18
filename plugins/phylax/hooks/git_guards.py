@@ -145,11 +145,15 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except Exception as exc:
-        print(f"phylax git guard error: {exc}", file=sys.stderr)
+        print(f"phylax git guard error: {type(exc).__name__}: {exc}", file=sys.stderr)
         try:
-            from git_options import BLOCKING, option_on
+            from git_options import BLOCKING, SHAPES, off_switch, option_on
 
-            blocking = any(option_on(k) for k in BLOCKING)
+            blocking = any(option_on(k) for k in (*BLOCKING, *SHAPES))
+            if blocking:
+                print(off_switch(), file=sys.stderr)
         except Exception:
             blocking = True  # which guards are on cannot be read, so the check fails closed
-        sys.exit(2 if blocking else 1)
+        # hooks.json sets onFailure "block", which refuses on any exit but 0 and 2: with only
+        # the warning guard on, a crash must exit 0 so it cannot stop a command.
+        sys.exit(2 if blocking else 0)

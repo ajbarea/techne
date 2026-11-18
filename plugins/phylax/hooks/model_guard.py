@@ -281,4 +281,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    import hook_failure
+
+    hook_failure.run(main, "subagent model guard", "require_subagent_model")

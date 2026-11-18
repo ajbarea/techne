@@ -268,4 +268,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    import hook_failure
+
+    hook_failure.run(main, "email greeting guard", "email_greeting")

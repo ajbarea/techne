@@ -49,6 +49,10 @@ The user switches them on in `/config`. Then they run `/reload-plugins`, and you
 
 For `restart_on_update` under Windows Terminal, the old tab closes itself only with the shell snippet in [Restart on update](https://ajbarea.github.io/techne/configuration/#restart-on-update). Offer to show it.
 
+## Failure behavior
+
+Every refusing PreToolUse hook in `hooks/hooks.json` sets `"onFailure": "block"`, so the guards fail closed: a crash, an exit code other than 0 or 2, a hook that cannot start (`python3` missing), or its timeout refuses the call. A crash and a missing `python3` print a refusal that names the guard, the error and the option to switch off. With a guard's options all off the hook exits 0 at once, so nothing is refused. Claude Code before 2.1.295 ignores the field and lets such a call through. Tell the user a refusal that names a hook failure means the hook broke, and `/phylax:setup` shows what.
+
 ## 4. Check the result
 
 Run the doctor again until it prints `result: ready`.

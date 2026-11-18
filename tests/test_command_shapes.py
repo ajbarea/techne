@@ -990,10 +990,11 @@ def test_a_shape_check_that_crashes_refuses_the_command():
 
 def test_a_git_check_crash_still_follows_the_git_guards_rule():
     """A shape option on does not make a crash in the git checks refuse: with only the warning
-    git guard on, a git check that fails lets the command run (exit 1), as before."""
+    git guard on, a git check that fails lets the command run (exit 0, since onFailure "block"
+    refuses on exit 1)."""
     stdin = json.dumps({"tool_name": "Bash", "tool_input": {"command": "git commit -m x"}})
     proc = run_guard(stdin, [FULL, "warn_main_checkout_commit"])  # no cwd: the check fails
-    assert proc.returncode == 1, proc.stderr
+    assert proc.returncode == 0, proc.stderr
 
 
 def test_a_call_without_the_words_starts_no_check(monkeypatch):
