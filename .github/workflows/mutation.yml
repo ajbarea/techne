@@ -59,17 +59,21 @@ jobs:
 
       # The runner has 4 cores; the results file is rewritten after each mutant, so a run
       # that times out still reports what it finished in the steps below.
-      - name: Mutate shard ${{ matrix.shard }} of 6 of the lines this pull request changed
+      # The shard count is the matrix's own length (strategy.job-total), so the two cannot drift.
+      - name: Mutate shard ${{ matrix.shard }} of ${{ strategy.job-total }} of the lines this pull request changed
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
           SHARD: ${{ matrix.shard }}
-        run: uv run --no-sync python scripts/mutation.py --changed-since "$BASE" --shard "$SHARD/6" --workers 4 --out "mutation-changed-$SHARD.json"
+          TOTAL: ${{ strategy.job-total }}
+        run: uv run --no-sync python scripts/mutation.py --changed-since "$BASE" --shard "$SHARD/$TOTAL" --workers 4 --out "mutation-changed-$SHARD.json"
 
-      - name: Score and survivors
+      # This shard's table goes to the log only: a shard's score is partial, and the whole
+      # pull request's is the changed-report job's summary.
+      - name: Score and survivors of this shard
         if: always() && hashFiles(format('mutation-changed-{0}.json', matrix.shard)) != ''
         env:
           SHARD: ${{ matrix.shard }}
-        run: python3 scripts/mutation.py --merge "mutation-changed-$SHARD.json" --summary "$GITHUB_STEP_SUMMARY" --report-only
+        run: python3 scripts/mutation.py --merge "mutation-changed-$SHARD.json" --report-only
 
       # Also when the shard failed or was stopped: the results file holds every finished mutant.
       - if: always()
@@ -92,11 +96,16 @@ jobs:
 
       # A pull request that changes no configured module mutates nothing, so no shard writes a
       # results file and there is nothing to download or merge.
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - id: download
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         continue-on-error: true
         with:
           pattern: mutation-changed-*
           merge-multiple: true
+
+      - name: Say when the download failed
+        if: steps.download.outcome == 'failure'
+        run: echo "::warning::the results of the mutation shards could not be downloaded, or no shard wrote one; a pull request that changes no configured module writes none"
 
       - name: Score per module, all shards together
         if: hashFiles('mutation-changed-*.json') != ''
