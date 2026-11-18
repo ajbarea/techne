@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Guards on the Bash tool for git commit, git add, git push and gh pr/issue/api writes.
+"""Guards on the Bash tool for git commit, git add, git push and gh pr/issue/api writes, and
+for the command shapes command_shapes.py refuses.
 
 register.ts runs this from its tool.call hook on each main-thread Bash command
 that names git or gh, passing the PreToolUse JSON on stdin and each userConfig
@@ -9,9 +10,11 @@ command when the module did not load; mod_checks() stands it down for a command
 the module already checked. A repo turns an enabled guard off for itself with
 `git config phylax.<optionInCamelCase> false`.
 
-This file only decides whether a command needs checking; git_checks.py holds the
-checks. The fallback runs on every Bash call, so a command that cannot name git or
-gh exits before git_checks.py loads. Python recompiles the script it runs on every
+This file only decides whether a command needs checking; git_checks.py and command_shapes.py
+hold the checks. The shape checks run before the mod's stand-down (the mod runs only the git
+guards), and only when hooks.json passes `--shapes`, which it does while a shape option is
+on. The fallback runs on every Bash call, so a command that cannot name git or gh exits before
+git_checks.py loads. Python recompiles the script it runs on every
 start but caches the bytecode of a module it imports, so the checks live in an
 imported module.
 
@@ -51,28 +54,83 @@ def cannot_name_git(payload: str) -> bool:
     return "git" not in payload and "gh" not in payload and "\\u" not in payload
 
 
+def may_hold_shape(payload: str) -> bool:
+    """Whether the raw hook input can hold a shape command_shapes.py refuses: the same test as
+    cannot_name_git, for the words each shape needs. It reads no option, so a call without
+    the words costs a few substring scans and nothing else."""
+    from git_options import SHAPE_WORDS
+
+    # `\u` is a letter JSON wrote as an escape: check_shapes decodes it before it lexes.
+    return "\\u" in payload or any(word in payload for word in SHAPE_WORDS)
+
+
+def check_shapes(payload: str, shapes: set[str]) -> tuple[dict, int | None]:
+    """Run command_shapes on the hook input: its parsed JSON, and the exit code when it decided
+    (0 with a refusal printed, 2 when the check itself failed: it fails closed)."""
+    import json
+
+    import hook_output
+
+    data: dict = {}
+    try:
+        data = json.loads(payload)  # not empty: it holds a shape word or a `\\u` escape
+        import command_shapes
+
+        # Antigravity backgrounds every run_command after at most 10 s.
+        background = (
+            hook_output.from_agy(data)
+            or (data.get("tool_input") or {}).get("run_in_background") is True
+        )
+        denies = command_shapes.check(command_of(data), background, shapes)
+    except Exception as exc:
+        print(f"phylax shape guard error: {exc}; the command was not run.", file=sys.stderr)
+        return data, 2
+    if denies:
+        json.dump(hook_output.deny("\n".join(denies), hook_output.from_agy(data)), sys.stdout)
+        return data, 0
+    return data, None
+
+
+def command_of(data: dict) -> str:
+    """The command of Claude Code's Bash input or Antigravity's run_command."""
+    tool_input = data.get("tool_input") or {}
+    tool_args = (data.get("toolCall") or {}).get("args") or {}
+    return (
+        tool_input.get("command") or tool_args.get("CommandLine") or tool_args.get("command") or ""
+    )
+
+
 def main() -> int:
     from git_options import OPTIONS, option_on
 
     payload = sys.stdin.read()
+    data = None
+    # hooks.json passes --shapes last while a shape option is on, so with them off this costs
+    # one look at argv and no environment read.
+    if sys.argv[-1] == "--shapes" and may_hold_shape(payload):
+        from git_options import SHAPES
+
+        shapes = {k for k in SHAPES if option_on(k)}
+        if shapes:
+            data, decided = check_shapes(payload, shapes)
+            if decided is not None:
+                return decided
     if not any(option_on(k) for k in OPTIONS) or cannot_name_git(payload):
         return 0
     import json
     import re
 
-    data = json.loads(payload or "{}")
+    if data is None:
+        data = json.loads(payload)  # not empty: it names git or gh, or holds a `\\u` escape
     if mod_checks(data):
         return 0
-    tool_input = data.get("tool_input") or {}
-    tool_call = data.get("toolCall") or {}
-    tool_args = tool_call.get("args") or {}
-    raw = (
-        tool_input.get("command") or tool_args.get("CommandLine") or tool_args.get("command") or ""
-    )
+    raw = command_of(data)
     if not re.search(r"\b(git|gh)\b", raw):
         return 0
     import git_checks
     import hook_output
+
+    tool_args = (data.get("toolCall") or {}).get("args") or {}
 
     # agy names the folder a command runs in with run_command's Cwd, else the workspace.
     paths = data.get("workspacePaths")

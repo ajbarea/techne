@@ -78,17 +78,30 @@ COMMIT_LONG_VALUE = {
 COMMIT_LONG_KNOWN = COMMIT_LONG_VALUE | {"--all", "--include", "--only"}
 ADD_SUBCOMMANDS = {"add", "stage"}
 # Words that run the next command: wrapper -> (flags taking a value, flags naming a dir).
+# A wrapper named by its path (`/usr/bin/sudo`) is the same wrapper.
 WRAPPERS: dict[str, tuple[set[str], set[str]]] = {
-    "env": ({"-u", "-S"}, {"-C", "--chdir"}),
+    "env": ({"-u", "-S", "--unset", "--split-string"}, {"-C", "--chdir"}),
     "command": (set(), set()),
     "builtin": (set(), set()),
     "exec": ({"-a"}, set()),
-    "time": ({"-f", "-o"}, set()),
-    "nice": ({"-n"}, set()),
+    "time": ({"-f", "-o", "--format", "--output"}, set()),
+    "nice": ({"-n", "--adjustment"}, set()),
     "nohup": (set(), set()),
-    "timeout": ({"-k", "-s"}, set()),
-    "sudo": ({"-u", "-g", "-h", "-p", "-C", "-r", "-t", "-U"}, {"-D", "--chdir"}),
-    "xargs": ({"-I", "-d", "-L", "-P", "-a", "-E", "-s", "-n"}, set()),
+    "setsid": (set(), set()),
+    "ionice": ({"-c", "-n", "--class", "--classdata"}, set()),
+    "unbuffer": (set(), set()),
+    "doas": ({"-u", "-C"}, set()),
+    "stdbuf": ({"-i", "-o", "-e", "--input", "--output", "--error"}, set()),
+    "timeout": ({"-k", "-s", "--kill-after", "--signal"}, set()),
+    "gtimeout": ({"-k", "-s", "--kill-after", "--signal"}, set()),  # Homebrew coreutils
+    "sudo": (
+        {"-u", "-g", "-h", "-p", "-C", "-r", "-t", "-U", "--user", "--group", "--host", "--prompt"},
+        {"-D", "--chdir"},
+    ),
+    "xargs": (
+        {"-I", "-d", "-L", "-P", "-a", "-E", "-s", "-n", "--delimiter", "--arg-file", "--max-args"},
+        set(),
+    ),
 }
 # Shell keywords that can precede a command in a list or compound command.
 RESERVED = {"{", "}", "!", "if", "then", "else", "elif", "fi", "do", "done", "while", "until"}
@@ -378,6 +391,44 @@ def run_git(
     return proc.stdout if proc.returncode == 0 or not check else None
 
 
+ARITH_SCAN = 2000
+
+
+def in_arithmetic(stack: list[str]) -> bool:
+    """Whether the innermost open frame, past plain `(` groups inside it, is arithmetic
+    (`$(( (a<<b) ))`): there `<<` is a shift. A `$(` inside arithmetic runs commands."""
+    for frame in reversed(stack):
+        if frame != "(":
+            return frame == "(("
+    return False
+
+
+def is_arith(text: str, start: int) -> bool:
+    """Whether the `((` at TEXT[START] opens arithmetic: its inner paren closes right before the
+    outer one (`((1+1))`, `((a*(b+c)))`), not earlier (`((cd a); (cd b))` is two subshells)."""
+    depth, inner, j = 0, None, start
+    # Arithmetic is short; looking no further than ARITH_SCAN keeps deep nesting linear.
+    stop = min(len(text), start + ARITH_SCAN)
+    while j < stop:
+        char = text[j]
+        if char in "'\"":  # a paren in quotes is text: skip to the closing quote
+            j = text.find(char, j + 1)
+            if j < 0:
+                break
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 1 and inner is None:
+                inner = j
+            if depth == 0:
+                return inner == j - 1
+        j += 1
+    # Past the scan, or never closed: read it as arithmetic. The other mistake, taking
+    # arithmetic for subshells, would read its `<<` as a heredoc and hide the lines after it.
+    return True
+
+
 def strip_heredocs(text: str) -> tuple[str, list[tuple[str, str, bool]]]:
     """Remove heredoc bodies and line continuations so the command tokenizes.
 
@@ -453,7 +504,7 @@ def strip_heredocs(text: str) -> tuple[str, list[tuple[str, str, bool]]]:
             out.append(ch)
             i += 1
             continue
-        if ch == "#" and (i == 0 or text[i - 1] in " \t\n;&|()"):
+        if ch == "#" and top != "${" and (i == 0 or text[i - 1] in " \t\n;&|()"):
             j = text.find("\n", i)
             i = n if j < 0 else j
             continue
@@ -469,8 +520,26 @@ def strip_heredocs(text: str) -> tuple[str, list[tuple[str, str, bool]]]:
             out.append("$(")
             i += 2
             continue
-        elif ch == ")" and top == "$(":
+        elif text.startswith("${", i):
+            stack.append("${")
+            out.append("${")
+            i += 2
+            continue
+        elif ch == "}" and top == "${":
             stack.pop()
+        elif ch == "(" and top != "${":
+            # `((` and `$((` open arithmetic, where `<<` is a shift: both parens are frames
+            # of their own, so the `))` that closes it pops both. Any other `(` is a subshell,
+            # a group or a process substitution that its own `)` closes.
+            if text[i - 1 : i] == "(" and top in ("(", "$(") and is_arith(text, i - 1):
+                stack[-1] = "(("
+                stack.append("((")
+            else:
+                stack.append("(")
+        elif ch == ")" and top in ("$(", "(", "(("):
+            stack.pop()
+        elif ch == "<" and in_arithmetic(stack):
+            pass  # a shift, not a heredoc
         elif ch == "<":
             m = HEREDOC_RE.match(text, i)
             if m and not text.startswith("<<<", i) and not text.endswith("<", 0, i):
@@ -601,26 +670,58 @@ def drop_redirections(argv: list[str]) -> list[str]:
     return out
 
 
+# Folders the system's own tools live in: `/usr/bin/sudo` is sudo, `./sudo` is a script.
+SYSTEM_BINS = {
+    "/usr/bin", "/bin", "/usr/local/bin", "/usr/sbin", "/sbin", "/usr/local/sbin",
+    "/opt/homebrew/bin", "/opt/homebrew/sbin", "/opt/homebrew/opt/coreutils/libexec/gnubin",
+    "/usr/local/opt/coreutils/libexec/gnubin", "/run/current-system/sw/bin",
+    "/nix/var/nix/profiles/default/bin", "/snap/bin",
+}  # fmt: skip
+
+
+def wrapper_name(word: str) -> str:
+    """The command WORD names: the bare name, or the basename of a path into a system folder;
+    a path anywhere else (`./time`, `scripts/timeout`) is a program of its own, so ''."""
+    if "/" not in word:
+        return word
+    folder, _, name = word.rpartition("/")
+    return name if folder in SYSTEM_BINS else ""
+
+
 def unwrap(argv: list[str]) -> tuple[list[str], list[str]]:
     """Strip leading assignments and wrappers; return the command and any chdir targets."""
+    out, chdirs, _ = unwrap_wrappers(argv)
+    return out, chdirs
+
+
+def unwrap_wrappers(argv: list[str]) -> tuple[list[str], list[str], list[tuple[str, list[str]]]]:
+    """As unwrap, and each wrapper it stripped: its name and the words it took (its options and
+    their values, and for `timeout` its duration, last)."""
     out = list(argv)
     chdirs: list[str] = []
-    while out and (ASSIGNMENT_RE.match(out[0]) or out[0] in WRAPPERS or out[0] in RESERVED):
+    wrappers: list[tuple[str, list[str]]] = []
+    while out and (
+        ASSIGNMENT_RE.match(out[0]) or wrapper_name(out[0]) in WRAPPERS or out[0] in RESERVED
+    ):
         word = out.pop(0)
-        if word not in WRAPPERS:
+        if ASSIGNMENT_RE.match(word) or wrapper_name(word) not in WRAPPERS:
             continue
+        word = wrapper_name(word)
         value_flags, chdir_flags = WRAPPERS[word]
+        took: list[str] = []
         while out and out[0].startswith("-") and out[0] != "-":
-            flag, eq, value = out.pop(0).partition("=")
+            took.append(out.pop(0))
+            flag, eq, value = took[-1].partition("=")
             if flag == "--":
                 break
             if flag in chdir_flags and (eq or out):
                 chdirs.append(value if eq else out.pop(0))
             elif flag in value_flags and not eq and out:
-                out.pop(0)
-        if word == "timeout" and out:
-            out.pop(0)
-    return out, chdirs
+                took.append(out.pop(0))
+        if word in ("timeout", "gtimeout") and out:
+            took.append(out.pop(0))
+        wrappers.append((word, took))
+    return out, chdirs, wrappers
 
 
 def expand(text: str, env: dict[str, str], unknown: str | None = "") -> str:

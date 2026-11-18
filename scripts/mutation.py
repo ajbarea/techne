@@ -31,7 +31,7 @@ source (`mutmut apply`), and the tests run against the real files:
    removes the scratch copy.
 
 [tool.techne.mutation] in pyproject.toml maps each module to the test files that exercise it.
-A survivor whose mutated function is listed in mutation/equivalent.toml (by the hash of the
+A survivor whose mutated function is listed in mutation/equivalent.toml (by the `hash` of the
 mutated function's source, with the reason) counts as equivalent, not survived. A timeout counts
 as detected, as Stryker counts it, when the same tests finish unmutated within the same limit;
 otherwise the mutant is judged by its module's tests, and a timeout those share is an error.
@@ -161,7 +161,7 @@ def load_equivalent(root: pathlib.Path = ROOT) -> dict[str, str]:
     path = root / EQUIVALENT
     if not path.is_file():
         return {}
-    return {e["key"]: e["why"] for e in tomllib.loads(path.read_text()).get("mutant", [])}
+    return {e["hash"]: e["why"] for e in tomllib.loads(path.read_text()).get("mutant", [])}
 
 
 def function_spans(source: str) -> dict[str, tuple[int, int]]:
@@ -308,9 +308,10 @@ def run_tests(
 ) -> tuple[str, float, str]:
     """Run TESTS (pytest node ids or files) in SCRATCH; (status, seconds, what went wrong). The
     status is passed (pytest exit 0), failed (1: a test failed; 2: collection failed, as a
-    mutant that breaks an import does), timeout (the wall budget, or a signal such as the CPU
-    limit's), or error (any other exit: pytest's internal or usage errors, a node id that no
-    longer exists, or no tests collected). Unless it passed, what went wrong is a line naming
+    mutant that breaks an import does), timeout (the wall budget, a signal such as the CPU
+    limit's, or pytest dying of MemoryError at the data limit), or error (any other exit:
+    pytest's internal or usage errors, a node id that no longer exists, or no tests collected).
+    Unless it passed, what went wrong is a line naming
     the cause (the exit code, the signal or the budget) and the end of pytest's output."""
     env = pytest_env(scratch, extra)
     log = pathlib.Path(env["PYTHONPYCACHEPREFIX"]) / "pytest.log"
@@ -347,6 +348,10 @@ def run_tests(
             status = {0: "passed", 1: "failed", 2: "failed"}.get(code)
             status = status or ("timeout" if code < 0 else "error")
             cause = f"pytest exited {code}"
+            if code == 3 and "MemoryError" in log.read_text(errors="replace"):
+                # The data limit stopped a mutant that allocates without end, as the CPU limit
+                # stops one that loops: a resource stop, judged like a timeout.
+                status, cause = "timeout", "pytest ran out of memory (the data limit)"
             if code < 0:
                 cause = f"pytest killed by signal {-code} ({signal.strsignal(-code)})"
         except subprocess.TimeoutExpired:

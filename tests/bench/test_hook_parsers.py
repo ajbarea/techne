@@ -30,6 +30,7 @@ sys.path.insert(0, str(ROOT / "plugins" / "phylax" / "hooks"))
 sys.path.insert(0, str(ROOT / "plugins" / "techne" / "_shared"))
 
 import body_gate  # noqa: E402  # ty: ignore[unresolved-import]
+import command_shapes  # noqa: E402  # ty: ignore[unresolved-import]
 import email_greeting  # noqa: E402  # ty: ignore[unresolved-import]
 import git_checks  # noqa: E402  # ty: ignore[unresolved-import]
 import git_guards  # noqa: E402  # ty: ignore[unresolved-import]
@@ -111,6 +112,31 @@ def test_body_budget_largest_body(benchmark):
     assert len(denies) == 1 and "visible words" in denies[0]
 
 
+SHAPES = set(git_options.SHAPES)
+SHAPE_COMMANDS = [
+    "pkill -x server; while read -r l; do echo $l; done < notes.txt",
+    "kill $(pgrep -f server) 2>/dev/null",
+    "timeout 1800 bash -c 'until gh pr checks 3; do sleep 30; done'",
+    COMMIT_HEREDOC,
+]
+# One Bash call carrying many subcommands and nested substitutions.
+SHAPE_LONG = " && ".join(f'echo "$(printf %s {i})" | grep -q {i}' for i in range(MANY))
+
+
+def test_command_shapes_typical(benchmark):
+    verdicts = benchmark(lambda: [command_shapes.check(c, True, SHAPES) for c in SHAPE_COMMANDS])
+    assert [len(v) for v in verdicts] == [0, 1, 0, 0]
+
+
+def test_command_shapes_many_subcommands(benchmark):
+    assert benchmark(command_shapes.check, SHAPE_LONG, True, SHAPES) == []
+
+
+def test_command_shapes_largest_heredoc(benchmark):
+    # The body is lifted out before lexing, so the lexer sees a short command.
+    assert benchmark(command_shapes.check, BIG_HEREDOC, True, SHAPES) == []
+
+
 def test_board_create_match(benchmark):
     commands = [*TYPICAL_COMMANDS, "gh issue create -t x -b y", "gh api -X POST repos/o/r/issues"]
     matched = benchmark(lambda: [project_board.creates_item(c) for c in commands])
@@ -172,4 +198,29 @@ def test_git_guard_triage(benchmark, guards_on, monkeypatch, description, parsed
             spy.setattr(git_guards, name, lambda *a, _n=name, _f=real: calls.append(_n) or _f(*a))
         assert git_guards.main() == 0
     assert calls == (["cannot_name_git", "mod_checks"] if parsed else ["cannot_name_git"])
+    assert benchmark(git_guards.main) == 0
+
+
+def test_shape_triage_with_the_options_on(benchmark, guards_on, monkeypatch):
+    """With the shape options on (hooks.json passes --shapes), a call that cannot hold a
+    shape costs the word scan alone: command_shapes is never reached."""
+    for key in git_options.SHAPES:
+        monkeypatch.setenv(f"CLAUDE_PLUGIN_OPTION_{key.upper()}", "true")
+    monkeypatch.setattr(sys, "argv", ["git_guards.py", "--shapes"])
+    payload = json.dumps(
+        {
+            "session_id": "0b8f5a2c-6d1e-4f3a-9c7b-2e4d6f8a1b3c",
+            "cwd": "/work/repo",
+            "tool_name": "Bash",
+            "tool_input": {"command": "ls -la", "description": "List files"},
+        }
+    )
+    monkeypatch.setattr(sys, "stdin", _Stdin(payload))
+    calls = []
+    with monkeypatch.context() as spy:
+        for name in ("may_hold_shape", "check_shapes"):
+            real = getattr(git_guards, name)
+            spy.setattr(git_guards, name, lambda *a, _n=name, _f=real: calls.append(_n) or _f(*a))
+        assert git_guards.main() == 0
+    assert calls == ["may_hold_shape"]
     assert benchmark(git_guards.main) == 0

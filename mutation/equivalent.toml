@@ -1,0 +1,158 @@
+# Mutants that cannot change what a function returns, by the hash of the mutated function's
+# source (scripts/mutation.py). A key goes stale when its function changes.
+
+[[mutant]]
+hash = "c9ea886efdffb87f6b77d2a01e5696c8cfafc19ca4e6109720ee0e1bc28e8042"
+why = "Lexer.braces: find starts past the opening character, so j is never 0"
+
+[[mutant]]
+hash = "6185818362fa57e6b431fe91ad2bd0cf10ee053e63346e7c0eae75895ef542d7"
+why = "Lexer.braces: find starts past the opening character, so j is never 0"
+
+[[mutant]]
+hash = "55ee5a9c00f261c73f738fd9727deaa35404c6b7897586b85dd7b84ad0e8933a"
+why = "Lexer.tokens: find starts past the opening character, so j is never 0"
+
+[[mutant]]
+hash = "4922c7396e31ff7c94cf4b781aaa36fc47a1f14c43f5da5f7ccf39e2e9cb7560"
+why = "Lexer.tokens: find starts past the opening character, so j is never 0"
+
+[[mutant]]
+hash = "809c719be0a73194f3869f74855637736b0027b8a1862bc15702697b634f84b7"
+why = "Lexer.tokens: find starts past the opening character, so j is never 0"
+
+[[mutant]]
+hash = "79ea4e8f17d594960706fd97cb20b864a8c91878384d8c643e225a4f9f1af49a"
+why = "Lexer.tokens: the mirrored count reaches zero at the same paren"
+
+[[mutant]]
+hash = "c39734870dcd89abf188bbc5b74e8f9bb5e3f9e5591f566df25b7646dd87c8c0"
+why = "Lexer.tokens: find starts past the opening character, so j is never 0"
+
+[[mutant]]
+hash = "ae9fc55fd3b05c2eafcc798ba74eb7125001ab71e6979e84aeadeffde0196e07"
+why = "Lexer.tokens: None is as falsy as False here"
+
+[[mutant]]
+hash = "b6440c04af088dcaa49183295b33a3cd851bb04921442008f022ef8b0e3f374f"
+why = "Scan.command: an empty argv and a filler name both name no wrapper"
+
+[[mutant]]
+hash = "a335e97232a89b8192790c748885875409f3169ed342cae79103077e59c3734e"
+why = "Scan.command: a heredoc sentinel starts with NUL, so also stripping X from its front changes nothing"
+
+[[mutant]]
+hash = "e78f824f23089ff9951155a2879793f24ab9dc1021cf0f65b74765ef1017e238"
+why = "Scan.command: the added letter X names no option of su"
+
+[[mutant]]
+hash = "7f0edca713cd0e671303912217405e4e4c32f24a5366f547757430abe1bc97ce"
+why = "Scan.walk: an exhausted iterator default of None is as falsy as False"
+
+[[mutant]]
+hash = "62357c55795ef163ff0e35fc0af0a69485ea4508f89adfa2628280a0e8dc485c"
+why = "_command_option: k = 0 is the option's own dash, which no branch reads"
+
+[[mutant]]
+hash = "784f69e019c085440d55de868f0910603df7c437c40ab5ec1aef16ea3254238d"
+why = "_limits: a string that is no float raises ValueError whichever text stands in for it"
+
+[[mutant]]
+hash = "daa9d21c8c1d6fd9de871a4ebd4bbb02cd67b7e6ea744ae2a0a0d727c8536ac2"
+why = "_limits: a string that is no float raises ValueError whichever text stands in for it"
+
+[[mutant]]
+hash = "b7de1e64dad6097c73dd1826c2f54f8dc3521b4f996e91a0bf6b9702c8d69c7b"
+why = "_limits: a string that is no float raises ValueError whichever text stands in for it"
+
+[[mutant]]
+hash = "e8f3894f8494f86a1cf15fb0e468cece810b332b4f634c908ac8339ed00d0ce3"
+why = "_long: a flag of two characters is `--`, a prefix of every long option, so it never names exactly one"
+
+[[mutant]]
+hash = "4ac292d9dcd8eb0dc05651f9d41a5903b53c015997984c825c780a0b3f4bc06c"
+why = "_long: a flag of two characters is `--`, a prefix of every long option, so it never names exactly one"
+
+[[mutant]]
+hash = "f996e46598d444508ad7013035d6332496659966def7b9bf9c9f74839b606d99"
+why = "_reads_clock: a Group always carries parens; for a plain list either default is below 2"
+
+[[mutant]]
+hash = "bc5fcdd2c6fac538d88b57de84e0d01f167a77f131d983b9e8ff79112463fe9c"
+why = "arithmetic_fors: only whether the part is empty is read, not what it holds"
+
+[[mutant]]
+hash = "26dd517795135a9c3fefe7ff3aa9f15e39b517d96a40c45431eb301821b032ad"
+why = "command_start: a Word always carries `quoted`; a default of None is as falsy as False"
+
+[[mutant]]
+hash = "99f6a5b1a05e24d3bc0203eb5c9aab45a40e0d1e00c566b7b14b83f9a2b710f8"
+why = "full_match: k = 0 is the option's own dash, which no branch reads"
+
+[[mutant]]
+hash = "1812e75be9a7aceb69b3197d787150c0c2151834dff97fc618cd286d4eb46a74"
+why = "full_match: a lone dash has no option characters to read"
+
+[[mutant]]
+hash = "11551d1ae6561c759b7f977a76cddda8eb844896274c2bcd8122c53aa82e8f31"
+why = "loop_extent: the mirrored count reaches zero at the same `done`"
+
+[[mutant]]
+hash = "bb6684cf8b37bf91d3c36d0ef247db75a72145e1b58595c754edf2a1c4781149"
+why = "loops: a Word always carries `quoted`; a default of None is as falsy as False"
+
+[[mutant]]
+hash = "49fcf3d657b62771e6e9caa30d286b5a80f886b42805046a13119035f5430029"
+why = "loops: a filler word is no `while` or `until` either way"
+
+[[mutant]]
+hash = "4ac9da64bb2a3f597598a3e6fef8abc8d09314a47631c14ae3d7af58eb8c4b6f"
+why = "on_clock: j = body only differs for a `then` with no `if`, which bash rejects"
+
+[[mutant]]
+hash = "e442b339b8231fed12ed07a79165344f1269f0287d9a203a17adbc1324ef19b9"
+why = "on_clock: j = body only differs for a `then` with no `if`, which bash rejects"
+
+[[mutant]]
+hash = "477c9a4a876cb5365c3964030e9946dbad03719de46f18be0ee3996a81134185"
+why = "on_clock: a Group always carries sep; for a plain list any default is no `&&` or `||`"
+
+[[mutant]]
+hash = "89c8fe7a413dfb039571fb99982efcf79193080d7504e9eebbaec64d3bc7c698"
+why = "on_clock: a Group always carries sep; for a plain list any default is no `&&` or `||`"
+
+[[mutant]]
+hash = "b1912bcfdcbae25dc1817568efdd599392a505d32e8406db3f771daac57716c3"
+why = "on_clock: body is None gives the slice k:None, the same as k:len"
+
+[[mutant]]
+hash = "89f15fb41bb29de5e7d124e2360c1107f06c3759a74e7857a41dc50785efc8c0"
+why = "peel: the added letter X names no option of flock, script, su or the shell"
+
+[[mutant]]
+hash = "5a41757f7a27c5671cd5a947f1fb757150afd34fd064b9fd87ab7ff1ce2f6b4d"
+why = "peel: the added letter X names no option of flock, script, su or the shell"
+
+[[mutant]]
+hash = "5e69ee2c318d11198f2abcb54a199a097eb3ba32985292b6bda979c6f8c70b33"
+why = "peel: an empty argv and a filler name both name no wrapper"
+
+[[mutant]]
+hash = "a22da60947c27e8d032e9f936ec3fca8a37cf00f8f6838f093526b03758cb629"
+why = "reads_to_end: a filler target is no `<(` or `/dev/` path, like the empty one"
+
+[[mutant]]
+hash = "5a0b7a4f52e1a870c2d24a78d17491ac99094241a571e3489d84528381558983"
+why = "reads_to_end: a redirection operator never holds an X"
+
+[[mutant]]
+hash = "12348dbcf9d23a666afee4d70e1b2aac7acf5d7de4ea8a92294bfe53a5222893"
+why = "shell_code: None is as falsy as False here"
+
+[[mutant]]
+hash = "87ea6d3f10e6da8c5d7e3bd380043acf2922ce1a9f5b79c2d514a6e72ce04764"
+why = "is_arith: find starts past the opening character, so j is never 0"
+
+[[mutant]]
+hash = "29a72277415cb783675967e18b92d8ec8518359661b1e78450abdf20a0661d7b"
+why = "is_arith: find starts past the opening character, so j is never 0"

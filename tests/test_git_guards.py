@@ -494,7 +494,15 @@ def test_manifest_options_match_the_guard_and_default_off():
     # require_subagent_model to model_guard.py, tested in test_model_guard.py; email_* to
     # email_greeting.py, tested in test_email_greeting.py; budget_* to budget.py, tested in
     # test_budget.py.
-    others = {"restart_on_update", "require_subagent_model", "email_greeting"}
+    # block_background_loops and block_pkill_full to command_shapes.py, tested in
+    # test_command_shapes.py.
+    others = {
+        "restart_on_update",
+        "require_subagent_model",
+        "email_greeting",
+        "block_background_loops",
+        "block_pkill_full",
+    }
     guards = {k for k in options if k not in others and not k.startswith(("budget_", "email_"))}
     # block_secrets and block_long_bodies live in git_checks.py too, tested in
     # test_secret_guard.py and test_body_gate.py.
@@ -510,6 +518,58 @@ def test_manifest_options_match_the_guard_and_default_off():
 
 
 # --- parser edge cases ---------------------------------------------------------
+
+
+def test_deeply_nested_parentheses_stay_linear(scratch):
+    """is_arith looks a bounded way ahead, so thousands of nested `(` cost little."""
+    import time
+
+    command = "(" * 6000 + "true" + ")" * 6000 + "; git add COMMITS.md"
+    start = time.perf_counter()
+    assert denied(run_hook(command, scratch))
+    assert time.perf_counter() - start < 10
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        # `((` is arithmetic only when its inner paren closes right before the outer one
+        "((cd .); git add COMMITS.md)",
+        "((cd .); cat <<EOF\nx\nEOF\n); git add COMMITS.md",
+        "(( x = 1 << 2 )); git add COMMITS.md",
+        "echo $((1<<2)); git add COMMITS.md",
+        "(( x = 1 )); git add -F - <<'EOF'\nbody\nEOF\ngit add COMMITS.md",
+        # a parenthesised sub-expression or a very long expression in arithmetic: still a shift
+        "y=$(( (a<<b) ))\ngit add COMMITS.md\nb",
+        "(( x = (1<<2) ))\ngit add COMMITS.md\n2",
+        "(( x = " + " + ".join(["1"] * 900) + " << 2 ))\ngit add COMMITS.md\n2",
+        # a shift by a name, and `#` inside ${...}, are no heredoc and no comment
+        "(( m = 1 << n ))\ngit add COMMITS.md",
+        "echo $((1<<n)); git add COMMITS.md",
+        "echo ${x:- #}; git add COMMITS.md",
+        "echo ${x:-((}; git add COMMITS.md",
+        # a heredoc after a closed ${...} is still one
+        f"echo ${{x}}; git commit -F - <<'EOF'\nfeat: x\n\n{TRAILER}\nEOF",
+        f"(( m = 1 << n ))\ngit commit -F - <<'EOF'\nfeat: x\n\n{TRAILER}\nEOF",
+        f"echo ${{x:- #}}\ngit commit -F - <<'EOF'\nfeat: x\n\n{TRAILER}\nEOF",
+    ],
+)
+def test_parentheses_and_arithmetic_do_not_hide_what_follows(scratch, command):
+    assert denied(run_hook(command, scratch))
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "/usr/bin/sudo -n git add COMMITS.md",
+        "/usr/bin/env A=1 git add COMMITS.md",
+        "setsid git add COMMITS.md",
+        "stdbuf -o L git add COMMITS.md",
+        "timeout --kill-after 5 10 git add COMMITS.md",
+    ],
+)
+def test_wrappers_by_path_and_long_options_are_looked_through(scratch, command):
+    assert denied(run_hook(command, scratch))
 
 
 def test_comment_with_apostrophe_does_not_hide_add(scratch):
@@ -1280,3 +1340,99 @@ def test_an_agy_payload_with_its_own_cwd_keeps_it_over_the_workspace(tmp_path):
     )
     assert proc.returncode == 0, proc.stderr
     assert str(named) in json.loads(proc.stdout)["reason"]
+
+
+# --- units the mutation job found no test for ------------------------------------------
+
+
+@pytest.fixture
+def gc(monkeypatch):
+    (mod,) = load_phylax_hooks(monkeypatch, "git_checks")
+    return mod
+
+
+@pytest.mark.parametrize(
+    ("text", "start", "want"),
+    [
+        ("((1+1))", 0, True),
+        ("((a*(b+c)))", 0, True),
+        ("(( m = (1<<2) + 1 ))", 0, True),
+        ("((cd a); (cd b))", 0, False),
+        ("((cd a); (cd b); (cd c))", 0, False),
+        ("xx((1+1))", 2, True),
+        ("a) ((cd a); (cd b))", 3, False),
+        ("(( m = ')' + 1 << n ))", 0, True),
+        ('(( m = ")" + ")" ))', 0, True),
+        ("((echo ')'); (echo b))", 0, False),
+        ('((echo ")"); (echo "b"))', 0, False),
+        ("((X); (cd b))", 0, False),  # a letter that is no quote is no reason to skip ahead
+        ("((echo ''); (echo b))", 0, False),  # an empty quote closes at once
+        ("((x", 0, True),  # never closed: arithmetic, the safe reading
+        ("(( m = 'a ))", 0, True),  # an unclosed quote
+        ("(( x = " + " + ".join(["1"] * 900) + " ))", 0, True),  # past the scan
+        ("((" + "(cd a);" * 400 + "))", 0, True),  # a long subshell past the scan: also True
+    ],
+)
+def test_is_arith(gc, text, start, want):
+    assert gc.is_arith(text, start) is want
+
+
+def test_arithmetic_closes_both_its_frames_so_the_quote_around_it_still_closes(gc):
+    """`$((1))` inside double quotes pops both frames; a frame left behind would hide the
+    closing quote, and the heredoc after it would read as quoted text."""
+    for text in ('echo "$((1))"', 'echo "$(( (1) ))"', "echo $( echo $((1)) )"):
+        stripped, bodies = gc.strip_heredocs(f"{text}; cat <<EOF\nbody\nEOF\n")
+        assert "body" not in stripped and len(bodies) == 1, text
+
+
+def test_a_comment_starts_only_after_a_separator(gc):
+    stripped, _ = gc.strip_heredocs("echo hi # it's\necho z")
+    assert "'" not in stripped and stripped.endswith("echo z")
+    assert gc.strip_heredocs("echo hi #it's\necho z")[0].count("'") == 0  # `#i` after a space
+    assert gc.strip_heredocs("echo a#b 'q'")[0] == "echo a#b 'q'"  # `a#b` is no comment
+    assert gc.strip_heredocs("echo a;#it's\necho z")[0].count("'") == 0
+    assert gc.strip_heredocs("(#it's\n)")[0].count("'") == 0
+    # the character before a `#` decides, not the one after it or two before it
+    assert gc.strip_heredocs("echo ab#c 'it'")[0] == "echo ab#c 'it'"
+    assert gc.strip_heredocs("echo X#c 'q'")[0] == "echo X#c 'q'"  # only a separator starts one
+
+
+def test_a_closed_dollar_brace_ends_its_frame(gc):
+    """`#` is no comment inside ${...} (it is `${#x}` or text), but is again after the `}`."""
+    assert "'" not in gc.strip_heredocs("echo ${x:-1} # it's\necho z")[0]
+    assert "'" not in gc.strip_heredocs("echo ${x:-(} # it's\necho z")[0]
+    # a `(` inside ${...} pushes no frame, so this `)` closes nothing
+    assert "'" not in gc.strip_heredocs("echo ${x:-(}\necho a ) # it's\necho z")[0]
+    assert gc.strip_heredocs("echo ${x:- # it's }\necho z")[0].count("'") == 1
+
+
+@pytest.mark.parametrize(
+    ("text", "bodies"),
+    [
+        ("(( m = 1 << n ))\ncat <<EOF\nx\nEOF", 1),  # a shift, then a real heredoc
+        ("echo $((1<<n))\ncat <<EOF\nx\nEOF", 1),
+        ("echo $(( (a<<b) ))\ncat <<EOF\nx\nEOF", 1),
+        ("echo $(( 1 + $(cat <<EOF\n2\nEOF\n) ))", 1),  # `$(` in arithmetic runs commands
+        ("((cat <<EOF\nx\nEOF\n) )", 1),  # `((` closing early: two subshells
+        ("(( x )); cat <<EOF\nx\nEOF", 1),
+        ("(cat <<EOF\nx\nEOF\n)", 1),
+        ("( (a<<b) )\nfoo\nb", 1),  # plain parens, not arithmetic: `<<` is a heredoc
+        ("x=$((1<<2)) $((2<<1))\n", 0),
+        ("echo $((a*(b+c))) ; cat <<EOF\nx\nEOF", 1),  # the arithmetic closes: a heredoc follows
+        ("echo $(( (a) ))\ncat <<EOF\nx\nEOF", 1),
+        ("(((cd a); cat <<EOF\nx\nEOF\n))", 0),  # `((` at the start: arithmetic, `<<` a shift
+        ("a(((cd a); cat <<EOF\nx\nEOF\n))", 0),
+        # the character before the `((` is a `)`: is_arith must start at the `((` itself
+        ("()((a<<b))\nfoo\nb", 0),
+        ("(x)((a<<b))\nfoo\nb", 0),
+        ("echo $(( 1 + $( (( 2 )) ) )) ; cat <<EOF\nx\nEOF", 1),
+        ("( (( x )) ) ; cat <<EOF\nx\nEOF", 1),
+        ("echo $((1<<2)) )\ncat <<EOF\nx\nEOF", 1),  # `))` closes the arithmetic
+        # a closed `((` must leave no frame behind that blocks the next `((` from being arithmetic
+        ("$( (( x )) ) ; (( m = 1 << n ))\nfoo\nn", 0),
+        ("( (( x )) ) ; (( m = 1 << n ))\nfoo\nn", 0),
+        ("((a<<b)) ) (\nfoo\nb", 0),  # `))` once, so the `<<` was inside arithmetic
+    ],
+)
+def test_arithmetic_frames_decide_whether_a_double_angle_is_a_heredoc(gc, text, bodies):
+    assert len(gc.strip_heredocs(text)[1]) == bodies, text

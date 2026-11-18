@@ -181,7 +181,7 @@ def test_an_equivalent_survivor_is_listed_and_does_not_fail(toy, tmp_path):
     survivors = [r for r in json.loads(out.read_text()) if r["status"] == "survived"]
     (toy / "mutation").mkdir()
     (toy / "mutation" / "equivalent.toml").write_text(
-        "".join(f'[[mutant]]\nkey = "{r["key"]}"\nwhy = "nothing calls it"\n\n' for r in survivors)
+        "".join(f'[[mutant]]\nhash = "{r["key"]}"\nwhy = "nothing calls it"\n\n' for r in survivors)
     )
     assert mutation.main(["--root", str(toy), "--workers", "1", "--out", str(out)]) == 0
     assert {r["status"] for r in json.loads(out.read_text()) if r["function"] == "unreached"} == {
@@ -689,6 +689,17 @@ def test_a_run_that_does_not_pass_names_its_cause(tmp_path, tests, timeout, caus
     )
     status, _, said = mutation.run_tests(tmp_path, tests, timeout)
     assert status in ("error", "timeout") and said.startswith(cause + ":"), said
+
+
+def test_pytest_dying_of_memory_at_the_limit_is_a_resource_stop_not_an_error(tmp_path):
+    # A mutant that allocates without end can exhaust the data limit outside any test, so pytest
+    # exits 3 with an INTERNALERROR MemoryError; that is a stop like the CPU limit's.
+    (tmp_path / "conftest.py").write_text(
+        "def pytest_collection_modifyitems(items):\n    raise MemoryError\n"
+    )
+    (tmp_path / "test_one.py").write_text("def test_x():\n    pass\n")
+    status, _, said = mutation.run_tests(tmp_path, ["test_one.py"], 30)
+    assert status == "timeout" and said.startswith("pytest ran out of memory"), said
 
 
 def _fake_mutant_runs(monkeypatch, outcome, unmutated):
