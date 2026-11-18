@@ -40,9 +40,15 @@ jobs:
   changed:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    # Only mutants on changed lines run (--changed-since); the hottest functions hold 300+
-    # mutants, so a pull request rewriting one whole can still take a while.
-    timeout-minutes: 60
+    # Only mutants on changed lines run (--changed-since). A new module is all changed lines
+    # (a 900-line one holds over 2,000 mutants, past one 60-minute job), so the mutants are
+    # spread over shards as the weekly full run does; the shards' results are merged by
+    # changed-report.
+    timeout-minutes: 60 # the slowest shard of a pull request that adds one big module
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -53,22 +59,48 @@ jobs:
 
       # The runner has 4 cores; the results file is rewritten after each mutant, so a run
       # that times out still reports what it finished in the steps below.
-      - name: Mutate the lines this pull request changed
+      - name: Mutate shard ${{ matrix.shard }} of 6 of the lines this pull request changed
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
-        run: uv run --no-sync python scripts/mutation.py --changed-since "$BASE" --workers 4 --out mutation-changed.json
+          SHARD: ${{ matrix.shard }}
+        run: uv run --no-sync python scripts/mutation.py --changed-since "$BASE" --shard "$SHARD/6" --workers 4 --out "mutation-changed-$SHARD.json"
 
       - name: Score and survivors
-        if: always() && hashFiles('mutation-changed.json') != ''
-        run: python3 scripts/mutation.py --merge mutation-changed.json --summary "$GITHUB_STEP_SUMMARY" --report-only
+        if: always() && hashFiles(format('mutation-changed-{0}.json', matrix.shard)) != ''
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: python3 scripts/mutation.py --merge "mutation-changed-$SHARD.json" --summary "$GITHUB_STEP_SUMMARY" --report-only
 
+      # Also when the shard failed or was stopped: the results file holds every finished mutant.
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: mutation-changed
-          path: mutation-changed.json
+          name: mutation-changed-${{ matrix.shard }}
+          path: mutation-changed-${{ matrix.shard }}.json
           if-no-files-found: ignore
           retention-days: 30
+
+  changed-report:
+    needs: changed
+    if: always() && needs.changed.result != 'skipped'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # A pull request that changes no configured module mutates nothing, so no shard writes a
+      # results file and there is nothing to download or merge.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true
+        with:
+          pattern: mutation-changed-*
+          merge-multiple: true
+
+      - name: Score per module, all shards together
+        if: hashFiles('mutation-changed-*.json') != ''
+        run: python3 scripts/mutation.py --merge mutation-changed-*.json --summary "$GITHUB_STEP_SUMMARY" --report-only
 
   full:
     if: github.event_name != 'pull_request'
