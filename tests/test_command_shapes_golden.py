@@ -57,9 +57,9 @@ LEXER = [
     ("a<(b)c", [("w", "a<(b)c")], [("b", True, 0)], False, 6),
     ("a>(b)c", [("w", "a>(b)c")], [("b", True, 0)], False, 6),
     ("a<b", [("w", "a"), ("op", "<"), ("w", "b")], [], False, 3),
-    ("2>&1", [("op", "2>&")], [], False, 4),
-    ("2>x", [("op", "2>")], [], False, 3),
-    ("a 2>x", [("w", "a"), ("op", "2>")], [], False, 5),
+    ("2>&1", [("op", "2>&"), ("w", "1")], [], False, 4),
+    ("2>x", [("op", "2>"), ("w", "x")], [], False, 3),
+    ("a 2>x", [("w", "a"), ("op", "2>"), ("w", "x")], [], False, 5),
     ("'2'>x", [("q", "2"), ("op", ">"), ("w", "x")], [], False, 5),
     ("x>y", [("w", "x"), ("op", ">"), ("w", "y")], [], False, 3),
     ("(a)", [("op", "("), ("w", "a"), ("op", ")")], [], False, 3),
@@ -325,7 +325,7 @@ def test_arithmetic_fors_without_a_condition_never_end(cs, text, want):
 
 SPLIT_REDIRECTS = [
     ("a b", (["a", "b"], [])), ("a >f b", (["a", "b"], [(">", "f")])),
-    ("a 2>&1", (["a"], [("2>&", "")])), ("a < f", (["a"], [("<", "f")])),
+    ("a 2>&1", (["a"], [("2>&", "1")])), ("a < f", (["a"], [("<", "f")])),
     ("a >", (["a"], [(">", "")])), ("a 2> f > g", (["a"], [("2>", "f"), (">", "g")])),
     ("a <<< x b", (["a", "b"], [("<<<", "x")])), (">f", ([], [(">", "f")])),
 ]  # fmt: skip
@@ -419,7 +419,10 @@ def test_full_match_reads_procps_options(cs, name, args, want):
 SHELL_CODE = [
     (["-c", "x"], ("x", False)), (["-c"], (None, False)), (["-lc", "x"], ("x", False)),
     (["-ec", "x"], ("x", False)), (["-euo", "pipefail", "-c", "x"], ("x", False)),
-    (["-o", "pipefail", "-c", "x"], ("x", False)), (["+o", "pipefail", "-c", "x"], ("x", False)),
+    (["-o", "pipefail", "-c", "x"], ("x", False)),
+    (["-euo", "pipefail", "-c", "x"], ("x", False)),
+    (["-eO", "extglob", "-c", "x"], ("x", False)),
+    (["-eu", "-c", "x"], ("x", False)), (["+o", "pipefail", "-c", "x"], ("x", False)),
     (["-O", "extglob", "-c", "x"], ("x", False)), (["--rcfile", "f", "-c", "x"], ("x", False)),
     (["--init-file", "f", "-c", "x"], ("x", False)), (["--norc", "-c", "x"], ("x", False)),
     (["script.sh"], (None, False)), (["-s"], (None, True)), (["-s", "arg"], (None, True)),
@@ -615,3 +618,361 @@ def test_substitutions_nest_at_most_fifty_deep(cs):
     cs.Lexer("$(" * 50 + "x" + ")" * 50).tokens()
     with pytest.raises(ValueError, match="more than 50 deep"):
         cs.Lexer("$(" * 51 + "x" + ")" * 51).tokens()
+
+
+# --- Scan: the walk through nesting, one level at a time -------------------------------------
+
+LOOP = "while true; do sleep 1; done"
+# Each way bash runs a string as code, with one unbounded loop in that code.
+NESTED_LOOP = {
+    "backtick": f"echo `{LOOP}`",
+    "dollar-paren": f"echo $({LOOP})",
+    "process-substitution": f"cat <({LOOP})",
+    "bash -c": f"bash -c '{LOOP}'",
+    "eval words": r"eval while true\; do sleep 1\; done",
+    "eval string": f"eval '{LOOP}'",
+    "watch": f"watch -n 5 '{LOOP}'",
+    "su -c": f"su -c '{LOOP}' root",
+    "flock -c": f"flock /tmp/x -c '{LOOP}'",
+    "here-string": f"bash <<< '{LOOP}'",
+    "heredoc to a shell": f"bash <<EOF\n{LOOP}\nEOF",
+    "cat heredoc in -c": f'bash -c "$(cat <<EOF\n{LOOP}\nEOF\n)"',
+    "unquoted heredoc expansion": f"cat <<EOF\n$({LOOP})\nEOF",
+}
+
+
+def scan_of(cs, text, bounded=False, depth=0):
+    scan = cs.Scan()
+    scan.text(text, bounded, depth)
+    return scan
+
+
+@pytest.mark.parametrize("form", NESTED_LOOP)
+def test_every_way_of_running_code_passes_the_bound_down_and_nothing_else(cs, form):
+    text = NESTED_LOOP[form]
+    assert scan_of(cs, text, bounded=False).loops == [(False, False)]
+    assert scan_of(cs, text, bounded=True).loops == [(True, False)]
+
+
+@pytest.mark.parametrize("form", NESTED_LOOP)
+def test_every_way_of_running_code_costs_one_level_of_depth(cs, form):
+    text = NESTED_LOOP[form]
+    scan_of(cs, text, depth=cs.MAX_DEPTH - 1)  # the code inside is read at MAX_DEPTH
+    with pytest.raises(ValueError, match="more than 16 deep"):
+        scan_of(cs, text, depth=cs.MAX_DEPTH)
+
+
+def test_text_nested_exactly_at_the_limit_is_read(cs):
+    inner = "pkill -f x"
+    for _ in range(cs.MAX_DEPTH):
+        inner = f"echo $({inner})"
+    scan = cs.Scan()
+    scan.text(inner)  # the default depth, 0
+    assert scan.full == ["pkill"]
+    with pytest.raises(ValueError, match="more than 16 deep"):
+        cs.Scan().text(f"echo $({inner})")
+    # A top-level text at depth 0 is read; the same text started one level in is refused.
+    scan_of(cs, "pkill -f x", depth=cs.MAX_DEPTH)
+    with pytest.raises(ValueError, match="more than 16 deep"):
+        scan_of(cs, "pkill -f x", depth=cs.MAX_DEPTH + 1)
+
+
+def test_a_walk_at_the_limit_is_read_and_one_past_it_is_refused(cs):
+    lexer = cs.Lexer("pkill -f x")
+    scan = cs.Scan()
+    scan.walk(lexer.tokens(), [], False, [], cs.MAX_DEPTH)
+    assert scan.full == ["pkill"]
+    with pytest.raises(ValueError, match="more than 16 deep"):
+        scan.walk(lexer.tokens(), [], False, [], cs.MAX_DEPTH + 1)
+
+
+def test_a_forged_heredoc_marker_with_no_body_is_text_not_an_index_error(cs):
+    marker = "\x00H0\x00"
+    cs.Scan().code(f"$(cat <<{marker})", False, [], 0)
+    scan = cs.Scan()
+    scan.command(["bash", cs.Op("<<"), marker], False, [], 0)
+    assert scan.loops == [] and scan.full == []
+
+
+def test_a_dash_heredoc_fed_to_a_shell_is_read(cs):
+    assert scan_of(cs, "bash <<-EOF\n\tpkill -f x\nEOF").full == ["pkill"]
+    assert scan_of(cs, "bash <<EOF\npkill -f x\nEOF").full == ["pkill"]
+
+
+def test_eval_joins_its_words_with_one_space(cs):
+    assert scan_of(cs, "eval pkill -f x").full == ["pkill"]
+    assert scan_of(cs, "eval pkill -f x").loops == []
+
+
+WATCH = [
+    ("watch -n 5 'pkill -f x'", ["pkill"]),
+    ("watch --interval 5 'pkill -f x'", ["pkill"]),
+    ("watch -d 'pkill -f x'", ["pkill"]),  # -d takes no value: the next word is the command
+    ("watch -- 'pkill -f x'", ["pkill"]),
+    ("watch -n 5 -- 'pkill -f x'", ["pkill"]),
+    ("watch -- -1 pkill -f x", []),  # past `--` a word with a dash is the command's name
+    ("watch -x", []),  # options and no command
+]
+
+
+@pytest.mark.parametrize(("text", "want"), WATCH)
+def test_watch_runs_its_words_after_its_options(cs, text, want):
+    assert scan_of(cs, text).full == want
+
+
+def test_a_scan_restores_what_the_text_around_it_detached(cs):
+    scan = scan_of(cs, "sleep 9 & echo hi")
+    assert scan.detached is False
+    assert scan_of(cs, "echo hi").detached is False
+
+
+def test_an_arithmetic_for_inside_a_loop_body_counts_as_a_loop(cs):
+    scan = scan_of(cs, "while x; do for ((;;)); do sleep 1; done; done")
+    assert scan.loops == [(False, False), (False, False)]
+
+
+def test_a_clock_test_bounds_an_arithmetic_for_even_after_other_one_word_commands(cs):
+    scan = scan_of(cs, "echo; for ((;;)); do [ $SECONDS -gt 9 ] && break; done")
+    assert scan.loops == [(True, False)]
+
+
+def test_a_for_with_one_paren_is_no_loop(cs):
+    assert scan_of(cs, "for (a); do :; done").loops == []
+
+
+def test_the_code_of_a_cat_heredoc_is_read_one_level_in(cs):
+    text = 'bash -c "$(cat <<EOF\necho $(pkill -f x)\nEOF\n)"'
+    scan_of(cs, text, depth=cs.MAX_DEPTH - 2)
+    with pytest.raises(ValueError, match="more than 16 deep"):
+        scan_of(cs, text, depth=cs.MAX_DEPTH - 1)
+
+
+# --- option readers ----------------------------------------------------------------------------
+
+
+def test_command_option_reads_a_string_missing_at_the_end_as_empty(cs):
+    assert cs._command_option(["--command"], "w") == ("", [])
+    assert cs._command_option(["-c"], "w") == ("", [])
+    assert cs._command_option(["/tmp/l", "-c"], "wE", stop=True) == ("", ["/tmp/l"])
+
+
+def test_command_option_reads_a_lone_dash_as_an_operand(cs):
+    assert cs._command_option(["-", "x"], "w") == (None, ["-", "x"])
+    assert cs._command_option(["-", "-c", "x"], "wE", stop=True) == ("x", ["-"])
+
+
+def test_command_option_takes_an_attached_value_without_skipping_a_word(cs):
+    assert cs._command_option(["-w5", "-c", "x"], "wE") == ("x", [])
+    assert cs._command_option(["-w", "5", "-c", "x"], "wE") == ("x", [])
+
+
+@pytest.mark.parametrize("opt", list("EIOBTmo"))
+def test_a_script_option_with_a_value_takes_the_next_word_even_a_dash_c(cs, opt):
+    assert scan_of(cs, f"script -{opt} -c 'pkill -f x' out").full == []
+    assert scan_of(cs, "script -c 'pkill -f x' out").full == ["pkill"]
+
+
+@pytest.mark.parametrize("opt", ["-w", "-E"])
+def test_a_flock_option_with_a_value_takes_the_next_word(cs, opt):
+    assert scan_of(cs, f"flock {opt} 3 /tmp/l -c 'pkill -f x'").full == ["pkill"]
+
+
+@pytest.mark.parametrize("opt", list("gGsTw"))
+def test_a_su_option_with_a_value_takes_the_next_word_even_a_dash_c(cs, opt):
+    assert scan_of(cs, f"su -{opt} -c 'pkill -f x' root").full == []
+    assert scan_of(cs, "su -c 'pkill -f x' root").full == ["pkill"]
+
+
+SHELL_CODE_MORE = [
+    (["-c", "--", "-x"], ("-x", False)),
+    (["-O", "extglob", "-c", "pkill -f x"], ("pkill -f x", False)),
+    (["-o", "pipefail", "-c", "x"], ("x", False)),
+    (["-euo", "pipefail", "-c", "x"], ("x", False)),
+    (["-eO", "extglob", "-c", "x"], ("x", False)),
+    (["-eu", "-c", "x"], ("x", False)),
+    (["--", "/dev/stdin"], (None, True)),
+    (["--", "-"], (None, True)),
+    (["--", "script.sh"], (None, False)),
+]
+
+
+@pytest.mark.parametrize(
+    ("args", "want"), SHELL_CODE_MORE, ids=[str(r[0]) for r in SHELL_CODE_MORE]
+)
+def test_shell_code_after_a_double_dash_and_with_valued_options(cs, args, want):
+    assert cs.shell_code(args) == want
+
+
+@pytest.mark.parametrize(
+    ("name", "args", "want"),
+    [
+        ("pgrep", ["-s", "-f", "x"], False),  # -f is the value of -s
+        ("pgrep", ["-sf", "-f", "x"], True),  # -sf is -s with the value f; the next -f is real
+        ("pgrep", ["x", "-s", "-f"], False),
+        ("pgrep", ["--=x"], False),
+        ("pgrep", ["xf"], False),  # an operand, not options
+        ("pgrep", ["-"], False),
+    ],
+)
+def test_full_match_values_and_operands(cs, name, args, want):
+    assert cs.full_match(name, args) is want
+
+
+def test_a_timeout_duration_this_check_cannot_read_counts_as_a_limit(cs):
+    assert cs._limits(["0X"]) is True
+    assert cs._limits(["0"]) is False
+    assert cs._limits(["0s"]) is False
+    assert cs._limits([]) is True
+
+
+# --- helpers on plain lists and nested shapes -------------------------------------------------
+
+
+def test_command_start_and_loops_read_plain_string_words(cs):
+    assert cs.command_start(["if", "x"]) == 1
+    assert cs.command_start(["!", "x"]) == 1
+    assert cs.loops(["while", "true"]) == "wait"
+    assert cs.loops(["while", "read", "x"]) == "read"
+
+
+@pytest.mark.parametrize(
+    ("text", "want"),
+    [
+        ("if ! x", 2),
+        ("then { x", 2),
+        ("! function f echo", 3),
+        ("{ function f x", 3),
+        ("! time x", 2),
+        ("{ time -p x", 3),
+    ],
+)
+def test_command_start_skips_every_keyword_and_a_function_header_after_one(cs, text, want):
+    assert cs.command_start(groups(cs, text)[0]) == want
+
+
+def test_reads_clock_on_a_plain_list_has_no_parens(cs):
+    assert cs._reads_clock(["SECONDS"]) is False
+    assert cs._reads_clock(["[", "$SECONDS", "]"]) is True
+
+
+def test_a_time_before_a_loop_keyword_is_skipped_to_its_condition(cs):
+    g = groups(cs, "time -p while [ $SECONDS -lt 9 ]")[0]
+    assert cs._reads_clock(g) is True
+
+
+def test_reads_to_end_with_a_redirection_and_no_target(cs):
+    g = groups(cs, "while read x; do :; done <")
+    i = next(n for n, c in enumerate(g) if cs.loops(c))
+    assert cs.reads_to_end(g, i) is True
+
+
+def test_arithmetic_fors_at_the_end_of_the_tokens(cs):
+    assert cs.arithmetic_fors(cs.Lexer("for ((").tokens()) == [False]
+    assert cs.arithmetic_fors(cs.Lexer("for ( '(' ; ; )").tokens()) == []
+    assert cs.arithmetic_fors(cs.Lexer("for '(' ( ; ; ))").tokens()) == []
+    assert cs.arithmetic_fors(cs.Lexer("for (( ; ; i<3 ))").tokens()) == [True]
+    assert cs.arithmetic_fors(cs.Lexer("for (( ; <3 ; ))").tokens()) == [False]
+
+
+# --- on_clock: a subshell, an `if` on its own line, a loop that has ended, the nesting count ---
+
+ON_CLOCK_MORE = [
+    ("( while true; do [ $SECONDS -gt 9 ] && break; sleep 1; done )", [True]),
+    ("while true; do\nif\n[ $SECONDS -gt 9 ]; then break; fi; done", [True]),
+    ("while true; do\nif a; then b\nelif\n[ $SECONDS -gt 9 ]; then break; fi; done", [True]),
+    ("while true; do if a; then b; elif [ $SECONDS -gt 9 ]; then break; fi; done", [True]),
+    ("while true; do for i in 1; do x; done; [ $SECONDS -gt 9 ] && break; done", [True]),
+    ("while true; do if [ $SECONDS -gt 9 ]; then ( echo hi ); break; fi; done", [True]),
+    ("echo a; while true; do for i in 1; do [ $SECONDS -gt 9 ] && break; done; done", [False]),
+    ("[ $SECONDS -gt 9 ] && exit 1; while true; do sleep 1; done", [False]),
+    ("while true; do sleep 1; done; [ $SECONDS -gt 9 ] && exit 1", [False]),
+]
+
+
+@pytest.mark.parametrize("row", ON_CLOCK_MORE, ids=[r[0] for r in ON_CLOCK_MORE])
+def test_on_clock_more_shapes(cs, row):
+    text, want = row
+    g = groups(cs, text)
+    loop_at = [i for i, c in enumerate(g) if cs.loops(c)]
+    assert [cs.on_clock(g, i) for i in loop_at] == want
+
+
+def test_on_clock_reads_plain_lists_as_outside_every_subshell(cs):
+    commands = [["while", "true"], ["do", "[", "$SECONDS", "-gt", "9", "]"], ["break"], ["done"]]
+    # No `sep`: a plain list is no `&&` consequent, so the break is no bound of the test's own.
+    assert cs.on_clock(commands, 0) is False
+    commands[2] = cs.Group(["break"])
+    commands[2].sep = "&&"
+    assert cs.on_clock(commands, 0) is True
+
+
+# --- the lexer ----------------------------------------------------------------------------------
+
+MORE_LEXER = [
+    ("a\nb #c\nd", [("w", "a"), ("op", "\n"), ("w", "b"), ("op", "\n"), ("w", "d")]),
+    ("# c\nd\ne", [("op", "\n"), ("w", "d"), ("op", "\n"), ("w", "e")]),
+    ("echo 2>x", [("w", "echo"), ("op", "2>"), ("w", "x")]),
+    ("echo 2>&1", [("w", "echo"), ("op", "2>&"), ("w", "1")]),
+    ("echo 10>x", [("w", "echo"), ("op", "10>"), ("w", "x")]),
+    ("cat 3<f", [("w", "cat"), ("op", "3<"), ("w", "f")]),
+    ("cat 3<<<f", [("w", "cat"), ("op", "3<<<"), ("w", "f")]),
+    ("echo a2>x", [("w", "echo"), ("w", "a2"), ("op", ">"), ("w", "x")]),
+    ("echo '2'>x", [("w", "echo"), ("q", "2"), ("op", ">"), ("w", "x")]),
+    ("ab\\ c", [("w", "ab c")]),
+    ("echo X(a)", [("w", "echo"), ("w", "X"), ("op", "("), ("w", "a"), ("op", ")")]),
+    ('echo "${x:-"a b"}" c', [("w", "echo"), ("q", '${x:-"a b"}'), ("w", "c")]),
+]
+
+
+@pytest.mark.parametrize("row", MORE_LEXER, ids=[r[0] for r in MORE_LEXER])
+def test_the_lexer_more_shapes(cs, row):
+    text, want = row
+    kinds, _, unclosed, _ = lex(cs, text)
+    assert kinds == want
+    assert unclosed is False
+
+
+def test_arithmetic_after_other_words_runs_only_the_substitutions_inside(cs):
+    lexer = cs.Lexer("echo $(( $(a) + 1 ))")
+    lexer.tokens()
+    assert [(s.code, len(s.subs)) for s in lexer.subs] == [("a", 0)]
+
+
+def test_braces_with_an_empty_quoted_string_and_text_after(cs):
+    lexer = cs.Lexer("${x:-''}b")
+    assert lexer.braces() == "${x:-''}"
+    assert (lexer.i, lexer.unclosed) == (8, False)
+    lexer = cs.Lexer('${x:-"a"}b')
+    assert lexer.braces() == '${x:-"a"}'
+    assert (lexer.i, lexer.unclosed) == (9, False)
+    lexer = cs.Lexer("${x}b")
+    assert lexer.braces() == "${x}" and lexer.i == 4
+
+
+def test_on_clock_reads_a_plain_list_if_branch(cs):
+    """Without a `parens` or `sep` attribute a command counts as outside every subshell."""
+    commands = [
+        ["while", "true"],
+        ["do"],
+        ["if"],
+        ["[", "$SECONDS", "-gt", "9", "]"],
+        ["then"],
+        ["break"],
+        ["fi"],
+        ["done"],
+    ]
+    assert cs.on_clock(commands, 0) is True
+
+
+def test_an_arithmetic_for_is_counted_at_its_own_header_not_at_a_one_word_command(cs):
+    scan = scan_of(
+        cs,
+        "echo; for ((;i<3;)); do :; done; for ((;;)); do [ $SECONDS -gt 9 ] && break; done",
+    )
+    assert scan.loops == [(True, False)]
+
+
+def test_braces_read_a_substitution_inside_a_double_quote_from_its_first_character(cs):
+    lexer = cs.Lexer('${x:-"$(a)"}b')
+    assert lexer.braces() == '${x:-"$(a)"}'
+    assert ([s.code for s in lexer.subs], lexer.unclosed, lexer.i) == (["a"], False, 12)

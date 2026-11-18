@@ -181,7 +181,7 @@ def test_an_equivalent_survivor_is_listed_and_does_not_fail(toy, tmp_path):
     survivors = [r for r in json.loads(out.read_text()) if r["status"] == "survived"]
     (toy / "mutation").mkdir()
     (toy / "mutation" / "equivalent.toml").write_text(
-        "".join(f'[[mutant]]\nkey = "{r["key"]}"\nwhy = "nothing calls it"\n\n' for r in survivors)
+        "".join(f'[[mutant]]\nhash = "{r["key"]}"\nwhy = "nothing calls it"\n\n' for r in survivors)
     )
     assert mutation.main(["--root", str(toy), "--workers", "1", "--out", str(out)]) == 0
     assert {r["status"] for r in json.loads(out.read_text()) if r["function"] == "unreached"} == {

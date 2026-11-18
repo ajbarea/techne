@@ -1377,6 +1377,14 @@ def test_is_arith(gc, text, start, want):
     assert gc.is_arith(text, start) is want
 
 
+def test_arithmetic_closes_both_its_frames_so_the_quote_around_it_still_closes(gc):
+    """`$((1))` inside double quotes pops both frames; a frame left behind would hide the
+    closing quote, and the heredoc after it would read as quoted text."""
+    for text in ('echo "$((1))"', 'echo "$(( (1) ))"', "echo $( echo $((1)) )"):
+        stripped, bodies = gc.strip_heredocs(f"{text}; cat <<EOF\nbody\nEOF\n")
+        assert "body" not in stripped and len(bodies) == 1, text
+
+
 def test_a_comment_starts_only_after_a_separator(gc):
     stripped, _ = gc.strip_heredocs("echo hi # it's\necho z")
     assert "'" not in stripped and stripped.endswith("echo z")

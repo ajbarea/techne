@@ -31,7 +31,7 @@ source (`mutmut apply`), and the tests run against the real files:
    removes the scratch copy.
 
 [tool.techne.mutation] in pyproject.toml maps each module to the test files that exercise it.
-A survivor whose mutated function is listed in mutation/equivalent.toml (by the hash of the
+A survivor whose mutated function is listed in mutation/equivalent.toml (by the `hash` of the
 mutated function's source, with the reason) counts as equivalent, not survived. A timeout counts
 as detected, as Stryker counts it, when the same tests finish unmutated within the same limit;
 otherwise the mutant is judged by its module's tests, and a timeout those share is an error.
@@ -161,7 +161,7 @@ def load_equivalent(root: pathlib.Path = ROOT) -> dict[str, str]:
     path = root / EQUIVALENT
     if not path.is_file():
         return {}
-    return {e["key"]: e["why"] for e in tomllib.loads(path.read_text()).get("mutant", [])}
+    return {e["hash"]: e["why"] for e in tomllib.loads(path.read_text()).get("mutant", [])}
 
 
 def function_spans(source: str) -> dict[str, tuple[int, int]]:

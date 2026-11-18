@@ -218,12 +218,13 @@ class Lexer:
                     self.i += 1
                     continue
                 depth += (op == "(") - (op == ")")
+                width = len(op)
                 if ("<" in op or ">" in op) and inword and not quoted and "".join(parts).isdigit():
                     op = "".join(parts) + op  # `2>`: the fd is part of the redirection
                     parts, inword = [], False
                 end()
                 out.append(Op(op))
-                self.i += len(op)
+                self.i += width
         end()
         self.unclosed = self.unclosed or closer  # the text ended before the `)`
         return out
