@@ -436,7 +436,9 @@ def _reads_clock(command: list[str]) -> bool:
     if words[start : start + 1] in (["while"], ["until"]):
         start += 1  # the condition's own first word
     head = words[start:][:1]
-    if head not in (["["], ["[["], ["test"]) and "SECONDS" not in words:
+    # A bare `SECONDS` word is the clock only inside `(( ... ))`; `echo SECONDS` prints a word.
+    arithmetic = "SECONDS" in words and getattr(command, "parens", 0) >= 2
+    if head not in (["["], ["[["], ["test"]) and not arithmetic:
         return False
     return any(SECONDS_RE.search(w) for w in words)
 

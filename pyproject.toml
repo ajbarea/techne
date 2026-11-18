@@ -59,7 +59,10 @@ extra-paths = ["tests", "plugins/epistole", "plugins/heuresis", "plugins/schole"
     "tests/test_command_shapes.py",
 ]
 "plugins/phylax/hooks/body_gate.py" = ["tests/test_body_gate.py"]
-"plugins/phylax/hooks/command_shapes.py" = ["tests/test_command_shapes.py"]
+"plugins/phylax/hooks/command_shapes.py" = [
+    "tests/test_command_shapes.py",
+    "tests/test_command_shapes_golden.py",
+]
 "plugins/phylax/hooks/secret_scan.py" = ["tests/test_secret_guard.py"]
 "plugins/phylax/hooks/model_guard.py" = ["tests/test_model_guard.py"]
 "plugins/phylax/hooks/email_greeting.py" = ["tests/test_email_greeting.py"]

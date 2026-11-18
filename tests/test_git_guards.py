@@ -1365,6 +1365,8 @@ def gc(monkeypatch):
         ('(( m = ")" + ")" ))', 0, True),
         ("((echo ')'); (echo b))", 0, False),
         ('((echo ")"); (echo "b"))', 0, False),
+        ("((X); (cd b))", 0, False),  # a letter that is no quote is no reason to skip ahead
+        ("((echo ''); (echo b))", 0, False),  # an empty quote closes at once
         ("((x", 0, True),  # never closed: arithmetic, the safe reading
         ("(( m = 'a ))", 0, True),  # an unclosed quote
         ("(( x = " + " + ".join(["1"] * 900) + " ))", 0, True),  # past the scan
@@ -1418,6 +1420,9 @@ def test_a_closed_dollar_brace_ends_its_frame(gc):
         ("echo $(( 1 + $( (( 2 )) ) )) ; cat <<EOF\nx\nEOF", 1),
         ("( (( x )) ) ; cat <<EOF\nx\nEOF", 1),
         ("echo $((1<<2)) )\ncat <<EOF\nx\nEOF", 1),  # `))` closes the arithmetic
+        # a closed `((` must leave no frame behind that blocks the next `((` from being arithmetic
+        ("$( (( x )) ) ; (( m = 1 << n ))\nfoo\nn", 0),
+        ("( (( x )) ) ; (( m = 1 << n ))\nfoo\nn", 0),
         ("((a<<b)) ) (\nfoo\nb", 0),  # `))` once, so the `<<` was inside arithmetic
     ],
 )
