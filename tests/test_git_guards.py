@@ -1439,3 +1439,21 @@ def test_a_closed_dollar_brace_ends_its_frame(gc):
 )
 def test_arithmetic_frames_decide_whether_a_double_angle_is_a_heredoc(gc, text, bodies):
     assert len(gc.strip_heredocs(text)[1]) == bodies, text
+
+
+def test_off_switch_names_each_option_that_is_on_in_order(monkeypatch):
+    from conftest import load_phylax_hooks
+
+    (options,) = load_phylax_hooks(monkeypatch, "git_options")
+    for key in (*options.OPTIONS, *options.SHAPES):
+        monkeypatch.delenv(f"CLAUDE_PLUGIN_OPTION_{key.upper()}", raising=False)
+    assert options.off_switch() == (
+        "To switch it off, turn off the phylax option its option in /config, or run /phylax:setup."
+    )
+    monkeypatch.setenv("CLAUDE_PLUGIN_OPTION_BLOCK_SECRETS", "true")
+    monkeypatch.setenv("CLAUDE_PLUGIN_OPTION_BLOCK_PKILL_FULL", "true")
+    monkeypatch.setenv("CLAUDE_PLUGIN_OPTION_BLOCK_COMMITS_MD", "false")
+    assert options.off_switch() == (
+        "To switch it off, turn off the phylax option block_secrets, block_pkill_full "
+        "in /config, or run /phylax:setup."
+    )
