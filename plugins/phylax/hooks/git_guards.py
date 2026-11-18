@@ -73,7 +73,7 @@ def check_shapes(payload: str, shapes: set[str]) -> tuple[dict, int | None]:
 
     data: dict = {}
     try:
-        data = json.loads(payload or "{}")
+        data = json.loads(payload)  # not empty: it holds a shape word or a `\\u` escape
         import command_shapes
 
         # Antigravity backgrounds every run_command after at most 10 s.
@@ -121,7 +121,7 @@ def main() -> int:
     import re
 
     if data is None:
-        data = json.loads(payload or "{}")
+        data = json.loads(payload)  # not empty: it names git or gh, or holds a `\\u` escape
     if mod_checks(data):
         return 0
     raw = command_of(data)

@@ -399,28 +399,31 @@ def in_arithmetic(stack: list[str]) -> bool:
     (`$(( (a<<b) ))`): there `<<` is a shift. A `$(` inside arithmetic runs commands."""
     for frame in reversed(stack):
         if frame != "(":
-            return frame in ("$((", "((")
+            return frame == "(("
     return False
 
 
 def is_arith(text: str, start: int) -> bool:
     """Whether the `((` at TEXT[START] opens arithmetic: its inner paren closes right before the
     outer one (`((1+1))`, `((a*(b+c)))`), not earlier (`((cd a); (cd b))` is two subshells)."""
-    depth, inner, quote = 0, None, ""
+    depth, inner, j = 0, None, start
     # Arithmetic is short; looking no further than ARITH_SCAN keeps deep nesting linear.
-    for j in range(start, min(len(text), start + ARITH_SCAN)):
-        if quote:  # a paren in quotes is text
-            quote = "" if text[j] == quote else quote
-        elif text[j] in "'\"":
-            quote = text[j]
-        elif text[j] == "(":
+    stop = min(len(text), start + ARITH_SCAN)
+    while j < stop:
+        char = text[j]
+        if char in "'\"":  # a paren in quotes is text: skip to the closing quote
+            j = text.find(char, j + 1)
+            if j < 0:
+                break
+        elif char == "(":
             depth += 1
-        elif text[j] == ")":
+        elif char == ")":
             depth -= 1
             if depth == 1 and inner is None:
                 inner = j
             if depth == 0:
                 return inner == j - 1
+        j += 1
     # Past the scan, or never closed: read it as arithmetic. The other mistake, taking
     # arithmetic for subshells, would read its `<<` as a heredoc and hide the lines after it.
     return True
@@ -525,17 +528,16 @@ def strip_heredocs(text: str) -> tuple[str, list[tuple[str, str, bool]]]:
         elif ch == "}" and top == "${":
             stack.pop()
         elif ch == "(" and top != "${":
-            # `((` and `$((` open arithmetic, where `<<` is a shift; any other `(` is a
-            # subshell, a group or a process substitution that its own `)` closes.
+            # `((` and `$((` open arithmetic, where `<<` is a shift: both parens are frames
+            # of their own, so the `))` that closes it pops both. Any other `(` is a subshell,
+            # a group or a process substitution that its own `)` closes.
             if text[i - 1 : i] == "(" and top in ("(", "$(") and is_arith(text, i - 1):
-                stack[-1] = "$((" if top == "$(" and text[i - 2 : i - 1] == "$" else "(("
+                stack[-1] = "(("
+                stack.append("((")
             else:
                 stack.append("(")
-        elif ch == ")" and top in ("$(", "(", "$((", "(("):
+        elif ch == ")" and top in ("$(", "(", "(("):
             stack.pop()
-            if top in ("$((", "((") and text[i + 1 : i + 2] == ")":
-                out.append(")")
-                i += 1  # arithmetic closes with `))`
         elif ch == "<" and in_arithmetic(stack):
             pass  # a shift, not a heredoc
         elif ch == "<":

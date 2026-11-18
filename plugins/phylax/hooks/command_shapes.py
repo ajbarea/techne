@@ -340,59 +340,26 @@ class Group(list):
     """One simple command's words and redirections, and how many `(` subshells it sits in."""
 
     parens = 0
-    detached = False  # ended by `&`: it runs in the background of the shell
     sep = ""  # the separator before it: `;`, `&&`, `|`, a newline and so on
 
 
 def commands(tokens: list[str]) -> list[Group]:
-    """Split at separators; each simple command keeps its redirections. A `&` marks as detached
-    everything it backgrounds: the whole pipeline or `&&` list before it, or the `( )` or
-    `{ }` group it follows."""
+    """Split at separators; each simple command keeps its redirections and the separator before
+    it. A newline after `&&`, `||` or `|` continues the list."""
     out: list[Group] = [Group()]
     depth = 0
-    chain = 0  # where the current pipeline or `&&` list starts in OUT
-    opens: list[int] = []  # where each open `(` group starts
-    closed = 0  # where the `( )` group that just closed started
-    after_close = False  # a `( )` group closed, and no separator has come since
     for tok in tokens:
         if isinstance(tok, Op) and "<" not in tok and ">" not in tok:
-            if tok == "&":
-                start = chain
-                if after_close:
-                    start = closed
-                elif out[-1][:1] == ["}"]:
-                    start = _brace_start(out)
-                for g in out[start:]:
-                    g.detached = True
             if tok == "\n" and not out[-1] and out[-1].sep in CONTINUES:
-                continue  # a newline after `&&`, `||` or `|` continues the list
-            had_open = bool(opens)
-            if tok == "(":
-                opens.append(len(out))
-            elif tok == ")" and opens:
-                closed = opens.pop()
+                continue
             # A `case` arm's `pattern)` has no `(`: it closes nothing.
             depth = max(0, depth + (tok == "(") - (tok == ")"))
             out.append(Group())
             out[-1].parens = depth
             out[-1].sep = str(tok)
-            after_close = tok == ")" and had_open
-            if tok not in ("&&", "||", "|", "|&"):
-                chain = len(out) - 1
         else:
             out[-1].append(tok)
     return [c for c in out if c]
-
-
-def _brace_start(groups: list[Group]) -> int:
-    """Where the `{ ... }` group that ends the last of GROUPS starts."""
-    depth = 0
-    for i in range(len(groups) - 1, -1, -1):
-        head = groups[i][:1]
-        depth += (head == ["}"]) - (head == ["{"])
-        if depth == 0 and head == ["{"]:
-            return i
-    return 0
 
 
 def command_start(words: list[str]) -> int:
@@ -819,7 +786,7 @@ class Scan:
             if kind:
                 ends = kind == "read" and reads_to_end(found, k)
                 self.loops.append((held or ends or on_clock(found, k), outer or amp))
-            self.detached = outer or amp or getattr(command, "detached", False)
+            self.detached = outer or amp
             self.command(command, held, bodies, depth)
         self.detached = outer
 
@@ -830,9 +797,8 @@ class Scan:
         words = words[command_start(words) :]
         argv, wrapped, flock_code, forked = peel(list(words))
         # A timeout around an enclosing shell does not reach what this command forks off with
-        # `&` or `setsid -f`: it outlives that shell.
-        detaching = getattr(command, "detached", False) or forked
-        bounded = (bounded and not detaching) or wrapped
+        # `setsid -f`: it outlives that shell (a `&` in the text is handled by walk).
+        bounded = (bounded and not forked) or wrapped
         if forked:
             self.detached = True  # what `setsid -f` runs is in the background of this call
         if flock_code is not None:

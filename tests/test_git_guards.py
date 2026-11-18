@@ -1340,3 +1340,86 @@ def test_an_agy_payload_with_its_own_cwd_keeps_it_over_the_workspace(tmp_path):
     )
     assert proc.returncode == 0, proc.stderr
     assert str(named) in json.loads(proc.stdout)["reason"]
+
+
+# --- units the mutation job found no test for ------------------------------------------
+
+
+@pytest.fixture
+def gc(monkeypatch):
+    (mod,) = load_phylax_hooks(monkeypatch, "git_checks")
+    return mod
+
+
+@pytest.mark.parametrize(
+    ("text", "start", "want"),
+    [
+        ("((1+1))", 0, True),
+        ("((a*(b+c)))", 0, True),
+        ("(( m = (1<<2) + 1 ))", 0, True),
+        ("((cd a); (cd b))", 0, False),
+        ("((cd a); (cd b); (cd c))", 0, False),
+        ("xx((1+1))", 2, True),
+        ("a) ((cd a); (cd b))", 3, False),
+        ("(( m = ')' + 1 << n ))", 0, True),
+        ('(( m = ")" + ")" ))', 0, True),
+        ("((echo ')'); (echo b))", 0, False),
+        ('((echo ")"); (echo "b"))', 0, False),
+        ("((x", 0, True),  # never closed: arithmetic, the safe reading
+        ("(( m = 'a ))", 0, True),  # an unclosed quote
+        ("(( x = " + " + ".join(["1"] * 900) + " ))", 0, True),  # past the scan
+        ("((" + "(cd a);" * 400 + "))", 0, True),  # a long subshell past the scan: also True
+    ],
+)
+def test_is_arith(gc, text, start, want):
+    assert gc.is_arith(text, start) is want
+
+
+def test_a_comment_starts_only_after_a_separator(gc):
+    stripped, _ = gc.strip_heredocs("echo hi # it's\necho z")
+    assert "'" not in stripped and stripped.endswith("echo z")
+    assert gc.strip_heredocs("echo hi #it's\necho z")[0].count("'") == 0  # `#i` after a space
+    assert gc.strip_heredocs("echo a#b 'q'")[0] == "echo a#b 'q'"  # `a#b` is no comment
+    assert gc.strip_heredocs("echo a;#it's\necho z")[0].count("'") == 0
+    assert gc.strip_heredocs("(#it's\n)")[0].count("'") == 0
+    # the character before a `#` decides, not the one after it or two before it
+    assert gc.strip_heredocs("echo ab#c 'it'")[0] == "echo ab#c 'it'"
+    assert gc.strip_heredocs("echo X#c 'q'")[0] == "echo X#c 'q'"  # only a separator starts one
+
+
+def test_a_closed_dollar_brace_ends_its_frame(gc):
+    """`#` is no comment inside ${...} (it is `${#x}` or text), but is again after the `}`."""
+    assert "'" not in gc.strip_heredocs("echo ${x:-1} # it's\necho z")[0]
+    assert "'" not in gc.strip_heredocs("echo ${x:-(} # it's\necho z")[0]
+    # a `(` inside ${...} pushes no frame, so this `)` closes nothing
+    assert "'" not in gc.strip_heredocs("echo ${x:-(}\necho a ) # it's\necho z")[0]
+    assert gc.strip_heredocs("echo ${x:- # it's }\necho z")[0].count("'") == 1
+
+
+@pytest.mark.parametrize(
+    ("text", "bodies"),
+    [
+        ("(( m = 1 << n ))\ncat <<EOF\nx\nEOF", 1),  # a shift, then a real heredoc
+        ("echo $((1<<n))\ncat <<EOF\nx\nEOF", 1),
+        ("echo $(( (a<<b) ))\ncat <<EOF\nx\nEOF", 1),
+        ("echo $(( 1 + $(cat <<EOF\n2\nEOF\n) ))", 1),  # `$(` in arithmetic runs commands
+        ("((cat <<EOF\nx\nEOF\n) )", 1),  # `((` closing early: two subshells
+        ("(( x )); cat <<EOF\nx\nEOF", 1),
+        ("(cat <<EOF\nx\nEOF\n)", 1),
+        ("( (a<<b) )\nfoo\nb", 1),  # plain parens, not arithmetic: `<<` is a heredoc
+        ("x=$((1<<2)) $((2<<1))\n", 0),
+        ("echo $((a*(b+c))) ; cat <<EOF\nx\nEOF", 1),  # the arithmetic closes: a heredoc follows
+        ("echo $(( (a) ))\ncat <<EOF\nx\nEOF", 1),
+        ("(((cd a); cat <<EOF\nx\nEOF\n))", 0),  # `((` at the start: arithmetic, `<<` a shift
+        ("a(((cd a); cat <<EOF\nx\nEOF\n))", 0),
+        # the character before the `((` is a `)`: is_arith must start at the `((` itself
+        ("()((a<<b))\nfoo\nb", 0),
+        ("(x)((a<<b))\nfoo\nb", 0),
+        ("echo $(( 1 + $( (( 2 )) ) )) ; cat <<EOF\nx\nEOF", 1),
+        ("( (( x )) ) ; cat <<EOF\nx\nEOF", 1),
+        ("echo $((1<<2)) )\ncat <<EOF\nx\nEOF", 1),  # `))` closes the arithmetic
+        ("((a<<b)) ) (\nfoo\nb", 0),  # `))` once, so the `<<` was inside arithmetic
+    ],
+)
+def test_arithmetic_frames_decide_whether_a_double_angle_is_a_heredoc(gc, text, bodies):
+    assert len(gc.strip_heredocs(text)[1]) == bodies, text

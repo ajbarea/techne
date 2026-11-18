@@ -1077,3 +1077,66 @@ def test_a_missing_python3_refuses_while_a_shape_option_is_on(tmp_path, handler)
     assert refused.returncode == 2 and "python3 is not on PATH" in refused.stderr
     # A call that cannot hold a shape still runs, so the user can install python3.
     assert run("ls -la").returncode == 0
+
+
+# --- units the mutation job found no test for ------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("data", "want"),
+    [
+        ({"tool_input": {"command": "a"}}, "a"),
+        ({"toolCall": {"args": {"CommandLine": "b"}}}, "b"),
+        ({"toolCall": {"args": {"command": "c"}}}, "c"),
+        ({"tool_input": {"command": "a"}, "toolCall": {"args": {"CommandLine": "b"}}}, "a"),
+        ({"toolCall": {"args": {"CommandLine": "b", "command": "c"}}}, "b"),
+        ({"toolCall": {"args": {"COMMAND": "d"}}}, ""),
+        ({"tool_input": {}, "toolCall": {"args": {}}}, ""),
+        ({}, ""),
+    ],
+)
+def test_command_of_reads_each_runtimes_field(monkeypatch, data, want):
+    (gg,) = load_phylax_hooks(monkeypatch, "git_guards")
+    assert gg.command_of(data) == want
+
+
+def test_check_shapes_on_unreadable_input_returns_empty_data_and_refuses(monkeypatch, capsys):
+    (gg,) = load_phylax_hooks(monkeypatch, "git_guards")
+    assert gg.check_shapes("pkill {not json", {FULL}) == ({}, 2)
+    assert "phylax shape guard error" in capsys.readouterr().err
+
+
+def test_check_shapes_joins_each_refusal_on_its_own_line(monkeypatch, capsys):
+    (gg,) = load_phylax_hooks(monkeypatch, "git_guards")
+    payload = bash_payload("pkill -f a; until x; do :; done", True)
+    data, decided = gg.check_shapes(payload, {FULL, LOOPS})
+    assert decided == 0 and data["tool_input"]["run_in_background"] is True
+    reason = json.loads(capsys.readouterr().out)["hookSpecificOutput"]["permissionDecisionReason"]
+    first, second = reason.split("\n")
+    assert first.startswith("phylax: this background") and second.startswith("phylax: `pkill -f`")
+    assert "XX" not in reason
+
+
+@pytest.mark.parametrize(
+    ("args", "valued", "stop", "want"),
+    [
+        (["--", "-c", "x"], "", False, (None, ["-c", "x"])),
+        (["a", "b"], "", False, (None, ["a", "b"])),
+        (["--command=X"], "", False, ("X", [])),
+        (["--command", "X", "y"], "", False, ("X", [])),
+        (["--command"], "", False, ("", [])),
+        (["-c", "X"], "", False, ("X", [])),
+        (["-cX"], "", False, ("X", [])),
+        (["-qc", "X", "log"], "", False, ("X", [])),
+        (["-E", "5", "-c", "X"], "E", False, ("X", [])),
+        (["x", "--", "y"], "", False, (None, ["x", "y"])),
+        # flock reads options only up to its lock file, then a separate -c or --command word
+        (["lk", "-c", "X"], "wE", True, ("X", ["lk"])),
+        (["lk", "--command", "X"], "wE", True, ("X", ["lk"])),
+        (["lk", "--command=X"], "wE", True, (None, ["lk", "--command=X"])),
+        (["--command", "X", "lk"], "wE", True, (None, ["X", "lk"])),
+        (["lk", "prog", "-c"], "wE", True, (None, ["lk", "prog", "-c"])),
+    ],
+)
+def test_command_option_reads_a_command_string(cs, args, valued, stop, want):
+    assert cs._command_option(args, valued, stop=stop) == want
