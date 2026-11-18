@@ -16,7 +16,10 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 - ✅ Athena's addition: refusal text names guard, error, option, /config and /phylax:setup (`hook_failure.py`,
   `git_options.off_switch`, shell fallbacks for a missing python3); latency measured on klepsydra and techne.
 - ✅ Live check in a real session (haiku, 2.1.316): python3 shim exiting 1 refused `echo`; without it `echo` ran and `pkill -f` was refused.
-- 📋 PR, CI (one bounded wait), `fleet send` + `fleet done`. Do not merge.
+- ✅ PR #379 open (bug, ajbarea); CI green on 5aa4966 (the mutation gate first failed on the untested off-switch text; a test pins it).
+- 📋 Next: one fresh Opus review round of `git diff origin/main...HEAD` (never run: stopped at the 5-hour limit) -- check any exit but 0 or 2
+  reachable with a guard off, the `*\\u*` case pattern in the python3-missing fallback, run_command payloads; fix findings; then
+  `fleet send` Heph and `fleet done`. Do not merge.
 - No plugin version bump: plugin.json has no version, and marketplace.json moves only for a new plugin.
 - Gotchas: `make lint` needs `uv sync` first in a fresh worktree; with python3 missing, a Bash call naming git or gh is
   refused while a git guard is on; other Bash calls run.
