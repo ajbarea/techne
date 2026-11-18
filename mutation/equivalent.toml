@@ -39,11 +39,11 @@ why = "Scan.command: an empty argv and a filler name both name no wrapper"
 
 [[mutant]]
 hash = "a335e97232a89b8192790c748885875409f3169ed342cae79103077e59c3734e"
-why = "Scan.command: the added letter X names no option of flock, script, su or the shell"
+why = "Scan.command: a heredoc sentinel starts with NUL, so also stripping X from its front changes nothing"
 
 [[mutant]]
 hash = "e78f824f23089ff9951155a2879793f24ab9dc1021cf0f65b74765ef1017e238"
-why = "Scan.command: the added letter X names no option of flock, script, su or the shell"
+why = "Scan.command: the added letter X names no option of su"
 
 [[mutant]]
 hash = "7f0edca713cd0e671303912217405e4e4c32f24a5366f547757430abe1bc97ce"
@@ -148,10 +148,6 @@ why = "reads_to_end: a redirection operator never holds an X"
 [[mutant]]
 hash = "12348dbcf9d23a666afee4d70e1b2aac7acf5d7de4ea8a92294bfe53a5222893"
 why = "shell_code: None is as falsy as False here"
-
-[[mutant]]
-hash = "7f78fa65d0945ad8350f60c93d4cab8efe92b39b6277dccf4d2d10fff42fd973"
-why = "shell_code: the added letter X names no option of flock, script, su or the shell"
 
 [[mutant]]
 hash = "87ea6d3f10e6da8c5d7e3bd380043acf2922ce1a9f5b79c2d514a6e72ce04764"

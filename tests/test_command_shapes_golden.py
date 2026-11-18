@@ -647,6 +647,12 @@ def scan_of(cs, text, bounded=False, depth=0):
     return scan
 
 
+@pytest.mark.parametrize("flags", ["-Xc", "-X -c"])
+def test_a_zsh_option_that_takes_no_word_does_not_hide_the_code(cs, flags):
+    text = f"zsh {flags} '{LOOP}'"
+    assert scan_of(cs, text).loops == [(False, False)]
+
+
 @pytest.mark.parametrize("form", NESTED_LOOP)
 def test_every_way_of_running_code_passes_the_bound_down_and_nothing_else(cs, form):
     text = NESTED_LOOP[form]
@@ -793,6 +799,8 @@ SHELL_CODE_MORE = [
     (["--", "/dev/stdin"], (None, True)),
     (["--", "-"], (None, True)),
     (["--", "script.sh"], (None, False)),
+    (["-Xc", "x"], ("x", False)),  # zsh -X (LIST_TYPES) takes no word
+    (["-X", "-c", "x"], ("x", False)),
 ]
 
 
