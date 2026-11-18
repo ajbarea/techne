@@ -127,11 +127,11 @@ why = "on_clock: body is None gives the slice k:None, the same as k:len"
 
 [[mutant]]
 hash = "89f15fb41bb29de5e7d124e2360c1107f06c3759a74e7857a41dc50785efc8c0"
-why = "peel: the added letter X names no option of flock, script, su or the shell"
+why = "peel: the added letter X is in the flock option string, and flock has no -X option"
 
 [[mutant]]
 hash = "5a41757f7a27c5671cd5a947f1fb757150afd34fd064b9fd87ab7ff1ce2f6b4d"
-why = "peel: the added letter X names no option of flock, script, su or the shell"
+why = "peel: the added letter X is in the script option string, and script has no -X option"
 
 [[mutant]]
 hash = "5e69ee2c318d11198f2abcb54a199a097eb3ba32985292b6bda979c6f8c70b33"
