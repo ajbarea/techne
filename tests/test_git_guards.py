@@ -485,7 +485,7 @@ def test_a_failed_check_beside_a_warning_still_fails(repo, linked):
     assert proc.returncode == 2
     assert warned(json.loads(proc.stdout))
     only_warn = run_raw(command, repo, on=[MAIN_CHECKOUT])
-    assert only_warn.returncode == 1
+    assert only_warn.returncode == 0
 
 
 def test_manifest_options_match_the_guard_and_default_off():
@@ -1117,12 +1117,12 @@ def test_a_folder_path_through_a_file_is_named(tmp_path):
         (COMMITS_MD, 2),
         ("block_secrets", 2),
         ("block_long_bodies", 2),
-        (MAIN_CHECKOUT, 1),
+        (MAIN_CHECKOUT, 0),
     ],
 )
 def test_input_with_no_folder_fails_closed_for_each_blocking_guard(key, code):
     # Each blocking guard alone makes a check that cannot finish refuse the command (exit 2);
-    # the warning alone lets it run (exit 1).
+    # the warning alone lets it run (exit 0, since onFailure "block" refuses on exit 1).
     env = hook_env([key], drop=("PHYLAX_",))
     payload = json.dumps({"tool_input": {"command": "git commit -m x"}})
     proc = subprocess.run(
@@ -1130,8 +1130,14 @@ def test_input_with_no_folder_fails_closed_for_each_blocking_guard(key, code):
     )
     lines = ["phylax git guard error: the hook input names no folder"]
     if code == 2:
-        lines.append(FAIL_CLOSED)
-    assert (proc.returncode, proc.stderr.splitlines(), proc.stdout) == (code, lines, "")
+        lines.append(
+            f"{FAIL_CLOSED} To switch it off, turn off the phylax option {key} in /config, "
+            "or run /phylax:setup."
+        )
+        assert (proc.returncode, proc.stderr.splitlines(), proc.stdout) == (code, lines, "")
+    else:  # the warning alone: the reason also reaches Claude, as a warning
+        assert (proc.returncode, proc.stderr.splitlines()) == (code, lines)
+        assert "names no folder" in (warned(json.loads(proc.stdout)) or "")
 
 
 def test_a_gone_folder_with_only_the_warning_on_runs_and_says_why(tmp_path):
@@ -1142,8 +1148,10 @@ def test_a_gone_folder_with_only_the_warning_on_runs_and_says_why(tmp_path):
     proc = subprocess.run(
         [HOOK_PYTHON, str(GUARDS)], input=payload, capture_output=True, text=True, env=env
     )
-    assert proc.returncode == 1 and not proc.stdout.strip()
-    assert "not an existing folder" in proc.stderr
+    # exit 0 drops stderr, so the reason also reaches Claude as a warning
+    assert proc.returncode == 0 and "not an existing folder" in proc.stderr
+    warning = warned(json.loads(proc.stdout)) or ""
+    assert "not an existing folder" in warning and "ran unchecked" in warning
 
 
 def test_agy_payload_attribution_denied(tmp_path):
@@ -1436,3 +1444,151 @@ def test_a_closed_dollar_brace_ends_its_frame(gc):
 )
 def test_arithmetic_frames_decide_whether_a_double_angle_is_a_heredoc(gc, text, bodies):
     assert len(gc.strip_heredocs(text)[1]) == bodies, text
+
+
+def test_off_switch_names_each_given_option_that_is_on_in_order(monkeypatch):
+    from conftest import load_phylax_hooks
+
+    (options,) = load_phylax_hooks(monkeypatch, "git_options")
+    every = (*options.OPTIONS, *options.SHAPES)
+    for key in every:
+        monkeypatch.delenv(f"CLAUDE_PLUGIN_OPTION_{key.upper()}", raising=False)
+    assert options.off_switch(every) == (
+        "To switch it off, turn off the phylax option its option in /config, or run /phylax:setup."
+    )
+    monkeypatch.setenv("CLAUDE_PLUGIN_OPTION_BLOCK_SECRETS", "true")
+    monkeypatch.setenv("CLAUDE_PLUGIN_OPTION_BLOCK_PKILL_FULL", "true")
+    monkeypatch.setenv("CLAUDE_PLUGIN_OPTION_BLOCK_COMMITS_MD", "false")
+    monkeypatch.setenv("CLAUDE_PLUGIN_OPTION_WARN_MAIN_CHECKOUT_COMMIT", "true")
+    assert options.off_switch(every) == (
+        "To switch it off, turn off the phylax option warn_main_checkout_commit, block_secrets, "
+        "block_pkill_full in /config, or run /phylax:setup."
+    )
+    # only the options that could have refused are named: the warning and the shapes are not
+    assert options.off_switch(options.BLOCKING) == (
+        "To switch it off, turn off the phylax option block_secrets in /config, "
+        "or run /phylax:setup."
+    )
+
+
+def test_the_checks_share_one_time_budget(monkeypatch, tmp_path):
+    """Past the budget a git run fails the check with phylax's text, before the hook's own
+    timeout, which names no guard; a run inside it gets at most what is left."""
+    from conftest import load_phylax_hooks
+
+    gc, options, scan = load_phylax_hooks(monkeypatch, "git_checks", "git_options", "secret_scan")
+    assert options.BUDGET < 55  # register.ts's GUARD_TIMEOUT_MS, the shorter of the two
+    monkeypatch.setattr(options, "_START", options._START - options.BUDGET)
+    with pytest.raises(gc.GitUnavailable, match="budget"):
+        gc.run_git(tmp_path, [], "status")
+    with pytest.raises(scan.ScanError, match="budget"):
+        scan._run(["true"], tmp_path, {})
+    monkeypatch.setattr(options, "_START", options.time.monotonic() - options.BUDGET + 3)
+    assert 2 < options.time_left(20) <= 3
+    assert options.time_left(1) == 1
+
+
+def _options_off(monkeypatch, options):
+    for key in (*options.OPTIONS, *options.SHAPES):
+        monkeypatch.delenv(f"CLAUDE_PLUGIN_OPTION_{key.upper()}", raising=False)
+
+
+class _Clock:
+    """A stand-in for git_options' `time` module whose monotonic() reads `now`."""
+
+    def __init__(self, now: float):
+        self.now = now
+
+    def monotonic(self) -> float:
+        return self.now
+
+
+def test_the_budget_is_spent_at_zero_and_caps_what_is_left_below_one_second(monkeypatch):
+    from conftest import load_phylax_hooks
+
+    (options,) = load_phylax_hooks(monkeypatch, "git_options")
+    clock = _Clock(100.0)
+    monkeypatch.setattr(options, "time", clock)
+    monkeypatch.setattr(options, "_START", 100.0 - options.BUDGET)
+    with pytest.raises(TimeoutError, match="budget"):
+        options.time_left(20)
+    clock.now -= 0.5
+    assert options.time_left(20) == 0.5
+
+
+def test_a_git_timeout_names_the_subcommand_and_the_limit(monkeypatch, tmp_path):
+    from conftest import load_phylax_hooks
+
+    gc, options = load_phylax_hooks(monkeypatch, "git_checks", "git_options")
+    monkeypatch.setattr(options, "_START", options.time.monotonic())
+
+    def slow(argv, **kwargs):
+        raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+
+    monkeypatch.setattr(subprocess, "run", slow)
+    with pytest.raises(gc.GitUnavailable) as named:
+        gc.run_git(tmp_path, [], "status", timeout=7)
+    assert str(named.value) == "git status timed out after 7s"
+    with pytest.raises(gc.GitUnavailable) as bare:
+        gc.run_git(tmp_path, [], timeout=7)
+    assert str(bare.value) == "git  timed out after 7s"
+
+
+def test_a_check_with_no_folder_warns_in_antigravitys_shape(monkeypatch, capsys):
+    from conftest import load_phylax_hooks
+
+    gc, options = load_phylax_hooks(monkeypatch, "git_checks", "git_options")
+    _options_off(monkeypatch, options)
+    monkeypatch.setenv("CLAUDE_PLUGIN_OPTION_WARN_MAIN_CHECKOUT_COMMIT", "true")
+    data = {"toolCall": {"args": {"CommandLine": "git commit -m x"}}}
+    assert gc.check(data, "git commit -m x") == 0
+    why = options.unchecked("the hook input names no folder")
+    assert json.loads(capsys.readouterr().out) == {"decision": "allow", "reason": why}
+
+
+def test_a_shape_check_that_crashes_names_the_error_and_the_shape_options(monkeypatch, capsys):
+    from conftest import load_phylax_hooks
+
+    gg, shapes, options = load_phylax_hooks(
+        monkeypatch, "git_guards", "command_shapes", "git_options"
+    )
+    _options_off(monkeypatch, options)
+    monkeypatch.setenv("CLAUDE_PLUGIN_OPTION_BLOCK_PKILL_FULL", "true")
+
+    def broken(*args):
+        raise ValueError("boom")
+
+    monkeypatch.setattr(shapes, "check", broken)
+    payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": "pkill zz"}})
+    assert gg.check_shapes(payload, {"block_pkill_full"})[1] == 2
+    assert capsys.readouterr().err == (
+        "phylax shape guard error: ValueError: boom; the command was not run. To switch it off, "
+        "turn off the phylax option block_pkill_full in /config, or run /phylax:setup.\n"
+    )
+
+
+def test_main_marks_the_shapes_checked_before_the_git_checks(monkeypatch, tmp_path):
+    """The crash handler leaves the shape options out of the refusal once the shapes passed."""
+    import io
+
+    from conftest import load_phylax_hooks
+
+    gg, gc, options = load_phylax_hooks(monkeypatch, "git_guards", "git_checks", "git_options")
+    _options_off(monkeypatch, options)
+    monkeypatch.delenv("PHYLAX_GUARD_CHECKED", raising=False)
+    monkeypatch.setenv("CLAUDE_PLUGIN_OPTION_BLOCK_PKILL_FULL", "true")
+    monkeypatch.setenv("CLAUDE_PLUGIN_OPTION_WARN_MAIN_CHECKOUT_COMMIT", "true")
+
+    def broken(data, raw):
+        raise RuntimeError("after the shapes")
+
+    monkeypatch.setattr(gc, "check", broken)
+    payload = {"tool_name": "Bash", "tool_input": {"command": "pkill zz; git status"}}
+    payload["cwd"] = str(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["git_guards.py", "--shapes"])
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+    assert gg.shapes_checked is False
+    with pytest.raises(RuntimeError, match="after the shapes"):
+        gg.main()
+    assert gg.shapes_checked is True
+    assert gg.last_input == json.dumps(payload)  # the crash handler's warning reads its shape

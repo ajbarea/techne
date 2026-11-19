@@ -77,12 +77,15 @@ def scan(
 
 
 def _run(argv: list[str], cwd: Path, env: dict[str, str]) -> subprocess.CompletedProcess:
+    from git_options import time_left
+
     try:
-        return subprocess.run(
-            argv, cwd=cwd, env=env, capture_output=True, text=True, timeout=SCAN_TIMEOUT
-        )
+        limit = time_left(SCAN_TIMEOUT)
+        return subprocess.run(argv, cwd=cwd, env=env, capture_output=True, text=True, timeout=limit)
+    except TimeoutError as exc:
+        raise ScanError(str(exc)) from exc
     except subprocess.TimeoutExpired as exc:
-        raise ScanError(f"{Path(argv[0]).name} timed out after {SCAN_TIMEOUT}s") from exc
+        raise ScanError(f"{Path(argv[0]).name} timed out after {exc.timeout:g}s") from exc
     except OSError as exc:
         raise ScanError(f"{Path(argv[0]).name} could not run: {exc}") from exc
 

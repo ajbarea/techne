@@ -481,3 +481,35 @@ def test_aliases_deep_with_a_pager_flag_or_shadowing_a_non_builtin_command(repo,
         "git refuses -C before an alias's command"
     )
     assert run_guard("git filter-branch --help", repo, state) is None, "git runs its own command"
+
+
+def test_a_scanner_run_gets_the_folder_and_the_time_left(monkeypatch, tmp_path):
+    from conftest import load_phylax_hooks
+
+    scan, options = load_phylax_hooks(monkeypatch, "secret_scan", "git_options")
+    monkeypatch.setattr(options, "_START", options.time.monotonic())
+    seen = {}
+
+    def run(argv, **kwargs):
+        seen.update(kwargs)
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    scan._run(["/usr/bin/gitleaks", "detect"], tmp_path, {})
+    assert seen["cwd"] == tmp_path
+    assert 0 < seen["timeout"] <= scan.SCAN_TIMEOUT
+
+
+def test_a_scanner_timeout_names_the_program_and_the_limit(monkeypatch, tmp_path):
+    from conftest import load_phylax_hooks
+
+    scan, options = load_phylax_hooks(monkeypatch, "secret_scan", "git_options")
+    monkeypatch.setattr(options, "_START", options.time.monotonic())
+
+    def slow(argv, **kwargs):
+        raise subprocess.TimeoutExpired(argv, 3)
+
+    monkeypatch.setattr(subprocess, "run", slow)
+    with pytest.raises(scan.ScanError) as caught:
+        scan._run(["/usr/bin/gitleaks", "detect"], tmp_path, {})
+    assert str(caught.value) == "gitleaks timed out after 3s"

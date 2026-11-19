@@ -92,12 +92,13 @@ def hook_handlers(plugin: str, event: str, matcher: str | None = None) -> list[d
 def hook_shell(
     plugin: str, handler: Mapping, python: str | None = HOOK_PYTHON, root: pathlib.Path = ROOT
 ) -> str:
-    """HANDLER's shell-form command with ROOT's plugin folder filled in, and `exec python3` run
-    on PYTHON (None keeps the PATH lookup, for a test that python3 never starts)."""
+    """HANDLER's shell-form command with ROOT's plugin folder filled in, and each python3 that
+    runs a script (`exec python3 "..."` or `python3 "..."`) run on PYTHON (None keeps the PATH
+    lookup, for a test that python3 never starts)."""
     shell = handler["command"].replace("${CLAUDE_PLUGIN_ROOT}", str(root / "plugins" / plugin))
-    return (
-        shell if python is None else shell.replace("exec python3 ", f"exec {shlex.quote(python)} ")
-    )
+    if python is None:
+        return shell
+    return re.sub(r'(?<![\w-])python3 (?=")', lambda _: f"{shlex.quote(python)} ", shell)
 
 
 def load_phylax_hooks(monkeypatch, *names: str) -> list[types.ModuleType]:

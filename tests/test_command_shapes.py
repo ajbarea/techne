@@ -735,18 +735,18 @@ def test_wrapper_name_counts_a_path_only_in_a_system_folder(cs, word, name):
 
 
 def test_the_three_keyword_lists_are_one(cs, monkeypatch):
-    """The hook's prefilter, the lexer's word check and hooks.json's python3-missing fallback
-    name the same words (git_options.SHAPE_WORDS)."""
+    """The hook's prefilter, the lexer's word check and no_python3.sh, the check when python3
+    is missing, name the same words (git_options.SHAPE_WORDS)."""
     gg, git_options = load_phylax_hooks(monkeypatch, "git_guards", "git_options")
     assert tuple(git_options.SHAPE_WORDS) == ("pkill", "pgrep", "while", "until", "((")
     for word in git_options.SHAPE_WORDS:
         assert gg.may_hold_shape(f'{{"command": "x {word} y"}}') is True
         assert cs.may_hold(f"x {word} y") is True
-    for handler in hook_handlers("phylax", "PreToolUse", "Bash"):
-        patterns = re.search(r'case "\$p" in (.*?)\) ', handler["command"])
-        assert patterns, handler["command"]
-        listed = [w.strip('*"') for w in patterns.group(1).split("|")]
-        assert listed == list(git_options.SHAPE_WORDS), listed
+    fallback = (PLUGIN / "hooks" / "no_python3.sh").read_text()
+    patterns = re.search(r'^\t"" \| (\*pkill\*.*?)\) refuse "shape guards"', fallback, re.M)
+    assert patterns, fallback
+    listed = [w.strip(' *"') for w in patterns.group(1).split("|")]
+    assert listed == [*git_options.SHAPE_WORDS, "\\\\u"], listed
 
 
 def test_flock_long_options_read_as_getopt_long_reads_them(cs):
@@ -990,10 +990,11 @@ def test_a_shape_check_that_crashes_refuses_the_command():
 
 def test_a_git_check_crash_still_follows_the_git_guards_rule():
     """A shape option on does not make a crash in the git checks refuse: with only the warning
-    git guard on, a git check that fails lets the command run (exit 1), as before."""
+    git guard on, a git check that fails lets the command run (exit 0, since onFailure "block"
+    refuses on exit 1)."""
     stdin = json.dumps({"tool_name": "Bash", "tool_input": {"command": "git commit -m x"}})
     proc = run_guard(stdin, [FULL, "warn_main_checkout_commit"])  # no cwd: the check fails
-    assert proc.returncode == 1, proc.stderr
+    assert proc.returncode == 0, proc.stderr
 
 
 def test_a_call_without_the_words_starts_no_check(monkeypatch):
@@ -1057,9 +1058,10 @@ def test_hooks_json_passes_the_flag_exactly_while_a_shape_option_is_on(tmp_path,
 def test_a_missing_python3_refuses_while_a_shape_option_is_on(tmp_path, handler):
     """No python3 means no check: with a shape option on the call is refused (exit 2) and says
     why, rather than running unchecked."""
-    empty = tmp_path / "bin"  # a PATH with cat, as any machine has, and no python3
+    empty = tmp_path / "bin"  # a PATH with cat and grep, as any machine has, and no python3
     empty.mkdir()
-    (empty / "cat").symlink_to(shutil.which("cat") or "/bin/cat")
+    for tool in ("cat", "grep"):
+        (empty / tool).symlink_to(shutil.which(tool) or f"/bin/{tool}")
     shell = handler["command"].replace("${CLAUDE_PLUGIN_ROOT}", str(PLUGIN))
     env = {**hook_env([FULL]), "PATH": str(empty)}
 

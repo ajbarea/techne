@@ -268,4 +268,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # The script's folder, even under PYTHONSAFEPATH or -P, which leave it off sys.path.
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import hook_failure
+
+    hook_failure.run(main, "email greeting guard", "email_greeting")

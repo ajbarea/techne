@@ -820,3 +820,32 @@ def test_an_empty_pythonpath_adds_no_entry(tmp_path, monkeypatch):
 def test_merging_no_results_file_says_so(tmp_path):
     with pytest.raises(SystemExit, match=r"no results file at .*mutation-\*\.json"):
         mutation.main(["--merge", str(tmp_path / "mutation-*.json")])
+
+
+def test_a_failed_baseline_points_at_each_failing_test():
+    said = (
+        "tests/conftest.py:12: in fixture\n"
+        "tests/test_git_guards.py:1487: AssertionError\n"
+        "=========================== short test summary info ============================\n"
+        "FAILED tests/test_git_guards.py::test_budget - AssertionError: assert 20 <= 3\n"
+        "ERROR tests/test_x.py - ImportError: 100% gone\n"
+    )
+    assert mutation.baseline_annotations(said) == [
+        "::error file=tests/test_git_guards.py,line=1487::unmutated baseline failed: test_budget"
+        " AssertionError: assert 20 <= 3",
+        "::error file=tests/test_x.py::unmutated baseline failed: ImportError: 100%25 gone",
+    ]
+    assert mutation.baseline_annotations("1 passed in 0.1s\n") == []
+
+
+def test_each_survivor_is_annotated_at_the_line_its_mutant_changed(tmp_path):
+    (tmp_path / "g.py").write_text("def f(x):\n    y = 1\n    return x <= 0\n")
+    survivor = mutation.Result(
+        "g.x_f__mutmut_4", "g.py", "f", "survived", "k", 1.0, 1, "-return x <= 0\n+return x < 0"
+    )
+    lost = mutation.Result("g.x_h__mutmut_1", "g.py", "h", "survived", "k", 1.0, 1, "-pass")
+    killed = mutation.Result("g.x_f__mutmut_5", "g.py", "f", "killed", "k", 1.0, 1, "-y = 1")
+    assert mutation.survivor_annotations([survivor, lost, killed], tmp_path) == [
+        "::error file=g.py,line=3::survived g.x_f__mutmut_4: -return x <= 0 / +return x < 0",
+        "::error file=g.py::survived g.x_h__mutmut_1: -pass",
+    ]

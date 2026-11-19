@@ -397,6 +397,20 @@ def kill_group(proc: subprocess.Popen, wait: float = 10.0) -> None:
         time.sleep(0.02)
 
 
+def baseline_annotations(said: str) -> list[str]:
+    """GitHub ::error lines for the tests SAID (pytest's output) names as failed, each at the
+    line its traceback stopped on, so a failed unmutated run points at the test in the PR view."""
+    where = {m[1]: m[2] for m in re.finditer(r"^(\S+\.py):(\d+): \w", said, re.M)}
+    out = []
+    for m in re.finditer(r"^(?:FAILED|ERROR) (\S+?\.py)(?:::(\S+))?(?: - (.*))?$", said, re.M):
+        path, name, why = m[1], m[2] or "", m[3] or ""
+        text = " ".join(x for x in ("unmutated baseline failed:", name, why) if x)
+        text = text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+        line = f",line={where[path]}" if path in where else ""
+        out.append(f"::error file={path}{line}::{text}")
+    return out
+
+
 def trace(scratch: pathlib.Path, config: dict[str, list[str]], modules: list[str]):
     """Run each module's tests once, unmutated, with the tracer on. Returns ({(module, function):
     {test node ids}}, {module: seconds the module's tests took})."""
@@ -414,6 +428,8 @@ def trace(scratch: pathlib.Path, config: dict[str, list[str]], modules: list[str
     }
     status, took, said = run_tests(scratch, ["-p", "mutation_trace_plugin", *tests], 3600, extra)
     if status != "passed":
+        for line in baseline_annotations(said):
+            print(line, flush=True)
         raise SystemExit(f"the unmutated tests did not pass ({status}): {' '.join(tests)}\n{said}")
     for module in modules:
         seconds[module] = took * len(config[module]) / len(tests)
@@ -637,12 +653,41 @@ def write_results(out: pathlib.Path | None, results: list[Result]) -> None:
 def report(results: list[Result], summary: pathlib.Path | None, report_only: bool) -> int:
     table = score_table(results)
     print(table)
+    if not report_only:  # the gating run only: a --report-only merge would repeat each line
+        for line in survivor_annotations(results, pathlib.Path(".")):
+            print(line)
     if summary:
         with summary.open("a") as out:
             out.write(table + "\n")
     if any(r.status == "error" for r in results):
         return 1  # a broken run, not a score: fails even with --report-only
     return 0 if report_only else int(any(r.status == "survived" for r in results))
+
+
+def survivor_annotations(results: list[Result], root: pathlib.Path) -> list[str]:
+    """GitHub ::error lines for each survivor, at the source line its diff removed inside its
+    function (the function's first line when that cannot be found), so the PR view points at it."""
+    out = []
+    for r in results:
+        if r.status != "survived":
+            continue
+        removed = [x[1:].strip() for x in r.diff.splitlines() if x.startswith("-")]
+        line = 0
+        try:
+            lines = (root / r.module).read_text().splitlines()
+            first, last = function_spans("\n".join(lines))[r.function]
+            line = first
+            for n in range(first, last + 1):
+                if removed and lines[n - 1].strip() == removed[0]:
+                    line = n
+                    break
+        except (OSError, SyntaxError, KeyError):
+            pass
+        where = f"file={r.module}" + (f",line={line}" if line else "")
+        change = " / ".join(x.strip() for x in r.diff.splitlines())
+        text = f"survived {r.name}: {change}".replace("%", "%25")
+        out.append(f"::error {where}::{text}")
+    return out
 
 
 def score_table(results: list[Result]) -> str:

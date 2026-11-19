@@ -39,6 +39,7 @@ The user switches them on in `/config`. Then they run `/reload-plugins`, and you
 | Check | When it matters | What to do |
 | --- | --- | --- |
 | `mod` | a guard is on | Claude Code 2.1.287 or later runs the guards from a mod, and 2.1.288 fixed that mod breaking Bash in worktree subagents. An older version still runs them from the command hook, so this line is optional. Run the fix line after the user approves; `claude update` moves to the newest version, and the mod loads after the user restarts Claude Code. |
+| `fail-closed` | a refusing guard is on | Claude Code 2.1.295 or later honours the hooks' `onFailure`, so a guard that crashes or times out refuses the call. An older version lets that call run, so this line is optional. Run the fix line after the user approves; `claude update` moves to the newest version. |
 | `python3` | any option is on | The hooks run on the system python3, 3.9 or newer. The user runs a `sudo` or `xcode-select --install` line with `!`. Run the `uv python install --default 3.12 && uv python update-shell` line after the user approves. |
 | `git` | a guard is on | The user runs the fix line with `!`. |
 | `proc` | restart_on_update is on | macOS and native Windows have no `/proc`. The user switches the option off there. |
@@ -48,6 +49,10 @@ The user switches them on in `/config`. Then they run `/reload-plugins`, and you
 | `state-dir` | restart_on_update is on | Run the fix line it prints after the user approves. A folder owned by another user has no fix line; the user sets `XDG_RUNTIME_DIR` to a private folder. |
 
 For `restart_on_update` under Windows Terminal, the old tab closes itself only with the shell snippet in [Restart on update](https://ajbarea.github.io/techne/configuration/#restart-on-update). Offer to show it.
+
+## Failure behavior
+
+Every refusing PreToolUse hook in `hooks/hooks.json` sets `"onFailure": "block"`, so the guards fail closed: a crash, an exit code other than 0 or 2, a hook that cannot start, or its timeout refuses the call, as does a broken install missing `hooks/no_python3.sh`. The git checks share a 50 s budget, so a slow repo is refused with phylax's own text before the timeout. A crash, a missing `python3` and a `python3` that fails (a macOS stub) print a refusal that names the guard, the error and the option to switch off. Without a working `python3`, a Bash call is refused when its command names `git` or `gh` while a blocking git guard is on, holds a shape word while a shape guard is on, or holds a `\u` escape while either is on; a `python3` that fails after reading the call refuses every call while such a guard is on, and without `grep` or a command field the whole hook input is checked. The warning guard alone refuses nothing short of the 75 s hook timeout; a crash with only it on reaches Claude as a warning. With a guard's options all off the hook exits 0 at once. Claude Code before 2.1.295 ignores the field and lets such a call through; the doctor's `fail-closed` line says which applies. Tell the user a refusal that names a hook failure means the hook broke, and `/phylax:setup` shows what.
 
 ## 4. Check the result
 
