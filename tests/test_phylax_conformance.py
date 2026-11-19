@@ -602,3 +602,30 @@ def test_a_crash_on_input_too_deep_to_parse_still_only_warns():
     )
     assert proc.returncode == 0, proc.stderr
     assert "RecursionError" in json.loads(proc.stdout)["systemMessage"]
+
+
+@pytest.mark.parametrize("handler", BASH_HANDLERS)
+@pytest.mark.parametrize("shell", ["/bin/bash", "/bin/sh"])
+@pytest.mark.parametrize(
+    "option", ["block_attribution_trailers", "block_secrets", "block_pkill_full"]
+)
+def test_a_missing_fallback_script_refuses_in_every_shell(tmp_path, handler, shell, option):
+    """bash's `.` of a missing file only prints an error and goes on, so the hook must refuse
+    there itself; dash stops the shell, which refuses too."""
+    plugin = tmp_path / "phylax"
+    shutil.copytree(ROOT / "plugins" / "phylax" / "hooks", plugin / "hooks")
+    (plugin / "hooks" / "no_python3.sh").unlink()
+    bin_dir = tmp_path / "bin"  # cat and grep, no python3
+    bin_dir.mkdir()
+    for tool in ("cat", "grep"):
+        (bin_dir / tool).symlink_to(shutil.which(tool) or f"/bin/{tool}")
+    proc = subprocess.run(
+        [shell, "-c", handler["command"].replace("${CLAUDE_PLUGIN_ROOT}", str(plugin))],
+        input=json.dumps({"tool_input": {"command": "git push; pkill -f x"}}),
+        capture_output=True,
+        text=True,
+        env={**hook_env([option]), "PATH": str(bin_dir)},
+        check=False,
+    )
+    assert proc.returncode == 2, proc.stderr
+    assert "no_python3.sh" in proc.stderr

@@ -31,7 +31,9 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
   caveat, AGENTS no-grep and \u wording).
 - ✅ Verify pass on round-3 nits clean; deep-input regression test forced via json.loads (CI's Python parses
   100000 nested lists). CI green on ee6251e (validate 25m37s; apt slowness is techne#382). PR body updated.
-- 📋 Next: Heph reviews and merges; nothing open on this branch.
+- ✅ Heph's verify item: bash's `.` of a missing no_python3.sh went on and could exit 0; now `|| { refusal; exit 2; }`
+  in both shell hooks, a conformance test over bash and dash, docs line.
+- 📋 Next: CI green, report Heph; Heph merges.
 - No plugin version bump: plugin.json has no version.
 - Verify: `make lint`; `uv run pytest tests/test_phylax_conformance.py tests/test_git_guards.py
   tests/test_model_guard.py tests/test_email_greeting.py tests/test_command_shapes.py tests/test_hook_latency.py
