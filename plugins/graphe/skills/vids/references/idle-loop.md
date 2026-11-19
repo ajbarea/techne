@@ -37,7 +37,7 @@ No scorer ships yet ([#384](https://github.com/ajbarea/techne/issues/384)); writ
 | Blink | count frames on a 12 fps strip of the eye window | 100 to 400 ms shut |
 | Identity | face-window SSIM against the still, face window aligned first | near an untouched control (0.97); accepted 0.79, rejected 0.48 |
 | Camera | zoom and shift that map sampled frames back onto the still | 1.00 throughout |
-| Background | MAD outside the figure mask | lowest of the takes (kept 1.19, rejected 1.60) |
+| Background | MAD outside the figure mask | at most about 1.2 (kept 1.19, rejected 1.60) |
 
 Self-test the scorer on the still shifted by a known sine first. It caught three pitfalls:
 
