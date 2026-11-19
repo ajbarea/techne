@@ -24,9 +24,13 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
   is: echo runs, pkill -f refused by the guard; python3 stub exit 1: echo runs, pkill -f refused "python3 failed
   (exit 1)"; Bash hook timeout 5 + guard sleeping 30: echo refused "timed out; blocking because onFailure is
   "block""; guard raising: echo refused with the crash text + off switch. Server killed, no claude left.
-- 📋 Next: round-2 fresh Opus reader (running); fix findings; CI green; PR body (live table, no-python behavior,
-  budget, doctor line); `fleet send` Heph; `fleet done`. Do not merge.
-- Not verified: whether Claude Code before 2.1.295 rejects the unknown `onFailure` key (only 2.1.300+ here).
+- ✅ Round 2 (fresh Opus): 2 should-fix + 3 nits fixed in 2040d83 (warn-only crash prints a warning verdict;
+  doctor fail-closed counts only refusing guards; docs name every no-python3 refusal). 2.1.294 checked live with
+  `-p`: loads the hooks, refuses pkill -f, ignores onFailure (echo ran past a timed-out hook).
+- ✅ Round 3 (fresh Opus): clean; 4 nits fixed (crash handler catches any parse error; docs: 75 s timeout
+  caveat, AGENTS no-grep and \u wording).
+- 📋 Next: verify pass on the round-3 nits; CI green; PATCH PR body from the session scratchpad draft (live
+  table, 2.1.294 line); `fleet send` Heph; `fleet done`. Do not merge.
 - No plugin version bump: plugin.json has no version.
 - Verify: `make lint`; `uv run pytest tests/test_phylax_conformance.py tests/test_git_guards.py
   tests/test_model_guard.py tests/test_email_greeting.py tests/test_command_shapes.py tests/test_hook_latency.py

@@ -177,7 +177,7 @@ if __name__ == "__main__":
 
                 try:
                     agy = hook_output.from_agy(json.loads(last_input))
-                except ValueError:
+                except Exception:  # the input that crashed the guard may not parse either
                     agy = False
                 why = unchecked(f"{type(exc).__name__}: {exc}")
                 json.dump(hook_output.warn(why, agy), sys.stdout)
