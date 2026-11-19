@@ -551,3 +551,33 @@ def test_a_missing_python3_refuses_a_unicode_escape_for_each_guard(tmp_path, han
     stdin = '{"tool_input": {"command": "' + word + '"}}'
     proc = run_without_python(tmp_path, handler, stdin, [option])
     assert proc.returncode == 2 and option in proc.stderr, proc.stderr
+
+
+@pytest.mark.parametrize(
+    ("payload", "agy"),
+    [
+        ({"tool_name": "Bash", "tool_input": {"command": "git status"}, "cwd": "/tmp"}, False),
+        ({"toolCall": {"args": {"CommandLine": "git status", "Cwd": "/tmp"}}}, True),
+    ],
+)
+def test_a_crash_with_only_the_warning_on_warns_in_the_callers_shape(payload, agy):
+    """Exit 0 drops stderr, so a crash the warning guard cannot refuse still says so."""
+    code = (
+        f"import runpy, sys; sys.path.insert(0, {str(HOOKS)!r});"
+        "import git_checks; git_checks.check = lambda data, raw: 1 / 0;"
+        "sys.argv = ['git_guards.py'];"
+        f"runpy.run_path({str(HOOKS / 'git_guards.py')!r}, run_name='__main__')"
+    )
+    proc = subprocess.run(
+        [HOOK_PYTHON, "-c", code],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        env=hook_env(["warn_main_checkout_commit"]),
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    text = out["reason"] if agy else out["systemMessage"]
+    assert ("decision" in out) is agy
+    assert "ZeroDivisionError" in text and "ran unchecked" in text

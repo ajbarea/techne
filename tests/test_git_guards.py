@@ -1591,3 +1591,4 @@ def test_main_marks_the_shapes_checked_before_the_git_checks(monkeypatch, tmp_pa
     with pytest.raises(RuntimeError, match="after the shapes"):
         gg.main()
     assert gg.shapes_checked is True
+    assert gg.last_input == json.dumps(payload)  # the crash handler's warning reads its shape

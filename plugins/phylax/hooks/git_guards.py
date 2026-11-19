@@ -36,6 +36,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # Whether the shape check passed this call: a crash after it is a git check's, which refuses
 # only while a blocking git guard is on.
 shapes_checked = False
+# The hook input main read, for the crash handler's warning shape.
+last_input = ""
 
 
 def mod_checks(data: dict) -> bool:
@@ -111,10 +113,10 @@ def command_of(data: dict) -> str:
 
 
 def main() -> int:
-    global shapes_checked
+    global shapes_checked, last_input
     from git_options import OPTIONS, option_on
 
-    payload = sys.stdin.read()
+    payload = last_input = sys.stdin.read()
     data = None
     # hooks.json passes --shapes last while a shape option is on, so with them off this costs
     # one look at argv and no environment read.
@@ -159,13 +161,26 @@ if __name__ == "__main__":
     except Exception as exc:
         print(f"phylax git guard error: {type(exc).__name__}: {exc}", file=sys.stderr)
         try:
-            from git_options import BLOCKING, SHAPES, off_switch, option_on
+            from git_options import BLOCKING, MAIN_CHECKOUT, SHAPES, off_switch, option_on
 
             # A crash before the shape check passed leaves the shapes unchecked too.
             keys = BLOCKING if shapes_checked else (*BLOCKING, *SHAPES)
             blocking = any(option_on(k) for k in keys)
             if blocking:
                 print(off_switch(keys), file=sys.stderr)
+            elif option_on(MAIN_CHECKOUT):
+                # Exit 0 drops stderr, so the warning verdict is what tells Claude.
+                import json
+
+                import hook_output
+                from git_options import unchecked
+
+                try:
+                    agy = hook_output.from_agy(json.loads(last_input))
+                except ValueError:
+                    agy = False
+                why = unchecked(f"{type(exc).__name__}: {exc}")
+                json.dump(hook_output.warn(why, agy), sys.stdout)
         except Exception:
             blocking = True  # which guards are on cannot be read, so the check fails closed
         # hooks.json sets onFailure "block", which refuses on any exit but 0 and 2: with only

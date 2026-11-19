@@ -541,3 +541,8 @@ def test_email_timezone_is_na_while_the_greeting_is_off():
         c.name: c for c in m.checks(platform, on, m.parse_values(["email_timezone=Mars/Olympus"]))
     }
     assert found["email-timezone"].status == "missing"
+
+
+def test_fail_closed_line_skips_the_warning_guard_that_never_refuses(tmp_path, env):
+    _, found = doctor(tmp_path, args(warn_main_checkout_commit=True), env)
+    assert found["fail-closed"][0] == "n/a"

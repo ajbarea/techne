@@ -305,7 +305,8 @@ def checks(
     shapes_on = any(options[key] is True for key in SHAPES)
     found = [option_line(key, options[key]) for key in OPTIONS]
     found.append(d.guarded("mod", False, lambda: mod(platform, guards_on)))
-    refusing_on = guards_on or shapes_on or model_on or greeting_on
+    blocking_on = any(options[key] is True for key in GUARDS if key != "warn_main_checkout_commit")
+    refusing_on = blocking_on or shapes_on or model_on or greeting_on
     found.append(d.guarded("fail-closed", False, lambda: fail_closed(platform, refusing_on)))
     if guards_on or shapes_on or model_on or greeting_on or restart_on or budget_on:
         found.append(
