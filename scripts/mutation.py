@@ -653,12 +653,41 @@ def write_results(out: pathlib.Path | None, results: list[Result]) -> None:
 def report(results: list[Result], summary: pathlib.Path | None, report_only: bool) -> int:
     table = score_table(results)
     print(table)
+    if not report_only:  # the gating run only: a --report-only merge would repeat each line
+        for line in survivor_annotations(results, pathlib.Path(".")):
+            print(line)
     if summary:
         with summary.open("a") as out:
             out.write(table + "\n")
     if any(r.status == "error" for r in results):
         return 1  # a broken run, not a score: fails even with --report-only
     return 0 if report_only else int(any(r.status == "survived" for r in results))
+
+
+def survivor_annotations(results: list[Result], root: pathlib.Path) -> list[str]:
+    """GitHub ::error lines for each survivor, at the source line its diff removed inside its
+    function (the function's first line when that cannot be found), so the PR view points at it."""
+    out = []
+    for r in results:
+        if r.status != "survived":
+            continue
+        removed = [x[1:].strip() for x in r.diff.splitlines() if x.startswith("-")]
+        line = 0
+        try:
+            lines = (root / r.module).read_text().splitlines()
+            first, last = function_spans("\n".join(lines))[r.function]
+            line = first
+            for n in range(first, last + 1):
+                if removed and lines[n - 1].strip() == removed[0]:
+                    line = n
+                    break
+        except (OSError, SyntaxError, KeyError):
+            pass
+        where = f"file={r.module}" + (f",line={line}" if line else "")
+        change = " / ".join(x.strip() for x in r.diff.splitlines())
+        text = f"survived {r.name}: {change}".replace("%", "%25")
+        out.append(f"::error {where}::{text}")
+    return out
 
 
 def score_table(results: list[Result]) -> str:

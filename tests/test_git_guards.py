@@ -1486,3 +1486,108 @@ def test_the_checks_share_one_time_budget(monkeypatch, tmp_path):
     monkeypatch.setattr(options, "_START", options.time.monotonic() - options.BUDGET + 3)
     assert 2 < options.time_left(20) <= 3
     assert options.time_left(1) == 1
+
+
+def _options_off(monkeypatch, options):
+    for key in (*options.OPTIONS, *options.SHAPES):
+        monkeypatch.delenv(f"CLAUDE_PLUGIN_OPTION_{key.upper()}", raising=False)
+
+
+class _Clock:
+    """A stand-in for git_options' `time` module whose monotonic() reads `now`."""
+
+    def __init__(self, now: float):
+        self.now = now
+
+    def monotonic(self) -> float:
+        return self.now
+
+
+def test_the_budget_is_spent_at_zero_and_caps_what_is_left_below_one_second(monkeypatch):
+    from conftest import load_phylax_hooks
+
+    (options,) = load_phylax_hooks(monkeypatch, "git_options")
+    clock = _Clock(100.0)
+    monkeypatch.setattr(options, "time", clock)
+    monkeypatch.setattr(options, "_START", 100.0 - options.BUDGET)
+    with pytest.raises(TimeoutError, match="budget"):
+        options.time_left(20)
+    clock.now -= 0.5
+    assert options.time_left(20) == 0.5
+
+
+def test_a_git_timeout_names_the_subcommand_and_the_limit(monkeypatch, tmp_path):
+    from conftest import load_phylax_hooks
+
+    gc, options = load_phylax_hooks(monkeypatch, "git_checks", "git_options")
+    monkeypatch.setattr(options, "_START", options.time.monotonic())
+
+    def slow(argv, **kwargs):
+        raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+
+    monkeypatch.setattr(subprocess, "run", slow)
+    with pytest.raises(gc.GitUnavailable) as named:
+        gc.run_git(tmp_path, [], "status", timeout=7)
+    assert str(named.value) == "git status timed out after 7s"
+    with pytest.raises(gc.GitUnavailable) as bare:
+        gc.run_git(tmp_path, [], timeout=7)
+    assert str(bare.value) == "git  timed out after 7s"
+
+
+def test_a_check_with_no_folder_warns_in_antigravitys_shape(monkeypatch, capsys):
+    from conftest import load_phylax_hooks
+
+    gc, options = load_phylax_hooks(monkeypatch, "git_checks", "git_options")
+    _options_off(monkeypatch, options)
+    monkeypatch.setenv("CLAUDE_PLUGIN_OPTION_WARN_MAIN_CHECKOUT_COMMIT", "true")
+    data = {"toolCall": {"args": {"CommandLine": "git commit -m x"}}}
+    assert gc.check(data, "git commit -m x") == 0
+    why = options.unchecked("the hook input names no folder")
+    assert json.loads(capsys.readouterr().out) == {"decision": "allow", "reason": why}
+
+
+def test_a_shape_check_that_crashes_names_the_error_and_the_shape_options(monkeypatch, capsys):
+    from conftest import load_phylax_hooks
+
+    gg, shapes, options = load_phylax_hooks(
+        monkeypatch, "git_guards", "command_shapes", "git_options"
+    )
+    _options_off(monkeypatch, options)
+    monkeypatch.setenv("CLAUDE_PLUGIN_OPTION_BLOCK_PKILL_FULL", "true")
+
+    def broken(*args):
+        raise ValueError("boom")
+
+    monkeypatch.setattr(shapes, "check", broken)
+    payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": "pkill zz"}})
+    assert gg.check_shapes(payload, {"block_pkill_full"})[1] == 2
+    assert capsys.readouterr().err == (
+        "phylax shape guard error: ValueError: boom; the command was not run. To switch it off, "
+        "turn off the phylax option block_pkill_full in /config, or run /phylax:setup.\n"
+    )
+
+
+def test_main_marks_the_shapes_checked_before_the_git_checks(monkeypatch, tmp_path):
+    """The crash handler leaves the shape options out of the refusal once the shapes passed."""
+    import io
+
+    from conftest import load_phylax_hooks
+
+    gg, gc, options = load_phylax_hooks(monkeypatch, "git_guards", "git_checks", "git_options")
+    _options_off(monkeypatch, options)
+    monkeypatch.delenv("PHYLAX_GUARD_CHECKED", raising=False)
+    monkeypatch.setenv("CLAUDE_PLUGIN_OPTION_BLOCK_PKILL_FULL", "true")
+    monkeypatch.setenv("CLAUDE_PLUGIN_OPTION_WARN_MAIN_CHECKOUT_COMMIT", "true")
+
+    def broken(data, raw):
+        raise RuntimeError("after the shapes")
+
+    monkeypatch.setattr(gc, "check", broken)
+    payload = {"tool_name": "Bash", "tool_input": {"command": "pkill zz; git status"}}
+    payload["cwd"] = str(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["git_guards.py", "--shapes"])
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+    assert gg.shapes_checked is False
+    with pytest.raises(RuntimeError, match="after the shapes"):
+        gg.main()
+    assert gg.shapes_checked is True
