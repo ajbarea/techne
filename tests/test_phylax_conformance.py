@@ -584,10 +584,17 @@ def test_a_crash_with_only_the_warning_on_warns_in_the_callers_shape(payload, ag
 
 
 def test_a_crash_on_input_too_deep_to_parse_still_only_warns():
-    deep = "[" * 100_000 + '"git"' + "]" * 100_000
+    """The crash handler reads the input again for its warning's shape; input it cannot parse
+    either (here a RecursionError, whatever this Python's json nesting limit) still only warns."""
+
+    code = (
+        "import json, runpy;"
+        "json.loads = lambda *a, **k: (_ for _ in ()).throw(RecursionError('too deep'));"
+        f"runpy.run_path({str(HOOKS / 'git_guards.py')!r}, run_name='__main__')"
+    )
     proc = subprocess.run(
-        [HOOK_PYTHON, str(HOOKS / "git_guards.py")],
-        input=deep,
+        [HOOK_PYTHON, "-c", code],
+        input='[[["git"]]]',
         capture_output=True,
         text=True,
         env=hook_env(["warn_main_checkout_commit"]),
