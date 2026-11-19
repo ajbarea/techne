@@ -8,7 +8,7 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
 
 - Slice: docs only. New `plugins/graphe/skills/vids/references/idle-loop.md` (899/900 words), Animate-tab
   steps 31-38 in `references/playwright.md`, pointer + trigger in `SKILL.md` (825/900) and `docs/skills/vids.md`.
-- ✅ `make lint` clean. `make test` stopped at 60% (account move), no failures up to then.
+- ✅ `make lint` clean. `make test` failed once on the private-repo name guard (an IMPL line named a private repo; reworded and the commit amended), then was stopped by an account move before finishing. No unit failures seen.
 - 📋 Next: `flock -o /tmp/fleet-heavy.lock timeout 1500 make test`; then `gh pr create --label documentation
   --assignee ajbarea` closing #380, assign #380 to ajbarea. PR top: why (graphe:vids covers animating a still
   into a seamless idle loop, from six scored takes), table of the three files, status docs only + tests pass;
