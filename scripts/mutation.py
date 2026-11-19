@@ -397,6 +397,20 @@ def kill_group(proc: subprocess.Popen, wait: float = 10.0) -> None:
         time.sleep(0.02)
 
 
+def baseline_annotations(said: str) -> list[str]:
+    """GitHub ::error lines for the tests SAID (pytest's output) names as failed, each at the
+    line its traceback stopped on, so a failed unmutated run points at the test in the PR view."""
+    where = {m[1]: m[2] for m in re.finditer(r"^(\S+\.py):(\d+): \w", said, re.M)}
+    out = []
+    for m in re.finditer(r"^(?:FAILED|ERROR) (\S+?\.py)(?:::(\S+))?(?: - (.*))?$", said, re.M):
+        path, name, why = m[1], m[2] or "", m[3] or ""
+        text = " ".join(x for x in ("unmutated baseline failed:", name, why) if x)
+        text = text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+        line = f",line={where[path]}" if path in where else ""
+        out.append(f"::error file={path}{line}::{text}")
+    return out
+
+
 def trace(scratch: pathlib.Path, config: dict[str, list[str]], modules: list[str]):
     """Run each module's tests once, unmutated, with the tracer on. Returns ({(module, function):
     {test node ids}}, {module: seconds the module's tests took})."""
@@ -414,6 +428,8 @@ def trace(scratch: pathlib.Path, config: dict[str, list[str]], modules: list[str
     }
     status, took, said = run_tests(scratch, ["-p", "mutation_trace_plugin", *tests], 3600, extra)
     if status != "passed":
+        for line in baseline_annotations(said):
+            print(line, flush=True)
         raise SystemExit(f"the unmutated tests did not pass ({status}): {' '.join(tests)}\n{said}")
     for module in modules:
         seconds[module] = took * len(config[module]) / len(tests)

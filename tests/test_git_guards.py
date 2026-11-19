@@ -1483,6 +1483,6 @@ def test_the_checks_share_one_time_budget(monkeypatch, tmp_path):
         gc.run_git(tmp_path, [], "status")
     with pytest.raises(scan.ScanError, match="budget"):
         scan._run(["true"], tmp_path, {})
-    monkeypatch.setattr(options, "_START", options._START + options.BUDGET - 3)
+    monkeypatch.setattr(options, "_START", options.time.monotonic() - options.BUDGET + 3)
     assert 2 < options.time_left(20) <= 3
     assert options.time_left(1) == 1

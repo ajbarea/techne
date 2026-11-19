@@ -820,3 +820,19 @@ def test_an_empty_pythonpath_adds_no_entry(tmp_path, monkeypatch):
 def test_merging_no_results_file_says_so(tmp_path):
     with pytest.raises(SystemExit, match=r"no results file at .*mutation-\*\.json"):
         mutation.main(["--merge", str(tmp_path / "mutation-*.json")])
+
+
+def test_a_failed_baseline_points_at_each_failing_test():
+    said = (
+        "tests/conftest.py:12: in fixture\n"
+        "tests/test_git_guards.py:1487: AssertionError\n"
+        "=========================== short test summary info ============================\n"
+        "FAILED tests/test_git_guards.py::test_budget - AssertionError: assert 20 <= 3\n"
+        "ERROR tests/test_x.py - ImportError: 100% gone\n"
+    )
+    assert mutation.baseline_annotations(said) == [
+        "::error file=tests/test_git_guards.py,line=1487::unmutated baseline failed: test_budget"
+        " AssertionError: assert 20 <= 3",
+        "::error file=tests/test_x.py::unmutated baseline failed: ImportError: 100%25 gone",
+    ]
+    assert mutation.baseline_annotations("1 passed in 0.1s\n") == []
