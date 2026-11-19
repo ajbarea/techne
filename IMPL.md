@@ -29,8 +29,9 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
   `-p`: loads the hooks, refuses pkill -f, ignores onFailure (echo ran past a timed-out hook).
 - ✅ Round 3 (fresh Opus): clean; 4 nits fixed (crash handler catches any parse error; docs: 75 s timeout
   caveat, AGENTS no-grep and \u wording).
-- 📋 Next: verify pass on the round-3 nits; CI green; PATCH PR body from the session scratchpad draft (live
-  table, 2.1.294 line); `fleet send` Heph; `fleet done`. Do not merge.
+- ✅ Verify pass on round-3 nits clean; deep-input regression test forced via json.loads (CI's Python parses
+  100000 nested lists). CI green on ee6251e (validate 25m37s; apt slowness is techne#382). PR body updated.
+- 📋 Next: Heph reviews and merges; nothing open on this branch.
 - No plugin version bump: plugin.json has no version.
 - Verify: `make lint`; `uv run pytest tests/test_phylax_conformance.py tests/test_git_guards.py
   tests/test_model_guard.py tests/test_email_greeting.py tests/test_command_shapes.py tests/test_hook_latency.py
