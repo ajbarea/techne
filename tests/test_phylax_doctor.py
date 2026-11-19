@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -31,6 +32,7 @@ OPTIONS = (
     "block_background_loops",
     "block_pkill_full",
     "require_subagent_model",
+    "email_greeting",
     "restart_on_update",
     "budget_mode",
 )
@@ -40,6 +42,12 @@ STUBS = {
     "tmux": "echo 'tmux 3.4'",
     "gitleaks": "echo 8.30.1",
 }
+
+
+def test_the_option_list_covers_every_switch_the_plugin_offers():
+    """args() switches only the options listed here, so a missing one is never tested on."""
+    config = json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text())["userConfig"]
+    assert OPTIONS == tuple(k for k, v in config.items() if v["type"] == "boolean")
 
 
 def args(**on):
