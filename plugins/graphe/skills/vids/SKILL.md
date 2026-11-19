@@ -8,9 +8,9 @@ description: "Make a short video in Google Vids with the user's own AI avatar (V
 
 `<skill-dir>` is the directory holding this SKILL.md.
 
-Make the video in this order, and stop at the user's approval before anything is generated. Click-level steps: [references/playwright.md](references/playwright.md); script rules: [references/vids-rules.md](references/vids-rules.md). To animate a still image into a seamless idle loop instead, follow [references/idle-loop.md](references/idle-loop.md).
+Make the video in this order, and stop at the user's approval before anything is generated. Click-level steps: [references/playwright.md](references/playwright.md); script rules: [references/vids-rules.md](references/vids-rules.md). To animate a still image into a seamless idle loop instead, follow [references/idle-loop.md](references/idle-loop.md); the same stop applies, with the user approving the still and the prompt.
 
-**Needs:** a browser signed in to the user's Google account with Vids access (Playwright MCP), `ffmpeg`, and `uv`. Run Python with `uv run --with faster-whisper --with pillow python`; transcribe by loading the audio as a 16 kHz numpy array and using model `base.en`.
+**Needs:** a browser signed in to the user's Google account with Vids access (Playwright MCP), `ffmpeg`, and `uv`. Run Python with `uv run --with faster-whisper --with pillow python`; transcribe by loading the audio as a 16 kHz numpy array and using model `base.en`. Scoring an idle loop runs with `uv run --with numpy --with pillow python`.
 
 ## 1. Write the script and get it approved
 
