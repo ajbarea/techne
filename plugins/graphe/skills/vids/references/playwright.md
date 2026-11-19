@@ -32,3 +32,16 @@ Verified in live sessions. Where a step records one session's observation, it sa
 28. **Trimming an audio track:** drag its right edge (the cursor turns to `ew-resize`) so it stops where the next track starts.
 29. **Memory:** reload the Vids tab every few clips; one long session grew the tab to 4 GB. Under WSL, `memory=` in `.wslconfig` caps what the browser can use.
 30. **The Shorts overlay:** on a phone, the channel row, title, AI badge and buttons cover roughly the bottom 30% of the frame, measured from a phone screenshot of an uploaded Short. Keep text drawn on a Short above about 600 px from the bottom of a 1920 px frame; guides that quote 288 to 300 px put it under the title.
+
+## Animating a still (the Animate tab)
+
+Verified in one session on 2026-11-18. The method for an idle loop is in [idle-loop.md](idle-loop.md).
+
+31. **Tabs:** the AI Video panel has Create, Edit, Animate and Extend. **Animate** takes one start image (**Add image**) and a prompt. It has no last-frame slot, so a loop is cut from inside the take.
+32. **Settings:** the model menu offers only Omni. Resolution is 720p or 1080p, aspect is Landscape or Portrait (no square, even on a Square canvas) and the duration slider showed 3 to 15 s on 2026-11-18 ([the help page](https://support.google.com/docs/answer/16143507) says 3 to 10 s for Animate). Close the settings popover before clicking **Add image**: while open, it intercepts the click.
+33. **Upload through the Drive picker:** **Add image** opens a picker in an iframe whose URL contains `/picker/`. Its **Upload** tab has no `input[type=file]` until **Browse** is clicked. Register `page.waitForEvent('filechooser')`, click Browse, `setFiles()`, then cancel the MCP's own pending chooser (step 25).
+34. **Takes:** one Generate makes one take, in one to two minutes for 6 s at 1080p. A take is 1920x1080 (or 1080x1920) H.264 at 24 fps with an exact frame count (6 s = 144 frames) and an AAC track even when the prompt says no music. A take can fail with "Something went wrong"; its **Try again** button re-queues it.
+35. **Recreate** restores that take's image, prompt and settings, aspect included. With several takes in the panel, the first match is the oldest, so read the settings label before pressing Generate.
+36. **Download a raw take:** read the panel video's `currentSrc` (`contribution-rt.usercontent.google.com`), open it in a new page, wait for the `download` event and `download.saveAs()` into a folder the MCP allows (it refuses others, such as a scratchpad). `require()` is not available inside `browser_run_code`. Download each take as soon as it lands: the panel is temporary, and the MCP browser lost its tab twice in that session.
+37. **Timeline export of a take:** File > Download re-encodes. On a Square canvas, a 16:9 take comes out 1080x1080 at 30 fps, letterboxed on white bars (picture rows 236 to 844). Use the raw take (step 36) for scoring and loop cuts.
+38. **After a reload,** a start dialog (Landscape, Portrait, Square and entry tiles) can cover the editor; close it or pick **Blank vid** first.
