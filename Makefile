@@ -50,7 +50,7 @@ lint:                   ## ruff check + format check + ty on scripts/ and skill-
 	@uv run ty check scripts/ plugins/ tests/ bench/
 
 shellcheck:             ## shellcheck on repo and skill-shipped shell scripts (shellcheck-py binary)
-	@uv run shellcheck --severity=warning scripts/*.sh $(wildcard plugins/*/_shared/*.sh plugins/*/skills/*/scripts/*.sh plugins/*/bin/*)
+	@uv run shellcheck --severity=warning scripts/*.sh $(wildcard plugins/*/_shared/*.sh plugins/*/skills/*/scripts/*.sh plugins/*/hooks/*.sh plugins/*/bin/*)
 
 # Skill names are derived from the directory listing, so a new skill is guarded
 # the day it lands rather than when someone remembers to extend the pattern.

@@ -287,11 +287,12 @@ def refusing_phylax_handlers():
 
 
 def run_without_python(tmp_path, handler, stdin, options):
-    bin_dir = tmp_path / "bin"  # a PATH with cat, as any machine has, and no python3
+    bin_dir = tmp_path / "bin"  # a PATH with cat and grep, as any machine has, and no python3
     bin_dir.mkdir(exist_ok=True)
-    cat = bin_dir / "cat"
-    if not cat.exists():
-        cat.symlink_to(shutil.which("cat") or "/bin/cat")
+    for tool in ("cat", "grep"):
+        link = bin_dir / tool
+        if not link.exists():
+            link.symlink_to(shutil.which(tool) or f"/bin/{tool}")
     shell = handler["command"].replace("${CLAUDE_PLUGIN_ROOT}", str(ROOT / "plugins" / "phylax"))
     return subprocess.run(
         ["/bin/sh", "-c", shell],
@@ -348,8 +349,9 @@ def test_a_crash_names_the_guard_the_error_and_the_option(capsys, monkeypatch):
     [("model_guard.py", "require_subagent_model"), ("email_greeting.py", "email_greeting")],
 )
 def test_an_unhandled_crash_in_a_guard_script_exits_2_with_the_way_out(tmp_path, script, option):
-    # Importing the script's own helper fails through a sitecustomize-free shim: run it with
-    # its main replaced so the traceback path is the one under test.
+    # json.load raises, so the crash path is the one under test. The cwd is not the hooks
+    # folder, and run_path adds no folder to sys.path, so the script must find hook_failure
+    # itself (as under PYTHONSAFEPATH).
     code = (
         "import runpy, sys;"
         f"sys.argv=[{script!r}];"
@@ -362,9 +364,190 @@ def test_an_unhandled_crash_in_a_guard_script_exits_2_with_the_way_out(tmp_path,
         capture_output=True,
         text=True,
         env=hook_env([option]),
-        cwd=HOOKS,
+        cwd=tmp_path,
         check=False,
     )
     assert proc.returncode == 2, proc.stderr
     assert "ZeroDivisionError" in proc.stderr and option in proc.stderr
     assert "/phylax:setup" in proc.stderr
+
+
+BASH_HANDLERS = [
+    pytest.param(h, id=m) for _, m, h in pre_tool_use_handlers() if m in ("Bash", "run_command")
+]
+
+
+@pytest.mark.parametrize("handler", BASH_HANDLERS)
+def test_a_missing_python3_with_a_shape_option_on_still_checks_for_git(tmp_path, handler):
+    stdin = json.dumps({"tool_input": {"command": "git commit -m x"}})
+    proc = run_without_python(tmp_path, handler, stdin, ["block_secrets", "block_pkill_full"])
+    assert proc.returncode == 2 and "git guards" in proc.stderr, proc.stderr
+    assert "block_secrets" in proc.stderr and "block_pkill_full" not in proc.stderr
+
+
+@pytest.mark.parametrize("handler", BASH_HANDLERS)
+def test_a_missing_python3_with_only_the_warning_on_refuses_nothing(tmp_path, handler):
+    stdin = json.dumps({"tool_input": {"command": "git commit -m x"}})
+    proc = run_without_python(tmp_path, handler, stdin, ["warn_main_checkout_commit"])
+    assert (proc.returncode, proc.stdout, proc.stderr) == (0, "", "")
+
+
+@pytest.mark.parametrize("handler", BASH_HANDLERS)
+@pytest.mark.parametrize(
+    ("command", "code"),
+    [
+        ("ls", 0),
+        ("git push", 2),
+        ('echo "a"\ngit push', 2),  # after an escaped quote and a newline
+        ("\\u0067it push", 2),  # the replace below makes it a JSON escape
+        ("pkill -f x", 2),
+    ],
+)
+def test_a_missing_python3_checks_only_the_command_not_the_folder(tmp_path, handler, command, code):
+    """The folder, the transcript path, a description and Antigravity's workspace may say
+    github or hugh; only the command decides."""
+    beside = "/home/hugh/github/until/x"
+    claude = {
+        "cwd": beside,
+        "transcript_path": beside,
+        "tool_input": {"command": command, "description": "git while pkill"},
+    }
+    agy = {
+        "toolCall": {"args": {"CommandLine": command, "Cwd": beside}},
+        "workspacePaths": [beside],
+    }
+    for payload in (claude, agy):
+        stdin = json.dumps(payload, ensure_ascii=False).replace("\\\\u0067", "\\u0067")
+        proc = run_without_python(tmp_path, handler, stdin, ["block_secrets", "block_pkill_full"])
+        assert proc.returncode == code, (payload, proc.stderr)
+
+
+@pytest.mark.parametrize(
+    ("stdin", "code"),
+    [
+        # stdin that is not UTF-8 crashes the read, before the shape check: the shapes went
+        # unchecked, so a shape option refuses
+        (b"\xff\xfe pkill -f x", 2),
+        # JSON that does not parse crashes after the shape check passed (no shape word): only a
+        # blocking git guard would refuse
+        (b'{"tool_input": {"command": "git commit"', 0),
+    ],
+)
+def test_a_crash_counts_the_shape_options_only_before_the_shape_check(stdin, code):
+    proc = subprocess.run(
+        [HOOK_PYTHON, str(HOOKS / "git_guards.py"), "--shapes"],
+        input=stdin,
+        capture_output=True,
+        env={
+            **hook_env(["block_pkill_full", "warn_main_checkout_commit"]),
+            "PYTHONIOENCODING": "utf-8:strict",
+        },
+        check=False,
+    )
+    assert proc.returncode == code, proc.stderr
+    assert b"phylax git guard error" in proc.stderr
+    assert (b"block_pkill_full" in proc.stderr) is (code == 2)
+
+
+@pytest.mark.parametrize("handler", BASH_HANDLERS)
+@pytest.mark.parametrize(
+    ("command", "code"),
+    [
+        ("echo digit highlight ghost", 0),
+        ("ls; git status", 2),
+        ("/usr/bin/git push", 2),
+        ("echo a\tgit push", 2),  # JSON writes the tab as \t before the word
+        ("gh pr create", 2),
+    ],
+)
+def test_a_missing_python3_reads_git_and_gh_as_words(tmp_path, handler, command, code):
+    stdin = json.dumps({"tool_input": {"command": command}})
+    proc = run_without_python(tmp_path, handler, stdin, ["block_secrets"])
+    assert proc.returncode == code, (command, proc.stderr)
+
+
+def stub_python(tmp_path, body: str) -> pathlib.Path:
+    """A PATH whose python3 is a stub (macOS's, before its tools are installed, exits 1)."""
+    bin_dir = tmp_path / "stub"
+    bin_dir.mkdir(exist_ok=True)
+    for tool in ("cat", "grep"):
+        if not (bin_dir / tool).exists():
+            (bin_dir / tool).symlink_to(shutil.which(tool) or f"/bin/{tool}")
+    (bin_dir / "python3").write_text(f"#!/bin/sh\n{body}\n")
+    (bin_dir / "python3").chmod(0o755)
+    return bin_dir
+
+
+def run_on(handler, stdin, options, path) -> subprocess.CompletedProcess:
+    shell = handler["command"].replace("${CLAUDE_PLUGIN_ROOT}", str(HOOKS.parent))
+    return subprocess.run(
+        ["/bin/sh", "-c", shell],
+        input=stdin,
+        capture_output=True,
+        text=True,
+        env={**hook_env(options), "PATH": str(path)},
+        check=False,
+    )
+
+
+@pytest.mark.parametrize("handler", BASH_HANDLERS)
+@pytest.mark.parametrize(
+    ("reads", "options", "command", "code"),
+    [
+        # the stub exits before it reads: the command decides, as when python3 is missing
+        (False, ["warn_main_checkout_commit"], "git commit -m x", 0),
+        (False, ["block_secrets"], "ls", 0),
+        (False, ["block_secrets"], "git commit -m x", 2),
+        (False, ["block_pkill_full"], "pkill -f x", 2),
+        # it read the input first: nothing is left to check, so a refusing guard refuses
+        (True, ["block_secrets"], "ls", 2),
+        (True, ["block_pkill_full"], "ls", 2),
+        (True, ["warn_main_checkout_commit"], "git commit -m x", 0),
+    ],
+)
+def test_a_python3_that_fails_is_read_like_a_missing_one(
+    tmp_path, handler, reads, options, command, code
+):
+    path = stub_python(tmp_path, ("cat >/dev/null; " if reads else "") + "exit 1")
+    stdin = json.dumps({"cwd": "/home/u/github/x", "tool_input": {"command": command}})
+    proc = run_on(handler, stdin, options, path)
+    assert proc.returncode == code, proc.stderr
+    if code == 2:
+        assert "python3 failed (exit 1)" in proc.stderr and options[0] in proc.stderr
+    else:
+        assert proc.stderr == ""
+
+
+@pytest.mark.parametrize(("key", "handler"), list(refusing_phylax_handlers()))
+@pytest.mark.parametrize("rc", [0, 2])
+def test_the_guard_s_own_exit_passes_through(tmp_path, key, handler, rc):
+    option, tool_input = ARMED[key]
+    path = stub_python(tmp_path, f"cat >/dev/null; echo out; exit {rc}")
+    stdin = json.dumps({"tool_name": key.split("|")[0], "tool_input": tool_input})
+    proc = run_on(handler, stdin, [option], path)
+    assert (proc.returncode, proc.stdout, proc.stderr) == (rc, "out\n", "")
+
+
+@pytest.mark.parametrize(
+    ("key", "handler"),
+    [p for p in refusing_phylax_handlers() if p.values[0] not in ("Bash", "run_command")],
+)
+def test_a_failing_python3_refuses_the_model_and_greeting_guards_with_the_way_out(
+    tmp_path, key, handler
+):
+    option, tool_input = ARMED[key]
+    stdin = json.dumps({"tool_name": key.split("|")[0], "tool_input": tool_input})
+    proc = run_on(handler, stdin, [option], stub_python(tmp_path, "exit 1"))
+    assert proc.returncode == 2
+    assert "python3 failed (exit 1)" in proc.stderr and option in proc.stderr
+    assert "/phylax:setup" in proc.stderr
+
+
+@pytest.mark.parametrize("handler", BASH_HANDLERS)
+@pytest.mark.parametrize("option", ["block_secrets", "block_pkill_full"])
+def test_a_missing_python3_refuses_a_unicode_escape_for_each_guard(tmp_path, handler, option):
+    """JSON may spell git or pkill with \\u escapes, which the shell cannot decode."""
+    word = "\\u0067it push" if option == "block_secrets" else "\\u0070kill -f x"
+    stdin = '{"tool_input": {"command": "' + word + '"}}'
+    proc = run_without_python(tmp_path, handler, stdin, [option])
+    assert proc.returncode == 2 and option in proc.stderr, proc.stderr

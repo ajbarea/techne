@@ -33,6 +33,10 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Whether the shape check passed this call: a crash after it is a git check's, which refuses
+# only while a blocking git guard is on.
+shapes_checked = False
+
 
 def mod_checks(data: dict) -> bool:
     """Whether register.ts already checked this call: the hooks.json fallback then stands down.
@@ -83,7 +87,13 @@ def check_shapes(payload: str, shapes: set[str]) -> tuple[dict, int | None]:
         )
         denies = command_shapes.check(command_of(data), background, shapes)
     except Exception as exc:
-        print(f"phylax shape guard error: {exc}; the command was not run.", file=sys.stderr)
+        from git_options import off_switch
+
+        print(
+            f"phylax shape guard error: {type(exc).__name__}: {exc}; the command was not run.",
+            off_switch(sorted(shapes)),
+            file=sys.stderr,
+        )
         return data, 2
     if denies:
         json.dump(hook_output.deny("\n".join(denies), hook_output.from_agy(data)), sys.stdout)
@@ -101,6 +111,7 @@ def command_of(data: dict) -> str:
 
 
 def main() -> int:
+    global shapes_checked
     from git_options import OPTIONS, option_on
 
     payload = sys.stdin.read()
@@ -115,6 +126,7 @@ def main() -> int:
             data, decided = check_shapes(payload, shapes)
             if decided is not None:
                 return decided
+    shapes_checked = True
     if not any(option_on(k) for k in OPTIONS) or cannot_name_git(payload):
         return 0
     import json
@@ -149,9 +161,11 @@ if __name__ == "__main__":
         try:
             from git_options import BLOCKING, SHAPES, off_switch, option_on
 
-            blocking = any(option_on(k) for k in (*BLOCKING, *SHAPES))
+            # A crash before the shape check passed leaves the shapes unchecked too.
+            keys = BLOCKING if shapes_checked else (*BLOCKING, *SHAPES)
+            blocking = any(option_on(k) for k in keys)
             if blocking:
-                print(off_switch(), file=sys.stderr)
+                print(off_switch(keys), file=sys.stderr)
         except Exception:
             blocking = True  # which guards are on cannot be read, so the check fails closed
         # hooks.json sets onFailure "block", which refuses on any exit but 0 and 2: with only

@@ -27,8 +27,11 @@ from git_options import (
     COMMITS_MD,
     MAIN_CHECKOUT,
     SECRETS,
+    blocking_on,
     failed,
     option_on,
+    time_left,
+    unchecked,
 )
 
 ATTRIBUTION_RE = re.compile(
@@ -371,17 +374,22 @@ def run_git(
         raise GitUnavailable(_git_down)
     import subprocess
 
+    try:
+        limit = time_left(timeout)
+    except TimeoutError as exc:
+        raise GitUnavailable(str(exc)) from exc
+
     env = {**os.environ, "GIT_OPTIONAL_LOCKS": "0", **(env or {})}
     try:
         proc = subprocess.run(
             [*GIT_BASE, "-C", str(cwd), *repo_args, *args],
             capture_output=True,
             text=True,
-            timeout=timeout,
+            timeout=limit,
             env=env,
         )
     except subprocess.TimeoutExpired as exc:
-        why = f"git {args[0] if args else ''} timed out after {timeout:g}s"
+        why = f"git {args[0] if args else ''} timed out after {limit:g}s"
         if timeout == GIT_TIMEOUT:
             _git_down = why
         raise GitUnavailable(why) from exc
@@ -2016,7 +2024,10 @@ def check(data: dict, raw: str) -> int:
     return the hook's exit code."""
     if not data.get("cwd"):
         # python3 starts in the plugin's folder, so its own cwd says nothing about the repo.
-        print("phylax git guard error: the hook input names no folder", file=sys.stderr)
+        why = "the hook input names no folder"
+        print(f"phylax git guard error: {why}", file=sys.stderr)
+        if not blocking_on():
+            json.dump(hook_output.warn(unchecked(why), hook_output.from_agy(data)), sys.stdout)
         return failed()
     cwd = Path(data["cwd"])
     stripped, bodies = strip_heredocs(raw)
@@ -2037,6 +2048,9 @@ def check(data: dict, raw: str) -> int:
     for error in guards.errors:
         print(f"phylax git guard error: {error}", file=sys.stderr)
         errored = True
+    if errored and not guards.verdict.denies and not blocking_on():
+        # exit 0 drops stderr, so the reason reaches Claude and the mod as a warning.
+        guards.verdict.warnings.append(unchecked(guards.errors[0]))
     guards.verdict.emit()
     if not errored or guards.verdict.denies:
         return 0

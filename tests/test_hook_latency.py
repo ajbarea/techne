@@ -223,7 +223,9 @@ def command(case: Case, root: pathlib.Path = ROOT, python: str = HOOK_PYTHON) ->
     """CASE's registered command with ROOT's plugin folder filled in and `exec python3` run on
     PYTHON."""
     handler = _handler(case)
-    assert "exec python3 " in handler["command"], f"{case.id}: the command never starts python3"
+    assert re.search(r'(?<![\w-])python3 "', handler["command"]), (
+        f"{case.id}: the command never starts python3"
+    )
     return hook_shell(case.plugin, handler, python, root)
 
 

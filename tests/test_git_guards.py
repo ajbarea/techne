@@ -1134,7 +1134,10 @@ def test_input_with_no_folder_fails_closed_for_each_blocking_guard(key, code):
             f"{FAIL_CLOSED} To switch it off, turn off the phylax option {key} in /config, "
             "or run /phylax:setup."
         )
-    assert (proc.returncode, proc.stderr.splitlines(), proc.stdout) == (code, lines, "")
+        assert (proc.returncode, proc.stderr.splitlines(), proc.stdout) == (code, lines, "")
+    else:  # the warning alone: the reason also reaches Claude, as a warning
+        assert (proc.returncode, proc.stderr.splitlines()) == (code, lines)
+        assert "names no folder" in (warned(json.loads(proc.stdout)) or "")
 
 
 def test_a_gone_folder_with_only_the_warning_on_runs_and_says_why(tmp_path):
@@ -1145,8 +1148,10 @@ def test_a_gone_folder_with_only_the_warning_on_runs_and_says_why(tmp_path):
     proc = subprocess.run(
         [HOOK_PYTHON, str(GUARDS)], input=payload, capture_output=True, text=True, env=env
     )
-    assert proc.returncode == 0 and not proc.stdout.strip()
-    assert "not an existing folder" in proc.stderr
+    # exit 0 drops stderr, so the reason also reaches Claude as a warning
+    assert proc.returncode == 0 and "not an existing folder" in proc.stderr
+    warning = warned(json.loads(proc.stdout)) or ""
+    assert "not an existing folder" in warning and "ran unchecked" in warning
 
 
 def test_agy_payload_attribution_denied(tmp_path):
@@ -1441,19 +1446,43 @@ def test_arithmetic_frames_decide_whether_a_double_angle_is_a_heredoc(gc, text, 
     assert len(gc.strip_heredocs(text)[1]) == bodies, text
 
 
-def test_off_switch_names_each_option_that_is_on_in_order(monkeypatch):
+def test_off_switch_names_each_given_option_that_is_on_in_order(monkeypatch):
     from conftest import load_phylax_hooks
 
     (options,) = load_phylax_hooks(monkeypatch, "git_options")
-    for key in (*options.OPTIONS, *options.SHAPES):
+    every = (*options.OPTIONS, *options.SHAPES)
+    for key in every:
         monkeypatch.delenv(f"CLAUDE_PLUGIN_OPTION_{key.upper()}", raising=False)
-    assert options.off_switch() == (
+    assert options.off_switch(every) == (
         "To switch it off, turn off the phylax option its option in /config, or run /phylax:setup."
     )
     monkeypatch.setenv("CLAUDE_PLUGIN_OPTION_BLOCK_SECRETS", "true")
     monkeypatch.setenv("CLAUDE_PLUGIN_OPTION_BLOCK_PKILL_FULL", "true")
     monkeypatch.setenv("CLAUDE_PLUGIN_OPTION_BLOCK_COMMITS_MD", "false")
-    assert options.off_switch() == (
-        "To switch it off, turn off the phylax option block_secrets, block_pkill_full "
-        "in /config, or run /phylax:setup."
+    monkeypatch.setenv("CLAUDE_PLUGIN_OPTION_WARN_MAIN_CHECKOUT_COMMIT", "true")
+    assert options.off_switch(every) == (
+        "To switch it off, turn off the phylax option warn_main_checkout_commit, block_secrets, "
+        "block_pkill_full in /config, or run /phylax:setup."
     )
+    # only the options that could have refused are named: the warning and the shapes are not
+    assert options.off_switch(options.BLOCKING) == (
+        "To switch it off, turn off the phylax option block_secrets in /config, "
+        "or run /phylax:setup."
+    )
+
+
+def test_the_checks_share_one_time_budget(monkeypatch, tmp_path):
+    """Past the budget a git run fails the check with phylax's text, before the hook's own
+    timeout, which names no guard; a run inside it gets at most what is left."""
+    from conftest import load_phylax_hooks
+
+    gc, options, scan = load_phylax_hooks(monkeypatch, "git_checks", "git_options", "secret_scan")
+    assert options.BUDGET < 55  # register.ts's GUARD_TIMEOUT_MS, the shorter of the two
+    monkeypatch.setattr(options, "_START", options._START - options.BUDGET)
+    with pytest.raises(gc.GitUnavailable, match="budget"):
+        gc.run_git(tmp_path, [], "status")
+    with pytest.raises(scan.ScanError, match="budget"):
+        scan._run(["true"], tmp_path, {})
+    monkeypatch.setattr(options, "_START", options._START + options.BUDGET - 3)
+    assert 2 < options.time_left(20) <= 3
+    assert options.time_left(1) == 1

@@ -74,7 +74,17 @@ def test_all_off_is_ready_and_checks_nothing_else(tmp_path, env):
     proc, found = doctor(tmp_path, args(), env, stubs={})
     assert proc.returncode == 0
     assert all(found[k][0] == "n/a" for k in OPTIONS)
-    for name in ("mod", "python3", "git", "proc", "launcher", "claude", "state-dir", "budget"):
+    for name in (
+        "mod",
+        "fail-closed",
+        "python3",
+        "git",
+        "proc",
+        "launcher",
+        "claude",
+        "state-dir",
+        "budget",
+    ):
         assert found[name][0] == "n/a", name
 
 
@@ -99,7 +109,17 @@ def test_a_value_the_hooks_do_not_read_as_true_is_named_and_off(tmp_path, env, o
     status, detail = found[option]
     assert status == "n/a" and detail.startswith(f"set to {value!r}") and "so off" in detail
     # Nothing the option needs is checked, since it is off.
-    for name in ("mod", "python3", "git", "proc", "launcher", "claude", "state-dir", "budget"):
+    for name in (
+        "mod",
+        "fail-closed",
+        "python3",
+        "git",
+        "proc",
+        "launcher",
+        "claude",
+        "state-dir",
+        "budget",
+    ):
         assert found[name][0] == "n/a", (option, name)
 
 
@@ -161,6 +181,24 @@ def test_mod_line_names_what_each_version_does(tmp_path, env, version, state, sa
     stubs = {**STUBS, "claude": f"echo '{version} (Claude Code)'"}
     _, found = doctor(tmp_path, args(block_attribution_trailers=True), env, stubs=stubs)
     assert found["mod"][0] == state and says in found["mod"][1]
+
+
+@pytest.mark.parametrize(
+    ("version", "state", "says"),
+    [
+        ("2.1.294", "optional", "ignores onFailure"),
+        ("2.1.295", "ok", "refuses a call when its guard crashes"),
+    ],
+)
+@pytest.mark.parametrize("option", ["block_secrets", "block_pkill_full", "email_greeting"])
+def test_fail_closed_line_names_whether_a_crash_refuses(
+    tmp_path, env, version, state, says, option
+):
+    stubs = {**STUBS, "claude": f"echo '{version} (Claude Code)'"}
+    proc, found = doctor(tmp_path, args(**{option: True}), env, stubs=stubs)
+    assert found["fail-closed"][0] == state and says in found["fail-closed"][1]
+    if state == "optional":
+        assert "  fix: claude update" in proc.stdout.splitlines()
 
 
 def test_restart_on_without_proc(tmp_path, env):

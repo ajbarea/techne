@@ -7,6 +7,7 @@ Usage: python3 doctor.py KEY=VALUE ...  (the setup skill passes each option's va
 
 from __future__ import annotations
 
+import functools
 import os
 import shlex
 import stat
@@ -57,6 +58,8 @@ SHAPES = ("block_background_loops", "block_pkill_full")
 MOD_ADDED = (2, 1, 287)
 # 2.1.288 fixed a mod's tool.call hook breaking Bash in subagents that run in a worktree.
 MOD_MINIMUM = (2, 1, 288)
+# 2.1.295 added a hook's onFailure, which phylax sets so a guard that crashes refuses the call.
+FAIL_CLOSED_ADDED = (2, 1, 295)
 HOOK_FALLBACK = "the command hook runs the guards on any version"
 RESTART_OFF = "restart_on_update is off"
 
@@ -96,23 +99,49 @@ def option_line(key: str, value: bool | str | None) -> d.Check:
     return d.Check(d.NA, key, f"{state}; switch it on in /config under the phylax plugin's options")
 
 
-def mod(platform: d.Platform, guards_on: bool) -> d.Check:
-    if not guards_on:
-        return d.Check(d.NA, "mod", "no guard is on")
+@functools.lru_cache(maxsize=1)
+def claude_version() -> tuple[tuple[int, ...] | None, str]:
+    """The Claude Code version on PATH, or None and why it could not be read (run once: the
+    mod and fail-closed lines both read it)."""
     claude = d.which("claude")
     if not claude:
-        return d.Check(
-            d.OPTIONAL, "mod", f"claude is not on PATH, so its version is unknown; {HOOK_FALLBACK}"
-        )
+        return None, "claude is not on PATH, so its version is unknown"
     code, out = d.run([claude, "--version"])
     version = d.parse_version(out) if code == 0 else None
     if version is None:
-        said = d.first_line(out) or "no output"
-        return d.Check(
-            d.OPTIONAL,
-            "mod",
-            f"could not read the Claude Code version ({said}); {HOOK_FALLBACK}",
+        return None, f"could not read the Claude Code version ({d.first_line(out) or 'no output'})"
+    return version, ""
+
+
+def fail_closed(platform: d.Platform, refusing_on: bool) -> d.Check:
+    """Whether this Claude Code honours the guards' onFailure, so a broken guard refuses."""
+    if not refusing_on:
+        return d.Check(d.NA, "fail-closed", "no refusing guard is on")
+    version, why = claude_version()
+    if version is None:
+        return d.Check(d.OPTIONAL, "fail-closed", f"{why}; a guard that crashes may let calls run")
+    if version < FAIL_CLOSED_ADDED:
+        detail = (
+            f"Claude Code {d.fmt_version(version)} ignores onFailure (added in"
+            f" {d.fmt_version(FAIL_CLOSED_ADDED)}), so a guard that crashes or times out lets the"
+            " call run; update"
         )
+        return d.Check(
+            d.OPTIONAL, "fail-closed", detail, d.fix_lines(platform, d.FIXES["claude-update"])
+        )
+    return d.Check(
+        d.OK,
+        "fail-closed",
+        f"Claude Code {d.fmt_version(version)} refuses a call when its guard crashes or times out",
+    )
+
+
+def mod(platform: d.Platform, guards_on: bool) -> d.Check:
+    if not guards_on:
+        return d.Check(d.NA, "mod", "no guard is on")
+    version, why = claude_version()
+    if version is None:
+        return d.Check(d.OPTIONAL, "mod", f"{why}; {HOOK_FALLBACK}")
     if version < MOD_ADDED:
         detail = (
             f"Claude Code {d.fmt_version(version)} predates mods ({d.fmt_version(MOD_ADDED)});"
@@ -276,6 +305,8 @@ def checks(
     shapes_on = any(options[key] is True for key in SHAPES)
     found = [option_line(key, options[key]) for key in OPTIONS]
     found.append(d.guarded("mod", False, lambda: mod(platform, guards_on)))
+    refusing_on = guards_on or shapes_on or model_on or greeting_on
+    found.append(d.guarded("fail-closed", False, lambda: fail_closed(platform, refusing_on)))
     if guards_on or shapes_on or model_on or greeting_on or restart_on or budget_on:
         found.append(
             d.program(
