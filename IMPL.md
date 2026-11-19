@@ -16,9 +16,10 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
     before the shape check; `off_switch(keys)` names only options that could refuse.
   - 50 s shared budget (`git_options.time_left`) for git runs and secret scans; doctor `fail-closed` line.
   - `make shellcheck` now covers `plugins/*/hooks/*.sh`. Mutation checks: each new guard turns a test red.
-- 📋 Not yet run on the round-1 fixes: the full phylax suite (Verify line) and `make shellcheck` (both were queued
-  behind the heavy lock when the session moved). Conformance file alone passes; `make lint` clean.
-- 📋 Next: run them; then the live check (tmux -L live378, haiku, CLAUDE_CONFIG_DIR=~/.claude-rit, a --settings file
+- ✅ Round-1 suite + `make shellcheck`: green after two test fixes (b7522e9 budget test anchored on now, which
+  broke CI's mutation baseline; c524e7c doctor tests' option list lacked email_greeting, now pinned to
+  plugin.json). mutation.py prints `::error` per failed baseline test (CI report finding).
+- 📋 Next: the live check (settings + plugin copies + python3 stub built in the session scratchpad) (tmux -L live378, haiku, CLAUDE_CONFIG_DIR=~/.claude-rit, a --settings file
   with `enabledPlugins: {"phylax@techne": false}` and `pluginConfigs` options block_pkill_full + block_secrets
   under `phylax@inline` and `phylax`; confirm which key reaches the hook by logging `env | grep CLAUDE_PLUGIN_OPTION`
   from a copy's hook). Cases: branch as is (`echo` runs, `pkill -f zz` refused); PATH with a python3 stub exiting
