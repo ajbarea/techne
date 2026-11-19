@@ -581,3 +581,17 @@ def test_a_crash_with_only_the_warning_on_warns_in_the_callers_shape(payload, ag
     text = out["reason"] if agy else out["systemMessage"]
     assert ("decision" in out) is agy
     assert "ZeroDivisionError" in text and "ran unchecked" in text
+
+
+def test_a_crash_on_input_too_deep_to_parse_still_only_warns():
+    deep = "[" * 100_000 + '"git"' + "]" * 100_000
+    proc = subprocess.run(
+        [HOOK_PYTHON, str(HOOKS / "git_guards.py")],
+        input=deep,
+        capture_output=True,
+        text=True,
+        env=hook_env(["warn_main_checkout_commit"]),
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "RecursionError" in json.loads(proc.stdout)["systemMessage"]
