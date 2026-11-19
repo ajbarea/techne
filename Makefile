@@ -83,8 +83,11 @@ guards:                 ## Stale-path + legacy-name + shared-copy + plugin-path 
 # fails rather than skipping them unnoticed. The wheels are pulled per-run at the pins the skills use, rather than held as
 # dev dependencies.
 TEST_WITH := --with 'typst>=0.15,<0.16' --with playwright==1.63.0 --with axe-playwright-python==0.1.8 --with pillow --with python-pptx==1.0.2 --with colorspacious==1.1.2 --with numpy
+# PYTEST_ARGS goes on pytest's command line only (CI: -n auto --dist worksteal), never through
+# PYTEST_ADDOPTS, which the pytest runs that scripts/mutation.py starts would inherit.
+PYTEST_ARGS ?=
 test-unit:              ## pytest over skill-shipped Python
-	@uv run $(TEST_WITH) pytest
+	@uv run $(TEST_WITH) pytest $(PYTEST_ARGS)
 
 # test-unit inside Anthropic's sandbox-runtime (srt, pinned in scripts/srt), settings template in
 # scripts/sandbox-test.json, logic in scripts/sandbox-test.sh. Inside: no network; writes only to the

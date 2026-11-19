@@ -41,3 +41,4 @@ bench/results/
 
 # scripts/mutation.py works in a scratch copy; mutmut run here would leave its mutants
 mutants/
+pytest-results.xml
