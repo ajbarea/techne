@@ -19,8 +19,12 @@ cleanup check holds this file to 50 lines.
   kept line ending, BOM by removeprefix, quarantine per line); local run on the head: 1669
   mutants, 1629 killed, 4 timeouts (detected), 36 survivors each with a reason in
   mutation/equivalent.toml (POSIX-only getattr/newline defaults, equal codecs, `--` pathspecs).
-- 📋 Next: CI's mutation run on this head confirms 0 survivors; then a fresh Opus reader round 2
-  (elenchus), then a verify pass; Heph merges. After merge: the prefs-repo PR, klepsydra#514 pin.
+- ✅ Reader round 2 (3 Should-fix) fixed in 3f7ea0f: roster match through techne_config.matches
+  + git_env.github_slug, names lowercased; Scan.open_fence → span_hazard refuses; without()
+  merges back-to-back cuts, skips setext underlines, and puts a blank before a setext title;
+  property test: CommonMark headings outside the cut survive (40k docs, CRLF too, 0 bad).
+- 📋 Next: local mutation on 3f7ea0f (running) → equivalents for new survivors, drop stale keys of
+  changed functions (roster_refusal, without, span_hazard, prune) → push once → verify pass.
 - Bench red on e3fd401 was noise (no phylax change; bench passed on ead67ae and 00509fe).
 - Renumbered planned checks: #257 → check 19, #259 → check 20. Follow-ups filed: #391.
 - Verify: `make lint`; `uv run pytest tests/test_cleanup_check.py tests/test_cleanup_markdown.py
