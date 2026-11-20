@@ -36,6 +36,7 @@ status = "active"
 | `sisters[].name` | string | yes | Directory name under `workspace_root`. |
 | `sisters[].status` | string | no | Defaults to `"active"`, in any case. Set to `"backburner"` to skip without removing. |
 | `sisters[].kind` | string | no | `"team"` marks a repo other people work in: `techne:sisters` exempts it from solo-only conventions such as the README masthead, and `docsync` and `ci-audit` ask before acting on it. `"solo"` on a fork says the fork is your own line of work, so those skills may act on it ([Solo and team repos](conventions.md#solo-and-team-repos)). Any case. Omitted: no claim either way. |
+| `sisters[].registered_report` | boolean | no | `true` marks a repo whose text is a registered report: the cleanup check's `prune` (sisters clean mode) never edits it, from the main checkout, a worktree or another clone. Only `true` counts. |
 
 ### `[board]`
 

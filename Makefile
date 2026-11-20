@@ -75,7 +75,7 @@ guards:                 ## Stale-path + legacy-name + shared-copy + plugin-path 
 	fi
 	@bash scripts/check_action_pins.sh
 	@uv run python scripts/check_private_names.py
-	@python3 plugins/techne/_shared/cleanup.py check --ci .
+	@python3 plugins/techne/_shared/cleanup.py check --ci --no-dates .
 
 # End-to-end cases need TeX Live (latex), the typst wheel (pdf), Playwright's Chromium (web
 # slides), poppler (PDF read-back) and PowerPoint or LibreOffice (the editable .pptx render

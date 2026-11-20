@@ -21,7 +21,13 @@ cleanup check holds this file to 50 lines.
 - ✅ Heph's 3rd input: `rules` part (lessons, bug classes need a date within 90 days; prune pass
   done: 18 reviewed, `stale-forward-compat-prediction` retired) and `flaky` part (retry markers
   need `quarantine: until` within 30 days).
-- 📋 Next: mutation run (`[tool.techne.mutation]` entry added), elenchus round, PR, Heph review.
+- ✅ PR #394 open. Round 1 (fresh Opus reader): 1 Blocking + 7 Should-fix, all fixed: roster guard
+  matches worktrees/clones and fails closed (sphragis marked in techne.toml); `prune:` parsed in any
+  spelling, config errors refuse; Markdown `Scan` (ATX indent, setext, CommonMark fences, list
+  content) + `span_hazard` refusal, differential vs markdown-it-py; `without()` edits only cut edges;
+  `frontmatter()` via read_text; `--no-dates` for PR gates + weekly dated run; mutation tests.
+- 📋 Next: kill CI mutation survivors (tests, or a written reason per equivalent), bench A/B vs
+  main (Heph: git_guards-git-status +19%; this PR does not touch phylax), round 2 reader.
 - Renumbered planned checks: #257 is now check 19, #259 check 20.
 - Verify: `make lint`; `uv run pytest tests/test_cleanup_check.py`; `make guards`;
   `python3 plugins/techne/_shared/cleanup.py check ~/ajsoftworks/<sister>` on real repos.

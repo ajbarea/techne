@@ -479,7 +479,7 @@ def test_prune_refuses_when_the_roster_cannot_be_read(tmp_path):
     root = make(tmp_path, {"ROADMAP.md": ROADMAP}, git=True)
     (tmp_path / "home" / ".claude").mkdir(parents=True)
     (tmp_path / "home" / ".claude" / "techne.toml").write_text("not = [toml")
-    assert "registered_report" in refused(root, tmp_path / "home")
+    assert "the sister roster cannot be read" in refused(root, tmp_path / "home")
 
 
 def test_prune_runs_for_an_unmarked_sister(tmp_path):
@@ -629,3 +629,235 @@ def test_outside_git_the_walk_skips_environments(tmp_path):
     root = make(tmp_path, {"tests/test_a.py": f"@{MARK}\n", ".venv/lib/test_b.py": f"@{MARK}\n"})
     got = check(root, tmp_path, "--only", "flaky")
     assert len(got) == 1 and got[0].startswith("tests/test_a.py:1")
+
+
+# --- review round 1 regressions -----------------------------------------------------------
+
+
+def load_module():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("cleanup_r1", CLEANUP_SCRIPT)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_prune_refuses_a_registered_sister_from_its_worktree(tmp_path):
+    root = make(tmp_path, {"ROADMAP.md": ROADMAP}, git=True)
+    wt = root / ".claude" / "worktrees" / "w"
+    subprocess.run(["git", "-C", str(root), "worktree", "add", "-q", str(wt)], check=True)
+    roster(tmp_path / "home", tmp_path, "registered_report = true\n")
+    assert "registered_report" in refused(wt, tmp_path / "home")
+
+
+def test_prune_refuses_a_registered_sister_cloned_elsewhere(tmp_path):
+    src = make(tmp_path, {"ROADMAP.md": ROADMAP}, git=True)
+    clone = tmp_path / "elsewhere" / "other-name"
+    subprocess.run(["git", "clone", "-q", str(src), str(clone)], check=True)
+    subprocess.run(
+        ["git", "-C", str(clone), "remote", "set-url", "origin", "git@github.com:me/repo.git"],
+        check=True,
+    )
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    roster(tmp_path / "home", ws, "registered_report = true\n")
+    assert "registered_report" in refused(clone, tmp_path / "home")
+
+
+def test_prune_refuses_a_workspace_repo_that_is_no_sister(tmp_path):
+    root = make(tmp_path, {"ROADMAP.md": ROADMAP}, git=True)
+    (tmp_path / "home" / ".claude").mkdir(parents=True)
+    (tmp_path / "home" / ".claude" / "techne.toml").write_text(
+        f'github_user = "me"\nworkspace_root = "{tmp_path}"\n\n[[sisters]]\nname = "other"\n'
+    )
+    assert "in no [[sisters]] entry" in refused(root, tmp_path / "home")
+
+
+def test_prune_refuses_a_roster_entry_without_a_name(tmp_path):
+    root = make(tmp_path, {"ROADMAP.md": ROADMAP}, git=True)
+    (tmp_path / "home" / ".claude").mkdir(parents=True)
+    (tmp_path / "home" / ".claude" / "techne.toml").write_text(
+        f'github_user = "me"\nworkspace_root = "{tmp_path}"\n\n[[sisters]]\nstatus = "active"\n'
+    )
+    assert "cannot be read" in refused(root, tmp_path / "home")
+
+
+@pytest.mark.parametrize(
+    "line",
+    ["- prune: OFF", "- Prune: off", "prune: off", "- **prune:** off", "* prune: off (registered)"],
+)
+def test_prune_off_in_any_spelling_refuses(tmp_path, line):
+    ctx = f"## cleanup\n{line}\n"
+    root = make(tmp_path, {"ROADMAP.md": ROADMAP, ".claude/skill-context.md": ctx}, git=True)
+    assert "prune:" in refused(root, tmp_path)
+
+
+@pytest.mark.parametrize("line", ["- prune: false", "- prune: no", "- prune:"])
+def test_a_prune_value_that_is_neither_off_nor_on_refuses(tmp_path, line):
+    root = make(
+        tmp_path,
+        {"ROADMAP.md": ROADMAP, ".claude/skill-context.md": f"## cleanup\n{line}\n"},
+        git=True,
+    )
+    assert "has an error" in refused(root, tmp_path)
+
+
+def test_prune_on_is_allowed(tmp_path):
+    root = make(
+        tmp_path,
+        {"ROADMAP.md": ROADMAP, ".claude/skill-context.md": "## cleanup\n- prune: on\n"},
+        git=True,
+    )
+    assert run("prune", "--apply", str(root), home=tmp_path).returncode == 0
+
+
+def test_prune_refuses_when_skill_context_cannot_be_read(tmp_path):
+    root = make(tmp_path, {"ROADMAP.md": ROADMAP}, git=True)
+    (root / ".claude").mkdir()
+    (root / ".claude" / "skill-context.md").symlink_to(root / "gone.md")
+    assert "has an error" in refused(root, tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("after", "why"),
+    [
+        ("Backlog\n-------\n- b\n", "underlines the line above"),
+        (" ## Backlog\n- b\n", "does not model"),
+        ("> ## quoted\n", "does not model"),
+        ("<details>\n## x\n</details>\n", "does not model"),
+    ],
+)
+def test_prune_refuses_a_span_a_reader_may_cut_elsewhere(tmp_path, after, why):
+    text = "# R\n\n## Completed\n- x\n" + after + "## Next\n- n\n"
+    root = make(tmp_path, {"ROADMAP.md": text}, git=True)
+    assert why in refused(root, tmp_path)
+
+
+def test_an_info_string_fence_line_does_not_close_a_fence(tmp_path):
+    text = "# R\n## Completed\n```\n```js\n## not a heading\n```\n## Backlog\n- keep\n"
+    root = make(tmp_path, {"ROADMAP.md": text}, git=True)
+    assert run("prune", "--apply", str(root), home=tmp_path).returncode == 0
+    assert (root / "ROADMAP.md").read_text() == "# R\n## Backlog\n- keep\n"
+
+
+@pytest.mark.parametrize(
+    ("text", "expect"),
+    [
+        (  # a kept code fence keeps its double blank line
+            "# R\n\n```py\nx = 1\n\n\ny = 2\n```\n\n## Done\n- x\n\n## Next\n",
+            "# R\n\n```py\nx = 1\n\n\ny = 2\n```\n\n## Next\n",
+        ),
+        (  # frontmatter keeps its closing fence when the done-log is last
+            "---\ntitle: Roadmap\n---\n## Completed\n- x\n",
+            "---\ntitle: Roadmap\n---\n",
+        ),
+        ("# R\n- a\n## Done\n- x\n## Next\n", "# R\n- a\n## Next\n"),  # no blank stays none
+    ],
+)
+def test_prune_changes_nothing_away_from_the_cut(tmp_path, text, expect):
+    root = make(tmp_path, {"ROADMAP.md": text}, git=True)
+    assert run("prune", "--apply", str(root), home=tmp_path).returncode == 0
+    assert (root / "ROADMAP.md").read_text() == expect
+
+
+def test_a_heading_after_a_nested_done_log_is_kept(tmp_path):
+    text = "# R\n## Shipped\n- a\n### Completed\n- b\n## Next\n- n\n"
+    root = make(tmp_path, {"ROADMAP.md": text}, git=True)
+    out = run("done-log", str(root), home=tmp_path).stdout
+    assert "ROADMAP.md:2-5 'Shipped'" in out and "Completed" not in out.split("=====")[1]
+
+
+def test_prune_refuses_when_the_file_changes_mid_prune(tmp_path, monkeypatch, capsys):
+    mod = load_module()
+    root = make(tmp_path, {"ROADMAP.md": ROADMAP}, git=True)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    real = mod.read_text
+    calls = {"n": 0}
+
+    def moving(path, *a, **k):
+        text = real(path, *a, **k)
+        if path.name == "ROADMAP.md":
+            calls["n"] += 1
+            if calls["n"] > 1:
+                return (text or "") + "- added meanwhile\n"
+        return text
+
+    monkeypatch.setattr(mod, "read_text", moving)
+    assert mod.prune(root, True) == 1
+    assert "changed during the prune" in capsys.readouterr().out
+    assert (root / "ROADMAP.md").read_text() == ROADMAP
+
+
+def test_prune_refuses_when_git_status_fails(tmp_path, monkeypatch, capsys):
+    mod = load_module()
+    root = make(tmp_path, {"ROADMAP.md": ROADMAP}, git=True)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    real = mod.git_out
+
+    def failing(r, *args):
+        out = real(r, *args)
+        if args[:1] == ("status",):
+            out.returncode, out.stdout = 128, ""
+        return out
+
+    monkeypatch.setattr(mod, "git_out", failing)
+    assert mod.prune(root, True) == 1
+    assert "uncommitted changes" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("until", "expect"),
+    [("2026-12-20", None), ("2026-12-21", "past the 30-day limit")],  # 30 days, 31 days
+)
+def test_quarantine_limit_boundary(tmp_path, until, expect):
+    root = make(
+        tmp_path, {"tests/test_x.py": f"# quarantine: until {until} #1\n@{MARK}\n"}, git=True
+    )
+    got = check(root, tmp_path, "--only", "flaky")
+    assert (got == ["cleanup ✓"]) if expect is None else (expect in got[0])
+
+
+@pytest.mark.parametrize("reason", ["flake8 noise", "flakes8"])
+def test_flake8_in_a_skip_reason_is_no_flaky_marker(tmp_path, reason):
+    root = make(tmp_path, {"tests/test_x.py": f"@pytest.mark.skip(reason='{reason}')\n"}, git=True)
+    assert check(root, tmp_path, "--only", "flaky") == ["cleanup ✓"]
+
+
+def test_a_readme_without_owner_fields_does_not_govern(tmp_path):
+    files = {
+        ".claude/skill-context.md": CTX,
+        "review/README.md": "---\nowner: heph\nexpires: 2026-12-01\n---\n",
+        "review/drafts/README.md": "---\ntitle: drafts\n---\n",
+        "review/drafts/a.png": "x",
+    }
+    root = make(tmp_path, files)
+    assert check(root, tmp_path) == ["cleanup ✓"]
+
+
+@pytest.mark.parametrize(
+    ("files", "flagged"),
+    [
+        ({"review/a.md": fm(owner="heph", expires="2020-01-01")}, False),  # expired: a date decides
+        ({"review/a.md": fm(owner="heph")}, True),  # no date at all: no date decides
+        ({"review/a.md": fm(owner="heph", expires="soon")}, True),  # malformed date
+        ({"lessons/a.md": lesson("x", Since="2020-01-01")}, False),  # old rule: a date decides
+        ({"lessons/a.md": lesson("x", Rule="r")}, True),  # undated rule
+        ({"tests/test_x.py": f"# quarantine: until 2020-01-01\n@{MARK}\n"}, False),
+        ({"tests/test_x.py": f"@{MARK}\n"}, True),  # no quarantine at all
+    ],
+)
+def test_no_dates_keeps_only_what_no_date_decides(tmp_path, files, flagged):
+    ctx = "## cleanup\n- transient: review/**\n- rules: lessons/*.md\n"
+    root = make(tmp_path, {".claude/skill-context.md": ctx, **files}, git=True)
+    got = check(root, tmp_path, "--no-dates")
+    assert (got != ["cleanup ✓"]) is flagged, got
+
+
+def test_lesson_glob_with_a_wildcard_before_the_first_slash(tmp_path):
+    ctx = "## cleanup\n- rules: lesson*/x.md\n"
+    root = make(
+        tmp_path, {".claude/skill-context.md": ctx, "lessons-a/x.md": lesson("y", Rule="r")}
+    )
+    assert any("lessons-a/x.md:1 'y'" in g for g in check(root, tmp_path))

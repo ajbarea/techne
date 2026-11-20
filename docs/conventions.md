@@ -157,6 +157,8 @@ jobs:
     uses: ajbarea/techne/.github/workflows/cleanup.yml@<commit sha> # vX
 ```
 
+That gate checks only what no calendar date decides, so a pull request never turns red because a date passed. Expiry, review age and quarantine ends run weekly: a scheduled workflow calls the same job `with: dates: true`, and `techne:sisters` check 18 runs every part.
+
 On a branch, `IMPL.md` is that branch's resume state. A session that starts in the worktree after a restart, `/clear` or compaction should be able to pick up from `IMPL.md`, `git log` and the working tree alone, without the conversation or Claude's memory, which is one file per project shared by every worktree and kept on one machine. So:
 
 - Rewrite the branch's `IMPL.md` and push after each finished task, not only at the end.

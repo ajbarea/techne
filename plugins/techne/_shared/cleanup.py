@@ -24,7 +24,9 @@ check reports, per repo root, one line per finding (or one passing line):
              `reviewed` frontmatter (its own, for a markdown file, else the nearest
              README.md above it), or is past it
 --ci exits 1 when any finding is printed; without it check always exits 0, as the other
-sisters checks do. --only limits the parts run. --transient and --keep add to the repo's
+sisters checks do. --no-dates checks only what no calendar date decides (a pull-request gate);
+expiry, review age and quarantine ends then run on a schedule and in sisters check 18.
+--only limits the parts run. --transient and --keep add to the repo's
 own globs.
 
 done-log prints each done-log section of ROOT/ROADMAP.md with its line span, so its
@@ -75,6 +77,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 
 DEFAULTS = {
@@ -96,26 +99,55 @@ AGENT_FILES = (
 PARTS = ("roadmap", "impl", "agents", "transient", "rules", "flaky")
 MAX_READ = 4 << 20  # Claude Code skips an instruction file over 4 MiB; nothing here is larger
 FRONT_MAX = 8192  # frontmatter sits in a file's first lines
-SKIP_DIRS = {".git"}
+# Folders no glob means: version control, environments and build output. Skipped in every walk.
+SKIP_DIRS = {
+    ".git",
+    ".venv",
+    "venv",
+    "node_modules",
+    "__pycache__",
+    "site",
+    "dist",
+    "build",
+    "target",
+}
 GROUP_AT = 3  # past this many unowned files in one folder, one line names the folder
 
-# A heading that opens a log of finished work. "Done when" and its kin are criteria, not logs.
+# A heading that is a log of finished work: the keyword is the whole heading, with at most a
+# "recently"-style prefix and a time qualifier ("this week", "since 11-15", "(2026)", a date).
+# "Complete the migration", "History and motivation" or "Archive format" are not logs.
 DONE_HEADING = re.compile(
-    r"^(?:(?:recently|already|previously|what(?:'s| has| was)?)\s+)?"
-    r"(?:completed|complete|shipped|done|finished|landed|released|archived?|history|"
-    r"change\s*log|release\s+notes)\b(?!\s+(?:when|means|criteria|if|by)\b)"
+    r"^(?:(?:recently|already|previously)\s+|what(?:'s|\s+has|\s+was)?\s+)?"
+    r"(?:completed|shipped|done|finished|landed|released|archived?|history|change\s*log|"
+    r"release\s+notes)"
+    r"(?:\s+(?:this|last)\s+(?:week|month|quarter|year)|\s+since\b.*|\s+in\s+\S+|"
+    r"\s*\(.*\)|\s+20\d\d\b.*|\s+\d{1,2}-\d{2}\b.*|\s*:)?\s*$"
 )
-HEADING = re.compile(r"^(#{1,6})[ \t]+(.*?)[ \t]*#*[ \t]*$")
-FENCE = re.compile(r"^[ ]{0,3}(`{3,}|~{3,})")
+# CommonMark 0.31.2: an ATX heading has 0-3 spaces of indent (4.2); a backtick fence's info
+# string has no backtick, and a fence closes only on the same character, at least as long,
+# with nothing after it (4.5); a setext underline follows a paragraph line (4.3).
+ATX = re.compile(r"^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$")
+OPEN_FENCE = re.compile(r"^ {0,3}(`{3,}(?=[^`]*$)|~{3,})")
+CLOSE_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})[ \t]*$")
+SETEXT = re.compile(r"^ {0,3}(=+|-+)[ \t]*$")
+BREAK = re.compile(r"^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$")
+INDENTED = re.compile(r"^(?: {4}|\t)")
+NOT_PARAGRAPH = re.compile(r"^ {0,3}(?:(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)|>|<)")
+LIST_ITEM = re.compile(r"^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)")
+# Lines prune will not cut across, since a Markdown reader may take them for a heading the scanner
+# misjudged: a block quote, an HTML block, an indented `#` line (list content or code), and a
+# setext-style underline right after a non-blank line.
+UNMODELLED = re.compile(r"^(?: {0,3}(?:>|<[A-Za-z!/?])| {1,}#|\t+ *#)")
 
 
 class Unreadable(Exception):
     pass
 
 
-def read_text(path: Path, limit: int = MAX_READ) -> str | None:
+def read_text(path: Path, limit: int = MAX_READ, head: bool = False) -> str | None:
     """PATH's text, or None when there is none. Only a regular file is read, opened without
-    blocking and checked through its descriptor, so a FIFO cannot hang the check."""
+    blocking and checked through its descriptor, so a FIFO cannot hang the check. With HEAD,
+    the first LIMIT bytes are returned instead of refusing a longer file."""
     try:
         fd = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0))
     except (FileNotFoundError, NotADirectoryError):
@@ -127,7 +159,7 @@ def read_text(path: Path, limit: int = MAX_READ) -> str | None:
     with os.fdopen(fd, "rb") as f:
         if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
             raise Unreadable("is not a regular file")
-        raw = f.read(limit + 1)
+        raw = f.read(limit + (0 if head else 1))
     if len(raw) > limit:
         raise Unreadable(f"is over {limit} bytes")
     return raw.decode("utf-8", errors="surrogateescape")
@@ -171,10 +203,10 @@ def load_config(root: Path) -> Config:
     if not section:
         return cfg
     for raw in section.group(1).splitlines():
-        m = re.match(r"^\s*[-*]\s+([a-z_]+)\s*:\s*(.*?)\s*$", raw)
+        m = re.match(r"^\s*(?:[-*+]\s+)?(?:\*\*|__)?([A-Za-z_]+)\s*:(?:\*\*|__)?\s*(.*?)\s*$", raw)
         if not m:
             continue
-        key, value = m.groups()
+        key, value = m.group(1).lower(), m.group(2)
         if key in DEFAULTS:
             if not re.fullmatch(r"[1-9][0-9]{0,5}", value):
                 cfg.errors.append(
@@ -197,8 +229,11 @@ def load_config(root: Path) -> Config:
             }
             lists[key].append(value)
         elif key == "prune":
-            if value.split()[0:1] == ["off"]:
+            word = value.split()[0].lower().strip("*_`") if value.split() else ""
+            if word == "off":
                 cfg.prune_off = value
+            elif word != "on":
+                cfg.errors.append(f"## cleanup: prune {value!r} is neither off nor on → write one")
         else:
             cfg.errors.append(f"## cleanup: unknown key {key!r} → see cleanup.py's usage")
     return cfg
@@ -236,7 +271,7 @@ def glob_regex(glob: str) -> re.Pattern[str]:
 
 
 def walk_files(root: Path):
-    """Every file under ROOT as a repo-relative POSIX path, skipping .git; one pass."""
+    """Every file under ROOT as a repo-relative POSIX path, skipping SKIP_DIRS; one pass."""
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS)
         rel = os.path.relpath(dirpath, root)
@@ -249,13 +284,15 @@ def walk_files(root: Path):
 
 
 def frontmatter(path: Path) -> dict[str, str] | None:
-    """The `key: value` lines between a leading `---` and the next `---`, or None."""
+    """The `key: value` lines between a leading `---` and the next `---`, or None. Read through
+    read_text, so a FIFO or a link to a device is never opened for a blocking read."""
     try:
-        with open(path, "rb") as f:
-            head = f.read(FRONT_MAX).decode("utf-8", errors="replace")
-    except OSError:
+        head = read_text(path, FRONT_MAX, head=True)
+    except Unreadable:
         return None
-    lines = head.lstrip("﻿").splitlines()
+    if head is None:
+        return None
+    lines = head.lstrip("\ufeff").splitlines()
     if not lines or lines[0].strip() != "---":
         return None
     fields: dict[str, str] = {}
@@ -268,6 +305,9 @@ def frontmatter(path: Path) -> dict[str, str] | None:
     return None  # no closing fence within the first FRONT_MAX bytes
 
 
+GOVERNING = ("owner", "expires", "reviewed")
+
+
 def parse_date(value: str) -> dt.date | None:
     try:
         return dt.date.fromisoformat(value[:10]) if re.match(r"\d{4}-\d\d-\d\d$", value) else None
@@ -275,8 +315,9 @@ def parse_date(value: str) -> dt.date | None:
         return None
 
 
-def freshness(fields: dict[str, str], today: dt.date, review_days: int) -> str | None:
-    """Why FIELDS do not keep a file current, or None when they do."""
+def freshness(fields: dict[str, str], today: dt.date | None, review_days: int) -> str | None:
+    """Why FIELDS do not keep a file current, or None when they do. With TODAY None only what
+    no date decides is checked: an owner, a date present and well formed."""
     if not fields.get("owner"):
         return "no owner"
     expires, reviewed = fields.get("expires"), fields.get("reviewed")
@@ -286,48 +327,133 @@ def freshness(fields: dict[str, str], today: dt.date, review_days: int) -> str |
         day = parse_date(expires)
         if day is None:
             return f"expires {expires!r} is not a YYYY-MM-DD date"
-        if day < today:
+        if today is not None and day < today:
             return f"expired {day.isoformat()} (owner {fields['owner']})"
     if reviewed:
         day = parse_date(reviewed)
         if day is None:
             return f"reviewed {reviewed!r} is not a YYYY-MM-DD date"
-        if (today - day).days > review_days:
+        if today is not None and (today - day).days > review_days:
             owner = fields["owner"]
             return f"last reviewed {day.isoformat()}, over {review_days} days ago (owner {owner})"
     return None
 
 
+def is_expired(fields: dict[str, str], today: dt.date | None) -> bool:
+    """Whether FIELDS carry an `expires` date before TODAY: the one state a tool may delete on."""
+    day = parse_date(fields.get("expires", ""))
+    return today is not None and bool(fields.get("owner")) and day is not None and day < today
+
+
 # --- checks -------------------------------------------------------------------------------
+
+
+def item_column(m: re.Match[str]) -> int:
+    """The content column of a list item (CommonMark 5.2): after its marker and 1 to 4 spaces;
+    five or more spaces, or none before the line ends, mean one."""
+    line = m.string
+    after = m.end()
+    rest = line[after:]
+    spaces = len(rest) - len(rest.lstrip(" "))
+    marker_end = after - (1 if line[after - 1 : after] in (" ", "\t") else 0)
+    if not rest.strip() or spaces >= 4:
+        return marker_end + 1
+    return after + spaces
+
+
+def interrupts(m: re.Match[str], line: str) -> bool:
+    """Whether a list item may interrupt a paragraph (5.2): not empty, and ordered only from 1."""
+    marker = m.group(0).strip()
+    if not line[m.end() :].strip():
+        return False
+    return not marker[:-1].isdigit() or marker[:-1] == "1"
+
+
+class Scan:
+    """One pass over a Markdown text: its ATX and setext headings outside code fences, as
+    (line index, level, title), the indexes of every line inside a fence, and whether a line
+    holds a shape the scanner does not model (a block quote or an HTML block)."""
+
+    def __init__(self, text: str) -> None:
+        self.lines = text.splitlines()
+        self.heads: list[tuple[int, int, str]] = []
+        self.fenced: set[int] = set()
+        fence: str | None = None
+        para: int | None = None  # where the open top-level paragraph started
+        item: int | None = None  # the open list item's content column
+        blank = False  # the line before was blank
+        for i, raw in enumerate(self.lines):
+            line = raw.expandtabs(4)
+            if fence is not None:
+                self.fenced.add(i)
+                m = CLOSE_FENCE.match(line)
+                if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence):
+                    fence = None
+                continue
+            if not line.strip():
+                para, blank = None, True
+                continue
+            indent = len(line) - len(line.lstrip(" "))
+            was_blank, blank = blank, False
+            if item is not None:
+                if indent >= item:
+                    continue  # the list item's own content, headings in it included
+                li = LIST_ITEM.match(line)
+                if li and not BREAK.match(line):
+                    item = item_column(li)
+                    continue
+                lazy = not (
+                    was_blank or OPEN_FENCE.match(line) or ATX.match(line) or BREAK.match(line)
+                )
+                if lazy:
+                    continue  # a lazy continuation of the item's paragraph
+                item = None
+            m = OPEN_FENCE.match(line)
+            if m:
+                fence, para = m.group(1), None
+                self.fenced.add(i)
+                continue
+            if INDENTED.match(line):
+                continue  # code when no paragraph is open, else a continuation of it
+            u = SETEXT.match(line)
+            if u and para is not None:
+                title = " ".join(x.strip() for x in self.lines[para:i])
+                self.heads.append((para, 1 if u.group(1)[0] == "=" else 2, title))
+                para = None
+                continue
+            h = ATX.match(line)
+            if h:
+                self.heads.append((i, len(h.group(1)), (h.group(2) or "").strip()))
+                para = None
+            elif BREAK.match(line):
+                para = None
+            elif (li := LIST_ITEM.match(line)) and (para is None or interrupts(li, line)):
+                item, para = item_column(li), None
+            elif NOT_PARAGRAPH.match(line) and not li:
+                para = None
+            elif para is None:
+                para = i
+
+    def unfenced(self):
+        """(1-based line number, line) for every line outside a code fence."""
+        for i, line in enumerate(self.lines):
+            if i not in self.fenced:
+                yield i + 1, line
 
 
 def done_sections(text: str) -> list[tuple[int, int, str]]:
     """(first line, last line, heading) of each done-log section, 1-based and inclusive. A
-    section runs to the next heading of its level or higher; headings inside code fences are
-    not headings. A done-log nested in another is part of it."""
-    lines = text.splitlines()
-    heads: list[tuple[int, int, str]] = []  # (index, level, title)
-    fence = None
-    for i, line in enumerate(lines):
-        m = FENCE.match(line)
-        if m:
-            mark = m.group(1)
-            if fence is None:
-                fence = mark[0] * len(mark)
-            elif mark[0] == fence[0] and len(mark) >= len(fence):
-                fence = None
-            continue
-        if fence is None:
-            h = HEADING.match(line)
-            if h:
-                heads.append((i, len(h.group(1)), h.group(2)))
+    section runs to the next heading of its level or higher. A done-log nested in another is
+    part of it."""
+    scan = Scan(text)
+    heads = scan.heads
     found: list[tuple[int, int, str]] = []
     for n, (i, level, title) in enumerate(heads):
-        if found and i <= found[-1][1] - 1:
+        if found and i < found[-1][1]:
             continue  # inside a done-log already found
         if not DONE_HEADING.match(normal_title(title)):
             continue
-        end = len(lines)
+        end = len(scan.lines)
         for j, lv, _ in heads[n + 1 :]:
             if lv <= level:
                 end = j
@@ -340,7 +466,7 @@ def normal_title(title: str) -> str:
     """A heading's words, lowercased, with markup, emoji and leading numbering removed."""
     t = re.sub(r"[`*_~\[\]]", "", title).lower()
     t = re.sub(r"^[^a-z]+", "", t)  # emoji, ✅, "3.", "—"
-    return t
+    return re.sub(r"\s+", " ", t).strip()
 
 
 def check_roadmap(root: Path, cfg: Config) -> list[str]:
@@ -423,9 +549,10 @@ class Transient:
         self.bare: dict[str, list[str]] = {}
         self.stale: dict[str, str] = {}
         self.governs: dict[str, list[str]] = {}
+        self.expired: set[str] = set()  # governing files whose `expires` date has passed
 
 
-def transient_status(root: Path, cfg: Config, today: dt.date) -> Transient:
+def transient_status(root: Path, cfg: Config, today: dt.date | None) -> Transient:
     found = Transient()
     if not cfg.transient:
         return found
@@ -443,14 +570,14 @@ def transient_status(root: Path, cfg: Config, today: dt.date) -> Transient:
         in a folder above it, below the root."""
         if rel.lower().endswith(".md"):
             own = fm(rel)
-            if own is not None:
+            if own is not None and any(k in own for k in GOVERNING):
                 return rel, own
         parts = rel.split("/")[:-1]
         while parts:
             readme = "/".join(parts) + "/README.md"
             if readme != rel and os.path.isfile(root / readme):
                 got = fm(readme)
-                if got is not None:
+                if got is not None and any(k in got for k in GOVERNING):
                     return readme, got
             parts.pop()
         return None
@@ -468,10 +595,12 @@ def transient_status(root: Path, cfg: Config, today: dt.date) -> Transient:
         why = freshness(fields, today, cfg.budgets["review_days"])
         if why:
             found.stale.setdefault(where, why)
+        if is_expired(fields, today):
+            found.expired.add(where)
     return found
 
 
-def check_transient(root: Path, cfg: Config, today: dt.date) -> list[str]:
+def check_transient(root: Path, cfg: Config, today: dt.date | None) -> list[str]:
     status = transient_status(root, cfg, today)
     bare, stale = status.bare, status.stale
     out = []
@@ -500,7 +629,11 @@ def check_transient(root: Path, cfg: Config, today: dt.date) -> list[str]:
 
 
 def check(
-    root: Path, parts: tuple[str, ...], extra_t: list[str], extra_k: list[str], today: dt.date
+    root: Path,
+    parts: tuple[str, ...],
+    extra_t: list[str],
+    extra_k: list[str],
+    today: dt.date | None,
 ) -> list[str]:
     if not root.is_dir():
         return [f"not a folder: {root}"]
@@ -537,7 +670,8 @@ def matching_files(root: Path, globs: list[str]) -> list[str]:
     out: list[str] = []
     for glob in globs:
         pattern = glob_regex(glob)
-        base = re.split(r"[*?]", glob, maxsplit=1)[0].rsplit("/", 1)[0] if "/" in glob else ""
+        fixed = re.split(r"[*?]", glob, maxsplit=1)[0]
+        base = fixed.rsplit("/", 1)[0] if "/" in fixed else ""
         start = root / base if base and (root / base).is_dir() else root
         prefix = (base + "/") if start != root else ""
         for rel in walk_files(start):
@@ -551,18 +685,7 @@ def rule_entries(text: str) -> list[tuple[int, str, dt.date | None, bool]]:
     """(line, slug, newest Reviewed / Since / Incidents date, retired) for each `### slug:`
     entry outside code fences."""
     entries: list[list | None] = []
-    fence = None
-    for i, line in enumerate(text.splitlines(), 1):
-        m = FENCE.match(line)
-        if m:
-            mark = m.group(1)
-            if fence is None:
-                fence = mark[0] * len(mark)
-            elif mark[0] == fence[0] and len(mark) >= len(fence):
-                fence = None
-            continue
-        if fence is not None:
-            continue
+    for i, line in Scan(text).unfenced():
         if line.startswith("#"):
             e = ENTRY.match(line)
             entries.append([i, e.group(1), None, False] if e else None)
@@ -579,7 +702,7 @@ def rule_entries(text: str) -> list[tuple[int, str, dt.date | None, bool]]:
     return [tuple(e) for e in entries if e is not None]
 
 
-def check_rules(root: Path, cfg: Config, today: dt.date) -> list[str]:
+def check_rules(root: Path, cfg: Config, today: dt.date | None) -> list[str]:
     """Each rule or lesson is reviewed, not only added: an entry whose newest Reviewed, Since
     or Incidents date is over review_days old, or that has none, is a finding. A rules file
     with no `### slug:` entries needs a file-level `reviewed:` date instead."""
@@ -596,10 +719,11 @@ def check_rules(root: Path, cfg: Config, today: dt.date) -> list[str]:
             day = parse_date(m.group(1)) if m else None
             if day is None:
                 out.append(
-                    f"{rel} has no reviewed date → add `<!-- reviewed: {today} -->` once its "
+                    f"{rel} has no reviewed date → add "
+                    f"`<!-- reviewed: {today or 'YYYY-MM-DD'} -->` once its "
                     "rules have been reviewed (cut each one a check now enforces)"
                 )
-            elif (today - day).days > days:
+            elif today is not None and (today - day).days > days:
                 out.append(
                     f"{rel} last reviewed {day}, over {days} days ago → prune it: cut each rule "
                     f"a check enforces or the code shows, then set reviewed: {today}"
@@ -611,9 +735,10 @@ def check_rules(root: Path, cfg: Config, today: dt.date) -> list[str]:
             if day is None:
                 out.append(
                     f"{rel}:{line} '{slug}' has no Since, Reviewed or Incidents date → add "
-                    f"`- **Reviewed:** {today}` if it still earns its place, or retire it"
+                    f"`- **Reviewed:** {today or 'YYYY-MM-DD'}` if it still earns its place, "
+                    "or retire it"
                 )
-            elif (today - day).days > days:
+            elif today is not None and (today - day).days > days:
                 out.append(
                     f"{rel}:{line} '{slug}' last dated {day}, over {days} days ago → still "
                     f"earning its place? add `- **Reviewed:** {today}`, or delete it (git keeps it)"
@@ -625,7 +750,7 @@ def check_rules(root: Path, cfg: Config, today: dt.date) -> list[str]:
 FLAKY = re.compile(
     r"pytest\.mark\.flaky|@flaky\b|--reruns\b|\breruns\s*=|rerunfailures|"
     r"retryTimes\s*\(|\.retries\s*\(|\bretries\s*:\s*[1-9]|\bretry\s*:\s*[1-9]|"
-    r"nick-fields/retry|wretry|\b(?:skip|xfail)\b[^\n]*\bflak"
+    r"nick-fields/retry|wretry|\b(?:skip|xfail)\b[^\n]*\bflak(?:y|iness|es)\b"
 )
 QUARANTINE = re.compile(r"quarantine[d]?:?\s*(?:until|expires?)?\s*(20\d\d-\d\d-\d\d)", re.I)
 TEST_FILE = re.compile(
@@ -634,17 +759,6 @@ TEST_FILE = re.compile(
     r"(?:playwright|jest|vitest|cypress)\.config\.[cm]?[jt]s|package\.json|requirements[^/]*\.txt|"
     r"\.github/workflows/[^/]*\.ya?ml)$"
 )
-SKIP_TREES = {
-    ".git",
-    ".venv",
-    "venv",
-    "node_modules",
-    "site",
-    "dist",
-    "build",
-    "__pycache__",
-    "target",
-}
 
 
 def candidate_tests(root: Path) -> list[str]:
@@ -661,14 +775,14 @@ def candidate_tests(root: Path) -> list[str]:
     else:
         files = []
         for dirpath, dirnames, filenames in os.walk(root):
-            dirnames[:] = sorted(d for d in dirnames if d not in SKIP_TREES)
+            dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS)
             rel = os.path.relpath(dirpath, root)
             prefix = "" if rel == "." else rel.replace(os.sep, "/") + "/"
             files += [prefix + n for n in sorted(filenames)]
     return [f for f in files if TEST_FILE.search(f)]
 
 
-def check_flaky(root: Path, cfg: Config, today: dt.date) -> list[str]:
+def check_flaky(root: Path, cfg: Config, today: dt.date | None) -> list[str]:
     """A retry or flaky marker in a test or its config needs `quarantine: until YYYY-MM-DD`
     (with its issue) on its line or the two above, at most quarantine_days ahead; past that
     date the test is fixed or deleted, never retried until it passes."""
@@ -692,8 +806,11 @@ def check_flaky(root: Path, cfg: Config, today: dt.date) -> list[str]:
                 out.append(
                     f"{where} retries or marks a test flaky with no quarantine end → fix the "
                     f"test or delete it; to buy time, add `quarantine: until "
-                    f"{today + dt.timedelta(days=limit)} #<issue>` beside it"
+                    f"{today + dt.timedelta(days=limit) if today else 'YYYY-MM-DD'} #<issue>` "
+                    "beside it"
                 )
+            elif today is None:
+                continue
             elif day < today:
                 out.append(
                     f"{where} quarantine ended {day} → fix the test or delete it (git keeps it); "
@@ -717,9 +834,20 @@ def git_out(root: Path, *args: str) -> subprocess.CompletedProcess:
     )
 
 
-def registered(root: Path) -> bool:
-    """Whether ~/.claude/techne.toml marks the sister at ROOT `registered_report = true`. A
-    roster that cannot be read counts as marked: a prune never guesses."""
+def main_worktree(root: Path) -> Path:
+    """The main worktree of the repo ROOT is in (a linked worktree resolves to it), else ROOT."""
+    out = git_out(root, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    common = Path(out.stdout.strip()) if out.returncode == 0 and out.stdout.strip() else None
+    if common is not None and common.name == ".git":
+        return common.parent.resolve()
+    return root.resolve()
+
+
+def roster_refusal(root: Path) -> str | None:
+    """Why ~/.claude/techne.toml forbids a prune at ROOT, or None. It forbids one for a sister
+    marked `registered_report = true`, matched by its main worktree under workspace_root, its
+    folder name or its origin's repo name, so a linked worktree or another clone is caught too;
+    for a repo under workspace_root that is no sister; and when the roster cannot be read."""
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     try:
         import techne_config
@@ -727,28 +855,47 @@ def registered(root: Path) -> bool:
         sys.path.pop(0)
     try:
         cfg = techne_config.load()
-    except techne_config.ConfigError:
-        return True
+        roster = techne_config.sisters(cfg) if cfg is not None else []
+    except techne_config.ConfigError as exc:
+        return f"the sister roster cannot be read ({exc}) → fix ~/.claude/techne.toml"
     if cfg is None:
-        return False
-    try:
-        roster = techne_config.sisters(cfg)
-    except techne_config.ConfigError:
-        return True
+        return None  # no roster on this machine: nothing is marked
+    main = main_worktree(root)
+    url = git_out(root, "remote", "get-url", "origin").stdout.strip()
+    origin = re.sub(r"\.git$", "", url.rstrip("/").rsplit("/", 1)[-1].rsplit(":", 1)[-1])
     ws = techne_config.workspace_root(cfg)
-    here = root.resolve()
-    for s in roster:
-        hit = s.get("name") == here.name if ws is None else (ws / s["name"]).resolve() == here
-        if hit and s.get("registered_report") is True:
-            return True
-    return False
+    names = {main.name, origin} - {""}
+    hits = [
+        s
+        for s in roster
+        if s.get("name") in names or (ws is not None and (ws / s["name"]).resolve() == main)
+    ]
+    if any(s.get("registered_report") is True for s in hits):
+        return "techne.toml marks it registered_report: its text is never edited → change nothing"
+    if not hits and ws is not None and main.is_relative_to(ws.resolve()):
+        return f"{main.name} is under workspace_root but in no [[sisters]] entry → add it first"
+    return None
+
+
+def span_hazard(lines: Sequence[str], a: int, b: int) -> str | None:
+    """Why the 1-based span A..B, with the line after it, is not safe to cut, or None."""
+    for n in range(a, min(b + 1, len(lines)) + 1):
+        line = lines[n - 1]
+        if UNMODELLED.match(line):
+            return f"line {n} ({line.strip()[:40]!r}) is a shape the scanner does not model"
+        if SETEXT.match(line) and n > 1 and lines[n - 2].strip():
+            return f"line {n} underlines the line above it, which a reader may take for a heading"
+    return None
 
 
 def prune_refusal(root: Path, cfg: Config) -> str | None:
+    if cfg.errors:
+        return f"its ## cleanup section has an error ({cfg.errors[0]})"
     if cfg.prune_off:
         return f"## cleanup says prune: {cfg.prune_off} → harvest by hand, or change nothing"
-    if registered(root):
-        return "techne.toml marks it registered_report (or cannot be read) → change nothing"
+    roster = roster_refusal(root)
+    if roster:
+        return roster
     path = root / "ROADMAP.md"
     if os.path.islink(path) or not path.is_file():
         return "ROADMAP.md is not a regular file"
@@ -768,25 +915,45 @@ def prune_refusal(root: Path, cfg: Config) -> str | None:
 
 
 def without(text: str, spans: list[tuple[int, int, str]]) -> str:
+    """TEXT with SPANS removed. Only the edges of each cut change: blank lines there collapse to
+    one, and a thematic break left dangling before a cut (doubled with the next one, or at the
+    end) goes. Everything else, frontmatter and code fences included, stays byte for byte."""
     lines = text.splitlines(keepends=True)
-    drop = set()
-    for a, b, _ in spans:
-        drop.update(range(a - 1, b))
-    kept = [line for i, line in enumerate(lines) if i not in drop]
-    # A thematic break that separated the deleted section from the one before it is left
-    # dangling: at the end of the file, or doubled with the next section's own break.
-    rule = re.compile(r"^ {0,3}([-*_])(?: *\1){2,} *$")
-    out: list[str] = []
-    for line in kept:
-        if rule.match(line.rstrip("\r\n")):
-            prev = next((x for x in reversed(out) if x.strip()), "")
-            if rule.match(prev.rstrip("\r\n")):
-                continue
-        out.append(line)
-    while out and (not out[-1].strip() or rule.match(out[-1].rstrip("\r\n"))):
-        out.pop()
-    text = re.sub(r"\n{3,}", "\n\n", "".join(out))
-    return text.rstrip("\n") + "\n" if text.strip() else ""
+    front = -1  # the last line of a leading frontmatter block, which no edge rule touches
+    if lines and lines[0].strip() == "---":
+        front = next((i for i in range(1, len(lines)) if lines[i].strip() in ("---", "...")), -1)
+    cuts = sorted((a - 1, b) for a, b, _ in spans)
+    segs, start = [], 0
+    for a, b in cuts:
+        segs.append(list(range(start, a)))
+        start = max(start, b)
+    segs.append(list(range(start, len(lines))))
+
+    def blank(i: int) -> bool:
+        return not lines[i].strip()
+
+    def rule(i: int) -> bool:
+        return i > front and BREAK.match(lines[i].rstrip("\r\n")) is not None
+
+    out = segs[0]
+    for right in segs[1:]:
+        gap = bool(out and blank(out[-1])) or bool(right and blank(right[0]))
+        while out and blank(out[-1]):
+            out.pop()
+        while right and blank(right[0]):
+            right.pop(0)
+        if out and rule(out[-1]) and (not right or rule(right[0])):
+            out.pop()
+            while out and blank(out[-1]):
+                out.pop()
+        if right and out:
+            if gap:
+                out.append(-1)  # one blank line where there was any
+        out += right
+    body = "".join("\n" if i == -1 else lines[i] for i in out)
+    if body and not body.endswith("\n"):
+        body += "\n"
+    return body
 
 
 def prune(root: Path, apply: bool) -> int:
@@ -802,6 +969,12 @@ def prune(root: Path, apply: bool) -> int:
     if not spans:
         print(f"{root.name}: ROADMAP.md keeps no done-log ✓")
         return 0
+    lines = text.splitlines()
+    for a, b, t in spans:
+        hazard = span_hazard(lines, a, b)
+        if hazard:
+            print(f"{root.name}: refused: ROADMAP.md:{a}-{b} '{t}': {hazard} → delete it by hand")
+            return 1
     for a, b, t in spans:
         print(f"{root.name}: {'deleting' if apply else 'would delete'} ROADMAP.md:{a}-{b} '{t}'")
     if not apply:
@@ -851,6 +1024,12 @@ def main(argv: list[str]) -> int:
     c.add_argument("--only", action="append", choices=PARTS)
     c.add_argument("--transient", action="append", default=[])
     c.add_argument("--keep", action="append", default=[])
+    c.add_argument(
+        "--no-dates",
+        action="store_true",
+        help="only what no calendar date decides: for a pull-request gate that must not turn red "
+        "on a date; expiry, review age and quarantine ends run on a schedule",
+    )
     c.add_argument("--today", help=argparse.SUPPRESS)
     c.add_argument("roots", nargs="+", type=Path)
     d = sub.add_parser("done-log")
@@ -864,6 +1043,8 @@ def main(argv: list[str]) -> int:
     if a.cmd == "prune":
         return prune(a.root, a.apply)
     today = dt.date.fromisoformat(a.today) if a.today else dt.date.today()
+    if a.no_dates:
+        today = None
     parts = tuple(a.only) if a.only else PARTS
     found = False
     for root in a.roots:

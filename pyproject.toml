@@ -16,6 +16,7 @@ dev = [
     "zizmor>=1.31.1",
     "pytest-codspeed>=5.0.4,<5.1",
     "mutmut==3.8.1",
+    "markdown-it-py>=4.2",
 ]
 epistole = [
     "mcp>=2.3,<3",
@@ -68,4 +69,4 @@ extra-paths = ["tests", "plugins/epistole", "plugins/heuresis", "plugins/schole"
 "plugins/phylax/hooks/email_greeting.py" = ["tests/test_email_greeting.py"]
 "plugins/techne/hooks/board_add.py" = ["tests/test_board_hook.py"]
 "plugins/techne/_shared/project_board.py" = ["tests/test_board_hook.py"]
-"plugins/techne/_shared/cleanup.py" = ["tests/test_cleanup_check.py"]
+"plugins/techne/_shared/cleanup.py" = ["tests/test_cleanup_check.py", "tests/test_cleanup_markdown.py"]
