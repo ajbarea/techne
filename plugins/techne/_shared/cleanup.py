@@ -77,7 +77,6 @@ import stat
 import subprocess
 import sys
 import tempfile
-from collections.abc import Sequence
 from pathlib import Path
 
 DEFAULTS = {
@@ -138,6 +137,21 @@ LIST_ITEM = re.compile(r"^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)")
 # misjudged: a block quote, an HTML block, an indented `#` line (list content or code), and a
 # setext-style underline right after a non-blank line.
 UNMODELLED = re.compile(r"^(?: {0,3}(?:>|<[A-Za-z!/?])| {1,}#|\t+ *#)")
+# HTML blocks (CommonMark 4.6): types 1-5 end at a marker, which may sit on the first line;
+# types 6-7 end at a blank line. Block quotes are read the same way, to a blank line.
+HTML_ENDS = (
+    (
+        re.compile(r"^ {0,3}<(?:script|pre|style|textarea)(?:[\s>]|$)", re.I),
+        re.compile(r"</(?:script|pre|style|textarea)>", re.I),
+    ),
+    (re.compile(r"^ {0,3}<!--"), re.compile(r"-->")),
+    (re.compile(r"^ {0,3}<\?"), re.compile(r"\?>")),
+    (re.compile(r"^ {0,3}<![A-Za-z]"), re.compile(r">")),
+    (re.compile(r"^ {0,3}<!\[CDATA\["), re.compile(r"\]\]>")),
+)
+BLOCK_START = re.compile(r"^ {0,3}(?:<[A-Za-z!/?]|>)")
+# Line breaks str.splitlines honours and CommonMark does not: a prune refuses a text with one.
+ODD_BREAKS = re.compile("[\v\f\x1c\x1d\x1e\x85\u2028\u2029]")
 
 
 class Unreadable(Exception):
@@ -348,6 +362,9 @@ def is_expired(fields: dict[str, str], today: dt.date | None) -> bool:
 # --- checks -------------------------------------------------------------------------------
 
 
+BLANK = re.compile("")  # the end of a block that closes at a blank line
+
+
 class Scan:
     """One pass over a Markdown text: its ATX and setext headings outside code fences, as
     (line index, level, title), the indexes of every line inside a fence, and whether a line
@@ -359,23 +376,56 @@ class Scan:
         self.fenced: set[int] = set()
         self.underlines: set[int] = set()  # setext underlines, which look like thematic breaks
         self.atx: set[int] = set()  # lines that are ATX headings
+        # Lines whose reading the scanner cannot vouch for: block quotes, HTML, and a fence
+        # opened with indent or inside a list item (CommonMark may close it with the item).
+        self.hazards: set[int] = set()
+        self.doubt_from: int | None = None  # the first such fence: every line past it is unsure
         self.open_fence: int | None = None  # where a fence opened that never closes
         fence: str | None = None
+        block: re.Pattern[str] | None = None  # an HTML or quote block's end; BLANK: a blank line
+        doubtful = False  # the open fence began indented or inside a list item
         para: int | None = None  # where the open paragraph started
         in_list = False  # inside a list item, until a blank line
         for i, raw in enumerate(self.lines):
             line = raw.expandtabs(4)
             if fence is not None:
                 self.fenced.add(i)
+                if doubtful:  # where CommonMark ends this fence is not certain
+                    self.hazards.add(i)
                 m = CLOSE_FENCE.match(line)
                 if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence):
                     fence, self.open_fence = None, None
                 continue
+            if block is not None:  # inside an HTML block or a block quote: no heading is read
+                if block is BLANK and not line.strip():
+                    block = None
+                    para, in_list = None, False
+                    continue
+                self.hazards.add(i)
+                if block is not BLANK and block.search(line):
+                    block = None
+                continue
             if not line.strip():
                 para, in_list = None, False
                 continue
+            if BLOCK_START.match(line):
+                self.hazards.add(i)
+                ends = [e for s, e in HTML_ENDS if s.match(line)]
+                if ends and ends[0].search(line):
+                    para, in_list = None, False
+                    continue  # a one-line block, such as <!-- reviewed: ... -->
+                block = ends[0] if ends else BLANK
+                para, in_list = None, False
+                continue
+            if UNMODELLED.match(raw):
+                self.hazards.add(i)
             m = OPEN_FENCE.match(line)
             if m:
+                doubtful = in_list or line[0] == " "
+                if doubtful:
+                    self.hazards.add(i)
+                    if self.doubt_from is None:
+                        self.doubt_from = i
                 fence, para, in_list = m.group(1), None, False
                 self.fenced.add(i)
                 self.open_fence = i
@@ -830,7 +880,8 @@ def roster_refusal(root: Path) -> str | None:
         return None  # no roster on this machine: nothing is marked
     main = main_worktree(root)
     url = git_out(root, "remote", "get-url", "origin").stdout.strip()
-    origin = re.sub(r"\.git$", "", re.split(r"[/:]", url.rstrip("/"))[-1], flags=re.I)
+    path = re.sub(r"/\.git$", "", url.rstrip("/"), flags=re.I)  # a local path to a .git folder
+    origin = re.sub(r"\.git$", "", re.split(r"[/:]", path)[-1], flags=re.I)
     ws = techne_config.workspace_root(cfg)
     # GitHub names ignore case, so every name compares lowercased. A name alone matches, owner
     # or not (a GitHub slug match is one of these), which only ever refuses more.
@@ -847,17 +898,27 @@ def roster_refusal(root: Path) -> str | None:
     return None
 
 
-def span_hazard(lines: Sequence[str], a: int, b: int, open_fence: int | None = None) -> str | None:
-    """Why the 1-based span A..B, with the line after it, is not safe to cut, or None.
-    OPEN_FENCE is the 0-based line of a code fence that never closes: CommonMark runs it to
-    the end, so a cut from inside it would take every heading a plain reader sees below."""
-    if open_fence is not None and a - 1 <= open_fence < b:
-        return f"line {open_fence + 1} opens a code fence that never closes"
-    for n in range(a, min(b + 1, len(lines)) + 1):
+def span_hazard(scan: Scan, a: int, b: int) -> str | None:
+    """Why the 1-based span A..B is not safe to cut, or None. It looks from the nearest
+    non-blank line above the span to the line after it: a fence that never closes runs to the
+    end in CommonMark, a line the scanner cannot vouch for (Scan.hazards) may end or start a
+    block it misreads, and an underline may make the line above it a heading."""
+    lines = scan.lines
+    if scan.open_fence is not None and a - 1 <= scan.open_fence < b:
+        return f"line {scan.open_fence + 1} opens a code fence that never closes"
+    if scan.doubt_from is not None and b > scan.doubt_from:
+        return (
+            f"line {scan.doubt_from + 1} opens a fence indented or inside a list item, so where "
+            "CommonMark closes it, and what follows, is unsure"
+        )
+    top = a - 1
+    while top > 1 and not lines[top - 1].strip():
+        top -= 1
+    for n in range(max(top, 1), min(b + 1, len(lines)) + 1):
         line = lines[n - 1]
-        if UNMODELLED.match(line):
+        if n - 1 in scan.hazards:
             return f"line {n} ({line.strip()[:40]!r}) is a shape the scanner does not model"
-        if SETEXT.match(line) and n > 1 and lines[n - 2].strip():
+        if n >= a and SETEXT.match(line) and n > 1 and lines[n - 2].strip():
             return f"line {n} underlines the line above it, which a reader may take for a heading"
     return None
 
@@ -915,6 +976,11 @@ def without(text: str, spans: list[tuple[int, int, str]]) -> str:
     def rule(i: int) -> bool:
         return i > front and i not in scan.underlines and BREAK.match(lines[i]) is not None
 
+    def plain_break(i: int) -> bool:
+        """A break no reader takes for an underline: first, or under a blank, an ATX heading
+        or another break."""
+        return i == 0 or blank(i - 1) or i - 1 in scan.atx or BREAK.match(lines[i - 1]) is not None
+
     out = segs[0]
     before: dict[int, str] = {}  # a blank line written before a kept line, with its ending
     for right in segs[1:]:
@@ -922,7 +988,7 @@ def without(text: str, spans: list[tuple[int, int, str]]) -> str:
         gap = out[-1] if out and blank(out[-1]) else None
         while out and blank(out[-1]):
             out.pop()
-        if out and rule(out[-1]) and (not right or rule(right[0])):
+        if out and rule(out[-1]) and plain_break(out[-1]) and (not right or rule(right[0])):
             out.pop()
             while out and blank(out[-1]):
                 out.pop()
@@ -956,8 +1022,11 @@ def prune(root: Path, apply: bool) -> int:
     if not spans:
         print(f"{root.name}: ROADMAP.md keeps no done-log ✓")
         return 0
+    if ODD_BREAKS.search(text):
+        print(f"{root.name}: refused: ROADMAP.md holds a line break CommonMark does not split on")
+        return 1
     for a, b, t in spans:
-        hazard = span_hazard(scan.lines, a, b, scan.open_fence)
+        hazard = span_hazard(scan, a, b)
         if hazard:
             print(f"{root.name}: refused: ROADMAP.md:{a}-{b} '{t}': {hazard} → delete it by hand")
             return 1

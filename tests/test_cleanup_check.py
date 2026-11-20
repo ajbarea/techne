@@ -1444,19 +1444,26 @@ def test_done_sections_cells(text, names):
     assert [t for _, _, t in load_module().done_sections(text)] == names
 
 
-def test_span_hazard_looks_one_line_past_the_span_and_no_further():
+def test_span_hazard_looks_from_the_line_above_to_one_line_past_the_span():
     mod = load_module()
-    lines = "## Completed\n- x\n## Next\nNext para\n---\n".splitlines()
-    assert mod.span_hazard(lines, 1, 2) is None
-    lines = "## Completed\nPara\n---\n## Next\n".splitlines()
-    assert (
-        mod.span_hazard(lines, 1, 3)
-        == "line 3 underlines the line above it, which a reader may take for a heading"
+
+    def hazard(text: str, a: int, b: int):
+        return mod.span_hazard(mod.Scan(text), a, b)
+
+    assert hazard("## Completed\n- x\n## Next\nNext para\n---\n", 1, 2) is None
+    assert hazard("## Completed\nPara\n---\n## Next\n", 1, 3) == (
+        "line 3 underlines the line above it, which a reader may take for a heading"
     )
-    lines = "## Completed\n> " + "q" * 60 + "\n".splitlines()[0]
-    assert mod.span_hazard(lines.splitlines(), 1, 2) == (
+    assert hazard("## Completed\n> " + "q" * 60 + "\n", 1, 2) == (
         "line 2 ('> " + "q" * 38 + "') is a shape the scanner does not model"
     )
+    # The nearest non-blank line above the heading counts; one further up does not.
+    assert hazard("</details>\n\n## Done\n- x\n## Next\n", 3, 4) == (
+        "line 1 ('</details>') is a shape the scanner does not model"
+    )
+    assert hazard("</details>\n\n- a\n\n## Done\n- x\n## Next\n", 5, 6) is None
+    # An HTML block runs to its blank line: every line in it is one the scanner cannot vouch for.
+    assert "line 2 ('- a')" in hazard("</details>\n- a\n\n## Done\n- x\n## Next\n", 4, 5)
 
 
 def test_matching_files_walks_only_the_fixed_folder(tmp_path, monkeypatch):
@@ -1773,6 +1780,7 @@ def clone_as(tmp_path: Path, folder: str, url: str) -> Path:
         ("repo", "https://example.org/x", "Repo"),  # the roster's case differs
         ("other", "https://gitlab.example/me/repo/", "repo"),  # a trailing slash, no slug
         ("other", "https://gitlab.example/me/repoX", "repoX"),  # a name ending in X
+        ("other", "/srv/mirror/repo/.git", "repo"),  # a local path to the .git folder
     ],
 )
 def test_a_registered_clone_is_found_in_any_case(tmp_path, folder, url, sister):
@@ -1834,3 +1842,50 @@ def test_a_rules_glob_reaches_into_a_skipped_folder(tmp_path):
         },
     )
     assert "'a' has no Since" in one(r, tmp_path)
+
+
+# --- verify round 3: shapes the scanner cannot vouch for -------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "why"),
+    [
+        (
+            "# R\n## Done\n- shipped:\n  ```sh\n  make run\n## Backlog\n- b\n- c\n```\n",
+            "line 4 opens a fence indented or inside a list item",
+        ),
+        (
+            "# R\n## Done\n- x\u2028```\n## Backlog\n- b\n```\n",
+            "a line break CommonMark does not split on",
+        ),
+        ("# R\n## Done\n<div>\n## Backlog\n</div>\n\n## Next\n", "line 3 ('<div>') is a shape"),
+    ],
+)
+def test_prune_refuses_what_the_scanner_cannot_vouch_for(tmp_path, text, why):
+    root = make(tmp_path, {"ROADMAP.md": text}, git=True)
+    assert why in refused(root, tmp_path)
+
+
+def test_a_one_line_html_comment_is_no_block(tmp_path):
+    text = "<!-- reviewed: 2026-11-01 -->\n# R\n## Done\n- x\n## Next\n- n\n"
+    root = make(tmp_path, {"ROADMAP.md": text}, git=True)
+    assert run("prune", "--apply", "repo", home=tmp_path, cwd=tmp_path).returncode == 0
+    assert (root / "ROADMAP.md").read_text() == (
+        "<!-- reviewed: 2026-11-01 -->\n# R\n## Next\n- n\n"
+    )
+
+
+def test_a_break_under_text_is_never_taken_for_a_dangling_rule():
+    mod = load_module()
+    text = "- item\n    ```\n    code\n    ```\nLater\n---\n## Done\n- x\n"
+    assert mod.without(text, mod.done_sections(text)) == (
+        "- item\n    ```\n    code\n    ```\nLater\n---\n"
+    )
+
+
+def test_a_heading_inside_an_html_block_is_no_done_log(tmp_path):
+    text = "</details>\n## Done\n- x\n\n## Next\n- n\n"  # CommonMark: HTML to the blank line
+    root = make(tmp_path, {"ROADMAP.md": text}, git=True)
+    out = run("prune", "--apply", "repo", home=tmp_path, cwd=tmp_path)
+    assert out.returncode == 0 and "keeps no done-log" in out.stdout
+    assert (root / "ROADMAP.md").read_text() == text

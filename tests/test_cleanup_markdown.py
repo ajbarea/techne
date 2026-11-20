@@ -52,6 +52,13 @@ PIECES = [
     "",
     "    indented code\n    # not a heading",
     "- [ ] task\n- **x:** y",
+    "- shipped:\n  ```sh\n  make run",  # a fence inside a list item
+    "    ```\n    code",  # an indented fence-like line
+    "</details>",
+    "<details>",
+    "> quoted\n> ## not a heading",
+    "- x\u2028```",  # a line break CommonMark does not split on
+    "  ```",  # a fence opened with indent
 ]
 
 
@@ -92,12 +99,15 @@ def test_every_span_prune_accepts_is_the_commonmark_section():
     CommonMark reader sees, from the heading to the next one of its level or higher."""
     rng = random.Random(20261120)
     accepted = refused = 0
-    for _ in range(4000):
+    for _ in range(10000):
         text = "\n".join(rng.choice(PIECES) for _ in range(rng.randint(1, 9))) + "\n"
-        lines = text.splitlines()
+        if cleanup.ODD_BREAKS.search(text):  # prune refuses the whole text
+            refused += 1
+            continue
+        scan = cleanup.Scan(text)
         real = commonmark_sections(text)
-        for a, b, _ in cleanup.done_sections(text):
-            if cleanup.span_hazard(lines, a, b):
+        for a, b, _ in cleanup.done_sections(text, scan):
+            if cleanup.span_hazard(scan, a, b):
                 refused += 1
                 continue
             accepted += 1
@@ -121,13 +131,13 @@ def test_prune_keeps_every_heading_outside_the_cut():
     a line into a heading."""
     rng = random.Random(20261121)
     checked = 0
-    for _ in range(4000):
+    for _ in range(10000):
         text = "\n".join(rng.choice(PIECES) for _ in range(rng.randint(1, 9))) + "\n"
+        if cleanup.ODD_BREAKS.search(text):  # prune refuses the whole text
+            continue
         scan = cleanup.Scan(text)
         spans = cleanup.done_sections(text, scan)
-        if not spans or any(
-            cleanup.span_hazard(scan.lines, a, b, scan.open_fence) for a, b, _ in spans
-        ):
+        if not spans or any(cleanup.span_hazard(scan, a, b) for a, b, _ in spans):
             continue
         checked += 1
         cut = {i for a, b, _ in spans for i in range(a - 1, b)}
