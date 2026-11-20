@@ -23,9 +23,11 @@ cleanup check holds this file to 50 lines.
   + git_env.github_slug, names lowercased; Scan.open_fence → span_hazard refuses; without()
   merges back-to-back cuts, skips setext underlines, and puts a blank before a setext title;
   property test: CommonMark headings outside the cut survive (40k docs, CRLF too, 0 bad).
-- ✅ Mutation rounds 4-5 on the round-2 fixes: roster match by lowercased name only (slug was
-  redundant), ATX edges from Scan.atx, CRLF gap by suffix; run 5 on the head: 1730 mutants,
-  1685 killed, 4 timeouts, 41 equivalents each with a reason (7 stale keys pruned), 0 left.
+- ✅ Verify round 3 (3 Should-fix: a fence in a list item, an HTML block above the cut, odd
+  line breaks) fixed in 47bb5f7: Scan marks hazard regions (HTML/quote blocks to their end, a
+  doubtful fence makes what follows unsure), odd breaks refuse, a break under text is never
+  popped; 48k-doc sweep: 0 section mismatches, 0 heading losses. Mutation run 6: 1839 mutants,
+  1784 killed, 4 timeouts, 45 equivalents with reasons, 6 killed by tests added after it.
 - 📋 Next: fresh verify pass on the head; Heph merges. After merge: the prefs-repo PR, then
   repin klepsydra#514's ci.yml to the merge SHA.
 - Bench red on e3fd401 was noise (no phylax change; bench passed on ead67ae and 00509fe).

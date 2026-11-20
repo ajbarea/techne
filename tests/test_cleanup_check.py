@@ -1781,6 +1781,7 @@ def clone_as(tmp_path: Path, folder: str, url: str) -> Path:
         ("other", "https://gitlab.example/me/repo/", "repo"),  # a trailing slash, no slug
         ("other", "https://gitlab.example/me/repoX", "repoX"),  # a name ending in X
         ("other", "/srv/mirror/repo/.git", "repo"),  # a local path to the .git folder
+        ("other", "/srv/mirror/repo/.GIT", "repo"),  # in any case
     ],
 )
 def test_a_registered_clone_is_found_in_any_case(tmp_path, folder, url, sister):
@@ -1852,7 +1853,8 @@ def test_a_rules_glob_reaches_into_a_skipped_folder(tmp_path):
     [
         (
             "# R\n## Done\n- shipped:\n  ```sh\n  make run\n## Backlog\n- b\n- c\n```\n",
-            "line 4 opens a fence indented or inside a list item",
+            "line 4 opens a fence indented or inside a list item, so where CommonMark closes "
+            "it, and what follows, is unsure",
         ),
         (
             "# R\n## Done\n- x\u2028```\n## Backlog\n- b\n```\n",
@@ -1889,3 +1891,15 @@ def test_a_heading_inside_an_html_block_is_no_done_log(tmp_path):
     out = run("prune", "--apply", "repo", home=tmp_path, cwd=tmp_path)
     assert out.returncode == 0 and "keeps no done-log" in out.stdout
     assert (root / "ROADMAP.md").read_text() == text
+
+
+@pytest.mark.parametrize(
+    ("text", "expect"),
+    [
+        ("***\n## Done\n- x\n", ""),  # a break on the first line goes with the cut after it
+        ("- a\n---\n\n## Done\n- x\n", "- a\n---\n"),  # under a list item it stays
+    ],
+)
+def test_a_dangling_break_goes_only_where_no_reader_sees_an_underline(text, expect):
+    mod = load_module()
+    assert mod.without(text, mod.done_sections(text)) == expect
