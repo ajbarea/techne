@@ -302,37 +302,37 @@ hash = "f0314a520464e6788b5ca26442003747f043605ce8bcaf17e0778f7a1c950e42"
 why = "roster_refusal: re.I is set, so '.GIT$' matches what '.git$' does"
 
 [[mutant]]
-hash = "adf190ea83838892ec4c7fc0082a73b5ea42628ca912fbef8550ac57c2c66c79"
-why = "span_hazard: b equals doubt_from only if the line after the span opens a fence, but a span ends at a heading or the end"
-
-[[mutant]]
-hash = "337a75c0c2d003aa597b197154c239afafbaec388d7369a8b43219ccd27f5a18"
-why = "span_hazard: at top 1 the loop starts at max(top, 1), so stepping to 0 changes nothing"
-
-[[mutant]]
-hash = "8b142b57dc5e16a5883153c43303d5fbbb925287dffbb2065fc5a11debc68c1e"
-why = "span_hazard: a fence still open at line a-2 would hold the heading at a-1, so no span starts there"
-
-[[mutant]]
-hash = "2ed63947629a5702f09c6acea4d27c156bf6dc7e7c8f5c6ebc9d48a830e834b8"
-why = "span_hazard: line a is the span's heading, which never matches SETEXT"
-
-[[mutant]]
-hash = "eb34384f674d25f54461aa07dfd764a6adfe9e82c4aba7e7128429cdc7c66940"
-why = "span_hazard: n is at least a, which is at least 1, so n > 1 and n >= 1 differ only at the heading, which never matches SETEXT"
-
-[[mutant]]
-hash = "a5a6f1f562ea92e4b2ccb7235631b855b450d87a34521f94debedd65e0cc367f"
-why = "span_hazard: line a-1 is the span's heading, which never opens a fence"
-
-[[mutant]]
-hash = "84fd75b910c29b1dbb52f6ac4af399d6d140b2274454a7c228b20b5f05b76b74"
-why = "span_hazard: line b is the next heading or past the end, never an opening fence"
-
-[[mutant]]
 hash = "d686af1f8703afc66f229310646425210dd2a1d4ae5e17cdb85bc4ceec47907d"
 why = "without: line indexes are 0 or more, so i > -1 and i > -2 agree"
 
 [[mutant]]
 hash = "0c2ac4147973f8951dd40e1ab1b384ac102f49d4247bf0fcf311be2547655ecc"
 why = "without: line indexes are 0 or more, so i > -1 and i > -2 agree"
+
+[[mutant]]
+hash = "e8c913f207166d01ba7fa925feb31167c1871c6ab2d1b210cdd25acd1bc30302"
+why = "span_hazard: b equals doubt_from only if the line after the span opens a block, but a span ends at a heading or the end"
+
+[[mutant]]
+hash = "1eb171de6cff8a5b6c5dd6e7aa3d16c86cd8a6bdd023c262810ee3fd39034ff3"
+why = "span_hazard: at top 1 the loop starts at max(top, 1), so stepping to 0 changes nothing"
+
+[[mutant]]
+hash = "4aa0bdfb21676b2d0edf54b2c88475c6df67470c10cb1de4c1009e49a13cea2f"
+why = "span_hazard: a fence still open at line a-2 would hold the heading at a-1, so no span starts there"
+
+[[mutant]]
+hash = "3bf8c80dbc46378727055f951fbb16ce96801593c1ef4a6ab7c66fa776886c0c"
+why = "span_hazard: line a is the span's heading, which never matches SETEXT"
+
+[[mutant]]
+hash = "424ed44eb51eeae62e169cd9f393bd0297be7b1d49b559bb0b7d0abc3811fc9b"
+why = "span_hazard: line a-1 is the span's heading, which never opens a fence"
+
+[[mutant]]
+hash = "3fa78a8563a4dc91f9d62fbd560e519dfc54dd18cd5b20729e4b7b77294366c7"
+why = "span_hazard: n is at least a, which is at least 1, so n > 1 and n >= 1 differ only at the heading, which never matches SETEXT"
+
+[[mutant]]
+hash = "bcb46b06a077a2bbeb58ed73268e74a24fc29ef856c6883e3a21911079668a94"
+why = "span_hazard: line b is the next heading or past the end, never an opening fence"

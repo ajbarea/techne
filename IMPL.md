@@ -30,6 +30,8 @@ cleanup check holds this file to 50 lines.
   1784 killed, 4 timeouts, 45 equivalents with reasons, 6 killed by tests added after it.
 - ✅ Verify round 4 (a fence inside a quote or HTML-looking region) fixed in 8cea436; mutation
   run 7 on it: 1843 mutants, 1794 killed, 45 equivalents, 4 timeouts, 0 left.
+- ✅ Verify round 5 (an HTML opener inside a quote region) fixed in 4121688; the reviewer's block
+  oracle: 0 bad over 6 seeds; mutation run 8: 1849 mutants, 1800 killed, 45 equivalents, 0 left.
 - 📋 Next: fresh verify pass on the head; Heph merges. After merge: the prefs-repo PR, then
   repin klepsydra#514's ci.yml to the merge SHA.
 - Bench red on e3fd401 was noise (no phylax change; bench passed on ead67ae and 00509fe).
