@@ -54,7 +54,7 @@ def test_the_browser_is_present_or_its_absence_is_declared():
     """Green by absence is the failure this guards."""
     assert HAVE_BROWSER or OPTED_OUT, (
         "Playwright's Chromium is not available and TECHNE_NO_BROWSER is unset: every web "
-        "deck case would have skipped. Run `make test-unit` after `uv run --with "
+        "deck case would have skipped or failed. Run `make test-unit` after `uv run --with "
         "playwright==1.63.0 playwright install chromium`, or set TECHNE_NO_BROWSER=1."
     )
 
