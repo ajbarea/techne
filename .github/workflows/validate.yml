@@ -64,8 +64,11 @@ jobs:
       - name: Install gitleaks for the secret guard tests
         run: bash scripts/install_gitleaks.sh
 
+      # Four workers on the 4-CPU runner public repositories get; worksteal evens out the long
+      # browser and mutation tests. The slowest tests are named in the log, and the JUnit file
+      # feeds the summary below.
       - name: Structural checks + pytest
-        run: make test
+        run: make test PYTEST_ARGS="-n logical --dist worksteal --durations=25 --junitxml=pytest-results.xml"
         env:
           # No TeX Live on the runner, so graphe:latex's end-to-end cases cannot
           # build. Declaring the opt-out is what keeps them from skipping unseen:
@@ -80,6 +83,28 @@ jobs:
           # has tmux they run regardless; the declaration only permits its absence.
           TECHNE_NO_TMUX: "1"
 
+
+      - name: Test summary
+        if: ${{ !cancelled() && hashFiles('pytest-results.xml') != '' }}
+        run: |
+          python3 - <<'PY' >>"$GITHUB_STEP_SUMMARY"
+          import xml.etree.ElementTree as ET
+          s = ET.parse("pytest-results.xml").getroot()
+          s = s.find("testsuite") if s.tag == "testsuites" else s
+          n, f, e, k = (int(s.get(x, 0)) for x in ("tests", "failures", "errors", "skipped"))
+          print(f"### pytest: {n - f - e - k} passed, {f} failed, {e} errors, {k} skipped in {float(s.get('time', 0)):.0f} s")
+          bad = [c for c in s.iter("testcase") if c.find("failure") is not None or c.find("error") is not None]
+          for c in bad[:30]:
+              print(f"- `{c.get('classname')}::{c.get('name')}`")
+          PY
+
+      - name: Keep the test results when the tests fail
+        if: ${{ failure() && hashFiles('pytest-results.xml') != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pytest-results
+          path: pytest-results.xml
+          retention-days: 14
 
       - name: Hook tests on the oldest supported python3
         run: make test-hooks-oldest
