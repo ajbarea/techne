@@ -550,7 +550,7 @@ def matching_files(root: Path, globs: list[str]) -> list[str]:
 def rule_entries(text: str) -> list[tuple[int, str, dt.date | None, bool]]:
     """(line, slug, newest Reviewed / Since / Incidents date, retired) for each `### slug:`
     entry outside code fences."""
-    entries: list[list] = []
+    entries: list[list | None] = []
     fence = None
     for i, line in enumerate(text.splitlines(), 1):
         m = FENCE.match(line)
