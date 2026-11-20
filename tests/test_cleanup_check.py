@@ -516,3 +516,116 @@ def test_transient_status_maps_each_governing_file_to_what_it_covers(tmp_path):
         "review/art/keep/b.png",
     ]
     assert got.bare == {}
+
+
+# --- rules: pruned as well as added -------------------------------------------------------
+
+RULES_CTX = "## cleanup\n- rules: lessons/*.md\n"
+
+
+def lesson(slug: str, **fields: str) -> str:
+    return f"### {slug}: Name\n\n" + "".join(f"- **{k}:** {v}\n" for k, v in fields.items()) + "\n"
+
+
+@pytest.mark.parametrize(
+    ("fields", "expect"),
+    [
+        ({"Rule": "r", "Since": "2026-08-22"}, None),  # 90 days: still current
+        ({"Rule": "r", "Since": "2026-08-21"}, "last dated 2026-08-21, over 90 days ago"),
+        ({"Rule": "r", "Since": "2026-01-01", "Reviewed": "2026-11-01"}, None),
+        ({"Incidents": "x (2026-01-02): a; y (2026-10-30): b"}, None),  # newest incident counts
+        ({"Incidents": "none recorded."}, "has no Since, Reviewed or Incidents date"),
+        ({"Rule": "r", "Since": "2020-01-01", "Retired": "make guards"}, None),
+        ({"Rule": "r", "Why": "since 2026-11-01 it bites"}, "has no Since"),  # only dated fields
+    ],
+)
+def test_a_rule_entry_needs_a_recent_date(tmp_path, fields, expect):
+    root = make(
+        tmp_path, {".claude/skill-context.md": RULES_CTX, "lessons/a.md": lesson("x", **fields)}
+    )
+    got = check(root, tmp_path)
+    if expect is None:
+        assert got == ["cleanup ✓"]
+    else:
+        assert len(got) == 1 and got[0].startswith("lessons/a.md:1 'x' ") and expect in got[0]
+
+
+def test_numbered_entries_and_fenced_headings(tmp_path):
+    text = (
+        "```\n### fake: in a fence\n```\n### 3. real-one: Name\n- **Incidents:** none recorded.\n"
+    )
+    root = make(tmp_path, {".claude/skill-context.md": RULES_CTX, "lessons/a.md": text})
+    got = check(root, tmp_path)
+    assert len(got) == 1 and "lessons/a.md:4 'real-one'" in got[0]
+
+
+@pytest.mark.parametrize(
+    ("head", "expect"),
+    [
+        ("<!-- reviewed: 2026-11-01 -->\n", None),
+        ("---\nreviewed: 2026-11-01\n---\n", None),
+        ("<!-- reviewed: 2026-01-01 -->\n", "last reviewed 2026-01-01, over 90 days ago"),
+        ("", "has no reviewed date"),
+    ],
+)
+def test_a_rules_file_without_entries_needs_a_file_date(tmp_path, head, expect):
+    ctx = "## cleanup\n- rules: CLAUDE.md\n"
+    root = make(tmp_path, {".claude/skill-context.md": ctx, "CLAUDE.md": head + "# Rules\n- one\n"})
+    got = check(root, tmp_path)
+    assert (got == ["cleanup ✓"]) if expect is None else (expect in got[0])
+
+
+# --- flaky tests: quarantined with an end date, then fixed or deleted ----------------------
+
+MARK = "pytest.mark." + "flaky"  # built, so this file does not trip the check it tests
+
+
+@pytest.mark.parametrize(
+    ("text", "expect"),
+    [
+        (f"@{MARK}(" + "rer" + "uns=2)\ndef test_a(): ...\n", "no quarantine end"),
+        (f"# quarantine: until 2026-12-01 #75\n@{MARK}\ndef test_a(): ...\n", None),
+        (f"@{MARK}  # quarantine until 2026-11-20 #75\n", None),  # ends today
+        (f"# quarantine: until 2026-11-19 #75\n@{MARK}\n", "quarantine ended 2026-11-19"),
+        (f"# quarantine: until 2027-03-01\n@{MARK}\n", "past the 30-day limit"),
+        (f"# quarantine: until 2026-12-01\n\n\n@{MARK}\n", "no quarantine end"),  # 3 lines up
+        ("def test_a():\n    assert 'flaky' in names\n", None),  # the word alone is no marker
+    ],
+)
+def test_a_flaky_marker_needs_a_live_quarantine(tmp_path, text, expect):
+    root = make(tmp_path, {"tests/test_x.py": text}, git=True)
+    got = check(root, tmp_path, "--only", "flaky")
+    if expect is None:
+        assert got == ["cleanup ✓"]
+    else:
+        assert len(got) == 1 and got[0].startswith("tests/test_x.py:") and expect in got[0]
+
+
+@pytest.mark.parametrize(
+    ("rel", "text"),
+    [
+        ("pyproject.toml", '[tool.pytest.ini_options]\naddopts = "--' + 'reruns 2"\n'),
+        ("playwright.config.ts", "export default { retr" + "ies: 2 }\n"),
+        ("src/a.test.ts", "jest.retry" + "Times(3)\n"),
+        (".github/workflows/ci.yml", "    - uses: nick-fields/" + "retry@abc\n"),
+        ("requirements-dev.txt", "pytest-rerun" + "failures==14\n"),
+        ("tests/test_y.py", "@pytest.mark.skip(reason='fla" + "ky on CI')\n"),
+    ],
+)
+def test_every_kind_of_retry_is_found(tmp_path, rel, text):
+    root = make(tmp_path, {rel: text}, git=True)
+    got = check(root, tmp_path, "--only", "flaky")
+    assert len(got) == 1 and got[0].startswith(f"{rel}:{text.count(chr(10))} ")
+
+
+def test_retries_outside_tests_and_in_untracked_files_are_left_alone(tmp_path):
+    root = make(tmp_path, {"src/app.py": f"@{MARK}\n"}, git=True)
+    (root / "tests").mkdir()
+    (root / "tests" / "test_new.py").write_text(f"@{MARK}\n")  # untracked: not git's yet
+    assert check(root, tmp_path, "--only", "flaky") == ["cleanup ✓"]
+
+
+def test_outside_git_the_walk_skips_environments(tmp_path):
+    root = make(tmp_path, {"tests/test_a.py": f"@{MARK}\n", ".venv/lib/test_b.py": f"@{MARK}\n"})
+    got = check(root, tmp_path, "--only", "flaky")
+    assert len(got) == 1 and got[0].startswith("tests/test_a.py:1")

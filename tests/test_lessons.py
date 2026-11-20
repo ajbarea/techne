@@ -81,9 +81,12 @@ def test_each_file_parses_and_stays_in_budget(path):
 
 @pytest.mark.parametrize("lesson", ALL, ids=ids)
 def test_each_lesson_has_its_fields_in_order(lesson):
-    assert tuple(lesson["fields"]) == FIELDS
+    assert tuple(lesson["fields"]) in (FIELDS, (*FIELDS, "Reviewed"))
     since = datetime.date.fromisoformat(lesson["fields"]["Since"])
     assert since <= datetime.date.today(), f"{lesson['slug']}: a date in the future"
+    if "Reviewed" in lesson["fields"]:
+        reviewed = datetime.date.fromisoformat(lesson["fields"]["Reviewed"])
+        assert since <= reviewed <= datetime.date.today(), f"{lesson['slug']}: Reviewed out of range"
 
 
 @pytest.mark.parametrize("lesson", ALL, ids=ids)

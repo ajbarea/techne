@@ -14,6 +14,12 @@ check reports, per repo root, one line per finding (or one passing line):
              CLAUDE.local.md, .github/copilot-instructions.md, .claude/skill-context.md)
              (or a repo `agent_file` glob, such as a memory index) runs past its line or
              byte budget
+  rules      a rule or lesson (a `### slug:` entry in a `rules` file) whose newest Reviewed,
+             Since or Incidents date is over review_days old, or a rules file without
+             entries and without a `reviewed:` date: rules are pruned as well as added
+  flaky      a retry or flaky marker in a test or test config (pytest-rerunfailures, @flaky,
+             retries:, retryTimes, a retry action) without `quarantine: until YYYY-MM-DD`
+             within quarantine_days, or past it: fix the test or delete it
   transient  a file matched by a transient glob has no `owner` plus `expires` or
              `reviewed` frontmatter (its own, for a markdown file, else the nearest
              README.md above it), or is past it
@@ -35,6 +41,8 @@ Budgets and globs come from the `## cleanup` section of ROOT/.claude/skill-conte
     - agent_bytes: 25000
     - agent_file: projects/*/memory/MEMORY.md
     - review_days: 90
+    - quarantine_days: 30
+    - rules: plugins/techne/_shared/lessons/*.md
     - transient: review/**
     - keep: review/README.md
     - prune: off (registered report)
@@ -48,7 +56,13 @@ Budgets and globs come from the `## cleanup` section of ROOT/.claude/skill-conte
 # threshold check (https://microsoft.github.io/hve-core/docs/contributing/documentation-maintenance,
 # https://www.mintlify.com/library/how-to-keep-documentation-up-to-date-with-regular-reviews);
 # history is the record, changelogs are generated
-# (https://rufuspollock.com/2026-02-25-changelogs-lightweight-best-practice).
+# (https://rufuspollock.com/2026-02-25-changelogs-lightweight-best-practice). The Claude Code team
+# "turn misses into rules - and routinely prune them" and delete flaky tests rather than retry
+# (Osmani, "How the Claude Code team thinks about verification", 2026-11); a quarantine carries
+# an owner, an issue and an end date CI enforces, 30 days by default
+# (https://oneuptime.com/blog/post/2026-07-28-quarantine-flaky-tests/view,
+# https://handbook.gitlab.com/handbook/engineering/testing/quarantine-process/); retries kept
+# 4,962 of 5,000 buggy builds green (https://devops.com/your-ci-retries-are-hiding-real-bugs).
 
 from __future__ import annotations
 
@@ -69,6 +83,7 @@ DEFAULTS = {
     "agent_lines": 200,
     "agent_bytes": 25000,
     "review_days": 90,
+    "quarantine_days": 30,
 }
 AGENT_FILES = (
     "AGENTS.md",
@@ -78,7 +93,7 @@ AGENT_FILES = (
     ".github/copilot-instructions.md",
     ".claude/skill-context.md",
 )
-PARTS = ("roadmap", "impl", "agents", "transient")
+PARTS = ("roadmap", "impl", "agents", "transient", "rules", "flaky")
 MAX_READ = 4 << 20  # Claude Code skips an instruction file over 4 MiB; nothing here is larger
 FRONT_MAX = 8192  # frontmatter sits in a file's first lines
 SKIP_DIRS = {".git"}
@@ -135,6 +150,7 @@ class Config:
         self.transient: list[str] = []
         self.keep: list[str] = []
         self.agent_files: list[str] = []
+        self.rules: list[str] = []
         self.prune_off: str | None = None
         self.errors: list[str] = []
 
@@ -167,15 +183,19 @@ def load_config(root: Path) -> Config:
                 )
                 continue
             cfg.budgets[key] = int(value)
-        elif key in ("transient", "keep", "agent_file"):
+        elif key in ("transient", "keep", "agent_file", "rules"):
             if value.startswith("<"):  # the template's placeholder, not yet filled in
                 continue
             if not value:
                 cfg.errors.append(f"## cleanup: {key} has no glob → write one or delete the line")
                 continue
-            {"transient": cfg.transient, "keep": cfg.keep, "agent_file": cfg.agent_files}[
-                key
-            ].append(value)
+            lists = {
+                "transient": cfg.transient,
+                "keep": cfg.keep,
+                "agent_file": cfg.agent_files,
+                "rules": cfg.rules,
+            }
+            lists[key].append(value)
         elif key == "prune":
             if value.split()[0:1] == ["off"]:
                 cfg.prune_off = value
@@ -363,17 +383,10 @@ def check_impl(root: Path, cfg: Config) -> list[str]:
 
 def agent_paths(root: Path, cfg: Config) -> list[str]:
     """The fixed instruction files plus the repo's own `agent_file` globs, each once, in order."""
-    seen = list(AGENT_FILES)
-    for glob in cfg.agent_files:
-        pattern = glob_regex(glob)
-        base = re.split(r"[*?]", glob, maxsplit=1)[0].rsplit("/", 1)[0] if "/" in glob else ""
-        start = root / base if base and (root / base).is_dir() else root
-        prefix = (base + "/") if start != root else ""
-        for rel in walk_files(start):
-            rel = prefix + rel
-            if pattern.match(rel) and rel not in seen:
-                seen.append(rel)
-    return seen
+    return [
+        *AGENT_FILES,
+        *(f for f in matching_files(root, cfg.agent_files) if f not in AGENT_FILES),
+    ]
 
 
 def check_agents(root: Path, cfg: Config) -> list[str]:
@@ -503,6 +516,194 @@ def check(
         out += check_agents(root, cfg)
     if "transient" in parts:
         out += check_transient(root, cfg, today)
+    if "rules" in parts:
+        out += check_rules(root, cfg, today)
+    if "flaky" in parts:
+        out += check_flaky(root, cfg, today)
+    return out
+
+
+# --- rules and flaky tests ------------------------------------------------------------------
+
+ENTRY = re.compile(r"^### (?:\d+\.\s+)?([a-z0-9][a-z0-9-]*):\s")
+DATED_FIELD = re.compile(r"^\s*[-*]\s+\*\*(Reviewed|Since|Incidents):\*\*(.*)$")
+RETIRED = re.compile(r"^\s*[-*]\s+\*\*Retired:\*\*")
+ISO = re.compile(r"\b(20\d\d-\d\d-\d\d)\b")
+FILE_REVIEWED = re.compile(r"(?:^reviewed:\s*|<!--\s*reviewed:\s*)(20\d\d-\d\d-\d\d)", re.M)
+
+
+def matching_files(root: Path, globs: list[str]) -> list[str]:
+    """Repo-relative files under ROOT that match any of GLOBS, each once, in order."""
+    out: list[str] = []
+    for glob in globs:
+        pattern = glob_regex(glob)
+        base = re.split(r"[*?]", glob, maxsplit=1)[0].rsplit("/", 1)[0] if "/" in glob else ""
+        start = root / base if base and (root / base).is_dir() else root
+        prefix = (base + "/") if start != root else ""
+        for rel in walk_files(start):
+            rel = prefix + rel
+            if pattern.match(rel) and rel not in out:
+                out.append(rel)
+    return out
+
+
+def rule_entries(text: str) -> list[tuple[int, str, dt.date | None, bool]]:
+    """(line, slug, newest Reviewed / Since / Incidents date, retired) for each `### slug:`
+    entry outside code fences."""
+    entries: list[list] = []
+    fence = None
+    for i, line in enumerate(text.splitlines(), 1):
+        m = FENCE.match(line)
+        if m:
+            mark = m.group(1)
+            if fence is None:
+                fence = mark[0] * len(mark)
+            elif mark[0] == fence[0] and len(mark) >= len(fence):
+                fence = None
+            continue
+        if fence is not None:
+            continue
+        if line.startswith("#"):
+            e = ENTRY.match(line)
+            entries.append([i, e.group(1), None, False] if e else None)
+            continue
+        if not entries or entries[-1] is None:
+            continue
+        if RETIRED.match(line):
+            entries[-1][3] = True
+        f = DATED_FIELD.match(line)
+        if f:
+            for day in (parse_date(d) for d in ISO.findall(f.group(2))):
+                if day and (entries[-1][2] is None or day > entries[-1][2]):
+                    entries[-1][2] = day
+    return [tuple(e) for e in entries if e is not None]
+
+
+def check_rules(root: Path, cfg: Config, today: dt.date) -> list[str]:
+    """Each rule or lesson is reviewed, not only added: an entry whose newest Reviewed, Since
+    or Incidents date is over review_days old, or that has none, is a finding. A rules file
+    with no `### slug:` entries needs a file-level `reviewed:` date instead."""
+    out, days = [], cfg.budgets["review_days"]
+    for rel in matching_files(root, cfg.rules):
+        try:
+            text = read_text(root / rel) or ""
+        except Unreadable as exc:
+            out.append(f"{rel} {exc} → make it a regular file")
+            continue
+        entries = rule_entries(text)
+        if not entries:
+            m = FILE_REVIEWED.search("\n".join(text.splitlines()[:30]))
+            day = parse_date(m.group(1)) if m else None
+            if day is None:
+                out.append(
+                    f"{rel} has no reviewed date → add `<!-- reviewed: {today} -->` once its "
+                    "rules have been reviewed (cut each one a check now enforces)"
+                )
+            elif (today - day).days > days:
+                out.append(
+                    f"{rel} last reviewed {day}, over {days} days ago → prune it: cut each rule "
+                    f"a check enforces or the code shows, then set reviewed: {today}"
+                )
+            continue
+        for line, slug, day, retired in entries:
+            if retired:
+                continue
+            if day is None:
+                out.append(
+                    f"{rel}:{line} '{slug}' has no Since, Reviewed or Incidents date → add "
+                    f"`- **Reviewed:** {today}` if it still earns its place, or retire it"
+                )
+            elif (today - day).days > days:
+                out.append(
+                    f"{rel}:{line} '{slug}' last dated {day}, over {days} days ago → still "
+                    f"earning its place? add `- **Reviewed:** {today}`, or delete it (git keeps it)"
+                )
+    return out
+
+
+# Retries and flaky markers: each hides a failure until it is quarantined with an end date.
+FLAKY = re.compile(
+    r"pytest\.mark\.flaky|@flaky\b|--reruns\b|\breruns\s*=|rerunfailures|"
+    r"retryTimes\s*\(|\.retries\s*\(|\bretries\s*:\s*[1-9]|\bretry\s*:\s*[1-9]|"
+    r"nick-fields/retry|wretry|\b(?:skip|xfail)\b[^\n]*\bflak"
+)
+QUARANTINE = re.compile(r"quarantine[d]?:?\s*(?:until|expires?)?\s*(20\d\d-\d\d-\d\d)", re.I)
+TEST_FILE = re.compile(
+    r"(?:^|/)(?:test_[^/]*\.(?:py|sh|bash)|[^/]*_test\.(?:py|go|sh)|conftest\.py|"
+    r"[^/]*\.(?:test|spec)\.[cm]?[jt]sx?|pyproject\.toml|pytest\.ini|tox\.ini|setup\.cfg|"
+    r"(?:playwright|jest|vitest|cypress)\.config\.[cm]?[jt]s|package\.json|requirements[^/]*\.txt|"
+    r"\.github/workflows/[^/]*\.ya?ml)$"
+)
+SKIP_TREES = {
+    ".git",
+    ".venv",
+    "venv",
+    "node_modules",
+    "site",
+    "dist",
+    "build",
+    "__pycache__",
+    "target",
+}
+
+
+def candidate_tests(root: Path) -> list[str]:
+    """Test files and test configs: git's tracked files when ROOT is a repo, else a walk that
+    skips environments and build output. One pass, no process per file."""
+    out = subprocess.run(
+        ["git", "-C", str(root), "ls-files", "-z"],
+        capture_output=True,
+        env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")},
+        check=False,
+    )
+    if out.returncode == 0:
+        files = [p for p in os.fsdecode(out.stdout).split("\0") if p]
+    else:
+        files = []
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = sorted(d for d in dirnames if d not in SKIP_TREES)
+            rel = os.path.relpath(dirpath, root)
+            prefix = "" if rel == "." else rel.replace(os.sep, "/") + "/"
+            files += [prefix + n for n in sorted(filenames)]
+    return [f for f in files if TEST_FILE.search(f)]
+
+
+def check_flaky(root: Path, cfg: Config, today: dt.date) -> list[str]:
+    """A retry or flaky marker in a test or its config needs `quarantine: until YYYY-MM-DD`
+    (with its issue) on its line or the two above, at most quarantine_days ahead; past that
+    date the test is fixed or deleted, never retried until it passes."""
+    out, limit = [], cfg.budgets["quarantine_days"]
+    for rel in candidate_tests(root):
+        try:
+            text = read_text(root / rel)
+        except Unreadable:
+            continue
+        if not text or not FLAKY.search(text):
+            continue
+        lines = text.splitlines()
+        for i, line in enumerate(lines):
+            if not FLAKY.search(line):
+                continue
+            near = " ".join(lines[max(0, i - 2) : i + 1])
+            q = QUARANTINE.search(near)
+            day = parse_date(q.group(1)) if q else None
+            where = f"{rel}:{i + 1}"
+            if day is None:
+                out.append(
+                    f"{where} retries or marks a test flaky with no quarantine end → fix the "
+                    f"test or delete it; to buy time, add `quarantine: until "
+                    f"{today + dt.timedelta(days=limit)} #<issue>` beside it"
+                )
+            elif day < today:
+                out.append(
+                    f"{where} quarantine ended {day} → fix the test or delete it (git keeps it); "
+                    "a retry teaches the agent to rerun until green"
+                )
+            elif (day - today).days > limit:
+                out.append(
+                    f"{where} quarantine runs to {day}, past the {limit}-day limit → fix it "
+                    "sooner, or delete it"
+                )
     return out
 
 

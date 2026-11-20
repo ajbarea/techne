@@ -470,6 +470,20 @@ file"; its every-session load cap is 25KB); `IMPL.md` 50 lines (the
 [freshness check](https://microsoft.github.io/hve-core/docs/contributing/documentation-maintenance).
 A repo changes any of them in its `## cleanup` section.
 
+Rules are pruned as well as added, and a flaky test is fixed or deleted, never retried until it
+passes: the Claude Code team "turn misses into rules - and routinely prune them" and delete flaky
+tests "so the agent doesn't get trained to just retry until things pass" (Addy Osmani, "How the
+Claude Code team thinks about verification", 2026-11). So each `### slug:` entry in a file the
+repo names with `- rules: <glob>` (lessons, a bug-class catalog) needs a **Since**, **Reviewed**
+or **Incidents** date within 90 days, and a rules file without entries (a `CLAUDE.md`) a
+`<!-- reviewed: YYYY-MM-DD -->` line. Every retry or flaky marker in a tracked test file or test
+config (pytest-rerunfailures, `@flaky`, `retries:`, `retryTimes`, a retry action, a skip that
+says flaky) needs `quarantine: until YYYY-MM-DD #<issue>` on its line or the two above, at most
+30 days out ([OneUptime](https://oneuptime.com/blog/post/2026-07-28-quarantine-flaky-tests/view),
+[GitLab](https://handbook.gitlab.com/handbook/engineering/testing/quarantine-process/)); past
+it, the test is fixed or deleted. Retries kept 4,962 of 5,000 buggy builds green in one
+[experiment](https://devops.com/your-ci-retries-are-hiding-real-bugs).
+
 ```
 python3 <cleanup script> check $(for r in $SISTERS; do printf '%s ' "$WORKSPACE/$r"; done)   # the cleanup.py path SKILL.md names
 ```

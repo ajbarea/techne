@@ -18,6 +18,9 @@ cleanup check holds this file to 50 lines.
 - ✅ techne itself migrated: Shipped log pruned (266 lines) after harvest. Open follow-ups went to
   #391 (shared pin check, actionlint); the rest is a record git already holds.
 - ✅ Tests: `tests/test_cleanup_check.py`, every guard's boundary cell, run through the script.
+- ✅ Heph's 3rd input: `rules` part (lessons, bug classes need a date within 90 days; prune pass
+  done: 18 reviewed, `stale-forward-compat-prediction` retired) and `flaky` part (retry markers
+  need `quarantine: until` within 30 days).
 - 📋 Next: mutation run (`[tool.techne.mutation]` entry added), elenchus round, PR, Heph review.
 - Renumbered planned checks: #257 is now check 19, #259 check 20.
 - Verify: `make lint`; `uv run pytest tests/test_cleanup_check.py`; `make guards`;

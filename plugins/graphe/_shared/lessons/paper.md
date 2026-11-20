@@ -28,6 +28,7 @@ Read with `plain-prose.md` and `paper-quality.md`, which hold the sentence-level
 - **Why:** A scaffolded venue line was read back as settled and produced a page budget against a limit that did not apply.
 - **Since:** 2026-08-15
 - **Check:** guidance: a file cannot state whether a line is a plan.
+- **Reviewed:** 2026-11-20
 
 ### reword-do-not-transcribe: Reword a correction, do not paste it
 

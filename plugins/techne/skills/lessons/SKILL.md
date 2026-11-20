@@ -41,11 +41,17 @@ Do this at the moment of the correction, in the same turn, instead of writing a 
    - **Check:** gate: <path>#<identifier>, test: test_name or guidance: <why it cannot be computed>.
    ```
 
+   A review pass later adds `- **Reviewed:** YYYY-MM-DD` as a fifth field (see [Review the set](#review-the-set)).
+
 3. Prefer a gate. If the rule can be computed, add it to the relevant checker with a test, and name both in **Check**. `tests/test_lessons.py` fails a gate whose named test never mentions it.
 4. The file is public. State the general rule: no teammates' names, private incidents, course details or unpublished results. A fact only one repo cares about goes in that repo's `.claude/skill-context.md`.
 5. Raise the file's `budget` line only if the words are needed, or merge entries. In the clone, run `make test-unit` before opening the pull request.
 
 The installed copy updates on the next plugin update.
+
+## Review the set
+
+Lessons are pruned as well as added. The cleanup check (`_shared/cleanup.py`, `rules` part, sisters check 18) flags a lesson whose newest **Since** or **Reviewed** date is over 90 days old. For each one: if a gate now enforces it, or the code makes it obvious, retire it (below); if it still catches mistakes, add `- **Reviewed:** YYYY-MM-DD` as its last field. A rule set that only grows trains the next agent to skim it.
 
 ## Retire one
 
