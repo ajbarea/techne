@@ -130,7 +130,7 @@ ATX = re.compile(r"^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$")
 OPEN_FENCE = re.compile(r"^ {0,3}(`{3,}(?=[^`]*$)|~{3,})")
 CLOSE_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})[ \t]*$")
 SETEXT = re.compile(r"^ {0,3}(=+|-+)[ \t]*$")
-BREAK = re.compile(r"^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$")
+BREAK = re.compile(r"^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*\r?$")  # a kept line ending passes
 INDENTED = re.compile(r"^(?: {4}|\t)")
 NOT_PARAGRAPH = re.compile(r"^ {0,3}(?:(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)|>|<)")
 LIST_ITEM = re.compile(r"^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)")
@@ -292,7 +292,7 @@ def frontmatter(path: Path) -> dict[str, str] | None:
         return None
     if head is None:
         return None
-    lines = head.lstrip("\ufeff").splitlines()
+    lines = head.removeprefix("\ufeff").splitlines()
     if not lines or lines[0].strip() != "---":
         return None
     fields: dict[str, str] = {}
@@ -761,8 +761,7 @@ def check_flaky(root: Path, cfg: Config, today: dt.date | None) -> list[str]:
         for i, line in enumerate(lines):
             if not FLAKY.search(line):
                 continue
-            near = " ".join(lines[max(0, i - 2) : i + 1])
-            q = QUARANTINE.search(near)
+            q = next(filter(None, map(QUARANTINE.search, lines[max(0, i - 2) : i + 1])), None)
             day = parse_date(q.group(1)) if q else None
             where = f"{rel}:{i + 1}"
             if day is None:
@@ -825,7 +824,7 @@ def roster_refusal(root: Path) -> str | None:
         return None  # no roster on this machine: nothing is marked
     main = main_worktree(root)
     url = git_out(root, "remote", "get-url", "origin").stdout.strip()
-    origin = re.sub(r"\.git$", "", url.rstrip("/").rsplit("/", 1)[-1].rsplit(":", 1)[-1])
+    origin = re.sub(r"\.git$", "", re.split(r"[/:]", url.rstrip("/"))[-1])
     ws = techne_config.workspace_root(cfg)
     names = {main.name, origin} - {""}
     hits = [
@@ -896,7 +895,7 @@ def without(text: str, spans: list[tuple[int, int, str]]) -> str:
         return not lines[i].strip()
 
     def rule(i: int) -> bool:
-        return i > front and BREAK.match(lines[i].rstrip("\r\n")) is not None
+        return i > front and BREAK.match(lines[i]) is not None
 
     out = segs[0]
     for right in segs[1:]:

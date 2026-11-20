@@ -356,6 +356,7 @@ def test_command_line_globs_add_to_the_repo_s(tmp_path):
         ("rev?ew/**", "review/a", True),
         ("review/**", "reviewer/a", False),
         ("a.b", "aXb", False),
+        ("noteX", "noteX", True),  # a trailing X is part of the name
     ],
 )
 def test_glob_cells(glob, path, hit):
@@ -1267,7 +1268,7 @@ def test_a_rules_file_date_boundary(tmp_path, day, stale):
     assert (check(r, tmp_path) != ["cleanup ✓"]) is stale
 
 
-@pytest.mark.parametrize(("line", "counts"), [(29, True), (31, False)])
+@pytest.mark.parametrize(("line", "counts"), [(29, True), (30, False)])
 def test_the_reviewed_marker_is_read_in_the_first_30_lines(tmp_path, line, counts):
     text = "x\n" * line + "<!-- reviewed: 2026-11-01 -->\n"
     r = make(
@@ -1578,18 +1579,28 @@ def test_root_level_unowned_files_are_named_bare(tmp_path):
     )
 
 
-def test_help_shows_the_no_dates_line_and_the_description(tmp_path, capsys):
+def test_help_shows_the_no_dates_line_and_the_description(tmp_path, capsys, monkeypatch):
+    import re
+
+    monkeypatch.setenv("COLUMNS", "500")  # one line each, so no hyphen is wrapped
     mod = load_module()
     with pytest.raises(SystemExit):
         mod.main(["check", "--help"])
     out = capsys.readouterr().out
-    assert out.startswith("usage: cleanup.py check") and "only what no calendar date decides" in out
+    assert out.startswith("usage: cleanup.py check")
+    assert re.search(
+        r"(?<!\S)only what no calendar date decides: for a pull-request gate that must not turn "
+        r"red on a date; expiry, review age and quarantine ends run on a schedule(?!\S)",
+        " ".join(out.split()),
+    )
     with pytest.raises(SystemExit):
         mod.main(["--help"])
-    assert (
-        "Cleanup check: finished work lives in git and GitHub, not in growing files."
-        in capsys.readouterr().out
+    out = capsys.readouterr().out
+    first, second = mod.__doc__.split("\n\n")[:2]
+    assert re.search(
+        r"(?<!\S)" + re.escape(" ".join(first.split())) + r"(?!\S)", " ".join(out.split())
     )
+    assert second.split("\n")[1].strip() not in out  # the description is the first paragraph only
 
 
 def test_only_limits_the_parts(tmp_path):
@@ -1601,3 +1612,141 @@ def test_glob_double_star_inside_a_name():
     mod = load_module()
     assert mod.glob_regex("a**z").match("a/b/z") and mod.glob_regex("a**bz").match("ax/bz")
     assert not mod.glob_regex("a**bz").match("axz")
+
+
+# --- mutation round 3: cells each guard needs to go red -----------------------------------
+
+
+def test_a_prose_line_in_the_cleanup_section_does_not_end_it(tmp_path):
+    ctx = "## cleanup\nBudgets for this repo.\n- impl_lines: 10\n"
+    r = make(tmp_path, {".claude/skill-context.md": ctx, "IMPL.md": lines(11)})
+    assert one(r, tmp_path, "--only", "impl").startswith("IMPL.md has 11 lines")
+
+
+def test_frontmatter_closed_past_its_read_window_is_no_frontmatter(tmp_path):
+    body = "---\nowner: heph\nexpires: 2027-01-01\n" + "note: x\n" * 1200 + "---\n"
+    r = make(tmp_path, {".claude/skill-context.md": CTX, "review/a.md": body})
+    assert "no owner + expires frontmatter" in one(r, tmp_path, "--only", "transient")
+
+
+def test_a_compact_date_is_not_a_date(tmp_path):
+    r = make(
+        tmp_path,
+        {".claude/skill-context.md": CTX, "review/a.md": fm(owner="h", expires="20270101")},
+    )
+    assert "expires '20270101' is not a YYYY-MM-DD date" in one(r, tmp_path, "--only", "transient")
+
+
+def test_normal_title_collapses_inner_whitespace():
+    assert load_module().normal_title("Shipped  This \t Week") == "shipped this week"
+
+
+def test_a_glob_with_no_slash_still_matches_at_the_root(tmp_path):
+    r = make(tmp_path, {"notes.md": "x", "notes/a.md": "y"})
+    assert load_module().matching_files(r, ["notes*"]) == ["notes.md", "notes/a.md"]
+
+
+def test_rule_entries_after_a_preface_are_read(tmp_path):
+    text = "# Lessons\n\nIntro.\n" + lesson("a", Rule="r")
+    r = make(tmp_path, {".claude/skill-context.md": "## cleanup\n- rules: r.md\n", "r.md": text})
+    assert "'a' has no Since" in one(r, tmp_path)
+
+
+def test_an_entry_after_a_retired_one_is_still_checked(tmp_path):
+    text = lesson("a", Retired="2026-01-01") + lesson("b", Rule="r")
+    r = make(tmp_path, {".claude/skill-context.md": "## cleanup\n- rules: r.md\n", "r.md": text})
+    assert "'b' has no Since" in one(r, tmp_path)
+
+
+def test_an_unreadable_test_file_does_not_stop_the_flaky_scan(tmp_path):
+    r = make(tmp_path, {"tests/test_b.py": f"@{MARK}\n"})
+    (r / "tests" / "test_a.py").symlink_to(r / "gone.py")
+    assert "test_b.py:1" in one(r, tmp_path, "--only", "flaky")
+
+
+def test_a_tracked_test_file_deleted_from_the_tree_is_skipped(tmp_path):
+    r = make(tmp_path, {"tests/test_a.py": "def test_a(): ...\n"}, git=True)
+    (r / "tests" / "test_a.py").unlink()
+    assert check(r, tmp_path, "--only", "flaky") == ["cleanup ✓"]
+
+
+def test_no_dates_reads_past_a_dated_quarantine(tmp_path):
+    text = f"# quarantine: until 2026-12-01 #1\n@{MARK}\n\n\n\n@{MARK}\n"
+    r = make(tmp_path, {"tests/test_x.py": text})
+    assert "test_x.py:6 retries" in one(r, tmp_path, "--only", "flaky", "--no-dates")
+
+
+def test_a_quarantine_split_over_two_lines_does_not_count(tmp_path):
+    text = f"# quarantine: until\n2026-12-01  # {MARK}\n"
+    r = make(tmp_path, {"tests/test_x.py": text})
+    assert "no quarantine end" in one(r, tmp_path, "--only", "flaky")
+
+
+def test_an_origin_name_ending_in_x_is_matched_whole(tmp_path):
+    src = make(tmp_path, {"ROADMAP.md": ROADMAP}, git=True)
+    clone = tmp_path / "elsewhere" / "other"
+    subprocess.run(["git", "clone", "-q", str(src), str(clone)], check=True)
+    url = "https://github.com/me/repoX/"
+    subprocess.run(["git", "-C", str(clone), "remote", "set-url", "origin", url], check=True)
+    (tmp_path / "ws").mkdir()
+    (tmp_path / "home" / ".claude").mkdir(parents=True)
+    (tmp_path / "home" / ".claude" / "techne.toml").write_text(
+        f'github_user = "me"\nworkspace_root = "{tmp_path / "ws"}"\n\n'
+        '[[sisters]]\nname = "repoX"\nregistered_report = true\n'
+    )
+    assert "registered_report" in refused(clone, tmp_path / "home")
+
+
+def test_a_sister_path_that_links_to_another_clone_is_matched(tmp_path):
+    src = make(tmp_path, {"ROADMAP.md": ROADMAP}, git=True)
+    clone = tmp_path / "elsewhere" / "other"
+    subprocess.run(["git", "clone", "-q", str(src), str(clone)], check=True)
+    url = "https://github.com/me/zzz"
+    subprocess.run(["git", "-C", str(clone), "remote", "set-url", "origin", url], check=True)
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (ws / "repo").symlink_to(clone)
+    roster(tmp_path / "home", ws, "registered_report = true\n")
+    assert "registered_report" in refused(clone, tmp_path / "home")
+
+
+def test_prune_checks_only_the_line_after_the_span(tmp_path):
+    text = "# R\n## Completed\n- x\n## Next\n> a quote two lines past the span\n"
+    make(tmp_path, {"ROADMAP.md": text}, git=True)
+    out = run("prune", "repo", home=tmp_path, cwd=tmp_path)
+    assert out.returncode == 0 and "would delete ROADMAP.md:2-3" in out.stdout
+
+
+def test_prune_refuses_a_setext_done_log_at_the_top(tmp_path):
+    root = make(tmp_path, {"ROADMAP.md": "Completed\n=========\n- x\n"}, git=True)
+    assert "line 2 underlines the line above it" in refused(root, tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("text", "expect"),
+    [
+        ("# R\n---\n## Completed\n- x\n", "# R\n"),  # a rule on the second line
+        ("---\n***\n## Done\n- x\n", "---\n"),  # a leading --- that never closes
+        (
+            "---\ntitle: R\n...\n# R\n\n---\n\n## Done\n- x\n",
+            "---\ntitle: R\n...\n# R\n",
+        ),  # frontmatter closed by ..., then a dangling rule
+        ("# R\nintro\n\n## Done\n- x\n## Next\n", "# R\nintro\n\n## Next\n"),  # the gap is a blank
+    ],
+)
+def test_without_edge_cells_round_3(text, expect):
+    mod = load_module()
+    assert mod.without(text, mod.done_sections(text)) == expect
+
+
+def test_prune_refuses_when_the_roadmap_vanishes_mid_run(tmp_path, monkeypatch, capsys):
+    mod = load_module()
+    root = make(tmp_path, {"ROADMAP.md": ROADMAP}, git=True)
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    def vanish(r, cfg):
+        (r / "ROADMAP.md").unlink()
+
+    monkeypatch.setattr(mod, "prune_refusal", vanish)
+    assert mod.prune(root, True) == 1
+    assert capsys.readouterr().out == "repo: refused: ROADMAP.md is gone\n"
