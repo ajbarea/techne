@@ -277,9 +277,26 @@ def test_a_folder_of_images_is_reported_once(tmp_path):
     files = {".claude/skill-context.md": CTX, **{f"review/art/{i}.png": "x" for i in range(3)}}
     root = make(tmp_path, files)
     assert check(root, tmp_path) == [
-        "review/art/ holds 3 file(s) with no owner + expires → add a README.md there with that "
-        "frontmatter, or harvest the files into the repo that owns them and delete them"
+        "review/art/ holds 3 file(s) with no owner + expires (0.png, 1.png, 2.png) → add a "
+        "README.md there with that frontmatter, or harvest the files into the repo that owns "
+        "them and delete them"
     ]
+
+
+@pytest.mark.parametrize(
+    ("names", "lines_out"),
+    [
+        (["a.md", "b.md", "c.md"], 3),  # a few notes are each named
+        (["a.md", "b.md", "c.md", "d.md"], 1),  # past GROUP_AT: one line for the folder
+        (["a.md", "README.md"], 1),  # a bare README speaks for its folder
+    ],
+)
+def test_notes_are_named_until_a_folder_holds_many(tmp_path, names, lines_out):
+    files = {".claude/skill-context.md": CTX, **{f"review/notes/{n}": "x" for n in names}}
+    got = check(make(tmp_path, files), tmp_path)
+    assert len(got) == lines_out
+    if lines_out == 1:
+        assert got[0].startswith(f"review/notes/ holds {len(names)} file(s)")
 
 
 def test_a_readme_above_covers_the_folder_and_the_nearest_wins(tmp_path):

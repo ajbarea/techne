@@ -82,6 +82,7 @@ PARTS = ("roadmap", "impl", "agents", "transient")
 MAX_READ = 4 << 20  # Claude Code skips an instruction file over 4 MiB; nothing here is larger
 FRONT_MAX = 8192  # frontmatter sits in a file's first lines
 SKIP_DIRS = {".git"}
+GROUP_AT = 3  # past this many unowned files in one folder, one line names the folder
 
 # A heading that opens a log of finished work. "Done when" and its kin are criteria, not logs.
 DONE_HEADING = re.compile(
@@ -430,37 +431,37 @@ def check_transient(root: Path, cfg: Config, today: dt.date) -> list[str]:
             parts.pop()
         return None
 
-    bare: dict[str, int] = {}  # folder (or file) -> files with no owner + expires
+    bare: dict[str, list[str]] = {}  # folder -> its files with no owner + expires
     stale: dict[str, str] = {}  # governing file -> why
     for rel in walk_files(root):
         if not any(r.match(rel) for r in want) or any(r.match(rel) for r in keep):
             continue
         got = cover(rel)
         if got is None:
-            key = (
-                rel
-                if rel.lower().endswith(".md") or "/" not in rel
-                else rel.rsplit("/", 1)[0] + "/"
-            )
-            bare[key] = bare.get(key, 0) + 1
+            folder, _, name = rel.rpartition("/")
+            bare.setdefault(folder, []).append(name)
             continue
         where, fields = got
         why = freshness(fields, today, cfg.budgets["review_days"])
         if why:
             stale.setdefault(where, why)
     out = []
-    for key, count in sorted(bare.items()):
-        if key.endswith("/"):
-            out.append(
-                f"{key} holds {count} file(s) with no owner + expires → add a README.md there "
-                "with that frontmatter, or harvest the files into the repo that owns them and "
-                "delete them"
-            )
-        else:
-            out.append(
-                f"{key} has no owner + expires frontmatter → add it, or harvest the file into "
-                "the repo that owns it and delete it"
-            )
+    for folder, names in sorted(bare.items()):
+        prefix = folder + "/" if folder else ""
+        notes = [n for n in names if n.lower().endswith(".md") and n != "README.md"]
+        if not folder or (len(names) == len(notes) and len(notes) <= GROUP_AT):
+            out += [
+                f"{prefix}{n} has no owner + expires frontmatter → add it, or harvest the file "
+                "into the repo that owns it and delete it"
+                for n in names
+            ]
+            continue
+        shown = ", ".join(names[:GROUP_AT]) + (", ..." if len(names) > GROUP_AT else "")
+        out.append(
+            f"{prefix} holds {len(names)} file(s) with no owner + expires ({shown}) → add a "
+            "README.md there with that frontmatter, or harvest the files into the repo that owns "
+            "them and delete them"
+        )
     for where, why in sorted(stale.items()):
         out.append(
             f"{where}: {why} → harvest into the repo that owns it and delete, "
