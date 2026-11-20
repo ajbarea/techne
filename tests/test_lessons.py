@@ -86,7 +86,7 @@ def test_each_lesson_has_its_fields_in_order(lesson):
     assert since <= datetime.date.today(), f"{lesson['slug']}: a date in the future"
     if "Reviewed" in lesson["fields"]:
         reviewed = datetime.date.fromisoformat(lesson["fields"]["Reviewed"])
-        assert since <= reviewed <= datetime.date.today(), f"{lesson['slug']}: Reviewed out of range"
+        assert since <= reviewed <= datetime.date.today(), f"{lesson['slug']}: bad Reviewed"
 
 
 @pytest.mark.parametrize("lesson", ALL, ids=ids)
