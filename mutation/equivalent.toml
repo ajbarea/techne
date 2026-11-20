@@ -210,18 +210,6 @@ hash = "e5f6fd256a6a12fbeb4811b9efb0fc8e5588e58faedb6836b3c8d58269657edd"
 why = "matching_files: only a folder literally named XXXX would narrow the walk; base only narrows it, the pattern still decides"
 
 [[mutant]]
-hash = "63d91a8145d00bb4a68281029defd7c8a4981eb99de400384f920ae21fb5d907"
-why = "prune: newline=None writes \n as os.linesep, which is \n on POSIX, where the suite runs"
-
-[[mutant]]
-hash = "fc3259156ca8024ca1c2448918d2deea3dde95117cc00fb564cf2c1aa6fdc3a8"
-why = "prune: newline=None writes \n as os.linesep, which is \n on POSIX, where the suite runs"
-
-[[mutant]]
-hash = "8c9a6b81b5fc6651c7e1d25f0dfbae1f7b7cf9bf2ddcb8474fdab2248eb4a45f"
-why = "prune: 'UTF-8' and 'utf-8' name the same codec"
-
-[[mutant]]
 hash = "784197920e9d44ee7c0ef0a84d522ddb7c6b2945c8b1fbc25d15edb450eb859a"
 why = "prune_refusal: the pathspec is the literal ROADMAP.md, never an option, so '--' changes nothing; an extra pathspec that matches no file adds no line"
 
@@ -274,28 +262,12 @@ hash = "339cb9a95cb4ee8f841db61c76d32ded25250386670e71301602d3d9ab107aaa"
 why = "read_text: bytes.decode defaults to UTF-8, and 'UTF-8' names the same codec"
 
 [[mutant]]
-hash = "41c6f4da8e756452b6900820467cd3018d2064dc8327f4e8dda3c9647808d39e"
-why = "roster_refusal: techne_config refuses an empty sister name, so an empty string in names matches nothing; only a repo literally named XXXX tells them apart"
-
-[[mutant]]
 hash = "30859f3c5e263b780da632681756c9b186555070b2eda4f77e469a69adbe60dc"
 why = "rule_entries: an equal date leaves the newest date unchanged"
 
 [[mutant]]
-hash = "40d23de85d75aedc57c135bbc1d92ec7434e566ade1f10f931c59a0b0683c883"
-why = "span_hazard: n is 1 only when the span starts at line 1, which is its heading, and no heading's first line matches SETEXT"
-
-[[mutant]]
 hash = "20d65d116fc927d073b6c60346bee335b2d1410387dc05a3c42ea262d249bec6"
 why = "transient_status: the extra branch reads the same README's cached frontmatter (already found ungoverning) or a missing file (None), so it returns nothing new"
-
-[[mutant]]
-hash = "2bd4398410e533c6d73aa0adbacb928b0d49777cea1b20a3d0cb0c3ddf6e366b"
-why = "without: line indexes are 0 or more, so i > -1 and i > -2 agree"
-
-[[mutant]]
-hash = "946f49e31ca1a02b5dac62937c220a78ab82161e43aa57abe69af57ee1612325"
-why = "without: line indexes are 0 or more, so i > -1 and i > -2 agree"
 
 [[mutant]]
 hash = "ad96d61f7650bbcdfb1a8f57b2b498be382c873877686af23edd054440346c9c"
@@ -336,3 +308,15 @@ why = "span_hazard: line a-1 is the span's heading, which never opens a fence"
 [[mutant]]
 hash = "c336a427615049f0b658636afafa8f4be6e4d1e74d0f14f3bf9cba8a31e3566d"
 why = "span_hazard: line b is the next heading or past the end, never an opening fence"
+
+[[mutant]]
+hash = "92f7370a70574386f5e722d1ab1daa491a77ad1a9d08ce7a2cbb1fd7d8539613"
+why = "roster_refusal: re.I is set, so '.GIT$' matches what '.git$' does"
+
+[[mutant]]
+hash = "13831c0392c57ca75179b6af35ee07a165e26a98f97f0288efed740d78697c95"
+why = "without: line indexes are 0 or more, so i > -1 and i > -2 agree"
+
+[[mutant]]
+hash = "abc03945e4403628ee64e07cca042bbdb23248ee72ede8c8fd3a7e63102fa53e"
+why = "without: line indexes are 0 or more, so i > -1 and i > -2 agree"

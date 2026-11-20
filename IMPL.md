@@ -23,8 +23,11 @@ cleanup check holds this file to 50 lines.
   + git_env.github_slug, names lowercased; Scan.open_fence → span_hazard refuses; without()
   merges back-to-back cuts, skips setext underlines, and puts a blank before a setext title;
   property test: CommonMark headings outside the cut survive (40k docs, CRLF too, 0 bad).
-- 📋 Next: local mutation on 3f7ea0f (running) → equivalents for new survivors, drop stale keys of
-  changed functions (roster_refusal, without, span_hazard, prune) → push once → verify pass.
+- ✅ Mutation rounds 4-5 on the round-2 fixes: roster match by lowercased name only (slug was
+  redundant), ATX edges from Scan.atx, CRLF gap by suffix; run 5 on the head: 1730 mutants,
+  1685 killed, 4 timeouts, 41 equivalents each with a reason (7 stale keys pruned), 0 left.
+- 📋 Next: fresh verify pass on the head; Heph merges. After merge: the prefs-repo PR, then
+  repin klepsydra#514's ci.yml to the merge SHA.
 - Bench red on e3fd401 was noise (no phylax change; bench passed on ead67ae and 00509fe).
 - Renumbered planned checks: #257 → check 19, #259 → check 20. Follow-ups filed: #391.
 - Verify: `make lint`; `uv run pytest tests/test_cleanup_check.py tests/test_cleanup_markdown.py
