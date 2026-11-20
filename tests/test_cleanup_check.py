@@ -1771,6 +1771,8 @@ def clone_as(tmp_path: Path, folder: str, url: str) -> Path:
         ("other", "https://gitlab.example/me/repo.GIT", "repo"),  # .GIT, no GitHub slug
         ("other", "git@github.com:ME/REPO.git", "repo"),  # by slug, any case
         ("repo", "https://example.org/x", "Repo"),  # the roster's case differs
+        ("other", "https://gitlab.example/me/repo/", "repo"),  # a trailing slash, no slug
+        ("other", "https://gitlab.example/me/repoX", "repoX"),  # a name ending in X
     ],
 )
 def test_a_registered_clone_is_found_in_any_case(tmp_path, folder, url, sister):
@@ -1783,10 +1785,16 @@ def test_a_registered_clone_is_found_in_any_case(tmp_path, folder, url, sister):
     assert "registered_report" in refused(clone, tmp_path / "home")
 
 
-def test_prune_refuses_a_fence_that_never_closes(tmp_path):
-    text = "# R\n## Done\n- x\n```\ncode\n## Backlog\n- b\n"
+@pytest.mark.parametrize(
+    ("text", "line"),
+    [
+        ("# R\n## Done\n- x\n```\ncode\n## Backlog\n- b\n", 4),
+        ("# R\n## Done\n```\ncode\n## Backlog\n- b\n", 3),  # on the first line under it
+    ],
+)
+def test_prune_refuses_a_fence_that_never_closes(tmp_path, text, line):
     root = make(tmp_path, {"ROADMAP.md": text}, git=True)
-    assert "line 4 opens a code fence that never closes" in refused(root, tmp_path)
+    assert f"line {line} opens a code fence that never closes" in refused(root, tmp_path)
 
 
 def test_prune_still_cuts_a_done_log_with_a_closed_fence(tmp_path):

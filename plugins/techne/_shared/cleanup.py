@@ -358,6 +358,7 @@ class Scan:
         self.heads: list[tuple[int, int, str]] = []
         self.fenced: set[int] = set()
         self.underlines: set[int] = set()  # setext underlines, which look like thematic breaks
+        self.atx: set[int] = set()  # lines that are ATX headings
         self.open_fence: int | None = None  # where a fence opened that never closes
         fence: str | None = None
         para: int | None = None  # where the open paragraph started
@@ -391,6 +392,7 @@ class Scan:
             h = ATX.match(line)
             if h:
                 self.heads.append((i, len(h.group(1)), (h.group(2) or "").strip()))
+                self.atx.add(i)
                 para, in_list = None, False
             elif BREAK.match(line):
                 para, in_list = None, False
@@ -816,7 +818,6 @@ def roster_refusal(root: Path) -> str | None:
     for a repo under workspace_root that is no sister; and when the roster cannot be read."""
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     try:
-        import git_env
         import techne_config
     finally:
         sys.path.pop(0)
@@ -830,15 +831,14 @@ def roster_refusal(root: Path) -> str | None:
     main = main_worktree(root)
     url = git_out(root, "remote", "get-url", "origin").stdout.strip()
     origin = re.sub(r"\.git$", "", re.split(r"[/:]", url.rstrip("/"))[-1], flags=re.I)
-    slug = git_env.github_slug(url) if url else None
     ws = techne_config.workspace_root(cfg)
-    # GitHub names ignore case, so every name compares lowercased; a name alone still matches
-    # (a clone whose origin is no GitHub URL), which only ever refuses more.
+    # GitHub names ignore case, so every name compares lowercased. A name alone matches, owner
+    # or not (a GitHub slug match is one of these), which only ever refuses more.
     names = {n.lower() for n in (main.name, origin) if n}
     hits = [
         s
         for s in roster
-        if s["name"].lower() in names or techne_config.matches(cfg, s, {main}, slug)
+        if s["name"].lower() in names or techne_config.matches(cfg, s, {main}, None)
     ]
     if any(s.get("registered_report") is True for s in hits):
         return "techne.toml marks it registered_report: its text is never edited → change nothing"
@@ -893,7 +893,7 @@ def without(text: str, spans: list[tuple[int, int, str]]) -> str:
     one, and a thematic break left dangling before a cut (doubled with the next one, or at the
     end) goes. Everything else, frontmatter and code fences included, stays byte for byte."""
     lines = text.splitlines(keepends=True)
-    underlines = Scan(text).underlines
+    scan = Scan(text)
     front = -1  # the last line of a leading frontmatter block, which no edge rule touches
     if lines and lines[0].strip() == "---":
         front = next((i for i in range(1, len(lines)) if lines[i].strip() in ("---", "...")), -1)
@@ -913,7 +913,7 @@ def without(text: str, spans: list[tuple[int, int, str]]) -> str:
         return not lines[i].strip()
 
     def rule(i: int) -> bool:
-        return i > front and i not in underlines and BREAK.match(lines[i]) is not None
+        return i > front and i not in scan.underlines and BREAK.match(lines[i]) is not None
 
     out = segs[0]
     before: dict[int, str] = {}  # a blank line written before a kept line, with its ending
@@ -928,11 +928,10 @@ def without(text: str, spans: list[tuple[int, int, str]]) -> str:
                 out.pop()
         if right and out and gap is not None:
             out.append(gap)  # one blank line where there was any, with its own line ending
-        elif right and out and not ATX.match(lines[right[0]].rstrip("\r\n").expandtabs(4)):
+        elif right and out and right[0] not in scan.atx:
             # A setext heading's title right under a list item or paragraph would join it; the
             # cut heading kept them apart, so a blank line now does.
-            last = lines[out[-1]]
-            before[right[0]] = last[len(last.rstrip("\r\n")) :] or "\n"
+            before[right[0]] = "\r\n" if lines[out[-1]].endswith("\r\n") else "\n"
         out += right
     body = "".join(before.get(i, "") + lines[i] for i in out)
     if body and not body.endswith("\n"):

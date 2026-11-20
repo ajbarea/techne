@@ -296,3 +296,43 @@ why = "without: line indexes are 0 or more, so i > -1 and i > -2 agree"
 [[mutant]]
 hash = "946f49e31ca1a02b5dac62937c220a78ab82161e43aa57abe69af57ee1612325"
 why = "without: line indexes are 0 or more, so i > -1 and i > -2 agree"
+
+[[mutant]]
+hash = "ad96d61f7650bbcdfb1a8f57b2b498be382c873877686af23edd054440346c9c"
+why = "prune: done_sections reads only the scan when one is given, so the text argument is unused"
+
+[[mutant]]
+hash = "4baaebe74c5513d5a23aacce6b11b867ddb51094353c11206dc03e496f3eab34"
+why = "prune: without the scan done_sections builds the same Scan from the same text"
+
+[[mutant]]
+hash = "ed3732ada173c11bc18e2250008910341646149a08dd4d56e43e3917aee6fcf7"
+why = "prune: without the scan done_sections builds the same Scan from the same text"
+
+[[mutant]]
+hash = "311420ece9976fe25286e04a7cfd583f4eb082942bb3e89fb8ef4e528ad34626"
+why = "prune: newline=None writes \n as os.linesep, which is \n on POSIX, where the suite runs"
+
+[[mutant]]
+hash = "00a99d3761ff57f529868a8f105079e4673447a1e69db246679147de65cd80dd"
+why = "prune: newline=None writes \n as os.linesep, which is \n on POSIX, where the suite runs"
+
+[[mutant]]
+hash = "2fc251f3455a7e4c88a13cb0e7bc6297b721771dd2b1a8f6d6ae9fceaaee8b57"
+why = "prune: 'UTF-8' and 'utf-8' name the same codec"
+
+[[mutant]]
+hash = "1f7957e3719a1f8dc2e67e2c7560beb49dcf5777142c3e8c6fc096f410a59188"
+why = "span_hazard: n is 1 only when the span starts at line 1, which is its heading, and no heading's first line matches SETEXT"
+
+[[mutant]]
+hash = "708037996f20182df15d911692c2d4180a6f109e826b429ce9ad7cdbb251ac20"
+why = "span_hazard: a fence still open at line a-2 would hold the heading at a-1, so no span starts there"
+
+[[mutant]]
+hash = "1ca89fc2e1dcffec98c6b7c261339a11aee1c769076329fd8ba0f789147acf89"
+why = "span_hazard: line a-1 is the span's heading, which never opens a fence"
+
+[[mutant]]
+hash = "c336a427615049f0b658636afafa8f4be6e4d1e74d0f14f3bf9cba8a31e3566d"
+why = "span_hazard: line b is the next heading or past the end, never an opening fence"
