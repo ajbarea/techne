@@ -937,7 +937,7 @@ def without(text: str, spans: list[tuple[int, int, str]]) -> str:
 
     out = segs[0]
     for right in segs[1:]:
-        gap = bool(out and blank(out[-1])) or bool(right and blank(right[0]))
+        gap = out[-1] if out and blank(out[-1]) else right[0] if right and blank(right[0]) else None
         while out and blank(out[-1]):
             out.pop()
         while right and blank(right[0]):
@@ -946,11 +946,10 @@ def without(text: str, spans: list[tuple[int, int, str]]) -> str:
             out.pop()
             while out and blank(out[-1]):
                 out.pop()
-        if right and out:
-            if gap:
-                out.append(-1)  # one blank line where there was any
+        if right and out and gap is not None:
+            out.append(gap)  # one blank line where there was any, with its own line ending
         out += right
-    body = "".join("\n" if i == -1 else lines[i] for i in out)
+    body = "".join(lines[i] for i in out)
     if body and not body.endswith("\n"):
         body += "\n"
     return body

@@ -861,3 +861,295 @@ def test_lesson_glob_with_a_wildcard_before_the_first_slash(tmp_path):
         tmp_path, {".claude/skill-context.md": ctx, "lessons-a/x.md": lesson("y", Rule="r")}
     )
     assert any("lessons-a/x.md:1 'y'" in g for g in check(root, tmp_path))
+
+
+# --- mutation round: exact output, environment, wiring --------------------------------------
+
+GOLDEN_FILES = {
+    ".claude/skill-context.md": (
+        "## cleanup\n- transient: review/**\n- rules: lessons/*.md\n- impl_lines: 2\n"
+        "- agent_bytes: 200\n"
+    ),
+    "ROADMAP.md": "# R\n## Next\n## Completed\n- x\n",
+    "IMPL.md": "a\nb\nc\n",
+    "AGENTS.md": "x" * 250 + "\n",
+    "review/a.md": fm(owner="heph", expires="2026-11-01"),
+    "review/b.md": "# no frontmatter\n",
+    "review/art/1.png": "x",
+    "review/art/2.png": "x",
+    "review/art/3.png": "x",
+    "review/art/4.png": "x",
+    "lessons/l.md": lesson("old", Since="2026-01-01") + lesson("bare", Rule="r"),
+    "tests/test_q.py": "@" + MARK + "\n",
+}
+GOLDEN = """\
+repo: ROADMAP.md:3 'Completed' keeps a log of finished work (lines 3-4) → harvest its lessons and open follow-ups, then delete it (/techne:sisters clean); git and GitHub hold the record
+repo: IMPL.md has 3 lines, over its 2-line budget → rewrite it as the current slice: done, next, verify
+repo: AGENTS.md has 251 bytes, over the 200-byte budget for agent instructions → move what a hook or check can enforce into one, and cut what the code shows
+repo: review/b.md has no owner + expires frontmatter → add it, or harvest the file into the repo that owns it and delete it
+repo: review/art/ holds 4 file(s) with no owner + expires (1.png, 2.png, 3.png, ...) → add a README.md there with that frontmatter, or harvest the files into the repo that owns them and delete them
+repo: review/a.md: expired 2026-11-01 (owner heph) → harvest into the repo that owns it and delete, or re-review and move the date
+repo: lessons/l.md:1 'old' last dated 2026-01-01, over 90 days ago → still earning its place? add `- **Reviewed:** 2026-11-20`, or delete it (git keeps it)
+repo: lessons/l.md:5 'bare' has no Since, Reviewed or Incidents date → add `- **Reviewed:** 2026-11-20` if it still earns its place, or retire it
+repo: tests/test_q.py:1 retries or marks a test flaky with no quarantine end → fix the test or delete it; to buy time, add `quarantine: until 2026-12-20 #<issue>` beside it
+"""  # noqa: E501
+
+
+def test_every_finding_reads_exactly_as_documented(tmp_path):
+    root = make(tmp_path, GOLDEN_FILES, git=True)
+    out = run("check", "--today", TODAY, str(root), home=tmp_path)
+    assert out.returncode == 0
+    assert out.stdout == GOLDEN
+
+
+def test_git_variables_from_a_hook_never_redirect_git(tmp_path):
+    """From a worktree a git hook exports GIT_DIR and GIT_INDEX_FILE; the check must still read
+    the repo it was pointed at."""
+    root = make(tmp_path, {"ROADMAP.md": ROADMAP, "tests/test_q.py": "@" + MARK + "\n"}, git=True)
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env |= {"HOME": str(tmp_path), "GIT_DIR": str(tmp_path / "nope"), "GIT_INDEX_FILE": "/nope"}
+    flaky = subprocess.run(
+        [sys.executable, str(CLEANUP_SCRIPT), "check", "--only", "flaky", str(root)],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert "tests/test_q.py:1" in flaky.stdout
+    prune = subprocess.run(
+        [sys.executable, str(CLEANUP_SCRIPT), "prune", "--apply", str(root)],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert prune.returncode == 0, prune.stdout
+    assert "Completed" not in (root / "ROADMAP.md").read_text()
+
+
+def test_prune_writes_a_hidden_temp_file_beside_the_roadmap(tmp_path, monkeypatch):
+    mod = load_module()
+    root = make(tmp_path, {"ROADMAP.md": ROADMAP}, git=True)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    seen = []
+    real = os.replace
+
+    def spy(src, dst):
+        seen.append((Path(src), Path(dst)))
+        assert Path(src).read_bytes().endswith(b"## Backlog\n- b\n")
+        real(src, dst)
+
+    monkeypatch.setattr(mod.os, "replace", spy)
+    assert mod.prune(root.resolve(), True) == 0
+    ((src, dst),) = seen
+    assert src.parent == root.resolve() and dst == root.resolve() / "ROADMAP.md"
+    assert src.name.startswith(".ROADMAP.") and src.name.endswith(".tmp")
+    assert not src.exists()
+
+
+def test_prune_keeps_crlf_and_writes_utf8(tmp_path):
+    text = "# R ✅\r\n\r\n## Completed\r\n- x\r\n\r\n## Next\r\n- é\r\n"
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / "ROADMAP.md").write_bytes(text.encode())
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    g = [
+        "git",
+        "-C",
+        str(root),
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@t",
+        "-c",
+        "core.autocrlf=false",
+    ]
+    subprocess.run([*g, "add", "-A"], check=True)
+    subprocess.run([*g, "commit", "-qm", "i"], check=True)
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "LC_", "LANG"))}
+    env |= {"HOME": str(tmp_path), "LC_ALL": "C", "PYTHONUTF8": "0"}
+    out = subprocess.run(
+        [sys.executable, str(CLEANUP_SCRIPT), "prune", "--apply", str(root)],
+        capture_output=True,
+        env=env,
+        check=False,
+    )
+    assert out.returncode == 0, out
+    assert (root / "ROADMAP.md").read_bytes() == "# R ✅\r\n\r\n## Next\r\n- é\r\n".encode()
+
+
+@pytest.mark.parametrize(
+    ("args", "code"),
+    [(["check"], 2), (["check", "--only", "nonsense", "."], 2), ([], 2), (["prune"], 2)],
+)
+def test_bad_command_lines_exit_2(tmp_path, args, code):
+    assert run(*args, home=tmp_path).returncode == code
+
+
+def test_help_names_the_program_and_hides_today(tmp_path):
+    out = run("check", "--help", home=tmp_path).stdout
+    assert out.startswith("usage: cleanup.py check") and "--today" not in out
+    top = run("--help", home=tmp_path).stdout
+    assert "finished work lives in git and GitHub" in top
+
+
+def test_main_reads_its_own_arguments_not_sys_argv(tmp_path, monkeypatch, capsys):
+    mod = load_module()
+    root = make(tmp_path, {"IMPL.md": lines(51)})
+    monkeypatch.setattr(sys, "argv", ["pytest", "--whatever"])
+    assert mod.main(["check", "--ci", str(root)]) == 1
+    assert "IMPL.md has 51 lines" in capsys.readouterr().out
+
+
+def test_ci_fails_when_any_root_has_a_finding(tmp_path):
+    bad = make(tmp_path, {"IMPL.md": lines(51)})
+    good = tmp_path / "good"
+    good.mkdir()
+    assert run("check", "--ci", str(bad), str(good), home=tmp_path).returncode == 1
+
+
+def test_repeated_options_all_apply(tmp_path):
+    root = make(tmp_path, {"a/x.md": "x", "b/y.md": "y", "IMPL.md": lines(51)})
+    got = check(
+        root,
+        tmp_path,
+        "--only",
+        "transient",
+        "--only",
+        "impl",
+        "--transient",
+        "a/**",
+        "--transient",
+        "b/**",
+    )
+    assert len(got) == 3 and any("a/x.md" in g for g in got) and any("b/y.md" in g for g in got)
+
+
+def test_today_is_read_from_the_command_line(tmp_path):
+    root = make(
+        tmp_path,
+        {".claude/skill-context.md": CTX, "review/a.md": fm(owner="h", expires="2026-02-01")},
+    )
+    assert check(root, tmp_path) != ["cleanup ✓"]  # --today 2026-11-20: expired
+    got = run("check", "--today", "2026-01-15", str(root), home=tmp_path).stdout
+    assert got.endswith(": cleanup ✓\n")
+
+
+def test_a_path_that_is_not_utf8_prints(tmp_path):
+    root = make(tmp_path, {".claude/skill-context.md": CTX})
+    (root / "review").mkdir()
+    (root / os.fsdecode(b"review/caf\xe9.md")).write_text("x")
+    out = run("check", "--today", TODAY, str(root), home=tmp_path)
+    assert out.returncode == 0 and "caf\\udce9.md has no owner" in out.stdout
+
+
+@pytest.mark.parametrize(
+    "head",
+    [
+        "﻿---\nowner: heph\nexpires: 2026-12-01\n---\n",  # a byte-order mark
+        "---\nowner: heph\nexpires: 2026-12-01\n...\n",  # YAML's other end marker
+        "---\nOwner: heph\nExpires: 2026-12-01\n---\n",  # keys in any case
+        "---\nowner: 'heph'\nexpires: \"2026-12-01\"\n---\n",  # quoted values
+    ],
+)
+def test_frontmatter_shapes_that_count(tmp_path, head):
+    root = make(tmp_path, {".claude/skill-context.md": CTX, "review/a.md": head + "# body\n"})
+    assert check(root, tmp_path) == ["cleanup ✓"]
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["2026-12-01junk", "2026-12-01T10:00", "26-12-01", ""],
+)
+def test_a_date_with_anything_else_is_no_date(tmp_path, value):
+    root = make(
+        tmp_path, {".claude/skill-context.md": CTX, "review/a.md": fm(owner="h", expires=value)}
+    )
+    assert check(root, tmp_path) != ["cleanup ✓"]
+
+
+@pytest.mark.parametrize(
+    ("glob", "path", "hit"),
+    [
+        ("./review/**", "review/a", True),
+        ("././review", "review/a", True),
+        ("a/**/b.md", "a/b.md", True),
+        ("a/**/b.md", "a/x/y/b.md", True),
+        ("a/**", "a/x/y", True),
+        ("**", "x/y/z", True),
+        ("*.md", "x/a.md", False),
+        ("a/*/c", "a/b/c", True),
+    ],
+)
+def test_more_glob_cells(glob, path, hit):
+    assert bool(load_module().glob_regex(glob).match(path)) is hit
+
+
+@pytest.mark.parametrize(
+    "glob", ["docs/agent.md", "**/agent.md", "docs/*.md", "*/agent.md", "missing/*.md"]
+)
+def test_agent_file_globs_find_files_wherever_the_base_is(tmp_path, glob):
+    ctx = f"## cleanup\n- agent_file: {glob}\n"
+    root = make(tmp_path, {".claude/skill-context.md": ctx, "docs/agent.md": lines(201)})
+    got = check(root, tmp_path, "--only", "agents")
+    assert got == (
+        ["cleanup ✓"]
+        if glob.startswith("missing")
+        else [
+            "docs/agent.md has 201 lines, over the 200-line budget for agent instructions → move "
+            "what a hook or check can enforce into one, and cut what the code shows"
+        ]
+    )
+
+
+def test_config_lines_after_a_bad_one_still_count(tmp_path):
+    ctx = (
+        "## cleanup\n- impl_lines: lots\n- colour: red\n- transient:\n- transient: <placeholder>\n"
+        "- impl_lines: 2\n"
+    )
+    root = make(tmp_path, {".claude/skill-context.md": ctx, "IMPL.md": lines(3)})
+    got = check(root, tmp_path)
+    assert any("IMPL.md has 3 lines, over its 2-line budget" in g for g in got)
+    assert sum("## cleanup:" in g for g in got) == 3
+
+
+def test_every_unreadable_agent_file_and_overrun_is_reported(tmp_path):
+    root = make(tmp_path, {"CLAUDE.md": lines(201)})
+    os.mkfifo(root / "AGENTS.md")
+    got = check(root, tmp_path)
+    assert got[0] == "AGENTS.md is not a regular file → make it a regular file"
+    assert got[1].startswith("CLAUDE.md has 201 lines")
+
+
+def test_every_root_level_and_folder_finding_is_listed(tmp_path):
+    files = {"x.md": "x", "y.md": "y", "f1/a.png": "x", "f2/b.png": "x"}
+    got = check(make(tmp_path, files), tmp_path, "--only", "transient", "--transient", "**")
+    assert len(got) == 4
+
+
+def test_done_log_output_and_codes(tmp_path):
+    root = make(tmp_path, {"ROADMAP.md": "# R\n## Done\n- a\n- b\n## Next\n"})
+    out = run("done-log", str(root), home=tmp_path)
+    assert out.returncode == 0
+    assert out.stdout == "===== ROADMAP.md:2-4 'Done' =====\n## Done\n- a\n- b\n"
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    out = run("done-log", str(empty), home=tmp_path)
+    assert (out.returncode, out.stdout) == (0, "empty: ROADMAP.md keeps no done-log ✓\n")
+    os.mkfifo(empty / "ROADMAP.md")
+    out = run("done-log", str(empty), home=tmp_path)
+    assert (out.returncode, out.stdout) == (1, "empty: ROADMAP.md is not a regular file\n")
+
+
+def test_prune_output_dry_and_applied(tmp_path):
+    root = make(tmp_path, {"ROADMAP.md": ROADMAP}, git=True)
+    dry = run("prune", str(root), home=tmp_path)
+    assert dry.stdout == (
+        "repo: would delete ROADMAP.md:6-9 'Completed'\n"
+        "repo: dry run; harvest first (cleanup.py done-log), then --apply\n"
+    )
+    done = run("prune", "--apply", str(root), home=tmp_path)
+    assert done.stdout == (
+        "repo: deleting ROADMAP.md:6-9 'Completed'\n"
+        "repo: done; `git diff ROADMAP.md` shows it, and git history keeps the text\n"
+    )
