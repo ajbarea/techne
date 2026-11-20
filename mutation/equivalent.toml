@@ -156,3 +156,147 @@ why = "is_arith: find starts past the opening character, so j is never 0"
 [[mutant]]
 hash = "29a72277415cb783675967e18b92d8ec8518359661b1e78450abdf20a0661d7b"
 why = "is_arith: find starts past the opening character, so j is never 0"
+
+[[mutant]]
+hash = "d5948fff6954b98d09937a8230f0b646962f4c0ccba7d139a1c3868af21aa7f5"
+why = "Config.__init__: prune_off is only read for truth, and printed only when truthy"
+
+[[mutant]]
+hash = "5c97e31a1ba8af4274b9f5933a685ef16e7c4dbeef7341529913ea1bd5ab8978"
+why = "candidate_tests: subprocess.run's check defaults to False, and None is falsy"
+
+[[mutant]]
+hash = "4c56b9e7016b434f8053daa1a51b3fb8a967f3414bd39fc2c73e51a6a5601e19"
+why = "candidate_tests: subprocess.run's check defaults to False, and None is falsy"
+
+[[mutant]]
+hash = "4911e46505bb181470bc70a42d3a1e682110f72c8d6af92de08962b2e7a5bcdd"
+why = "check_rules: an empty or vanished file has no entries and no reviewed date either way, so the finding is the same"
+
+[[mutant]]
+hash = "71038e812fe8484b7717bb501900b34bb9140b34b90963c888bc4de8630d6592"
+why = "git_out: subprocess.run's check defaults to False, and None is falsy"
+
+[[mutant]]
+hash = "093a5f6cbcbe1ae489b77b656254d2ca299b98dbc67e0d5671b24c0d36e43b86"
+why = "git_out: subprocess.run's check defaults to False, and None is falsy"
+
+[[mutant]]
+hash = "e781faa8e63ace2f0a2266c9a837e2077af46b6cf3ab23bfd9a00e23ec035780"
+why = "is_expired: parse_date('XXXX') is None, as parse_date('') is"
+
+[[mutant]]
+hash = "07c54aa833f9bd5babeeca510d570298ed2fdff89f0f3a4f876ebc85b50f0d66"
+why = "load_config: the value is lowercased first, so stripping an uppercase X removes nothing"
+
+[[mutant]]
+hash = "58088755f0ea6adf3a00b976b925896e2d1ea3b4987e65d8b1bcd808fdc81b37"
+why = "main_worktree: a failed git rev-parse prints nothing on stdout, and Path('').name is not '.git', so root is returned either way"
+
+[[mutant]]
+hash = "573ddc376be2418d9b4acc6db43165f4ad321ba10b00f9954b498a2178e14c04"
+why = "main_worktree: a failed git rev-parse prints nothing on stdout, and Path('').name is not '.git', so root is returned either way"
+
+[[mutant]]
+hash = "3f2b2123da65ebdb4cff8289a3f7a650e250ba476ba56d953ececdba93c99940"
+why = "matching_files: base only narrows the walk; walking from any ancestor finds the same files in the same order, and the first piece of a split ignores maxsplit"
+
+[[mutant]]
+hash = "509d55b5322b30d60c5f6ebb89a7c64487783e2d9322d12c61ac714ac54835d7"
+why = "matching_files: base only narrows the walk; walking from any ancestor finds the same files in the same order, and the first piece of a split ignores maxsplit"
+
+[[mutant]]
+hash = "4c95f47f1458330ed00b3abaa18c61e9907866597db85d5b9f7c54c328f1436f"
+why = "matching_files: base only narrows the walk; walking from any ancestor finds the same files in the same order, and the first piece of a split ignores maxsplit"
+
+[[mutant]]
+hash = "e5f6fd256a6a12fbeb4811b9efb0fc8e5588e58faedb6836b3c8d58269657edd"
+why = "matching_files: only a folder literally named XXXX would narrow the walk; base only narrows it, the pattern still decides"
+
+[[mutant]]
+hash = "63d91a8145d00bb4a68281029defd7c8a4981eb99de400384f920ae21fb5d907"
+why = "prune: newline=None writes \n as os.linesep, which is \n on POSIX, where the suite runs"
+
+[[mutant]]
+hash = "fc3259156ca8024ca1c2448918d2deea3dde95117cc00fb564cf2c1aa6fdc3a8"
+why = "prune: newline=None writes \n as os.linesep, which is \n on POSIX, where the suite runs"
+
+[[mutant]]
+hash = "8c9a6b81b5fc6651c7e1d25f0dfbae1f7b7cf9bf2ddcb8474fdab2248eb4a45f"
+why = "prune: 'UTF-8' and 'utf-8' name the same codec"
+
+[[mutant]]
+hash = "784197920e9d44ee7c0ef0a84d522ddb7c6b2945c8b1fbc25d15edb450eb859a"
+why = "prune_refusal: the pathspec is the literal ROADMAP.md, never an option, so '--' changes nothing; an extra pathspec that matches no file adds no line"
+
+[[mutant]]
+hash = "af477fe0229794e6af4060bcbdc187db8e275f791b6f351c550e49d4cef8dc44"
+why = "prune_refusal: the pathspec is the literal ROADMAP.md, never an option, so '--' changes nothing; an extra pathspec that matches no file adds no line"
+
+[[mutant]]
+hash = "5c8564cfb19576bb4939504e851cdaa793c2bc653cd3bdbafc8f560e1ad1de30"
+why = "prune_refusal: the pathspec is the literal ROADMAP.md, never an option, so '--' changes nothing; an extra pathspec that matches no file adds no line"
+
+[[mutant]]
+hash = "3c3ec2734feb5e70deae86418ec3ee013f32f8dade5f1f348a1a1fdaa84b3cc0"
+why = "read_text: os.O_NONBLOCK exists on POSIX, where the suite runs, so getattr's default is never read"
+
+[[mutant]]
+hash = "e12b8aee2b988511d9927e9a1fe8e635badfdc23e03e9d4c3760bdbbc136ee41"
+why = "read_text: os.O_NONBLOCK exists on POSIX, where the suite runs, so getattr's default is never read"
+
+[[mutant]]
+hash = "0fd904f3a2b747a346f9a16044aa9a2556a8337691758ea439b503fb01a6d941"
+why = "read_text: os.O_NONBLOCK exists on POSIX, where the suite runs, so getattr's default is never read"
+
+[[mutant]]
+hash = "f3e8f60494a78aaefb069e0e2a499b826a239203101233ce2f62da84f5d2036f"
+why = "read_text: os.O_BINARY exists only on Windows; on POSIX, where the suite runs, every form reads 0"
+
+[[mutant]]
+hash = "3c33b656ef4f2ed055d895fa93847303470e0ef06efefb39dcce95fb4b5cf6cc"
+why = "read_text: os.O_BINARY exists only on Windows; on POSIX, where the suite runs, every form reads 0"
+
+[[mutant]]
+hash = "52b4b3313149085e3bb03f2410f7f70209643b1b3f2ecb47ba305936272ce108"
+why = "read_text: os.O_BINARY exists only on Windows; on POSIX, where the suite runs, every form reads 0"
+
+[[mutant]]
+hash = "7514566bdf97ddbadc308e8429fa6c2c5763bcbc9749cc7fca8bdbc5b8deeae7"
+why = "read_text: an OSError from os.open always carries strerror, so str(exc) is never read"
+
+[[mutant]]
+hash = "855ca6ef4df250413aacbeb83fa23234547d566d37f02632b36f7cff7b3ddaee"
+why = "read_text: reading limit+2 bytes still exceeds limit exactly when limit+1 does"
+
+[[mutant]]
+hash = "5c4e7e3fa3211c9f4a2c88f898959a60b5c33244839d2e583e276e54c6f5b6c4"
+why = "read_text: bytes.decode defaults to UTF-8, and 'UTF-8' names the same codec"
+
+[[mutant]]
+hash = "339cb9a95cb4ee8f841db61c76d32ded25250386670e71301602d3d9ab107aaa"
+why = "read_text: bytes.decode defaults to UTF-8, and 'UTF-8' names the same codec"
+
+[[mutant]]
+hash = "41c6f4da8e756452b6900820467cd3018d2064dc8327f4e8dda3c9647808d39e"
+why = "roster_refusal: techne_config refuses an empty sister name, so an empty string in names matches nothing; only a repo literally named XXXX tells them apart"
+
+[[mutant]]
+hash = "30859f3c5e263b780da632681756c9b186555070b2eda4f77e469a69adbe60dc"
+why = "rule_entries: an equal date leaves the newest date unchanged"
+
+[[mutant]]
+hash = "40d23de85d75aedc57c135bbc1d92ec7434e566ade1f10f931c59a0b0683c883"
+why = "span_hazard: n is 1 only when the span starts at line 1, which is its heading, and no heading's first line matches SETEXT"
+
+[[mutant]]
+hash = "20d65d116fc927d073b6c60346bee335b2d1410387dc05a3c42ea262d249bec6"
+why = "transient_status: the extra branch reads the same README's cached frontmatter (already found ungoverning) or a missing file (None), so it returns nothing new"
+
+[[mutant]]
+hash = "2bd4398410e533c6d73aa0adbacb928b0d49777cea1b20a3d0cb0c3ddf6e366b"
+why = "without: line indexes are 0 or more, so i > -1 and i > -2 agree"
+
+[[mutant]]
+hash = "946f49e31ca1a02b5dac62937c220a78ab82161e43aa57abe69af57ee1612325"
+why = "without: line indexes are 0 or more, so i > -1 and i > -2 agree"

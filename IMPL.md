@@ -14,19 +14,13 @@ cleanup check holds this file to 50 lines.
   `--no-dates` = the PR gate (`make guards`, `.github/workflows/cleanup.yml`); `cleanup-weekly.yml`
   runs the dated half. klepsydra#514 imports `transient_status`/`Transient.expired`/`done_sections`.
 - ✅ Reader round 1 (1 Blocking + 7 Should-fix) fixed in ead67ae; tests in 00509fe.
-- ✅ Mutation round 2 committed as 66dda39 (simplified `Scan`, whole-message tests, walk
-  fallback, origin forms, `without()` edges); pushed with this IMPL for the relaunch, so CI's
-  mutation run on it is the first data (the local run was stopped for the relaunch).
-- 📋 Next, in order:
-  1. Read CI's mutation result on HEAD, and run it locally before any further push (Heph's
-     rule): `flock -o /tmp/fleet-heavy.lock timeout 3000 uv run python scripts/mutation.py
-     --changed-since origin/main --module plugins/techne/_shared/cleanup.py --workers 4 --out
-     /tmp/mut.json`. CI's 00509fe survivors (226, before 66dda39) are in
-     ~/.local/state/fleet-orchestrator/reports/cleanup-ratchet/techne-ci-survivors-00509fe.json.
-     Kill survivors with tests; a true equivalent goes in mutation/equivalent.toml with a reason
-     per mutant (likely: O_NONBLOCK/O_BINARY getattr defaults, decode "utf-8", check=False→None,
-     newline="" on POSIX, Config.prune_off "" vs None, normal_title `\s+`).
-  2. Fresh Opus reader round 2 (elenchus), then a verify pass; Heph merges.
+- ✅ Mutation round 2 (66dda39): CI on it left 74 survivors. Round 3 (c250332 + equivalents):
+  a test cell per killable survivor, four reads simplified (origin by re.split, BREAK takes a
+  kept line ending, BOM by removeprefix, quarantine per line); local run on the head: 1669
+  mutants, 1629 killed, 4 timeouts (detected), 36 survivors each with a reason in
+  mutation/equivalent.toml (POSIX-only getattr/newline defaults, equal codecs, `--` pathspecs).
+- 📋 Next: CI's mutation run on this head confirms 0 survivors; then a fresh Opus reader round 2
+  (elenchus), then a verify pass; Heph merges. After merge: the prefs-repo PR, klepsydra#514 pin.
 - Bench red on e3fd401 was noise (no phylax change; bench passed on ead67ae and 00509fe).
 - Renumbered planned checks: #257 → check 19, #259 → check 20. Follow-ups filed: #391.
 - Verify: `make lint`; `uv run pytest tests/test_cleanup_check.py tests/test_cleanup_markdown.py
