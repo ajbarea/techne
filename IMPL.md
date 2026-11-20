@@ -32,8 +32,16 @@ cleanup check holds this file to 50 lines.
   run 7 on it: 1843 mutants, 1794 killed, 45 equivalents, 4 timeouts, 0 left.
 - ✅ Verify round 5 (an HTML opener inside a quote region) fixed in 4121688; the reviewer's block
   oracle: 0 bad over 6 seeds; mutation run 8: 1849 mutants, 1800 killed, 45 equivalents, 0 left.
-- 📋 Next: fresh verify pass on the head; Heph merges. After merge: the prefs-repo PR, then
-  repin klepsydra#514's ci.yml to the merge SHA.
+- ✅ Verify round 6 on 5f9d398: clean (no next member of the block-region class).
+- 📋 PARKED 11-20 17:10 (Personal week at 3%). Next, on relaunch: Heph's independent review r1,
+  ~/.local/state/fleet-orchestrator/reports/cleanup-check-394-r1.md: SF1 CRLF skill-context
+  drops `## cleanup` (accept \r\n, cleanup.py:216); SF2 prune deletes link reference
+  definitions in the cut (keep or move them; extend the differential test to rendered output);
+  SF3 flaky check misses `retries: process.env.CI ? 2 : 0`, vitest `retry:`, JSON "retries": 2.
+  Nits N1-N8 there (no-ROADMAP exit 0, surrogateescape write, final newline, narrow ` +#`,
+  POSIX-only equivalents: Windows leg or say so, github-script retries, harvest grep, check 18
+  on registered_report). Then local mutation run, push once, verify; Heph r2 and merge.
+  After merge: the prefs-repo PR, then repin klepsydra#514's ci.yml to the merge SHA.
 - Bench red on e3fd401 was noise (no phylax change; bench passed on ead67ae and 00509fe).
 - Renumbered planned checks: #257 → check 19, #259 → check 20. Follow-ups filed: #391.
 - Verify: `make lint`; `uv run pytest tests/test_cleanup_check.py tests/test_cleanup_markdown.py
