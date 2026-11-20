@@ -40,9 +40,13 @@ def _chromium_runs() -> bool:
 
 
 HAVE_BROWSER = not OPTED_OUT and _chromium_runs()
-needs_browser = pytest.mark.skipif(
-    not HAVE_BROWSER, reason="no Chromium (declared by TECHNE_NO_BROWSER)"
-)
+if OPTED_OUT:
+    _NO_BROWSER = "no Chromium (declared by TECHNE_NO_BROWSER)"
+elif not HAVE_LIBS:
+    _NO_BROWSER = "playwright or axe-playwright-python is not importable (run through make test)"
+else:
+    _NO_BROWSER = "Playwright's Chromium does not launch"
+needs_browser = pytest.mark.skipif(not HAVE_BROWSER, reason=_NO_BROWSER)
 
 
 def test_the_browser_is_present_or_its_absence_is_declared():
