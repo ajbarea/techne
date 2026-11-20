@@ -1153,3 +1153,451 @@ def test_prune_output_dry_and_applied(tmp_path):
         "repo: deleting ROADMAP.md:6-9 'Completed'\n"
         "repo: done; `git diff ROADMAP.md` shows it, and git history keeps the text\n"
     )
+
+
+# --- mutation round 2: every message whole, and the cells mutants survived -------------------
+
+
+def one(root: Path, home: Path, *extra: str) -> str:
+    got = check(root, home, *extra)
+    assert len(got) == 1, got
+    return got[0]
+
+
+def test_flaky_messages_read_whole(tmp_path):
+    r = make(tmp_path, {"tests/test_x.py": "@" + MARK + "\n"}, git=True)
+    assert one(r, tmp_path, "--only", "flaky", "--no-dates") == (
+        "tests/test_x.py:1 retries or marks a test flaky with no quarantine end → fix the test or "
+        "delete it; to buy time, add `quarantine: until YYYY-MM-DD #<issue>` beside it"
+    )
+    (r / "tests/test_x.py").write_text("# quarantine: until 2026-11-01 #1\n@" + MARK + "\n")
+    assert one(r, tmp_path, "--only", "flaky") == (
+        "tests/test_x.py:2 quarantine ended 2026-11-01 → fix the test or delete it (git keeps it); "
+        "a retry teaches the agent to rerun until green"
+    )
+    (r / "tests/test_x.py").write_text("# quarantine: until 2027-01-01 #1\n@" + MARK + "\n")
+    assert one(r, tmp_path, "--only", "flaky") == (
+        "tests/test_x.py:2 quarantine runs to 2027-01-01, past the 30-day limit → fix it sooner, "
+        "or delete it"
+    )
+
+
+def test_a_quarantine_below_the_marker_does_not_count(tmp_path):
+    r = make(
+        tmp_path, {"tests/test_x.py": "@" + MARK + "\n# quarantine: until 2026-12-01\n"}, git=True
+    )
+    assert "no quarantine end" in one(r, tmp_path, "--only", "flaky")
+
+
+def test_every_flaky_file_and_marker_is_reported(tmp_path):
+    files = {
+        "tests/test_a.py": "x = 1\n",  # no marker: skipped, never stops the scan
+        "tests/test_b.py": "@" + MARK + "\n@" + MARK + "\n",
+        "tests/test_c.py": "@" + MARK + "\n",
+    }
+    r = make(tmp_path, files, git=True)
+    got = check(r, tmp_path, "--only", "flaky")
+    assert [g.split(" ")[0] for g in got] == [
+        "tests/test_b.py:1",
+        "tests/test_b.py:2",
+        "tests/test_c.py:1",
+    ]
+
+
+def test_outside_git_the_walk_finds_tests_at_every_depth(tmp_path):
+    files = {
+        "test_top.py": "@" + MARK + "\n",
+        "a/b/test_deep.py": "@" + MARK + "\n",
+        "c/test_c.py": "@" + MARK + "\n",
+    }
+    got = check(make(tmp_path, files), tmp_path, "--only", "flaky")
+    assert sorted(g.split(" ")[0] for g in got) == [
+        "a/b/test_deep.py:1",
+        "c/test_c.py:1",
+        "test_top.py:1",
+    ]
+
+
+def test_git_from_a_hook_cannot_turn_the_test_list_into_a_walk(tmp_path):
+    root = make(tmp_path, {"README.md": "x"}, git=True)
+    (root / "tests").mkdir()
+    (root / "tests" / "test_untracked.py").write_text("@" + MARK + "\n")  # a walk would see it
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env |= {"HOME": str(tmp_path), "GIT_DIR": str(tmp_path / "nope")}
+    out = subprocess.run(
+        [sys.executable, str(CLEANUP_SCRIPT), "check", "--only", "flaky", str(root)],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert out.stdout.endswith(": cleanup ✓\n"), out.stdout
+
+
+def test_rules_messages_read_whole(tmp_path):
+    ctx = "## cleanup\n- rules: CLAUDE.md\n- rules: lessons/*.md\n"
+    files = {
+        ".claude/skill-context.md": ctx,
+        "CLAUDE.md": "# Rules\n",
+        "lessons/l.md": lesson("x", Rule="r"),
+    }
+    r = make(tmp_path, files)
+    assert check(r, tmp_path, "--no-dates") == [
+        "CLAUDE.md has no reviewed date → add `<!-- reviewed: YYYY-MM-DD -->` once its rules have "
+        "been reviewed (cut each one a check now enforces)",
+        "lessons/l.md:1 'x' has no Since, Reviewed or Incidents date → add `- **Reviewed:** "
+        "YYYY-MM-DD` if it still earns its place, or retire it",
+    ]
+    (r / "CLAUDE.md").write_text("<!-- reviewed: 2026-01-01 -->\n# Rules\n")
+    assert check(r, tmp_path)[0] == (
+        "CLAUDE.md last reviewed 2026-01-01, over 90 days ago → prune it: cut each rule a check "
+        "enforces or the code shows, then set reviewed: 2026-11-20"
+    )
+
+
+@pytest.mark.parametrize(("day", "stale"), [("2026-08-22", False), ("2026-08-21", True)])
+def test_a_rules_file_date_boundary(tmp_path, day, stale):
+    r = make(
+        tmp_path,
+        {
+            ".claude/skill-context.md": "## cleanup\n- rules: CLAUDE.md\n",
+            "CLAUDE.md": f"<!-- reviewed: {day} -->\n",
+        },
+    )
+    assert (check(r, tmp_path) != ["cleanup ✓"]) is stale
+
+
+@pytest.mark.parametrize(("line", "counts"), [(29, True), (31, False)])
+def test_the_reviewed_marker_is_read_in_the_first_30_lines(tmp_path, line, counts):
+    text = "x\n" * line + "<!-- reviewed: 2026-11-01 -->\n"
+    r = make(
+        tmp_path,
+        {".claude/skill-context.md": "## cleanup\n- rules: CLAUDE.md\n", "CLAUDE.md": text},
+    )
+    assert (check(r, tmp_path) == ["cleanup ✓"]) is counts
+
+
+def test_every_rules_file_and_entry_is_checked(tmp_path):
+    ctx = "## cleanup\n- rules: a.md\n- rules: b.md\n- rules: c.md\n"
+    files = {
+        ".claude/skill-context.md": ctx,
+        "b.md": (
+            "## Part\n### one: x\n- **Since:** 2026-11-01\n## Other\n### two: y\n- **Rule:** r\n"
+        ),
+        "c.md": lesson("three", Rule="r"),
+    }
+    r = make(tmp_path, files)
+    os.mkfifo(r / "a.md")
+    got = check(r, tmp_path)
+    assert got[0] == "a.md is not a regular file → make it a regular file"
+    assert ["two" in g for g in got[1:]] == [True, False] and "'three'" in got[2]
+
+
+def test_a_bad_date_after_a_good_one_keeps_the_good(tmp_path):
+    text = "### x: n\n- **Incidents:** a (2026-11-01): y; b (2026-02-30): z\n"
+    r = make(tmp_path, {".claude/skill-context.md": "## cleanup\n- rules: r.md\n", "r.md": text})
+    assert check(r, tmp_path) == ["cleanup ✓"]
+
+
+def test_the_newest_of_several_dates_counts(tmp_path):
+    text = "### x: n\n- **Since:** 2026-11-01\n- **Reviewed:** 2020-01-01\n"
+    r = make(tmp_path, {".claude/skill-context.md": "## cleanup\n- rules: r.md\n", "r.md": text})
+    assert check(r, tmp_path) == ["cleanup ✓"]
+
+
+def test_prune_refusal_messages_read_whole(tmp_path):
+    root = make(tmp_path, {"x": "y"}, git=True)
+    (root / "ROADMAP.md").write_text(ROADMAP)
+    assert refused(root, tmp_path) == (
+        "repo: refused: ROADMAP.md is not tracked by git, so a deletion could not be recovered "
+        "→ commit it first\n"
+    )
+    subprocess.run(["git", "-C", str(root), "add", "ROADMAP.md"], check=True)
+    subprocess.run(
+        ["git", "-C", str(root), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "r"],
+        check=True,
+    )
+    (root / "ROADMAP.md").write_text(ROADMAP + "x\n")
+    assert refused(root, tmp_path) == (
+        "repo: refused: ROADMAP.md has uncommitted changes → commit or drop them first, so the "
+        "prune is its own diff\n"
+    )
+    (root / "ROADMAP.md").unlink()
+    (root / "ROADMAP.md").symlink_to("x")
+    assert refused(root, tmp_path) == "repo: refused: ROADMAP.md is not a regular file\n"
+
+
+def test_another_dirty_file_does_not_block_the_prune(tmp_path):
+    root = make(tmp_path, {"ROADMAP.md": ROADMAP, "other.md": "a"}, git=True)
+    (root / "other.md").write_text("changed")
+    assert run("prune", "--apply", str(root), home=tmp_path).returncode == 0
+
+
+def test_registered_message_reads_whole(tmp_path):
+    root = make(tmp_path, {"ROADMAP.md": ROADMAP}, git=True)
+    roster(tmp_path / "home", tmp_path, "registered_report = true\n")
+    assert refused(root, tmp_path / "home") == (
+        "repo: refused: techne.toml marks it registered_report: its text is never edited → change "
+        "nothing\n"
+    )
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "git@github.com:me/repo.git",
+        "https://github.com/me/repo",
+        "https://github.com/me/repo/",
+        "ssh://git@github.com:22/me/repo.git",
+        "repo",
+    ],
+)
+def test_a_registered_clone_is_found_by_any_origin_form(tmp_path, url):
+    src = make(tmp_path, {"ROADMAP.md": ROADMAP}, git=True)
+    clone = tmp_path / "elsewhere" / "other"
+    subprocess.run(["git", "clone", "-q", str(src), str(clone)], check=True)
+    subprocess.run(["git", "-C", str(clone), "remote", "set-url", "origin", url], check=True)
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    roster(tmp_path / "home", ws, "registered_report = true\n")
+    assert "registered_report" in refused(clone, tmp_path / "home")
+
+
+def test_a_roster_without_workspace_root_still_matches_by_name(tmp_path):
+    root = make(tmp_path, {"ROADMAP.md": ROADMAP}, git=True)
+    (tmp_path / "home" / ".claude").mkdir(parents=True)
+    (tmp_path / "home" / ".claude" / "techne.toml").write_text(
+        'github_user = "me"\n\n[[sisters]]\nname = "repo"\nregistered_report = true\n'
+    )
+    assert "registered_report" in refused(root, tmp_path / "home")
+
+
+def test_main_worktree_and_sys_path(tmp_path, monkeypatch):
+    mod = load_module()
+    root = make(tmp_path, {"x": "y"}, git=True)
+    wt = tmp_path / "wt"
+    subprocess.run(["git", "-C", str(root), "worktree", "add", "-q", str(wt)], check=True)
+    assert mod.main_worktree(wt) == root.resolve()
+    assert mod.main_worktree(root) == root.resolve()
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    assert mod.main_worktree(plain) == plain.resolve()
+    before = list(sys.path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    mod.roster_refusal(root)
+    assert sys.path == before
+
+
+def test_prune_outside_git_with_a_roster_refuses_cleanly(tmp_path):
+    root = make(tmp_path, {"ROADMAP.md": ROADMAP})
+    roster(tmp_path / "home", tmp_path, "")
+    assert "not tracked by git" in refused(root, tmp_path / "home")
+
+
+def test_prune_removes_its_temp_file_when_the_replace_fails(tmp_path, monkeypatch):
+    mod = load_module()
+    root = make(tmp_path, {"ROADMAP.md": ROADMAP}, git=True)
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    def fail(src, dst):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(mod.os, "replace", fail)
+    with pytest.raises(OSError):
+        mod.prune(root.resolve(), True)
+    assert sorted(p.name for p in root.iterdir() if p.name != ".git") == ["ROADMAP.md"]
+    assert (root / "ROADMAP.md").read_text() == ROADMAP
+
+
+@pytest.mark.parametrize(
+    ("text", "expect"),
+    [
+        ("---\n---\n## Done\n- x\n", "---\n---\n"),  # empty frontmatter keeps its close
+        ("# R\n\n---\n\n## Done\n- x\n", "# R\n"),  # a dangling rule at the end goes
+        (
+            "# R\n\n---\n\n## Done\n- x\n\n## Next\n",
+            "# R\n\n---\n\n## Next\n",
+        ),  # a rule before a heading stays
+        ("# R\r\n\r\n---\r\n\r\n## Done\r\n- x\r\n", "# R\r\n"),  # CRLF rules too
+        ("## Done\n- x\n## Next\n- a", "## Next\n- a\n"),  # a last line without newline gets one
+        ("## Done\n- x\n## Next\n## Shipped\n- y\n## Last\n", "## Next\n## Last\n"),  # two cuts
+        ("---\ntitle: R\n...\n## Done\n- x\n", "---\ntitle: R\n...\n"),  # YAML's ... end
+    ],
+)
+def test_without_edge_cells(text, expect):
+    mod = load_module()
+    assert mod.without(text, mod.done_sections(text)) == expect
+
+
+@pytest.mark.parametrize(
+    ("text", "names"),
+    [
+        ("## Completed\n- a\n## Shipped\n- b\n", ["Completed", "Shipped"]),  # back to back
+        (
+            "## Shipped\n### Completed\n## Next\n## Done\n- d\n",
+            ["Shipped", "Done"],
+        ),  # after a nested one
+    ],
+)
+def test_done_sections_cells(text, names):
+    assert [t for _, _, t in load_module().done_sections(text)] == names
+
+
+def test_span_hazard_looks_one_line_past_the_span_and_no_further():
+    mod = load_module()
+    lines = "## Completed\n- x\n## Next\nNext para\n---\n".splitlines()
+    assert mod.span_hazard(lines, 1, 2) is None
+    lines = "## Completed\nPara\n---\n## Next\n".splitlines()
+    assert (
+        mod.span_hazard(lines, 1, 3)
+        == "line 3 underlines the line above it, which a reader may take for a heading"
+    )
+    lines = "## Completed\n> " + "q" * 60 + "\n".splitlines()[0]
+    assert mod.span_hazard(lines.splitlines(), 1, 2) == (
+        "line 2 ('> " + "q" * 38 + "') is a shape the scanner does not model"
+    )
+
+
+def test_matching_files_walks_only_the_fixed_folder(tmp_path, monkeypatch):
+    mod = load_module()
+    root = make(tmp_path, {"docs/a.md": "x", "docs/sub/b.md": "x", "other/c.md": "x"})
+    starts = []
+    real = mod.walk_files
+    monkeypatch.setattr(mod, "walk_files", lambda p: (starts.append(p), real(p))[1])
+    assert mod.matching_files(root, ["docs/*.md"]) == ["docs/a.md"]
+    assert mod.matching_files(root, ["docs/sub/b.md"]) == ["docs/sub/b.md"]
+    assert mod.matching_files(root, ["missing/x/*.md"]) == []
+    assert mod.matching_files(root, ["*/c.md"]) == ["other/c.md"]
+    assert starts == [root / "docs", root / "docs/sub", root, root]
+
+
+def test_load_config_details(tmp_path):
+    mod = load_module()
+    ctx = (
+        "## cleanup\n- transient: <placeholder>\n- prune: `off`\n- colour: x\n- keep: k/**\n"
+        "- impl_lines: 7\n"
+    )
+    r = make(tmp_path, {".claude/skill-context.md": ctx})
+    cfg = mod.load_config(r)
+    assert cfg.transient == [] and cfg.keep == ["k/**"] and cfg.prune_off == "`off`"
+    assert cfg.budgets["impl_lines"] == 7
+    assert cfg.errors == ["## cleanup: unknown key 'colour' → see cleanup.py's usage"]
+    (tmp_path / "b").mkdir()
+    bad = make(tmp_path / "b", {".claude/skill-context.md": "## cleanup\n- prune: maybe\n"})
+    assert mod.load_config(bad).errors == [
+        "## cleanup: prune 'maybe' is neither off nor on → write one"
+    ]
+
+
+def test_an_unreadable_skill_context_is_named(tmp_path):
+    r = make(tmp_path, {})
+    (r / ".claude").mkdir()
+    os.mkfifo(r / ".claude" / "skill-context.md")
+    assert check(r, tmp_path)[0] == (
+        ".claude/skill-context.md is not a regular file → make it a regular file"
+    )
+
+
+def test_read_text_limits(tmp_path):
+    mod = load_module()
+    f = tmp_path / "f"
+    f.write_bytes(b"abcd")
+    assert mod.read_text(f, 4) == "abcd"
+    with pytest.raises(mod.Unreadable, match=r"^is over 3 bytes$"):
+        mod.read_text(f, 3)
+    assert mod.read_text(f, 3, head=True) == "abc"
+    assert mod.read_text(f, 4, head=True) == "abcd"
+    f.write_bytes(b"a\xffb")
+    assert mod.byte_count(mod.read_text(f)) == 3
+    f.chmod(0)
+    if not os.access(f, os.R_OK):
+        with pytest.raises(mod.Unreadable, match=r"^Permission denied$"):
+            mod.read_text(f)
+
+
+def test_frontmatter_details(tmp_path):
+    mod = load_module()
+    f = tmp_path / "a.md"
+    f.write_text("")
+    assert mod.frontmatter(f) is None  # an empty file has none
+    f.write_text("---\nowner: heph\n---\n" + "x" * 20000)
+    assert mod.frontmatter(f) == {"owner": "heph"}  # a long body does not hide it
+    f.write_text('---\nowner: "Xander"\nexpires: 2026-01-01\n---\n')
+    assert (
+        mod.freshness(mod.frontmatter(f), mod.dt.date(2026, 11, 20), 90)
+        == "expired 2026-01-01 (owner Xander)"
+    )
+
+
+def test_is_expired_cells():
+    mod = load_module()
+    d = mod.dt.date(2026, 11, 20)
+    assert mod.is_expired({"owner": "h", "expires": "2026-11-19"}, d)
+    assert not mod.is_expired({"owner": "h", "expires": "2026-11-20"}, d)
+    assert not mod.is_expired({"expires": "2026-11-19"}, d)  # no owner: not one to delete
+    assert not mod.is_expired({"owner": "h", "reviewed": "2020-01-01"}, d)
+    assert not mod.is_expired({"owner": "h", "expires": "2026-11-19"}, None)
+
+
+def test_transient_status_lists_what_expired(tmp_path):
+    mod = load_module()
+    files = {
+        "review/a.md": fm(owner="h", expires="2026-01-01"),
+        "review/b.md": fm(owner="h", reviewed="2020-01-01"),
+    }
+    root = make(tmp_path, files)
+    cfg = mod.Config()
+    cfg.transient = ["review/**"]
+    got = mod.transient_status(root, cfg, mod.dt.date(2026, 11, 20))
+    assert got.expired == {"review/a.md"} and set(got.stale) == {"review/a.md", "review/b.md"}
+
+
+def test_freshness_messages():
+    mod = load_module()
+    d = mod.dt.date(2026, 11, 20)
+    assert mod.freshness({}, d, 90) == "no owner"
+    assert mod.freshness({"owner": "h"}, d, 90) == "no expires or reviewed date"
+    assert mod.freshness({"owner": "h", "reviewed": "2026-01-01"}, d, 90) == (
+        "last reviewed 2026-01-01, over 90 days ago (owner h)"
+    )
+
+
+def test_roadmap_budget_message_reads_whole(tmp_path):
+    r = make(tmp_path, {"ROADMAP.md": lines(301)})
+    assert one(r, tmp_path) == (
+        "ROADMAP.md has 301 lines, over its 300-line budget → cut shipped scope and history; keep "
+        "milestones, next-up order, design rules and backlog"
+    )
+
+
+def test_root_level_unowned_files_are_named_bare(tmp_path):
+    r = make(tmp_path, {"a.png": "x"})
+    assert one(r, tmp_path, "--only", "transient", "--transient", "**") == (
+        "a.png has no owner + expires frontmatter → add it, or harvest the file into the repo "
+        "that owns it and delete it"
+    )
+
+
+def test_help_shows_the_no_dates_line_and_the_description(tmp_path, capsys):
+    mod = load_module()
+    with pytest.raises(SystemExit):
+        mod.main(["check", "--help"])
+    out = capsys.readouterr().out
+    assert out.startswith("usage: cleanup.py check") and "only what no calendar date decides" in out
+    with pytest.raises(SystemExit):
+        mod.main(["--help"])
+    assert (
+        "Cleanup check: finished work lives in git and GitHub, not in growing files."
+        in capsys.readouterr().out
+    )
+
+
+def test_only_limits_the_parts(tmp_path):
+    r = make(tmp_path, {"IMPL.md": lines(51), "ROADMAP.md": lines(301)})
+    assert len(check(r, tmp_path, "--only", "impl")) == 1
+
+
+def test_glob_double_star_inside_a_name():
+    mod = load_module()
+    assert mod.glob_regex("a**z").match("a/b/z") and mod.glob_regex("a**bz").match("ax/bz")
+    assert not mod.glob_regex("a**bz").match("axz")

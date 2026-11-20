@@ -229,7 +229,7 @@ def load_config(root: Path) -> Config:
             }
             lists[key].append(value)
         elif key == "prune":
-            word = value.split()[0].lower().strip("*_`") if value.split() else ""
+            word = value.lower().strip("*_` ").split(" ")[0]
             if word == "off":
                 cfg.prune_off = value
             elif word != "on":
@@ -310,7 +310,7 @@ GOVERNING = ("owner", "expires", "reviewed")
 
 def parse_date(value: str) -> dt.date | None:
     try:
-        return dt.date.fromisoformat(value[:10]) if re.match(r"\d{4}-\d\d-\d\d$", value) else None
+        return dt.date.fromisoformat(value) if re.fullmatch(r"\d{4}-\d\d-\d\d", value) else None
     except ValueError:
         return None
 
@@ -348,27 +348,6 @@ def is_expired(fields: dict[str, str], today: dt.date | None) -> bool:
 # --- checks -------------------------------------------------------------------------------
 
 
-def item_column(m: re.Match[str]) -> int:
-    """The content column of a list item (CommonMark 5.2): after its marker and 1 to 4 spaces;
-    five or more spaces, or none before the line ends, mean one."""
-    line = m.string
-    after = m.end()
-    rest = line[after:]
-    spaces = len(rest) - len(rest.lstrip(" "))
-    marker_end = after - (1 if line[after - 1 : after] in (" ", "\t") else 0)
-    if not rest.strip() or spaces >= 4:
-        return marker_end + 1
-    return after + spaces
-
-
-def interrupts(m: re.Match[str], line: str) -> bool:
-    """Whether a list item may interrupt a paragraph (5.2): not empty, and ordered only from 1."""
-    marker = m.group(0).strip()
-    if not line[m.end() :].strip():
-        return False
-    return not marker[:-1].isdigit() or marker[:-1] == "1"
-
-
 class Scan:
     """One pass over a Markdown text: its ATX and setext headings outside code fences, as
     (line index, level, title), the indexes of every line inside a fence, and whether a line
@@ -379,9 +358,8 @@ class Scan:
         self.heads: list[tuple[int, int, str]] = []
         self.fenced: set[int] = set()
         fence: str | None = None
-        para: int | None = None  # where the open top-level paragraph started
-        item: int | None = None  # the open list item's content column
-        blank = False  # the line before was blank
+        para: int | None = None  # where the open paragraph started
+        in_list = False  # inside a list item, until a blank line
         for i, raw in enumerate(self.lines):
             line = raw.expandtabs(4)
             if fence is not None:
@@ -391,30 +369,15 @@ class Scan:
                     fence = None
                 continue
             if not line.strip():
-                para, blank = None, True
+                para, in_list = None, False
                 continue
-            indent = len(line) - len(line.lstrip(" "))
-            was_blank, blank = blank, False
-            if item is not None:
-                if indent >= item:
-                    continue  # the list item's own content, headings in it included
-                li = LIST_ITEM.match(line)
-                if li and not BREAK.match(line):
-                    item = item_column(li)
-                    continue
-                lazy = not (
-                    was_blank or OPEN_FENCE.match(line) or ATX.match(line) or BREAK.match(line)
-                )
-                if lazy:
-                    continue  # a lazy continuation of the item's paragraph
-                item = None
             m = OPEN_FENCE.match(line)
             if m:
-                fence, para = m.group(1), None
+                fence, para, in_list = m.group(1), None, False
                 self.fenced.add(i)
                 continue
             if INDENTED.match(line):
-                continue  # code when no paragraph is open, else a continuation of it
+                continue  # code, a list item's content, or a paragraph's continuation
             u = SETEXT.match(line)
             if u and para is not None:
                 title = " ".join(x.strip() for x in self.lines[para:i])
@@ -424,13 +387,13 @@ class Scan:
             h = ATX.match(line)
             if h:
                 self.heads.append((i, len(h.group(1)), (h.group(2) or "").strip()))
-                para = None
+                para, in_list = None, False
             elif BREAK.match(line):
-                para = None
-            elif (li := LIST_ITEM.match(line)) and (para is None or interrupts(li, line)):
-                item, para = item_column(li), None
-            elif NOT_PARAGRAPH.match(line) and not li:
-                para = None
+                para, in_list = None, False
+            elif NOT_PARAGRAPH.match(line):
+                para, in_list = None, in_list or LIST_ITEM.match(line) is not None
+            elif in_list:
+                para = None  # a lazy continuation of a list item, never a setext heading
             elif para is None:
                 para = i
 
@@ -937,11 +900,10 @@ def without(text: str, spans: list[tuple[int, int, str]]) -> str:
 
     out = segs[0]
     for right in segs[1:]:
-        gap = out[-1] if out and blank(out[-1]) else right[0] if right and blank(right[0]) else None
+        # A span ends at the next heading or the end, so only the left side can hold blanks.
+        gap = out[-1] if out and blank(out[-1]) else None
         while out and blank(out[-1]):
             out.pop()
-        while right and blank(right[0]):
-            right.pop(0)
         if out and rule(out[-1]) and (not right or rule(right[0])):
             out.pop()
             while out and blank(out[-1]):
@@ -963,7 +925,10 @@ def prune(root: Path, apply: bool) -> int:
         print(f"{root.name}: refused: {why}")
         return 1
     path = root / "ROADMAP.md"
-    text = read_text(path) or ""
+    text = read_text(path)
+    if text is None:  # gone since the refusal checks ran
+        print(f"{root.name}: refused: ROADMAP.md is gone")
+        return 1
     spans = done_sections(text)
     if not spans:
         print(f"{root.name}: ROADMAP.md keeps no done-log ✓")
@@ -979,7 +944,7 @@ def prune(root: Path, apply: bool) -> int:
     if not apply:
         print(f"{root.name}: dry run; harvest first (cleanup.py done-log), then --apply")
         return 0
-    if (read_text(path) or "") != text:  # moved while we worked
+    if read_text(path) != text:  # moved while we worked
         print(f"{root.name}: refused: ROADMAP.md changed during the prune; nothing written")
         return 1
     fd, tmp = tempfile.mkstemp(dir=root, prefix=".ROADMAP.", suffix=".tmp")
@@ -1003,10 +968,10 @@ def done_log(root: Path) -> int:
     except Unreadable as exc:
         print(f"{root.name}: ROADMAP.md {exc}")
         return 1
-    lines = (text or "").splitlines()
-    spans = done_sections(text or "")
+    spans = done_sections(text) if text is not None else []
     if not spans:
         print(f"{root.name}: ROADMAP.md keeps no done-log ✓")
+    lines = text.splitlines() if text is not None else []
     for a, b, t in spans:
         print(f"===== ROADMAP.md:{a}-{b} '{t}' =====")
         print("\n".join(lines[a - 1 : b]))
