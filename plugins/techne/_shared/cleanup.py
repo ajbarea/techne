@@ -402,9 +402,20 @@ def check_agents(root: Path, cfg: Config) -> list[str]:
     return out
 
 
-def check_transient(root: Path, cfg: Config, today: dt.date) -> list[str]:
+class Transient:
+    """What the transient check found: unowned files by folder, and for each governing file
+    (a note's own frontmatter or a README.md above) why it is stale and the files it governs."""
+
+    def __init__(self) -> None:
+        self.bare: dict[str, list[str]] = {}
+        self.stale: dict[str, str] = {}
+        self.governs: dict[str, list[str]] = {}
+
+
+def transient_status(root: Path, cfg: Config, today: dt.date) -> Transient:
+    found = Transient()
     if not cfg.transient:
-        return []
+        return found
     want = [glob_regex(g) for g in cfg.transient]
     keep = [glob_regex(g) for g in cfg.keep]
     cache: dict[str, dict[str, str] | None] = {}
@@ -425,26 +436,31 @@ def check_transient(root: Path, cfg: Config, today: dt.date) -> list[str]:
         while parts:
             readme = "/".join(parts) + "/README.md"
             if readme != rel and os.path.isfile(root / readme):
-                found = fm(readme)
-                if found is not None:
-                    return readme, found
+                got = fm(readme)
+                if got is not None:
+                    return readme, got
             parts.pop()
         return None
 
-    bare: dict[str, list[str]] = {}  # folder -> its files with no owner + expires
-    stale: dict[str, str] = {}  # governing file -> why
     for rel in walk_files(root):
         if not any(r.match(rel) for r in want) or any(r.match(rel) for r in keep):
             continue
         got = cover(rel)
         if got is None:
             folder, _, name = rel.rpartition("/")
-            bare.setdefault(folder, []).append(name)
+            found.bare.setdefault(folder, []).append(name)
             continue
         where, fields = got
+        found.governs.setdefault(where, []).append(rel)
         why = freshness(fields, today, cfg.budgets["review_days"])
         if why:
-            stale.setdefault(where, why)
+            found.stale.setdefault(where, why)
+    return found
+
+
+def check_transient(root: Path, cfg: Config, today: dt.date) -> list[str]:
+    status = transient_status(root, cfg, today)
+    bare, stale = status.bare, status.stale
     out = []
     for folder, names in sorted(bare.items()):
         prefix = folder + "/" if folder else ""

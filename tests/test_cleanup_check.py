@@ -487,3 +487,32 @@ def test_prune_runs_for_an_unmarked_sister(tmp_path):
     roster(tmp_path / "home", tmp_path, "")
     assert run("prune", "--apply", str(root), home=tmp_path / "home").returncode == 0
     assert "Completed" not in (root / "ROADMAP.md").read_text()
+
+
+def test_transient_status_maps_each_governing_file_to_what_it_covers(tmp_path):
+    """klepsydra's `fleet tidy expired` deletes exactly what an expired file governs."""
+    import datetime as dt
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("cleanup_mod2", CLEANUP_SCRIPT)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    files = {
+        "review/art/README.md": fm(owner="heph", expires="2026-01-01"),
+        "review/art/a.png": "x",
+        "review/art/keep/README.md": fm(owner="heph", expires="2027-01-01"),
+        "review/art/keep/b.png": "x",
+        "review/note.md": fm(owner="heph", expires="2026-01-01"),
+    }
+    root = make(tmp_path, files)
+    cfg = mod.Config()
+    cfg.transient = ["review/**"]
+    got = mod.transient_status(root, cfg, dt.date(2026, 11, 20))
+    assert sorted(got.stale) == ["review/art/README.md", "review/note.md"]
+    assert got.governs["review/art/README.md"] == ["review/art/README.md", "review/art/a.png"]
+    assert got.governs["review/art/keep/README.md"] == [
+        "review/art/keep/README.md",
+        "review/art/keep/b.png",
+    ]
+    assert got.bare == {}
