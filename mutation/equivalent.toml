@@ -202,10 +202,6 @@ hash = "3f2b2123da65ebdb4cff8289a3f7a650e250ba476ba56d953ececdba93c99940"
 why = "matching_files: base only narrows the walk; walking from any ancestor finds the same files in the same order, and the first piece of a split ignores maxsplit"
 
 [[mutant]]
-hash = "509d55b5322b30d60c5f6ebb89a7c64487783e2d9322d12c61ac714ac54835d7"
-why = "matching_files: base only narrows the walk; walking from any ancestor finds the same files in the same order, and the first piece of a split ignores maxsplit"
-
-[[mutant]]
 hash = "4c95f47f1458330ed00b3abaa18c61e9907866597db85d5b9f7c54c328f1436f"
 why = "matching_files: base only narrows the walk; walking from any ancestor finds the same files in the same order, and the first piece of a split ignores maxsplit"
 

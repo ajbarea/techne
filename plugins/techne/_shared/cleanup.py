@@ -357,6 +357,8 @@ class Scan:
         self.lines = text.splitlines()
         self.heads: list[tuple[int, int, str]] = []
         self.fenced: set[int] = set()
+        self.underlines: set[int] = set()  # setext underlines, which look like thematic breaks
+        self.open_fence: int | None = None  # where a fence opened that never closes
         fence: str | None = None
         para: int | None = None  # where the open paragraph started
         in_list = False  # inside a list item, until a blank line
@@ -366,7 +368,7 @@ class Scan:
                 self.fenced.add(i)
                 m = CLOSE_FENCE.match(line)
                 if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence):
-                    fence = None
+                    fence, self.open_fence = None, None
                 continue
             if not line.strip():
                 para, in_list = None, False
@@ -375,6 +377,7 @@ class Scan:
             if m:
                 fence, para, in_list = m.group(1), None, False
                 self.fenced.add(i)
+                self.open_fence = i
                 continue
             if INDENTED.match(line):
                 continue  # code, a list item's content, or a paragraph's continuation
@@ -382,6 +385,7 @@ class Scan:
             if u and para is not None:
                 title = " ".join(x.strip() for x in self.lines[para:i])
                 self.heads.append((para, 1 if u.group(1)[0] == "=" else 2, title))
+                self.underlines.add(i)
                 para = None
                 continue
             h = ATX.match(line)
@@ -404,11 +408,11 @@ class Scan:
                 yield i + 1, line
 
 
-def done_sections(text: str) -> list[tuple[int, int, str]]:
+def done_sections(text: str, scan: Scan | None = None) -> list[tuple[int, int, str]]:
     """(first line, last line, heading) of each done-log section, 1-based and inclusive. A
     section runs to the next heading of its level or higher. A done-log nested in another is
     part of it."""
-    scan = Scan(text)
+    scan = scan or Scan(text)
     heads = scan.heads
     found: list[tuple[int, int, str]] = []
     for n, (i, level, title) in enumerate(heads):
@@ -812,6 +816,7 @@ def roster_refusal(root: Path) -> str | None:
     for a repo under workspace_root that is no sister; and when the roster cannot be read."""
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     try:
+        import git_env
         import techne_config
     finally:
         sys.path.pop(0)
@@ -824,13 +829,16 @@ def roster_refusal(root: Path) -> str | None:
         return None  # no roster on this machine: nothing is marked
     main = main_worktree(root)
     url = git_out(root, "remote", "get-url", "origin").stdout.strip()
-    origin = re.sub(r"\.git$", "", re.split(r"[/:]", url.rstrip("/"))[-1])
+    origin = re.sub(r"\.git$", "", re.split(r"[/:]", url.rstrip("/"))[-1], flags=re.I)
+    slug = git_env.github_slug(url) if url else None
     ws = techne_config.workspace_root(cfg)
-    names = {main.name, origin} - {""}
+    # GitHub names ignore case, so every name compares lowercased; a name alone still matches
+    # (a clone whose origin is no GitHub URL), which only ever refuses more.
+    names = {n.lower() for n in (main.name, origin) if n}
     hits = [
         s
         for s in roster
-        if s.get("name") in names or (ws is not None and (ws / s["name"]).resolve() == main)
+        if s["name"].lower() in names or techne_config.matches(cfg, s, {main}, slug)
     ]
     if any(s.get("registered_report") is True for s in hits):
         return "techne.toml marks it registered_report: its text is never edited → change nothing"
@@ -839,8 +847,12 @@ def roster_refusal(root: Path) -> str | None:
     return None
 
 
-def span_hazard(lines: Sequence[str], a: int, b: int) -> str | None:
-    """Why the 1-based span A..B, with the line after it, is not safe to cut, or None."""
+def span_hazard(lines: Sequence[str], a: int, b: int, open_fence: int | None = None) -> str | None:
+    """Why the 1-based span A..B, with the line after it, is not safe to cut, or None.
+    OPEN_FENCE is the 0-based line of a code fence that never closes: CommonMark runs it to
+    the end, so a cut from inside it would take every heading a plain reader sees below."""
+    if open_fence is not None and a - 1 <= open_fence < b:
+        return f"line {open_fence + 1} opens a code fence that never closes"
     for n in range(a, min(b + 1, len(lines)) + 1):
         line = lines[n - 1]
         if UNMODELLED.match(line):
@@ -881,23 +893,30 @@ def without(text: str, spans: list[tuple[int, int, str]]) -> str:
     one, and a thematic break left dangling before a cut (doubled with the next one, or at the
     end) goes. Everything else, frontmatter and code fences included, stays byte for byte."""
     lines = text.splitlines(keepends=True)
+    underlines = Scan(text).underlines
     front = -1  # the last line of a leading frontmatter block, which no edge rule touches
     if lines and lines[0].strip() == "---":
         front = next((i for i in range(1, len(lines)) if lines[i].strip() in ("---", "...")), -1)
-    cuts = sorted((a - 1, b) for a, b, _ in spans)
+    cuts: list[list[int]] = []
+    for a, b in sorted((a - 1, b) for a, b, _ in spans):
+        if cuts and a <= cuts[-1][1]:  # back to back: one cut, so no edge forms between them
+            cuts[-1][1] = max(cuts[-1][1], b)
+        else:
+            cuts.append([a, b])
     segs, start = [], 0
     for a, b in cuts:
         segs.append(list(range(start, a)))
-        start = max(start, b)
+        start = b
     segs.append(list(range(start, len(lines))))
 
     def blank(i: int) -> bool:
         return not lines[i].strip()
 
     def rule(i: int) -> bool:
-        return i > front and BREAK.match(lines[i]) is not None
+        return i > front and i not in underlines and BREAK.match(lines[i]) is not None
 
     out = segs[0]
+    before: dict[int, str] = {}  # a blank line written before a kept line, with its ending
     for right in segs[1:]:
         # A span ends at the next heading or the end, so only the left side can hold blanks.
         gap = out[-1] if out and blank(out[-1]) else None
@@ -909,8 +928,13 @@ def without(text: str, spans: list[tuple[int, int, str]]) -> str:
                 out.pop()
         if right and out and gap is not None:
             out.append(gap)  # one blank line where there was any, with its own line ending
+        elif right and out and not ATX.match(lines[right[0]].rstrip("\r\n").expandtabs(4)):
+            # A setext heading's title right under a list item or paragraph would join it; the
+            # cut heading kept them apart, so a blank line now does.
+            last = lines[out[-1]]
+            before[right[0]] = last[len(last.rstrip("\r\n")) :] or "\n"
         out += right
-    body = "".join(lines[i] for i in out)
+    body = "".join(before.get(i, "") + lines[i] for i in out)
     if body and not body.endswith("\n"):
         body += "\n"
     return body
@@ -928,13 +952,13 @@ def prune(root: Path, apply: bool) -> int:
     if text is None:  # gone since the refusal checks ran
         print(f"{root.name}: refused: ROADMAP.md is gone")
         return 1
-    spans = done_sections(text)
+    scan = Scan(text)
+    spans = done_sections(text, scan)
     if not spans:
         print(f"{root.name}: ROADMAP.md keeps no done-log ✓")
         return 0
-    lines = text.splitlines()
     for a, b, t in spans:
-        hazard = span_hazard(lines, a, b)
+        hazard = span_hazard(scan.lines, a, b, scan.open_fence)
         if hazard:
             print(f"{root.name}: refused: ROADMAP.md:{a}-{b} '{t}': {hazard} → delete it by hand")
             return 1

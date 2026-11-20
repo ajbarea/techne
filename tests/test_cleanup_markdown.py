@@ -103,3 +103,35 @@ def test_every_span_prune_accepts_is_the_commonmark_section():
             accepted += 1
             assert real.get(a) == b, (repr(text), a, b, real)
     assert accepted > 500 and refused > 100  # both paths are exercised
+
+
+def commonmark_titles(text: str) -> list[tuple[int, int, str]]:
+    """(0-based line, level, inline text) of each top-level heading."""
+    toks = MD.parse(text)
+    return [
+        (t.map[0], int(t.tag[1]), toks[k + 1].content)
+        for k, t in enumerate(toks)
+        if t.type == "heading_open" and t.map is not None and t.level == 0
+    ]
+
+
+def test_prune_keeps_every_heading_outside_the_cut():
+    """What prune writes reads, to a CommonMark reader, as the same headings minus the cut ones:
+    the edge rules never turn a break into an underline, a heading into a paragraph, or merge
+    a line into a heading."""
+    rng = random.Random(20261121)
+    checked = 0
+    for _ in range(4000):
+        text = "\n".join(rng.choice(PIECES) for _ in range(rng.randint(1, 9))) + "\n"
+        scan = cleanup.Scan(text)
+        spans = cleanup.done_sections(text, scan)
+        if not spans or any(
+            cleanup.span_hazard(scan.lines, a, b, scan.open_fence) for a, b, _ in spans
+        ):
+            continue
+        checked += 1
+        cut = {i for a, b, _ in spans for i in range(a - 1, b)}
+        want = [(lv, t) for i, lv, t in commonmark_titles(text) if i not in cut]
+        got = [(lv, t) for _, lv, t in commonmark_titles(cleanup.without(text, spans))]
+        assert got == want, (repr(text), spans)
+    assert checked > 300

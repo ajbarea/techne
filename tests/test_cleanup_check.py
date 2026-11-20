@@ -1750,3 +1750,79 @@ def test_prune_refuses_when_the_roadmap_vanishes_mid_run(tmp_path, monkeypatch, 
     monkeypatch.setattr(mod, "prune_refusal", vanish)
     assert mod.prune(root, True) == 1
     assert capsys.readouterr().out == "repo: refused: ROADMAP.md is gone\n"
+
+
+# --- review round 2 -----------------------------------------------------------------------
+
+
+def clone_as(tmp_path: Path, folder: str, url: str) -> Path:
+    src = make(tmp_path, {"ROADMAP.md": ROADMAP}, git=True)
+    clone = tmp_path / "elsewhere" / folder
+    subprocess.run(["git", "clone", "-q", str(src), str(clone)], check=True)
+    subprocess.run(["git", "-C", str(clone), "remote", "set-url", "origin", url], check=True)
+    (tmp_path / "ws").mkdir(exist_ok=True)
+    return clone
+
+
+@pytest.mark.parametrize(
+    ("folder", "url", "sister"),
+    [
+        ("Repo", "https://github.com/me/Repo.git", "repo"),  # GitHub names ignore case
+        ("other", "https://gitlab.example/me/repo.GIT", "repo"),  # .GIT, no GitHub slug
+        ("other", "git@github.com:ME/REPO.git", "repo"),  # by slug, any case
+        ("repo", "https://example.org/x", "Repo"),  # the roster's case differs
+    ],
+)
+def test_a_registered_clone_is_found_in_any_case(tmp_path, folder, url, sister):
+    clone = clone_as(tmp_path, folder, url)
+    (tmp_path / "home" / ".claude").mkdir(parents=True)
+    (tmp_path / "home" / ".claude" / "techne.toml").write_text(
+        f'github_user = "me"\nworkspace_root = "{tmp_path / "ws"}"\n\n'
+        f'[[sisters]]\nname = "{sister}"\nregistered_report = true\n'
+    )
+    assert "registered_report" in refused(clone, tmp_path / "home")
+
+
+def test_prune_refuses_a_fence_that_never_closes(tmp_path):
+    text = "# R\n## Done\n- x\n```\ncode\n## Backlog\n- b\n"
+    root = make(tmp_path, {"ROADMAP.md": text}, git=True)
+    assert "line 4 opens a code fence that never closes" in refused(root, tmp_path)
+
+
+def test_prune_still_cuts_a_done_log_with_a_closed_fence(tmp_path):
+    text = "# R\n## Done\n```\nx\n```\n## Backlog\n- b\n"
+    root = make(tmp_path, {"ROADMAP.md": text}, git=True)
+    assert run("prune", "--apply", "repo", home=tmp_path, cwd=tmp_path).returncode == 0
+    assert (root / "ROADMAP.md").read_text() == "# R\n## Backlog\n- b\n"
+
+
+@pytest.mark.parametrize(
+    ("text", "expect"),
+    [
+        (  # back to back: one cut, so the rule and the blank before it stay
+            "Intro text.\n\n---\n\n## Done\n- x\n## Shipped\n- y\n\nBacklog\n-------\n- b\n",
+            "Intro text.\n\n---\n\nBacklog\n-------\n- b\n",
+        ),
+        ("Next up\n---\n## Done\n- x\n", "Next up\n---\n"),  # an underline is no dangling rule
+        (  # a setext title must not join the list above it
+            "- a\n## Completed\n- x\n\nLater\n-----\n",
+            "- a\n\nLater\n-----\n",
+        ),
+        ("- a\r\n## Completed\r\n- x\r\n\r\nLater\r\n-----\r\n", "- a\r\n\r\nLater\r\n-----\r\n"),
+        ("- a\n## Completed\n- x\n## Next\n", "- a\n## Next\n"),  # an ATX heading needs no gap
+    ],
+)
+def test_without_keeps_what_a_reader_sees(text, expect):
+    mod = load_module()
+    assert mod.without(text, mod.done_sections(text)) == expect
+
+
+def test_a_rules_glob_reaches_into_a_skipped_folder(tmp_path):
+    r = make(
+        tmp_path,
+        {
+            ".claude/skill-context.md": "## cleanup\n- rules: site/*/a.md\n",
+            "site/x/a.md": lesson("a", Rule="r"),
+        },
+    )
+    assert "'a' has no Since" in one(r, tmp_path)
