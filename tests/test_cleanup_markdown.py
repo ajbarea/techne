@@ -59,6 +59,14 @@ PIECES = [
     "> quoted\n> ## not a heading",
     "- x\u2028```",  # a line break CommonMark does not split on
     "  ```",  # a fence opened with indent
+    "> q\n<!--",  # an HTML comment opened inside a quote, closed later
+    "-->",
+    "> q\n<pre>",
+    "</pre>",
+    "<kbd>k</kbd> text\n<?php",
+    "?>",
+    "> q\n<![CDATA[",
+    "]]>",
 ]
 
 

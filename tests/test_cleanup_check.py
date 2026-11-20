@@ -1853,8 +1853,8 @@ def test_a_rules_glob_reaches_into_a_skipped_folder(tmp_path):
     [
         (
             "# R\n## Done\n- shipped:\n  ```sh\n  make run\n## Backlog\n- b\n- c\n```\n",
-            "line 4 opens a fence indented or inside a list item, so where CommonMark closes "
-            "it, and what follows, is unsure",
+            "line 4 opens a block CommonMark may end elsewhere (a fence indented or in a list "
+            "item, or a fence or HTML inside a quote or HTML block), so what follows is unsure",
         ),
         (
             "# R\n## Done\n- x\u2028```\n## Backlog\n- b\n```\n",
@@ -1864,8 +1864,14 @@ def test_a_rules_glob_reaches_into_a_skipped_folder(tmp_path):
         (  # a quote CommonMark ends at the fence; the scanner runs it to the blank line
             "# Roadmap\n\n> Example of the old roadmap:\n```markdown\n# Roadmap\n\nIntro.\n\n"
             "## Shipped\n- old\n\n```\n\n## Next\n- keep this\n\n```sh\nmake\n```\n",
-            "line 4 opens a fence indented or inside a list item",
+            "line 4 opens a block CommonMark may end elsewhere",
         ),
+        (  # an HTML opener inside a quote starts a block that runs past blank lines
+            "# R\n\n> q\n<!--\n\nnote\n\n## Done\n- x\n-->\n\n## Next\n- keep\n",
+            "line 4 opens a block CommonMark may end elsewhere",
+        ),
+        ("# R\n\n> q\n<pre>\n\n## Done\n- x\n</pre>\n\n## Next\n", "line 4 opens a block"),
+        ("# R\n\n> q\n<?php\n\n## Done\n- x\n?>\n\n## Next\n", "line 4 opens a block"),
         (  # an inline tag starts a paragraph in CommonMark, not an HTML block
             "# R\n## Done\n- x\n\n<kbd>Ctrl-K</kbd> opens it:\n```\n## Old\n\n```\n\n"
             "## Next\n- keep\n",

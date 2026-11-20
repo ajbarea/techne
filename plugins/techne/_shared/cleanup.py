@@ -403,8 +403,10 @@ class Scan:
                     continue
                 self.hazards.add(i)
                 # CommonMark may end a quote or a paragraph-like HTML line before the blank
-                # line, so a fence here may be a real one: what follows is unsure.
-                if OPEN_FENCE.match(line) and self.doubt_from is None:
+                # line, so a fence or an HTML opener here may start a real block, one that
+                # can run past blank lines: what follows is unsure.
+                opens = OPEN_FENCE.match(line) or any(s.match(line) for s, _ in HTML_ENDS)
+                if opens and self.doubt_from is None:
                     self.doubt_from = i
                 if block is not BLANK and block.search(line):
                     block = None
@@ -912,8 +914,9 @@ def span_hazard(scan: Scan, a: int, b: int) -> str | None:
         return f"line {scan.open_fence + 1} opens a code fence that never closes"
     if scan.doubt_from is not None and b > scan.doubt_from:
         return (
-            f"line {scan.doubt_from + 1} opens a fence indented or inside a list item, so where "
-            "CommonMark closes it, and what follows, is unsure"
+            f"line {scan.doubt_from + 1} opens a block CommonMark may end elsewhere (a fence "
+            "indented or in a list item, or a fence or HTML inside a quote or HTML block), so "
+            "what follows is unsure"
         )
     top = a - 1
     while top > 1 and not lines[top - 1].strip():
