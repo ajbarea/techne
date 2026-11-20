@@ -118,7 +118,7 @@ jobs:
     timeout-minutes: 60
     strategy:
       fail-fast: false
-      # 16 at a time leaves room under the account's 20 concurrent jobs for other repos' CI.
+      # 16 at a time leaves room under the account's 40 concurrent jobs (Pro) for other repos' CI.
       max-parallel: 16
       matrix:
         shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
@@ -129,7 +129,8 @@ jobs:
 
       - uses: $/.github/actions/mutation-deps
 
-      # Stopped before the job's limit, so the upload below still runs.
+      # A step limit under the job's: a long shard stops here, its own step named, and the steps
+      # after it keep their time.
       - name: Mutate shard ${{ matrix.shard }} of 32
         timeout-minutes: 55
         env:

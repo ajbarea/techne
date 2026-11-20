@@ -40,13 +40,14 @@ def _chromium_runs() -> bool:
 
 
 HAVE_BROWSER = not OPTED_OUT and _chromium_runs()
+# A web case skips only on a declared absence or missing libraries, never on the probe: under
+# xdist each worker probes for itself, and the one whose launch failed would skip its share of
+# the cases unseen while the presence check passed on another worker. Run, they fail instead.
 if OPTED_OUT:
     _NO_BROWSER = "no Chromium (declared by TECHNE_NO_BROWSER)"
-elif not HAVE_LIBS:
-    _NO_BROWSER = "playwright or axe-playwright-python is not importable (run through make test)"
 else:
-    _NO_BROWSER = "Playwright's Chromium does not launch"
-needs_browser = pytest.mark.skipif(not HAVE_BROWSER, reason=_NO_BROWSER)
+    _NO_BROWSER = "playwright or axe-playwright-python is not importable (run through make test)"
+needs_browser = pytest.mark.skipif(OPTED_OUT or not HAVE_LIBS, reason=_NO_BROWSER)
 
 
 def test_the_browser_is_present_or_its_absence_is_declared():
