@@ -22,6 +22,7 @@ Run from the shell after the config preamble in `SKILL.md`, which sets `$SISTERS
 - [15. Agent instruction file](#15-agent-instruction-file)
 - [16. Logging standard](#16-logging-standard)
 - [17. Security floor](#17-security-floor)
+- [18. Cleanup](#18-cleanup)
 
 ## 1. Action-pin drift
 
@@ -452,3 +453,28 @@ the repo; without it (a team or collaborator repo) the line says the settings we
 never that they are off, and the workflow checks still run. Report each line
 that is not ✓; fix each repo by its own PR.
 
+## 18. Cleanup
+
+Finished work is recorded once, in git and GitHub: merged PRs, closed issues, releases and
+`git log`. A file that keeps its own growing list of what shipped costs context in every
+session and goes stale. Each sister's `ROADMAP.md` is forward-only (milestones, next-up order,
+design rules, backlog) with no done-log section; `IMPL.md` stays the branch's short resume
+state; agent instruction files stay under budget; and a transient file (one the repo's
+`## cleanup` section names with `- transient: <glob>`) carries `owner` plus `expires` or
+`reviewed` frontmatter, its own or a `README.md` above it, and is not past it. Budgets:
+agent instruction files 200 lines and 25,000 bytes, from Claude Code's
+[memory docs](https://code.claude.com/docs/en/memory) ("target under 200 lines per CLAUDE.md
+file"; its every-session load cap is 25KB); `IMPL.md` 50 lines (the
+[working-docs convention](https://ajbarea.github.io/techne/conventions/#implmd-and-roadmapmd-working-docs));
+`ROADMAP.md` 300 lines; a `reviewed` date counts for 90 days, after Microsoft HVE-core's
+[freshness check](https://microsoft.github.io/hve-core/docs/contributing/documentation-maintenance).
+A repo changes any of them in its `## cleanup` section.
+
+```
+python3 <cleanup script> check $(for r in $SISTERS; do printf '%s ' "$WORKSPACE/$r"; done)   # the cleanup.py path SKILL.md names
+```
+
+It prints one line per finding, `<repo>: <finding> → <fix>`, or `<repo>: cleanup ✓`, and exits 0
+(`--ci` exits 1 on a finding, for a repo's own CI). Report each line that is not ✓. A done-log
+section is pruned by [clean mode](../SKILL.md#clean-mode)'s harvest step; a budget overrun is
+fixed by hand, in the repo's own PR.

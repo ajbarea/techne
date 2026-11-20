@@ -68,3 +68,4 @@ extra-paths = ["tests", "plugins/epistole", "plugins/heuresis", "plugins/schole"
 "plugins/phylax/hooks/email_greeting.py" = ["tests/test_email_greeting.py"]
 "plugins/techne/hooks/board_add.py" = ["tests/test_board_hook.py"]
 "plugins/techne/_shared/project_board.py" = ["tests/test_board_hook.py"]
+"plugins/techne/_shared/cleanup.py" = ["tests/test_cleanup_check.py"]
