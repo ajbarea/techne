@@ -402,6 +402,10 @@ class Scan:
                     para, in_list = None, False
                     continue
                 self.hazards.add(i)
+                # CommonMark may end a quote or a paragraph-like HTML line before the blank
+                # line, so a fence here may be a real one: what follows is unsure.
+                if OPEN_FENCE.match(line) and self.doubt_from is None:
+                    self.doubt_from = i
                 if block is not BLANK and block.search(line):
                     block = None
                 continue

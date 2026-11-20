@@ -1861,6 +1861,16 @@ def test_a_rules_glob_reaches_into_a_skipped_folder(tmp_path):
             "a line break CommonMark does not split on",
         ),
         ("# R\n## Done\n<div>\n## Backlog\n</div>\n\n## Next\n", "line 3 ('<div>') is a shape"),
+        (  # a quote CommonMark ends at the fence; the scanner runs it to the blank line
+            "# Roadmap\n\n> Example of the old roadmap:\n```markdown\n# Roadmap\n\nIntro.\n\n"
+            "## Shipped\n- old\n\n```\n\n## Next\n- keep this\n\n```sh\nmake\n```\n",
+            "line 4 opens a fence indented or inside a list item",
+        ),
+        (  # an inline tag starts a paragraph in CommonMark, not an HTML block
+            "# R\n## Done\n- x\n\n<kbd>Ctrl-K</kbd> opens it:\n```\n## Old\n\n```\n\n"
+            "## Next\n- keep\n",
+            "line 9 opens a code fence that never closes",
+        ),
     ],
 )
 def test_prune_refuses_what_the_scanner_cannot_vouch_for(tmp_path, text, why):
