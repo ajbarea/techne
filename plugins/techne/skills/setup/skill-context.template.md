@@ -100,3 +100,8 @@ decision_docs:
 ## logging
 - ignore: <rule>, ... (<why this repo opts out>)
 - skip: <path prefix the check leaves out, e.g. legacy/>
+
+## cleanup
+- transient: <glob of files that must carry owner + expires frontmatter, e.g. review/**>
+- keep: <glob the transient check leaves out, e.g. review/README.md>
+- impl_lines: 50

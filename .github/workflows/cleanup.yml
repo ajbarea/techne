@@ -1,0 +1,52 @@
+name: cleanup
+
+# The working-docs cleanup check (plugins/techne/_shared/cleanup.py) for any repo's CI: a
+# ROADMAP.md with no done-log, IMPL.md and agent instruction files under budget, transient files
+# owned and unexpired. A pull-request gate checks only what no date decides; a weekly run with
+# `dates: true` adds expiry, review age and quarantine ends, so no PR turns red on a calendar date.
+# A repo calls it as a job whose `uses` names this file at a full techne
+# commit SHA (docs/conventions.md, working docs, shows the job). It checks out the script from the same techne commit the caller pinned (job.workflow_sha).
+# research(2026-11): job.workflow_sha names the reusable workflow's own commit
+# (https://github.blog/changelog/2026-09-03-github-actions-early-september-2026-updates).
+
+on:
+  workflow_call:
+    inputs:
+      dates:
+        description: "Also check what a date decides (expiry, review age, quarantine ends): for a scheduled run, never a pull-request gate"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          path: repo
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          repository: ajbarea/techne
+          ref: ${{ job.workflow_sha }}
+          path: techne
+          sparse-checkout: plugins/techne/_shared
+          sparse-checkout-cone-mode: true
+
+      - name: Cleanup check
+        env:
+          DATES: ${{ inputs.dates }}
+        run: |
+          if [ "$DATES" = true ]; then
+            python3 techne/plugins/techne/_shared/cleanup.py check --ci repo
+          else
+            python3 techne/plugins/techne/_shared/cleanup.py check --ci --no-dates repo
+          fi

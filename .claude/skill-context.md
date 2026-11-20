@@ -155,3 +155,8 @@ A repo of review/hygiene skills has few destructive ops of its own; the irrevers
 This repo is the **source** of the techne skills that ship to the other sisters. When `/techne:sisters` runs, it reads the consumer-side `.claude/skill-context.md` from each linked repo — including this one. The recursion is intentional: techne is a self-hosted sister so structural drift in its own skill collection (renamed SKILL.md frontmatter, deleted skill directories, stale marketplace.json) gets caught the same way it catches drift elsewhere.
 
 When editing skills inside `plugins/<plugin>/skills/`, remember the consumer-side cache lives at `~/.claude/plugins/cache/techne/<plugin>/<sha>/skills/` — `/plugin update <plugin>@techne` from inside Claude Code re-installs after a publish.
+
+## cleanup
+- rules: plugins/techne/_shared/lessons/*.md
+- rules: plugins/graphe/_shared/lessons/*.md
+- rules: plugins/techne/skills/elenchus/references/bug-classes.md

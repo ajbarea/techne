@@ -30,6 +30,7 @@ Decided lessons that made the work better. Read this and your surface's file bef
 - **Why:** A polished figure pass once shipped beside raw table pipes in the page's main text.
 - **Since:** 2026-06-07
 - **Check:** guidance: a script captures the pages, a person reads them.
+- **Reviewed:** 2026-11-20
 
 ### rendered-not-present: A container is not the thing it holds
 
@@ -37,6 +38,7 @@ Decided lessons that made the work better. Read this and your surface's file bef
 - **Why:** Themed slots render empty until configured, and a class-name match reads as present.
 - **Since:** 2026-06-02
 - **Check:** guidance: what counts as populated differs per element.
+- **Reviewed:** 2026-11-20
 
 ### describe-the-thing: Copy describes the thing
 
@@ -44,6 +46,7 @@ Decided lessons that made the work better. Read this and your surface's file bef
 - **Why:** Pipeline narration reads as machine-made and asserts what the data may not back.
 - **Since:** 2026-06-09
 - **Check:** guidance: such phrases are sometimes the true subject of the page.
+- **Reviewed:** 2026-11-20
 
 ### own-identity: Not the default look
 
@@ -58,6 +61,7 @@ Decided lessons that made the work better. Read this and your surface's file bef
 - **Why:** Counts and lists go stale when the group changes.
 - **Since:** 2026-05-20
 - **Check:** guidance: a count is sometimes the fact being stated.
+- **Reviewed:** 2026-11-20
 
 ## Rules of this file
 

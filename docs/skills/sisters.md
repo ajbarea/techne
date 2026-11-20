@@ -4,7 +4,7 @@ description: Audit the linked repos listed in ~/.claude/techne.toml for drift in
 
 # `techne:sisters`
 
-Cross-repo drift audit across the sister repos listed in `~/.claude/techne.toml`. Read-only inspection: CI action pins, toolchain pins in `pyproject.toml`, skill-context structural parity, GitHub merge settings + branch protection, Codecov config, `make clean` log-retention, Dependabot config coverage, README header convention, worktree ignore, shared docs-site files and nav coverage, open PRs, and branch, worktree and stash hygiene. A clean mode removes finished branches and worktrees once you approve the list, and an auto mode does it for you.
+Cross-repo drift audit across the sister repos listed in `~/.claude/techne.toml`. Read-only inspection: CI action pins, toolchain pins in `pyproject.toml`, skill-context structural parity, GitHub merge settings + branch protection, Codecov config, `make clean` log-retention, Dependabot config coverage, README header convention, worktree ignore, shared docs-site files and nav coverage, finished-work logs and working-doc budgets, open PRs, and branch, worktree and stash hygiene. A clean mode removes finished branches and worktrees once you approve the list, and an auto mode does it for you.
 
 Part of [techne](../plugins/techne.md): `/plugin install techne@techne`, then `/techne:setup`.
 
@@ -23,7 +23,7 @@ Invoke by name in Claude Code:
 /techne:sisters
 ```
 
-The skill reads the active sister list from `~/.claude/techne.toml`, runs every check in order, and outputs a single audit block grouped by category: merge settings, skill-context parity, action-pin drift, toolchain-pin drift, branch protection, Codecov config, log-retention policy, Dependabot coverage, README header convention, worktree ignore, docs-site shared files, agent instruction file, open PRs, branch and worktree hygiene, and local main sync.
+The skill reads the active sister list from `~/.claude/techne.toml`, runs every check in order, and outputs a single audit block grouped by category: merge settings, skill-context parity, action-pin drift, toolchain-pin drift, branch protection, Codecov config, log-retention policy, Dependabot coverage, README header convention, worktree ignore, docs-site shared files, agent instruction file, cleanup, open PRs, branch and worktree hygiene, and local main sync.
 
 The audit report is read-only. It surfaces findings; it does not edit files, push branches, or change GitHub settings. Clean mode, below, is the only part that removes anything.
 
@@ -35,6 +35,8 @@ Squash merges leave every merged branch "ahead of main", so ahead counts can't t
 - a worktree that is dirty, locked, recently active, in use by a running process (another session's), or holding ignored files that are not build output, such as `COMMITS.md`, `.env` or a nested worktree
 - a remote branch with no PR, or someone else's
 - a stash
+
+Clean mode also retires a `ROADMAP.md` done-log (a Completed, Shipped or Done section) found by the cleanup check: it prints the section, you harvest its lessons and open follow-ups, then `cleanup.py prune --apply` deletes it in that repo's own PR. It refuses a registered-report repo (`registered_report = true` on its `techne.toml` entry, or `- prune: off` in its `## cleanup` section) and any `ROADMAP.md` that is untracked or modified, so the deleted text always stays in git history.
 
 The report marks a dirty, idle worktree whose `IMPL.md` is unchanged since its branch left the default branch as not resumable: a session that starts there after a restart has only the diff to go on. See [working docs](../conventions.md#implmd-and-roadmapmd-working-docs).
 
