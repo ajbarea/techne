@@ -169,8 +169,8 @@ A class whose guard became a mechanical check (a lint rule, test or hook) gets a
 
 - **Symptom:** a check passes everywhere, including on the case it was written to reject, while tests are green and the prose calls it enforced.
 - **Question:** what input makes this guard fail, and has anyone switched off the thing it protects and watched a test go red?
-- **Guard:** a mutation check: flip each guard condition in turn and confirm a test fails (mutmut for Python, Stryker for JS and TS, or by hand for a few conditions); assert that edit scripts changed the file.
-- **Incidents:** a private copy eval (2026-09-18): `\bmg\b` never matched "10mg"; a private rm-approval hook r9 (2026-10-21): tests stayed green with the guard logic off until r10's mutation check; techne#201 r2 (2026-10-24): reverting two doctor `is True` gates to `bool` left every test green.
+- **Guard:** a mutation check: flip each guard condition in turn and confirm a test fails (mutmut for Python, Stryker for JS and TS, or by hand for a few conditions); assert that edit scripts changed the file. A budget read from a tool (strace, a profiler) also runs with the tool stubbed (`STRACE=false`) and on the old code: zero or an unchanged count fails ([Tessl](https://tessl.io/registry/testland/perf-budget-gate/quality)).
+- **Incidents:** a private rm-approval hook r9 (2026-10-21): tests stayed green with the guard logic off until r10's mutation check; techne#201 r2 (2026-10-24): reverting two doctor `is True` gates to `bool` left every test green; klepsydra#497 r1 (2026-11-20): a fork budget passed with `STRACE=false` and on main, whose prefilter cost the same forks on its two-file fixture.
 
 ### instance-patch: The same fix again instead of a guard
 
