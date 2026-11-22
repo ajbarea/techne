@@ -214,3 +214,27 @@ def test_suite_runs_without_an_inherited_git_repo():
 def test_no_skill_reads_context_relative_to_the_working_directory():
     for skill in PLUGINS.glob("*/skills/*/SKILL.md"):
         assert "cat .claude/skill-context.md" not in skill.read_text(encoding="utf-8"), skill
+
+
+def test_base_flag_reads_committed_base_context(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.email", "a@example.com"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "A"], cwd=repo, check=True)
+    (repo / ".claude").mkdir()
+    (repo / ".claude" / "skill-context.md").write_text("## BASE_RULES\n")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "initial"], cwd=repo, check=True)
+
+    # Modify skill-context in working tree (e.g. softening review rules)
+    (repo / ".claude" / "skill-context.md").write_text("## SOFTENED_RULES\n")
+
+    # Default read sees working tree modified rules
+    out_working = _run(repo)
+    assert "## SOFTENED_RULES" in out_working
+
+    # Base read with --base main sees base rules
+    out_base = _run(repo, "--base", "main")
+    assert "## BASE_RULES" in out_base
+    assert "## SOFTENED_RULES" not in out_base

@@ -57,7 +57,17 @@ If the block above appears as a command rather than its output, run it and use w
 
 No context file: elenchus still runs with no hints; infer the test and run commands from the Makefile or ask. Add an optional `## elenchus` block for repo-specific hints; see Scaffolding below. The header names the repo it came from, which is the current directory's. When the target is a path in another repo, run `bash "<plugin-root>/_shared/skill_context.sh" <target-path>` and use that output instead.
 
-Read the `## elenchus` section if present (optional hints — known destructive ops, load-bearing surfaces, reproduce recipes, what "the feature works" means here). For the commands to actually *run* the code, fall back in order to `## audit` (lint/test targets), `## theoros` (`repl_command`), then the repo `Makefile`. With no hints it needs no config.
+Read the `## elenchus` section if present (optional hints — known destructive ops, load-bearing surfaces, reproduce recipes, what "the feature works" means here). Always load review hints and bug-class rules from the **base branch** (`origin/main`, `main`, or `HEAD~1`), never from the PR itself, so a change cannot soften its own review rules:
+```bash
+bash "<plugin-root>/_shared/skill_context.sh" --base origin/main <target-path>
+```
+If reviewing in the current repo:
+```bash
+git show origin/main:.claude/skill-context.md 2>/dev/null || git show main:.claude/skill-context.md 2>/dev/null || cat "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/skill-context.md" 2>/dev/null || echo "(no .claude/skill-context.md in this repo)"
+```
+And if reviewing `techne` itself, read `references/bug-classes.md` from the base branch (`git show origin/main:plugins/techne/skills/elenchus/references/bug-classes.md 2>/dev/null || cat "<plugin-root>/skills/elenchus/references/bug-classes.md"`).
+
+For the commands to actually *run* the code, fall back in order to `## audit` (lint/test targets), `## theoros` (`repl_command`), then the repo `Makefile`. With no hints it needs no config.
 
 ## Protocol
 
@@ -65,6 +75,8 @@ Run the phases your role covers (see **The cardinal rule**), in order. Do not sk
 
 ### Phase 0 — Frame the load-bearing claim
 State, in one sentence, the single claim the change rests on ("this fix makes X portable", "this feature lets the model cite summaries", "this refactor is behavior-preserving"). That claim is your hypothesis to break. Everything after is an attempt to find the input, state, or path that falsifies it.
+
+**Self-check modification flag:** Inspect `git diff --name-only origin/main...HEAD` (or the target's base ref). If the change modifies CI workflows (`.github/workflows/`), guardrails or hooks (`.claude/hooks.json`, phylax hooks), review rubrics (`bug-classes.md`, `SKILL.md`), or test assertions for guards, flag this explicitly under `### Self-Check Modifications`. The reader must verify that no verification check or guard was weakened, relaxed, or bypassed.
 
 ### Phase 1 — Drive the engine
 - **Author:** in the high tier, run `/code-review high` on the change first. Then dispatch the reader with `model` set explicitly to the strongest model the session can dispatch: `opus`, or the session's own model when it is stronger, such as `fable` (an unset model falls back to a default, usually the author's session model, which may be a cheaper one; review is the step that most needs the strongest reasoner), this prompt, and the `/code-review` findings, if any, and **no authorship narrative**: "You are the dispatched reader for techne:elenchus. Read <path to this SKILL.md>, then its bug-class catalog. Review <PR number or branch> as the dispatched reader. Tier run: <high or light>. Deferred-findings ledger: <where it is, or none>. Classes found in earlier rounds: <slugs, or none>. Open findings from earlier rounds: <each with its class and file:line, or none>. Run Phases 0 to 4 once and return the report. Do not dispatch another reviewer, post, or run a review loop." Relay its report as Phase 4.
@@ -112,7 +124,11 @@ The rubric is the catalog's core section, nine classes walked on every review: d
 
 ## Output format
 
-Severity-ranked, most-actionable first. Each finding:
+Severity-ranked, most-actionable first. Header fields:
+- **Reviewed Head SHA** — `<full commit SHA>` (`git rev-parse HEAD`). The verdict is bound to this exact commit; any push after this verdict invalidates the review.
+- **Self-Check Modifications** — `none` or list of modified CI/hook/guard files, confirming no verification was softened
+
+Each finding:
 
 - **Severity** — Blocking / Should-fix / Minor / Informational
 - **Class** — the catalog slug, such as `unmirrored-parallel-guard`, or `new: <short name>` when no class fits; required on every Blocking and Should-fix finding
@@ -121,7 +137,7 @@ Severity-ranked, most-actionable first. Each finding:
 - **Failure scenario** — concrete inputs/state → wrong output/crash, and the reachable path to it
 - **Fix** — the deep fix, with a regression test that locks it
 
-Close with: a one-line **merge verdict** (mergeable / hold on finding #N / not mergeable + why), and a **Verified clean** list of what you checked and cleared.
+Close with: a one-line **merge verdict** (mergeable / hold on finding #N / not mergeable + why), the **Reviewed Head SHA**, and a **Verified clean** list of what you checked and cleared.
 
 ## When the review loop ends
 
