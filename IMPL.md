@@ -1,40 +1,41 @@
 # techne — Implementation scratchpad
 
-The active TODO list for whatever's in flight **right now**: current PR, open design question,
-immediate next pickup. Queued specs and ordering live in [ROADMAP.md](./ROADMAP.md); landed work
-moves to its dated Shipped log. Over ~50 lines means something referential crept in.
+The work in flight right now: current branch, slice, what is done, what is next, how to verify.
+Forward plans live in [ROADMAP.md](./ROADMAP.md); finished work lives in git and GitHub. The
+cleanup check holds this file to 50 lines.
 
-## phylax fails closed (branch fix/phylax-fail-closed-378, issue #378, PR #379)
+## Cleanup check (branch feat/cleanup-check-390, issue #390, PR #394)
 
-- Slice: `"onFailure": "block"` on the PreToolUse hooks that can refuse (Bash, run_command, Agent|Task
-  model guard, email greeting). Left out: `budget.py agent` (only rewrites a model) and non-PreToolUse events.
-- ✅ Round 1 (code-review medium + Opus reader + Heph's review) fixed:
-  - `hooks/no_python3.sh`, sourced when python3 is missing or exits other than 0/2 (`$phylax_rc`): checks only
-    the `command`/`CommandLine` JSON values, git/gh as words, blocking options only; one decision point.
-  - Model and greeting hooks map a failing python3 to a named refusal; scripts pin their folder on sys.path.
-  - Warning-only failures emit a warning verdict (`git_options.unchecked`); crash handler counts SHAPES only
-    before the shape check; `off_switch(keys)` names only options that could refuse.
-  - 50 s shared budget (`git_options.time_left`) for git runs and secret scans; doctor `fail-closed` line.
-  - `make shellcheck` now covers `plugins/*/hooks/*.sh`. Mutation checks: each new guard turns a test red.
-- ✅ Round-1 suite + `make shellcheck`: green after two test fixes (b7522e9 budget test anchored on now, which
-  broke CI's mutation baseline; c524e7c doctor tests' option list lacked email_greeting, now pinned to
-  plugin.json). mutation.py prints `::error` per failed baseline test (CI report finding).
-- ✅ Mutation gate: 17 survivors killed by tests (edb1aa2); survivors and failed baselines now print `::error`.
-- ✅ Live check (2.1.316, haiku, ~/.claude-rit, --plugin-dir + settings with phylax@inline options): branch as
-  is: echo runs, pkill -f refused by the guard; python3 stub exit 1: echo runs, pkill -f refused "python3 failed
-  (exit 1)"; Bash hook timeout 5 + guard sleeping 30: echo refused "timed out; blocking because onFailure is
-  "block""; guard raising: echo refused with the crash text + off switch. Server killed, no claude left.
-- ✅ Round 2 (fresh Opus): 2 should-fix + 3 nits fixed in 2040d83 (warn-only crash prints a warning verdict;
-  doctor fail-closed counts only refusing guards; docs name every no-python3 refusal). 2.1.294 checked live with
-  `-p`: loads the hooks, refuses pkill -f, ignores onFailure (echo ran past a timed-out hook).
-- ✅ Round 3 (fresh Opus): clean; 4 nits fixed (crash handler catches any parse error; docs: 75 s timeout
-  caveat, AGENTS no-grep and \u wording).
-- ✅ Verify pass on round-3 nits clean; deep-input regression test forced via json.loads (CI's Python parses
-  100000 nested lists). CI green on ee6251e (validate 25m37s; apt slowness is techne#382). PR body updated.
-- ✅ Heph's verify item: bash's `.` of a missing no_python3.sh went on and could exit 0; now `|| { refusal; exit 2; }`
-  in both shell hooks, a conformance test over bash and dash, docs line.
-- 📋 Next: CI green, report Heph; Heph merges.
-- No plugin version bump: plugin.json has no version.
-- Verify: `make lint`; `uv run pytest tests/test_phylax_conformance.py tests/test_git_guards.py
-  tests/test_model_guard.py tests/test_email_greeting.py tests/test_command_shapes.py tests/test_hook_latency.py
-  tests/test_phylax_doctor.py tests/test_secret_guard.py` under the heavy lock.
+- Slice: `plugins/techne/_shared/cleanup.py` + sisters check 18. Parts: roadmap (done-log,
+  300 lines), impl (50), agents (200 lines / 25,000 bytes), transient (owner + expires/reviewed),
+  rules (a `### slug:` entry dated within 90 days), flaky (retry markers need `quarantine: until`
+  within 30 days). `done-log` and `prune` (refuses untracked/dirty/linked ROADMAP, `prune: off`,
+  config errors, a `registered_report` sister from any worktree or clone, an unreadable roster).
+  `--no-dates` = the PR gate (`make guards`, `.github/workflows/cleanup.yml`); `cleanup-weekly.yml`
+  runs the dated half. klepsydra#514 imports `transient_status`/`Transient.expired`/`done_sections`.
+- ✅ Reader rounds 1-2, verify rounds 3-6 and mutation runs 2-8 done (history in git log);
+  equivalents with reasons in mutation/equivalent.toml.
+- ✅ Heph r1 (reports/cleanup-check-394-r1.md) fixed in 2e86d61 + docs commit: S1 CRLF
+  `## cleanup`; S2 span_hazard refuses a link/footnote definition in the cut, Scan: a plain
+  one-line definition starts no paragraph, others are hazards; rendered-HTML differential test
+  (kept_html) added; S3 retry keys with any non-zero value (not in .py or workflows: N6);
+  N1 no ROADMAP exit 0; N2 surrogateescape write; N3 no added final newline; N4 heading-like
+  indented # only; N7 prune prints `note:` for kept lines naming the cut (dangling, slug);
+  N8 check skips a registered_report ROADMAP. Tests pass locally; make lint clean.
+- 📋 PARKED 11-23 (Heph: Personal 5h room). Next, in order:
+  1. Mutation run (stopped part-way: 113 killed, 15 survived): `flock -o /tmp/fleet-heavy.lock
+     timeout 3000 uv run --no-sync python scripts/mutation.py --changed-since d6397e3 --module
+     plugins/techne/_shared/cleanup.py --workers 4`. Survivors seen: dangling mutmut_1/8/17/18/
+     25/26/29/31/32/33/35, prune 87/92/96, slug 20: add cells (limit cap, anchor-only match,
+     blank title) or equivalents with reasons.
+  2. N5: a Windows leg for the cleanup tests (AJ's Windows stations run the claude-prefs hook).
+     Local try: copy tracked files to %TEMP%\techne-win-394,
+     `cmd.exe /c "uv.exe run --python 3.12 python -m pytest tests/test_cleanup_check.py
+     tests/test_cleanup_markdown.py"` under the lock; skipif POSIX-only cells (mkfifo,
+     symlink); then a windows-latest job in validate.yml. Delete the temp copy after.
+  3. Push once, verify pass (fresh Opus reader), Heph r2 and merge. After merge: claude-prefs
+     #56, then repin klepsydra#514's ci.yml techne ref to the merge SHA.
+- Bench red on e3fd401 was noise (no phylax change; bench passed on ead67ae and 00509fe).
+- Renumbered planned checks: #257 → check 19, #259 → check 20. Follow-ups filed: #391.
+- Verify: `make lint`; `uv run pytest tests/test_cleanup_check.py tests/test_cleanup_markdown.py
+  tests/test_lessons.py tests/test_bug_classes.py`; `make guards`.

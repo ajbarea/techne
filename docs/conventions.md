@@ -122,6 +122,7 @@ The [template](https://github.com/ajbarea/techne/blob/main/plugins/techne/skills
 | `## latex` | `latex` | `markers`, `overfull_pt`, `engine`. |
 | `## research_grounded` | `research-grounded` | `decision_docs`: files, directories or globs audited in addition to `IMPL.md` and `ROADMAP.md`. |
 | `## logging` | `logging`, `sisters` | `ignore` (rules this repo opts out of, each with its reason), `skip` (path prefixes the check leaves out). |
+| `## cleanup` | `sisters` (check 18), `_shared/cleanup.py` in CI | `roadmap_lines`, `impl_lines`, `agent_lines`, `agent_bytes`, `review_days`, `quarantine_days` (budgets), `transient` and `keep` (globs), `agent_file` (more instruction files, such as a memory index), `rules` (lesson and rule files reviewed every 90 days), `prune: off`. See [working docs](#implmd-and-roadmapmd-working-docs). |
 | `## elenchus` | `elenchus` | `test_command`, `run_command`, `destructive_ops`, `load_bearing_surfaces`, `feature_works_means`; each is optional and sharpens one phase. |
 
 **Required for:** `techne:audit`, `techne:theoros`.
@@ -144,7 +145,19 @@ An `- owner: solo` line is not trusted on its own, since it is true only for its
 
 ## `IMPL.md` and `ROADMAP.md` (working docs)
 
-Both sit at the repo root and are committed. `ROADMAP.md` holds the long view and a dated log of what shipped. `IMPL.md` holds the work in flight: the current slice, what is done, what is next and how to verify it.
+Both sit at the repo root and are committed. `ROADMAP.md` holds the long view, forward only: milestones, the next-up order, design rules and the backlog. `IMPL.md` holds the work in flight: the current slice, what is done, what is next and how to verify it.
+
+Finished work is recorded once, in git and GitHub: merged PRs, closed issues, releases and `git log`. No file keeps a growing list of what shipped, so `ROADMAP.md` has no Completed, Shipped or Done section. When an item ships, delete its scope block. What it taught becomes a lesson (`/techne:lessons`), a design rule kept in `ROADMAP.md`, or an issue. A file that is meant to be temporary, such as a review draft, carries `owner` and `expires` (or `reviewed`) frontmatter, and is harvested into the repo that owns it and deleted when it expires. research(2026-11): changelogs are generated from history, not kept by hand ([Pollock](https://rufuspollock.com/2026-02-25-changelogs-lightweight-best-practice)); owner and review-date metadata with a threshold check ([HVE-core](https://microsoft.github.io/hve-core/docs/contributing/documentation-maintenance), [Mintlify](https://www.mintlify.com/library/how-to-keep-documentation-up-to-date-with-regular-reviews)).
+
+`_shared/cleanup.py check` enforces it: a done-log section in `ROADMAP.md`, a `ROADMAP.md` over 300 lines, an `IMPL.md` over 50, an agent instruction file over 200 lines or 25,000 bytes ([Claude Code memory docs](https://code.claude.com/docs/en/memory)), a transient file without an owner and a live date, a rule or lesson not reviewed in 90 days, or a retried or flaky-marked test without a live quarantine (fix it or delete it). A repo changes the budgets and names its transient files in the `## cleanup` section of `.claude/skill-context.md`. `techne:sisters` runs it as check 18, and its clean mode harvests and prunes a done-log. In a repo's own CI, call the reusable workflow, pinned to a techne commit:
+
+```yaml
+jobs:
+  cleanup:
+    uses: ajbarea/techne/.github/workflows/cleanup.yml@<commit sha> # vX
+```
+
+That gate checks only what no calendar date decides, so a pull request never turns red because a date passed. Expiry, review age and quarantine ends run weekly: a scheduled workflow calls the same job `with: dates: true`, and `techne:sisters` check 18 runs every part.
 
 On a branch, `IMPL.md` is that branch's resume state. A session that starts in the worktree after a restart, `/clear` or compaction should be able to pick up from `IMPL.md`, `git log` and the working tree alone, without the conversation or Claude's memory, which is one file per project shared by every worktree and kept on one machine. So:
 
@@ -155,7 +168,7 @@ On a branch, `IMPL.md` is that branch's resume state. A session that starts in t
 `IMPL.md` on the default branch describes the last slice merged. research(2026-10): Anthropic, "Effective harnesses for long-running agents" (a progress file and the git log are what a fresh context window resumes from).
 
 **Read by:** the techne plugin's `resume_brief` option, which adds this state as context at session start ([options](plugins/techne.md#options)).
-**Audited by:** `techne:sisters`, which marks a dirty, idle worktree whose `IMPL.md` is unchanged since its branch left the default branch as not resumable.
+**Audited by:** `techne:sisters`, which marks a dirty, idle worktree whose `IMPL.md` is unchanged since its branch left the default branch as not resumable, and checks both files' budgets and the done-log rule (check 18).
 
 ## `COMMITS.md` (local commit draft)
 

@@ -1,6 +1,6 @@
 ---
 name: sisters
-description: Cross-repo drift audit across the linked repos listed in `~/.claude/techne.toml`. Read-only inspection of CI action and toolchain pins, skill-context parity, GitHub merge settings and branch protection, open PRs, branch/worktree/stash hygiene, and fleet conventions (Codecov, Dependabot, log retention, README header, shared docs-site files, the agent instruction file, the logging standard). A clean mode removes finished branches and worktrees after the user approves the list, and an auto mode does it unasked for work that is provably finished. Use for "audit the sisters", "are the sisters in sync", "check cross-repo drift", "comb the sisters", "clean up branches and worktrees across the repos", or when several sister repos are named together for a consistency check. Not for auditing one repo's own build (techne:audit) or its CI logs (techne:ci-audit).
+description: Cross-repo drift audit across the linked repos listed in `~/.claude/techne.toml`. Read-only inspection of CI action and toolchain pins, skill-context parity, GitHub merge settings and branch protection, open PRs, branch/worktree/stash hygiene, and fleet conventions (Codecov, Dependabot, log retention, README header, shared docs-site files, the agent instruction file, the logging standard, cleanup of finished-work logs). A clean mode removes finished branches and worktrees after the user approves the list, and an auto mode does it unasked for work that is provably finished. Use for "audit the sisters", "are the sisters in sync", "check cross-repo drift", "comb the sisters", "clean up branches and worktrees across the repos", or when several sister repos are named together for a consistency check. Not for auditing one repo's own build (techne:audit) or its CI logs (techne:ci-audit).
 disable-model-invocation: false
 allowed-tools: Bash(gh api repos/*) Bash(gh pr list*) Bash(gh auth status) Bash(git fetch *) Bash(git for-each-ref *) Bash(git rev-list *) Bash(git branch *) Bash(grep *) Bash(awk *) Bash(sed *) Bash(sort *) Bash(uniq *) Bash(wc *) Bash(ls *) Bash(python3 *) Bash(git -C *) Bash(head *) Bash(cut *) Bash(tr *) Bash(printf *) Glob Grep Read
 ---
@@ -25,7 +25,7 @@ If `~/.claude/techne.toml` is missing or yields zero active sisters, stop and te
 
 ## What to check
 
-Run every check, in order, using the commands in [references/checks.md](references/checks.md). Check 15's script is `<skill-dir>/scripts/agents_md.py`; check 16's is `<plugin-root>/skills/logging/scripts/logcheck.py`; check 17's is `<skill-dir>/scripts/security_floor.py`.
+Run every check, in order, using the commands in [references/checks.md](references/checks.md). Check 15's script is `<skill-dir>/scripts/agents_md.py`; check 16's is `<plugin-root>/skills/logging/scripts/logcheck.py`; check 17's is `<skill-dir>/scripts/security_floor.py`; check 18's is `<plugin-root>/_shared/cleanup.py`.
 Each check reports per repo; one broken repo never aborts the others.
 
 | # | Check | Drift means | Recommend |
@@ -47,6 +47,7 @@ Each check reports per repo; one broken repo never aborts the others.
 | 15 | Agent instruction file | No committed `AGENTS.md`; any `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md` in the repo (tracked, untracked or ignored, at any depth; check 15 in `references/checks.md` covers ignored folders) or above it; a symlinked `CLAUDE.md` | Move the content into `AGENTS.md` and delete the file; personal notes go to `~/.claude/CLAUDE.md` |
 | 16 | Logging standard | A repo whose logging gates are off, or that logs a secret, writes an uncapped log file, prints errors to stdout, loses CI logs on failure or commits a log file (`techne:logging`'s check) | Run `/techne:logging` in that repo |
 | 17 | Security floor | Secret scanning or push protection off on a public repo, Dependabot alerts off, no zizmor in CI, an action not pinned to a full commit SHA (or the `actions.lock` lockfile), or a workflow without least-privilege `permissions:` | Fix by PR, one per repo; a private repo's secret scanning needs paid GitHub Secret Protection, so name it as the user's call |
+| 18 | Cleanup | A `ROADMAP.md` done-log (Completed, Shipped, Done, ...); a working doc or agent instruction file past its budget; a transient file with no `owner` + `expires` or past it; a rule or lesson not reviewed in 90 days; a retried or flaky-marked test without a live quarantine | Harvest and prune a done-log in [clean mode](#clean-mode); review or retire each stale rule; fix or delete a flaky test; trim the rest in the repo's own PR |
 
 ## Output format
 
@@ -134,6 +135,10 @@ A single block, no preamble (concrete repo names below are illustrative — subs
 - repo-a: security floor ✓
 - repo-b: 2 security floor gaps: no zizmor in CI; no permissions: in ci.yml
 
+### Cleanup
+- repo-a: cleanup ✓
+- repo-b: ROADMAP.md:31 'Completed' keeps a log of finished work (lines 31-132) → harvest its lessons and open follow-ups, then delete it
+
 ### Verdict
 
 <"N drift items to address." | "All sisters coherent.">
@@ -155,6 +160,15 @@ What the script counts as safe, and what it never touches:
 - Stashes and uncommitted changes are reported, never removed.
 - The default branch comes from GitHub, not the clone's `origin/HEAD`, which goes stale.
 - `--apply` surveys again and removes only items still safe at the same tip, deleting with compare-and-delete (`update-ref -d <sha>`, `--force-with-lease`), and removes worktrees without `--force`. Anything that moved is kept and named.
+
+### Done-log harvest
+
+Clean mode also retires a `ROADMAP.md` done-log that check 18 found, one repo at a time, on a branch of that repo with its own PR:
+
+1. `python3 <plugin-root>/_shared/cleanup.py done-log <repo-path>` prints each section with its line span.
+2. Harvest before deleting. A lesson (a correction meant to carry forward) goes to `/techne:lessons`; a rule the work still follows moves into the ROADMAP's design rules; an unfinished follow-up becomes an issue unless one is open. A plain record of what shipped is already in git and GitHub and is not copied anywhere.
+3. `python3 <plugin-root>/_shared/cleanup.py prune <repo-path>` shows what it would delete; `--apply` deletes it. It refuses a `ROADMAP.md` that is untracked, modified or a link (the text must stay in git history), a repo whose `## cleanup` section says `- prune: off`, and a sister marked `registered_report = true` in `techne.toml` or a roster it cannot read. A registered-report repo's text is never edited: report what would move and stop. It also refuses a span holding a link reference or footnote definition, which links outside the cut may use. Each `note:` line names a kept line that still points at the cut heading, by title or `#anchor`: reword it in the same commit.
+4. Commit, open the PR with what was harvested and where, and link the issue.
 
 ## Auto mode
 
@@ -182,7 +196,7 @@ The techne plugin ships an off-by-default SessionStart hook, switched on with th
 
 ## Rules
 
-- Read-only, except clean mode's `--apply` after the user approves the list, and `--auto`, which removes only the safe-to-remove group. Never edit files, push branches, or modify GitHub settings. If the audit surfaces something that needs fixing, say so and stop.
+- Read-only, except clean mode's `--apply` after the user approves the list, its done-log harvest (one PR per repo), and `--auto`, which removes only the safe-to-remove group. Never edit files, push branches, or modify GitHub settings. If the audit surfaces something that needs fixing, say so and stop.
 - If one repo is in a broken state (e.g., `.claude/skill-context.md` missing), report it and continue the other checks — don't abort.
 - `gh` calls go through the user's authenticated CLI; if auth fails, surface the error and stop that check (don't retry).
 - Do not invoke `techne:ci-audit` recursively. If a PR has failing checks, *name* it and tell the user to run `techne:ci-audit` separately.

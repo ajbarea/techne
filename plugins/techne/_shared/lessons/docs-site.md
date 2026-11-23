@@ -22,5 +22,6 @@ Read with `common.md`. `SKILL.md` and `references/polish.md` hold the site rules
 - **Why:** A bare root link bounces a visitor to the owner's user site.
 - **Since:** 2026-05-26
 - **Check:** guidance: what a link should resolve to depends on the site's configured root.
+- **Reviewed:** 2026-11-20
 
 ## Retired

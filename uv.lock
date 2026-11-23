@@ -1644,6 +1644,7 @@ default-groups = ["dev", "epistole", "heuresis"]
 
 [package.dev-dependencies]
 dev = [
+    { name = "markdown-it-py" },
     { name = "mutmut" },
     { name = "pytest" },
     { name = "pytest-codspeed" },
@@ -1668,6 +1669,7 @@ heuresis = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "markdown-it-py", specifier = ">=4.2" },
     { name = "mutmut", specifier = "==3.8.1" },
     { name = "pytest", specifier = ">=9.2.0" },
     { name = "pytest-codspeed", specifier = ">=5.0.4,<5.1" },

@@ -1,0 +1,20 @@
+name: cleanup-weekly
+
+# The dated half of the cleanup check on techne itself: expired transient files, rules and lessons
+# not reviewed in 90 days, quarantines past their end. A red run reaches the fleet's CI watch.
+# research(2026-11): `$/` is the self-repository reference for a reusable workflow call
+# (https://github.blog/changelog/2026-07-30-reference-same-repository-actions-with-self-repository-syntax).
+
+on:
+  schedule:
+    - cron: "41 12 * * 1" # Mondays 12:41 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    uses: $/.github/workflows/cleanup.yml
+    with:
+      dates: true

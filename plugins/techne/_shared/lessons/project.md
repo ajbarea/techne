@@ -35,6 +35,7 @@ Read with `common.md` before building or restyling a project's user-facing surfa
 - **Why:** Presumptive infrastructure took over a release cycle and had no user.
 - **Since:** 2026-05-16
 - **Check:** guidance: whether a caller will exist cannot be computed.
+- **Reviewed:** 2026-11-20
 
 ### harness-first: Built-ins before scripts
 

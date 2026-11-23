@@ -12,7 +12,7 @@ Each class has the same four fields:
 - **Guard:** the test, check or structural fix that prevents it.
 - **Incidents:** where it bit, as `repo#PR round (date): what happened`, joined by `; `, newest last, at most three; adding a fourth drops the oldest, which git history keeps. A private repo is named by what it is, not by name. When an addition would pass the word budget, merge overlapping classes or trim incidents first; raising the budget is a deliberate edit in that PR.
 
-A class whose guard became a mechanical check (a lint rule, test or hook) gets a fifth field last, **Retired:** the check and where it runs; readers skip it unless that check is missing.
+A class kept by a prune pass gets **Reviewed:** the pass's date, after **Incidents**: the cleanup check (`_shared/cleanup.py`, sisters check 18) flags a class whose newest incident or review is over 90 days old, so the catalog is pruned as well as grown. Merge or delete a class nothing has hit and the standing rules already cover. A class whose guard became a mechanical check (a lint rule, test or hook) gets a fifth field last, **Retired:** the check and where it runs; readers skip it unless that check is missing.
 
 ## Core rubric
 
@@ -36,6 +36,7 @@ A class whose guard became a mechanical check (a lint rule, test or hook) gets a
 - **Question:** does every field the new code reads have a default when state from the previous release lacks it?
 - **Guard:** a test that loads a fixture saved by the previous release; new fields follow their siblings' access pattern (`.get(k, default)`, not `dict["k"]`).
 - **Incidents:** a private MCP server (2026-06-29): a session reopen crashed on `dict["k"]` where the rest of the loader used `.get`.
+- **Reviewed:** 2026-11-20
 
 ### 4. unreached-surface: Reachability to the real surface
 
@@ -43,6 +44,7 @@ A class whose guard became a mechanical check (a lint rule, test or hook) gets a
 - **Question:** is the changed symbol the one the harness registers, ships or shows, and who consumes it across the whole repo?
 - **Guard:** a test through the registered entry point (the wrapper, the CLI, the installed plugin), not the inner function.
 - **Incidents:** a private MCP server (2026-06-29): enriched tool guidance landed on the inner function, not the FastMCP-registered wrapper.
+- **Reviewed:** 2026-11-20
 
 ### 5. boundary-input: Boundary and empty inputs
 
@@ -50,6 +52,7 @@ A class whose guard became a mechanical check (a lint rule, test or hook) gets a
 - **Question:** which boundary input reachable from a real caller breaks this, judged by running it, not by checking the formula?
 - **Guard:** a parametrized test over the boundary cells (empty, one, first, last, the `>= N` edge, the largest value the CLI accepts).
 - **Incidents:** pharos (2026-08-05): a logistic called stable in self-review raised `OverflowError` once `|log_pos - log_neg| > 709.8`, a value the CLI could produce.
+- **Reviewed:** 2026-11-20
 
 ### 6. looks-done-not-done: Looks done is not done
 
@@ -57,6 +60,7 @@ A class whose guard became a mechanical check (a lint rule, test or hook) gets a
 - **Question:** what run, outside the unit tests, shows the feature working, does any test mock the very wiring under test, and has each gate or detector been seen to fire?
 - **Guard:** an end-to-end run of the shipped path (start the server, run the CLI, load the plugin) recorded in the PR; a test through the unmocked wiring; a test where each gate fires (see class `vacuous-guard`).
 - **Incidents:** a private MCP server (2026-06): a one-line config typo aborted the whole MCP server boot while tests passed.
+- **Reviewed:** 2026-11-20
 
 ### 7. flake-vs-real-red: Flake versus real red
 
@@ -64,6 +68,7 @@ A class whose guard became a mechanical check (a lint rule, test or hook) gets a
 - **Question:** does the failing check touch code this change reached, and does it fail on `main` too?
 - **Guard:** rerun the check on `main` before attributing it; never merge on red; a flake on `main` is a real bug with its own issue (see class `async-flake-excluded-not-awaited`).
 - **Incidents:** none recorded.
+- **Reviewed:** 2026-11-20
 
 ### 8. claim-code-drift: Claim and code drift
 
@@ -164,6 +169,7 @@ A class whose guard became a mechanical check (a lint rule, test or hook) gets a
 - **Question:** across the family of verdicts in this file, is each one an any or an all, and do they agree?
 - **Guard:** read the verdicts side by side along one dimension; trip the control by silencing one cell and requiring the verdict to flip.
 - **Incidents:** pharos#31 (2026-08-16): one of eight verdicts used `bool(filtered_list)`, and a reproduce pass and `/code-review high` both missed it.
+- **Reviewed:** 2026-11-20
 
 ### vacuous-guard: A guard or check that cannot fail
 
@@ -185,6 +191,7 @@ A class whose guard became a mechanical check (a lint rule, test or hook) gets a
 - **Question:** was the exit code captured from the command itself, and does the output, or the count of produced artifacts, agree with it?
 - **Guard:** `cmd > log 2>&1; rc=$?`, then read the log; never put a verify left of a pipe or gate a commit on one; read `gh run view <id> --json conclusion` after a watch.
 - **Incidents:** pharos (2026-08-06): a notification said exit 0 for a run whose log said `MAKE_CI_EXIT=2`; a private MCP server's CI (2026-07-04): `gh pr checks --watch` exited 0 while `lint-and-test (3.12)` failed.
+- **Reviewed:** 2026-11-20
 
 ### overlapping-gate-runs: A second gate or an unbounded watcher reports a superseded run
 
@@ -192,6 +199,7 @@ A class whose guard became a mechanical check (a lint rule, test or hook) gets a
 - **Question:** is exactly one gate and one bounded watcher in flight, and which tree does this result measure?
 - **Guard:** one gate at a time; stop the old watcher before a new run; bounded polls, never an `until` with no exit; read the log, not the notification.
 - **Incidents:** pharos (2026-08-06): three superseded-run notices in one session and an unbounded watcher that ran 3 h 13 min.
+- **Reviewed:** 2026-11-20
 
 ### kill-by-pattern: Killing or cleaning up by pattern hits a sibling's processes
 
@@ -213,6 +221,7 @@ A class whose guard became a mechanical check (a lint rule, test or hook) gets a
 - **Question:** does the test poll to a stable terminal state and then assert the whole record, or does it exclude the fields that race?
 - **Guard:** poll with a short interval and a timeout, then compare the full result, excluding only fields unique by construction (ids, timestamps); sweep the suite for the same pattern; no rerun-until-green plugin.
 - **Incidents:** a private MCP server's CI (2026-07-04): a submit-response comparison raced state, finished_at, cumulative_rows and result, and reded the 3.12 leg.
+- **Reviewed:** 2026-11-20
 
 ### sweepable-flag-fixed-constants: A sweep flag with fixed companion constants
 
@@ -220,6 +229,7 @@ A class whose guard became a mechanical check (a lint rule, test or hook) gets a
 - **Question:** do the companion constants scale with the flag, and does any sentinel (`None`, `-1`) mean two opposite things?
 - **Guard:** express constants as positions (majority, two-thirds, all but one); assert the ladder reproduces every committed constant at the default; no silent skip guards.
 - **Incidents:** pharos (2026-08-06): `COMPOSITIONS = (5, 6, 7)` measured 5-of-5 unanimity under the label "majority" at `--fleet 5`.
+- **Reviewed:** 2026-11-20
 
 ### metric-own-denominator: A score computed over a subset the intervention changes
 
@@ -227,13 +237,7 @@ A class whose guard became a mechanical check (a lint rule, test or hook) gets a
 - **Question:** does the denominator stay fixed when the thing being measured changes?
 - **Guard:** fix the denominator before the intervention; recompute the headline label by label in an independent pass.
 - **Incidents:** pharos (2026-08-05): two findings' headline tables scored agreement over unanchored tasks, so anchoring a wrong item lifted the score.
-
-### stale-forward-compat-prediction: A placeholder's prediction of an API is trusted as fact
-
-- **Symptom:** code written ahead of an upstream release matches a predicted shape, not the real one, and a migration estimate built on it misses most of the work.
-- **Question:** has every placeholder's predicted shape been checked against the upstream migration guide or release?
-- **Guard:** read the upstream guide before estimating; treat each mismatch as scope; rewrite the stub's comment to admit the wrong prediction.
-- **Incidents:** kourai a2a-sdk 1.0 (2026-04-29): a firewall predicted a unified `Part`, but the release shipped a flat `Part(text=...)` and matched only by protobuf permissiveness.
+- **Reviewed:** 2026-11-20
 
 ### ingestion-scrub-not-release-scrub: Identities leak into released artifacts
 

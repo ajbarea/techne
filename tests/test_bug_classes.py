@@ -23,6 +23,8 @@ FIELD_RE = re.compile(r"^- \*\*(\w+):\*\* (\S.*)$")
 FIELDS = ("Symptom", "Question", "Guard", "Incidents")
 # A class whose guard became a mechanical check also says which check, last.
 RETIRED = "Retired"
+# The last prune pass that kept the class (techne cleanup check, `rules` part).
+REVIEWED = "Reviewed"
 DATE_RE = re.compile(r"\b20\d\d-\d\d(?:-\d\d)?\b")
 # Incidents are `where (YYYY-MM[-DD]): what happened`, joined by "; ".
 INCIDENT_RE = re.compile(r"^(?P<where>[^;():]+?) \((?P<date>20\d\d-\d\d(?:-\d\d)?)\): \S")
@@ -86,8 +88,12 @@ def problems(entry: dict) -> list[str]:
     """What is wrong with one parsed class; empty when it is well formed."""
     found = []
     names = tuple(name for name, _ in entry["fields"])
-    if names not in (FIELDS, (*FIELDS, RETIRED)):
-        found.append(f"fields {names} are not {FIELDS}, optionally then {RETIRED}")
+    allowed = (FIELDS, (*FIELDS, REVIEWED), (*FIELDS, RETIRED), (*FIELDS, REVIEWED, RETIRED))
+    if names not in allowed:
+        found.append(f"fields {names} are not {FIELDS}, optionally then {REVIEWED}, then {RETIRED}")
+    reviewed = dict(entry["fields"]).get(REVIEWED)
+    if reviewed is not None and not re.fullmatch(r"20\d\d-\d\d-\d\d", reviewed):
+        found.append(f"Reviewed {reviewed!r} is not a YYYY-MM-DD date")
     incidents = dict(entry["fields"]).get("Incidents", "")
     if incidents == NONE_RECORDED:
         if entry["number"] is None:
