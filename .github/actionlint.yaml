@@ -1,0 +1,8 @@
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04
+
+paths:
+  .github/workflows/mutation.yml:
+    ignore:
+      - 'specifying action "\$/.*" in invalid format'

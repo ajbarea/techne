@@ -1,0 +1,13 @@
+name: check-action-pins
+description: Verify that every remote GitHub Actions `uses:` ref is pinned to a full 40-character commit SHA
+inputs:
+  directory:
+    description: Target repository directory to check (defaults to workspace root)
+    required: false
+    default: '.'
+runs:
+  using: composite
+  steps:
+    - name: Check action pins
+      shell: bash
+      run: bash "${{ github.action_path }}/../../../scripts/check_action_pins.sh" "${{ inputs.directory }}"

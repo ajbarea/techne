@@ -9,7 +9,7 @@ Per repo, from GitHub (through `gh`) and from its workflow files:
     repo needs GitHub Secret Protection, a paid add-on, so it is reported
     as the user's decision, not a gap)
   - Dependabot alerts on
-  - zizmor run by a workflow (the workflow linter)
+  - zizmor and actionlint run by a workflow (the workflow linters)
   - every action in a workflow or the repo's composite actions pinned to a
     full commit SHA, unless the workflow dependency lockfile
     (.github/workflows/actions.lock), which GitHub calls the stronger form,
@@ -123,6 +123,7 @@ def read(path: Path) -> str | None:
 
 
 ZIZMOR = re.compile(r"\bzizmor\b")
+ACTIONLINT = re.compile(r"\bactionlint\b")
 KEY = re.compile(r"^\s*(?:-\s+)?([A-Za-z_][\w-]*):\s*(.*)$")
 
 
@@ -141,6 +142,23 @@ def runs_zizmor(text: str) -> bool:
                 continue
             line = value
         if ZIZMOR.search(line) and not re.match(r"^\s*echo\b", line):
+            return True
+    return False
+
+
+def runs_actionlint(text: str) -> bool:
+    """A step that runs actionlint: the actionlint action or actionlint in a command."""
+    for raw in text.splitlines():
+        line = re.sub(r"(^|\s)#.*$", "", raw).rstrip()
+        m = KEY.match(line)
+        if m:
+            key, value = m.groups()
+            if key == "uses" and "actionlint" in value.lower():
+                return True
+            if key != "run":
+                continue
+            line = value
+        if ACTIONLINT.search(line) and not re.match(r"^\s*echo\b", line):
             return True
     return False
 
@@ -212,6 +230,7 @@ def workflow_gaps(root: Path) -> list[str]:
     write_all: list[str] = []
     unreadable: list[str] = []
     zizmor = False
+    actionlint = False
     for path in files + composite_actions(root):
         text = read(path)
         workflow = path.parent.name == "workflows"
@@ -221,13 +240,14 @@ def workflow_gaps(root: Path) -> list[str]:
         # Only a workflow the lockfile names is onboarded (GitHub onboards them one by one).
         locked = workflow and path.name in onboarded
         zizmor |= runs_zizmor(text)
+        actionlint |= runs_actionlint(text)
         where = path.relative_to(root).as_posix() if not workflow else path.name
         for line in text.splitlines():
             m = USES.match(line)
             if not m:
                 continue
             ref = m.group(1)
-            if ref.startswith(("./", "docker://")):
+            if ref.startswith(("./", "docker://", "$/")):
                 continue  # local actions; Docker refs are out of scope
             reusable = "/.github/workflows/" in ref
             if not SHA.search(ref) and (reusable or not locked):
@@ -244,6 +264,8 @@ def workflow_gaps(root: Path) -> list[str]:
             no_perms.append(path.name)
     if not zizmor:
         gaps.append("no zizmor in CI")
+    if not actionlint:
+        gaps.append("no actionlint in CI")
     if unpinned:
         gaps.append(f"{len(unpinned)} action refs not pinned to a SHA (first: {unpinned[0]})")
     if no_perms:

@@ -4,7 +4,7 @@
 ## that techne itself documents at docs/conventions.md.
 ##
 
-.PHONY: help check-env setup manifests citation plugin-validate plugin-test test-hooks-oldest frontmatter fix lint shellcheck guards test-unit test-sandboxed sandbox-warm zizmor test validate build ci clean docs evals evals-bash quality quality-trial quality-skills install-probe heuresis-gold freshness mod-types bench bench-compare
+.PHONY: help check-env setup manifests citation plugin-validate plugin-test test-hooks-oldest frontmatter fix lint shellcheck guards test-unit test-sandboxed sandbox-warm actionlint zizmor test validate build ci clean docs evals evals-bash quality quality-trial quality-skills install-probe heuresis-gold freshness mod-types bench bench-compare
 .DEFAULT_GOAL := help
 
 check-env:              ## Verify required tools are on PATH
@@ -109,6 +109,9 @@ test-hooks-oldest:      ## Hook and doctor tests with the code under test run on
 	[ -n "$$py" ] || { echo "FAIL: no Python $(HOOKS_OLDEST_PYTHON) from uv" >&2; exit 1; }; \
 	TECHNE_GUARD_PYTHON="$$py" uv run pytest $(HOOK_TESTS)
 
+actionlint:             ## actionlint GHA workflow validator (.github/workflows/)
+	@uvx --from actionlint-py actionlint
+
 zizmor:                 ## zizmor GHA security scan (.github/workflows/)
 	@uv run zizmor .github/workflows/
 
@@ -121,7 +124,7 @@ test: manifests frontmatter guards citation test-unit  ## Structural checks + py
 # `build` belongs here: a dependency bump can leave lint and tests green and
 # still abort the site build, and docs.yml only runs on push to main, so
 # nothing else would catch it before it landed.
-validate: lint shellcheck zizmor plugin-validate plugin-test test test-hooks-oldest build  ## Fast pre-push gate
+validate: lint shellcheck zizmor actionlint plugin-validate plugin-test test test-hooks-oldest build  ## Fast pre-push gate
 
 # Whole-command timing of each hook beside the python3 floor (bench/README.md). It times this
 # machine, so run nothing else heavy meanwhile. BENCH_OUT and BENCH_LABEL name the summary; a

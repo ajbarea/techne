@@ -12,13 +12,15 @@
 
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "${1:-$(dirname "${BASH_SOURCE[0]}")/..}" && pwd)"
 WORKFLOWS="$ROOT/.github/workflows"
 TEMPLATES="$ROOT/.github-template/workflows"
 SKILL_TEMPLATES=()
-while IFS= read -r -d '' f; do SKILL_TEMPLATES+=("$f"); done < <(
-    find "$ROOT/plugins" -path '*/skills/*/templates/*' \( -name '*.yml' -o -name '*.yaml' \) -print0
-)
+if [[ -d "$ROOT/plugins" ]]; then
+    while IFS= read -r -d '' f; do SKILL_TEMPLATES+=("$f"); done < <(
+        find "$ROOT/plugins" -path '*/skills/*/templates/*' \( -name '*.yml' -o -name '*.yaml' \) -print0
+    )
+fi
 
 [[ -d "$WORKFLOWS" ]] || { printf 'OK: no .github/workflows/ to check\n'; exit 0; }
 
@@ -31,10 +33,15 @@ for f in "$WORKFLOWS"/*.yml "$WORKFLOWS"/*.yaml "$TEMPLATES"/*.yml "$TEMPLATES"/
         if [[ "$line" =~ uses:[[:space:]]*([A-Za-z0-9_.-]+/[^@[:space:]]+)@([^[:space:]#]+) ]]; then
             ref="${BASH_REMATCH[1]}"
             rev="${BASH_REMATCH[2]}"
-            case "$ref" in ./* | docker://*) continue ;; esac
+            case "$ref" in ./* | docker://* | \$/\* ) continue ;; esac
             if ! [[ "$rev" =~ ^[0-9a-f]{40}$ ]]; then
+                rel_path="${f#"$ROOT"/}"
                 printf 'FAIL: %s:%d: %s@%s is not pinned to a full commit SHA\n' \
-                    "${f#"$ROOT"/}" "$lineno" "$ref" "$rev" >&2
+                    "$rel_path" "$lineno" "$ref" "$rev" >&2
+                if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
+                    printf '::error file=%s,line=%d::%s@%s is not pinned to a full commit SHA\n' \
+                        "$rel_path" "$lineno" "$ref" "$rev" >&2
+                fi
                 violations=$((violations + 1))
             fi
         fi

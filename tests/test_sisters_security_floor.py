@@ -27,6 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@{SHA} # v6
       - run: uvx zizmor .github/workflows/
+      - run: uvx --from actionlint-py actionlint
 """
 LOCK_CI = "version: 1\nworkflows:\n  .github/workflows/ci.yml:\n    actions: {}\n"
 SA_ON = {
@@ -245,3 +246,37 @@ def test_zizmor_counts_only_when_a_step_runs_it(tmp_path, step, counts):
     text = GOOD.replace("      - run: uvx zizmor .github/workflows/\n", step)
     out = run(tmp_path, make_repo(tmp_path, {"ci.yml": text}))
     assert ("no zizmor in CI" not in out) == counts, out
+
+
+def test_missing_actionlint_is_a_gap(tmp_path):
+    text = f"""name: ci
+on: [push]
+permissions:
+  contents: read
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@{SHA} # v6
+      - run: uvx zizmor .github/workflows/
+"""
+    out = run(tmp_path, make_repo(tmp_path, {"ci.yml": text}))
+    assert "1 security floor gap: no actionlint in CI" in out
+
+
+def test_local_action_with_dollar_slash_is_exempt(tmp_path):
+    text = f"""name: ci
+on: [push]
+permissions:
+  contents: read
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@{SHA} # v6
+      - uses: $/.github/actions/my-action
+      - run: uvx zizmor .github/workflows/
+      - run: uvx --from actionlint-py actionlint
+"""
+    out = run(tmp_path, make_repo(tmp_path, {"ci.yml": text}))
+    assert "security floor ✓" in out
