@@ -109,8 +109,8 @@ test-hooks-oldest:      ## Hook and doctor tests with the code under test run on
 	[ -n "$$py" ] || { echo "FAIL: no Python $(HOOKS_OLDEST_PYTHON) from uv" >&2; exit 1; }; \
 	TECHNE_GUARD_PYTHON="$$py" uv run pytest $(HOOK_TESTS)
 
-actionlint:             ## actionlint GHA workflow validator (.github/workflows/)
-	@uvx --from actionlint-py actionlint
+actionlint:             ## actionlint GHA workflow validator (.github/workflows/), pinned in uv.lock
+	@uv run actionlint
 
 zizmor:                 ## zizmor GHA security scan (.github/workflows/)
 	@uv run zizmor .github/workflows/

@@ -137,3 +137,19 @@ jobs:
         "actions/checkout@v4 is not pinned to a full commit SHA"
     )
     assert expected in res.stderr
+
+
+def test_the_composite_action_keeps_expressions_out_of_its_shell() -> None:
+    # An input interpolated into `run:` is shell text a caller controls (zizmor's
+    # template-injection); the step reads it from env instead.
+    action = (ROOT / ".github/actions/check-action-pins/action.yml").read_text()
+    run_lines = [line for line in action.splitlines() if line.strip().startswith("run:")]
+    assert run_lines and all("${{" not in line for line in run_lines)
+
+
+def test_actionlint_runs_from_the_lockfile() -> None:
+    # `make actionlint` runs the version uv.lock pins, never whatever uvx fetches that day.
+    makefile = (ROOT / "Makefile").read_text()
+    recipe = makefile.split("\nactionlint:", 1)[1].split("\n\n", 1)[0]
+    assert "uv run actionlint" in recipe and "uvx" not in recipe
+    assert 'name = "actionlint-py"' in (ROOT / "uv.lock").read_text()

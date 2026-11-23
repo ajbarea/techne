@@ -10,4 +10,7 @@ runs:
   steps:
     - name: Check action pins
       shell: bash
-      run: bash "${{ github.action_path }}/../../../scripts/check_action_pins.sh" "${{ inputs.directory }}"
+      env:
+        PIN_DIR: ${{ inputs.directory }}
+        PIN_SCRIPT: ${{ github.action_path }}/../../../scripts/check_action_pins.sh
+      run: bash "$PIN_SCRIPT" "$PIN_DIR"
