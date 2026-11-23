@@ -13,26 +13,8 @@ cleanup check holds this file to 50 lines.
   config errors, a `registered_report` sister from any worktree or clone, an unreadable roster).
   `--no-dates` = the PR gate (`make guards`, `.github/workflows/cleanup.yml`); `cleanup-weekly.yml`
   runs the dated half. klepsydra#514 imports `transient_status`/`Transient.expired`/`done_sections`.
-- ✅ Reader round 1 (1 Blocking + 7 Should-fix) fixed in ead67ae; tests in 00509fe.
-- ✅ Mutation round 2 (66dda39): CI on it left 74 survivors. Round 3 (c250332 + equivalents):
-  a test cell per killable survivor, four reads simplified (origin by re.split, BREAK takes a
-  kept line ending, BOM by removeprefix, quarantine per line); local run on the head: 1669
-  mutants, 1629 killed, 4 timeouts (detected), 36 survivors each with a reason in
-  mutation/equivalent.toml (POSIX-only getattr/newline defaults, equal codecs, `--` pathspecs).
-- ✅ Reader round 2 (3 Should-fix) fixed in 3f7ea0f: roster match through techne_config.matches
-  + git_env.github_slug, names lowercased; Scan.open_fence → span_hazard refuses; without()
-  merges back-to-back cuts, skips setext underlines, and puts a blank before a setext title;
-  property test: CommonMark headings outside the cut survive (40k docs, CRLF too, 0 bad).
-- ✅ Verify round 3 (3 Should-fix: a fence in a list item, an HTML block above the cut, odd
-  line breaks) fixed in 47bb5f7: Scan marks hazard regions (HTML/quote blocks to their end, a
-  doubtful fence makes what follows unsure), odd breaks refuse, a break under text is never
-  popped; 48k-doc sweep: 0 section mismatches, 0 heading losses. Mutation run 6: 1839 mutants,
-  1784 killed, 4 timeouts, 45 equivalents with reasons, 6 killed by tests added after it.
-- ✅ Verify round 4 (a fence inside a quote or HTML-looking region) fixed in 8cea436; mutation
-  run 7 on it: 1843 mutants, 1794 killed, 45 equivalents, 4 timeouts, 0 left.
-- ✅ Verify round 5 (an HTML opener inside a quote region) fixed in 4121688; the reviewer's block
-  oracle: 0 bad over 6 seeds; mutation run 8: 1849 mutants, 1800 killed, 45 equivalents, 0 left.
-- ✅ Verify round 6 on 5f9d398: clean (no next member of the block-region class).
+- ✅ Reader rounds 1-2, verify rounds 3-6 and mutation runs 2-8 done (history in git log);
+  equivalents with reasons in mutation/equivalent.toml.
 - ✅ Heph r1 (reports/cleanup-check-394-r1.md) fixed in 2e86d61 + docs commit: S1 CRLF
   `## cleanup`; S2 span_hazard refuses a link/footnote definition in the cut, Scan: a plain
   one-line definition starts no paragraph, others are hazards; rendered-HTML differential test
