@@ -21,6 +21,9 @@ The active TODO list for whatever's in flight right now. Queued specs live in [R
 - 📋 Left for #391 (stays open): replace the inline `pin-check.yml` in the seven sisters (ldqis, ariadne,
   ajbarea.github.io, periplus, phalanx-fl, kourai-khryseai, velocity-fl) with
   `uses: ajbarea/techne/.github/actions/check-action-pins@<SHA>` once this merges, one PR each.
-- ⏸ PARKED 11-23 at 6db034b; 📋 Next: CI, fresh Opus round 3 (verify of round-2 fixes), merge.
+- ✅ Round 3 (mergeable after a docs line): sisters SKILL row names actionlint; validate.yml runs the
+  composite action itself (`$/` ref), so a runner exercises its script path; `$GITHUB_ACTION_PATH`;
+  the linter-action test asserts the other tool's gap stays.
+- 📋 Next: verify pass of round-3 fixes, CI green, merge.
 - Verify: `uv run pytest tests/test_check_action_pins.py tests/test_sisters_security_floor.py`;
   `make actionlint zizmor guards`.

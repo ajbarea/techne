@@ -174,3 +174,8 @@ def test_the_action_fails_on_a_workspace_with_no_workflows(tmp_path: Path) -> No
     assert res.returncode == 1 and "actions/checkout" in res.stderr
     action = (ROOT / ".github/actions/check-action-pins/action.yml").read_text()
     assert 'PIN_REQUIRE_WORKFLOWS: "1"' in action
+    # techne's own CI runs the action, so a wrong script path fails a real runner.
+    validate = (ROOT / ".github/workflows/validate.yml").read_text()
+    assert "uses: $/.github/actions/check-action-pins" in validate
+    script = action.split("run: bash ")[1].split()[0].strip('"').replace("$GITHUB_ACTION_PATH", "")
+    assert (ROOT / ".github/actions/check-action-pins" / script.lstrip("/")).resolve().is_file()

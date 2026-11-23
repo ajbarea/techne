@@ -269,8 +269,11 @@ def test_a_linter_counts_only_when_a_step_runs_it(tmp_path, tool, step, counts):
 )
 def test_a_linters_own_action_counts(tmp_path, action):
     tool = "zizmor" if "zizmor" in action else "actionlint"
+    other = "actionlint" if tool == "zizmor" else "zizmor"
     text = GOOD.replace(f"      - run: {LINT_STEP[tool]}\n", f"      - uses: {action}\n")
-    assert f"no {tool} in CI" not in run(tmp_path, make_repo(tmp_path, {"ci.yml": text}))
+    text = text.replace(f"      - run: {LINT_STEP[other]}\n", "")
+    out = run(tmp_path, make_repo(tmp_path, {"ci.yml": text}))
+    assert f"no {tool} in CI" not in out and f"no {other} in CI" in out
 
 
 def test_missing_actionlint_is_a_gap(tmp_path):

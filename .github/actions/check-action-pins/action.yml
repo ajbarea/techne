@@ -13,5 +13,4 @@ runs:
       env:
         PIN_DIR: ${{ inputs.directory }}
         PIN_REQUIRE_WORKFLOWS: "1"
-        PIN_SCRIPT: ${{ github.action_path }}/../../../scripts/check_action_pins.sh
-      run: bash "$PIN_SCRIPT" "$PIN_DIR"
+      run: bash "$GITHUB_ACTION_PATH/../../../scripts/check_action_pins.sh" "$PIN_DIR"
