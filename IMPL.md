@@ -29,7 +29,7 @@ cleanup check holds this file to 50 lines.
      25/26/29/31/32/33/35, prune 87/92/96, slug 20: add cells (limit cap, anchor-only match,
      blank title) or equivalents with reasons.
   2. N5: a Windows leg for the cleanup tests (AJ's Windows stations run the claude-prefs hook).
-     Local try: copy tracked files to C:\Users\ajbar\AppData\Local\Temp\techne-win-394,
+     Local try: copy tracked files to %TEMP%\techne-win-394,
      `cmd.exe /c "uv.exe run --python 3.12 python -m pytest tests/test_cleanup_check.py
      tests/test_cleanup_markdown.py"` under the lock; skipif POSIX-only cells (mkfifo,
      symlink); then a windows-latest job in validate.yml. Delete the temp copy after.
