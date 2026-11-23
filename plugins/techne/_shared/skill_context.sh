@@ -1,31 +1,39 @@
 #!/usr/bin/env bash
 # Print .claude/skill-context.md from the repo that owns TARGET, headed by the repo root.
-# Usage: skill_context.sh [--base[=REF] | --base-sha[=REF]] [target]
+# Usage: skill_context.sh [--base[=BASE] | --base-sha[=BASE]] [--head=HEAD] [target]
 # TARGET is a file or directory, and need not exist yet: it resolves from its
 # nearest existing parent. A bare word (PR number, branch, effort level) has
 # none, so it resolves to the current directory's repo.
-# --base prints the file as committed on the base branch instead of the working
-# tree's, so a change under review cannot edit the hints that judge it. The base is
-# REF, else the remote's default branch (refs/remotes/origin/HEAD), else
-# refs/remotes/origin/main. A short REF prefers refs/remotes/REF, and a name that
-# also names a local branch or a tag is refused, since either can be the branch under
-# review wearing the base's name. Nothing else stands in: a missing or ambiguous ref,
-# or a missing file, is said, never filled from the branch under review.
-# --base-sha prints only "<full ref> <commit>" for that base, or a reason on stderr
-# and exit 1 (elenchus's own_checks.py resolves its base through it).
+# --base prints the file as committed on the base instead of the working tree's, so
+# a change under review cannot edit the hints that judge it. BASE is a full commit id
+# (a PR's baseRefOid), a full ref (refs/remotes/origin/main), or a short name found as
+# exactly one of refs/remotes/NAME, refs/heads/NAME, refs/tags/NAME; anything else
+# (an expression, FETCH_HEAD, a short id) is refused. No BASE: the remote's default
+# branch (refs/remotes/origin/HEAD, else refs/remotes/origin/main). HEAD (default:
+# the checkout's HEAD; a PR's headRefOid) is the commit under review: a base that
+# is HEAD or contains it is refused, since it is the change itself. Nothing stands
+# in for a refused or missing base or file.
+# --base-sha prints only "<base> <base commit> <head commit>", or a reason on
+# stderr and exit 1 (elenchus's own_checks.py resolves through it).
 set -u
 
 base_mode=0
 base_ref=""
-case "${1:-}" in
-  --base) base_mode=1; shift ;;
-  --base=*) base_mode=1; base_ref=${1#--base=}; shift ;;
-  --base-sha) base_mode=2; shift ;;
-  --base-sha=*) base_mode=2; base_ref=${1#--base-sha=}; shift ;;
-esac
+head_ref=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --base) base_mode=1 ;;
+    --base=*) base_mode=1; base_ref=${1#--base=} ;;
+    --base-sha) base_mode=2 ;;
+    --base-sha=*) base_mode=2; base_ref=${1#--base-sha=} ;;
+    --head=*) head_ref=${1#--head=} ;;
+    *) break ;;
+  esac
+  shift
+done
 for a in "$@"; do
   case "$a" in
-    --base*) printf '(%s must come before the target; nothing read)\n' "$a"; exit 0 ;;
+    --base* | --head*) printf '(%s must come before the target; nothing read)\n' "$a"; exit 0 ;;
   esac
 done
 
@@ -51,36 +59,51 @@ ctx="$root/.claude/skill-context.md"
 
 if [ "$base_mode" -ne 0 ]; then
   g() { env -u GIT_DIR -u GIT_WORK_TREE git -C "$root" "$@"; }
-  has() { g show-ref --verify -q "$1"; }
+  # resolve NAME: set r_full and r_sha, or why when NAME is not exactly one commit id or
+  # ref. It runs in this shell (never in $(...)), so why reaches the caller.
+  resolve() {
+    local name=$1 full="" kind hash
+    r_full="" r_sha=""
+    if [[ $name =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]]; then
+      hash=$(g rev-parse -q --verify --end-of-options "${name}^{commit}" 2>/dev/null) \
+        || { why="$name is not a commit in $root: git fetch it"; return; }
+      r_full=$name r_sha=$hash
+      return
+    fi
+    if [[ $name == refs/* ]]; then
+      full=$name
+    else
+      for kind in remotes heads tags; do
+        g show-ref --verify -q "refs/$kind/$name" || continue
+        [ -z "$full" ] || { why="$name is ambiguous ($full and refs/$kind/$name): pass the full name"; return; }
+        full="refs/$kind/$name"
+      done
+      [ -n "$full" ] || { why="$name is not a ref in $root: git fetch it, or pass a full commit id"; return; }
+    fi
+    hash=$(g show-ref --verify --hash "$full" 2>/dev/null) \
+      || { why="$full not found in $root: git fetch +refs/heads/<branch>:$full, or pass a full commit id"; return; }
+    hash=$(g rev-parse -q --verify "${hash}^{commit}" 2>/dev/null) \
+      || { why="$full is not a commit"; return; }
+    r_full=$full r_sha=$hash
+  }
   why=""
   if [ -z "$base_ref" ]; then
-    full=$(g symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null) || full=refs/remotes/origin/main
-  elif [[ $base_ref == refs/* || $base_ref == FETCH_HEAD || $base_ref =~ ^[0-9a-f]{7,40}$ ]]; then
-    full=$base_ref
-  else
-    full=""
-    for kind in remotes heads tags; do
-      has "refs/$kind/$base_ref" || continue
-      if [ -n "$full" ]; then
-        why="base $base_ref is ambiguous ($full and refs/$kind/$base_ref): pass --base=$full"
-        break
-      fi
-      full="refs/$kind/$base_ref"
-    done
-    [ -n "$full" ] || full=$base_ref
+    base_ref=$(g symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null) || base_ref=refs/remotes/origin/main
   fi
-  sha=""
-  [ -n "$why" ] || sha=$(g rev-parse -q --verify "${full}^{commit}" 2>/dev/null) \
-    || why="base $full not found in $root: git fetch it, or pass --base=<the base ref>"
-  # A single-branch clone of the branch under review points origin/HEAD at that branch:
-  # a base that is the reviewed commit, or a remote branch of the same name, is no base.
-  # (A branch made from origin/main tracks origin/main; that base is fine.)
+  resolve "$base_ref"
+  full=$r_full sha=$r_sha head=""
   if [ -z "$why" ]; then
-    branch=$(g symbolic-ref -q --short HEAD 2>/dev/null) || branch=""
-    if [ "$sha" = "$(g rev-parse -q --verify HEAD 2>/dev/null)" ] \
-      || { [ -n "$branch" ] && [[ $full == refs/remotes/*/"$branch" ]]; }; then
-      why="base $full is the branch under review: pass --base=<the branch it merges into>"
+    if [ -n "$head_ref" ]; then
+      resolve "$head_ref"
+      head=$r_sha
+    else
+      head=$(g rev-parse -q --verify HEAD 2>/dev/null) || why="no HEAD in $root: pass --head=<the reviewed commit>"
     fi
+  fi
+  # The base must not hold the change: a single-branch clone of the PR points origin/HEAD
+  # at it, and a checkout standing on the base reviews nothing.
+  if [ -z "$why" ] && g merge-base --is-ancestor "$head" "$sha" 2>/dev/null; then
+    why="base $full holds the commit under review ${head:0:12}: pass --base=<baseRefOid> --head=<headRefOid>"
   fi
   if [ -n "$why" ]; then
     [ "$base_mode" -eq 2 ] && { printf '%s\n' "$why" >&2; exit 1; }
@@ -88,7 +111,7 @@ if [ "$base_mode" -ne 0 ]; then
     exit 0
   fi
   if [ "$base_mode" -eq 2 ]; then
-    printf '%s %s\n' "$full" "$sha"
+    printf '%s %s %s\n' "$full" "$sha" "$head"
     exit 0
   fi
   if ! g cat-file -e "${sha}:.claude/skill-context.md" 2>/dev/null; then

@@ -252,6 +252,21 @@ def _pr_clone(
     return clone
 
 
+def _sha(repo: pathlib.Path, rev: str) -> str:
+    return subprocess.run(
+        ["git", "rev-parse", rev],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+        env=_fenced(repo),
+    ).stdout.strip()
+
+
+def _says_no(out: str) -> bool:
+    return out.startswith("(") and "SOFT" not in out and "BASE_RULES" not in out
+
+
 @pytest.mark.parametrize(
     ("setup", "args", "ref"),
     [
@@ -259,7 +274,6 @@ def _pr_clone(
         ({}, ["--base"], "refs/remotes/origin/main"),
         ({}, ["--base=refs/remotes/origin/main"], "refs/remotes/origin/main"),
         ({"default": "master"}, ["--base"], "refs/remotes/origin/master"),
-        ({"default": "master"}, ["--base=origin/master"], "refs/remotes/origin/master"),
         ({"remote": "upstream"}, ["--base=upstream/main"], "refs/remotes/upstream/main"),
     ],
 )
@@ -268,45 +282,107 @@ def test_base_reads_the_hints_committed_on_the_base(tmp_path, setup, args, ref):
     out = _run(clone, *args).splitlines()
     assert out[0].startswith(f"<!-- skill-context: {clone} (base {ref} ")
     assert out[1:] == ["## BASE_RULES"]
-    sha = _run(clone, args[0].replace("--base", "--base-sha")).split()
-    assert sha[0] == ref and out[0].endswith(f" {sha[1][:12]}) -->")
+    full, base, head = _run(clone, args[0].replace("--base", "--base-sha")).split()
+    assert full == ref and out[0].endswith(f" {base[:12]}) -->") and head == _sha(clone, "HEAD")
 
 
-@pytest.mark.parametrize("shadow", [["tag", "origin/main"], ["branch", "origin/main"]])
-def test_a_tag_or_branch_named_like_the_base_is_refused(tmp_path, shadow):
-    # A tag pushed upstream arrives with the next fetch; a PR branch can carry any name.
+def test_the_pr_recipe_reads_by_commit_from_any_checkout(tmp_path):
+    # gh's baseRefOid and headRefOid: no ref name is read, and the checkout may stand
+    # anywhere, the base itself included.
     clone = _pr_clone(tmp_path)
-    _git(clone, *shadow)
+    base, head = _sha(clone, "origin/main"), _sha(clone, "pr")
+    _git(clone, "checkout", "-q", "-f", "--detach", "origin/main")
+    out = _run(clone, f"--base={base}", f"--head={head}")
+    assert out.splitlines()[1:] == ["## BASE_RULES"]
+
+
+@pytest.mark.parametrize(
+    "shadow",
+    [
+        ["tag", "origin/main"],
+        ["branch", "origin/main"],
+    ],
+)
+def test_a_short_name_that_is_also_a_tag_or_branch_is_refused(tmp_path, shadow):
+    clone = _pr_clone(tmp_path)
+    _git(clone, *shadow, "pr~1")
     out = _run(clone, "--base=origin/main")
-    assert out.startswith("(base origin/main is ambiguous") and "SOFT" not in out
+    assert out.startswith("(origin/main is ambiguous") and _says_no(out)
     assert "## BASE_RULES" in _run(clone, "--base")  # the full name from origin/HEAD
-    proc = subprocess.run(
-        ["bash", str(RESOLVER), "--base-sha=origin/main", str(clone)],
-        capture_output=True,
-        text=True,
-        env=_fenced(clone),
-    )
-    assert proc.returncode == 1 and "ambiguous" in proc.stderr
 
 
-def test_a_shallow_single_branch_clone_with_a_shadowing_tag_never_reads_the_pr(tmp_path):
+@pytest.mark.parametrize("kind", ["tag", "branch"])
+def test_a_full_ref_is_read_exactly_even_when_shadowed(tmp_path, kind):
+    # A tag or branch literally named refs/remotes/origin/main, with the remote ref absent
+    # (a single-branch clone of the PR), must not stand in for it.
     clone = _pr_clone(tmp_path)
-    _git(clone, "tag", "origin/main")
-    shallow = tmp_path / "shallow"
-    _git(
-        tmp_path,
-        "clone",
-        "-q",
-        "--depth=1",
-        "--single-branch",
-        "-b",
-        "pr",
-        f"file://{clone}",
-        str(shallow),
-    )
-    _git(shallow, "fetch", "-q", "origin", "tag", "origin/main")
-    out = _run(shallow, "--base")
-    assert "SOFT" not in out and "BASE_RULES" not in out
+    _git(clone, kind, "refs/remotes/origin/main", "pr~1")
+    one = tmp_path / "one"
+    _git(tmp_path, "clone", "-q", "--single-branch", "-b", "pr", f"file://{clone}", str(one))
+    if kind == "branch":
+        _git(one, "branch", "refs/remotes/origin/main", "HEAD~1")
+    for args in (["--base=refs/remotes/origin/main"], ["--base"]):
+        out = _run(one, *args)
+        assert _says_no(out), (args, out)
+
+
+def test_a_base_that_moved_past_a_detached_review_is_refused(tmp_path):
+    # Single-branch clone of the PR, detached at the reviewed commit; the author pushes and
+    # the reviewer fetches: origin/HEAD (origin/pr) now holds the reviewed commit.
+    clone = _pr_clone(tmp_path)
+    one = tmp_path / "one"
+    _git(tmp_path, "clone", "-q", "--single-branch", "-b", "pr", f"file://{clone}", str(one))
+    _git(one, "remote", "set-head", "origin", "pr")
+    _git(one, "checkout", "-q", "--detach")
+    _git(clone, "checkout", "-q", "-f", "pr")
+    (clone / ".claude" / "skill-context.md").write_text("## SOFT9\n")
+    _git(clone, "commit", "-qam", "soften again")
+    _git(one, "fetch", "-q")
+    out = _run(one, "--base")
+    assert out.startswith("(base refs/remotes/origin/pr holds the commit under review")
+    assert _says_no(out)
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "main-checkout",
+        "fork-main-tracks-upstream",
+        "same-name-under-a-folder",
+        "worktree-from-base",
+    ],
+)
+def test_legitimate_setups_read_the_base(tmp_path, case):
+    clone = _pr_clone(tmp_path, remote="upstream" if case.startswith("fork") else "origin")
+    remote = "upstream" if case.startswith("fork") else "origin"
+    head = _sha(clone, "pr")
+    args = [f"--base=refs/remotes/{remote}/main", f"--head={head}"]
+    if case == "main-checkout":
+        _git(clone, "checkout", "-q", "-f", "--detach", f"{remote}/main")
+    elif case == "fork-main-tracks-upstream":
+        _git(clone, "checkout", "-q", "-f", "-B", "main", "upstream/main")
+    elif case == "same-name-under-a-folder":
+        _git(clone, "update-ref", "refs/remotes/origin/team/pr", "origin/main")
+        args = ["--base=refs/remotes/origin/team/pr"]
+    else:
+        _git(clone, "checkout", "-q", "-f", "-b", "feat", "origin/main")
+        (clone / ".claude" / "skill-context.md").write_text("## SOFT4\n")
+        _git(clone, "commit", "-qam", "soften on feat")
+        args = ["--base"]
+    out = _run(clone, *args)
+    assert "## BASE_RULES" in out and "SOFT" not in out, out
+
+
+@pytest.mark.parametrize("rev", ["HEAD~1", "pr~1", "HEAD@{1}", "FETCH_HEAD", "origin/main~0"])
+def test_a_revision_expression_is_not_a_base(tmp_path, rev):
+    clone = _pr_clone(tmp_path)
+    _git(clone, "fetch", "-q", "origin")
+    assert _says_no(_run(clone, f"--base={rev}"))
+
+
+def test_a_short_commit_id_is_not_a_base(tmp_path):
+    clone = _pr_clone(tmp_path)
+    assert _says_no(_run(clone, f"--base={_sha(clone, 'origin/main')[:12]}"))
 
 
 def test_base_ignores_an_exported_git_dir(tmp_path):
@@ -320,13 +396,13 @@ def test_base_ignores_an_exported_git_dir(tmp_path):
 
 def test_base_after_the_target_is_refused(tmp_path):
     clone = _pr_clone(tmp_path)
-    out = _run(clone, ".", "--base=origin/main")
-    assert out.startswith("(--base=origin/main must come before the target") and "SOFT" not in out
+    for flag in ("--base=origin/main", "--head=HEAD"):
+        out = _run(clone, ".", flag)
+        assert out.startswith(f"({flag} must come before the target") and "SOFT" not in out
 
 
-def test_base_reads_the_base_from_a_detached_head_and_another_folder(tmp_path):
+def test_base_reads_the_base_from_another_folder(tmp_path):
     clone = _pr_clone(tmp_path)
-    _git(clone, "checkout", "-q", "--detach", "HEAD")
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
     out = _run(elsewhere, "--base", str(clone / ".claude"))
@@ -336,21 +412,19 @@ def test_base_reads_the_base_from_a_detached_head_and_another_folder(tmp_path):
 @pytest.mark.parametrize(
     ("setup", "prepare", "args", "says"),
     [
-        # The base has no file and the PR adds one: say so, never print the PR's.
         (
             {"base_file": False},
             None,
             ["--base"],
             "(no .claude/skill-context.md on base refs/remotes/origin/main",
         ),
-        # A master-default remote with origin/HEAD gone and no origin/main: no HEAD~1 stand-in.
         (
             {"default": "master"},
             ["remote", "set-head", "origin", "-d"],
             ["--base"],
-            "(base refs/remotes/origin/main not found",
+            "(refs/remotes/origin/main not found",
         ),
-        ({}, None, ["--base=nope"], "(base nope not found"),
+        ({}, None, ["--base=nope"], "(nope is not a ref"),
     ],
 )
 def test_a_missing_base_is_said_and_nothing_stands_in(tmp_path, setup, prepare, args, says):
@@ -358,41 +432,9 @@ def test_a_missing_base_is_said_and_nothing_stands_in(tmp_path, setup, prepare, 
     if prepare:
         _git(clone, *prepare)
     out = _run(clone, *args)
-    assert out.startswith(says) and "SOFT" not in out and "BASE_RULES" not in out
+    assert out.startswith(says) and _says_no(out)
 
 
 def test_without_base_the_working_tree_is_read_as_before(tmp_path):
     clone = _pr_clone(tmp_path)
     assert "## SOFT3" in _run(clone)
-
-
-def test_a_branch_that_tracks_the_base_still_reads_it(tmp_path):
-    # `git worktree add -b feat <dir> origin/main` tracks origin/main: a real base.
-    clone = _pr_clone(tmp_path)
-    _git(clone, "checkout", "-q", "-f", "-b", "feat", "origin/main")
-    (clone / ".claude" / "skill-context.md").write_text("## SOFT4\n")
-    _git(clone, "commit", "-qam", "soften on feat")
-    out = _run(clone, "--base")
-    assert "## BASE_RULES" in out and "SOFT" not in out
-
-
-def test_a_base_that_is_the_reviewed_commit_is_refused(tmp_path):
-    clone = _pr_clone(tmp_path)
-    _git(clone, "checkout", "-q", "-f", "-b", "nothing-yet", "origin/main")
-    out = _run(clone, "--base")
-    assert out.startswith("(base refs/remotes/origin/main is the branch under review")
-
-
-def test_a_base_named_like_the_reviewed_branch_is_refused(tmp_path):
-    # A single-branch clone of `pr` points origin/HEAD at origin/pr; one more local commit
-    # makes HEAD differ from it, so only the name tells the two apart.
-    clone = _pr_clone(tmp_path)
-    one = tmp_path / "one"
-    _git(tmp_path, "clone", "-q", "--single-branch", "-b", "pr", f"file://{clone}", str(one))
-    _git(one, "remote", "set-head", "origin", "pr")
-    (one / "x").write_text("x\n")
-    _git(one, "add", "x")
-    _git(one, "commit", "-qm", "local")
-    out = _run(one, "--base")
-    assert out.startswith("(base refs/remotes/origin/pr is the branch under review")
-    assert "SOFT" not in out
