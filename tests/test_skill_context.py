@@ -253,20 +253,75 @@ def _pr_clone(
 
 
 @pytest.mark.parametrize(
-    ("setup", "args", "header"),
+    ("setup", "args", "ref"),
     [
-        ({}, ["--base=origin/main"], "(base origin/main)"),
-        ({}, ["--base"], "(base origin/main)"),
-        ({"default": "master"}, ["--base"], "(base origin/master)"),
-        ({"default": "master"}, ["--base=origin/master"], "(base origin/master)"),
-        ({"remote": "upstream"}, ["--base=upstream/main"], "(base upstream/main)"),
-        ({}, ["--base=main"], "(base main)"),
+        ({}, ["--base=origin/main"], "refs/remotes/origin/main"),
+        ({}, ["--base"], "refs/remotes/origin/main"),
+        ({}, ["--base=refs/remotes/origin/main"], "refs/remotes/origin/main"),
+        ({"default": "master"}, ["--base"], "refs/remotes/origin/master"),
+        ({"default": "master"}, ["--base=origin/master"], "refs/remotes/origin/master"),
+        ({"remote": "upstream"}, ["--base=upstream/main"], "refs/remotes/upstream/main"),
     ],
 )
-def test_base_reads_the_hints_committed_on_the_base(tmp_path, setup, args, header):
+def test_base_reads_the_hints_committed_on_the_base(tmp_path, setup, args, ref):
     clone = _pr_clone(tmp_path, **setup)
-    out = _run(clone, *args)
-    assert out.splitlines() == [f"<!-- skill-context: {clone} {header} -->", "## BASE_RULES"]
+    out = _run(clone, *args).splitlines()
+    assert out[0].startswith(f"<!-- skill-context: {clone} (base {ref} ")
+    assert out[1:] == ["## BASE_RULES"]
+    sha = _run(clone, args[0].replace("--base", "--base-sha")).split()
+    assert sha[0] == ref and out[0].endswith(f" {sha[1][:12]}) -->")
+
+
+@pytest.mark.parametrize("shadow", [["tag", "origin/main"], ["branch", "origin/main"]])
+def test_a_tag_or_branch_named_like_the_base_is_refused(tmp_path, shadow):
+    # A tag pushed upstream arrives with the next fetch; a PR branch can carry any name.
+    clone = _pr_clone(tmp_path)
+    _git(clone, *shadow)
+    out = _run(clone, "--base=origin/main")
+    assert out.startswith("(base origin/main is ambiguous") and "SOFT" not in out
+    assert "## BASE_RULES" in _run(clone, "--base")  # the full name from origin/HEAD
+    proc = subprocess.run(
+        ["bash", str(RESOLVER), "--base-sha=origin/main", str(clone)],
+        capture_output=True,
+        text=True,
+        env=_fenced(clone),
+    )
+    assert proc.returncode == 1 and "ambiguous" in proc.stderr
+
+
+def test_a_shallow_single_branch_clone_with_a_shadowing_tag_never_reads_the_pr(tmp_path):
+    clone = _pr_clone(tmp_path)
+    _git(clone, "tag", "origin/main")
+    shallow = tmp_path / "shallow"
+    _git(
+        tmp_path,
+        "clone",
+        "-q",
+        "--depth=1",
+        "--single-branch",
+        "-b",
+        "pr",
+        f"file://{clone}",
+        str(shallow),
+    )
+    _git(shallow, "fetch", "-q", "origin", "tag", "origin/main")
+    out = _run(shallow, "--base")
+    assert "SOFT" not in out and "BASE_RULES" not in out
+
+
+def test_base_ignores_an_exported_git_dir(tmp_path):
+    clone = _pr_clone(tmp_path)
+    other = tmp_path / "other"
+    other.mkdir()
+    _git(other, "init", "-q")
+    env = {**os.environ, "GIT_DIR": str(other / ".git"), "GIT_WORK_TREE": str(other)}
+    assert "## BASE_RULES" in _run(clone, "--base", env=env)
+
+
+def test_base_after_the_target_is_refused(tmp_path):
+    clone = _pr_clone(tmp_path)
+    out = _run(clone, ".", "--base=origin/main")
+    assert out.startswith("(--base=origin/main must come before the target") and "SOFT" not in out
 
 
 def test_base_reads_the_base_from_a_detached_head_and_another_folder(tmp_path):
@@ -286,14 +341,14 @@ def test_base_reads_the_base_from_a_detached_head_and_another_folder(tmp_path):
             {"base_file": False},
             None,
             ["--base"],
-            "(no .claude/skill-context.md on base origin/main",
+            "(no .claude/skill-context.md on base refs/remotes/origin/main",
         ),
         # A master-default remote with origin/HEAD gone and no origin/main: no HEAD~1 stand-in.
         (
             {"default": "master"},
             ["remote", "set-head", "origin", "-d"],
             ["--base"],
-            "(base origin/main not found",
+            "(base refs/remotes/origin/main not found",
         ),
         ({}, None, ["--base=nope"], "(base nope not found"),
     ],
@@ -309,3 +364,35 @@ def test_a_missing_base_is_said_and_nothing_stands_in(tmp_path, setup, prepare, 
 def test_without_base_the_working_tree_is_read_as_before(tmp_path):
     clone = _pr_clone(tmp_path)
     assert "## SOFT3" in _run(clone)
+
+
+def test_a_branch_that_tracks_the_base_still_reads_it(tmp_path):
+    # `git worktree add -b feat <dir> origin/main` tracks origin/main: a real base.
+    clone = _pr_clone(tmp_path)
+    _git(clone, "checkout", "-q", "-f", "-b", "feat", "origin/main")
+    (clone / ".claude" / "skill-context.md").write_text("## SOFT4\n")
+    _git(clone, "commit", "-qam", "soften on feat")
+    out = _run(clone, "--base")
+    assert "## BASE_RULES" in out and "SOFT" not in out
+
+
+def test_a_base_that_is_the_reviewed_commit_is_refused(tmp_path):
+    clone = _pr_clone(tmp_path)
+    _git(clone, "checkout", "-q", "-f", "-b", "nothing-yet", "origin/main")
+    out = _run(clone, "--base")
+    assert out.startswith("(base refs/remotes/origin/main is the branch under review")
+
+
+def test_a_base_named_like_the_reviewed_branch_is_refused(tmp_path):
+    # A single-branch clone of `pr` points origin/HEAD at origin/pr; one more local commit
+    # makes HEAD differ from it, so only the name tells the two apart.
+    clone = _pr_clone(tmp_path)
+    one = tmp_path / "one"
+    _git(tmp_path, "clone", "-q", "--single-branch", "-b", "pr", f"file://{clone}", str(one))
+    _git(one, "remote", "set-head", "origin", "pr")
+    (one / "x").write_text("x\n")
+    _git(one, "add", "x")
+    _git(one, "commit", "-qm", "local")
+    out = _run(one, "--base")
+    assert out.startswith("(base refs/remotes/origin/pr is the branch under review")
+    assert "SOFT" not in out

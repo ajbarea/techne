@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 # Print .claude/skill-context.md from the repo that owns TARGET, headed by the repo root.
-# Usage: skill_context.sh [--base[=REF]] [target]
+# Usage: skill_context.sh [--base[=REF] | --base-sha[=REF]] [target]
 # TARGET is a file or directory, and need not exist yet: it resolves from its
 # nearest existing parent. A bare word (PR number, branch, effort level) has
 # none, so it resolves to the current directory's repo.
-# --base prints the file as committed on REF instead of the working tree's, so a
-# change under review cannot edit the hints that judge it. Without =REF it is the
-# remote's default branch (origin/HEAD), else origin/main. Nothing else stands in:
-# a missing ref or file is said, never filled from the branch under review.
+# --base prints the file as committed on the base branch instead of the working
+# tree's, so a change under review cannot edit the hints that judge it. The base is
+# REF, else the remote's default branch (refs/remotes/origin/HEAD), else
+# refs/remotes/origin/main. A short REF prefers refs/remotes/REF, and a name that
+# also names a local branch or a tag is refused, since either can be the branch under
+# review wearing the base's name. Nothing else stands in: a missing or ambiguous ref,
+# or a missing file, is said, never filled from the branch under review.
+# --base-sha prints only "<full ref> <commit>" for that base, or a reason on stderr
+# and exit 1 (elenchus's own_checks.py resolves its base through it).
 set -u
 
 base_mode=0
@@ -15,7 +20,14 @@ base_ref=""
 case "${1:-}" in
   --base) base_mode=1; shift ;;
   --base=*) base_mode=1; base_ref=${1#--base=}; shift ;;
+  --base-sha) base_mode=2; shift ;;
+  --base-sha=*) base_mode=2; base_ref=${1#--base-sha=}; shift ;;
 esac
+for a in "$@"; do
+  case "$a" in
+    --base*) printf '(%s must come before the target; nothing read)\n' "$a"; exit 0 ;;
+  esac
+done
 
 arg="${1:-.}"
 target=$arg
@@ -37,21 +49,54 @@ root=$(env -u GIT_DIR -u GIT_WORK_TREE git -C "$target" rev-parse --show-topleve
   || root=$target
 ctx="$root/.claude/skill-context.md"
 
-if [ "$base_mode" -eq 1 ]; then
+if [ "$base_mode" -ne 0 ]; then
   g() { env -u GIT_DIR -u GIT_WORK_TREE git -C "$root" "$@"; }
+  has() { g show-ref --verify -q "$1"; }
+  why=""
   if [ -z "$base_ref" ]; then
-    base_ref=$(g symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null) || base_ref=origin/main
+    full=$(g symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null) || full=refs/remotes/origin/main
+  elif [[ $base_ref == refs/* || $base_ref == FETCH_HEAD || $base_ref =~ ^[0-9a-f]{7,40}$ ]]; then
+    full=$base_ref
+  else
+    full=""
+    for kind in remotes heads tags; do
+      has "refs/$kind/$base_ref" || continue
+      if [ -n "$full" ]; then
+        why="base $base_ref is ambiguous ($full and refs/$kind/$base_ref): pass --base=$full"
+        break
+      fi
+      full="refs/$kind/$base_ref"
+    done
+    [ -n "$full" ] || full=$base_ref
   fi
-  if ! g rev-parse -q --verify "${base_ref}^{commit}" >/dev/null 2>&1; then
-    printf '(base %s not found in %s: fetch it, or pass --base=<the base ref>)\n' "$base_ref" "$root"
+  sha=""
+  [ -n "$why" ] || sha=$(g rev-parse -q --verify "${full}^{commit}" 2>/dev/null) \
+    || why="base $full not found in $root: git fetch it, or pass --base=<the base ref>"
+  # A single-branch clone of the branch under review points origin/HEAD at that branch:
+  # a base that is the reviewed commit, or a remote branch of the same name, is no base.
+  # (A branch made from origin/main tracks origin/main; that base is fine.)
+  if [ -z "$why" ]; then
+    branch=$(g symbolic-ref -q --short HEAD 2>/dev/null) || branch=""
+    if [ "$sha" = "$(g rev-parse -q --verify HEAD 2>/dev/null)" ] \
+      || { [ -n "$branch" ] && [[ $full == refs/remotes/*/"$branch" ]]; }; then
+      why="base $full is the branch under review: pass --base=<the branch it merges into>"
+    fi
+  fi
+  if [ -n "$why" ]; then
+    [ "$base_mode" -eq 2 ] && { printf '%s\n' "$why" >&2; exit 1; }
+    printf '(%s)\n' "$why"
     exit 0
   fi
-  if ! g cat-file -e "${base_ref}:.claude/skill-context.md" 2>/dev/null; then
-    printf '(no .claude/skill-context.md on base %s in %s)\n' "$base_ref" "$root"
+  if [ "$base_mode" -eq 2 ]; then
+    printf '%s %s\n' "$full" "$sha"
     exit 0
   fi
-  printf '<!-- skill-context: %s (base %s) -->\n' "$root" "$base_ref"
-  g show "${base_ref}:.claude/skill-context.md"
+  if ! g cat-file -e "${sha}:.claude/skill-context.md" 2>/dev/null; then
+    printf '(no .claude/skill-context.md on base %s %.12s in %s)\n' "$full" "$sha" "$root"
+    exit 0
+  fi
+  printf '<!-- skill-context: %s (base %s %.12s) -->\n' "$root" "$full" "$sha"
+  g show "${sha}:.claude/skill-context.md"
   exit 0
 fi
 
