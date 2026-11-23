@@ -17,7 +17,8 @@ The output starts with the site and window, then:
   means that part of that course was not read: say so in the answer, never as "nothing new".
 - `ANNOUNCE <course> :: <title> :: <time> :: <start of the body>`
 - `CONTENT <course> :: <title> :: <time> :: UNREAD|seen`
-- `DUE <course> :: <assignment> :: <due time>`, due within two weeks.
+- `DUE <course> :: <assignment> :: <due time> :: NOT SUBMITTED | <n> submitted | NOROW |
+  LISTFAIL <status>`, due within two weeks.
 - `PASTDUE <course> :: <assignment> :: <due time> :: NOT SUBMITTED | <n> submitted | NOROW |
   LISTFAIL <status>`, which came due inside the window. `NOROW` and `LISTFAIL` mean the state
   could not be checked: report "could not check", never "missed".
@@ -25,7 +26,8 @@ The output starts with the site and window, then:
 Exit 3 with `needs login` means the site session expired: tell the user to run
 `!schole-login`. A missing `schole.toml` means schole is not set up: use `schole:setup`.
 
-Answer with what needs the user first: `NOT SUBMITTED` past-due work, then what is due soonest,
-then announcements (with any time or room change), then a count of new content, unread first.
+Answer with what needs the user first: `NOT SUBMITTED` past-due work, then what is due soonest
+(unsubmitted first, then submitted as already in), then announcements (with any time or room change),
+then a count of new content, unread first.
 Times are already in the user's zone. Never open a course page to read more; if the user needs
 an item's contents, say where it is and let them open it, since opening marks it read.
