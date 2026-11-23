@@ -477,8 +477,8 @@ Claude Code team thinks about verification", 2026-11). So each `### slug:` entry
 repo names with `- rules: <glob>` (lessons, a bug-class catalog) needs a **Since**, **Reviewed**
 or **Incidents** date within 90 days, and a rules file without entries (a `CLAUDE.md`) a
 `<!-- reviewed: YYYY-MM-DD -->` line. Every retry or flaky marker in a tracked test file or test
-config (pytest-rerunfailures, `@flaky`, `retries:`, `retryTimes`, a retry action, a skip that
-says flaky) needs `quarantine: until YYYY-MM-DD #<issue>` on its line or the two above, at most
+config (pytest-rerunfailures, `@flaky`, a `retries:` or `retry:` key set to anything but 0,
+`retryTimes`, a retry action, a skip that says flaky) needs `quarantine: until YYYY-MM-DD #<issue>` on its line or the two above, at most
 30 days out ([OneUptime](https://oneuptime.com/blog/post/2026-07-28-quarantine-flaky-tests/view),
 [GitLab](https://handbook.gitlab.com/handbook/engineering/testing/quarantine-process/)); past
 it, the test is fixed or deleted. Retries kept 4,962 of 5,000 buggy builds green in one
@@ -491,4 +491,6 @@ python3 <cleanup script> check $(for r in $SISTERS; do printf '%s ' "$WORKSPACE/
 It prints one line per finding, `<repo>: <finding> → <fix>`, or `<repo>: cleanup ✓`, and exits 0
 (`--ci` exits 1 on a finding, for a repo's own CI). Report each line that is not ✓. A done-log
 section is pruned by [clean mode](../SKILL.md#clean-mode)'s harvest step; a budget overrun is
-fixed by hand, in the repo's own PR.
+fixed by hand, in the repo's own PR. A sister marked `registered_report = true` gets no
+`ROADMAP.md` finding, since its text is never edited; `cleanup.py done-log` shows what would
+move.

@@ -167,7 +167,7 @@ Clean mode also retires a `ROADMAP.md` done-log that check 18 found, one repo at
 
 1. `python3 <plugin-root>/_shared/cleanup.py done-log <repo-path>` prints each section with its line span.
 2. Harvest before deleting. A lesson (a correction meant to carry forward) goes to `/techne:lessons`; a rule the work still follows moves into the ROADMAP's design rules; an unfinished follow-up becomes an issue unless one is open. A plain record of what shipped is already in git and GitHub and is not copied anywhere.
-3. `python3 <plugin-root>/_shared/cleanup.py prune <repo-path>` shows what it would delete; `--apply` deletes it. It refuses a `ROADMAP.md` that is untracked, modified or a link (the text must stay in git history), a repo whose `## cleanup` section says `- prune: off`, and a sister marked `registered_report = true` in `techne.toml` or a roster it cannot read. A registered-report repo's text is never edited: report what would move and stop.
+3. `python3 <plugin-root>/_shared/cleanup.py prune <repo-path>` shows what it would delete; `--apply` deletes it. It refuses a `ROADMAP.md` that is untracked, modified or a link (the text must stay in git history), a repo whose `## cleanup` section says `- prune: off`, and a sister marked `registered_report = true` in `techne.toml` or a roster it cannot read. A registered-report repo's text is never edited: report what would move and stop. It also refuses a span holding a link reference or footnote definition, which links outside the cut may use. Each `note:` line names a kept line that still points at the cut heading, by title or `#anchor`: reword it in the same commit.
 4. Commit, open the PR with what was harvested and where, and link the issue.
 
 ## Auto mode
