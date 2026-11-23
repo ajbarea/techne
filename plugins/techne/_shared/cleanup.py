@@ -134,9 +134,10 @@ INDENTED = re.compile(r"^(?: {4}|\t)")
 NOT_PARAGRAPH = re.compile(r"^ {0,3}(?:(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)|>|<)")
 LIST_ITEM = re.compile(r"^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)")
 # Lines prune will not cut across, since a Markdown reader may take them for a heading the scanner
-# misjudged: a block quote, an HTML block, an indented `#` line (list content or code), and a
+# misjudged: a block quote, an HTML block, an indented heading-like `#` line (list content or
+# code; `  #378)` is neither), and a
 # setext-style underline right after a non-blank line.
-UNMODELLED = re.compile(r"^(?: {0,3}(?:>|<[A-Za-z!/?])| {1,}#|\t+ *#)")
+UNMODELLED = re.compile(r"^(?: {0,3}(?:>|<[A-Za-z!/?])|[ \t]+#{1,6}(?:[ \t]|$))")
 # HTML blocks (CommonMark 4.6): types 1-5 end at a marker, which may sit on the first line;
 # types 6-7 end at a blank line. Block quotes are read the same way, to a blank line.
 HTML_ENDS = (
@@ -150,6 +151,15 @@ HTML_ENDS = (
     (re.compile(r"^ {0,3}<!\[CDATA\["), re.compile(r"\]\]>")),
 )
 BLOCK_START = re.compile(r"^ {0,3}(?:<[A-Za-z!/?]|>)")
+# A link reference or footnote definition (CommonMark 4.7, GFM footnotes), in a list item too:
+# it is global, so cutting it breaks every reference to it outside the cut.
+LINK_DEF = re.compile(r"^[ \t]*(?:(?:[-*+]|\d{1,9}[.)])[ \t]+)*\[(?:[^\]\\]|\\.)+\]:")
+# One the scanner can vouch for: a label and a destination with no title on one line. It starts
+# no paragraph, so the line under it is never its setext underline; any other definition-like
+# line may be a paragraph instead, and is a hazard.
+SIMPLE_DEF = re.compile(
+    r"^ {0,3}\[[^\]\[\\]*[^\]\[\\\s][^\]\[\\]*\]:[ \t]+(?:<[^<>\n\\]*>|[^\s<>()\\]+)[ \t]*$"
+)
 # Line breaks str.splitlines honours and CommonMark does not: a prune refuses a text with one.
 ODD_BREAKS = re.compile("[\v\f\x1c\x1d\x1e\x85\u2028\u2029]")
 
@@ -213,7 +223,7 @@ def load_config(root: Path) -> Config:
         return cfg
     if text is None:
         return cfg
-    section = re.search(r"^## cleanup[ \t]*\n(.*?)(?=^## |\Z)", text, re.M | re.S)
+    section = re.search(r"^## cleanup[ \t]*(?:\r?\n|\Z)(.*?)(?=^## |\Z)", text, re.M | re.S)
     if not section:
         return cfg
     for raw in section.group(1).splitlines():
@@ -456,7 +466,11 @@ class Scan:
                 para, in_list = None, in_list or LIST_ITEM.match(line) is not None
             elif in_list:
                 para = None  # a lazy continuation of a list item, never a setext heading
+            elif para is None and SIMPLE_DEF.match(line):
+                continue  # a link reference definition, which no underline makes a heading
             elif para is None:
+                if LINK_DEF.match(line):
+                    self.hazards.add(i)
                 para = i
 
     def unfenced(self):
@@ -513,6 +527,8 @@ def check_roadmap(root: Path, cfg: Config) -> list[str]:
             f"ROADMAP.md has {n} lines, over its {budget}-line budget → cut shipped scope "
             "and history; keep milestones, next-up order, design rules and backlog"
         )
+    if out and roster_refusal(root) == REGISTERED:
+        return []  # its text is never edited, so no finding could be cleared; done-log shows it
     return out
 
 
@@ -772,10 +788,17 @@ def check_rules(root: Path, cfg: Config, today: dt.date | None) -> list[str]:
 
 
 # Retries and flaky markers: each hides a failure until it is quarantined with an end date.
-FLAKY = re.compile(
+FLAKY_ANY = (
     r"pytest\.mark\.flaky|@flaky\b|--reruns\b|\breruns\s*=|rerunfailures|"
-    r"retryTimes\s*\(|\.retries\s*\(|\bretries\s*:\s*[1-9]|\bretry\s*:\s*[1-9]|"
+    r"retryTimes\s*\(|\.retries\s*\(|"
     r"nick-fields/retry|wretry|\b(?:skip|xfail)\b[^\n]*\bflak(?:y|iness|es)\b"
+)
+FLAKY = re.compile(FLAKY_ANY)
+# A JS, YAML or JSON test config's retry key set to anything but 0: `retries: 2`,
+# `retries: process.env.CI ? 2 : 0` (npm init playwright), vitest `retry:`, JSON `"retries": 2`.
+# Not read in workflows (actions/github-script's `retries` input retries API calls) or Python.
+FLAKY_KEYED = re.compile(
+    FLAKY_ANY + r"""|\bretr(?:y|ies)["']?[ \t]*:[ \t]*(?!(?:0|false|null|undefined)\b)[^\s,}#]"""
 )
 QUARANTINE = re.compile(r"quarantine[d]?:?\s*(?:until|expires?)?\s*(20\d\d-\d\d-\d\d)", re.I)
 TEST_FILE = re.compile(
@@ -817,11 +840,13 @@ def check_flaky(root: Path, cfg: Config, today: dt.date | None) -> list[str]:
             text = read_text(root / rel)
         except Unreadable:
             continue
-        if not text or not FLAKY.search(text):
+        keyed = not rel.endswith(".py") and not rel.startswith(".github/workflows/")
+        flaky = FLAKY_KEYED if keyed else FLAKY
+        if not text or not flaky.search(text):
             continue
         lines = text.splitlines()
         for i, line in enumerate(lines):
-            if not FLAKY.search(line):
+            if not flaky.search(line):
                 continue
             q = next(filter(None, map(QUARANTINE.search, lines[max(0, i - 2) : i + 1])), None)
             day = parse_date(q.group(1)) if q else None
@@ -867,11 +892,15 @@ def main_worktree(root: Path) -> Path:
     return root.resolve()
 
 
+REGISTERED = "techne.toml marks it registered_report: its text is never edited → change nothing"
+
+
 def roster_refusal(root: Path) -> str | None:
     """Why ~/.claude/techne.toml forbids a prune at ROOT, or None. It forbids one for a sister
-    marked `registered_report = true`, matched by its main worktree under workspace_root, its
-    folder name or its origin's repo name, so a linked worktree or another clone is caught too;
-    for a repo under workspace_root that is no sister; and when the roster cannot be read."""
+    marked `registered_report = true` (REGISTERED), matched by its main worktree under
+    workspace_root, its folder name or its origin's repo name, so a linked worktree or another
+    clone is caught too; for a repo under workspace_root that is no sister; and when the roster
+    cannot be read."""
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     try:
         import techne_config
@@ -898,7 +927,7 @@ def roster_refusal(root: Path) -> str | None:
         if s["name"].lower() in names or techne_config.matches(cfg, s, {main}, None)
     ]
     if any(s.get("registered_report") is True for s in hits):
-        return "techne.toml marks it registered_report: its text is never edited → change nothing"
+        return REGISTERED
     if not hits and ws is not None and main.is_relative_to(ws.resolve()):
         return f"{main.name} is under workspace_root but in no [[sisters]] entry → add it first"
     return None
@@ -923,6 +952,11 @@ def span_hazard(scan: Scan, a: int, b: int) -> str | None:
         top -= 1
     for n in range(max(top, 1), min(b + 1, len(lines)) + 1):
         line = lines[n - 1]
+        if a <= n <= b and n - 1 not in scan.fenced and LINK_DEF.match(line):
+            return (
+                f"line {n} defines a link target ({line.strip()[:40]!r}) that links outside the "
+                "cut may use; move it above the done-log first"
+            )
         if n - 1 in scan.hazards:
             return f"line {n} ({line.strip()[:40]!r}) is a shape the scanner does not model"
         if n >= a and SETEXT.match(line) and n > 1 and lines[n - 2].strip():
@@ -1006,14 +1040,49 @@ def without(text: str, spans: list[tuple[int, int, str]]) -> str:
             # cut heading kept them apart, so a blank line now does.
             before[right[0]] = "\r\n" if lines[out[-1]].endswith("\r\n") else "\n"
         out += right
-    body = "".join(before.get(i, "") + lines[i] for i in out)
-    if body and not body.endswith("\n"):
-        body += "\n"
-    return body
+    # Every kept line keeps its own ending, so a file with no final newline still has none.
+    return "".join(before.get(i, "") + lines[i] for i in out)
+
+
+def slug(title: str) -> str:
+    """GitHub's anchor for a heading: lowercased, punctuation dropped, spaces to hyphens."""
+    return re.sub(r"[^\w\- ]", "", re.sub(r"[`*_~]", "", title).lower()).replace(" ", "-")
+
+
+def dangling(scan: Scan, spans: list[tuple[int, int, str]], limit: int = 8):
+    """(1-based line, title) for kept lines outside a fence that still point at a cut heading,
+    by its exact title or its `#anchor`, at most LIMIT of them."""
+    cut = {i for a, b, _ in spans for i in range(a - 1, b)}
+    marks = []
+    for _, _, t in spans:
+        bare = re.sub(r"[`*_~]", "", t).strip()
+        if bare:
+            marks.append(
+                (
+                    re.compile(
+                        rf"(?<![\w-])(?:{re.escape(bare)}\b|#{re.escape(slug(t))}(?![\w-]))"
+                    ),
+                    bare,
+                )
+            )
+    found = 0
+    for n, line in scan.unfenced():
+        if n - 1 in cut:
+            continue
+        for rx, bare in marks:
+            if rx.search(line):
+                yield n, bare
+                found += 1
+                break
+        if found >= limit:
+            return
 
 
 def prune(root: Path, apply: bool) -> int:
     root = root.resolve()
+    if not os.path.lexists(root / "ROADMAP.md"):
+        print(f"{root.name}: no ROADMAP.md, so nothing to prune ✓")
+        return 0
     cfg = load_config(root)
     why = prune_refusal(root, cfg)
     if why:
@@ -1039,6 +1108,11 @@ def prune(root: Path, apply: bool) -> int:
             return 1
     for a, b, t in spans:
         print(f"{root.name}: {'deleting' if apply else 'would delete'} ROADMAP.md:{a}-{b} '{t}'")
+    for n, title in dangling(scan, spans):
+        print(
+            f"{root.name}: note: ROADMAP.md:{n} names '{title}', which the prune removes "
+            "→ reword it"
+        )
     if not apply:
         print(f"{root.name}: dry run; harvest first (cleanup.py done-log), then --apply")
         return 0
@@ -1047,7 +1121,7 @@ def prune(root: Path, apply: bool) -> int:
         return 1
     fd, tmp = tempfile.mkstemp(dir=root, prefix=".ROADMAP.", suffix=".tmp")
     try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
+        with os.fdopen(fd, "w", encoding="utf-8", errors="surrogateescape", newline="") as f:
             f.write(without(text, spans))
         os.chmod(tmp, stat.S_IMODE(os.stat(path).st_mode))
         os.replace(tmp, path)

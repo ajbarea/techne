@@ -4,8 +4,8 @@ prune deletes the span from a done-log heading to the next heading of its level,
 must find exactly the headings CommonMark does. Generated documents mix ATX headings (0 to 3
 spaces of indent, closing hashes), setext headings, fences with info strings and fence-like
 lines inside them, list items with lazy continuations, thematic breaks, indented code and
-paragraphs; any disagreement with markdown-it-py fails. Block quotes and HTML blocks are left
-out on purpose: prune refuses a span that holds one.
+paragraphs, link reference definitions and the links that use them; any disagreement with
+markdown-it-py fails, in the headings found and in the HTML the kept text renders to.
 """
 
 from __future__ import annotations
@@ -67,6 +67,11 @@ PIECES = [
     "?>",
     "> q\n<![CDATA[",
     "]]>",
+    "[uv]: https://docs.astral.sh/uv/",  # link reference definitions, which are global
+    "- [spec]: docs/spec.md",
+    "Port to [uv][uv] and read the [spec].",
+    "[uv]: https://x\n---",
+    "  #378); a wrapped issue reference",
 ]
 
 
@@ -107,7 +112,7 @@ def test_every_span_prune_accepts_is_the_commonmark_section():
     CommonMark reader sees, from the heading to the next one of its level or higher."""
     rng = random.Random(20261120)
     accepted = refused = 0
-    for _ in range(10000):
+    for _ in range(12000):
         text = "\n".join(rng.choice(PIECES) for _ in range(rng.randint(1, 9))) + "\n"
         if cleanup.ODD_BREAKS.search(text):  # prune refuses the whole text
             refused += 1
@@ -152,4 +157,48 @@ def test_prune_keeps_every_heading_outside_the_cut():
         want = [(lv, t) for i, lv, t in commonmark_titles(text) if i not in cut]
         got = [(lv, t) for _, lv, t in commonmark_titles(cleanup.without(text, spans))]
         assert got == want, (repr(text), spans)
+    assert checked > 300
+
+
+def kept_html(text: str, cut: set[int]) -> str:
+    """The HTML of TEXT's top-level blocks that start outside CUT (0-based lines), rendered with
+    the whole text's link definitions; thematic breaks left out, since prune drops one dangling
+    break at a cut's edge on purpose."""
+    env: dict = {}
+    toks = MD.parse(text, env)
+    keep, k = [], 0
+    while k < len(toks):
+        end = k
+        if toks[k].nesting == 1:
+            while not (toks[end].level == 0 and toks[end].nesting == -1):
+                end += 1
+        group = toks[k : end + 1]
+        where = toks[k].map
+        start = where[0] if where else None
+        if toks[k].type != "hr" and (start is None or start not in cut):
+            keep += group
+        k = end + 1
+    return MD.renderer.render(keep, MD.options, env)
+
+
+def test_prune_keeps_the_rendered_text_outside_the_cut():
+    """Every block prune keeps renders exactly as before: a link whose target sat in the cut, a
+    paragraph merged into a heading or a list joined across the cut would each show here."""
+    rng = random.Random(20261123)
+    checked = 0
+    for _ in range(10000):
+        text = "\n".join(rng.choice(PIECES) for _ in range(rng.randint(1, 9)))
+        text += rng.choice(["\n", "", "\n\n"])
+        if rng.random() < 0.2:
+            text = text.replace("\n", "\r\n")
+        if cleanup.ODD_BREAKS.search(text):
+            continue
+        scan = cleanup.Scan(text)
+        spans = cleanup.done_sections(text, scan)
+        if not spans or any(cleanup.span_hazard(scan, a, b) for a, b, _ in spans):
+            continue
+        checked += 1
+        cut = {i for a, b, _ in spans for i in range(a - 1, b)}
+        pruned = cleanup.without(text, spans)
+        assert kept_html(pruned, set()) == kept_html(text, cut), (repr(text), spans)
     assert checked > 300

@@ -1420,7 +1420,8 @@ def test_prune_removes_its_temp_file_when_the_replace_fails(tmp_path, monkeypatc
             "# R\n\n---\n\n## Next\n",
         ),  # a rule before a heading stays
         ("# R\r\n\r\n---\r\n\r\n## Done\r\n- x\r\n", "# R\r\n"),  # CRLF rules too
-        ("## Done\n- x\n## Next\n- a", "## Next\n- a\n"),  # a last line without newline gets one
+        ("## Done\n- x\n## Next\n- a", "## Next\n- a"),  # no final newline stays without one
+        ("# R\n## Done\n- x", "# R\n"),  # a cut to the end leaves the kept line's ending
         ("## Done\n- x\n## Next\n## Shipped\n- y\n## Last\n", "## Next\n## Last\n"),  # two cuts
         ("---\ntitle: R\n...\n## Done\n- x\n", "---\ntitle: R\n...\n"),  # YAML's ... end
     ],
@@ -1919,3 +1920,150 @@ def test_a_heading_inside_an_html_block_is_no_done_log(tmp_path):
 def test_a_dangling_break_goes_only_where_no_reader_sees_an_underline(text, expect):
     mod = load_module()
     assert mod.without(text, mod.done_sections(text)) == expect
+
+
+# --- review r1 of #394: CRLF config, link targets, retry keys, edges ----------------------
+
+
+@pytest.mark.parametrize("nl", ["\n", "\r\n"])
+def test_a_crlf_cleanup_section_still_counts(tmp_path, nl):
+    """A Windows checkout (core.autocrlf) writes CRLF; `prune: off` and every budget still hold."""
+    ctx = nl.join(
+        ["# Ctx", "", "## cleanup", "", "- prune: off (registered report)", "- impl_lines: 5", ""]
+    )
+    root = make(tmp_path, {"ROADMAP.md": ROADMAP, "IMPL.md": lines(10)}, git=True)
+    (root / ".claude").mkdir()
+    (root / ".claude" / "skill-context.md").write_bytes(ctx.encode())
+    assert "prune: off (registered report)" in refused(root, tmp_path)
+    got = check(root, tmp_path, "--only", "impl")
+    assert len(got) == 1 and got[0].startswith("IMPL.md has 10 lines, over its 5-line budget")
+
+
+def test_a_cleanup_heading_on_the_last_line_reads_as_empty(tmp_path):
+    root = make(tmp_path, {".claude/skill-context.md": "# Ctx\r\n## cleanup", "IMPL.md": lines(10)})
+    assert check(root, tmp_path, "--only", "impl") == ["cleanup ✓"]
+
+
+@pytest.mark.parametrize(
+    ("done", "why"),
+    [
+        ("- 10-01 x\n\n[uv]: https://docs.astral.sh/uv/\n", "defines a link target"),
+        ("- 10-01 x\n\n[^1]: a footnote\n", "defines a link target"),
+        ("- 10-01 x\n- [uv]: https://x\n", "defines a link target"),  # global from a list item
+        ("- 10-01 x\n  [a\\]b]: https://x\n", "defines a link target"),  # an escaped bracket
+        ("- 10-01 x\n\n```\n[uv]: https://x\n```\n", None),  # code, not a definition
+        ("- 10-01 x\n- [x] shipped: y\n", None),  # a task item is no definition
+    ],
+)
+def test_prune_refuses_to_cut_a_link_target(tmp_path, done, why):
+    text = "# R\n\nPort to [uv][uv].\n\n## Completed\n\n" + done
+    root = make(tmp_path, {"ROADMAP.md": text}, git=True)
+    if why:
+        assert why in refused(root, tmp_path)
+    else:
+        out = run("prune", "--apply", str(root), home=tmp_path)
+        assert out.returncode == 0 and (root / "ROADMAP.md").read_text() == (
+            "# R\n\nPort to [uv][uv].\n"
+        )
+
+
+def test_a_link_target_above_the_cut_is_kept(tmp_path):
+    text = "# R\n\n[uv]: https://x\n\n## Completed\n\n- see [uv][uv]\n"
+    root = make(tmp_path, {"ROADMAP.md": text}, git=True)
+    out = run("prune", "--apply", str(root), home=tmp_path)
+    assert out.returncode == 0 and (root / "ROADMAP.md").read_text() == "# R\n\n[uv]: https://x\n"
+
+
+@pytest.mark.parametrize(
+    ("rel", "line", "flagged"),
+    [
+        ("playwright.config.ts", "  retr" + "ies: process.env.CI ? 2 : 0,", True),  # npm init
+        ("vitest.config.ts", "    retr" + "y: process.env.CI ? 2 : 0,", True),
+        ("cypress.config.js", '  "retr' + 'ies": 2,', True),
+        ("package.json", '  "retr' + 'ies": 2', True),
+        ("playwright.config.ts", "  retr" + "ies: 0,", False),
+        ("playwright.config.ts", "  retr" + "ies: false,", False),
+        ("playwright.config.ts", "  retr" + "ies:", False),  # a key with its value below
+        (
+            ".github/workflows/ci.yml",
+            "          retr" + "ies: 3",
+            False,
+        ),  # github-script's API retries
+        ("tests/test_api.py", '    client = Client(**{"retr' + 'ies": 3})', False),  # an argument
+    ],
+)
+def test_a_retry_key_needs_a_quarantine(tmp_path, rel, line, flagged):
+    root = make(tmp_path, {rel: line + "\n"}, git=True)
+    got = check(root, tmp_path, "--only", "flaky")
+    if flagged:
+        assert len(got) == 1 and got[0].startswith(f"{rel}:1 ") and "no quarantine end" in got[0]
+    else:
+        assert got == ["cleanup ✓"]
+
+
+def test_prune_without_a_roadmap_has_nothing_to_do(tmp_path):
+    root = make(tmp_path, {"x": "y"}, git=True)
+    out = run("prune", "--apply", str(root), home=tmp_path)
+    assert (out.returncode, out.stdout) == (0, "repo: no ROADMAP.md, so nothing to prune ✓\n")
+    (root / "ROADMAP.md").symlink_to("gone.md")  # a link to nothing is still refused
+    assert "not a regular file" in refused(root, tmp_path)
+
+
+def test_prune_writes_back_bytes_that_are_not_utf8(tmp_path):
+    raw = b"# R\n\nCaf\xe9 menu\n\n## Completed\n- 10-01 x\n"
+    root = make(tmp_path, {"x": "y"}, git=True)
+    (root / "ROADMAP.md").write_bytes(raw)
+    g = ["git", "-C", str(root), "-c", "user.name=t", "-c", "user.email=t@t"]
+    subprocess.run([*g, "add", "ROADMAP.md"], check=True)
+    subprocess.run([*g, "commit", "-qm", "r"], check=True)
+    out = run("prune", "--apply", str(root), home=tmp_path)
+    assert out.returncode == 0, out.stdout + out.stderr
+    assert (root / "ROADMAP.md").read_bytes() == b"# R\n\nCaf\xe9 menu\n"
+
+
+@pytest.mark.parametrize(
+    ("line", "hazard"),
+    [
+        ("  #378); a wrapped issue reference", False),
+        ("\t#12 too", False),
+        ("  ## an indented heading", True),
+        ("  #", True),  # an empty heading
+        ("\t# tab-indented", True),
+    ],
+)
+def test_only_a_heading_like_indented_hash_is_a_hazard(line, hazard):
+    mod = load_module()
+    text = f"# R\n\n## Completed\n- x (see\n{line}\n"
+    scan = mod.Scan(text)
+    assert (mod.span_hazard(scan, 3, 5) is not None) is hazard, line
+
+
+def test_prune_names_kept_lines_that_point_at_the_cut(tmp_path):
+    text = (
+        "# R\n\nEach item, once shipped, moves to Completed.\n\nSee [the log](#completed).\n\n"
+        "```\nCompleted\n```\n\n## Completed\n- 10-01 x\n\n## Next\n- completed is lowercase\n"
+    )
+    root = make(tmp_path, {"ROADMAP.md": text}, git=True)
+    out = run("prune", str(root), home=tmp_path)
+    notes = [x for x in out.stdout.splitlines() if ": note: " in x]
+    assert notes == [
+        "repo: note: ROADMAP.md:3 names 'Completed', which the prune removes → reword it",
+        "repo: note: ROADMAP.md:5 names 'Completed', which the prune removes → reword it",
+    ]
+
+
+def test_slug_matches_github_anchors():
+    mod = load_module()
+    assert mod.slug("Completed (2026)") == "completed-2026"
+    assert mod.slug("Done `this` week") == "done-this-week"
+
+
+@pytest.mark.parametrize("registered", [True, False])
+def test_check_leaves_a_registered_report_roadmap_alone(tmp_path, registered):
+    root = make(tmp_path, {"ROADMAP.md": ROADMAP + lines(400)}, git=True)
+    roster(tmp_path / "home", tmp_path, "registered_report = true\n" if registered else "")
+    got = check(root, tmp_path, "--only", "roadmap")
+    if registered:
+        assert got == ["cleanup ✓"]
+    else:
+        assert len(got) == 2 and "keeps a log of finished work" in got[0]
