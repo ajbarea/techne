@@ -1,29 +1,21 @@
 #!/usr/bin/env bash
 # Print .claude/skill-context.md from the repo that owns TARGET, headed by the repo root.
-# Usage: skill_context.sh [--base [REF]] [target]
+# Usage: skill_context.sh [--base[=REF]] [target]
 # TARGET is a file or directory, and need not exist yet: it resolves from its
 # nearest existing parent. A bare word (PR number, branch, effort level) has
 # none, so it resolves to the current directory's repo.
+# --base prints the file as committed on REF instead of the working tree's, so a
+# change under review cannot edit the hints that judge it. Without =REF it is the
+# remote's default branch (origin/HEAD), else origin/main. Nothing else stands in:
+# a missing ref or file is said, never filled from the branch under review.
 set -u
 
 base_mode=0
-base_ref="origin/main"
-
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --base)
-      base_mode=1
-      shift
-      if [ $# -gt 0 ] && [ "${1#-}" = "$1" ] && [ ! -e "$1" ] && [[ "$1" != */* || "$1" == origin/* ]]; then
-        base_ref="$1"
-        shift
-      fi
-      ;;
-    *)
-      break
-      ;;
-  esac
-done
+base_ref=""
+case "${1:-}" in
+  --base) base_mode=1; shift ;;
+  --base=*) base_mode=1; base_ref=${1#--base=}; shift ;;
+esac
 
 arg="${1:-.}"
 target=$arg
@@ -46,14 +38,21 @@ root=$(env -u GIT_DIR -u GIT_WORK_TREE git -C "$target" rev-parse --show-topleve
 ctx="$root/.claude/skill-context.md"
 
 if [ "$base_mode" -eq 1 ]; then
-  base_content=$(env -u GIT_DIR -u GIT_WORK_TREE git -C "$root" show "${base_ref}:.claude/skill-context.md" 2>/dev/null \
-    || env -u GIT_DIR -u GIT_WORK_TREE git -C "$root" show "main:.claude/skill-context.md" 2>/dev/null \
-    || env -u GIT_DIR -u GIT_WORK_TREE git -C "$root" show "HEAD~1:.claude/skill-context.md" 2>/dev/null) || true
-  if [ -n "$base_content" ]; then
-    printf '<!-- skill-context: %s (base %s) -->\n' "$root" "$base_ref"
-    printf '%s\n' "$base_content"
+  g() { env -u GIT_DIR -u GIT_WORK_TREE git -C "$root" "$@"; }
+  if [ -z "$base_ref" ]; then
+    base_ref=$(g symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null) || base_ref=origin/main
+  fi
+  if ! g rev-parse -q --verify "${base_ref}^{commit}" >/dev/null 2>&1; then
+    printf '(base %s not found in %s: fetch it, or pass --base=<the base ref>)\n' "$base_ref" "$root"
     exit 0
   fi
+  if ! g cat-file -e "${base_ref}:.claude/skill-context.md" 2>/dev/null; then
+    printf '(no .claude/skill-context.md on base %s in %s)\n' "$base_ref" "$root"
+    exit 0
+  fi
+  printf '<!-- skill-context: %s (base %s) -->\n' "$root" "$base_ref"
+  g show "${base_ref}:.claude/skill-context.md"
+  exit 0
 fi
 
 if [ -f "$ctx" ]; then

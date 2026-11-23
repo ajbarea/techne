@@ -216,25 +216,96 @@ def test_no_skill_reads_context_relative_to_the_working_directory():
         assert "cat .claude/skill-context.md" not in skill.read_text(encoding="utf-8"), skill
 
 
-def test_base_flag_reads_committed_base_context(tmp_path):
-    repo = tmp_path / "repo"
-    repo.mkdir(parents=True)
-    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
-    subprocess.run(["git", "config", "user.email", "a@example.com"], cwd=repo, check=True)
-    subprocess.run(["git", "config", "user.name", "A"], cwd=repo, check=True)
-    (repo / ".claude").mkdir()
-    (repo / ".claude" / "skill-context.md").write_text("## BASE_RULES\n")
-    subprocess.run(["git", "add", "."], cwd=repo, check=True)
-    subprocess.run(["git", "commit", "-qm", "initial"], cwd=repo, check=True)
+def _git(cwd: pathlib.Path, *args: str) -> None:
+    subprocess.run(
+        ["git", "-c", "user.email=a@example.com", "-c", "user.name=A", *args],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+        env=_fenced(cwd),
+    )
 
-    # Modify skill-context in working tree (e.g. softening review rules)
-    (repo / ".claude" / "skill-context.md").write_text("## SOFTENED_RULES\n")
 
-    # Default read sees working tree modified rules
-    out_working = _run(repo)
-    assert "## SOFTENED_RULES" in out_working
+def _pr_clone(
+    tmp_path: pathlib.Path, default: str = "main", base_file: bool = True, remote: str = "origin"
+) -> pathlib.Path:
+    """A clone of a repo whose DEFAULT branch holds BASE_RULES (or no file), on a PR branch
+    whose two commits soften the hints, with a third softening left in the working tree."""
+    up = tmp_path / "up"
+    up.mkdir()
+    _git(up, "init", "-q", "-b", default)
+    (up / ".claude").mkdir()
+    if base_file:
+        (up / ".claude" / "skill-context.md").write_text("## BASE_RULES\n")
+    (up / "README").write_text("x\n")
+    _git(up, "add", ".")
+    _git(up, "commit", "-qm", "base")
+    clone = tmp_path / "clone"
+    _git(tmp_path, "clone", "-q", "-o", remote, str(up), str(clone))
+    _git(clone, "checkout", "-q", "-b", "pr")
+    for n in (1, 2):
+        (clone / ".claude").mkdir(exist_ok=True)
+        (clone / ".claude" / "skill-context.md").write_text(f"## SOFT{n}\n")
+        _git(clone, "add", ".")
+        _git(clone, "commit", "-qm", f"soften {n}")
+    (clone / ".claude" / "skill-context.md").write_text("## SOFT3\n")
+    return clone
 
-    # Base read with --base main sees base rules
-    out_base = _run(repo, "--base", "main")
-    assert "## BASE_RULES" in out_base
-    assert "## SOFTENED_RULES" not in out_base
+
+@pytest.mark.parametrize(
+    ("setup", "args", "header"),
+    [
+        ({}, ["--base=origin/main"], "(base origin/main)"),
+        ({}, ["--base"], "(base origin/main)"),
+        ({"default": "master"}, ["--base"], "(base origin/master)"),
+        ({"default": "master"}, ["--base=origin/master"], "(base origin/master)"),
+        ({"remote": "upstream"}, ["--base=upstream/main"], "(base upstream/main)"),
+        ({}, ["--base=main"], "(base main)"),
+    ],
+)
+def test_base_reads_the_hints_committed_on_the_base(tmp_path, setup, args, header):
+    clone = _pr_clone(tmp_path, **setup)
+    out = _run(clone, *args)
+    assert out.splitlines() == [f"<!-- skill-context: {clone} {header} -->", "## BASE_RULES"]
+
+
+def test_base_reads_the_base_from_a_detached_head_and_another_folder(tmp_path):
+    clone = _pr_clone(tmp_path)
+    _git(clone, "checkout", "-q", "--detach", "HEAD")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    out = _run(elsewhere, "--base", str(clone / ".claude"))
+    assert "## BASE_RULES" in out and "SOFT" not in out
+
+
+@pytest.mark.parametrize(
+    ("setup", "prepare", "args", "says"),
+    [
+        # The base has no file and the PR adds one: say so, never print the PR's.
+        (
+            {"base_file": False},
+            None,
+            ["--base"],
+            "(no .claude/skill-context.md on base origin/main",
+        ),
+        # A master-default remote with origin/HEAD gone and no origin/main: no HEAD~1 stand-in.
+        (
+            {"default": "master"},
+            ["remote", "set-head", "origin", "-d"],
+            ["--base"],
+            "(base origin/main not found",
+        ),
+        ({}, None, ["--base=nope"], "(base nope not found"),
+    ],
+)
+def test_a_missing_base_is_said_and_nothing_stands_in(tmp_path, setup, prepare, args, says):
+    clone = _pr_clone(tmp_path, **setup)
+    if prepare:
+        _git(clone, *prepare)
+    out = _run(clone, *args)
+    assert out.startswith(says) and "SOFT" not in out and "BASE_RULES" not in out
+
+
+def test_without_base_the_working_tree_is_read_as_before(tmp_path):
+    clone = _pr_clone(tmp_path)
+    assert "## SOFT3" in _run(clone)

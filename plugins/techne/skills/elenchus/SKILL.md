@@ -57,15 +57,11 @@ If the block above appears as a command rather than its output, run it and use w
 
 No context file: elenchus still runs with no hints; infer the test and run commands from the Makefile or ask. Add an optional `## elenchus` block for repo-specific hints; see Scaffolding below. The header names the repo it came from, which is the current directory's. When the target is a path in another repo, run `bash "<plugin-root>/_shared/skill_context.sh" <target-path>` and use that output instead.
 
-Read the `## elenchus` section if present (optional hints — known destructive ops, load-bearing surfaces, reproduce recipes, what "the feature works" means here). Always load review hints and bug-class rules from the **base branch** (`origin/main`, `main`, or `HEAD~1`), never from the PR itself, so a change cannot soften its own review rules:
+Read the `## elenchus` section if present (optional hints — known destructive ops, load-bearing surfaces, reproduce recipes, what "the feature works" means here). A change must not edit the rules that judge it, so a reader of a PR or branch reads the hints as committed on the **base branch**, not the copy printed above, which is the working tree's:
 ```bash
-bash "<plugin-root>/_shared/skill_context.sh" --base origin/main <target-path>
+bash "<plugin-root>/_shared/skill_context.sh" --base=<base ref> <target-path>
 ```
-If reviewing in the current repo:
-```bash
-git show origin/main:.claude/skill-context.md 2>/dev/null || git show main:.claude/skill-context.md 2>/dev/null || cat "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/skill-context.md" 2>/dev/null || echo "(no .claude/skill-context.md in this repo)"
-```
-And if reviewing `techne` itself, read `references/bug-classes.md` from the base branch (`git show origin/main:plugins/techne/skills/elenchus/references/bug-classes.md 2>/dev/null || cat "<plugin-root>/skills/elenchus/references/bug-classes.md"`).
+`<base ref>` is the branch the change merges into (`origin/<baseRefName>` from `gh pr view <N> --json baseRefName`); `--base` alone takes the remote's default branch. When the base copy is missing the script says so and prints nothing in its place: review without hints, and say so in the report. Reviewing techne itself, read the catalog the same way: `git show <base ref>:plugins/techne/skills/elenchus/references/bug-classes.md`.
 
 For the commands to actually *run* the code, fall back in order to `## audit` (lint/test targets), `## theoros` (`repl_command`), then the repo `Makefile`. With no hints it needs no config.
 
@@ -76,7 +72,7 @@ Run the phases your role covers (see **The cardinal rule**), in order. Do not sk
 ### Phase 0 — Frame the load-bearing claim
 State, in one sentence, the single claim the change rests on ("this fix makes X portable", "this feature lets the model cite summaries", "this refactor is behavior-preserving"). That claim is your hypothesis to break. Everything after is an attempt to find the input, state, or path that falsifies it.
 
-**Self-check modification flag:** Inspect `git diff --name-only origin/main...HEAD` (or the target's base ref). If the change modifies CI workflows (`.github/workflows/`), guardrails or hooks (`.claude/hooks.json`, phylax hooks), review rubrics (`bug-classes.md`, `SKILL.md`), or test assertions for guards, flag this explicitly under `### Self-Check Modifications`. The reader must verify that no verification check or guard was weakened, relaxed, or bypassed.
+**Edits its own check:** run `python3 "<plugin-root>/skills/elenchus/scripts/own_checks.py" --repo <repo> <base ref>`. It lists the changed files that are part of the change's own checks (CI and hooks, tests, tool config such as `pyproject.toml` and `Makefile`, `.claude/`, review rules, the guard plugin). Report each under **Edits its own check** and confirm the change weakens none of them: no test deleted or loosened, no gate skipped, no budget widened.
 
 ### Phase 1 — Drive the engine
 - **Author:** in the high tier, run `/code-review high` on the change first. Then dispatch the reader with `model` set explicitly to the strongest model the session can dispatch: `opus`, or the session's own model when it is stronger, such as `fable` (an unset model falls back to a default, usually the author's session model, which may be a cheaper one; review is the step that most needs the strongest reasoner), this prompt, and the `/code-review` findings, if any, and **no authorship narrative**: "You are the dispatched reader for techne:elenchus. Read <path to this SKILL.md>, then its bug-class catalog. Review <PR number or branch> as the dispatched reader. Tier run: <high or light>. Deferred-findings ledger: <where it is, or none>. Classes found in earlier rounds: <slugs, or none>. Open findings from earlier rounds: <each with its class and file:line, or none>. Run Phases 0 to 4 once and return the report. Do not dispatch another reviewer, post, or run a review loop." Relay its report as Phase 4.
@@ -125,8 +121,8 @@ The rubric is the catalog's core section, nine classes walked on every review: d
 ## Output format
 
 Severity-ranked, most-actionable first. Header fields:
-- **Reviewed Head SHA** — `<full commit SHA>` (`git rev-parse HEAD`). The verdict is bound to this exact commit; any push after this verdict invalidates the review.
-- **Self-Check Modifications** — `none` or list of modified CI/hook/guard files, confirming no verification was softened
+- **Reviewed head** — the full SHA the review read (`gh pr view <N> --json headRefOid`, or `git rev-parse HEAD` for a local branch). A push after it means the verdict no longer applies: a new round reviews the new head.
+- **Edits its own check** — `none`, or each file `own_checks.py` listed, with whether any check was weakened
 
 Each finding:
 
@@ -137,7 +133,7 @@ Each finding:
 - **Failure scenario** — concrete inputs/state → wrong output/crash, and the reachable path to it
 - **Fix** — the deep fix, with a regression test that locks it
 
-Close with: a one-line **merge verdict** (mergeable / hold on finding #N / not mergeable + why), the **Reviewed Head SHA**, and a **Verified clean** list of what you checked and cleared.
+Close with: a one-line **merge verdict** (mergeable / hold on finding #N / not mergeable + why), the **Reviewed head**, and a **Verified clean** list of what you checked and cleared.
 
 ## When the review loop ends
 
@@ -174,7 +170,7 @@ gh pr view <N> --json author --jq .author.login      # who opened the PR
 
 **Author ≠ account owner** — the comment is, in order:
 
-1. **Merge verdict** — one line: mergeable / hold on finding #N / not mergeable + why.
+1. **Merge verdict** — one line: mergeable / hold on finding #N / not mergeable + why, and the short head SHA it applies to (`at abc1234`).
 2. **Findings** — Blocking and Should-fix only, each as: `path:line` — one-line failure scenario — the fix.
 3. **Verified clean** — the one-line list of what was scrutinized and cleared.
 

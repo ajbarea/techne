@@ -128,7 +128,7 @@ The job logs to `~/.local/state/elenchus/foldback.log`. It needs `gh` signed in,
 
 ## Configuration
 
-Reads optional per-repo hints from the `## elenchus` section of `.claude/skill-context.md`: known destructive operations, load-bearing surfaces, reproduce recipes, and what "the feature works" means in this repo. Falls back to `## audit`, `## theoros`, then the `Makefile`. Runs without any config.
+Reads optional per-repo hints from the `## elenchus` section of `.claude/skill-context.md`, as committed on the change's base branch, so a pull request cannot soften its own review: known destructive operations, load-bearing surfaces, reproduce recipes, and what "the feature works" means in this repo. Falls back to `## audit`, `## theoros`, then the `Makefile`. Runs without any config. `scripts/own_checks.py` lists the files a change edits that are part of its own checks (CI, hooks, tests, tool config, review rules), which the report flags one by one.
 
 ## See also
 
