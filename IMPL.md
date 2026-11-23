@@ -28,11 +28,9 @@ The active TODO list for whatever's in flight right now. Queued specs live in [R
     extended to the fleet's files (.gitlab-ci.yml, ruff.toml, biome.json, scripts/mutation.py, ...)
     and narrowed (`hooks/` only at the root or in a plugin; `check_*` only under scripts/).
   - `--base` after the target is refused. Every mutant of the new guards is killed.
-- 📋 Not done yet (round 2 Minor): SKILL.md should say "git fetch the base and rerun" when the ref is
-  missing (review without hints only when the base has no file), name refs/remotes/origin/<baseRefName>,
-  and add the stacked-PR line; PR body table needs the new header shape.
+- ✅ Round 2 Minors: SKILL.md names refs/remotes/origin/<baseRefName>, says fetch-and-rerun for a
+  missing ref, compares the header commit with baseRefOid, and covers stacked PRs.
 - 📋 Left for #392 (stays open): a mechanical SHA gate (the ledger or a pre-merge check refusing a
   verdict whose head SHA is not the PR's `headRefOid`); today the SHA is recorded, not enforced.
-- 📋 Next (after the 5h reset): the SKILL.md Minors above, then a fresh Opus round 3 at the high
-  tier, CI, merge.
+- 📋 Next: fresh Opus round 3 at the high tier, CI, merge.
 - Verify: `uv run pytest tests/test_skill_context.py tests/test_elenchus_own_checks.py`; `make guards`.
