@@ -5,8 +5,8 @@ description = "Gmail across accounts for Claude Code: search, read, draft and ga
 requires-python = ">=3.12"
 dependencies = [
     "mcp>=2.3,<3",
-    "google-api-python-client>=2.180",
-    "google-auth>=2.62.0",
+    "google-api-python-client>=2.202.0",
+    "google-auth>=2.62.2",
     "google-auth-oauthlib>=1.2",
 ]
 
