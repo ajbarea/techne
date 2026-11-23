@@ -12,6 +12,12 @@
 
 set -euo pipefail
 
+# DIR (default: this checkout) is the repo to check. An empty DIR is refused rather than read
+# as "this checkout", which inside the composite action is techne's copy, not the caller's.
+if [[ $# -gt 0 && -z "$1" ]]; then
+    printf 'FAIL: empty directory argument\n' >&2
+    exit 1
+fi
 ROOT="$(cd "${1:-$(dirname "${BASH_SOURCE[0]}")/..}" && pwd)"
 WORKFLOWS="$ROOT/.github/workflows"
 TEMPLATES="$ROOT/.github-template/workflows"
@@ -22,7 +28,16 @@ if [[ -d "$ROOT/plugins" ]]; then
     )
 fi
 
-[[ -d "$WORKFLOWS" ]] || { printf 'OK: no .github/workflows/ to check\n'; exit 0; }
+if [[ ! -d "$WORKFLOWS" ]]; then
+    # The composite action sets PIN_REQUIRE_WORKFLOWS: there, no workflows means the caller
+    # forgot actions/checkout, and a pass would check nothing.
+    if [[ -n "${PIN_REQUIRE_WORKFLOWS:-}" ]]; then
+        printf 'FAIL: no .github/workflows/ in %s (run actions/checkout first)\n' "$ROOT" >&2
+        exit 1
+    fi
+    printf 'OK: no .github/workflows/ to check\n'
+    exit 0
+fi
 
 violations=0
 shopt -s nullglob

@@ -153,3 +153,24 @@ def test_actionlint_runs_from_the_lockfile() -> None:
     recipe = makefile.split("\nactionlint:", 1)[1].split("\n\n", 1)[0]
     assert "uv run actionlint" in recipe and "uvx" not in recipe
     assert 'name = "actionlint-py"' in (ROOT / "uv.lock").read_text()
+
+
+def test_a_short_sha_is_not_a_pin(tmp_path: Path) -> None:
+    wf = "jobs:\n  t:\n    steps:\n      - uses: actions/checkout@3d3c42e\n"
+    res = run_check(make_repo(tmp_path, {"ci.yml": wf}))
+    assert res.returncode == 1 and "actions/checkout@3d3c42e" in res.stderr
+
+
+def test_an_empty_directory_argument_is_refused(tmp_path: Path) -> None:
+    # Empty must not fall back to the script's own checkout (techne's copy, in the action).
+    res = subprocess.run(["bash", str(SCRIPT), ""], capture_output=True, text=True, check=False)
+    assert res.returncode == 1 and "empty directory" in res.stderr
+
+
+def test_the_action_fails_on_a_workspace_with_no_workflows(tmp_path: Path) -> None:
+    # No checkout before the step leaves an empty workspace: the action must not pass.
+    assert run_check(tmp_path).returncode == 0
+    res = run_check(tmp_path, {"PIN_REQUIRE_WORKFLOWS": "1"})
+    assert res.returncode == 1 and "actions/checkout" in res.stderr
+    action = (ROOT / ".github/actions/check-action-pins/action.yml").read_text()
+    assert 'PIN_REQUIRE_WORKFLOWS: "1"' in action

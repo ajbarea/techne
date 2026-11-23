@@ -1,5 +1,5 @@
 name: check-action-pins
-description: Verify that every remote GitHub Actions `uses:` ref is pinned to a full 40-character commit SHA
+description: Fail unless every remote `uses:` ref in the caller's workflows is pinned to a full 40-character commit SHA. Run it after actions/checkout.
 inputs:
   directory:
     description: Target repository directory to check (defaults to workspace root)
@@ -12,5 +12,6 @@ runs:
       shell: bash
       env:
         PIN_DIR: ${{ inputs.directory }}
+        PIN_REQUIRE_WORKFLOWS: "1"
         PIN_SCRIPT: ${{ github.action_path }}/../../../scripts/check_action_pins.sh
       run: bash "$PIN_SCRIPT" "$PIN_DIR"

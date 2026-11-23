@@ -122,43 +122,34 @@ def read(path: Path) -> str | None:
         return None
 
 
-ZIZMOR = re.compile(r"\bzizmor\b")
-ACTIONLINT = re.compile(r"\bactionlint\b")
 KEY = re.compile(r"^\s*(?:-\s+)?([A-Za-z_][\w-]*):\s*(.*)$")
+# Each workflow linter: the word that names it in a command, and the actions that run it.
+LINTERS = {
+    "zizmor": ("zizmorcore/zizmor-action@",),
+    "actionlint": (
+        "raven-actions/actionlint@",
+        "reviewdog/action-actionlint@",
+        "docker://rhysd/actionlint",
+    ),
+}
 
 
-def runs_zizmor(text: str) -> bool:
-    """A step that runs zizmor: the zizmor action, or zizmor in a command (a `run:` value or a
-    line of a run block). A comment, an echo, or any other key's value (env, with, if, name)
-    does not count."""
+def runs_tool(text: str, tool: str) -> bool:
+    """A step that runs TOOL: one of its LINTERS actions, or TOOL in a command (a `run:` value
+    or a line of a run block). A comment, an echo, or any other key's value (env, with, if,
+    name) does not count."""
+    word = re.compile(rf"\b{re.escape(tool)}\b")
     for raw in text.splitlines():
         line = re.sub(r"(^|\s)#.*$", "", raw).rstrip()
         m = KEY.match(line)
         if m:
             key, value = m.groups()
-            if key == "uses" and value.strip("'\"").startswith("zizmorcore/zizmor-action@"):
+            if key == "uses" and value.strip("'\"").startswith(LINTERS[tool]):
                 return True
             if key != "run":
                 continue
             line = value
-        if ZIZMOR.search(line) and not re.match(r"^\s*echo\b", line):
-            return True
-    return False
-
-
-def runs_actionlint(text: str) -> bool:
-    """A step that runs actionlint: the actionlint action or actionlint in a command."""
-    for raw in text.splitlines():
-        line = re.sub(r"(^|\s)#.*$", "", raw).rstrip()
-        m = KEY.match(line)
-        if m:
-            key, value = m.groups()
-            if key == "uses" and "actionlint" in value.lower():
-                return True
-            if key != "run":
-                continue
-            line = value
-        if ACTIONLINT.search(line) and not re.match(r"^\s*echo\b", line):
+        if word.search(line) and not re.match(r"^\s*echo\b", line):
             return True
     return False
 
@@ -239,8 +230,8 @@ def workflow_gaps(root: Path) -> list[str]:
             continue
         # Only a workflow the lockfile names is onboarded (GitHub onboards them one by one).
         locked = workflow and path.name in onboarded
-        zizmor |= runs_zizmor(text)
-        actionlint |= runs_actionlint(text)
+        zizmor |= runs_tool(text, "zizmor")
+        actionlint |= runs_tool(text, "actionlint")
         where = path.relative_to(root).as_posix() if not workflow else path.name
         for line in text.splitlines():
             m = USES.match(line)

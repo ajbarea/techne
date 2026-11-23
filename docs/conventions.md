@@ -218,8 +218,9 @@ SHA-pinned workflow runs exactly the code you reviewed.
   `docker://…` refs are exempt. A workflow a skill ships as a template (under
   `plugins/*/skills/*/templates/`) must also pin each action at a SHA a live workflow
   uses. Dependabot updates both when the template's folder is listed in
-  `.github/dependabot.yml`; the guard fails when the two drift apart. Sister repositories
-  share this enforcement through techne's composite action (`uses: ajbarea/techne/.github/actions/check-action-pins@<SHA>`).
+  `.github/dependabot.yml`; the guard fails when the two drift apart. A sister repository can run
+  the same check with techne's composite action, after `actions/checkout`
+  (`uses: ajbarea/techne/.github/actions/check-action-pins@<SHA>`); it fails when the workspace has no workflows.
 
 **Enforced by:** `make guards` (techne dogfoods this in its own `validate.yml`).
 **Audited by:** `techne:sisters` (action-pin consistency across the fleet).
