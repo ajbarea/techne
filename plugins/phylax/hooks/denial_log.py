@@ -152,25 +152,22 @@ USERINFO = (
 
 
 # SQL that sets a password, in mysql -e or psql -c.
-def _sql_gap(stops: str) -> str:
-    """Up to 200 steps of a SQL gap that ends at any of STOPS: a character, an escape, or a
-    quoted name ('...', "...", `...`, up to 255 characters, MySQL's longest host name) taken
-    whole. Each branch starts on its own character, so the gap is read once."""
-    return (
-        rf"(?:[^{stops}'\"`\\]|\\.|'(?:[^'\\]|\\.){{0,255}}'|\"(?:[^\"\\]|\\.){{0,255}}\""
-        r"|`[^`]{0,255}`){0,200}?"
-    )
-
-
+# A SQL gap: up to 200 steps of a character, an escape, or a quoted name ('...', "...", `...`,
+# up to 255 characters, MySQL's longest host name) taken whole, ending at a stop. Each branch
+# starts on its own character, so the gap is read once. Constants, not a function: the module
+# builds its patterns at import.
+_SQL_QUOTED = r"|\\.|'(?:[^'\\]|\\.){0,255}'|\"(?:[^\"\\]|\\.){0,255}\"|`[^`]{0,255}`){0,200}?"
+SQL_GAP_TO_EQUALS = r"(?:[^=;'\"`\\]" + _SQL_QUOTED
+SQL_GAP_TO_END = r"(?:[^;'\"`\\]" + _SQL_QUOTED
 SQL_PASSWORD = (
     # SET PASSWORD [FOR u] = 'X' or = PASSWORD('X'); PASSWORD 'X'; IDENTIFIED [WITH p] BY 'X'.
     # Each gap is bounded, so a long run of spaces is read a bounded number of times.
     # A statement ends at `;`, so a gap may cross lines (SQL in a heredoc) but not statements;
     # it steps over a quoted name whole ('a;b'@h, a quoted plugin). Its two branches start on
     # different characters, so it stays linear.
-    r"(?i)(\b(?:password\b" + _sql_gap("=;") + r"=\s{0,200}"
+    r"(?i)(\b(?:password\b" + SQL_GAP_TO_EQUALS + r"=\s{0,200}"
     r"(?:password\s{0,200}\(\s{0,200})?|password\s{0,200}(?:\(\s{0,200})?"
-    r"|identified\b" + _sql_gap(";") + r"\bby\s{1,200}))'[^']*(?:'|\Z)",
+    r"|identified\b" + SQL_GAP_TO_END + r"\bby\s{1,200}))'[^']*(?:'|\Z)",
     r"\1[REDACTED]",
 )
 ANCHORED: tuple[tuple[tuple[str, ...], tuple[str, ...], tuple[tuple[str, str], ...]], ...] = (
