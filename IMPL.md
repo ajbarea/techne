@@ -152,7 +152,10 @@ The active TODO list for whatever's in flight right now. Queued specs live in [R
   more than 100 spaces, and a backslash-escaped quote leaked; _sql_gap() now takes 200 steps
   and a quoted name ('...', "...", `...`) up to 255 characters with escapes, linear (worst
   5.5x time at 4x input).
-- 📋 Next: one verify on this regex, CI green incl. mutation, merge.
+- ✅ Verify on bc57636: clean (no Blocking or Should-fix; 638-text diff against 28e3bde shows
+  only leaks closed; linear). Its Nit that no test pinned the escape step or the 255 bound for
+  "..." and `...` is closed with three SWEEP rows (all three mutants red).
+- 📋 Next: CI green incl. mutation on this head, then merge.
 - Verify: `uv run pytest tests/test_denial_log.py tests/test_phylax_doctor.py tests/test_git_guards.py
   tests/test_model_guard.py tests/test_email_greeting.py tests/test_command_shapes.py tests/bench`;
   `make plugin-test`; `uv run pytest tests/test_hook_latency.py` under the heavy lock.

@@ -1417,6 +1417,9 @@ SWEEP = [
     "mysql %e \"SET PASSWORD FOR 'a\\'b'@h = '{v}'\"",
     "mysql <<EOF\nSET PASSWORD FOR \"a;b\"@h = '{v}';\nEOF",
     "mysql <<EOF\nSET PASSWORD FOR `a;b`@h = '{v}';\nEOF",
+    'mysql %e "SET PASSWORD FOR \\"u\\"@h = \'{v}\'"',
+    'mysql <<EOF\nSET PASSWORD FOR "u"@"' + "h" * 200 + "\" = '{v}';\nEOF",
+    "mysql <<EOF\nSET PASSWORD FOR `u`@`" + "h" * 200 + "` = '{v}';\nEOF",
 ]
 
 
