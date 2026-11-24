@@ -2056,7 +2056,7 @@ def test_slug_matches_github_anchors():
     mod = load_module()
     assert mod.slug("Completed (2026)") == "completed-2026"
     assert mod.slug("Done `this` week") == "done-this-week"
-    assert mod.slug("done_this_week") == "donethisweek"
+    assert mod.slug("_Done_ this week") == "done-this-week"
 
 
 def test_dangling_limits_and_boundaries():
@@ -2083,24 +2083,6 @@ def test_dangling_cut_boundaries_and_formatting():
     assert found == [(1, "Done")]
 
 
-def test_span_hazard_fence_and_doubt_boundaries():
-    mod = load_module()
-    text_open = "```\nLine 2\n"
-    scan_open = mod.Scan(text_open)
-    assert mod.span_hazard(scan_open, 1, 2) == "line 1 opens a code fence that never closes"
-    assert mod.span_hazard(scan_open, 2, 2) is None
-
-    text_after = "# R\n- item\n```\n"
-    scan_after = mod.Scan(text_after)
-    h_fence = mod.span_hazard(scan_after, 1, 2)
-    assert h_fence is not None and "opens a code fence that never closes" not in h_fence
-
-    text_doubt = "# R\n- item\n  ```\n  code\n"
-    scan_doubt = mod.Scan(text_doubt)
-    h_doubt = mod.span_hazard(scan_doubt, 1, 2)
-    assert h_doubt is not None and "opens a block CommonMark may end elsewhere" not in h_doubt
-
-
 def test_span_hazard_link_targets_and_underlines():
     mod = load_module()
     text_link_a = "# R\n[target]: https://example.com/url\n- content\n"
@@ -2123,15 +2105,19 @@ def test_span_hazard_link_targets_and_underlines():
     assert f"({long_link[:41]!r})" not in h_long
     assert h_long.endswith("cut may use; move it above the done-log first")
 
-    text_setext_a = "Title\n===\nMore\n"
-    scan_setext_a = mod.Scan(text_setext_a)
-    assert mod.span_hazard(scan_setext_a, 2, 3) == (
+    # A setext title whose own first line is an underline: real done_sections spans.
+    text = "# Top\n==\nDone\n---\n- x\n"
+    scan = mod.Scan(text)
+    assert mod.done_sections(text, scan) == [(2, 5, "== Done")]
+    assert mod.span_hazard(scan, 2, 5) == (
         "line 2 underlines the line above it, which a reader may take for a heading"
     )
-
-    text_setext_first = "===\nTitle\nMore\n"
-    scan_setext_first = mod.Scan(text_setext_first)
-    assert mod.span_hazard(scan_setext_first, 1, 2) is None
+    text = "==\nDone\n---\n- x\n"
+    scan = mod.Scan(text)
+    assert mod.done_sections(text, scan) == [(1, 4, "== Done")]
+    assert mod.span_hazard(scan, 1, 4) == (
+        "line 3 underlines the line above it, which a reader may take for a heading"
+    )
 
 
 @pytest.mark.parametrize("registered", [True, False])

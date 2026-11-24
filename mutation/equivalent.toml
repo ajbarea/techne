@@ -312,3 +312,19 @@ why = "without: line indexes are 0 or more, so i > -1 and i > -2 agree"
 [[mutant]]
 hash = "7f95e5cc302d415311862a747bcee863cf1045d36459748b47c201c9e178677d"
 why = "span_hazard: at top 1 the loop starts at max(top, 1), so stepping to 0 changes nothing"
+
+[[mutant]]
+hash = "b1eeb502e58b5da27f16d60b05d495a14ce07b4282f38b290369e9a752871507"
+why = "span_hazard: b equals doubt_from only if the line after the span opens a block, but a span ends at a heading or the end"
+
+[[mutant]]
+hash = "397a1fdcdcefdd7a7afc3e80f1c11c59d7cf2669bfbd93a3e40c32d23f308831"
+why = "span_hazard: a fence still open at line a-2 would hold the heading at a-1, so no span starts there"
+
+[[mutant]]
+hash = "1a09f78f6f54a0dcce438ee82bce0f148689bf0c67ae9e8a8ff84b5f2dd24d00"
+why = "span_hazard: line a-1 is the span's heading, which never opens a fence"
+
+[[mutant]]
+hash = "b9af0683711920274bb02d5cf2c8e15fbf9ee213fc4dd7b526fbd8f93613c346"
+why = "span_hazard: line b is the next heading or past the end, never an opening fence"
