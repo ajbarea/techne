@@ -2055,3 +2055,43 @@ def test_a_plain_repo_with_a_broken_config_is_left_to_git(repo, tmp_path):
     with open(repo / ".git" / "config", "a") as fh:
         fh.write("[broken\n")
     assert guard(repo, "git push origin main")[0] is None
+
+
+BREAK = "~no-such-login-xyz/x"
+REPAIR = "sed -i '/no-such-login/d' {config} && git push --no-verify origin {branch}"
+
+
+def test_an_unreadable_config_with_only_the_hook_is_refused(hooked):
+    (hooked / "scripts" / "check_private_names.py").unlink()  # the hook alone marks the repo
+    _git(hooked, "config", "include.path", BREAK)
+    command = REPAIR.format(config=".git/config", branch="main")
+    assert guard(hooked, command)[0] == "deny"
+
+
+def test_an_unreadable_config_with_only_the_scanner_is_refused(repo, tmp_path):
+    ship_scanner(repo)
+    published(repo, tmp_path)  # no hook installed: the scanner alone marks the repo
+    _git(repo, "config", "include.path", BREAK)
+    command = REPAIR.format(config=".git/config", branch="main")
+    assert guard(repo, command)[0] == "deny"
+
+
+def test_an_unreadable_config_seen_from_a_linked_worktree_is_refused(hooked, tmp_path):
+    wt = tmp_path / "wt"
+    _git(hooked, "worktree", "add", "-q", "--orphan", "-b", "bare1", str(wt))
+    _git(hooked, "config", "include.path", BREAK)
+    command = REPAIR.format(config=hooked / ".git" / "config", branch="bare1")
+    assert guard(wt, command)[0] == "deny"
+
+
+def test_git_dirs_of_follows_a_gitfile_and_its_commondir(monkeypatch, tmp_path):
+    (git_checks,) = load_phylax_hooks(monkeypatch, "git_checks")
+    top = tmp_path / "wt"
+    top.mkdir()
+    gitdir = tmp_path / "main" / ".git" / "worktrees" / "wt"
+    gitdir.mkdir(parents=True)
+    (top / ".git").write_text(f"gitdir: {gitdir}\n")
+    (gitdir / "commondir").write_text("../..\n")
+    assert git_checks.git_dirs_of(top) == (gitdir, gitdir / "../..")
+    (tmp_path / "plain" / ".git").mkdir(parents=True)
+    assert git_checks.git_dirs_of(tmp_path / "plain") == (tmp_path / "plain" / ".git",)

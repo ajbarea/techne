@@ -1269,6 +1269,27 @@ def hooked_repo(cwd: Path) -> bool:
     )
 
 
+def git_dirs_of(top: Path) -> tuple[Path, ...]:
+    """The git dir of the work tree at TOP and its common dir, read without git: `.git` itself,
+    or the `gitdir:` its file names (a linked worktree, a separate git dir) and that dir's
+    `commondir`, each relative path resolved as git resolves it."""
+    dot = top / ".git"
+    if dot.is_dir():
+        return (dot,)
+    try:
+        line = dot.read_text(errors="replace").splitlines()[0]
+    except (OSError, IndexError):
+        return ()
+    if not line.startswith("gitdir:"):
+        return ()
+    gitdir = top / line[len("gitdir:") :].strip()
+    try:
+        common = (gitdir / "commondir").read_text(errors="replace").strip()
+    except OSError:
+        return (gitdir,)
+    return (gitdir, gitdir / common) if common else (gitdir,)
+
+
 def safe_ref(word: str) -> bool:
     """Whether WORD is the current branch's name by a SAFE_REFS substitution, alone or as the
     source of a `src:dst` refspec."""
@@ -2087,7 +2108,8 @@ class Guards:
             # the scan or has techne's hook (found without git), refuse.
             top = next((d for d in (cmd.cwd, *cmd.cwd.parents) if (d / ".git").exists()), None)
             if top is not None and (
-                (top / SCANNER).is_file() or hook_marked(top / ".git" / "hooks" / "pre-push")
+                (top / SCANNER).is_file()
+                or any(hook_marked(d / "hooks" / "pre-push") for d in git_dirs_of(top))
             ):
                 refuse(
                     "git could not read this repo's config, so the check cannot see which "
