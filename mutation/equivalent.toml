@@ -186,7 +186,7 @@ hash = "e781faa8e63ace2f0a2266c9a837e2077af46b6cf3ab23bfd9a00e23ec035780"
 why = "is_expired: parse_date('XXXX') is None, as parse_date('') is"
 
 [[mutant]]
-hash = "07c54aa833f9bd5babeeca510d570298ed2fdff89f0f3a4f876ebc85b50f0d66"
+hash = "9b2445f578b4efd49e78b9948f2db5f2de811dedeca74ac7ba5154f4d3c7ac48"
 why = "load_config: the value is lowercased first, so stripping an uppercase X removes nothing"
 
 [[mutant]]
@@ -270,69 +270,61 @@ hash = "20d65d116fc927d073b6c60346bee335b2d1410387dc05a3c42ea262d249bec6"
 why = "transient_status: the extra branch reads the same README's cached frontmatter (already found ungoverning) or a missing file (None), so it returns nothing new"
 
 [[mutant]]
-hash = "21d88b9f380953778ac3a1b316f923162a98565cbd4031be1925d043b83c621a"
+hash = "1c8120b6200217817670aa7c4ca1000c209728dc75d4950dd61b8fc850284c5c"
 why = "prune: done_sections reads only the scan when one is given, so the text argument is unused"
 
 [[mutant]]
-hash = "c31e49af0ad36605aaada042b6c33682554776e550ecb1e124e4c2535ad6fa18"
+hash = "44666c25d8aab53d55d90e06bfe995aaff6a6783b08bb6828f1df7be6d1b5ae9"
 why = "prune: without the scan done_sections builds the same Scan from the same text"
 
 [[mutant]]
-hash = "800563731a2c37136318305a51a19011580b310201fb24667b589a8586ea1064"
+hash = "944f3d14c7be5b413a9e172a528553b973daac493695995d2edae08c984b7906"
 why = "prune: without the scan done_sections builds the same Scan from the same text"
 
 [[mutant]]
-hash = "9fdc43b2efbdb05fdf2c9005472c274dd601a37de1cbfcfce41ff4284ee62995"
+hash = "9e8822870e2f88f74b5b05b82b214437ddb8bc24cb6941e7b4dd8b29eed56214"
 why = "prune: newline=None writes \\n as os.linesep, which is \\n on POSIX, where the suite runs"
 
 [[mutant]]
-hash = "bf87aa3ae3edf339ff4435cf250234c66bd62d2277c404a955b918537fdbcfdc"
+hash = "0f348702f4e7d95580bb76ce77c8125014b25564a1bf352c7e87c1b067f35174"
 why = "prune: newline=None writes \\n as os.linesep, which is \\n on POSIX, where the suite runs"
 
 [[mutant]]
-hash = "198c511244d9213a4b90d0fb818ab768eb3f7533985cfa0522fa961119e7e095"
+hash = "42ca64b3e4028168e2e840e90a2fbd66753548417c439a7edf4be06bed8332d7"
 why = "prune: 'UTF-8' and 'utf-8' name the same codec"
 
 [[mutant]]
-hash = "711e83420a1a5af80f4c0bf609ef446f97ceedcd8463b03fc9a8fd62a52b6291"
+hash = "572b0dfb242f727b2d37a05576469926ff058c0fb21a394154a23950b3be766e"
 why = "roster_refusal: re.I is set, so '/.GIT$' matches what '/.git$' does"
 
 [[mutant]]
-hash = "f0314a520464e6788b5ca26442003747f043605ce8bcaf17e0778f7a1c950e42"
+hash = "7066ad37f884fb7848f3af455b58109b27cc831130f24b4360b45c1569962e1a"
 why = "roster_refusal: re.I is set, so '.GIT$' matches what '.git$' does"
 
 [[mutant]]
-hash = "d686af1f8703afc66f229310646425210dd2a1d4ae5e17cdb85bc4ceec47907d"
+hash = "d6385869adbb6badecb657d8a00e5ab79599013ebc4b328a6069982687823562"
 why = "without: line indexes are 0 or more, so i > -1 and i > -2 agree"
 
 [[mutant]]
-hash = "0c2ac4147973f8951dd40e1ab1b384ac102f49d4247bf0fcf311be2547655ecc"
+hash = "93da8a09cd5df323bcde247d4bf966d5d29460b35333fa8639d54dbd5d5804f9"
 why = "without: line indexes are 0 or more, so i > -1 and i > -2 agree"
 
 [[mutant]]
-hash = "e8c913f207166d01ba7fa925feb31167c1871c6ab2d1b210cdd25acd1bc30302"
-why = "span_hazard: b equals doubt_from only if the line after the span opens a block, but a span ends at a heading or the end"
-
-[[mutant]]
-hash = "1eb171de6cff8a5b6c5dd6e7aa3d16c86cd8a6bdd023c262810ee3fd39034ff3"
+hash = "7f95e5cc302d415311862a747bcee863cf1045d36459748b47c201c9e178677d"
 why = "span_hazard: at top 1 the loop starts at max(top, 1), so stepping to 0 changes nothing"
 
 [[mutant]]
-hash = "4aa0bdfb21676b2d0edf54b2c88475c6df67470c10cb1de4c1009e49a13cea2f"
+hash = "b1eeb502e58b5da27f16d60b05d495a14ce07b4282f38b290369e9a752871507"
+why = "span_hazard: b equals doubt_from only if the line after the span opens a block, but a span ends at a heading or the end"
+
+[[mutant]]
+hash = "397a1fdcdcefdd7a7afc3e80f1c11c59d7cf2669bfbd93a3e40c32d23f308831"
 why = "span_hazard: a fence still open at line a-2 would hold the heading at a-1, so no span starts there"
 
 [[mutant]]
-hash = "3bf8c80dbc46378727055f951fbb16ce96801593c1ef4a6ab7c66fa776886c0c"
-why = "span_hazard: line a is the span's heading, which never matches SETEXT"
-
-[[mutant]]
-hash = "424ed44eb51eeae62e169cd9f393bd0297be7b1d49b559bb0b7d0abc3811fc9b"
+hash = "1a09f78f6f54a0dcce438ee82bce0f148689bf0c67ae9e8a8ff84b5f2dd24d00"
 why = "span_hazard: line a-1 is the span's heading, which never opens a fence"
 
 [[mutant]]
-hash = "3fa78a8563a4dc91f9d62fbd560e519dfc54dd18cd5b20729e4b7b77294366c7"
-why = "span_hazard: n is at least a, which is at least 1, so n > 1 and n >= 1 differ only at the heading, which never matches SETEXT"
-
-[[mutant]]
-hash = "bcb46b06a077a2bbeb58ed73268e74a24fc29ef856c6883e3a21911079668a94"
+hash = "b9af0683711920274bb02d5cf2c8e15fbf9ee213fc4dd7b526fbd8f93613c346"
 why = "span_hazard: line b is the next heading or past the end, never an opening fence"
