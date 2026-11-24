@@ -142,7 +142,10 @@ The active TODO list for whatever's in flight right now. Queued specs live in [R
   started a match after every `=` and scanned 256 characters: `=` is out of the user part,
   now ~20x cheaper); MySQL's SET PASSWORD FOR, IDENTIFIED WITH ... BY and PASSWORD('X') forms
   (each gap bounded, so a run of spaces stays linear). The trigger test reads SWEEP too.
-- 📋 Next: verify on this fix only, CI green incl. mutation, merge.
+- ✅ Verify on c20f6f3 (2 Should-fix): the SQL gaps stopped at a newline, so multi-line SQL in a
+  heredoc leaked again, and a quoted plugin name (IDENTIFIED WITH '...' BY) leaked: gaps now
+  stop at `;`. Nits taken: an empty proxy user (`:X@host`), whitespace gaps to 200.
+- 📋 Next: CI green incl. mutation on this head, then merge.
 - Verify: `uv run pytest tests/test_denial_log.py tests/test_phylax_doctor.py tests/test_git_guards.py
   tests/test_model_guard.py tests/test_email_greeting.py tests/test_command_shapes.py tests/bench`;
   `make plugin-test`; `uv run pytest tests/test_hook_latency.py` under the heavy lock.

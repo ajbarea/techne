@@ -1402,6 +1402,11 @@ SWEEP = [
     "mysql %e \"ALTER USER u IDENTIFIED WITH caching_sha2_password BY '{v}'\"",
     "mysql %e \"SET PASSWORD FOR u = PASSWORD('{v}')\"",
     "psql %c \"CREATE ROLE r LOGIN PASSWORD '{v}'\"",
+    "mysql %e \"SET PASSWORD\n= '{v}'\"",
+    "mysql <<EOF\nCREATE USER u IDENTIFIED\nBY '{v}';\nEOF",
+    "mysql %e \"ALTER USER u IDENTIFIED WITH 'caching_sha2_password' BY '{v}'\"",
+    "curl %%proxy=:{v}@h x",
+    "https_proxy=:{v}@host curl x",
 ]
 
 

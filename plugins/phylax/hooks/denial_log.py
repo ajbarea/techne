@@ -147,14 +147,16 @@ SPACED = r"(?:=|\s+)"
 ATTACHED = r"(?:=|\s+|(?=[^\s=-]))"
 # user:pass@host without a scheme (proxies, mysqlsh): the password goes.
 USERINFO = (
-    r"((?<![^\s='\"])['\"]?(?:[A-Za-z][\w+.-]*://)?[^\s:@'\"/=]{1,256}:)(?!/)[^\s@'\"]{1,256}(?=@)"
+    r"((?<![^\s='\"])['\"]?(?:[A-Za-z][\w+.-]*://)?[^\s:@'\"/=]{0,256}:)(?!/)[^\s@'\"]{1,256}(?=@)"
 )
 # SQL that sets a password, in mysql -e or psql -c.
 SQL_PASSWORD = (
     # SET PASSWORD [FOR u] = 'X' or = PASSWORD('X'); PASSWORD 'X'; IDENTIFIED [WITH p] BY 'X'.
     # Each gap is bounded, so a long run of spaces is read a bounded number of times.
-    r"(?i)(\b(?:password\b[^=\n]{0,200}?=\s{0,20}(?:password\s{0,20}\(\s{0,20})?"
-    r"|password\s{0,20}(?:\(\s{0,20})?|identified\b[^'\n]{0,200}?\bby\s{1,20}))'[^']*(?:'|\Z)",
+    # A statement ends at `;`, so a gap may cross lines (SQL in a heredoc) and quotes (a quoted
+    # plugin name) but not statements.
+    r"(?i)(\b(?:password\b[^=;]{0,200}?=\s{0,200}(?:password\s{0,200}\(\s{0,200})?"
+    r"|password\s{0,200}(?:\(\s{0,200})?|identified\b[^;]{0,200}?\bby\s{1,200}))'[^']*(?:'|\Z)",
     r"\1[REDACTED]",
 )
 ANCHORED: tuple[tuple[tuple[str, ...], tuple[str, ...], tuple[tuple[str, str], ...]], ...] = (
