@@ -67,6 +67,15 @@ import own_checks  # noqa: E402  # ty: ignore[unresolved-import]
         "CODEOWNERS",
         "build/rules.mk",
         ".golangci.yml",
+        # Root tool config no name rule lists (round 6: a lowered lighthouse budget).
+        ".lighthouserc.json",
+        ".prettierignore",
+        ".prettierrc.json",
+        ".shellcheckrc",
+        "Cargo.toml",
+        "renovate.json",
+        "lefthook.yml",
+        ".secrets.baseline",
     ],
 )
 def test_a_check_is_listed(path):
@@ -88,6 +97,12 @@ def test_a_check_is_listed(path):
         "app/hooks/session.py",
         "docs/hooks/intro.md",
         "src/check_balance.py",
+        "app.py",
+        "README",
+        "README.md",
+        "LICENSE",
+        "logo.png",
+        "index.html",
     ],
 )
 def test_other_files_are_not(path):
@@ -349,3 +364,43 @@ def test_a_replacement_object_or_graft_cannot_hide_a_change(tmp_path):
     (up / ".git" / "info").mkdir(exist_ok=True)
     (up / ".git" / "info" / "grafts").write_text(f"{_rev(up, head + '~1')}\n")  # cut the PR off
     assert _listed(_own(up, base, "--head", head)) == ["tests/test_a.py"]
+
+
+def test_diff_relative_config_does_not_hide_files_from_a_subfolder(clone):
+    _git(clone, "config", "diff.relative", "true")
+    out = _own(clone / "tests", _rev(clone, "origin/main"), "--head", _rev(clone, "pr"))
+    assert _listed(out) == EXPECTED
+
+
+def test_a_lowered_budget_in_root_tool_config_is_listed(tmp_path):
+    up = tmp_path / "up"
+    up.mkdir()
+    _git(up, "init", "-q", "-b", "main")
+    (up / ".lighthouserc.json").write_text('{"assert": {"minScore": 0.95}}\n')
+    (up / "app.py").write_text("x = 1\n")
+    _git(up, "add", ".")
+    _git(up, "commit", "-qm", "base")
+    base = _rev(up, "HEAD")
+    _git(up, "checkout", "-q", "-b", "pr")
+    (up / ".lighthouserc.json").write_text('{"assert": {"minScore": 0.5}}\n')
+    (up / "app.py").write_text("x = 2\n")
+    _git(up, "commit", "-qam", "loosen the budget")
+    assert _listed(_own(up, base)) == [".lighthouserc.json"]
+
+
+def test_a_path_after_an_environment_variable_is_read(tmp_path):
+    up = tmp_path / "up"
+    (up / "tools").mkdir(parents=True)
+    (up / ".github" / "workflows").mkdir(parents=True)
+    _git(up, "init", "-q", "-b", "main")
+    (up / ".github" / "workflows" / "ci.yml").write_text(
+        "jobs:\n  t:\n    steps:\n      - run: python $GITHUB_WORKSPACE/tools/g.py\n"
+    )
+    (up / "tools" / "g.py").write_text("x = 1\n")
+    _git(up, "add", ".")
+    _git(up, "commit", "-qm", "base")
+    base = _rev(up, "HEAD")
+    _git(up, "checkout", "-q", "-b", "pr")
+    (up / "tools" / "g.py").write_text("x = 0\n")
+    _git(up, "commit", "-qam", "loosen it")
+    assert _listed(_own(up, base)) == ["tools/g.py"]

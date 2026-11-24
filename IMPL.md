@@ -23,5 +23,9 @@ The active TODO list for whatever's in flight right now. Queued specs live in [R
   the default branch's commit (a stacked PR's baseRefOid is author-controlled); a shallow clone with no
   shared history is refused; injected GIT_CONFIG* kept as git_env.py keeps it; ls-tree presence check;
   filter lists skipped by key; gate-only hits marked as the weaker signal.
-- 📋 Next: fresh Opus round 6, CI, merge.
+- ✅ Round 6 fixes: every repo-root file counts as a check unless prose, image or app source (the
+  name list had grown in three commits); `--file=PATH` reads any path from the base through the same
+  guarded read (catalog recipe uses it; blob-level replace tested); elenchus no longer loads the
+  working tree's hints at all; refusals name the commits/HEAD recipe; `--no-relative`; `$VAR/` paths.
+- 📋 Next: fresh Opus round 7, CI, merge.
 - Verify: `uv run pytest tests/test_skill_context.py tests/test_elenchus_own_checks.py`; `make guards`.

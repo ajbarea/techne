@@ -49,21 +49,17 @@ The author's pre-flight, before the first round:
 
 ## Repo context
 
-```!
-echo "<!-- skill-context: $(git rev-parse --show-toplevel 2>/dev/null || pwd) -->"; cat "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/skill-context.md" 2>/dev/null || echo "(no .claude/skill-context.md in this repo)"
-```
-
-If the block above appears as a command rather than its output, run it and use what it prints.
-
-No context file: elenchus still runs with no hints; infer the test and run commands from the Makefile or ask. Add an optional `## elenchus` block for repo-specific hints; see Scaffolding below. The header names the repo it came from, which is the current directory's. When the target is a path in another repo, run `bash "<plugin-root>/_shared/skill_context.sh" <target-path>` and use that output instead.
-
-Read the `## elenchus` section if present (optional hints — known destructive ops, load-bearing surfaces, reproduce recipes, what "the feature works" means here). A change must not edit the rules that judge it, so a reader of a PR or branch reads the hints as committed on the **default branch's commit**, not the copy printed above, which is the working tree's. Both ids come from the host as full commit ids, never a ref name, since a local ref can be the change wearing the base's name; the base is the default branch even for a stacked PR, whose own base is a branch its author controls:
+A change must not edit the rules that judge it, so elenchus never loads the working tree's `.claude/skill-context.md`, which a PR can edit. It reads the file as committed on the **default branch's commit**. Both ids come from the host as full commit ids, never a ref name, since a local ref can be the change wearing the base's name; the base is the default branch even for a stacked PR, whose own base is a branch its author controls:
 ```bash
 base=$(gh api repos/{owner}/{repo}/commits/HEAD --jq .sha)
-head=$(gh pr view <N> --json headRefOid --jq .headRefOid)   # before a PR: omit --head (the checkout's HEAD)
+head=$(gh pr view <N> --json headRefOid --jq .headRefOid)   # before a PR: head=$(git rev-parse HEAD)
 bash "<plugin-root>/_shared/skill_context.sh" --base="$base" --head="$head" <target-path>
 ```
-A base that holds the head is refused, since it is the change itself, and so is one whose shared history a shallow clone hides. When the script says a commit is missing, `git fetch origin <id>` (or `git fetch --unshallow`) and run it again; when it says the base has no `.claude/skill-context.md`, review without hints and say so in the report. Reviewing techne itself, read the catalog the same way: `git show "$base":plugins/techne/skills/elenchus/references/bug-classes.md`.
+A base that holds the head is refused, since it is the change itself, and so is one whose shared history a shallow clone hides. When the script says a commit is missing, `git fetch origin <id>` (or `git fetch --unshallow`) and run it again; when it says the base has no `.claude/skill-context.md`, review without hints and say so in the report. Any other file from the base goes through the same guarded read, such as the catalog when reviewing techne itself: `bash "<plugin-root>/_shared/skill_context.sh" --base="$base" --head="$head" --file=plugins/techne/skills/elenchus/references/bug-classes.md <target-path>`.
+
+No context file: elenchus still runs with no hints; infer the test and run commands from the Makefile or ask. Add an optional `## elenchus` block for repo-specific hints; see Scaffolding below.
+
+Read the `## elenchus` section if present (optional hints — known destructive ops, load-bearing surfaces, reproduce recipes, what "the feature works" means here).
 
 For the commands to actually *run* the code, fall back in order to `## audit` (lint/test targets), `## theoros` (`repl_command`), then the repo `Makefile`. With no hints it needs no config.
 

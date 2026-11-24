@@ -144,7 +144,7 @@ LOAD_LINE = (
 )
 PLUGINS = ROOT / "plugins"
 LOADING_SKILLS = {
-    "audit", "ci-audit", "deslop", "docs-site", "elenchus", "logging", "reslop", "theoros"
+    "audit", "ci-audit", "deslop", "docs-site", "logging", "reslop", "theoros"
 }  # fmt: skip
 
 
@@ -157,6 +157,14 @@ def _injection_lines() -> dict[str, list[str]]:
         if hits:
             found[skill.parent.name] = hits
     return found
+
+
+def test_elenchus_never_loads_the_working_trees_hints():
+    # A PR can edit its working tree's hints, which would reach the reader before the base read.
+    text = (PLUGINS / "techne" / "skills" / "elenchus" / "SKILL.md").read_text(encoding="utf-8")
+    assert "```!" not in text
+    assert 'cat "$(git rev-parse --show-toplevel' not in text
+    assert '--base="$base" --head="$head"' in text
 
 
 def test_every_skill_uses_the_canonical_load_line():
@@ -470,3 +478,45 @@ def test_injected_git_config_reaches_every_read(tmp_path):
     assert "## BASE_RULES" in _run(clone, f"--base={base}", env=env)
     seen = log.read_text().split()
     assert seen and set(seen) == {"1"}, seen
+
+
+def test_file_reads_another_path_from_the_base_even_past_a_replaced_blob(tmp_path):
+    clone = _pr_clone(tmp_path)
+    base, head = _ids(clone)
+    for name, text in (("base.md", "BASE CATALOG\n"), ("pr.md", "PR CATALOG\n")):
+        (clone / name).write_text(text)
+    up = tmp_path / "up"
+    (up / "catalog.md").write_text("BASE CATALOG\n")
+    _git(up, "add", "catalog.md")
+    _git(up, "commit", "-qm", "catalog")
+    _git(clone, "fetch", "-q")
+    base = _sha(clone, "origin/main")
+    blob = _sha(clone, f"{base}:catalog.md")
+    pr_blob = subprocess.run(
+        ["git", "hash-object", "-w", str(clone / "pr.md")],
+        cwd=clone,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    _git(clone, "replace", blob, pr_blob)
+    out = _run(clone, f"--base={base}", f"--head={head}", "--file=catalog.md")
+    assert out.splitlines() == [f"<!-- catalog.md at base {base} in {clone} -->", "BASE CATALOG"]
+    assert _run(clone, f"--base={base}", f"--head={head}", "--file=nope.md").startswith(
+        f"(no nope.md on base {base}"
+    )
+    assert _run(clone, "--file=catalog.md").startswith("(--file works only with --base")
+
+
+def test_refusals_point_at_the_default_branch_recipe(tmp_path):
+    clone = _pr_clone(tmp_path)
+    out = _run(clone, "--base=main")
+    assert "commits/HEAD" in out and "baseRefOid" not in out
+
+
+def test_standing_on_the_base_says_to_check_out_the_change(tmp_path):
+    clone = _pr_clone(tmp_path)
+    base, _ = _ids(clone)
+    _git(clone, "checkout", "-q", "-f", "--detach", base)
+    out = _run(clone, f"--base={base}")
+    assert "holds this checkout's HEAD" in out and "--head=<headRefOid>" in out

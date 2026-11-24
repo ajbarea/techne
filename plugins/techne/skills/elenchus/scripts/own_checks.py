@@ -5,8 +5,9 @@ names. A review flags each as "edits its own check" and confirms the change weak
 
     own_checks.py [--repo DIR] [--head HEAD] BASE
 
-BASE and HEAD are full commit ids (a PR's baseRefOid and headRefOid; HEAD defaults to the
-checkout's HEAD), checked by `_shared/skill_context.sh --base-sha`. Files come from
+BASE and HEAD are full commit ids (the default branch's commit from the host, and the PR's
+headRefOid; HEAD defaults to the checkout's HEAD), checked by
+`_shared/skill_context.sh --base-sha`. Files come from
 `git diff -z --no-renames BASE...HEAD`, so a renamed or deleted check is listed by its old
 path too. Prints `head <commit>`, then one path per line (a file only named in a gate file
 is marked, the weaker signal), or `none`.
@@ -33,7 +34,8 @@ GATE_FILES = ("Makefile", "GNUmakefile", ".pre-commit-config.yaml", ".pre-commit
 # A path is a check when any of its folders is one of these...
 DIRS = {".github", ".githooks", ".husky", ".circleci", ".claude", "tests", "test", "spec"}
 DIRS |= {"mutation", "__tests__", "bench"}
-# ...or its file name is one of these...
+# ...or its file name is one of these (anywhere, so a root-level prose name like
+# AGENTS.md still counts)...
 NAMES = {
     "Makefile",
     "GNUmakefile",
@@ -85,10 +87,21 @@ SCRIPT_RE = re.compile(r"^(check_.*|install_.*|validate_.*|mutation\.py|.*_guard
 PARTS = (("skills", "elenchus"), ("plugins", "phylax"))
 
 
+# A file at the repo root is tool config (.lighthouserc.json, .prettierignore, Cargo.toml)
+# unless it is prose, an image or app source: listing too much is the safe direction.
+ROOT_PROSE = re.compile(
+    r"(?i)^(.*\.(md|rst|txt|png|jpe?g|gif|svg|ico|webp|py|[cm]?[jt]sx?|go|rs|rb|java|kt|swift"
+    r"|c|h|cc|cpp|hpp|cs|php|vue|svelte|html|css)|readme|licen[cs]e.*|copying.*|notice.*"
+    r"|authors.*|changelog|citation\.cff)$"
+)
+
+
 def is_check(path: str) -> bool:
     p = PurePosixPath(path)
     folders = p.parts[:-1]
     if DIRS.intersection(folders) or p.name in NAMES or NAME_RE.match(p.name):
+        return True
+    if not folders and not ROOT_PROSE.match(p.name):
         return True
     if "scripts" in folders and SCRIPT_RE.match(p.name):
         return True
@@ -132,8 +145,10 @@ def resolve(repo: str, base: str, head: str | None) -> tuple[str, str]:
 
 # A gate file's text splits into tokens at whitespace, quotes and shell or YAML punctuation,
 # so $(CURDIR)/x and ${{ github.workspace }}/x leave /x behind; ./ and / are then stripped.
-TOKEN_SPLIT = re.compile(r"[\s\"'`=,;:()\[\]{}|&<>\\]+")
+TOKEN_SPLIT = re.compile(r"[\s\"'`=,;:()\[\]{}|&<>\\$]+")
 COMMENT = re.compile(r"(^|\s)#.*$")
+# $NAME and ${NAME} go, so $GITHUB_WORKSPACE/tools/x.py leaves /tools/x.py.
+SHELL_VAR = re.compile(r"\$\{?[A-Za-z_]\w*\}?")
 # A YAML filter list (on.push.paths, branches, a bare list scalar) says when CI runs, not
 # what it runs; a glob counts only with a literal leading folder (tools/*.py, not * or **).
 FILTER_KEY = re.compile(r"^(\s*)(paths|paths-ignore|branches|branches-ignore|tags)\s*:(.*)$")
@@ -174,7 +189,7 @@ def gate_names(repo: str, base: str) -> tuple[set[str], list[str]]:
                     if not key.group(3).strip():
                         filter_indent = len(key.group(1))
                     continue
-            for token in TOKEN_SPLIT.split(COMMENT.sub("", line)):
+            for token in TOKEN_SPLIT.split(SHELL_VAR.sub(" ", COMMENT.sub("", line))):
                 while token.startswith(("./", "/")):
                     token = token[2:] if token.startswith("./") else token[1:]
                 if token in ("", ".", ".."):
@@ -189,12 +204,14 @@ def gate_names(repo: str, base: str) -> tuple[set[str], list[str]]:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
-    ap.add_argument("base", help="the base's full commit id (baseRefOid)")
+    ap.add_argument("base", help="the default branch's full commit id")
     ap.add_argument("--repo", default=".")
     ap.add_argument("--head", help="the reviewed full commit id (headRefOid); default HEAD")
     args = ap.parse_args(argv)
     base, head = resolve(args.repo, args.base, args.head)
-    changed = git(args.repo, "diff", "-z", "--no-renames", "--name-only", f"{base}...{head}")
+    changed = git(
+        args.repo, "diff", "-z", "--no-renames", "--no-relative", "--name-only", f"{base}...{head}"
+    )
     paths, globs = gate_names(args.repo, base)
     files = {p for p in changed.split("\0") if p}
     strong = sorted(p for p in files if is_check(p))

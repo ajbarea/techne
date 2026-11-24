@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Print .claude/skill-context.md from the repo that owns TARGET, headed by the repo root.
-# Usage: skill_context.sh [--base=BASE [--head=HEAD] | --base-sha=BASE [--head=HEAD]] [target]
+# Usage: skill_context.sh [--base=BASE [--head=HEAD] [--file=PATH] | --base-sha=BASE [--head=HEAD]] [target]
 # TARGET is a file or directory, and need not exist yet: it resolves from its
 # nearest existing parent. A bare word (PR number, branch, effort level) has
 # none, so it resolves to the current directory's repo.
 # --base prints the file as committed on BASE instead of the working tree's, so a
-# change under review cannot edit the hints that judge it. BASE and HEAD are full
-# commit ids, nothing else: a PR's baseRefOid and headRefOid, or before a PR the
-# default branch's commit from the host (see elenchus's SKILL.md). A ref name is
+# change under review cannot edit the hints that judge it (--file names another path
+# to read from the base the same way). BASE and HEAD are full commit ids, nothing
+# else: the default branch's commit from the host and the reviewed commit (see
+# elenchus's SKILL.md). A ref name is
 # refused, since a local ref can be the change wearing the base's name. HEAD
 # defaults to the checkout's HEAD. A base that is HEAD or contains it is refused.
 # Nothing stands in for a refused or missing base or file.
@@ -19,6 +20,7 @@ base_mode=0
 base_ref=""
 head_ref=""
 head_given=0
+read_path=.claude/skill-context.md
 while [ $# -gt 0 ]; do
   case "$1" in
     --base) base_mode=-1 ;;
@@ -26,19 +28,21 @@ while [ $# -gt 0 ]; do
     --base=*) base_mode=1; base_ref=${1#--base=} ;;
     --base-sha=*) base_mode=2; base_ref=${1#--base-sha=} ;;
     --head=*) head_ref=${1#--head=}; head_given=1; [ "$base_mode" -ne 0 ] || base_mode=-2 ;;
+    --file=*) read_path=${1#--file=}; [ "$base_mode" -ne 0 ] || base_mode=-4 ;;
     *) break ;;
   esac
   shift
 done
 for a in "$@"; do
   case "$a" in
-    --base* | --head*) printf '(%s must come before the target; nothing read)\n' "$a"; exit 0 ;;
+    --base* | --head* | --file*) printf '(%s must come before the target; nothing read)\n' "$a"; exit 0 ;;
   esac
 done
 case "$base_mode" in
   -1) printf '(--base needs a full commit id: --base=<base id>; nothing read)\n'; exit 0 ;;
   -3) printf -- '--base-sha needs a full commit id: --base-sha=<base id>\n' >&2; exit 1 ;;
   -2) printf '(--head works only with --base; nothing read)\n'; exit 0 ;;
+  -4) printf '(--file works only with --base; nothing read)\n'; exit 0 ;;
 esac
 
 arg="${1:-.}"
@@ -83,7 +87,7 @@ if [ "$base_mode" -ne 0 ]; then
   commit() {
     r_sha=""
     if ! [[ $1 =~ ^[0-9a-f]+$ && ${#1} -eq $hexlen ]]; then
-      why="'$1' is not a full commit id: pass a PR's baseRefOid and headRefOid (gh pr view <N> --json baseRefOid,headRefOid)"
+      why="'$1' is not a full commit id: the base is the default branch's (gh api repos/{owner}/{repo}/commits/HEAD --jq .sha), the head the PR's headRefOid"
       return
     fi
     r_sha=$(g rev-parse -q --verify --end-of-options "${1}^{commit}" 2>/dev/null)
@@ -104,7 +108,11 @@ if [ "$base_mode" -ne 0 ]; then
   fi
   # The base must not hold the change (a base at or past the reviewed commit).
   if [ -z "$why" ] && g merge-base --is-ancestor "$head" "$sha" 2>/dev/null; then
-    why="base ${sha:0:12} holds the commit under review ${head:0:12}: pass the default branch's commit as --base"
+    if [ "$head_given" -eq 1 ]; then
+      why="base ${sha:0:12} holds the commit under review ${head:0:12}: the base is the default branch's commit, the head the PR's headRefOid"
+    else
+      why="base ${sha:0:12} holds this checkout's HEAD ${head:0:12}: check out the change, or pass --head=<headRefOid>"
+    fi
   elif [ -z "$why" ] && ! g merge-base "$sha" "$head" >/dev/null 2>&1; then
     # A shallow clone can hide that the base already holds the head: unproven is refused.
     why="base ${sha:0:12} and head ${head:0:12} share no history here: git fetch --unshallow, then run it again"
@@ -118,13 +126,17 @@ if [ "$base_mode" -ne 0 ]; then
     printf '%s %s\n' "$sha" "$head"
     exit 0
   fi
-  if [ -z "$(g ls-tree --name-only "$sha" -- .claude/skill-context.md 2>/dev/null)" ]; then
-    printf '(no .claude/skill-context.md on base %s in %s)\n' "$sha" "$root"
+  if [ -z "$(g ls-tree --name-only "$sha" -- "$read_path" 2>/dev/null)" ]; then
+    printf '(no %s on base %s in %s)\n' "$read_path" "$sha" "$root"
     exit 0
   fi
-  printf '<!-- skill-context: %s (base %s) -->\n' "$root" "$sha"
-  g show "${sha}:.claude/skill-context.md" 2>/dev/null \
-    || printf '(.claude/skill-context.md is on base %s but could not be read: git fetch origin %s)\n' "$sha" "$sha"
+  if [ "$read_path" = .claude/skill-context.md ]; then
+    printf '<!-- skill-context: %s (base %s) -->\n' "$root" "$sha"
+  else
+    printf '<!-- %s at base %s in %s -->\n' "$read_path" "$sha" "$root"
+  fi
+  g show "${sha}:${read_path}" 2>/dev/null \
+    || printf '(%s is on base %s but could not be read: git fetch origin %s)\n' "$read_path" "$sha" "$sha"
   exit 0
 fi
 
