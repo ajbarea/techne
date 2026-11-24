@@ -129,7 +129,16 @@ The active TODO list for whatever's in flight right now. Queued specs live in [R
 - ✅ Verify on 8d6b300 (1 Blocking, 1 Should-fix): az forms from Microsoft's docs (`az login
   --service-principal -u app -p X`, `az acr login -p`, `az keyvault secret set --value`,
   `--account-key`) and attached `curl -bX`/`-EX`, which the docs called covered.
-- 📋 Next: fresh Opus verify (over-redaction is a Nit), CI green incl. mutation, merge.
+- ✅ Closed-list sweep on 05d10ec (14 tools, one pass): quoted values with spaces in every
+  anchored rule; new entries for git (user:pass@ proxy, smtp pass), wget, kubectl, gcloud,
+  psql, ssh-keygen and every mysql* tool (-p, password X, user:pass@host, SQL that sets a
+  password); aws --value/--sse-c keys/ParameterValue, az key flags, curl proxy pass/cert, uv
+  auth; sshpass -p anywhere (the docs said so); KEY= learns passphrase. Each entry's triggers
+  name what its patterns need, so an ordinary git refusal runs none (the trigger test now
+  checks pattern matches, not command words). 49-template sweep test, 8 keep lines.
+- ✅ Heph: x_safe_id__mutmut_9 registered as equivalent ('X' already passes isalnum()); key
+  recomputed locally and matches CI's.
+- 📋 Next: one verify on this round only (no new tools), CI green incl. mutation, merge.
 - Verify: `uv run pytest tests/test_denial_log.py tests/test_phylax_doctor.py tests/test_git_guards.py
   tests/test_model_guard.py tests/test_email_greeting.py tests/test_command_shapes.py tests/bench`;
   `make plugin-test`; `uv run pytest tests/test_hook_latency.py` under the heavy lock.

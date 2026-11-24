@@ -57,7 +57,6 @@ TOKEN_PATTERNS = (
     (r"(?i)\b(Bearer|Basic)\s+" + CREDENTIAL, r"\1 [REDACTED]"),
     (r"(?i)(://)[^\s/@:]{1,256}:[^\s/@]{1,256}@", r"\1[REDACTED]@"),
     (r"(?i)(://)[^\s/@:]{16,256}@", r"\1[REDACTED]@"),  # a token as the whole userinfo
-    (r"(?i)(\bsshpass\s+-p\s*)\S+", r"\1[REDACTED]"),
     (
         # A credential header after -H or in http.extraHeader: PRIVATE-TOKEN, X-API-Key, a
         # subscription key, Cookie. The value runs to its quote (a cookie holds spaces).
@@ -72,10 +71,10 @@ TOKEN_PATTERNS = (
         # literal (None, null, true) no secret, and a quote then a space closes a search
         # pattern (`grep "api_key="`), not a value.
         # A name with secret, token, password or api_key anywhere in it (AWS_SECRET_ACCESS_KEY,
-        # GITHUB_TOKEN_VALUE), or ending in pat, pwd, pass, key or auth (GH_PAT, DB_PASS), so
+        # GITHUB_TOKEN_VALUE), or ending in pat, pwd, pass, passphrase, key or auth, so
         # PATH and GIT_AUTHOR_NAME stay.
         r"(?i)\b([A-Za-z0-9_-]{0,64}(?:(?:api[_-]?key|passw(?:or)?d|secret|token)[A-Za-z0-9_-]{0,64}"
-        r"|(?:pat|pwd|pass|key|auth|credentials?)(?![A-Za-z0-9_-])))\s*="
+        r"|(?:pat|pwd|pass(?:phrase)?|key|auth|credentials?)(?![A-Za-z0-9_-])))\s*="
         r"(?!\s|(?:none|null|nil|true|false|undefined)\b)"
         r"(?:'(?![\s)]|\Z)[^']*(?:'|\Z)|\"(?![\s)]|\Z)[^\"]*(?:\"|\Z)|[^\s'\",}$)][^\s'\",})]*)",
         r"\1=[REDACTED]",
@@ -124,7 +123,6 @@ TRIGGERS: tuple[tuple[str | tuple[str, ...], ...], ...] = (
     ("bearer", "basic"),
     ("://",),
     ("://",),
-    ("sshpass",),
     ("-h", "--header", "extraheader"),
     tuple((k, "=") for k in _KEY_WORDS),
     tuple(k + q for k in _QUOTED_KEYS for q in "'\"\\"),  # a backslash: JSON in a shell string
@@ -144,6 +142,18 @@ def triggered(low: str, triggers: tuple[str | tuple[str, ...], ...]) -> bool:
 # false one (`2>&1`, an escaped `\&`) is still seen, at the price of redacting the same flag
 # on another command in the line.
 QUOTED_OR_WORD = r"(?:'[^']*(?:'|\Z)|\"[^\"]*(?:\"|\Z)|\S+)"
+# A flag's value, spaced, after =, or attached to a short flag.
+SPACED = r"(?:=|\s+)"
+ATTACHED = r"(?:=|\s+|(?=[^\s=-]))"
+# user:pass@host without a scheme (proxies, mysqlsh): the password goes.
+USERINFO = (
+    r"((?<![^\s='\"])['\"]?(?:[A-Za-z][\w+.-]*://)?[^\s:@'\"/]{1,256}:)(?!/)[^\s@'\"]{1,256}(?=@)"
+)
+# SQL that sets a password, in mysql -e or psql -c.
+SQL_PASSWORD = (
+    r"(?i)(\b(?:password|identified\s+by)\s*(?:=\s*)?(?:password\s*\(\s*)?)'[^']*(?:'|\Z)",
+    r"\1[REDACTED]",
+)
 ANCHORED: tuple[tuple[tuple[str, ...], tuple[str, ...], tuple[tuple[str, str], ...]], ...] = (
     (
         (r"\bcurl\b",),
@@ -155,59 +165,154 @@ ANCHORED: tuple[tuple[tuple[str, ...], tuple[str, ...], tuple[tuple[str, str], .
                 r"\1[REDACTED]",
             ),
             (
-                r"(\s(?:-b|--cookie|--pass|-E|--cert)(?:=|\s+)|\s-[bE](?=[^\s=-]))"
-                + QUOTED_OR_WORD,
+                r"(\s(?:-b|--cookie|--pass|-E|--cert|--proxy-pass|--proxy-cert)(?:=|\s+)"
+                r"|\s-[bE](?=[^\s=-]))" + QUOTED_OR_WORD,
                 r"\1[REDACTED]",
             ),
-            (r"(\s(?:-x|--proxy)(?:=|\s+)['\"]?)[^\s:@'\"/]*:[^\s@'\"]*(?=@)", r"\1[REDACTED]"),
+            (r"(\s(?:-x|--proxy)" + SPACED + r")(?:'[^']*'|\"[^\"]*\")", r"\1[REDACTED]"),
+            (USERINFO, r"\1[REDACTED]"),
         ),
     ),
     (
-        (r"\b(?:mysql|mariadb|mysqldump)\b",),
+        # http.proxy user:pass@host. Triggers name what the patterns need, so a refusal of
+        # an ordinary git command runs none of them.
+        (r"\bgit\b",),
+        ("@",),
+        ((USERINFO, r"\1[REDACTED]"),),
+    ),
+    (
+        # send-email --smtp-pass, sendemail.smtpPass.
+        (r"\bgit\b",),
+        ("smtp",),
+        (
+            (
+                r"(?i)(\s--smtp-pass"
+                + SPACED
+                + r"|\bsendemail\.smtppass"
+                + SPACED
+                + r")"
+                + QUOTED_OR_WORD,
+                r"\1[REDACTED]",
+            ),
+        ),
+    ),
+    (
+        (r"\bwget\b",),
+        ("wget",),
+        ((r"(?i)(\b(?:http_|ftp_|proxy_)?password\s*=\s*)[^'\"\s][^'\"\n]*", r"\1[REDACTED]"),),
+    ),
+    (
+        # mysql, mysqladmin, mysqlimport, mysqlsh, mariadb...: -pX, "-pX", password X, u:p@host.
+        (r"\b(?:mysql\w*|mariadb\w*)\b",),
         ("mysql", "mariadb"),
-        ((r"(\s-p)[^\s-]\S*", r"\1[REDACTED]"),),
+        (
+            (r"(\s['\"]?-p)(?=[^\s-])" + QUOTED_OR_WORD, r"\1[REDACTED]"),
+            (r"(\spassword\s+)" + QUOTED_OR_WORD, r"\1[REDACTED]"),
+            (USERINFO, r"\1[REDACTED]"),
+            SQL_PASSWORD,
+        ),
+    ),
+    (
+        # libpq's 'password=X' and SQL in -c; -p is psql's port.
+        (r"\bpsql\b",),
+        ("psql",),
+        ((r"(?i)(\bpassword\s*=\s*)(?:'[^']*(?:'|\Z)|[^\s'\"]+)", r"\1[REDACTED]"), SQL_PASSWORD),
     ),
     (
         (r"\bdocker\b", r"\blogin\b"),
         ("docker",),
-        ((r"(\s-p(?:=|\s+|(?=[^\s=-])))\S+", r"\1[REDACTED]"),),
+        ((r"(\s-p" + ATTACHED + r")" + QUOTED_OR_WORD, r"\1[REDACTED]"),),
     ),
     (
         (r"\bgh\b", r"\bsecret\b"),
         ("secret",),
-        ((r"(\s(?:-b|--body)(?:=|\s+|(?=[^\s=-])))" + QUOTED_OR_WORD, r"\1[REDACTED]"),),
+        ((r"(\s(?:-b|--body)" + ATTACHED + r")" + QUOTED_OR_WORD, r"\1[REDACTED]"),),
     ),
     (
-        (r"\b(?:uv|twine)\b", r"\b(?:publish|upload)\b"),
-        ("publish", "twine"),
-        ((r"(\s-[pt](?:=|\s+|(?=[^\s=-])))\S+", r"\1[REDACTED]"),),
+        # uv publish, uv auth login, twine upload: -p and -t.
+        (r"\b(?:uv|twine)\b", r"\b(?:publish|upload|auth)\b"),
+        ("publish", "twine", "auth"),
+        ((r"(\s-[pt]" + ATTACHED + r")" + QUOTED_OR_WORD, r"\1[REDACTED]"),),
     ),
     (
         (r"\bnpm\b", r"\bset\b"),
         ("npm",),
         # From a word's start only, so a long run without spaces is read once.
-        ((r"(?<!\S)(\S{0,500}?_(?:auth(?:Token)?|password)['\"]?(?:=|\s+))\S+", r"\1[REDACTED]"),),
-    ),
-    (
-        # az login -p, az acr login -p; az keyvault secret set --value; --account-key.
-        (r"\baz\b",),
-        ("az",),
         (
             (
-                r"(\s(?:-p|--value|--account-key)(?:=|\s+)|\s-p(?=[^\s=-]))" + QUOTED_OR_WORD,
+                r"(?<!\S)(\S{0,500}?_(?:auth(?:Token)?|password)['\"]?"
+                + SPACED
+                + r")"
+                + QUOTED_OR_WORD,
                 r"\1[REDACTED]",
             ),
         ),
     ),
     (
-        (r"\baws\b", r"\bput-parameter\b"),
-        ("put-parameter",),
-        ((r"(\s--value(?:=|\s+))" + QUOTED_OR_WORD, r"\1[REDACTED]"),),
+        # kubectl config set users.U.token X, create secret --from-literal=k=X.
+        (r"\bkubectl\b",),
+        ("kubectl",),
+        (
+            (
+                r"(\busers\.[^\s]{1,200}?\.(?:token|password|client-key-data|client-certificate-data)\s+)"
+                + QUOTED_OR_WORD,
+                r"\1[REDACTED]",
+            ),
+            (
+                r"(--from-literal" + SPACED + r"['\"]?[^=\s'\"]{1,256}=)" + QUOTED_OR_WORD,
+                r"\1[REDACTED]",
+            ),
+        ),
     ),
     (
-        (r"\baws\b", r"\bconfigure\b"),
+        (r"\bgcloud\b",),
+        ("gcloud",),
+        ((r"(\bproxy/password\s+)" + QUOTED_OR_WORD, r"\1[REDACTED]"),),
+    ),
+    (
+        # az login -p, az acr login -p; secret set --value; the --*-key flags.
+        (r"\baz\b",),
+        ("az",),
+        (
+            (
+                r"(\s(?:-p|--value|--account-key|--storage-key|--access-key|--key-value"
+                r"|--primary-key|--secondary-key)(?:=|\s+)|\s-p(?=[^\s=-]))" + QUOTED_OR_WORD,
+                r"\1[REDACTED]",
+            ),
+        ),
+    ),
+    (
+        # ssm put-parameter and apigateway --value, s3 --sse-c keys, configure set, and
+        # cloudformation ParameterValue.
+        (r"\baws\b",),
         ("aws",),
-        ((r"(\baws_(?:secret_access_key|session_token)(?:=|\s+))\S+", r"\1[REDACTED]"),),
+        (
+            (
+                r"(\s(?:--value|--sse-c-key|--sse-c-copy-source-key)"
+                + SPACED
+                + r")"
+                + QUOTED_OR_WORD,
+                r"\1[REDACTED]",
+            ),
+            (
+                r"(\baws_(?:secret_access_key|session_token)" + SPACED + r")" + QUOTED_OR_WORD,
+                r"\1[REDACTED]",
+            ),
+            (
+                r"(\bParameterValue=)(?:'[^']*(?:'|\Z)|\"[^\"]*(?:\"|\Z)|[^\s,'\"]+)",
+                r"\1[REDACTED]",
+            ),
+        ),
+    ),
+    (
+        (r"\bsshpass\b",),
+        ("sshpass",),
+        ((r"(\s-p\s*)" + QUOTED_OR_WORD, r"\1[REDACTED]"),),
+    ),
+    (
+        (r"\bssh-keygen\b",),
+        ("ssh-keygen",),
+        ((r"(\s-[NP]" + ATTACHED + r")" + QUOTED_OR_WORD, r"\1[REDACTED]"),),
     ),
 )
 

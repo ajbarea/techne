@@ -1305,8 +1305,8 @@ def test_every_pattern_has_triggers_that_never_hide_a_match(dl):
         for (pattern, _), triggers in zip(dl.TOKEN_PATTERNS, dl.TRIGGERS, strict=True):
             if re.search(pattern, text):
                 assert dl.triggered(text.lower(), triggers), (pattern, text[:80])
-        for words, triggers, _ in dl.ANCHORED:
-            if all(re.search(w, text) for w in words):
+        for words, triggers, flags in dl.ANCHORED:
+            if all(re.search(w, text) for w in words) and any(re.search(p, text) for p, _ in flags):
                 assert any(t in text.lower() for t in triggers), (words, text[:80])
 
 
@@ -1342,3 +1342,83 @@ def test_of_two_calls_at_once_only_the_one_that_claims_the_record_logs(dl, state
         if pathlib.Path(dl.pending_dir()).exists()
         else True
     )
+
+
+# The closed-list sweep (git, gh, curl, wget, uv, twine, npm, docker, kubectl, aws, gcloud, az,
+# sshpass and ssh-keygen, mysql and psql): each tool's documented command-line secret forms.
+# `%` stands for `-` and {v} for the value, filled in at runtime so no scanner reads a secret.
+SWEEP = [
+    "docker login %p '{v} tail' ghcr.io",
+    "uv publish %p '{v} tail'",
+    "twine upload %p '{v} tail'",
+    "mysql %p'{v} tail'",
+    "sshpass %p '{v} tail' ssh h",
+    "aws configure set aws_secret_access_key '{v} tail'",
+    "npm set //r/:_authToken '{v} tail'",
+    "curl %x 'u:{v} x@p' h",
+    "git config http.proxy u:{v}@proxy:8080",
+    "git send-email %%smtp-pass {v} a.patch",
+    "git config sendemail.smtpPass {v}",
+    "curl %%proxy-pass {v} h",
+    "curl %%proxy-cert c.pem:{v} h",
+    "wget %e 'http_password = {v}' u",
+    "uv auth login host %t {v}",
+    "uv auth login host %t{v}",
+    "DOCKER_CONTENT_TRUST_ROOT_PASSPHRASE={v} docker push x",
+    "kubectl config set users.u.token {v}",
+    "kubectl config set users.u.password {v}",
+    "kubectl config set users.admin.client-key-data {v}",
+    "kubectl create secret generic s %%from-literal=key1={v}",
+    "aws s3 cp a s3://b %%sse-c-key {v}",
+    "aws s3 cp a s3://b %%sse-c-copy-source-key {v}",
+    "aws apigateway create-api-key %%value {v}",
+    "aws cloudformation create-stack %%parameters ParameterKey=DB,ParameterValue={v}",
+    "gcloud config set proxy/password {v}",
+    "az storage x %%storage-key {v}",
+    "az x %%access-key {v}",
+    "az functionapp keys set %%key-value {v}",
+    "az servicebus x %%primary-key {v}",
+    "az x %%secondary-key {v}",
+    "sshpass %v %p {v} ssh h",
+    "sshpass %P prompt %p {v} ssh h",
+    "ssh-keygen %N {v} %f k",
+    "ssh-keygen %P {v} %p %f k",
+    "mysqladmin %p{v} status",
+    "mysqlimport %p{v} db f",
+    "mysqlshow %p{v}",
+    "mysqlcheck %p{v} db",
+    "mysqlbinlog %p{v} f",
+    "mysqladmin %u root password {v}",
+    "mysqlsh root:{v}@host",
+    "mysqlsh %%uri root:{v}@host",
+    'mysql "%p{v}" db',
+    "psql 'host=h password = {v}'",
+    "psql 'password={v} dbname=d'",
+    "psql %c \"ALTER USER u PASSWORD '{v}'\"",
+    "mysql %e \"SET PASSWORD = '{v}'\"",
+    "mysql %e \"CREATE USER u IDENTIFIED BY '{v}'\"",
+]
+
+
+@pytest.mark.parametrize("template", SWEEP)
+def test_the_closed_list_sweep_is_redacted(dl, template):
+    text = template.replace("%", "-").format(v=FAKE)
+    out = dl.redact(text)
+    assert FAKE not in out and "tail'" not in out, out
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "psql -p 5432 -h db",
+        "git clone git@github.com:o/r.git",
+        "kubectl get pods -n x",
+        "gcloud config set project p",
+        "ssh-keygen -t ed25519 -f k",
+        "wget https://x/f",
+        "mysql -u root -h db",
+        "git log --since=2.weeks",
+    ],
+)
+def test_the_sweep_leaves_its_tools_plain_lines_alone(dl, text):
+    assert dl.redact(text) == text

@@ -184,3 +184,7 @@ why = 'git_options._raw_value: the next line returns a lone backslash whenever t
 [[mutant]]
 hash = "8e8b87190a8a21922872666b8fcf29baed724ede6ee467b9f9dce0706200cce4"
 why = 'Guards.check_gh: enabled() reads local only as `not local`, and None is as falsy as False'
+
+[[mutant]]
+hash = "d6e456051c608f6ea80ab89ae856fd64b24e20fa4d87d4bb0d0852e0e543719c"
+why = "safe_id: 'X' already passes isalnum(), so adding it to the kept set changes no output"
