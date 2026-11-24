@@ -200,12 +200,12 @@ A class whose guard became a mechanical check (a lint rule, test or hook) gets a
 - **Guard:** capture `$!` and kill that PID; bind port 0, not a fixed port; never `pkill` or `killall` by pattern; a shared helper worktree gets a named branch; never remove the worktree your own session stands in (a hook then starts in a deleted folder).
 - **Incidents:** techne (2026-10-17): a subagent's `pkill` of its http servers SIGTERMed another worktree's visual-QA subprocess; techne (2026-10-17): a detached helper worktree was cleaned up while a sync agent used it.
 
-### rebase-arms-live-test: A rebase turns a refusal-path test into a live request
+### rebase-arms-live-test: A test reaches a live target
 
-- **Symptom:** a test asserting "X is refused" through the real transport makes a real network call after a rebase changes its precondition; the suite hangs near 0% CPU with an ESTABLISHED socket.
-- **Question:** does any test rely on a host or path being absent that the merged-in branch now provides?
-- **Guard:** a suite-level socket guard in `conftest.py` with an allow-list of hosts; run the suite offline after every rebase (`unshare -rn sh -c 'ip link set lo up; <test command>'`); a hang near 0% CPU with an ESTABLISHED socket in `ss -tnp` is a live request.
-- **Incidents:** sphragis#39 (2026-09-23): a `fetch --org chromium` test, rebased onto a branch that added a REST host, queried chromium-review during a declared collection stop.
+- **Symptom:** a test asserting "X is refused" makes a real call after a rebase changes its precondition, or a child process the code starts reads an environment the test restored after import and falls back to the live default; the suite passes, or hangs near 0% CPU with an ESTABLISHED socket.
+- **Question:** which hosts, paths and credentials does each subprocess or call see during the tests, and what is its default when a variable is unset?
+- **Guard:** a suite-level socket guard with an allow-list of hosts; pass targets to children explicitly (`env=os.environ | {...}`); set sandbox values for the whole suite at import (a failing recording `gh` stub, a fake slug); run the suite offline after every rebase (`unshare -rn`).
+- **Incidents:** sphragis#39 (2026-09-23): a `fetch --org chromium` test, rebased onto a branch that added a REST host, queried chromium-review during a declared collection stop; klepsydra#514 (2026-11-20): in-process report tests ran the real `prune_shots.py --apply` against the live briefing and real `gh`.
 
 ### async-flake-excluded-not-awaited: Racing async fields hidden by exclusion
 
