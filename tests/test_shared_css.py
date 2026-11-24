@@ -50,7 +50,7 @@ WORDS_SPLIT = """() => [...document.querySelectorAll("table code")].flatMap((c) 
 @needs_browser
 @pytest.mark.parametrize("width", [390, 1280])
 def test_table_code_stays_whole_against_a_site_override(width):
-    from playwright.sync_api import sync_playwright  # ty: ignore[unresolved-import]
+    from playwright.sync_api import sync_playwright  # ty: ignore[import-not-found]
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
@@ -82,7 +82,7 @@ FOOTER = """<!doctype html><html><head><style>{css}</style>
 def test_footer_brand_mark_takes_the_footer_text_color(bg, fg):
     """The mark is drawn in the footer's text color, so it reads on a dark and a light
     footer alike, at the height of the text."""
-    from playwright.sync_api import sync_playwright  # ty: ignore[unresolved-import]
+    from playwright.sync_api import sync_playwright  # ty: ignore[import-not-found]
 
     css = (SHARED / "stylesheets/shared.css").read_text()
     with sync_playwright() as pw:
@@ -103,7 +103,7 @@ def test_footer_brand_mark_takes_the_footer_text_color(bg, fg):
             )
             from io import BytesIO
 
-            from PIL import Image  # ty: ignore[unresolved-import]
+            from PIL import Image  # ty: ignore[import-not-found]
 
             page.evaluate("document.body.style.background = 'transparent'")
             alpha = Image.open(BytesIO(mark.screenshot(omit_background=True))).getchannel("A")

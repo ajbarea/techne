@@ -139,6 +139,7 @@ def test_sweep_reports_what_changed_and_what_is_due():
     ]
     folders = [
         {"Name": "HW3", "DueDate": iso(NOW + timedelta(days=3))},
+        {"Name": "HW4", "DueDate": iso(NOW + timedelta(days=5))},
         {"Name": "HW9", "DueDate": iso(NOW + timedelta(days=30))},
         {"Name": "Report #3", "DueDate": iso(NOW - timedelta(hours=5))},
         {"Name": "Report #4", "DueDate": iso(NOW - timedelta(hours=4))},
@@ -146,7 +147,9 @@ def test_sweep_reports_what_changed_and_what_is_due():
         {"Name": "Optional", "DueDate": None},
     ]
     listing = (
-        "<table><tr><td>Report #30Due on Dec 1</td><td>Not Submitted</td></tr>"
+        "<table><tr><td>HW3Due on Oct 19</td><td>1 Submission, 1 File</td></tr>"
+        "<tr><td>HW4Due on Oct 21</td><td>Not Submitted</td></tr>"
+        "<tr><td>Report #30Due on Dec 1</td><td>Not Submitted</td></tr>"
         "<tr><td>Report #3Due on Oct 16</td><td>1 Submission, 1 File</td></tr>"
         "<tr><td>Report #4Due on Oct 16</td><td>Not Submitted</td></tr></table>"
     )
@@ -157,7 +160,7 @@ def test_sweep_reports_what_changed_and_what_is_due():
         }
     )
     lines = d2l.sweep(site, "2261", SINCE, NOW, NY)
-    assert lines[0] == "OK Quantum ML :: news 2 topics 3 dropbox 6"
+    assert lines[0] == "OK Quantum ML :: news 2 topics 3 dropbox 7"
     assert any(
         line.startswith("ANNOUNCE Quantum ML :: Room change")
         and line.endswith(":: Class moves to GOL 1440.")
@@ -168,7 +171,8 @@ def test_sweep_reports_what_changed_and_what_is_due():
     )
     assert "CONTENT Quantum ML :: Lecture 5 :: Fri Oct 16 05:00 EDT :: UNREAD" in lines
     assert "CONTENT Quantum ML :: Notes C7 :: Fri Oct 16 07:00 EDT :: seen" in lines
-    assert "DUE Quantum ML :: HW3 :: Mon Oct 19 08:00 EDT" in lines
+    assert "DUE Quantum ML :: HW3 :: Mon Oct 19 08:00 EDT :: 1 submitted" in lines
+    assert "DUE Quantum ML :: HW4 :: Wed Oct 21 08:00 EDT :: NOT SUBMITTED" in lines
     assert "PASTDUE Quantum ML :: Report #3 :: Fri Oct 16 03:00 EDT :: 1 submitted" in lines
     assert "PASTDUE Quantum ML :: Report #4 :: Fri Oct 16 04:00 EDT :: NOT SUBMITTED" in lines
     assert all(d2l.allowed(p) for p in site.seen)
@@ -249,9 +253,9 @@ def test_due_boundaries_and_naive_times():
         }
     )
     lines = d2l.sweep(site, "2261", SINCE, NOW, NY)
-    assert any(x.startswith("PASTDUE Bounds :: At now") for x in lines)
+    assert any(x.startswith("PASTDUE Bounds :: At now") and x.endswith(":: NOROW") for x in lines)
     assert not any("At since" in x for x in lines)
-    assert any(x.startswith("DUE Bounds :: Naive") for x in lines)
+    assert any(x.startswith("DUE Bounds :: Naive") and x.endswith(":: NOROW") for x in lines)
 
 
 def test_submission_state_prefers_the_exact_name():

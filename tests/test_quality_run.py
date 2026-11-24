@@ -11,7 +11,7 @@ from collections.abc import Sequence
 import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "quality"))
-import run  # ty: ignore[unresolved-import]
+import run  # ty: ignore[import-not-found]
 
 
 @pytest.fixture(autouse=True)

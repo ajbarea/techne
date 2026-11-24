@@ -10,7 +10,7 @@ import urllib.parse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
-import polite_http  # ty: ignore[unresolved-import]
+import polite_http  # ty: ignore[import-not-found]
 
 TOOL = "heuresis"
 TIMEOUT = 20

@@ -12,19 +12,38 @@
 
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# DIR (default: this checkout) is the repo to check. An empty DIR is refused rather than read
+# as "this checkout", which inside the composite action is techne's copy, not the caller's.
+if [[ $# -gt 0 && -z "$1" ]]; then
+    printf 'FAIL: empty directory argument\n' >&2
+    exit 1
+fi
+ROOT="$(cd "${1:-$(dirname "${BASH_SOURCE[0]}")/..}" && pwd)"
 WORKFLOWS="$ROOT/.github/workflows"
 TEMPLATES="$ROOT/.github-template/workflows"
 SKILL_TEMPLATES=()
-while IFS= read -r -d '' f; do SKILL_TEMPLATES+=("$f"); done < <(
-    find "$ROOT/plugins" -path '*/skills/*/templates/*' \( -name '*.yml' -o -name '*.yaml' \) -print0
-)
+if [[ -d "$ROOT/plugins" ]]; then
+    while IFS= read -r -d '' f; do SKILL_TEMPLATES+=("$f"); done < <(
+        find "$ROOT/plugins" -path '*/skills/*/templates/*' \( -name '*.yml' -o -name '*.yaml' \) -print0
+    )
+fi
 
-[[ -d "$WORKFLOWS" ]] || { printf 'OK: no .github/workflows/ to check\n'; exit 0; }
+shopt -s nullglob
+live_files=("$WORKFLOWS"/*.yml "$WORKFLOWS"/*.yaml)
+template_files=("$TEMPLATES"/*.yml "$TEMPLATES"/*.yaml)
+# The composite action sets PIN_REQUIRE_WORKFLOWS: there, no workflow file means the caller
+# forgot actions/checkout or pointed `directory` elsewhere, and a pass would check nothing.
+if [[ ${#live_files[@]} -eq 0 && -n "${PIN_REQUIRE_WORKFLOWS:-}" ]]; then
+    printf 'FAIL: no workflow file in %s/.github/workflows/ (run actions/checkout first)\n' "$ROOT" >&2
+    exit 1
+fi
+if [[ ${#live_files[@]} -eq 0 && ${#template_files[@]} -eq 0 && ${#SKILL_TEMPLATES[@]} -eq 0 ]]; then
+    printf 'OK: no workflow file to check\n'
+    exit 0
+fi
 
 violations=0
-shopt -s nullglob
-for f in "$WORKFLOWS"/*.yml "$WORKFLOWS"/*.yaml "$TEMPLATES"/*.yml "$TEMPLATES"/*.yaml "${SKILL_TEMPLATES[@]}"; do
+for f in "${live_files[@]}" "${template_files[@]}" "${SKILL_TEMPLATES[@]}"; do
     lineno=0
     while IFS= read -r line; do
         lineno=$((lineno + 1))
@@ -33,8 +52,13 @@ for f in "$WORKFLOWS"/*.yml "$WORKFLOWS"/*.yaml "$TEMPLATES"/*.yml "$TEMPLATES"/
             rev="${BASH_REMATCH[2]}"
             case "$ref" in ./* | docker://*) continue ;; esac
             if ! [[ "$rev" =~ ^[0-9a-f]{40}$ ]]; then
+                rel_path="${f#"$ROOT"/}"
                 printf 'FAIL: %s:%d: %s@%s is not pinned to a full commit SHA\n' \
-                    "${f#"$ROOT"/}" "$lineno" "$ref" "$rev" >&2
+                    "$rel_path" "$lineno" "$ref" "$rev" >&2
+                if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
+                    printf '::error file=%s,line=%d::%s@%s is not pinned to a full commit SHA\n' \
+                        "$rel_path" "$lineno" "$ref" "$rev" >&2
+                fi
                 violations=$((violations + 1))
             fi
         fi
@@ -46,9 +70,10 @@ if [[ "$violations" -gt 0 ]]; then
     exit 1
 fi
 
-uses_refs() { grep -ohE 'uses:[[:space:]]*[^[:space:]#]+' "$@" | sed -E 's/uses:[[:space:]]*//' | sort -u; }
+# A file with no `uses:` line (only `run:` steps) lists nothing; grep's exit 1 is not an error.
+uses_refs() { { grep -ohE 'uses:[[:space:]]*[^[:space:]#]+' "$@" || true; } | sed -E 's/uses:[[:space:]]*//' | sort -u; }
 
-for t in "$TEMPLATES"/*.yml "$TEMPLATES"/*.yaml; do
+for t in "${template_files[@]}"; do
     live="$WORKFLOWS/$(basename "$t")"
     [[ -f "$live" ]] || continue
     if ! drift="$(diff <(uses_refs "$live") <(uses_refs "$t"))"; then
@@ -58,7 +83,6 @@ for t in "$TEMPLATES"/*.yml "$TEMPLATES"/*.yaml; do
     fi
 done
 
-live_files=("$WORKFLOWS"/*.yml "$WORKFLOWS"/*.yaml)
 live_pins=""
 [[ ${#live_files[@]} -eq 0 ]] || live_pins="$(uses_refs "${live_files[@]}")"
 for t in "${SKILL_TEMPLATES[@]}"; do

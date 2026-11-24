@@ -64,7 +64,7 @@ Exit codes: `0` success, `1` a missing or bad setting (`schole.toml`, `--site`, 
 | `APIFAIL <course> :: news:404` | That part of that course could not be read; the rest still was. |
 | `ANNOUNCE <course> :: <title> :: <time> :: <body start>` | An announcement posted after the window start. |
 | `CONTENT <course> :: <title> :: <time> :: UNREAD\|seen` | Content changed after the window start. |
-| `DUE <course> :: <assignment> :: <due time>` | Due within two weeks. |
+| `DUE <course> :: <assignment> :: <due time> :: <state>` | Due within two weeks. The state is `NOT SUBMITTED`, `<n> submitted`, or `NOROW` or `LISTFAIL <status>` when it could not be checked. |
 | `PASTDUE <course> :: <assignment> :: <due time> :: <state>` | Came due inside the window. The state is `NOT SUBMITTED`, `<n> submitted`, or `NOROW` or `LISTFAIL <status>` when it could not be checked. |
 
 ## Configuration

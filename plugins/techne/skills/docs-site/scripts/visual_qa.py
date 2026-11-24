@@ -33,8 +33,8 @@ import sys
 import urllib.request
 from pathlib import Path
 
-from PIL import Image  # ty: ignore[unresolved-import]
-from playwright.sync_api import Page, sync_playwright  # ty: ignore[unresolved-import]
+from PIL import Image  # ty: ignore[import-not-found]
+from playwright.sync_api import Page, sync_playwright  # ty: ignore[import-not-found]
 
 VIEWPORTS = {"wide": (1920, 1080), "desktop": (1280, 800), "phone": (390, 844)}
 SCHEMES = {"light": "default", "dark": "slate"}

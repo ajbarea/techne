@@ -1029,12 +1029,22 @@ def parse_gh_pr(args: list[str], words: tuple[str, ...] = ()) -> tuple[list[str]
 class Verdict:
     def __init__(self, agy: bool = False) -> None:
         self.denies: list[str] = []
+        # The guard option each refusal in denies came from, in the same order.
+        self.guards: list[str] = []
         self.warnings: list[str] = []
         self.agy = agy
 
+    def deny(self, guard: str, why: str) -> None:
+        self.denies.append(why)
+        self.guards.append(guard)
+
+    def reason(self) -> str:
+        """The refusals, each once, in the order they were made."""
+        return "\n".join(dict.fromkeys(self.denies))
+
     def emit(self) -> None:
         if self.denies:
-            out = hook_output.deny("\n".join(dict.fromkeys(self.denies)), self.agy)
+            out = hook_output.deny(self.reason(), self.agy)
         elif self.warnings:
             out = hook_output.warn("\n".join(self.warnings), self.agy)
         else:
@@ -1090,7 +1100,7 @@ class Guards:
                 "folder first."
             )
             if key in BLOCKING:
-                self.verdict.denies.append(why)
+                self.verdict.deny(key, why)
             elif why not in self.errors:
                 self.errors.append(why)
             return False
@@ -1145,19 +1155,21 @@ class Guards:
         for text in scan:
             for line in text.splitlines():
                 if ATTRIBUTION_RE.search(line):
-                    self.verdict.denies.append(
+                    why = (
                         f"phylax: {what} carries an attribution line: {line.strip()!r}. "
                         "Remove it and retry. To allow attribution lines in this repo, run "
                         f"`git config {repo_key(ATTRIBUTION)} false`."
                     )
+                    self.verdict.deny(ATTRIBUTION, why)
                     return
 
     def deny_scratch(self, how: str) -> None:
-        self.verdict.denies.append(
+        why = (
             f"phylax: {how}. COMMITS.md is a local scratchpad and never goes in a commit. "
             "Unstage it with `git restore --staged COMMITS.md` if needed, and retry without it. "
             f"To allow it in this repo, run `git config {repo_key(COMMITS_MD)} false`."
         )
+        self.verdict.deny(COMMITS_MD, why)
 
     def check_add(self, cmd: Command) -> None:
         if not self.enabled(COMMITS_MD, cmd):
@@ -1364,12 +1376,13 @@ class Guards:
             name, findings = secret_scan.scan(kind, top, git_env, log_opts, tmp)
         except secret_scan.ScanError as exc:
             secret_scan.log_event({**event, "outcome": "no_verdict", "reason": str(exc)})
-            self.verdict.denies.append(
+            why = (
                 f"phylax: {what} was not run because the secret scan gave no verdict: {exc}. "
                 "Retry it as a command of its own; if it fails again, stop and ask the user. "
                 f"Switching the guard off (`git config {repo_key(SECRETS)} false`) is the user's "
                 "call, not yours."
             )
+            self.verdict.deny(SECRETS, why)
             return
         if not findings:
             return
@@ -1383,13 +1396,14 @@ class Guards:
         )
         shown = "; ".join(f.where() for f in findings[:5])
         more = f" and {len(findings) - 5} more" if len(findings) > 5 else ""
-        self.verdict.denies.append(
+        why = (
             f"phylax: {what} would add a secret ({name}): {shown}{more}. Remove it and use a "
             "placeholder the scanner accepts or a value made at runtime (a test fixture included); "
             "unstage with `git restore --staged <file>`, and for a pushed-to-be commit rewrite it "
             "before pushing. Do not silence the scanner: GitHub's own scan would still flag it. "
             "If you believe it is a false positive, stop and ask the user."
         )
+        self.verdict.deny(SECRETS, why)
 
     def check_main_checkout(self, cmd: Command) -> None:
         if not self.enabled(MAIN_CHECKOUT, cmd):
@@ -1639,14 +1653,14 @@ class Guards:
         # before one takes the word after it: `gh pr -b review TEXT 1`.
         rest = [a for j, a in enumerate(argv) if j and j not in at]
         if unknown is not None:
-            if self.enabled(BODIES, Command(cwd), local=False) or self.enabled(
-                ATTRIBUTION, Command(cwd), local=False
-            ):
-                self.verdict.denies.append(
+            on = [g for g in (BODIES, ATTRIBUTION) if self.enabled(g, Command(cwd), local=False)]
+            if on:
+                why = (
                     f"phylax: `gh` is given {TAG_RE.sub(')', unknown)} before its subcommand, a "
                     "value this check cannot know, so it cannot tell which subcommand runs or "
                     "what it sends. Write the gh command out in full."
                 )
+                self.verdict.deny(on[0], why)
             return
         writer = len(words) == 2 and words[0] == "pr" and words[1] in GH_PR_WRITERS
         if writer and self.enabled(ATTRIBUTION, Command(cwd), local=False):
@@ -1664,7 +1678,8 @@ class Guards:
                 import body_gate
 
                 denies, warnings = body_gate.check(kind, body)
-                self.verdict.denies.extend(denies)
+                for why in denies:
+                    self.verdict.deny(BODIES, why)
                 self.verdict.warnings.extend(warnings)
 
     def substitution(self, groups: list[list[str]], k: int, cwd: Path, env: dict[str, str]) -> str:
@@ -1795,11 +1810,12 @@ class Guards:
         if self.stdin_heredoc is not None:
             return self.heredoc_text(self.stdin_heredoc, cwd, env)
         if self.stdin_odd:
-            self.verdict.denies.append(
+            why = (
                 "phylax: this body comes on stdin through a redirect this check cannot follow, "
                 "so its length cannot be checked first. Write the body to a file in its own "
                 "call, then send it with --body-file."
             )
+            self.verdict.deny(BODIES, why)
             return None
         if self.stdin_other is None:
             return None
@@ -1807,10 +1823,11 @@ class Guards:
         if kind == "<" and word in STDIN_PATHS:
             if self.stdin_redirects > 1:
                 # It reopens the redirect before it, which this check does not track.
-                self.verdict.denies.append(
+                why = (
                     f"phylax: `< {word}` after another stdin redirect reopens it, so the body's "
                     "length cannot be checked first. Give the body one redirect, or a file."
                 )
+                self.verdict.deny(BODIES, why)
             return None  # the shell's own stdin, passed through: not seen
         if kind == "<":
             return self.body_file(word, cwd, env)
@@ -1828,42 +1845,47 @@ class Guards:
         if path == "/dev/null":
             return ""
         if not path:
-            self.verdict.denies.append(
+            why = (
                 "phylax: the body file has an empty name, or is a process substitution "
                 "(`<(...)`), whose text this check cannot read first. Write the body to a file "
                 "in its own call."
             )
+            self.verdict.deny(BODIES, why)
             return None
         if key not in self.written and ("$" in path or "`" in path):
-            self.verdict.denies.append(
+            why = (
                 f"phylax: the body file {TAG_RE.sub(')', path).replace(chr(0), '')} is named "
                 "through a value this "
                 "check cannot know, so its length cannot be checked first. Name the file directly."
             )
+            self.verdict.deny(BODIES, why)
             return None
         if key not in self.written and os.path.exists(target) and not os.path.isfile(target):
-            self.verdict.denies.append(
+            why = (
                 f"phylax: the body file {path} is no regular file (a folder, pipe or device), so "
                 "its length cannot be checked first. Write the body to a file in its own call."
             )
+            self.verdict.deny(BODIES, why)
             return None
         if key in self.written:
             index = self.written[key]
             if index is None:
-                self.verdict.denies.append(
+                why = (
                     f"phylax: this command writes or may change {TAG_RE.sub(')', path)} before it "
                     "sends it as a "
                     "body, so its length cannot be checked first. Write the body file in its "
                     "own call."
                 )
+                self.verdict.deny(BODIES, why)
                 return None
             text = self.written_text(index)
             if text is None:
-                self.verdict.denies.append(
+                why = (
                     f"phylax: {path} was written from an unquoted heredoc holding `$` or a "
                     "backtick, which bash expanded where it was written, so its length cannot "
                     "be checked first. Quote the delimiter (<<'EOF') or write it in its own call."
                 )
+                self.verdict.deny(BODIES, why)
             return text
         return read_message_file(path, cwd)
 
@@ -1877,18 +1899,20 @@ class Guards:
             value = resolved
         unset = UNSET_VAR_RE.search(value)
         if unset:
-            self.verdict.denies.append(
+            why = (
                 f"phylax: this body names {unset.group(0)}, which this command does not set "
                 "with a plain NAME=value, so its length cannot be checked first. Write the "
                 "body to a file in its own call, then send it with --body-file."
             )
+            self.verdict.deny(BODIES, why)
             return None
         if "$(" in HEREDOC_SUBST_RE.sub("", value):
-            self.verdict.denies.append(
+            why = (
                 "phylax: this body holds the output of a command this check cannot run, so "
                 "its length cannot be checked first. Write the body to a file in its own "
                 "call, then send it with --body-file."
             )
+            self.verdict.deny(BODIES, why)
             return None
         return self.fill_body(value, cwd, env)
 
@@ -1945,10 +1969,11 @@ class Guards:
                 if tok[k + 1 : k + 2] == "=":
                     break  # `-d=t`: the switch's own value, and no more options after it
         if fill and not given and words in {("pr", "create"), ("pr", "new")}:
-            self.verdict.denies.append(
+            why = (
                 "phylax: --fill builds this PR body from the commit messages, whose length "
                 "this check cannot see first. Pass the body with --body-file instead."
             )
+            self.verdict.deny(BODIES, why)
         if file_given and words in {
             ("pr", "create"),
             ("pr", "new"),
@@ -2051,6 +2076,14 @@ def check(data: dict, raw: str) -> int:
     if errored and not guards.verdict.denies and not blocking_on():
         # exit 0 drops stderr, so the reason reaches Claude and the mod as a warning.
         guards.verdict.warnings.append(unchecked(guards.errors[0]))
+    if guards.verdict.denies:
+        try:
+            import denial_log
+
+            verdict = guards.verdict
+            denial_log.record_denial(data, verdict.guards[0], verdict.reason())
+        except Exception:
+            pass
     guards.verdict.emit()
     if not errored or guards.verdict.denies:
         return 0

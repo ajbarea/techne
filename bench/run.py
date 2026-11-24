@@ -108,6 +108,8 @@ def time_case(
         "hook_ms": round(hook_s * 1000, 2),
         "ratio": round(hook_s / floor_s, 3),
         "hook_stddev_ms": round(hook["summary"]["time_wall_clock"]["stddev"] * 1000, 2),
+        "floor_mean_ms": round(floor["summary"]["time_wall_clock"]["mean"] * 1000, 2),
+        "hook_mean_ms": round(hook["summary"]["time_wall_clock"]["mean"] * 1000, 2),
     }
     floor_i, hook_i = median_of(floor, "instructions"), median_of(hook, "instructions")
     if floor_i and hook_i:

@@ -89,6 +89,13 @@ def run_guard(command, cwd, state, *, on=(SECRETS,), extra_env=None):
     return None
 
 
+def denial_guards(state) -> list[str]:
+    """The guard each row of phylax's denied-calls log names (hooks/denial_log.py)."""
+    log = state / "phylax" / "denied-calls.jsonl"
+    rows = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+    return [r["guard"] for r in rows if r["event"] == "deny"]
+
+
 def catches(state) -> list[dict]:
     log = state / "phylax" / "secret-gate.jsonl"
     return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
@@ -162,6 +169,7 @@ def test_a_push_of_a_commit_with_a_secret_is_refused(repo, state):
         why = run_guard(command, repo, state)
         assert why and "this push" in why and "commit " in why, command
     assert catches(state)[-1]["kind"] == "push"
+    assert denial_guards(state) == [SECRETS] * 4
 
 
 @needs_gitleaks
@@ -221,6 +229,7 @@ def test_no_scanner_installed_refuses_and_logs_it(repo, state, tmp_path):
     why = run_guard("git commit -m x", repo, state, extra_env={"PATH": only(empty)})
     assert why and "no verdict" in why and "install gitleaks" in why
     assert catches(state)[0]["outcome"] == "no_verdict"
+    assert denial_guards(state) == [SECRETS]
 
 
 def test_a_scanner_that_errors_refuses_rather_than_passing(repo, state, tmp_path):
