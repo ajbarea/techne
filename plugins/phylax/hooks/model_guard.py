@@ -244,6 +244,18 @@ def names_model(tool_input: dict) -> bool:
     return isinstance(model, str) and bool(model.strip())
 
 
+def _denial_waits() -> bool:
+    """denial_log.pending_any() without importing it, so a call with no denial waiting pays one
+    access() (a test holds the two equal; with HOME unset there is no state folder to read)."""
+    state = os.environ.get("XDG_STATE_HOME", "")
+    if not state.startswith("/"):
+        home = os.environ.get("HOME")
+        if home is None:
+            return False  # no state folder to look in
+        state = home + "/.local/state"
+    return os.access(state + "/phylax/pending-denials", os.F_OK)
+
+
 def main() -> int:
     try:
         data = json.load(sys.stdin)
@@ -259,6 +271,14 @@ def main() -> int:
     if not isinstance(tool_input, dict):
         print("phylax model_guard: tool_input is not an object; allowing the call", file=sys.stderr)
         return 0
+
+    if _denial_waits():
+        try:
+            import denial_log
+
+            denial_log.check_next_call(data, data["tool_name"])
+        except Exception:
+            pass
     # Claude Code reads project definitions from where the session started, not where it
     # has since moved; the payload's cwd stands in when the variable is missing.
     start = os.environ.get("CLAUDE_PROJECT_DIR") or data.get("cwd")
@@ -266,6 +286,12 @@ def main() -> int:
         start = os.getcwd()
     if names_model(tool_input) or default_decides(agent_type(tool_input), start):
         return 0
+    try:
+        import denial_log
+
+        denial_log.record_denial(data, "require_subagent_model", REASON)
+    except Exception:
+        pass
     print(
         json.dumps(
             {

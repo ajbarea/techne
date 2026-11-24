@@ -241,6 +241,8 @@ def _snapshot(*roots: pathlib.Path) -> dict[str, str]:
         for r in roots
         for p in sorted(r.rglob("*"))
         if p.is_file()
+        and not p.name.startswith("denied-calls")
+        and p.parent.name != "pending-denials"
     }
 
 

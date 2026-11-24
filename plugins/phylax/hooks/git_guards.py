@@ -98,6 +98,12 @@ def check_shapes(payload: str, shapes: set[str]) -> tuple[dict, int | None]:
         )
         return data, 2
     if denies:
+        try:
+            import denial_log
+
+            denial_log.shapes_denied(data, denies)
+        except Exception:
+            pass
         json.dump(hook_output.deny("\n".join(denies), hook_output.from_agy(data)), sys.stdout)
         return data, 0
     return data, None
@@ -114,10 +120,18 @@ def command_of(data: dict) -> str:
 
 def main() -> int:
     global shapes_checked, last_input
-    from git_options import OPTIONS, option_on
+    from git_options import OPTIONS, option_on, pending_record
 
     payload = last_input = sys.stdin.read()
     data = None
+    if pending_record(payload):  # only while this actor's denial waits; never blocks
+        try:
+            import denial_log
+
+            denial_log.next_bash_call(payload)
+        except Exception:
+            pass
+
     # hooks.json passes --shapes last while a shape option is on, so with them off this costs
     # one look at argv and no environment read.
     if sys.argv[-1] == "--shapes" and may_hold_shape(payload):
