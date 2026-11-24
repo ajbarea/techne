@@ -153,10 +153,12 @@ USERINFO = (
 SQL_PASSWORD = (
     # SET PASSWORD [FOR u] = 'X' or = PASSWORD('X'); PASSWORD 'X'; IDENTIFIED [WITH p] BY 'X'.
     # Each gap is bounded, so a long run of spaces is read a bounded number of times.
-    # A statement ends at `;`, so a gap may cross lines (SQL in a heredoc) and quotes (a quoted
-    # plugin name) but not statements.
-    r"(?i)(\b(?:password\b[^=;]{0,200}?=\s{0,200}(?:password\s{0,200}\(\s{0,200})?"
-    r"|password\s{0,200}(?:\(\s{0,200})?|identified\b[^;]{0,200}?\bby\s{1,200}))'[^']*(?:'|\Z)",
+    # A statement ends at `;`, so a gap may cross lines (SQL in a heredoc) but not statements;
+    # it steps over a quoted name whole ('a;b'@h, a quoted plugin). Its two branches start on
+    # different characters, so it stays linear.
+    r"(?i)(\b(?:password\b(?:[^=;']|'[^']{0,64}'){0,100}?=\s{0,200}"
+    r"(?:password\s{0,200}\(\s{0,200})?|password\s{0,200}(?:\(\s{0,200})?"
+    r"|identified\b(?:[^;']|'[^']{0,64}'){0,100}?\bby\s{1,200}))'[^']*(?:'|\Z)",
     r"\1[REDACTED]",
 )
 ANCHORED: tuple[tuple[tuple[str, ...], tuple[str, ...], tuple[tuple[str, str], ...]], ...] = (

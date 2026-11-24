@@ -145,7 +145,10 @@ The active TODO list for whatever's in flight right now. Queued specs live in [R
 - ✅ Verify on c20f6f3 (2 Should-fix): the SQL gaps stopped at a newline, so multi-line SQL in a
   heredoc leaked again, and a quoted plugin name (IDENTIFIED WITH '...' BY) leaked: gaps now
   stop at `;`. Nits taken: an empty proxy user (`:X@host`), whitespace gaps to 200.
-- 📋 Next: CI green incl. mutation on this head, then merge.
+- ✅ Verify on 28e3bde (1 Should-fix): a `;` inside a quoted account name ('a;b'@h) ended the
+  gap: gaps now step over a quoted string whole (two branches on different first characters,
+  so linear: 3.0-4.4x time at 4x input). Two Nit cases pinned in SWEEP.
+- 📋 Next: one verify on this regex, CI green incl. mutation, merge.
 - Verify: `uv run pytest tests/test_denial_log.py tests/test_phylax_doctor.py tests/test_git_guards.py
   tests/test_model_guard.py tests/test_email_greeting.py tests/test_command_shapes.py tests/bench`;
   `make plugin-test`; `uv run pytest tests/test_hook_latency.py` under the heavy lock.

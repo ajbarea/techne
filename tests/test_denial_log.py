@@ -1407,6 +1407,10 @@ SWEEP = [
     "mysql %e \"ALTER USER u IDENTIFIED WITH 'caching_sha2_password' BY '{v}'\"",
     "curl %%proxy=:{v}@h x",
     "https_proxy=:{v}@host curl x",
+    "mysql %e \"SET PASSWORD FOR u\n = '{v}'\"",
+    "mysqlsh %%uri=:{v}@h",
+    "mysql %e \"SET PASSWORD FOR 'a;b'@h = '{v}'\"",
+    "mysql %e \"CREATE USER u IDENTIFIED WITH 'a;b' BY '{v}'\"",
 ]
 
 
