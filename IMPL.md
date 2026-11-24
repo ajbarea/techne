@@ -141,7 +141,13 @@ The active TODO list for whatever's in flight right now. Queued specs live in [R
   fix/private-names-push-396 (own files byte-identical; sisters check 17 row and checks.md
   merged with #406's actionlint wording); PR body rewritten. Local backup branch
   backup/private-names-pre-rebase holds the 19-commit history.
-- 📋 Next: CI green (validate, mutation shards), one verify on the rebased head, merge.
+- ✅ Rebase verify (faithful; #404 integration sound) found 1 Blocking: `git config alias.p
+  'push --no-verify' && git p origin main` passed (the alias lookup read the config before the
+  `git config` ran): in a hooked repo an alias after a `git config` in the same call refuses.
+  The two `is_arith` equivalent keys went stale (is_arith is a wrapper now): dropped; any
+  arith_reading survivors get registered from CI's keys. Docs: the stale `env` option claim
+  is gone; the parser-limit and backstop refusals and unwrapped wrappers (uv run, flock) named.
+- 📋 Next: CI green (validate, mutation shards), one verify on this fix, merge.
 - Verify: `uv run pytest tests/test_private_names.py tests/test_secret_guard.py
   tests/test_git_guards.py tests/test_denial_log.py tests/test_sisters_security_floor.py`, also with
   `TECHNE_GUARD_PYTHON=$(uv python find --no-project 3.9)`; `make lint`.

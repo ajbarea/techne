@@ -150,14 +150,6 @@ hash = "12348dbcf9d23a666afee4d70e1b2aac7acf5d7de4ea8a92294bfe53a5222893"
 why = "shell_code: None is as falsy as False here"
 
 [[mutant]]
-hash = "87ea6d3f10e6da8c5d7e3bd380043acf2922ce1a9f5b79c2d514a6e72ce04764"
-why = "is_arith: find starts past the opening character, so j is never 0"
-
-[[mutant]]
-hash = "29a72277415cb783675967e18b92d8ec8518359661b1e78450abdf20a0661d7b"
-why = "is_arith: find starts past the opening character, so j is never 0"
-
-[[mutant]]
 hash = "37c18d2683696035c7ef6c0ab9ca078f6c40db7bdb3b2e1c755281cdd843977a"
 why = 'git_options.state_home: the default is read only through startswith("/"), which "" and "XXXX" both fail'
 

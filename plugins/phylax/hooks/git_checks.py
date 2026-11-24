@@ -1286,6 +1286,7 @@ class Command:
         self.repo_args: list[str] = []
         self.config: list[str] = []  # -c and --config-env options, flag then value, for git
         self.alias_unread = False  # git could not read this command's alias config
+        self.alias_after_config = False  # an alias read before an earlier `git config` ran
         self.cwd_unread = False  # a -C target this check cannot expand
         self.sub = ""
         self.args: list[str] = []
@@ -2001,6 +2002,13 @@ class Guards:
                 "for the owner's private repo names. Use `git push`."
             )
             return
+        if cmd.alias_after_config:
+            refuse(
+                f"`git {cmd.sub}` runs after a `git config` in the same call, which may define "
+                "it as a push that skips the pre-push hook. Run the config and the command in "
+                "calls of their own."
+            )
+            return
         if cmd.sub != "push":
             return  # an alias that resolved to something else
         reads_fd = any(re.match(r"^\d*<", t) for t in self.words) or self.stdin_heredoc is not None
@@ -2355,9 +2363,13 @@ class Guards:
         resolve_alias(cmd, *(lookup or ({}, cmd.config)))
         if lookup and not is_builtin(cmd) and self.config_file_fresh(lookup):
             cmd.alias_unread = True  # an alias from a config file this call writes first
+        if self.hooks_changed and not is_builtin(cmd):
+            # an earlier `git config` in this call may have defined this alias: the lookup read
+            # the config before it ran
+            cmd.alias_after_config = True
         if cmd.sub == "config" and not config_reads(cmd.args):
             self.hooks_changed = True  # may set core.hooksPath or an include before a push
-        if (lookup is None or cmd.alias_unread) and not is_builtin(cmd):
+        if (lookup is None or cmd.alias_unread or cmd.alias_after_config) and not is_builtin(cmd):
             self.check_push_hook(cmd, env)  # an alias git could not read: maybe a push
         if cmd.sub in ADD_SUBCOMMANDS:
             self.pending_adds.append(cmd)

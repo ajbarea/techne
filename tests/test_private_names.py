@@ -1839,3 +1839,24 @@ def test_the_frame_count_follows_arithmetic_and_closing_subshells(monkeypatch, t
 
 def test_a_quoted_open_paren_pair_in_a_commit_message_passes(hooked):
     assert guard(hooked, 'git commit -m "note ((it\'s open" && git push origin main')[0] is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git config alias.p 'push --no-verify' && git p origin main",
+        "git config alias.p 'push --no-verify'; git p origin main",
+        "git config alias.p 'push --no-verify'\ngit p origin main",
+        "git config --global alias.p 'push --no-verify' && git p origin main",
+        "git config alias.p '-c core.hooksPath=/dev/null push' && git p origin main",
+    ],
+)
+def test_an_alias_defined_earlier_in_the_call_is_refused(hooked, command):
+    # guard() only reads the command: the --global form writes nothing
+    decision, reason = guard(hooked, command)
+    assert decision == "deny" and "runs after a `git config`" in reason, (command, reason)
+
+
+def test_a_plain_repo_keeps_its_config_then_alias(repo, tmp_path):
+    published(repo, tmp_path)
+    assert guard(repo, "git config alias.st status && git st")[0] is None
