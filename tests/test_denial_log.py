@@ -1411,6 +1411,12 @@ SWEEP = [
     "mysqlsh %%uri=:{v}@h",
     "mysql %e \"SET PASSWORD FOR 'a;b'@h = '{v}'\"",
     "mysql %e \"CREATE USER u IDENTIFIED WITH 'a;b' BY '{v}'\"",
+    "mysql %e \"SET PASSWORD FOR 'u'@'" + "h" * 200 + "' = '{v}'\"",
+    "mysql %e \"ALTER USER u IDENTIFIED WITH '" + "p" * 65 + "' BY '{v}'\"",
+    'mysql %e "SET PASSWORD FOR u' + " " * 150 + "= '{v}'\"",
+    "mysql %e \"SET PASSWORD FOR 'a\\'b'@h = '{v}'\"",
+    "mysql <<EOF\nSET PASSWORD FOR \"a;b\"@h = '{v}';\nEOF",
+    "mysql <<EOF\nSET PASSWORD FOR `a;b`@h = '{v}';\nEOF",
 ]
 
 

@@ -148,6 +148,10 @@ The active TODO list for whatever's in flight right now. Queued specs live in [R
 - ✅ Verify on 28e3bde (1 Should-fix): a `;` inside a quoted account name ('a;b'@h) ended the
   gap: gaps now step over a quoted string whole (two branches on different first characters,
   so linear: 3.0-4.4x time at 4x input). Two Nit cases pinned in SWEEP.
+- ✅ Verify on 176b1c2 (1 Should-fix, a regression of the bounds): a quoted host longer than 64,
+  more than 100 spaces, and a backslash-escaped quote leaked; _sql_gap() now takes 200 steps
+  and a quoted name ('...', "...", `...`) up to 255 characters with escapes, linear (worst
+  5.5x time at 4x input).
 - 📋 Next: one verify on this regex, CI green incl. mutation, merge.
 - Verify: `uv run pytest tests/test_denial_log.py tests/test_phylax_doctor.py tests/test_git_guards.py
   tests/test_model_guard.py tests/test_email_greeting.py tests/test_command_shapes.py tests/bench`;
