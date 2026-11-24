@@ -17,7 +17,7 @@ import sys
 
 sys.dont_write_bytecode = True  # the plugin cache stays as installed
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "_shared"))
-import resume_state  # noqa: E402  # ty: ignore[unresolved-import]
+import resume_state  # noqa: E402  # ty: ignore[import-not-found]
 
 # Claude Code caps additionalContext at 10,000 characters; past it, Claude gets a preview.
 CONTEXT_CAP = 9500

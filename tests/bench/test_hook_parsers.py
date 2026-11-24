@@ -29,13 +29,13 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "plugins" / "phylax" / "hooks"))
 sys.path.insert(0, str(ROOT / "plugins" / "techne" / "_shared"))
 
-import body_gate  # noqa: E402  # ty: ignore[unresolved-import]
-import command_shapes  # noqa: E402  # ty: ignore[unresolved-import]
-import email_greeting  # noqa: E402  # ty: ignore[unresolved-import]
-import git_checks  # noqa: E402  # ty: ignore[unresolved-import]
-import git_guards  # noqa: E402  # ty: ignore[unresolved-import]
-import git_options  # noqa: E402  # ty: ignore[unresolved-import]
-import project_board  # noqa: E402  # ty: ignore[unresolved-import]
+import body_gate  # noqa: E402  # ty: ignore[import-not-found]
+import command_shapes  # noqa: E402  # ty: ignore[import-not-found]
+import email_greeting  # noqa: E402  # ty: ignore[import-not-found]
+import git_checks  # noqa: E402  # ty: ignore[import-not-found]
+import git_guards  # noqa: E402  # ty: ignore[import-not-found]
+import git_options  # noqa: E402  # ty: ignore[import-not-found]
+import project_board  # noqa: E402  # ty: ignore[import-not-found]
 
 FIXTURES = ROOT / "tests" / "fixtures" / "body_gate"
 TRAILER = "Co-Authored-By: Claude <noreply@anthropic.com>"

@@ -17,8 +17,8 @@ from pathlib import Path
 sys.dont_write_bytecode = True  # a doctor leaves no file behind, not even in the plugin cache
 PLUGIN = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PLUGIN / "_shared"))
-import doctor_lib as d  # noqa: E402  # ty: ignore[unresolved-import]
-import techne_config as tc  # noqa: E402  # ty: ignore[unresolved-import]
+import doctor_lib as d  # noqa: E402  # ty: ignore[import-not-found]
+import techne_config as tc  # noqa: E402  # ty: ignore[import-not-found]
 
 SKELETON = PLUGIN / "skills" / "setup" / "skill-context.template.md"
 TOML_KEYS = ("workspace_root", "github_user")

@@ -23,9 +23,9 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True  # the plugin cache stays as installed
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "_shared"))
-import doctor_lib  # noqa: E402  # ty: ignore[unresolved-import]
-import project_board as pb  # noqa: E402  # ty: ignore[unresolved-import]
-import techne_config as tc  # noqa: E402  # ty: ignore[unresolved-import]
+import doctor_lib  # noqa: E402  # ty: ignore[import-not-found]
+import project_board as pb  # noqa: E402  # ty: ignore[import-not-found]
+import techne_config as tc  # noqa: E402  # ty: ignore[import-not-found]
 
 doctor_lib.require_python((3, 11), "board", "/techne:setup")
 

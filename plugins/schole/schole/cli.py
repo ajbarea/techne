@@ -72,7 +72,7 @@ def is_browser_error(exc: Exception) -> bool:
 
 @contextlib.contextmanager
 def browser(base: Path, site: str, headless: bool) -> Generator[Any, None, None]:
-    from playwright.sync_api import sync_playwright  # ty: ignore[unresolved-import]
+    from playwright.sync_api import sync_playwright  # ty: ignore[import-not-found]
 
     profile = config.profile(base)
     saved = profile / SESSION
