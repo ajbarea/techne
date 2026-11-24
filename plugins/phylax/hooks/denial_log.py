@@ -154,7 +154,11 @@ ANCHORED: tuple[tuple[tuple[str, ...], tuple[str, ...], tuple[tuple[str, str], .
                 r"(?:'[^']*(?:'|\Z)|\"[^\"]*(?:\"|\Z)|[^\s:'\"=]*:\S*)",
                 r"\1[REDACTED]",
             ),
-            (r"(\s(?:-b|--cookie|--pass|-E|--cert)(?:=|\s+))" + QUOTED_OR_WORD, r"\1[REDACTED]"),
+            (
+                r"(\s(?:-b|--cookie|--pass|-E|--cert)(?:=|\s+)|\s-[bE](?=[^\s=-]))"
+                + QUOTED_OR_WORD,
+                r"\1[REDACTED]",
+            ),
             (r"(\s(?:-x|--proxy)(?:=|\s+)['\"]?)[^\s:@'\"/]*:[^\s@'\"]*(?=@)", r"\1[REDACTED]"),
         ),
     ),
@@ -183,6 +187,17 @@ ANCHORED: tuple[tuple[tuple[str, ...], tuple[str, ...], tuple[tuple[str, str], .
         ("npm",),
         # From a word's start only, so a long run without spaces is read once.
         ((r"(?<!\S)(\S{0,500}?_(?:auth(?:Token)?|password)['\"]?(?:=|\s+))\S+", r"\1[REDACTED]"),),
+    ),
+    (
+        # az login -p, az acr login -p; az keyvault secret set --value; --account-key.
+        (r"\baz\b",),
+        ("az",),
+        (
+            (
+                r"(\s(?:-p|--value|--account-key)(?:=|\s+)|\s-p(?=[^\s=-]))" + QUOTED_OR_WORD,
+                r"\1[REDACTED]",
+            ),
+        ),
     ),
     (
         (r"\baws\b", r"\bput-parameter\b"),

@@ -377,6 +377,14 @@ REDACT_CASES = [
     ("npm config set '//r/:_auth" + "Token' " + FAKE, "npm config set", FAKE),
     ("curl -x u:" + FAKE + "@proxy:8080 h", "@proxy:8080", FAKE),
     ("curl --client-secret=" + FAKE + " x", "--client-secret", FAKE),
+    ("az login --service-principal -u app " + "-p " + FAKE + " --tenant t", "--tenant t", FAKE),
+    ("az acr login -n r -u u " + "-p" + FAKE, "az acr login", FAKE),
+    ("az\tlogin -u u " + "-p " + FAKE, "login -u u", FAKE),
+    ("az keyvault secret set --vault-name v --name n --va" + "lue " + FAKE, "--name n", FAKE),
+    ("az keyvault secret set --name n --va" + 'lue "' + FAKE + ' x"', "--name n", FAKE),
+    ("az storage blob upload --account-" + "key " + FAKE + " -f a", "-f a", FAKE),
+    ("curl -bsession=" + FAKE + " h", "curl", FAKE),
+    ("curl -Ecert.pem:" + FAKE + " h", "curl", FAKE),
     (DOCKER_LOGIN + " ghcr.io -u aj " + PASSWORD_FLAG + " " + FAKE_WORD, "ghcr.io", FAKE_WORD),
     ("uv publish -t pypi-AgE" + "p" * 30, "uv publish -t", "pypi-AgE"),
     ("npm_" + "n" * 36, "[REDACTED]", "npm_"),
@@ -419,6 +427,8 @@ def test_redact_removes_each_secret_shape(dl, text, kept, gone):
         "aws s3 ls s3://bucket",
         "curl -x http://proxy:8080 h",
         "aws ssm get-parameter --name /x",
+        "az group create --name rg --location westus",
+        "curl -sSL https://x",
     ],
 )
 def test_redact_leaves_look_alikes_alone(dl, text):
