@@ -1986,3 +1986,44 @@ def test_include_targets_follow_dash_c_to_the_repo(monkeypatch, tmp_path):
     _git(repo, "config", "include.path", "../a.cfg")
     names = {str(t) for t in git_checks.include_targets(tmp_path, ["-C", "r"], {})}
     assert names == {str(repo / "a.cfg")}
+
+
+def test_include_targets_expand_both_tilde_forms_as_git_does(monkeypatch, tmp_path):
+    import pwd
+
+    (git_checks,) = load_phylax_hooks(monkeypatch, "git_checks")
+    me = pwd.getpwuid(os.getuid())
+    repo = tmp_path / "r"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    rel = os.path.relpath(tmp_path, me.pw_dir)
+    _git(repo, "config", "--add", "include.path", "~/home.cfg")
+    _git(repo, "config", "--add", "include.path", f"~{me.pw_name}/{rel}/user.cfg")
+    home = tmp_path / "home"
+    home.mkdir()
+    names = {str(t) for t in git_checks.include_targets(repo, [], {"HOME": str(home)})}
+    assert str(home / "home.cfg") in names
+    assert os.path.realpath(tmp_path / "user.cfg") in names
+
+
+def test_include_targets_fail_closed_when_git_cannot_read_the_config(monkeypatch, tmp_path):
+    # git refuses a config naming an unknown login; the check must not read that as no includes
+    (git_checks,) = load_phylax_hooks(monkeypatch, "git_checks")
+    repo = tmp_path / "r"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "config", "include.path", "~no-such-login-xyz/lit.cfg")
+    with pytest.raises(RuntimeError):
+        git_checks.include_targets(repo, [], {})
+
+
+def test_a_login_tilde_include_written_in_the_call_is_seen(hooked, tmp_path):
+    import pwd
+
+    me = pwd.getpwuid(os.getuid())
+    rel = os.path.relpath(tmp_path, me.pw_dir)
+    _git(hooked, "config", "include.path", f"~{me.pw_name}/{rel}/work.cfg")
+    command = (
+        f"printf '[alias]\\n p = push --no-verify\\n' > {tmp_path}/work.cfg && git p origin main"
+    )
+    assert guard(hooked, command)[0] == "deny"

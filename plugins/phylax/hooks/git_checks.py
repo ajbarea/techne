@@ -91,9 +91,11 @@ INCLUDE_DEPTH = 10  # git's own limit on nested includes
 
 def include_targets(cwd: Path, args: list[str], env: dict[str, str]) -> tuple[Path, ...]:
     """The files git's config can include (include.path, includeIf.*.path), resolved as git
-    resolves them: `~/` against HOME, a relative path against the folder of the file that
-    names it. Git's own view lists the includes its config files name; each included file is
-    then read with --file, which lists its includes whatever their conditions say, so a
+    resolves them: `~/` against HOME, `~login/` against that user's home, a relative path
+    against the folder of the file that names it (`%(prefix)/`, git's install prefix, is not
+    resolved: writing there needs root). Git's own view lists the includes its config files
+    name; each included file is then read with --file, which lists its includes whatever their
+    conditions say, so a
     condition a later command makes true (`hasconfig:remote`, a branch) hides no file. A file
     not there yet is listed too: a write earlier in the call may be what creates it. Output is
     read with -z, which git never quotes."""
@@ -106,6 +108,7 @@ def include_targets(cwd: Path, args: list[str], env: dict[str, str]) -> tuple[Pa
     def listed(file: str | None) -> list[tuple[str, str]]:
         """(the file naming it, the include path) for each include in git's view or FILE."""
         where = ["--file", file] if file else []
+        codes: list[int] = []
         out = run_git(
             cwd,
             [] if file else args,
@@ -117,7 +120,10 @@ def include_targets(cwd: Path, args: list[str], env: dict[str, str]) -> tuple[Pa
             INCLUDE_KEYS,
             check=False,
             env=env,
+            codes=codes,
         )
+        if codes and codes[-1] not in (0, 1):  # 1 is "none listed"; anything else is an error
+            raise RuntimeError(f"git could not list the config's includes (exit {codes[-1]})")
         fields = (out or "").split("\0")
         pairs = []
         for origin, entry in zip(fields[0::2], fields[1::2]):  # noqa: B905  # a trailing ""
@@ -131,8 +137,19 @@ def include_targets(cwd: Path, args: list[str], env: dict[str, str]) -> tuple[Pa
     while todo and depth <= INCLUDE_DEPTH:
         found = []
         for origin, value in todo:
-            if value.startswith("~/"):
-                value = os.path.join(home, value[2:])
+            if value.startswith("~"):
+                # `~/` is HOME; `~login/` that user's home, from the password database as git
+                # reads it (git refuses a config naming an unknown login)
+                login, _, rest = value[1:].partition("/")
+                if not login:
+                    value = os.path.join(home, rest)
+                else:
+                    try:
+                        import pwd
+
+                        value = os.path.join(pwd.getpwnam(login).pw_dir, rest)
+                    except (ImportError, KeyError):
+                        pass
             target = os.path.realpath(os.path.join(os.path.dirname(origin), value))
             if target in targets:
                 continue

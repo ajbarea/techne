@@ -166,6 +166,11 @@ The active TODO list for whatever's in flight right now. Queued specs live in [R
   `git remote add` later in the call could make `hasconfig:remote` true. It now reads -z
   output (never quoted), follows `-C` for relative origins, and reads each included file with
   --file, which lists its includes whatever their conditions say (depth 10, as git). 3 mutants red.
+- ✅ Verify on 2e03479 (1 Blocking, real push, older than this round): an include path written
+  `~login/` (git expands it from the password database) was read as a path under the repo.
+  include_targets expands it as git does, and fails closed (the push check refuses) when git
+  cannot list the includes, rather than reading an error as none (an unknown login makes git
+  refuse the config). `%(prefix)/` is left unresolved and said so: writing there needs root.
 - 📋 Next: CI green (validate, mutation shards), one verify on this fix, merge.
 - Verify: `uv run pytest tests/test_private_names.py tests/test_secret_guard.py
   tests/test_git_guards.py tests/test_denial_log.py tests/test_sisters_security_floor.py`, also with
