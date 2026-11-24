@@ -84,8 +84,16 @@ def run_guard(command, cwd, state, *, on=(SECRETS,), extra_env=None):
     assert proc.returncode == 0, proc.stderr
     out = json.loads(proc.stdout) if proc.stdout.strip() else None
     if out and out["hookSpecificOutput"].get("permissionDecision") == "deny":
+        assert set(out) == {"hookSpecificOutput"}, out  # Claude Code ignores any other shape
         return out["hookSpecificOutput"]["permissionDecisionReason"]
     return None
+
+
+def denial_guards(state) -> list[str]:
+    """The guard each row of phylax's denied-calls log names (hooks/denial_log.py)."""
+    log = state / "phylax" / "denied-calls.jsonl"
+    rows = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+    return [r["guard"] for r in rows if r["event"] == "deny"]
 
 
 def catches(state) -> list[dict]:
@@ -161,6 +169,7 @@ def test_a_push_of_a_commit_with_a_secret_is_refused(repo, state):
         why = run_guard(command, repo, state)
         assert why and "this push" in why and "commit " in why, command
     assert catches(state)[-1]["kind"] == "push"
+    assert denial_guards(state) == [SECRETS] * 4
 
 
 @needs_gitleaks
@@ -220,6 +229,7 @@ def test_no_scanner_installed_refuses_and_logs_it(repo, state, tmp_path):
     why = run_guard("git commit -m x", repo, state, extra_env={"PATH": only(empty)})
     assert why and "no verdict" in why and "install gitleaks" in why
     assert catches(state)[0]["outcome"] == "no_verdict"
+    assert denial_guards(state) == [SECRETS]
 
 
 def test_a_scanner_that_errors_refuses_rather_than_passing(repo, state, tmp_path):
@@ -480,3 +490,35 @@ def test_aliases_deep_with_a_pager_flag_or_shadowing_a_non_builtin_command(repo,
         "git refuses -C before an alias's command"
     )
     assert run_guard("git filter-branch --help", repo, state) is None, "git runs its own command"
+
+
+def test_a_scanner_run_gets_the_folder_and_the_time_left(monkeypatch, tmp_path):
+    from conftest import load_phylax_hooks
+
+    scan, options = load_phylax_hooks(monkeypatch, "secret_scan", "git_options")
+    monkeypatch.setattr(options, "_START", options.time.monotonic())
+    seen = {}
+
+    def run(argv, **kwargs):
+        seen.update(kwargs)
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    scan._run(["/usr/bin/gitleaks", "detect"], tmp_path, {})
+    assert seen["cwd"] == tmp_path
+    assert 0 < seen["timeout"] <= scan.SCAN_TIMEOUT
+
+
+def test_a_scanner_timeout_names_the_program_and_the_limit(monkeypatch, tmp_path):
+    from conftest import load_phylax_hooks
+
+    scan, options = load_phylax_hooks(monkeypatch, "secret_scan", "git_options")
+    monkeypatch.setattr(options, "_START", options.time.monotonic())
+
+    def slow(argv, **kwargs):
+        raise subprocess.TimeoutExpired(argv, 3)
+
+    monkeypatch.setattr(subprocess, "run", slow)
+    with pytest.raises(scan.ScanError) as caught:
+        scan._run(["/usr/bin/gitleaks", "detect"], tmp_path, {})
+    assert str(caught.value) == "gitleaks timed out after 3s"

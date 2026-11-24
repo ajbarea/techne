@@ -27,15 +27,15 @@ import tempfile
 # The prose check and the install table ship in the plugin's _shared/ directory.
 sys.dont_write_bytecode = True  # a missing-tool exit leaves no file behind in the plugin cache
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "_shared"))
-import doctor_lib  # noqa: E402  # ty: ignore[unresolved-import]
+import doctor_lib  # noqa: E402  # ty: ignore[import-not-found]
 
 try:
-    import prose_check  # ty: ignore[unresolved-import]
+    import prose_check  # ty: ignore[import-not-found]
 except ImportError:  # an install without prose_check.py
     prose_check = None
 
 try:
-    import length_budget  # ty: ignore[unresolved-import]
+    import length_budget  # ty: ignore[import-not-found]
 except ImportError:  # an install without length_budget.py
     length_budget = None
 
@@ -142,7 +142,7 @@ def pdf_fonts(pdf: pathlib.Path) -> list[str]:
 
 def render(src: pathlib.Path, out_dir: pathlib.Path) -> tuple[pathlib.Path, list[str]]:
     # Installed by the skill at render time, not a declared dependency.
-    import typst  # ty: ignore[unresolved-import]
+    import typst  # ty: ignore[import-not-found]
 
     with tempfile.TemporaryDirectory() as tmp:
         work = pathlib.Path(tmp)

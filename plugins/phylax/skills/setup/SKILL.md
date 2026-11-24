@@ -1,6 +1,6 @@
 ---
 name: setup
-description: Check and set up phylax, the opt-in Claude Code hooks that block attribution lines in commits and PRs, block staging COMMITS.md, warn on main-checkout commits, refuse subagent calls that would silently inherit the session's model, refuse email drafts that do not open with the greeting for the time of day, restart idle sessions onto an updated Claude Code, and route work to cheaper models while the usage allowance burns too fast. Shows which options are on and checks what each needs: the Claude Code version for the guard mod, python3, git, for restart_on_update tmux or Windows Terminal and its state folder, and for budget_mode the current level and the status line step that saves the usage. Use after installing phylax, when a guard or a restart does not seem to fire, or when asked how to switch phylax's options on.
+description: "Check and set up phylax, the opt-in Claude Code hooks that block attribution lines in commits and PRs, block staging COMMITS.md, warn on main-checkout commits, refuse subagent calls that would silently inherit the session's model, refuse email drafts that do not open with the greeting for the time of day, restart idle sessions onto an updated Claude Code, and route work to cheaper models while the usage allowance burns too fast. Shows which options are on and checks what each needs: the Claude Code version for the guard mod, python3, git, for restart_on_update tmux or Windows Terminal and its state folder, and for budget_mode the current level and the status line step that saves the usage. Use after installing phylax, when a guard or a restart does not seem to fire, or when asked how to switch phylax's options on."
 ---
 
 # Set up phylax
@@ -15,6 +15,8 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/setup/scripts/doctor.py" \
   'block_secrets=${user_config.block_secrets}' \
   'block_long_bodies=${user_config.block_long_bodies}' \
   'block_gh_implicit_repo=${user_config.block_gh_implicit_repo}' \
+  'block_background_loops=${user_config.block_background_loops}' \
+  'block_pkill_full=${user_config.block_pkill_full}' \
   'require_subagent_model=${user_config.require_subagent_model}' \
   'email_greeting=${user_config.email_greeting}' \
   'restart_on_update=${user_config.restart_on_update}' \

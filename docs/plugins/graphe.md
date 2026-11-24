@@ -42,12 +42,14 @@ paper-review runs without keys. An OpenAlex key raises its daily search budget, 
 | [`graphe:pdf`](../skills/pdf.md) | Render markdown to PDF and verify fonts and content. |
 | [`graphe:setup`](../skills/graphe-setup.md) | Check what graphe needs on this machine. |
 | [`graphe:slides`](../skills/slides.md) | Build and gate a talk deck. |
+| [`graphe:vids`](../skills/vids.md) | Make a Google Vids video with your AI avatar. |
 
 First runs:
 
 - `/graphe:latex paper/main.tex` builds the paper and checks the log and the PDF.
 - `/graphe:pdf notes.md` renders markdown to a PDF.
 - `/graphe:slides` starts a web talk deck from the starter.
+- `/graphe:vids` makes a Google Vids Short with your avatar.
 - `/graphe:paper` scaffolds a new paper; `/graphe:paper-review` reviews a draft before submission.
 
 ## Configuration

@@ -31,7 +31,7 @@ source (`mutmut apply`), and the tests run against the real files:
    removes the scratch copy.
 
 [tool.techne.mutation] in pyproject.toml maps each module to the test files that exercise it.
-A survivor whose mutated function is listed in mutation/equivalent.toml (by the hash of the
+A survivor whose mutated function is listed in mutation/equivalent.toml (by the `hash` of the
 mutated function's source, with the reason) counts as equivalent, not survived. A timeout counts
 as detected, as Stryker counts it, when the same tests finish unmutated within the same limit;
 otherwise the mutant is judged by its module's tests, and a timeout those share is an error.
@@ -161,7 +161,7 @@ def load_equivalent(root: pathlib.Path = ROOT) -> dict[str, str]:
     path = root / EQUIVALENT
     if not path.is_file():
         return {}
-    return {e["key"]: e["why"] for e in tomllib.loads(path.read_text()).get("mutant", [])}
+    return {e["hash"]: e["why"] for e in tomllib.loads(path.read_text()).get("mutant", [])}
 
 
 def function_spans(source: str) -> dict[str, tuple[int, int]]:
@@ -308,9 +308,10 @@ def run_tests(
 ) -> tuple[str, float, str]:
     """Run TESTS (pytest node ids or files) in SCRATCH; (status, seconds, what went wrong). The
     status is passed (pytest exit 0), failed (1: a test failed; 2: collection failed, as a
-    mutant that breaks an import does), timeout (the wall budget, or a signal such as the CPU
-    limit's), or error (any other exit: pytest's internal or usage errors, a node id that no
-    longer exists, or no tests collected). Unless it passed, what went wrong is a line naming
+    mutant that breaks an import does), timeout (the wall budget, a signal such as the CPU
+    limit's, or pytest dying of MemoryError at the data limit), or error (any other exit:
+    pytest's internal or usage errors, a node id that no longer exists, or no tests collected).
+    Unless it passed, what went wrong is a line naming
     the cause (the exit code, the signal or the budget) and the end of pytest's output."""
     env = pytest_env(scratch, extra)
     log = pathlib.Path(env["PYTHONPYCACHEPREFIX"]) / "pytest.log"
@@ -347,6 +348,10 @@ def run_tests(
             status = {0: "passed", 1: "failed", 2: "failed"}.get(code)
             status = status or ("timeout" if code < 0 else "error")
             cause = f"pytest exited {code}"
+            if code == 3 and "MemoryError" in log.read_text(errors="replace"):
+                # The data limit stopped a mutant that allocates without end, as the CPU limit
+                # stops one that loops: a resource stop, judged like a timeout.
+                status, cause = "timeout", "pytest ran out of memory (the data limit)"
             if code < 0:
                 cause = f"pytest killed by signal {-code} ({signal.strsignal(-code)})"
         except subprocess.TimeoutExpired:
@@ -392,6 +397,20 @@ def kill_group(proc: subprocess.Popen, wait: float = 10.0) -> None:
         time.sleep(0.02)
 
 
+def baseline_annotations(said: str) -> list[str]:
+    """GitHub ::error lines for the tests SAID (pytest's output) names as failed, each at the
+    line its traceback stopped on, so a failed unmutated run points at the test in the PR view."""
+    where = {m[1]: m[2] for m in re.finditer(r"^(\S+\.py):(\d+): \w", said, re.M)}
+    out = []
+    for m in re.finditer(r"^(?:FAILED|ERROR) (\S+?\.py)(?:::(\S+))?(?: - (.*))?$", said, re.M):
+        path, name, why = m[1], m[2] or "", m[3] or ""
+        text = " ".join(x for x in ("unmutated baseline failed:", name, why) if x)
+        text = text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+        line = f",line={where[path]}" if path in where else ""
+        out.append(f"::error file={path}{line}::{text}")
+    return out
+
+
 def trace(scratch: pathlib.Path, config: dict[str, list[str]], modules: list[str]):
     """Run each module's tests once, unmutated, with the tracer on. Returns ({(module, function):
     {test node ids}}, {module: seconds the module's tests took})."""
@@ -409,6 +428,8 @@ def trace(scratch: pathlib.Path, config: dict[str, list[str]], modules: list[str
     }
     status, took, said = run_tests(scratch, ["-p", "mutation_trace_plugin", *tests], 3600, extra)
     if status != "passed":
+        for line in baseline_annotations(said):
+            print(line, flush=True)
         raise SystemExit(f"the unmutated tests did not pass ({status}): {' '.join(tests)}\n{said}")
     for module in modules:
         seconds[module] = took * len(config[module]) / len(tests)
@@ -632,12 +653,41 @@ def write_results(out: pathlib.Path | None, results: list[Result]) -> None:
 def report(results: list[Result], summary: pathlib.Path | None, report_only: bool) -> int:
     table = score_table(results)
     print(table)
+    if not report_only:  # the gating run only: a --report-only merge would repeat each line
+        for line in survivor_annotations(results, pathlib.Path(".")):
+            print(line)
     if summary:
         with summary.open("a") as out:
             out.write(table + "\n")
     if any(r.status == "error" for r in results):
         return 1  # a broken run, not a score: fails even with --report-only
     return 0 if report_only else int(any(r.status == "survived" for r in results))
+
+
+def survivor_annotations(results: list[Result], root: pathlib.Path) -> list[str]:
+    """GitHub ::error lines for each survivor, at the source line its diff removed inside its
+    function (the function's first line when that cannot be found), so the PR view points at it."""
+    out = []
+    for r in results:
+        if r.status != "survived":
+            continue
+        removed = [x[1:].strip() for x in r.diff.splitlines() if x.startswith("-")]
+        line = 0
+        try:
+            lines = (root / r.module).read_text().splitlines()
+            first, last = function_spans("\n".join(lines))[r.function]
+            line = first
+            for n in range(first, last + 1):
+                if removed and lines[n - 1].strip() == removed[0]:
+                    line = n
+                    break
+        except (OSError, SyntaxError, KeyError):
+            pass
+        where = f"file={r.module}" + (f",line={line}" if line else "")
+        change = " / ".join(x.strip() for x in r.diff.splitlines())
+        text = f"survived {r.name}: {change}".replace("%", "%25")
+        out.append(f"::error {where}::{text}")
+    return out
 
 
 def score_table(results: list[Result]) -> str:

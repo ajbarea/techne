@@ -7,20 +7,21 @@ dependencies = []
 
 [dependency-groups]
 dev = [
-    "pytest>=9.0.3",
+    "pytest>=9.2.0",
     "pytest-subprocess>=1.5",
-    "ruff>=0.17.2",
-    "ty>=0.0.92,<0.1",
-    "zensical>=0.0.73",
+    "ruff>=0.17.5",
+    "ty>=0.0.104,<0.1",
+    "zensical>=0.1.1",
     "shellcheck-py>=0.11",
-    "zizmor>=1.31.1",
-    "pytest-codspeed>=5.0.3,<5.1",
+    "zizmor>=1.32.0",
+    "pytest-codspeed>=5.0.4,<5.1",
     "mutmut==3.8.1",
+    "actionlint-py==1.7.12.*",
 ]
 epistole = [
     "mcp>=2.3,<3",
-    "google-api-python-client>=2.180",
-    "google-auth>=2.62.0",
+    "google-api-python-client>=2.202.0",
+    "google-auth>=2.62.2",
     "google-auth-oauthlib>=1.2",
 ]
 heuresis = ["pyyaml>=6.0.2"]
@@ -50,16 +51,33 @@ extra-paths = ["tests", "plugins/epistole", "plugins/heuresis", "plugins/schole"
 # scripts/mutation.py: each module under mutation testing and the test files that exercise it.
 # The latency and bench tests time the hooks rather than check them, so they are left out.
 [tool.techne.mutation]
-"plugins/phylax/hooks/git_guards.py" = ["tests/test_git_guards.py"]
-"plugins/phylax/hooks/git_options.py" = ["tests/test_git_guards.py"]
+"plugins/phylax/hooks/git_guards.py" = [
+    "tests/test_git_guards.py",
+    "tests/test_command_shapes.py",
+    "tests/test_denial_log.py",
+]
+"plugins/phylax/hooks/git_options.py" = [
+    "tests/test_git_guards.py",
+    "tests/test_command_shapes.py",
+    "tests/test_denial_log.py",
+]
 "plugins/phylax/hooks/git_checks.py" = [
     "tests/test_git_guards.py",
     "tests/test_secret_guard.py",
     "tests/test_body_gate.py",
+    "tests/test_command_shapes.py",
+    "tests/test_denial_log.py",
 ]
 "plugins/phylax/hooks/body_gate.py" = ["tests/test_body_gate.py"]
-"plugins/phylax/hooks/secret_scan.py" = ["tests/test_secret_guard.py"]
-"plugins/phylax/hooks/model_guard.py" = ["tests/test_model_guard.py"]
-"plugins/phylax/hooks/email_greeting.py" = ["tests/test_email_greeting.py"]
+"plugins/phylax/hooks/command_shapes.py" = [
+    "tests/test_command_shapes.py",
+    "tests/test_command_shapes_golden.py",
+    "tests/test_denial_log.py",
+]
+"plugins/phylax/hooks/secret_scan.py" = ["tests/test_secret_guard.py", "tests/test_denial_log.py"]
+"plugins/phylax/hooks/jsonl_log.py" = ["tests/test_denial_log.py"]
+"plugins/phylax/hooks/model_guard.py" = ["tests/test_model_guard.py", "tests/test_denial_log.py"]
+"plugins/phylax/hooks/email_greeting.py" = ["tests/test_email_greeting.py", "tests/test_denial_log.py"]
+"plugins/phylax/hooks/denial_log.py" = ["tests/test_denial_log.py"]
 "plugins/techne/hooks/board_add.py" = ["tests/test_board_hook.py"]
 "plugins/techne/_shared/project_board.py" = ["tests/test_board_hook.py"]

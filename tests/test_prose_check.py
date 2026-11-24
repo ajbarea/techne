@@ -47,10 +47,19 @@ def test_a_rubric_without_the_block_is_an_error_not_an_empty_list(pc, tmp_path):
         ("We leverage the registry to resolve entries.", "ornate-verb"),
         ("We cache records in order to limit load.", "filler"),
         ("The throttle may potentially recur.", "stacked-hedge"),
+        ("Happy to walk through it.", "llm-tell"),
+        ("I am happy to walk you through the code.", "llm-tell"),
+        ("Glad to explain it whenever works.", "llm-tell"),
+        ("Happy to hop on a call.", "llm-tell"),
     ],
 )
 def test_each_pattern_fires_on_its_case(pc, text, name):
     assert name in names(pc.check(text))
+
+
+def test_plain_closing_lines_are_not_offers(pc):
+    text = "Let me know if you have any questions about the code. Feel free to reach out."
+    assert "llm-tell" not in names(pc.check(text))
 
 
 def test_plain_sentences_raise_nothing(pc):

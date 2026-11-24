@@ -5,6 +5,7 @@ const ATTRIBUTION = { block_attribution_trailers: true }
 const COMMITS_MD = { block_commits_md: true }
 const WARN_ONLY = { warn_main_checkout_commit: true }
 const CWD = '/work/repo'
+const SESSION = '0b8f5a2c-6d1e-4f3a-9c7b-2e4d6f8a1b3c'
 
 const DENY = JSON.stringify({
   hookSpecificOutput: {
@@ -22,7 +23,7 @@ type Guard = Partial<ProcessRunResult> | Error
 
 // Stands in for the engine: the session's directory, python3 running git_guards.py, and Bash.
 // `held` makes the engine hold the stamp's write, as an organization's settings can.
-function engine(on: On, guard: Guard, held?: string) {
+function engine(on: On, guard: Guard, held?: string, sessionFails = false) {
   const runs: { argv: readonly string[]; init?: ProcessRunInit }[] = []
   const bash: string[] = []
   // Every write of the stamp, and what it held when Bash ran (where the fallback reads it).
@@ -31,6 +32,10 @@ function engine(on: On, guard: Guard, held?: string) {
   const stampAtRun: (string | undefined)[] = []
   const logs: string[] = []
   on('session.cwd', () => ({ value: CWD }))
+  on('session.id', () => {
+    if (sessionFails) throw new Error('no session id here')
+    return { value: SESSION }
+  })
   on('ui.log', ($, e) => {
     logs.push(e.text)
     return { value: undefined }
@@ -89,8 +94,11 @@ describe('git guard', () => {
     // python3 starts from the plugin (the script's folder's parent), never the session folder.
     expect(init?.cwd).toBe(argv[1]!.replace(/\/hooks\/git_guards\.py$/, ''))
     expect(init?.cwd).not.toBe(CWD)
-    expect(JSON.parse(init?.stdin ?? '{}')).toEqual({
+    const { tool_use_id: callId, ...stdin } = JSON.parse(init?.stdin ?? '{}')
+    expect(typeof callId).toBe('string')
+    expect(stdin).toEqual({
       hook_event_name: 'PreToolUse',
+      session_id: SESSION,
       tool_name: 'Bash',
       tool_input: { command: 'git add .' },
       cwd: CWD,
@@ -103,6 +111,15 @@ describe('git guard', () => {
       CLAUDE_PLUGIN_OPTION_BLOCK_LONG_BODIES: 'false',
       CLAUDE_PLUGIN_OPTION_BLOCK_GH_IMPLICIT_REPO: 'false',
     })
+  })
+
+  test('the guard gets the call id, and runs without a session id it cannot read', { options: COMMITS_MD }, async ($, on) => {
+    const { runs } = engine(on, {}, undefined, true)
+    const out = await $.tool.call({ tool: 'Bash', command: 'git add .', tool_use_id: 'toolu_7' })
+    expect(out.deny).toBeUndefined()
+    const stdin = JSON.parse(runs[0]!.init?.stdin ?? '{}')
+    expect(stdin.tool_use_id).toBe('toolu_7')
+    expect('session_id' in stdin).toBe(false)
   })
 
   test('a command with no git or gh never starts python3', { options: ATTRIBUTION }, async ($, on) => {

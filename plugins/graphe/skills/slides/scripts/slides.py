@@ -2,12 +2,13 @@
 """Gate a deck before it is presented, and render it through the app that will show it.
 
     python slides.py check  <deck/index.html|deck.pptx|deck.pdf> [--level AAA|AA] [--min-pt 14]
-                            [--jargon a,b] [--backup-from N]
+                            [--jargon a,b] [--backup-from N] [--allow-dark]
     python slides.py render <deck/index.html|deck.pptx|deck.pdf> <out-dir>
                             [--renderer auto|powerpoint|libreoffice] [--dpi 80]
     python slides.py script <deck/index.html|deck.pptx> [--wpm 140]
     python slides.py pptx   <deck/index.html> <out.pptx> [--images <dir>] [--editable]
     python slides.py pdf    <deck/index.html> <out.pdf>
+    python slides.py palette "#6a1b6e,#e66100,#33bbee" [--ground "#ffffff"] [--room 0.3]
 
 A reveal.js web deck (``.html``) is checked and rendered in Chromium through Playwright,
 with axe-core for contrast and alt text; it needs ``playwright`` and
@@ -36,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import json
 import pathlib
 import posixpath
 import re
@@ -50,7 +52,7 @@ from html.parser import HTMLParser
 # The install table and the PowerPoint lookup ship in the plugin's _shared/ directory.
 sys.dont_write_bytecode = True  # a missing-tool exit leaves no file behind in the plugin cache
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "_shared"))
-import doctor_lib  # noqa: E402  # ty: ignore[unresolved-import]
+import doctor_lib  # noqa: E402  # ty: ignore[import-not-found]
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import pptx_editable  # noqa: E402
@@ -440,11 +442,14 @@ def check(
     title_words: int = 14,
     jargon: tuple[str, ...] = (),
     backup_from: int | None = None,
+    allow_dark: bool = False,
 ) -> list[Finding]:
     if path.suffix.lower() == ".pdf":
         return check_pdf(path, dense_words, title_words, jargon, backup_from)
     if path.suffix.lower() in HTML:
-        return check_html(path, level, min_pt, dense_words, title_words, jargon, backup_from)
+        return check_html(
+            path, level, min_pt, dense_words, title_words, jargon, backup_from, allow_dark
+        )
     try:
         pkg = Package(path)
         parts = pkg.slides()
@@ -756,6 +761,71 @@ def conclusion_findings(
 FOOTNOTE_SHARE = 0.5
 
 
+def dark_findings(
+    grounds: list[tuple[int, str | None]], closing: int, allow_dark: bool
+) -> list[Finding]:
+    """A deck whose talk slides are mostly dark, naming them. A slide over a picture counts as
+    a talk slide but never as dark, since its colour cannot be read."""
+    if allow_dark:
+        return []
+    talk = [(n, c) for n, c in grounds if n != closing]
+    dark = [n for n, c in talk if c is not None and luminance(c) < DARK_GROUND]
+    if len(dark) * 2 <= len(talk):
+        return []
+    return [
+        Finding(
+            WARN,
+            "dark-slides",
+            f"{len(dark)} of {len(talk)} talk slides are dark, and dark slides wash out under a "
+            f"lit room's lights: slides {dark}. Use a light ground (a dark title or closing "
+            "slide is fine), or pass --allow-dark for a deck the presenter asked to be dark",
+        )
+    ]
+
+
+def starter_tokens() -> list[list[str]]:
+    """The starter's values for LOOK_TOKENS as [name, value] pairs, or [] when unreadable."""
+    try:
+        css = STARTER_CSS.read_text()
+    except OSError:
+        return []
+    found = dict(re.findall(r"^\s*(--[a-z-]+):\s*(#[0-9a-fA-F]{6})\s*;", css, re.M))
+    if not all(k in found for k in LOOK_TOKENS):
+        return []
+    return [[k, found[k].lower()] for k in LOOK_TOKENS]
+
+
+def own_look_findings(look: dict) -> list[Finding]:
+    """Review a deck that kept the starter's colours or has no real title illustration."""
+    found = []
+    if look["same"]:
+        found.append(
+            Finding(
+                REVIEW,
+                "own-look",
+                "still the starter's colours; give this talk its own look (ground, type, colours, "
+                "chrome) from its subject, see The look in SKILL.md",
+            )
+        )
+    if look["placeholder"]:
+        found.append(
+            Finding(
+                REVIEW, "own-look", "the title slide still shows the placeholder illustration", 1
+            )
+        )
+    elif not look["art"]:
+        found.append(
+            Finding(
+                REVIEW,
+                "own-look",
+                f"the title slide has no picture at {ART_MIN_SHARE:.0%} of the slide's height or "
+                "more; a talk's title slide carries a real illustration of its subject",
+                1,
+            )
+        )
+    return found
+
+
 def footnote_findings(with_footnote: list[int], talk_slides: int) -> list[Finding]:
     """A review when a footnote sits on most talk slides, since each must earn its place."""
     if talk_slides < 2 or len(with_footnote) <= talk_slides * FOOTNOTE_SHARE:
@@ -940,6 +1010,21 @@ WITH_BROWSER = (
 CANVAS = {"width": 1280, "height": 720}
 SCREEN = {"width": 1920, "height": 1080}
 PHONE = {"width": 390, "height": 844}
+# A ground reads dark below this relative luminance: there black and white text contrast equally.
+DARK_GROUND = 0.179
+# A picture on slide 1 counts as the title illustration at this share of the slide's height or
+# more; a QR code or a logo is smaller.
+ART_MIN_SHARE = 0.25
+# The starter's placeholder colours, read from the starter so a change there moves this check.
+STARTER_CSS = pathlib.Path(__file__).resolve().parent.parent / "templates" / "web" / "deck.css"
+LOOK_TOKENS = ("--paper", "--ink", "--ours", "--risk", "--fix", "--neutral")
+# talks#92's setting: room light added at 30% of projector white.
+ROOM_LIGHT = 0.3
+VISIONS = (None, "protanomaly", "deuteranomaly", "tritanomaly")
+# WCAG 2.2 SC 1.4.11: a mark needs 3:1 against what is next to it, through a fill or an outline.
+MARK_CONTRAST = 3.0
+COLORSPACIOUS = "colorspacious==1.1.2"
+WITH_PALETTE = f"uv run --no-project --quiet --with {COLORSPACIOUS} --with numpy"
 # The narrowest phones still sold; content must fit here too.
 SMALL_PHONE = {"width": 360, "height": 780}
 # Below this many CSS pixels on a phone, body text is unreadable at arm's length.
@@ -1134,18 +1219,24 @@ _READ_SLIDE = (
 # colour is painted on .slides, under the section. Over an image, a
 # gradient or a video (on the layer or the section) the contrast rules are skipped and the
 # slide's text is counted as unchecked.
-_AXE_SLIDE = """async ([i, rules]) => {
+# reveal.js puts an image or gradient on a child of the background element, and a video or
+# iframe inside it, so the whole subtree is searched.
+_SLIDE_PICTURE = """const pictureBehind = (s, painted) => {
+  const media = ['VIDEO', 'IFRAME', 'IMG'];
+  return getComputedStyle(s).backgroundImage !== 'none' || (!!painted
+    && [painted, ...painted.querySelectorAll('*')].some((el) =>
+      getComputedStyle(el).backgroundImage !== 'none' || media.includes(el.tagName)));
+};"""
+_AXE_SLIDE = (
+    "async ([i, rules]) => { "
+    + _SLIDE_PICTURE
+    + """
   const s = __deckSlides()[i];
   const layer = document.querySelector('.reveal .backgrounds');
   const painted = Reveal.getSlideBackground(s);
   const paint = painted ? getComputedStyle(painted) : null;
   const own = getComputedStyle(s);
-  // reveal.js puts an image or gradient on a child of the background element, and a video
-  // or iframe inside it, so the whole subtree is searched.
-  const media = ['VIDEO', 'IFRAME', 'IMG'];
-  const picture = own.backgroundImage !== 'none' || (!!painted
-    && [painted, ...painted.querySelectorAll('*')].some((el) =>
-      getComputedStyle(el).backgroundImage !== 'none' || media.includes(el.tagName)));
+  const picture = pictureBehind(s, painted);
   const run = picture ? rules.filter((r) => !r.startsWith('color-contrast')) : rules;
   const clear = (c) => !c || c === 'transparent' || /rgba\\(.*,\\s*0\\)$/.test(c);
   // The layer's colour goes on .slides, under the section, so a section with its own
@@ -1174,7 +1265,86 @@ _AXE_SLIDE = """async ([i, rules]) => {
     if (layer) layer.style.display = '';
   }
 }"""
+)
 
+# The colour behind a slide, composited bottom to top: page, reveal.js's layers, the slide's own
+# background layer and section, then any child drawn over nearly all of the slide. Alpha is honoured
+# and a gradient as its stops averaged by opacity. None when an image or video is in the stack.
+_SLIDE_GROUND = """(i) => {
+  const s = __deckSlides()[i];
+  const painted = Reveal.getSlideBackground(s);
+  const inner = painted ? [...painted.querySelectorAll('*')] : [];
+  if (inner.some((el) => ['VIDEO', 'IFRAME', 'IMG'].includes(el.tagName))) return null;
+  const ctx = document.createElement('canvas').getContext('2d', {willReadFrequently: true});
+  const read = (css) => {
+    ctx.clearRect(0, 0, 1, 1);
+    ctx.fillStyle = '#000000';
+    ctx.fillStyle = css;
+    ctx.fillRect(0, 0, 1, 1);
+    return [...ctx.getImageData(0, 0, 1, 1).data];
+  };
+  const blend = (under, [r, g, b, a]) => {
+    const k = a / 255;
+    return [r, g, b].map((v, n) => v * k + under[n] * (1 - k));
+  };
+  const layer = (el) => {
+    if (['IMG', 'VIDEO', 'CANVAS', 'IFRAME', 'SVG'].includes(el.tagName.toUpperCase())) return null;
+    const st = getComputedStyle(el);
+    const image = st.backgroundImage;
+    if (image.includes('url(')) return null;
+    if (image === 'none') return [read(st.backgroundColor)];
+    const stops = image.match(/(?:rgba?|color|oklab|oklch|hsla?)\\([^)]*\\)/g) || [];
+    if (!stops.length) return null;
+    const colours = stops.map(read);
+    // Each stop's colour counts by its opacity, so a transparent stop adds no colour.
+    const opacity = colours.reduce((sum, c) => sum + c[3], 0);
+    const mean = [0, 1, 2].map((n) =>
+      opacity ? colours.reduce((sum, c) => sum + c[n] * c[3], 0) / opacity : 0);
+    return [read(st.backgroundColor), [...mean, opacity / colours.length]];
+  };
+  const frame = document.querySelector('.reveal .slides').getBoundingClientRect();
+  const covers = (el) => {
+    const r = el.getBoundingClientRect();
+    return r.width >= frame.width * 0.9 && r.height >= frame.height * 0.9;
+  };
+  const stack = [document.documentElement, document.body,
+    document.querySelector('.reveal-viewport'), document.querySelector('.reveal'),
+    document.querySelector('.reveal .backgrounds'), painted, ...inner, s,
+    ...[...s.querySelectorAll('*')].filter((el) => !el.closest('aside.notes') && covers(el))];
+  let colour = [255, 255, 255];
+  for (const el of new Set(stack.filter(Boolean))) {
+    const parts = layer(el);
+    if (parts === null) return null;
+    for (const part of parts) colour = blend(colour, part);
+  }
+  return colour.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('');
+}"""
+# Whether slide 1 still wears the starter's placeholder art or has any picture large enough to be
+# its illustration, and whether the page's colour tokens are still the starter's.
+_OWN_LOOK = """([tokens, share]) => {
+  const root = getComputedStyle(document.documentElement);
+  const same = tokens.length > 0
+    && tokens.every(([k, v]) => root.getPropertyValue(k).trim().toLowerCase() === v);
+  const s = __deckSlides()[0];
+  const config = Reveal.getConfig();
+  const tall = typeof config.height === 'number' ? config.height * Reveal.getScale() : innerHeight;
+  const floor = tall * share;
+  const big = (el) => {
+    const r = el.getBoundingClientRect();
+    return r.width >= floor && r.height >= floor;
+  };
+  const inSlide = [...s.querySelectorAll('*')].filter((el) => !el.closest('aside.notes'));
+  const pics = inSlide.filter(
+    (el) => ['IMG', 'SVG', 'CANVAS', 'VIDEO'].includes(el.tagName.toUpperCase()));
+  const placeholder = pics.some((el) => el.closest('[data-placeholder]'));
+  const hasImage = (el) => getComputedStyle(el).backgroundImage.includes('url(');
+  const painted = Reveal.getSlideBackground(s);
+  const behind = hasImage(s) || (!!painted && [painted, ...painted.querySelectorAll('*')]
+    .some((el) => hasImage(el) || ['VIDEO', 'IFRAME', 'IMG'].includes(el.tagName)));
+  const art = behind || pics.some((el) => !el.closest('[data-placeholder]') && big(el))
+    || inSlide.some((el) => hasImage(el) && big(el));
+  return {same, placeholder, art};
+}"""
 # Animations on slide i still running a quarter second after it opens, with reduced motion
 # requested. A loop driven by requestAnimationFrame or a timer is invisible to this.
 _MOVING = """async (i) => {
@@ -1225,7 +1395,7 @@ class DeckError(Exception):
 
 def _playwright():
     try:
-        from playwright.sync_api import sync_playwright  # ty: ignore[unresolved-import]
+        from playwright.sync_api import sync_playwright  # ty: ignore[import-not-found]
     except ImportError:
         sys.exit(f"a web deck needs Playwright: run this command through `{WITH_BROWSER}`")
     return sync_playwright
@@ -1360,6 +1530,7 @@ def check_html(
     title_words: int = 14,
     jargon: tuple[str, ...] = (),
     backup_from: int | None = None,
+    allow_dark: bool = False,
 ) -> list[Finding]:
     """Gate a reveal.js deck in Chromium: text, accessibility, assets, motion and phone fit."""
     if not path.is_file():
@@ -1368,7 +1539,15 @@ def check_html(
         browser = _launch(pw)
         try:
             found = _check_in(
-                browser, path, level, min_pt, dense_words, title_words, jargon, backup_from
+                browser,
+                path,
+                level,
+                min_pt,
+                dense_words,
+                title_words,
+                jargon,
+                backup_from,
+                allow_dark,
             )
         except DeckError as exc:
             return [Finding(ERROR, "unreadable", f"{path}: {exc}")]
@@ -1395,6 +1574,7 @@ def _check_in(
     title_words: int,
     jargon: tuple[str, ...],
     backup_from: int | None,
+    allow_dark: bool = False,
 ) -> list[Finding]:
     rules = [*AXE_CONTRAST[level], *AXE_ALT]
     found: list[Finding] = []
@@ -1438,6 +1618,8 @@ def _check_in(
     contribution: list[tuple[int, bool]] = []
     conclusion: list[tuple[int, str]] = []
     footnoted: list[int] = []
+    grounds: list[tuple[int, str | None]] = []
+    look: dict = {}
     last_main = 0
     unchecked = 0
     in_backup = False
@@ -1471,6 +1653,10 @@ def _check_in(
             last_main = number
             if slide["footnote"] and number > 1:
                 footnoted.append(number)
+            if number > 1:
+                grounds.append((number, page.evaluate(_SLIDE_GROUND, i)))
+        if number == 1:
+            look = page.evaluate(_OWN_LOOK, [starter_tokens(), ART_MIN_SHARE])
         found += text_gates(
             number,
             title,
@@ -1543,6 +1729,8 @@ def _check_in(
     found += contribution_findings(contribution)
     found += conclusion_findings(conclusion, last_main, in_backup or backup_from is not None)
     found += footnote_findings(footnoted, last_main - 1)
+    found += dark_findings(grounds, last_main, allow_dark)
+    found += own_look_findings(look)
     if unchecked:
         found.append(
             Finding(
@@ -1710,31 +1898,71 @@ def html_slides(path: pathlib.Path) -> list[tuple[str, str]]:
 
 # ---------------------------------------------------------------- print PDF --
 
-# The print PDF is reveal.js's own `?print-pdf` layout printed by Chromium: vector, text
-# selectable, links live. Three things in it need help on any deck:
-# - reveal.js starts one page per fragment unless `pdfSeparateFragments` is false, so the
-#   export sets it false as the deck starts, whatever the deck says;
-# - a slide taller than its page (a footnote pinned to the slide's bottom) is cut to the page,
-#   or its bottom is cut off;
-# - reveal.js's own navigation and `.web-only` text mean nothing on paper.
-_PDF_FRAGMENTS = """(() => {
+
+# An export is a picture of what the room sees, so whatever the deck says, it starts with
+# reveal.js's `showNotes` off: a deck that sets it draws its script beside or over each slide.
+# The override covers `Reveal.initialize` and any later `Reveal.configure`.
+def _start_with(overrides: dict) -> str:
+    """An init script that applies `overrides` over the deck's own reveal.js config."""
+    return """(() => {
+  const force = FORCE;
+  // reveal.js's initialize copies its whole API onto Reveal, replacing these wrappers, so each
+  // call wraps again.
+  const wrap = (value) => {
+    for (const name of ['initialize', 'configure']) {
+      const call = value[name];
+      if (typeof call !== 'function' || call.forced) continue;
+      const forced = (config) => {
+        const out = call.call(value, { ...config, ...force });
+        wrap(value);
+        return out;
+      };
+      forced.forced = true;
+      value[name] = forced;
+    }
+  };
   let deck;
   Object.defineProperty(window, 'Reveal', {
     configurable: true,
     get: () => deck,
     set: (value) => {
       deck = value;
-      const start = value && value.initialize;
-      if (typeof start === 'function') {
-        value.initialize = (config) =>
-          start.call(value, { ...config, pdfSeparateFragments: false });
-      }
+      if (value) wrap(value);
     },
   });
-})()"""
+})()""".replace("FORCE", json.dumps(overrides))
+
+
+_EXPORT_START = _start_with({"showNotes": False})
+# A module deck may call initialize before it sets window.Reveal, out of the init script's
+# reach; once the deck is ready, a configure through the wrapper applies the override. Only a
+# deck with notes still on is touched: configure also restarts autoSlide and reshuffles.
+_FORCE_NOW = """() => window.Reveal && typeof Reveal.configure === 'function'
+  && Reveal.getConfig().showNotes && Reveal.configure({})"""
+
+
+def _open_export(browser, deck: pathlib.Path, viewport: dict, **kw):
+    """_open for a picture of the deck: reveal.js's showNotes off, whatever the deck says."""
+    page, watch = _open(browser, deck, viewport, init=_EXPORT_START, **kw)
+    page.evaluate(_FORCE_NOW)
+    return page, watch
+
+
+# The print PDF is reveal.js's own `?print-pdf` layout printed by Chromium: vector, text
+# selectable, links live. Four things in it need help on any deck:
+# - reveal.js starts one page per fragment unless `pdfSeparateFragments` is false, so the
+#   export sets it false as the deck starts, whatever the deck says;
+# - a slide taller than its page (a footnote pinned to the slide's bottom) is cut to the page,
+#   or its bottom is cut off;
+# - reveal.js's own navigation and `.web-only` text mean nothing on paper;
+# - the file is what goes to a reader or a submission, so the speaker notes stay out of it, even
+#   in a deck that sets reveal.js's `showNotes` (a box over each slide, or a page after it):
+#   the deck starts with it off, and any notes page left is removed.
+_PDF_START = _start_with({"showNotes": False, "pdfSeparateFragments": False})
 # `#/id` is reveal.js's link to a slide by id; on paper the browser needs plain `#id` to make
 # a link of it.
 _PDF_FIT = """() => {
+  for (const notes of document.querySelectorAll('.speaker-notes-pdf')) notes.remove();
   for (const a of document.querySelectorAll('a[href^="#/"]')) {
     const id = decodeURIComponent(a.getAttribute('href').slice(2));
     if (id && document.getElementById(id)) a.setAttribute('href', `#${id}`);
@@ -1759,7 +1987,7 @@ def _open_print(browser, deck: pathlib.Path, count: int):
         query="?print-pdf",
         during=" for print",
         seen=True,
-        init=_PDF_FRAGMENTS,
+        init=_PDF_START,
     )
     try:
         page.wait_for_function("document.querySelectorAll('.pdf-page').length > 0")
@@ -1837,12 +2065,18 @@ def render_html(deck: pathlib.Path, out: pathlib.Path) -> int:
 def _render_in(browser, deck: pathlib.Path, out: pathlib.Path):
     # Every pass must start before render claims the folder, so a deck that fails in any of
     # them leaves no marker and no half-written render.
-    page, _ = _open(browser, deck, SCREEN)
+    page, _ = _open_export(browser, deck, SCREEN)
     count = page.evaluate(_COUNT)
     if not count:
         raise DeckError("no slides")
-    phone, _ = _open(
-        browser, deck, PHONE, during=" on a phone", seen=True, is_mobile=True, has_touch=True
+    phone, _ = _open_export(
+        browser,
+        deck,
+        PHONE,
+        during=" on a phone",
+        seen=True,
+        is_mobile=True,
+        has_touch=True,
     )
     printed = _open_print(browser, deck, count)
     prepare_out(out)
@@ -1926,8 +2160,8 @@ def pptx_html(
     if images is not None and target.resolve().is_relative_to(images.resolve()):
         sys.exit(f"{images}: the images folder cannot hold the .pptx it exports")
     try:
-        from pptx import Presentation  # ty: ignore[unresolved-import]
-        from pptx.util import Emu  # ty: ignore[unresolved-import]
+        from pptx import Presentation  # ty: ignore[import-not-found]
+        from pptx.util import Emu  # ty: ignore[import-not-found]
     except ImportError:
         sys.exit(f"exporting a .pptx needs python-pptx: run this command through `{WITH_BROWSER}`")
     if editable:
@@ -1935,7 +2169,7 @@ def pptx_html(
     with _playwright()() as pw:
         browser = _launch(pw)
         try:
-            page, _ = _open(browser, deck, SCREEN)
+            page, _ = _open_export(browser, deck, SCREEN)
             count = page.evaluate(_COUNT)
             if not count:
                 raise DeckError("no slides")
@@ -2001,7 +2235,7 @@ def _open_any(browser, deck: pathlib.Path, viewport: dict, **context):
         raise DeckError(
             'not a deck: no reveal.js (.reveal .slides) and no <section class="slide"> elements'
         )
-    page, _ = _open(browser, deck, viewport, **context)
+    page, _ = _open_export(browser, deck, viewport, **context)
     page.evaluate(pptx_editable.REVEAL_SLIDES)
     return page
 
@@ -2009,7 +2243,7 @@ def _open_any(browser, deck: pathlib.Path, viewport: dict, **context):
 def _pptx_editable(deck: pathlib.Path, target: pathlib.Path, images: pathlib.Path | None) -> int:
     """Export a web deck as a .pptx whose text and tables can be edited: see pptx_editable."""
     try:
-        import PIL  # noqa: F401  # ty: ignore[unresolved-import]
+        import PIL  # noqa: F401  # ty: ignore[import-not-found]
     except ImportError:
         sys.exit(f"--editable needs Pillow: run this command through `{WITH_BROWSER}`")
     with _playwright()() as pw:
@@ -2083,6 +2317,80 @@ def _pptx_editable(deck: pathlib.Path, target: pathlib.Path, images: pathlib.Pat
 
 
 # ----------------------------------------------------------------- render --
+
+
+_HEX6 = re.compile(r"#[0-9a-fA-F]{6}$")
+
+
+def _hexes(values: str) -> list[str]:
+    colours = [v.strip().lower() for v in values.split(",") if v.strip()]
+    bad = [c for c in colours if not _HEX6.match(c)]
+    if bad:
+        sys.exit(f"palette: not a #rrggbb colour: {', '.join(bad)}")
+    return colours
+
+
+def palette_scores(colours: list[str], room: float) -> dict[str, tuple[float, str, str]]:
+    """For each vision type, the closest pair of COLOURS in CAM02-UCS with room light added at
+    ROOM of projector white, as (distance, colour, colour)."""
+    try:
+        import numpy as np  # ty: ignore[import-not-found]
+        from colorspacious import cspace_convert  # ty: ignore[import-not-found]
+    except ImportError:
+        sys.exit(f"palette needs colorspacious: run this command through `{WITH_PALETTE}`")
+
+    def jab(colour: str, vision: str | None):
+        rgb = np.array([int(colour[i : i + 2], 16) / 255 for i in (1, 3, 5)])
+        linear = cspace_convert(rgb, "sRGB1", "sRGB1-linear")
+        # Room light adds to every colour; scaling keeps projector white at 1.
+        lit = cspace_convert((linear + room) / (1 + room), "sRGB1-linear", "sRGB1")
+        if vision:
+            lit = cspace_convert(
+                lit, {"name": "sRGB1+CVD", "cvd_type": vision, "severity": 100}, "sRGB1"
+            )
+        return cspace_convert(lit, "sRGB1", "CAM02-UCS")
+
+    scores: dict[str, tuple[float, str, str]] = {}
+    for vision in VISIONS:
+        points = {c: jab(c, vision) for c in colours}
+        pairs = [
+            (float(np.linalg.norm(points[a] - points[b])), a, b)
+            for i, a in enumerate(colours)
+            for b in colours[i + 1 :]
+        ]
+        scores[vision or "normal"] = min(pairs)
+    return scores
+
+
+def _lit_contrast(fg: str, bg: str, room: float) -> float:
+    a, b = ((luminance(c[1:]) + room) / (1 + room) for c in (fg, bg))
+    hi, lo = max(a, b), min(a, b)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def palette(values: str, ground: str, room: float) -> int:
+    """Print how far apart a candidate set of colours stays under room light."""
+    colours = _hexes(values)
+    if len(colours) < 2 or len(set(colours)) < len(colours):
+        sys.exit("palette: give at least two different colours")
+    grounds = _hexes(ground)
+    if len(grounds) != 1:
+        sys.exit("palette: --ground takes one colour")
+    if not 0 <= room <= 1:
+        sys.exit(f"palette: --room is a share of projector white from 0 to 1, not {room}")
+    scores = palette_scores(colours, room)
+    print(f"room light: {room:.0%} of projector white")
+    print("closest pair in CAM02-UCS (farther apart reads easier; compare candidate sets):")
+    for vision, (distance, a, b) in scores.items():
+        print(f"  {vision:<14}{distance:5.1f}  {a} / {b}")
+    print(f"worst: {min(v[0] for v in scores.values()):.1f}")
+    print(f"against the ground {grounds[0]} (WCAG 1.4.11 asks 3:1 of a mark):")
+    for c in colours:
+        on_screen = contrast(c[1:], grounds[0][1:])
+        pale = "  pale: give it a darker outline" if on_screen < MARK_CONTRAST else ""
+        lit = _lit_contrast(c, grounds[0], room)
+        print(f"  {c}  {on_screen:.1f}:1 on screen, {lit:.1f}:1 lit{pale}")
+    return 0
 
 
 def powerpoint_available() -> bool:
@@ -2213,7 +2521,7 @@ def contact_sheets(
 ) -> list[pathlib.Path]:
     """Images tiled cols across and two down, so a whole deck can be looked at in a few reads."""
     try:
-        from PIL import Image  # ty: ignore[unresolved-import]
+        from PIL import Image  # ty: ignore[import-not-found]
     except ImportError:
         return []
     sheets = []
@@ -2298,6 +2606,11 @@ def main() -> int:
         help="comma-separated terms a newcomer would not know; flagged on talk slides",
     )
     c.add_argument(
+        "--allow-dark",
+        action="store_true",
+        help="a web deck whose talk slides are dark because the presenter asked for it",
+    )
+    c.add_argument(
         "--backup-from",
         type=int,
         default=None,
@@ -2340,6 +2653,15 @@ def main() -> int:
     )
     f.add_argument("deck", type=pathlib.Path)
     f.add_argument("out", type=pathlib.Path)
+    m = sub.add_parser(
+        "palette",
+        help="score a candidate set of colours under room light and colour-vision deficiency",
+    )
+    m.add_argument("colours", help="comma-separated #rrggbb colours")
+    m.add_argument("--ground", default="#ffffff", help="the ground the marks sit on")
+    m.add_argument(
+        "--room", type=float, default=ROOM_LIGHT, help="room light, as a share of projector white"
+    )
     t = sub.add_parser("script", help="print the speaker notes as a read-aloud script")
     t.add_argument("deck", type=pathlib.Path)
     t.add_argument("--wpm", type=int, default=140)
@@ -2351,6 +2673,8 @@ def main() -> int:
         return pptx_html(args.deck, args.out, args.images, args.editable)
     if args.cmd == "pdf":
         return pdf_html(args.deck, args.out)
+    if args.cmd == "palette":
+        return palette(args.colours, args.ground, args.room)
     if args.cmd == "script":
         code, out = script(args.deck, args.wpm)
         print(out, file=sys.stderr if code else sys.stdout)
@@ -2364,6 +2688,7 @@ def main() -> int:
         args.title_words,
         terms,
         args.backup_from,
+        args.allow_dark,
     )
     print(args.deck)
     for finding in found:

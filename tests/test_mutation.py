@@ -181,7 +181,7 @@ def test_an_equivalent_survivor_is_listed_and_does_not_fail(toy, tmp_path):
     survivors = [r for r in json.loads(out.read_text()) if r["status"] == "survived"]
     (toy / "mutation").mkdir()
     (toy / "mutation" / "equivalent.toml").write_text(
-        "".join(f'[[mutant]]\nkey = "{r["key"]}"\nwhy = "nothing calls it"\n\n' for r in survivors)
+        "".join(f'[[mutant]]\nhash = "{r["key"]}"\nwhy = "nothing calls it"\n\n' for r in survivors)
     )
     assert mutation.main(["--root", str(toy), "--workers", "1", "--out", str(out)]) == 0
     assert {r["status"] for r in json.loads(out.read_text()) if r["function"] == "unreached"} == {
@@ -691,6 +691,17 @@ def test_a_run_that_does_not_pass_names_its_cause(tmp_path, tests, timeout, caus
     assert status in ("error", "timeout") and said.startswith(cause + ":"), said
 
 
+def test_pytest_dying_of_memory_at_the_limit_is_a_resource_stop_not_an_error(tmp_path):
+    # A mutant that allocates without end can exhaust the data limit outside any test, so pytest
+    # exits 3 with an INTERNALERROR MemoryError; that is a stop like the CPU limit's.
+    (tmp_path / "conftest.py").write_text(
+        "def pytest_collection_modifyitems(items):\n    raise MemoryError\n"
+    )
+    (tmp_path / "test_one.py").write_text("def test_x():\n    pass\n")
+    status, _, said = mutation.run_tests(tmp_path, ["test_one.py"], 30)
+    assert status == "timeout" and said.startswith("pytest ran out of memory"), said
+
+
 def _fake_mutant_runs(monkeypatch, outcome, unmutated):
     """run_mutant returns OUTCOME for every mutant; an unmutated run of the tests (sound()'s)
     returns UNMUTATED; the trace runs for real."""
@@ -809,3 +820,32 @@ def test_an_empty_pythonpath_adds_no_entry(tmp_path, monkeypatch):
 def test_merging_no_results_file_says_so(tmp_path):
     with pytest.raises(SystemExit, match=r"no results file at .*mutation-\*\.json"):
         mutation.main(["--merge", str(tmp_path / "mutation-*.json")])
+
+
+def test_a_failed_baseline_points_at_each_failing_test():
+    said = (
+        "tests/conftest.py:12: in fixture\n"
+        "tests/test_git_guards.py:1487: AssertionError\n"
+        "=========================== short test summary info ============================\n"
+        "FAILED tests/test_git_guards.py::test_budget - AssertionError: assert 20 <= 3\n"
+        "ERROR tests/test_x.py - ImportError: 100% gone\n"
+    )
+    assert mutation.baseline_annotations(said) == [
+        "::error file=tests/test_git_guards.py,line=1487::unmutated baseline failed: test_budget"
+        " AssertionError: assert 20 <= 3",
+        "::error file=tests/test_x.py::unmutated baseline failed: ImportError: 100%25 gone",
+    ]
+    assert mutation.baseline_annotations("1 passed in 0.1s\n") == []
+
+
+def test_each_survivor_is_annotated_at_the_line_its_mutant_changed(tmp_path):
+    (tmp_path / "g.py").write_text("def f(x):\n    y = 1\n    return x <= 0\n")
+    survivor = mutation.Result(
+        "g.x_f__mutmut_4", "g.py", "f", "survived", "k", 1.0, 1, "-return x <= 0\n+return x < 0"
+    )
+    lost = mutation.Result("g.x_h__mutmut_1", "g.py", "h", "survived", "k", 1.0, 1, "-pass")
+    killed = mutation.Result("g.x_f__mutmut_5", "g.py", "f", "killed", "k", 1.0, 1, "-y = 1")
+    assert mutation.survivor_annotations([survivor, lost, killed], tmp_path) == [
+        "::error file=g.py,line=3::survived g.x_f__mutmut_4: -return x <= 0 / +return x < 0",
+        "::error file=g.py::survived g.x_h__mutmut_1: -pass",
+    ]

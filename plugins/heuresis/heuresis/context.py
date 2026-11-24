@@ -13,7 +13,7 @@ from pathlib import Path
 from heuresis import board
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_shared"))
-from git_env import without_repo_overrides  # ty: ignore[unresolved-import]
+from git_env import without_repo_overrides  # ty: ignore[import-not-found]
 
 DEFAULT_SOURCES = [
     {"kind": "bib", "repo": "papers", "path": "references.bib"},

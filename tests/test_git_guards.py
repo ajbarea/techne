@@ -18,6 +18,7 @@ import time
 import pytest
 from conftest import (
     HOOK_PYTHON,
+    _load,
     hook_env,
     hook_handlers,
     hook_shell,
@@ -77,14 +78,22 @@ def run_hook(command: str, cwd: pathlib.Path, *, on=ALL) -> dict | None:
     return json.loads(proc.stdout) if proc.stdout.strip() else None
 
 
+# Claude Code ignores hook JSON that fails its schema, deny included: a top-level `decision` of
+# "deny" or "allow" fails it. So a verdict for Claude Code carries no other top-level field.
+CLAUDE_DENY_KEYS = {"hookSpecificOutput"}
+CLAUDE_WARN_KEYS = {"systemMessage", "hookSpecificOutput"}
+
+
 def denied(out: dict | None) -> str | None:
     if out and out["hookSpecificOutput"].get("permissionDecision") == "deny":
+        assert set(out) == CLAUDE_DENY_KEYS, out
         return out["hookSpecificOutput"]["permissionDecisionReason"]
     return None
 
 
 def warned(out: dict | None) -> str | None:
     if out and "permissionDecision" not in out["hookSpecificOutput"]:
+        assert set(out) == CLAUDE_WARN_KEYS, out
         assert out["systemMessage"] == out["hookSpecificOutput"]["additionalContext"]
         return out["systemMessage"]
     return None
@@ -476,7 +485,7 @@ def test_a_failed_check_beside_a_warning_still_fails(repo, linked):
     assert proc.returncode == 2
     assert warned(json.loads(proc.stdout))
     only_warn = run_raw(command, repo, on=[MAIN_CHECKOUT])
-    assert only_warn.returncode == 1
+    assert only_warn.returncode == 0
 
 
 def test_manifest_options_match_the_guard_and_default_off():
@@ -485,7 +494,15 @@ def test_manifest_options_match_the_guard_and_default_off():
     # require_subagent_model to model_guard.py, tested in test_model_guard.py; email_* to
     # email_greeting.py, tested in test_email_greeting.py; budget_* to budget.py, tested in
     # test_budget.py.
-    others = {"restart_on_update", "require_subagent_model", "email_greeting"}
+    # block_background_loops and block_pkill_full to command_shapes.py, tested in
+    # test_command_shapes.py.
+    others = {
+        "restart_on_update",
+        "require_subagent_model",
+        "email_greeting",
+        "block_background_loops",
+        "block_pkill_full",
+    }
     guards = {k for k in options if k not in others and not k.startswith(("budget_", "email_"))}
     # block_secrets, block_long_bodies and block_gh_implicit_repo live in git_checks.py too,
     # tested in test_secret_guard.py, test_body_gate.py and test_gh_target.py.
@@ -501,6 +518,58 @@ def test_manifest_options_match_the_guard_and_default_off():
 
 
 # --- parser edge cases ---------------------------------------------------------
+
+
+def test_deeply_nested_parentheses_stay_linear(scratch):
+    """is_arith looks a bounded way ahead, so thousands of nested `(` cost little."""
+    import time
+
+    command = "(" * 6000 + "true" + ")" * 6000 + "; git add COMMITS.md"
+    start = time.perf_counter()
+    assert denied(run_hook(command, scratch))
+    assert time.perf_counter() - start < 10
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        # `((` is arithmetic only when its inner paren closes right before the outer one
+        "((cd .); git add COMMITS.md)",
+        "((cd .); cat <<EOF\nx\nEOF\n); git add COMMITS.md",
+        "(( x = 1 << 2 )); git add COMMITS.md",
+        "echo $((1<<2)); git add COMMITS.md",
+        "(( x = 1 )); git add -F - <<'EOF'\nbody\nEOF\ngit add COMMITS.md",
+        # a parenthesised sub-expression or a very long expression in arithmetic: still a shift
+        "y=$(( (a<<b) ))\ngit add COMMITS.md\nb",
+        "(( x = (1<<2) ))\ngit add COMMITS.md\n2",
+        "(( x = " + " + ".join(["1"] * 900) + " << 2 ))\ngit add COMMITS.md\n2",
+        # a shift by a name, and `#` inside ${...}, are no heredoc and no comment
+        "(( m = 1 << n ))\ngit add COMMITS.md",
+        "echo $((1<<n)); git add COMMITS.md",
+        "echo ${x:- #}; git add COMMITS.md",
+        "echo ${x:-((}; git add COMMITS.md",
+        # a heredoc after a closed ${...} is still one
+        f"echo ${{x}}; git commit -F - <<'EOF'\nfeat: x\n\n{TRAILER}\nEOF",
+        f"(( m = 1 << n ))\ngit commit -F - <<'EOF'\nfeat: x\n\n{TRAILER}\nEOF",
+        f"echo ${{x:- #}}\ngit commit -F - <<'EOF'\nfeat: x\n\n{TRAILER}\nEOF",
+    ],
+)
+def test_parentheses_and_arithmetic_do_not_hide_what_follows(scratch, command):
+    assert denied(run_hook(command, scratch))
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "/usr/bin/sudo -n git add COMMITS.md",
+        "/usr/bin/env A=1 git add COMMITS.md",
+        "setsid git add COMMITS.md",
+        "stdbuf -o L git add COMMITS.md",
+        "timeout --kill-after 5 10 git add COMMITS.md",
+    ],
+)
+def test_wrappers_by_path_and_long_options_are_looked_through(scratch, command):
+    assert denied(run_hook(command, scratch))
 
 
 def test_comment_with_apostrophe_does_not_hide_add(scratch):
@@ -725,11 +794,11 @@ def test_a_command_naming_neither_tool_never_loads_the_checks(tmp_path):
     assert "checks loaded" in run("git status").stderr
 
 
-@pytest.mark.parametrize("broken", ["git_options.py", "git_checks.py"])
+@pytest.mark.parametrize("broken", ["git_options.py", "git_checks.py", "hook_output.py"])
 def test_a_module_that_cannot_load_fails_closed(tmp_path, broken):
     hooks = tmp_path / "hooks"
     hooks.mkdir()
-    for name in ("git_guards.py", "git_options.py", "git_checks.py"):
+    for name in ("git_guards.py", "git_options.py", "git_checks.py", "hook_output.py"):
         shutil.copy(GUARDS.parent / name, hooks)
     (hooks / broken).write_text("raise ImportError('broken install')\n")
     payload = json.dumps({"cwd": str(tmp_path), "tool_input": {"command": "git commit -m x"}})
@@ -1049,12 +1118,12 @@ def test_a_folder_path_through_a_file_is_named(tmp_path):
         ("block_secrets", 2),
         ("block_long_bodies", 2),
         ("block_gh_implicit_repo", 2),
-        (MAIN_CHECKOUT, 1),
+        (MAIN_CHECKOUT, 0),
     ],
 )
 def test_input_with_no_folder_fails_closed_for_each_blocking_guard(key, code):
     # Each blocking guard alone makes a check that cannot finish refuse the command (exit 2);
-    # the warning alone lets it run (exit 1).
+    # the warning alone lets it run (exit 0, since onFailure "block" refuses on exit 1).
     env = hook_env([key], drop=("PHYLAX_",))
     payload = json.dumps({"tool_input": {"command": "git commit -m x"}})
     proc = subprocess.run(
@@ -1062,8 +1131,14 @@ def test_input_with_no_folder_fails_closed_for_each_blocking_guard(key, code):
     )
     lines = ["phylax git guard error: the hook input names no folder"]
     if code == 2:
-        lines.append(FAIL_CLOSED)
-    assert (proc.returncode, proc.stderr.splitlines(), proc.stdout) == (code, lines, "")
+        lines.append(
+            f"{FAIL_CLOSED} To switch it off, turn off the phylax option {key} in /config, "
+            "or run /phylax:setup."
+        )
+        assert (proc.returncode, proc.stderr.splitlines(), proc.stdout) == (code, lines, "")
+    else:  # the warning alone: the reason also reaches Claude, as a warning
+        assert (proc.returncode, proc.stderr.splitlines()) == (code, lines)
+        assert "names no folder" in (warned(json.loads(proc.stdout)) or "")
 
 
 def test_a_gone_folder_with_only_the_warning_on_runs_and_says_why(tmp_path):
@@ -1074,5 +1149,447 @@ def test_a_gone_folder_with_only_the_warning_on_runs_and_says_why(tmp_path):
     proc = subprocess.run(
         [HOOK_PYTHON, str(GUARDS)], input=payload, capture_output=True, text=True, env=env
     )
-    assert proc.returncode == 1 and not proc.stdout.strip()
-    assert "not an existing folder" in proc.stderr
+    # exit 0 drops stderr, so the reason also reaches Claude as a warning
+    assert proc.returncode == 0 and "not an existing folder" in proc.stderr
+    warning = warned(json.loads(proc.stdout)) or ""
+    assert "not an existing folder" in warning and "ran unchecked" in warning
+
+
+def test_agy_payload_attribution_denied(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-b", "main")
+    _git(repo, "commit", "--allow-empty", "-m", "init")
+    env = hook_env([ATTRIBUTION])
+    payload = json.dumps(
+        {
+            "hookEventName": "PreToolUse",
+            "conversationId": "test-agy-conv",
+            "workspacePaths": [str(repo)],
+            "toolCall": {
+                "name": "run_command",
+                "args": {
+                    "CommandLine": "git commit -m 'feat: test\n\nCo-Authored-By: Claude'",
+                },
+            },
+        }
+    )
+    proc = subprocess.run(
+        [HOOK_PYTHON, str(GUARDS)], input=payload, capture_output=True, text=True, env=env
+    )
+    assert proc.returncode == 0
+    decision = json.loads(proc.stdout)
+    assert set(decision) == {"decision", "reason"}, decision
+    assert decision["decision"] == "deny"
+    assert "attribution" in decision["reason"].lower()
+
+
+def test_agy_payload_clean_allowed(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-b", "main")
+    _git(repo, "commit", "--allow-empty", "-m", "init")
+    env = hook_env([ATTRIBUTION])
+    payload = json.dumps(
+        {
+            "hookEventName": "PreToolUse",
+            "conversationId": "test-agy-conv",
+            "workspacePaths": [str(repo)],
+            "toolCall": {
+                "name": "run_command",
+                "args": {
+                    "CommandLine": "git commit -m 'feat: clean commit'",
+                },
+            },
+        }
+    )
+    proc = subprocess.run(
+        [HOOK_PYTHON, str(GUARDS)], input=payload, capture_output=True, text=True, env=env
+    )
+    assert proc.returncode == 0
+    assert proc.stdout == "" or "deny" not in proc.stdout
+
+
+def test_agy_payload_warning_is_an_allow_with_its_reason(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-b", "main")
+    _git(repo, "commit", "--allow-empty", "-m", "init")
+    _git(repo, "worktree", "add", "-q", str(tmp_path / "wt"), "-b", "side")
+    payload = json.dumps(
+        {
+            "hookEventName": "PreToolUse",
+            "workspacePaths": [str(repo)],
+            "toolCall": {"name": "run_command", "args": {"CommandLine": "git commit -m 'feat: x'"}},
+        }
+    )
+    proc = subprocess.run(
+        [HOOK_PYTHON, str(GUARDS)],
+        input=payload,
+        capture_output=True,
+        text=True,
+        env=hook_env([MAIN_CHECKOUT]),
+    )
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    assert set(out) == {"decision", "reason"}, out
+    assert out["decision"] == "allow" and "main checkout" in out["reason"]
+
+
+def test_only_a_toolcall_payload_without_tool_name_reads_as_agy():
+    out = _load("hook_output", GUARDS.parent / "hook_output.py")
+    assert out.from_agy({"toolCall": {"name": "run_command"}})
+    assert not out.from_agy({"tool_name": "Bash", "toolCall": {"name": "run_command"}})
+    assert not out.from_agy({"tool_name": "Bash", "tool_input": {"command": "git status"}})
+    assert not out.from_agy({"toolCall": "run_command"})
+    assert not out.from_agy([])
+
+
+@pytest.mark.parametrize("agy", [False, True])
+def test_a_verdict_joins_its_denies_once_each_and_its_warnings_in_order(monkeypatch, capsys, agy):
+    (checks,) = load_phylax_hooks(monkeypatch, "git_checks")
+    v = checks.Verdict(agy=agy)
+    v.denies += ["first", "second", "first"]
+    v.warnings.append("ignored while a deny stands")
+    v.emit()
+    out = json.loads(capsys.readouterr().out)
+    reason = out["reason"] if agy else out["hookSpecificOutput"]["permissionDecisionReason"]
+    assert reason == "first\nsecond"
+    w = checks.Verdict(agy=agy)
+    w.warnings += ["one", "two"]
+    w.emit()
+    out = json.loads(capsys.readouterr().out)
+    text = out["reason"] if agy else out["hookSpecificOutput"]["additionalContext"]
+    assert text == "one\ntwo"
+    assert agy or out["systemMessage"] == "one\ntwo"
+    checks.Verdict(agy=agy).emit()
+    assert capsys.readouterr().out == ""
+
+
+def test_agy_runs_the_checks_in_the_folder_run_command_names(tmp_path):
+    # Only the folder Cwd names has a linked worktree, so only a check run there warns.
+    work = tmp_path / "work"
+    other = tmp_path / "other"
+    for repo in (work, other):
+        repo.mkdir()
+        _git(repo, "init", "-b", "main")
+        _git(repo, "commit", "--allow-empty", "-m", "init")
+    _git(other, "worktree", "add", "-q", str(tmp_path / "wt"), "-b", "side")
+    payload = json.dumps(
+        {
+            "hookEventName": "PreToolUse",
+            "workspacePaths": [str(work)],
+            "toolCall": {
+                "name": "run_command",
+                "args": {"CommandLine": "git commit -m 'feat: x'", "Cwd": str(other)},
+            },
+        }
+    )
+    proc = subprocess.run(
+        [HOOK_PYTHON, str(GUARDS)],
+        input=payload,
+        capture_output=True,
+        text=True,
+        env=hook_env([MAIN_CHECKOUT]),
+    )
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["decision"] == "allow" and str(other) in out["reason"]
+
+
+def test_a_claude_payload_never_takes_its_folder_from_a_toolcall_cwd(tmp_path):
+    here = tmp_path / "here"
+    elsewhere = tmp_path / "elsewhere"
+    for repo in (here, elsewhere):
+        repo.mkdir()
+        _git(repo, "init", "-b", "main")
+        _git(repo, "commit", "--allow-empty", "-m", "init")
+    _git(elsewhere, "worktree", "add", "-q", str(tmp_path / "wt"), "-b", "side")
+    payload = json.dumps(
+        {
+            "tool_name": "Bash",
+            "cwd": str(here),
+            "tool_input": {"command": "git commit -m 'feat: x'"},
+            "toolCall": {"args": {"Cwd": str(elsewhere)}},
+        }
+    )
+    proc = subprocess.run(
+        [HOOK_PYTHON, str(GUARDS)],
+        input=payload,
+        capture_output=True,
+        text=True,
+        env=hook_env([MAIN_CHECKOUT]),
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert not proc.stdout.strip()  # here has no linked worktree; elsewhere would warn
+
+
+def test_an_agy_payload_with_its_own_cwd_keeps_it_over_the_workspace(tmp_path):
+    named = tmp_path / "named"
+    workspace = tmp_path / "workspace"
+    for repo in (named, workspace):
+        repo.mkdir()
+        _git(repo, "init", "-b", "main")
+        _git(repo, "commit", "--allow-empty", "-m", "init")
+    _git(named, "worktree", "add", "-q", str(tmp_path / "wt"), "-b", "side")
+    payload = json.dumps(
+        {
+            "hookEventName": "PreToolUse",
+            "cwd": str(named),
+            "workspacePaths": [str(workspace)],
+            "toolCall": {"name": "run_command", "args": {"CommandLine": "git commit -m 'feat: x'"}},
+        }
+    )
+    proc = subprocess.run(
+        [HOOK_PYTHON, str(GUARDS)],
+        input=payload,
+        capture_output=True,
+        text=True,
+        env=hook_env([MAIN_CHECKOUT]),
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert str(named) in json.loads(proc.stdout)["reason"]
+
+
+# --- units the mutation job found no test for ------------------------------------------
+
+
+@pytest.fixture
+def gc(monkeypatch):
+    (mod,) = load_phylax_hooks(monkeypatch, "git_checks")
+    return mod
+
+
+@pytest.mark.parametrize(
+    ("text", "start", "want"),
+    [
+        ("((1+1))", 0, True),
+        ("((a*(b+c)))", 0, True),
+        ("(( m = (1<<2) + 1 ))", 0, True),
+        ("((cd a); (cd b))", 0, False),
+        ("((cd a); (cd b); (cd c))", 0, False),
+        ("xx((1+1))", 2, True),
+        ("a) ((cd a); (cd b))", 3, False),
+        ("(( m = ')' + 1 << n ))", 0, True),
+        ('(( m = ")" + ")" ))', 0, True),
+        ("((echo ')'); (echo b))", 0, False),
+        ('((echo ")"); (echo "b"))', 0, False),
+        ("((X); (cd b))", 0, False),  # a letter that is no quote is no reason to skip ahead
+        ("((echo ''); (echo b))", 0, False),  # an empty quote closes at once
+        ("((x", 0, True),  # never closed: arithmetic, the safe reading
+        ("(( m = 'a ))", 0, True),  # an unclosed quote
+        ("(( x = " + " + ".join(["1"] * 900) + " ))", 0, True),  # past the scan
+        ("((" + "(cd a);" * 400 + "))", 0, True),  # a long subshell past the scan: also True
+    ],
+)
+def test_is_arith(gc, text, start, want):
+    assert gc.is_arith(text, start) is want
+
+
+def test_arithmetic_closes_both_its_frames_so_the_quote_around_it_still_closes(gc):
+    """`$((1))` inside double quotes pops both frames; a frame left behind would hide the
+    closing quote, and the heredoc after it would read as quoted text."""
+    for text in ('echo "$((1))"', 'echo "$(( (1) ))"', "echo $( echo $((1)) )"):
+        stripped, bodies = gc.strip_heredocs(f"{text}; cat <<EOF\nbody\nEOF\n")
+        assert "body" not in stripped and len(bodies) == 1, text
+
+
+def test_a_comment_starts_only_after_a_separator(gc):
+    stripped, _ = gc.strip_heredocs("echo hi # it's\necho z")
+    assert "'" not in stripped and stripped.endswith("echo z")
+    assert gc.strip_heredocs("echo hi #it's\necho z")[0].count("'") == 0  # `#i` after a space
+    assert gc.strip_heredocs("echo a#b 'q'")[0] == "echo a#b 'q'"  # `a#b` is no comment
+    assert gc.strip_heredocs("echo a;#it's\necho z")[0].count("'") == 0
+    assert gc.strip_heredocs("(#it's\n)")[0].count("'") == 0
+    # the character before a `#` decides, not the one after it or two before it
+    assert gc.strip_heredocs("echo ab#c 'it'")[0] == "echo ab#c 'it'"
+    assert gc.strip_heredocs("echo X#c 'q'")[0] == "echo X#c 'q'"  # only a separator starts one
+
+
+def test_a_closed_dollar_brace_ends_its_frame(gc):
+    """`#` is no comment inside ${...} (it is `${#x}` or text), but is again after the `}`."""
+    assert "'" not in gc.strip_heredocs("echo ${x:-1} # it's\necho z")[0]
+    assert "'" not in gc.strip_heredocs("echo ${x:-(} # it's\necho z")[0]
+    # a `(` inside ${...} pushes no frame, so this `)` closes nothing
+    assert "'" not in gc.strip_heredocs("echo ${x:-(}\necho a ) # it's\necho z")[0]
+    assert gc.strip_heredocs("echo ${x:- # it's }\necho z")[0].count("'") == 1
+
+
+@pytest.mark.parametrize(
+    ("text", "bodies"),
+    [
+        ("(( m = 1 << n ))\ncat <<EOF\nx\nEOF", 1),  # a shift, then a real heredoc
+        ("echo $((1<<n))\ncat <<EOF\nx\nEOF", 1),
+        ("echo $(( (a<<b) ))\ncat <<EOF\nx\nEOF", 1),
+        ("echo $(( 1 + $(cat <<EOF\n2\nEOF\n) ))", 1),  # `$(` in arithmetic runs commands
+        ("((cat <<EOF\nx\nEOF\n) )", 1),  # `((` closing early: two subshells
+        ("(( x )); cat <<EOF\nx\nEOF", 1),
+        ("(cat <<EOF\nx\nEOF\n)", 1),
+        ("( (a<<b) )\nfoo\nb", 1),  # plain parens, not arithmetic: `<<` is a heredoc
+        ("x=$((1<<2)) $((2<<1))\n", 0),
+        ("echo $((a*(b+c))) ; cat <<EOF\nx\nEOF", 1),  # the arithmetic closes: a heredoc follows
+        ("echo $(( (a) ))\ncat <<EOF\nx\nEOF", 1),
+        ("(((cd a); cat <<EOF\nx\nEOF\n))", 0),  # `((` at the start: arithmetic, `<<` a shift
+        ("a(((cd a); cat <<EOF\nx\nEOF\n))", 0),
+        # the character before the `((` is a `)`: is_arith must start at the `((` itself
+        ("()((a<<b))\nfoo\nb", 0),
+        ("(x)((a<<b))\nfoo\nb", 0),
+        ("echo $(( 1 + $( (( 2 )) ) )) ; cat <<EOF\nx\nEOF", 1),
+        ("( (( x )) ) ; cat <<EOF\nx\nEOF", 1),
+        ("echo $((1<<2)) )\ncat <<EOF\nx\nEOF", 1),  # `))` closes the arithmetic
+        # a closed `((` must leave no frame behind that blocks the next `((` from being arithmetic
+        ("$( (( x )) ) ; (( m = 1 << n ))\nfoo\nn", 0),
+        ("( (( x )) ) ; (( m = 1 << n ))\nfoo\nn", 0),
+        ("((a<<b)) ) (\nfoo\nb", 0),  # `))` once, so the `<<` was inside arithmetic
+    ],
+)
+def test_arithmetic_frames_decide_whether_a_double_angle_is_a_heredoc(gc, text, bodies):
+    assert len(gc.strip_heredocs(text)[1]) == bodies, text
+
+
+def test_off_switch_names_each_given_option_that_is_on_in_order(monkeypatch):
+    from conftest import load_phylax_hooks
+
+    (options,) = load_phylax_hooks(monkeypatch, "git_options")
+    every = (*options.OPTIONS, *options.SHAPES)
+    for key in every:
+        monkeypatch.delenv(f"CLAUDE_PLUGIN_OPTION_{key.upper()}", raising=False)
+    assert options.off_switch(every) == (
+        "To switch it off, turn off the phylax option its option in /config, or run /phylax:setup."
+    )
+    monkeypatch.setenv("CLAUDE_PLUGIN_OPTION_BLOCK_SECRETS", "true")
+    monkeypatch.setenv("CLAUDE_PLUGIN_OPTION_BLOCK_PKILL_FULL", "true")
+    monkeypatch.setenv("CLAUDE_PLUGIN_OPTION_BLOCK_COMMITS_MD", "false")
+    monkeypatch.setenv("CLAUDE_PLUGIN_OPTION_WARN_MAIN_CHECKOUT_COMMIT", "true")
+    assert options.off_switch(every) == (
+        "To switch it off, turn off the phylax option warn_main_checkout_commit, block_secrets, "
+        "block_pkill_full in /config, or run /phylax:setup."
+    )
+    # only the options that could have refused are named: the warning and the shapes are not
+    assert options.off_switch(options.BLOCKING) == (
+        "To switch it off, turn off the phylax option block_secrets in /config, "
+        "or run /phylax:setup."
+    )
+
+
+def test_the_checks_share_one_time_budget(monkeypatch, tmp_path):
+    """Past the budget a git run fails the check with phylax's text, before the hook's own
+    timeout, which names no guard; a run inside it gets at most what is left."""
+    from conftest import load_phylax_hooks
+
+    gc, options, scan = load_phylax_hooks(monkeypatch, "git_checks", "git_options", "secret_scan")
+    assert options.BUDGET < 55  # register.ts's GUARD_TIMEOUT_MS, the shorter of the two
+    monkeypatch.setattr(options, "_START", options._START - options.BUDGET)
+    with pytest.raises(gc.GitUnavailable, match="budget"):
+        gc.run_git(tmp_path, [], "status")
+    with pytest.raises(scan.ScanError, match="budget"):
+        scan._run(["true"], tmp_path, {})
+    monkeypatch.setattr(options, "_START", options.time.monotonic() - options.BUDGET + 3)
+    assert 2 < options.time_left(20) <= 3
+    assert options.time_left(1) == 1
+
+
+def _options_off(monkeypatch, options):
+    for key in (*options.OPTIONS, *options.SHAPES):
+        monkeypatch.delenv(f"CLAUDE_PLUGIN_OPTION_{key.upper()}", raising=False)
+
+
+class _Clock:
+    """A stand-in for git_options' `time` module whose monotonic() reads `now`."""
+
+    def __init__(self, now: float):
+        self.now = now
+
+    def monotonic(self) -> float:
+        return self.now
+
+
+def test_the_budget_is_spent_at_zero_and_caps_what_is_left_below_one_second(monkeypatch):
+    from conftest import load_phylax_hooks
+
+    (options,) = load_phylax_hooks(monkeypatch, "git_options")
+    clock = _Clock(100.0)
+    monkeypatch.setattr(options, "time", clock)
+    monkeypatch.setattr(options, "_START", 100.0 - options.BUDGET)
+    with pytest.raises(TimeoutError, match="budget"):
+        options.time_left(20)
+    clock.now -= 0.5
+    assert options.time_left(20) == 0.5
+
+
+def test_a_git_timeout_names_the_subcommand_and_the_limit(monkeypatch, tmp_path):
+    from conftest import load_phylax_hooks
+
+    gc, options = load_phylax_hooks(monkeypatch, "git_checks", "git_options")
+    monkeypatch.setattr(options, "_START", options.time.monotonic())
+
+    def slow(argv, **kwargs):
+        raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+
+    monkeypatch.setattr(subprocess, "run", slow)
+    with pytest.raises(gc.GitUnavailable) as named:
+        gc.run_git(tmp_path, [], "status", timeout=7)
+    assert str(named.value) == "git status timed out after 7s"
+    with pytest.raises(gc.GitUnavailable) as bare:
+        gc.run_git(tmp_path, [], timeout=7)
+    assert str(bare.value) == "git  timed out after 7s"
+
+
+def test_a_check_with_no_folder_warns_in_antigravitys_shape(monkeypatch, capsys):
+    from conftest import load_phylax_hooks
+
+    gc, options = load_phylax_hooks(monkeypatch, "git_checks", "git_options")
+    _options_off(monkeypatch, options)
+    monkeypatch.setenv("CLAUDE_PLUGIN_OPTION_WARN_MAIN_CHECKOUT_COMMIT", "true")
+    data = {"toolCall": {"args": {"CommandLine": "git commit -m x"}}}
+    assert gc.check(data, "git commit -m x") == 0
+    why = options.unchecked("the hook input names no folder")
+    assert json.loads(capsys.readouterr().out) == {"decision": "allow", "reason": why}
+
+
+def test_a_shape_check_that_crashes_names_the_error_and_the_shape_options(monkeypatch, capsys):
+    from conftest import load_phylax_hooks
+
+    gg, shapes, options = load_phylax_hooks(
+        monkeypatch, "git_guards", "command_shapes", "git_options"
+    )
+    _options_off(monkeypatch, options)
+    monkeypatch.setenv("CLAUDE_PLUGIN_OPTION_BLOCK_PKILL_FULL", "true")
+
+    def broken(*args):
+        raise ValueError("boom")
+
+    monkeypatch.setattr(shapes, "check", broken)
+    payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": "pkill zz"}})
+    assert gg.check_shapes(payload, {"block_pkill_full"})[1] == 2
+    assert capsys.readouterr().err == (
+        "phylax shape guard error: ValueError: boom; the command was not run. To switch it off, "
+        "turn off the phylax option block_pkill_full in /config, or run /phylax:setup.\n"
+    )
+
+
+def test_main_marks_the_shapes_checked_before_the_git_checks(monkeypatch, tmp_path):
+    """The crash handler leaves the shape options out of the refusal once the shapes passed."""
+    import io
+
+    from conftest import load_phylax_hooks
+
+    gg, gc, options = load_phylax_hooks(monkeypatch, "git_guards", "git_checks", "git_options")
+    _options_off(monkeypatch, options)
+    monkeypatch.delenv("PHYLAX_GUARD_CHECKED", raising=False)
+    monkeypatch.setenv("CLAUDE_PLUGIN_OPTION_BLOCK_PKILL_FULL", "true")
+    monkeypatch.setenv("CLAUDE_PLUGIN_OPTION_WARN_MAIN_CHECKOUT_COMMIT", "true")
+
+    def broken(data, raw):
+        raise RuntimeError("after the shapes")
+
+    monkeypatch.setattr(gc, "check", broken)
+    payload = {"tool_name": "Bash", "tool_input": {"command": "pkill zz; git status"}}
+    payload["cwd"] = str(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["git_guards.py", "--shapes"])
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+    assert gg.shapes_checked is False
+    with pytest.raises(RuntimeError, match="after the shapes"):
+        gg.main()
+    assert gg.shapes_checked is True
+    assert gg.last_input == json.dumps(payload)  # the crash handler's warning reads its shape

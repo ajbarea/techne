@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -29,7 +30,10 @@ OPTIONS = (
     "block_secrets",
     "block_long_bodies",
     "block_gh_implicit_repo",
+    "block_background_loops",
+    "block_pkill_full",
     "require_subagent_model",
+    "email_greeting",
     "restart_on_update",
     "budget_mode",
 )
@@ -39,6 +43,12 @@ STUBS = {
     "tmux": "echo 'tmux 3.4'",
     "gitleaks": "echo 8.30.1",
 }
+
+
+def test_the_option_list_covers_every_switch_the_plugin_offers():
+    """args() switches only the options listed here, so a missing one is never tested on."""
+    config = json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text())["userConfig"]
+    assert OPTIONS == tuple(k for k, v in config.items() if v["type"] == "boolean")
 
 
 def args(**on):
@@ -73,7 +83,18 @@ def test_all_off_is_ready_and_checks_nothing_else(tmp_path, env):
     proc, found = doctor(tmp_path, args(), env, stubs={})
     assert proc.returncode == 0
     assert all(found[k][0] == "n/a" for k in OPTIONS)
-    for name in ("mod", "python3", "git", "proc", "launcher", "claude", "state-dir", "budget"):
+    for name in (
+        "mod",
+        "fail-closed",
+        "python3",
+        "git",
+        "proc",
+        "launcher",
+        "claude",
+        "state-dir",
+        "budget",
+        "denied-calls",
+    ):
         assert found[name][0] == "n/a", name
 
 
@@ -98,7 +119,18 @@ def test_a_value_the_hooks_do_not_read_as_true_is_named_and_off(tmp_path, env, o
     status, detail = found[option]
     assert status == "n/a" and detail.startswith(f"set to {value!r}") and "so off" in detail
     # Nothing the option needs is checked, since it is off.
-    for name in ("mod", "python3", "git", "proc", "launcher", "claude", "state-dir", "budget"):
+    for name in (
+        "mod",
+        "fail-closed",
+        "python3",
+        "git",
+        "proc",
+        "launcher",
+        "claude",
+        "state-dir",
+        "budget",
+        "denied-calls",
+    ):
         assert found[name][0] == "n/a", (option, name)
 
 
@@ -116,6 +148,15 @@ def test_guards_on_needs_python3_and_git(tmp_path, env):
     old = {**STUBS, "python3": "echo 3.8.10"}
     proc, found = doctor(tmp_path, args(block_commits_md=True), env, stubs=old)
     assert found["python3"][0] == "missing" and "need 3.9 or newer" in found["python3"][1]
+
+
+@pytest.mark.parametrize("option", ["block_background_loops", "block_pkill_full"])
+def test_a_shape_guard_needs_python3_only(tmp_path, env, option):
+    proc, found = doctor(tmp_path, args(**{option: True}), env, links=())
+    assert proc.returncode == 0
+    assert found[option] == ("ok", "on")
+    assert found["python3"][0] == "ok"
+    assert found["git"][0] == "n/a" and found["mod"][0] == "n/a"
 
 
 def test_subagent_model_needs_python3_only(tmp_path, env):
@@ -151,6 +192,24 @@ def test_mod_line_names_what_each_version_does(tmp_path, env, version, state, sa
     stubs = {**STUBS, "claude": f"echo '{version} (Claude Code)'"}
     _, found = doctor(tmp_path, args(block_attribution_trailers=True), env, stubs=stubs)
     assert found["mod"][0] == state and says in found["mod"][1]
+
+
+@pytest.mark.parametrize(
+    ("version", "state", "says"),
+    [
+        ("2.1.294", "optional", "ignores onFailure"),
+        ("2.1.295", "ok", "refuses a call when its guard crashes"),
+    ],
+)
+@pytest.mark.parametrize("option", ["block_secrets", "block_pkill_full", "email_greeting"])
+def test_fail_closed_line_names_whether_a_crash_refuses(
+    tmp_path, env, version, state, says, option
+):
+    stubs = {**STUBS, "claude": f"echo '{version} (Claude Code)'"}
+    proc, found = doctor(tmp_path, args(**{option: True}), env, stubs=stubs)
+    assert found["fail-closed"][0] == state and says in found["fail-closed"][1]
+    if state == "optional":
+        assert "  fix: claude update" in proc.stdout.splitlines()
 
 
 def test_restart_on_without_proc(tmp_path, env):
@@ -485,3 +544,33 @@ def test_email_timezone_is_na_while_the_greeting_is_off():
         c.name: c for c in m.checks(platform, on, m.parse_values(["email_timezone=Mars/Olympus"]))
     }
     assert found["email-timezone"].status == "missing"
+
+
+def test_fail_closed_line_skips_the_warning_guard_that_never_refuses(tmp_path, env):
+    _, found = doctor(tmp_path, args(warn_main_checkout_commit=True), env)
+    assert found["fail-closed"][0] == "n/a"
+
+
+def test_denied_calls_counts_this_weeks_denials_and_next_calls(tmp_path, monkeypatch):
+    m = _doctor_module()
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+    assert m.denied_calls(False).status == "n/a"
+    assert m.denied_calls(True).detail.startswith("0 denials, 0 with the next call")
+
+    log = tmp_path / "phylax" / "denied-calls.jsonl"
+    log.parent.mkdir(parents=True)
+    now = 1_000_000_000.0
+    monkeypatch.setattr("time.time", lambda: now)
+    week_old = now - 8 * 86400
+    rows = [
+        {"event": "deny", "epoch": now - 3600},
+        {"event": "next_call", "epoch": now - 3500},
+        {"event": "deny", "epoch": week_old},
+        {"event": "other", "epoch": now},
+        {"event": "deny"},
+    ]
+    log.write_text("\n".join(json.dumps(r) for r in rows) + "\nnot json\n")
+    log.with_suffix(".jsonl.1").write_text(json.dumps({"event": "deny", "epoch": now - 60}) + "\n")
+    check = m.denied_calls(True)
+    assert check.status == "ok"
+    assert check.detail.startswith("2 denials, 1 with the next call, in the last 7 days")

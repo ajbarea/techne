@@ -100,7 +100,7 @@ Above the `SUMMARY` block, each output line is tagged `[<time>] [OUT  ] [<target
 
 ## `.claude/skill-context.md` (per-repo skill config)
 
-Several skills read a single per-repo file at `.claude/skill-context.md`. They read it from the current directory's git root when they load, headed by that root's path. A skill pointed at a path in another repo re-reads it from that repo with `_shared/skill_context.sh <target>`. The skeleton ships with the techne plugin as [`skill-context.template.md`](https://github.com/ajbarea/techne/blob/main/plugins/techne/skills/setup/skill-context.template.md). `/techne:setup` offers to copy it into a repo that has none. Keep the sections for the skills you use and delete the rest.
+Several skills read a single per-repo file at `.claude/skill-context.md`. They read it from the current directory's git root when they load, headed by that root's path. A skill pointed at a path in another repo re-reads it from that repo with `_shared/skill_context.sh <target>`. `techne:elenchus` reads it as committed on the default branch's commit (`skill_context.sh --base=<id> --head=<id> <target>`, full commit ids from the host only), so a pull request cannot edit the hints that review it. The skeleton ships with the techne plugin as [`skill-context.template.md`](https://github.com/ajbarea/techne/blob/main/plugins/techne/skills/setup/skill-context.template.md). `/techne:setup` offers to copy it into a repo that has none. Keep the sections for the skills you use and delete the rest.
 
 Each `##` section maps to one skill family. Adopt only the sections for the skills you intend to use. A skill whose section is absent either stops and points you to `/techne:setup` (`audit`, `theoros`) or falls back to generic defaults (`docs-site`, `deslop`, `reslop`, `elenchus`, `research-grounded`, `latex`, `paper-review`).
 
@@ -214,11 +214,13 @@ SHA-pinned workflow runs exactly the code you reviewed.
   before the bump PR lands. research(2026-05): GitHub Docs "Secure use reference";
   CNCF "Securing GitHub Actions CI dependencies" recipe (2026-05-04).
 - **Keep it pinned** with `make guards` (`scripts/check_action_pins.sh`), which fails
-  the build if any remote `uses:` ref is not a full SHA. Local (`./…`) and
+  the build if any remote `uses:` ref is not a full SHA. Local (`./…`, `$/…`) and
   `docker://…` refs are exempt. A workflow a skill ships as a template (under
   `plugins/*/skills/*/templates/`) must also pin each action at a SHA a live workflow
   uses. Dependabot updates both when the template's folder is listed in
-  `.github/dependabot.yml`; the guard fails when the two drift apart.
+  `.github/dependabot.yml`; the guard fails when the two drift apart. A sister repository can run
+  the same check with techne's composite action, after `actions/checkout`
+  (`uses: ajbarea/techne/.github/actions/check-action-pins@<SHA>`); it fails when the workspace has no workflows.
 
 **Enforced by:** `make guards` (techne dogfoods this in its own `validate.yml`).
 **Audited by:** `techne:sisters` (action-pin consistency across the fleet).

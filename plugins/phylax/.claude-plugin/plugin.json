@@ -52,6 +52,18 @@
       "description": "Refuse a gh command that may change a repo (any gh group that can act on the resolved repo, its reads excepted, and gh api writes to {owner}/{repo}) and names none (-R, GH_REPO, or an item URL first) unless every remote of the clone names one repo, so a fork clone's upstream remote or a default set on the parent cannot take the write. Fires for subagents too.",
       "default": false
     },
+    "block_background_loops": {
+      "type": "boolean",
+      "title": "Block untimed background wait loops",
+      "description": "Refuse a background Bash command, or one with a & (which backgrounds something in it), whose while or until loop neither a nonzero timeout nor a $SECONDS test bounds, and name the bounded forms: timeout N bash -c '...', or gh pr checks N --watch --fail-fast. Fires for subagents too.",
+      "default": false
+    },
+    "block_pkill_full": {
+      "type": "boolean",
+      "title": "Block pkill -f and pgrep -f",
+      "description": "Refuse pkill -f and pgrep -f, whose pattern also matches the calling shell's own command line, and name kill on the PID you started, or pkill -x NAME. Fires for subagents too.",
+      "default": false
+    },
     "require_subagent_model": {
       "type": "boolean",
       "title": "Require a model on subagent calls",

@@ -183,19 +183,13 @@
     box.appendChild(fig);
   }
 
-  // "2 · How it works" is shown as a Roman numeral and the name, "II How it works", on the kickers,
-  // the agenda and the rail. The source keeps the plain form, which the gates and exports read.
-  const ROMAN = [[10, "X"], [9, "IX"], [5, "V"], [4, "IV"], [1, "I"]];
-  function roman(n) {
-    let out = "";
-    for (const [v, r] of ROMAN) while (n >= v) { out += r; n -= v; }
-    return out;
-  }
+  // "2 · How it works" is shown as a number and the name on the kickers, the agenda and the rail.
+  // The source keeps the plain form, which the gates and exports read.
   function chapterInto(node, text) {
     const m = /^(\d+)\s*·\s*(.+)$/.exec(text.trim());
     if (!m) return;
     node.textContent = "";
-    html("span", { class: "num" }, node, roman(Number(m[1])));
+    html("span", { class: "num" }, node, m[1]);
     node.append(` ${m[2]}`);
   }
 

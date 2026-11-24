@@ -9,7 +9,7 @@ import sys
 import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "scripts"))
-import review_loop_mine as m  # ty: ignore[unresolved-import]
+import review_loop_mine as m  # ty: ignore[import-not-found]
 
 SLUGS = ["boundary-input", "claim-code-drift", "unmirrored-parallel-guard", "vacuous-guard"]
 KNOWN = {"techne", "klepsydra"}

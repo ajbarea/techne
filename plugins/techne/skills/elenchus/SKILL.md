@@ -49,15 +49,21 @@ The author's pre-flight, before the first round:
 
 ## Repo context
 
-```!
-echo "<!-- skill-context: $(git rev-parse --show-toplevel 2>/dev/null || pwd) -->"; cat "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/skill-context.md" 2>/dev/null || echo "(no .claude/skill-context.md in this repo)"
+A change must not edit the rules that judge it, so elenchus never loads the working tree's `.claude/skill-context.md`, which a PR can edit. It reads the file as committed on the **default branch's commit**. Both ids come from the host as full commit ids, never a ref name, since a local ref can be the change wearing the base's name; the base is the default branch even for a stacked PR, whose own base is a branch its author controls:
+```bash
+repo=<owner/name>   # the repo under review, which may not be the current folder's
+base=$(gh api "repos/$repo/commits/HEAD" --jq .sha)
+head=$(gh pr view <N> -R "$repo" --json headRefOid --jq .headRefOid)
+bash "<plugin-root>/_shared/skill_context.sh" --base="$base" --head="$head" <target-path>
 ```
+Before a PR, review the checkout itself: drop `--head` (and pass no head to `own_checks.py`, which then adds the uncommitted and untracked files).
+A base that holds the head is refused, since it is the change itself, and so is one whose shared history a shallow clone hides. When the script says a commit is missing, `git fetch origin <id>` (or `git fetch --unshallow`) and run it again; when it says the base has no `.claude/skill-context.md`, review without hints and say so in the report. Any other file from the base goes through the same guarded read, such as the catalog when reviewing techne itself: `bash "<plugin-root>/_shared/skill_context.sh" --base="$base" --head="$head" --file=plugins/techne/skills/elenchus/references/bug-classes.md <target-path>`.
 
-If the block above appears as a command rather than its output, run it and use what it prints.
+No context file: elenchus still runs with no hints; infer the test and run commands from the Makefile or ask. Add an optional `## elenchus` block for repo-specific hints; see Scaffolding below.
 
-No context file: elenchus still runs with no hints; infer the test and run commands from the Makefile or ask. Add an optional `## elenchus` block for repo-specific hints; see Scaffolding below. The header names the repo it came from, which is the current directory's. When the target is a path in another repo, run `bash "<plugin-root>/_shared/skill_context.sh" <target-path>` and use that output instead.
+Read the `## elenchus` section if present (optional hints — known destructive ops, load-bearing surfaces, reproduce recipes, what "the feature works" means here).
 
-Read the `## elenchus` section if present (optional hints — known destructive ops, load-bearing surfaces, reproduce recipes, what "the feature works" means here). For the commands to actually *run* the code, fall back in order to `## audit` (lint/test targets), `## theoros` (`repl_command`), then the repo `Makefile`. With no hints it needs no config.
+For the commands to actually *run* the code, fall back in order to `## audit` (lint/test targets), `## theoros` (`repl_command`), then the repo `Makefile`. With no hints it needs no config.
 
 ## Protocol
 
@@ -65,6 +71,8 @@ Run the phases your role covers (see **The cardinal rule**), in order. Do not sk
 
 ### Phase 0 — Frame the load-bearing claim
 State, in one sentence, the single claim the change rests on ("this fix makes X portable", "this feature lets the model cite summaries", "this refactor is behavior-preserving"). That claim is your hypothesis to break. Everything after is an attempt to find the input, state, or path that falsifies it.
+
+**Edits its own check:** run `python3 "<plugin-root>/skills/elenchus/scripts/own_checks.py" --repo <target-path> --head "$head" "$base"` (the same ids; it prints the head it read, and marks a file only named by a gate file as the weaker signal). It lists the changed files that are part of the change's own checks (CI and hooks, tests, tool config such as `pyproject.toml` and `Makefile` at the repo root, a package folder's config files (`web/tsconfig.json`), any file but prose in a dot-folder, and any dotfile but prose, at any depth (`.cargo/config.toml`, `.prettierrc`), `.claude/`, review rules, the guard plugin, and any file the base's workflows, git hooks or tool config names). Report each under **Edits its own check** and confirm the change weakens none of them: no test deleted or loosened, no gate skipped, no budget widened. The list is found by location (the repo root, dot-folders, a package's folder), name and file shape, so it cannot know every tool's config: a file it leaves out is not cleared, and a reader still judges every changed file that could hold a rule.
 
 ### Phase 1 — Drive the engine
 - **Author:** in the high tier, run `/code-review high` on the change first. Then dispatch the reader with `model` set explicitly to the strongest model the session can dispatch: `opus`, or the session's own model when it is stronger, such as `fable` (an unset model falls back to a default, usually the author's session model, which may be a cheaper one; review is the step that most needs the strongest reasoner), this prompt, and the `/code-review` findings, if any, and **no authorship narrative**: "You are the dispatched reader for techne:elenchus. Read <path to this SKILL.md>, then its bug-class catalog. Review <PR number or branch> as the dispatched reader. Tier run: <high or light>. Deferred-findings ledger: <where it is, or none>. Classes found in earlier rounds: <slugs, or none>. Open findings from earlier rounds: <each with its class and file:line, or none>. Run Phases 0 to 4 once and return the report. Do not dispatch another reviewer, post, or run a review loop." Relay its report as Phase 4.
@@ -112,7 +120,11 @@ The rubric is the catalog's core section, nine classes walked on every review: d
 
 ## Output format
 
-Severity-ranked, most-actionable first. Each finding:
+Severity-ranked, most-actionable first. Header fields:
+- **Reviewed head** — the full SHA the review read (`gh pr view <N> --json headRefOid`, or `git rev-parse HEAD` for a local branch). A push after it means the verdict no longer applies: a new round reviews the new head.
+- **Edits its own check** — `none`, or each file `own_checks.py` listed, with whether any check was weakened
+
+Each finding:
 
 - **Severity** — Blocking / Should-fix / Minor / Informational
 - **Class** — the catalog slug, such as `unmirrored-parallel-guard`, or `new: <short name>` when no class fits; required on every Blocking and Should-fix finding
@@ -121,7 +133,7 @@ Severity-ranked, most-actionable first. Each finding:
 - **Failure scenario** — concrete inputs/state → wrong output/crash, and the reachable path to it
 - **Fix** — the deep fix, with a regression test that locks it
 
-Close with: a one-line **merge verdict** (mergeable / hold on finding #N / not mergeable + why), and a **Verified clean** list of what you checked and cleared.
+Close with: a one-line **merge verdict** (mergeable / hold on finding #N / not mergeable + why), the **Reviewed head**, and a **Verified clean** list of what you checked and cleared.
 
 ## When the review loop ends
 
@@ -158,7 +170,7 @@ gh pr view <N> --json author --jq .author.login      # who opened the PR
 
 **Author ≠ account owner** — the comment is, in order:
 
-1. **Merge verdict** — one line: mergeable / hold on finding #N / not mergeable + why.
+1. **Merge verdict** — one line: mergeable / hold on finding #N / not mergeable + why, and the short head SHA it applies to (`at abc1234`).
 2. **Findings** — Blocking and Should-fix only, each as: `path:line` — one-line failure scenario — the fix.
 3. **Verified clean** — the one-line list of what was scrutinized and cleared.
 

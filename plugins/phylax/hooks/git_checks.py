@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import hook_output
 from git_options import (
     ATTRIBUTION,
     BLOCKING,
@@ -27,8 +28,11 @@ from git_options import (
     IMPLICIT_REPO,
     MAIN_CHECKOUT,
     SECRETS,
+    blocking_on,
     failed,
     option_on,
+    time_left,
+    unchecked,
 )
 
 ATTRIBUTION_RE = re.compile(
@@ -78,17 +82,30 @@ COMMIT_LONG_VALUE = {
 COMMIT_LONG_KNOWN = COMMIT_LONG_VALUE | {"--all", "--include", "--only"}
 ADD_SUBCOMMANDS = {"add", "stage"}
 # Words that run the next command: wrapper -> (flags taking a value, flags naming a dir).
+# A wrapper named by its path (`/usr/bin/sudo`) is the same wrapper.
 WRAPPERS: dict[str, tuple[set[str], set[str]]] = {
-    "env": ({"-u", "-S"}, {"-C", "--chdir"}),
+    "env": ({"-u", "-S", "--unset", "--split-string"}, {"-C", "--chdir"}),
     "command": (set(), set()),
     "builtin": (set(), set()),
     "exec": ({"-a"}, set()),
-    "time": ({"-f", "-o"}, set()),
-    "nice": ({"-n"}, set()),
+    "time": ({"-f", "-o", "--format", "--output"}, set()),
+    "nice": ({"-n", "--adjustment"}, set()),
     "nohup": (set(), set()),
-    "timeout": ({"-k", "-s"}, set()),
-    "sudo": ({"-u", "-g", "-h", "-p", "-C", "-r", "-t", "-U"}, {"-D", "--chdir"}),
-    "xargs": ({"-I", "-d", "-L", "-P", "-a", "-E", "-s", "-n"}, set()),
+    "setsid": (set(), set()),
+    "ionice": ({"-c", "-n", "--class", "--classdata"}, set()),
+    "unbuffer": (set(), set()),
+    "doas": ({"-u", "-C"}, set()),
+    "stdbuf": ({"-i", "-o", "-e", "--input", "--output", "--error"}, set()),
+    "timeout": ({"-k", "-s", "--kill-after", "--signal"}, set()),
+    "gtimeout": ({"-k", "-s", "--kill-after", "--signal"}, set()),  # Homebrew coreutils
+    "sudo": (
+        {"-u", "-g", "-h", "-p", "-C", "-r", "-t", "-U", "--user", "--group", "--host", "--prompt"},
+        {"-D", "--chdir"},
+    ),
+    "xargs": (
+        {"-I", "-d", "-L", "-P", "-a", "-E", "-s", "-n", "--delimiter", "--arg-file", "--max-args"},
+        set(),
+    ),
 }
 # Shell keywords that can precede a command in a list or compound command.
 RESERVED = {"{", "}", "!", "if", "then", "else", "elif", "fi", "do", "done", "while", "until"}
@@ -419,17 +436,22 @@ def run_git(
         raise GitUnavailable(_git_down)
     import subprocess
 
+    try:
+        limit = time_left(timeout)
+    except TimeoutError as exc:
+        raise GitUnavailable(str(exc)) from exc
+
     env = {**os.environ, "GIT_OPTIONAL_LOCKS": "0", **(env or {})}
     try:
         proc = subprocess.run(
             [*GIT_BASE, "-C", str(cwd), *repo_args, *args],
             capture_output=True,
             text=True,
-            timeout=timeout,
+            timeout=limit,
             env=env,
         )
     except subprocess.TimeoutExpired as exc:
-        why = f"git {args[0] if args else ''} timed out after {timeout:g}s"
+        why = f"git {args[0] if args else ''} timed out after {limit:g}s"
         if timeout == GIT_TIMEOUT:
             _git_down = why
         raise GitUnavailable(why) from exc
@@ -437,6 +459,44 @@ def run_git(
         _git_down = f"git could not run: {exc}"
         raise GitUnavailable(_git_down) from exc
     return proc.stdout if proc.returncode == 0 or not check else None
+
+
+ARITH_SCAN = 2000
+
+
+def in_arithmetic(stack: list[str]) -> bool:
+    """Whether the innermost open frame, past plain `(` groups inside it, is arithmetic
+    (`$(( (a<<b) ))`): there `<<` is a shift. A `$(` inside arithmetic runs commands."""
+    for frame in reversed(stack):
+        if frame != "(":
+            return frame == "(("
+    return False
+
+
+def is_arith(text: str, start: int) -> bool:
+    """Whether the `((` at TEXT[START] opens arithmetic: its inner paren closes right before the
+    outer one (`((1+1))`, `((a*(b+c)))`), not earlier (`((cd a); (cd b))` is two subshells)."""
+    depth, inner, j = 0, None, start
+    # Arithmetic is short; looking no further than ARITH_SCAN keeps deep nesting linear.
+    stop = min(len(text), start + ARITH_SCAN)
+    while j < stop:
+        char = text[j]
+        if char in "'\"":  # a paren in quotes is text: skip to the closing quote
+            j = text.find(char, j + 1)
+            if j < 0:
+                break
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 1 and inner is None:
+                inner = j
+            if depth == 0:
+                return inner == j - 1
+        j += 1
+    # Past the scan, or never closed: read it as arithmetic. The other mistake, taking
+    # arithmetic for subshells, would read its `<<` as a heredoc and hide the lines after it.
+    return True
 
 
 def strip_heredocs(text: str) -> tuple[str, list[tuple[str, str, bool]]]:
@@ -514,7 +574,7 @@ def strip_heredocs(text: str) -> tuple[str, list[tuple[str, str, bool]]]:
             out.append(ch)
             i += 1
             continue
-        if ch == "#" and (i == 0 or text[i - 1] in " \t\n;&|()"):
+        if ch == "#" and top != "${" and (i == 0 or text[i - 1] in " \t\n;&|()"):
             j = text.find("\n", i)
             i = n if j < 0 else j
             continue
@@ -530,8 +590,26 @@ def strip_heredocs(text: str) -> tuple[str, list[tuple[str, str, bool]]]:
             out.append("$(")
             i += 2
             continue
-        elif ch == ")" and top == "$(":
+        elif text.startswith("${", i):
+            stack.append("${")
+            out.append("${")
+            i += 2
+            continue
+        elif ch == "}" and top == "${":
             stack.pop()
+        elif ch == "(" and top != "${":
+            # `((` and `$((` open arithmetic, where `<<` is a shift: both parens are frames
+            # of their own, so the `))` that closes it pops both. Any other `(` is a subshell,
+            # a group or a process substitution that its own `)` closes.
+            if text[i - 1 : i] == "(" and top in ("(", "$(") and is_arith(text, i - 1):
+                stack[-1] = "(("
+                stack.append("((")
+            else:
+                stack.append("(")
+        elif ch == ")" and top in ("$(", "(", "(("):
+            stack.pop()
+        elif ch == "<" and in_arithmetic(stack):
+            pass  # a shift, not a heredoc
         elif ch == "<":
             m = HEREDOC_RE.match(text, i)
             if m and not text.startswith("<<<", i) and not text.endswith("<", 0, i):
@@ -662,26 +740,58 @@ def drop_redirections(argv: list[str]) -> list[str]:
     return out
 
 
+# Folders the system's own tools live in: `/usr/bin/sudo` is sudo, `./sudo` is a script.
+SYSTEM_BINS = {
+    "/usr/bin", "/bin", "/usr/local/bin", "/usr/sbin", "/sbin", "/usr/local/sbin",
+    "/opt/homebrew/bin", "/opt/homebrew/sbin", "/opt/homebrew/opt/coreutils/libexec/gnubin",
+    "/usr/local/opt/coreutils/libexec/gnubin", "/run/current-system/sw/bin",
+    "/nix/var/nix/profiles/default/bin", "/snap/bin",
+}  # fmt: skip
+
+
+def wrapper_name(word: str) -> str:
+    """The command WORD names: the bare name, or the basename of a path into a system folder;
+    a path anywhere else (`./time`, `scripts/timeout`) is a program of its own, so ''."""
+    if "/" not in word:
+        return word
+    folder, _, name = word.rpartition("/")
+    return name if folder in SYSTEM_BINS else ""
+
+
 def unwrap(argv: list[str]) -> tuple[list[str], list[str]]:
     """Strip leading assignments and wrappers; return the command and any chdir targets."""
+    out, chdirs, _ = unwrap_wrappers(argv)
+    return out, chdirs
+
+
+def unwrap_wrappers(argv: list[str]) -> tuple[list[str], list[str], list[tuple[str, list[str]]]]:
+    """As unwrap, and each wrapper it stripped: its name and the words it took (its options and
+    their values, and for `timeout` its duration, last)."""
     out = list(argv)
     chdirs: list[str] = []
-    while out and (ASSIGNMENT_RE.match(out[0]) or out[0] in WRAPPERS or out[0] in RESERVED):
+    wrappers: list[tuple[str, list[str]]] = []
+    while out and (
+        ASSIGNMENT_RE.match(out[0]) or wrapper_name(out[0]) in WRAPPERS or out[0] in RESERVED
+    ):
         word = out.pop(0)
-        if word not in WRAPPERS:
+        if ASSIGNMENT_RE.match(word) or wrapper_name(word) not in WRAPPERS:
             continue
+        word = wrapper_name(word)
         value_flags, chdir_flags = WRAPPERS[word]
+        took: list[str] = []
         while out and out[0].startswith("-") and out[0] != "-":
-            flag, eq, value = out.pop(0).partition("=")
+            took.append(out.pop(0))
+            flag, eq, value = took[-1].partition("=")
             if flag == "--":
                 break
             if flag in chdir_flags and (eq or out):
                 chdirs.append(value if eq else out.pop(0))
             elif flag in value_flags and not eq and out:
-                out.pop(0)
-        if word == "timeout" and out:
-            out.pop(0)
-    return out, chdirs
+                took.append(out.pop(0))
+        if word in ("timeout", "gtimeout") and out:
+            took.append(out.pop(0))
+        wrappers.append((word, took))
+    return out, chdirs, wrappers
 
 
 def expand(text: str, env: dict[str, str], unknown: str | None = "") -> str:
@@ -1077,25 +1187,26 @@ def parse_gh_api(args: list[str]) -> tuple[str | None, list[tuple[str, str]]]:
 
 
 class Verdict:
-    def __init__(self) -> None:
+    def __init__(self, agy: bool = False) -> None:
         self.denies: list[str] = []
+        # The guard option each refusal in denies came from, in the same order.
+        self.guards: list[str] = []
         self.warnings: list[str] = []
+        self.agy = agy
+
+    def deny(self, guard: str, why: str) -> None:
+        self.denies.append(why)
+        self.guards.append(guard)
+
+    def reason(self) -> str:
+        """The refusals, each once, in the order they were made."""
+        return "\n".join(dict.fromkeys(self.denies))
 
     def emit(self) -> None:
         if self.denies:
-            out = {
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "permissionDecision": "deny",
-                    "permissionDecisionReason": "\n".join(dict.fromkeys(self.denies)),
-                }
-            }
+            out = hook_output.deny(self.reason(), self.agy)
         elif self.warnings:
-            text = "\n".join(self.warnings)
-            out = {
-                "systemMessage": text,
-                "hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": text},
-            }
+            out = hook_output.warn("\n".join(self.warnings), self.agy)
         else:
             return
         json.dump(out, sys.stdout)
@@ -1153,7 +1264,7 @@ class Guards:
                 "folder first."
             )
             if key in BLOCKING:
-                self.verdict.denies.append(why)
+                self.verdict.deny(key, why)
             elif why not in self.errors:
                 self.errors.append(why)
             return False
@@ -1208,19 +1319,21 @@ class Guards:
         for text in scan:
             for line in text.splitlines():
                 if ATTRIBUTION_RE.search(line):
-                    self.verdict.denies.append(
+                    why = (
                         f"phylax: {what} carries an attribution line: {line.strip()!r}. "
                         "Remove it and retry. To allow attribution lines in this repo, run "
                         f"`git config {repo_key(ATTRIBUTION)} false`."
                     )
+                    self.verdict.deny(ATTRIBUTION, why)
                     return
 
     def deny_scratch(self, how: str) -> None:
-        self.verdict.denies.append(
+        why = (
             f"phylax: {how}. COMMITS.md is a local scratchpad and never goes in a commit. "
             "Unstage it with `git restore --staged COMMITS.md` if needed, and retry without it. "
             f"To allow it in this repo, run `git config {repo_key(COMMITS_MD)} false`."
         )
+        self.verdict.deny(COMMITS_MD, why)
 
     def check_add(self, cmd: Command) -> None:
         if not self.enabled(COMMITS_MD, cmd):
@@ -1427,12 +1540,13 @@ class Guards:
             name, findings = secret_scan.scan(kind, top, git_env, log_opts, tmp)
         except secret_scan.ScanError as exc:
             secret_scan.log_event({**event, "outcome": "no_verdict", "reason": str(exc)})
-            self.verdict.denies.append(
+            why = (
                 f"phylax: {what} was not run because the secret scan gave no verdict: {exc}. "
                 "Retry it as a command of its own; if it fails again, stop and ask the user. "
                 f"Switching the guard off (`git config {repo_key(SECRETS)} false`) is the user's "
                 "call, not yours."
             )
+            self.verdict.deny(SECRETS, why)
             return
         if not findings:
             return
@@ -1446,13 +1560,14 @@ class Guards:
         )
         shown = "; ".join(f.where() for f in findings[:5])
         more = f" and {len(findings) - 5} more" if len(findings) > 5 else ""
-        self.verdict.denies.append(
+        why = (
             f"phylax: {what} would add a secret ({name}): {shown}{more}. Remove it and use a "
             "placeholder the scanner accepts or a value made at runtime (a test fixture included); "
             "unstage with `git restore --staged <file>`, and for a pushed-to-be commit rewrite it "
             "before pushing. Do not silence the scanner: GitHub's own scan would still flag it. "
             "If you believe it is a false positive, stop and ask the user."
         )
+        self.verdict.deny(SECRETS, why)
 
     def check_main_checkout(self, cmd: Command) -> None:
         if not self.enabled(MAIN_CHECKOUT, cmd):
@@ -1725,14 +1840,14 @@ class Guards:
         # before one takes the word after it: `gh pr -b review TEXT 1`.
         rest = [a for j, a in enumerate(argv) if j and j not in at]
         if unknown is not None:
-            if self.enabled(BODIES, Command(cwd), local=False) or self.enabled(
-                ATTRIBUTION, Command(cwd), local=False
-            ):
-                self.verdict.denies.append(
+            on = [g for g in (BODIES, ATTRIBUTION) if self.enabled(g, Command(cwd), local=False)]
+            if on:
+                why = (
                     f"phylax: `gh` is given {TAG_RE.sub(')', unknown)} before its subcommand, a "
                     "value this check cannot know, so it cannot tell which subcommand runs or "
                     "what it sends. Write the gh command out in full."
                 )
+                self.verdict.deny(on[0], why)
             elif not (words and words[0] in GH_NO_REPO):
                 # Which subcommand runs is unknown, so it is checked as a write.
                 self.check_gh_target([*words, unknown], argv, at, cwd, env)
@@ -1755,7 +1870,8 @@ class Guards:
                 import body_gate
 
                 denies, warnings = body_gate.check(kind, body)
-                self.verdict.denies.extend(denies)
+                for why in denies:
+                    self.verdict.deny(BODIES, why)
                 self.verdict.warnings.extend(warnings)
 
     def acts_on_resolved_repo(self, words: list[str], argv: list[str], at: list[int]) -> bool:
@@ -1836,11 +1952,12 @@ class Guards:
         if repo is not None:
             return
         meant = repo_flag(home) if home else "HOST/OWNER/NAME"
-        self.verdict.denies.append(
+        self.verdict.deny(
+            IMPLICIT_REPO,
             f"phylax: `gh {' '.join(words)}` names no repo, and {why}, so which one gh acts on "
             "depends on its remote order, `gh repo set-default` (which some commands ignore) "
             f"and the hosts it is signed in to. Name it: add `-R {meant}`. "
-            f"To allow this in this repo, run `git config {repo_key(IMPLICIT_REPO)} false`."
+            f"To allow this in this repo, run `git config {repo_key(IMPLICIT_REPO)} false`.",
         )
 
     def substitution(self, groups: list[list[str]], k: int, cwd: Path, env: dict[str, str]) -> str:
@@ -1971,11 +2088,12 @@ class Guards:
         if self.stdin_heredoc is not None:
             return self.heredoc_text(self.stdin_heredoc, cwd, env)
         if self.stdin_odd:
-            self.verdict.denies.append(
+            why = (
                 "phylax: this body comes on stdin through a redirect this check cannot follow, "
                 "so its length cannot be checked first. Write the body to a file in its own "
                 "call, then send it with --body-file."
             )
+            self.verdict.deny(BODIES, why)
             return None
         if self.stdin_other is None:
             return None
@@ -1983,10 +2101,11 @@ class Guards:
         if kind == "<" and word in STDIN_PATHS:
             if self.stdin_redirects > 1:
                 # It reopens the redirect before it, which this check does not track.
-                self.verdict.denies.append(
+                why = (
                     f"phylax: `< {word}` after another stdin redirect reopens it, so the body's "
                     "length cannot be checked first. Give the body one redirect, or a file."
                 )
+                self.verdict.deny(BODIES, why)
             return None  # the shell's own stdin, passed through: not seen
         if kind == "<":
             return self.body_file(word, cwd, env)
@@ -2004,42 +2123,47 @@ class Guards:
         if path == "/dev/null":
             return ""
         if not path:
-            self.verdict.denies.append(
+            why = (
                 "phylax: the body file has an empty name, or is a process substitution "
                 "(`<(...)`), whose text this check cannot read first. Write the body to a file "
                 "in its own call."
             )
+            self.verdict.deny(BODIES, why)
             return None
         if key not in self.written and ("$" in path or "`" in path):
-            self.verdict.denies.append(
+            why = (
                 f"phylax: the body file {TAG_RE.sub(')', path).replace(chr(0), '')} is named "
                 "through a value this "
                 "check cannot know, so its length cannot be checked first. Name the file directly."
             )
+            self.verdict.deny(BODIES, why)
             return None
         if key not in self.written and os.path.exists(target) and not os.path.isfile(target):
-            self.verdict.denies.append(
+            why = (
                 f"phylax: the body file {path} is no regular file (a folder, pipe or device), so "
                 "its length cannot be checked first. Write the body to a file in its own call."
             )
+            self.verdict.deny(BODIES, why)
             return None
         if key in self.written:
             index = self.written[key]
             if index is None:
-                self.verdict.denies.append(
+                why = (
                     f"phylax: this command writes or may change {TAG_RE.sub(')', path)} before it "
                     "sends it as a "
                     "body, so its length cannot be checked first. Write the body file in its "
                     "own call."
                 )
+                self.verdict.deny(BODIES, why)
                 return None
             text = self.written_text(index)
             if text is None:
-                self.verdict.denies.append(
+                why = (
                     f"phylax: {path} was written from an unquoted heredoc holding `$` or a "
                     "backtick, which bash expanded where it was written, so its length cannot "
                     "be checked first. Quote the delimiter (<<'EOF') or write it in its own call."
                 )
+                self.verdict.deny(BODIES, why)
             return text
         return read_message_file(path, cwd)
 
@@ -2053,18 +2177,20 @@ class Guards:
             value = resolved
         unset = UNSET_VAR_RE.search(value)
         if unset:
-            self.verdict.denies.append(
+            why = (
                 f"phylax: this body names {unset.group(0)}, which this command does not set "
                 "with a plain NAME=value, so its length cannot be checked first. Write the "
                 "body to a file in its own call, then send it with --body-file."
             )
+            self.verdict.deny(BODIES, why)
             return None
         if "$(" in HEREDOC_SUBST_RE.sub("", value):
-            self.verdict.denies.append(
+            why = (
                 "phylax: this body holds the output of a command this check cannot run, so "
                 "its length cannot be checked first. Write the body to a file in its own "
                 "call, then send it with --body-file."
             )
+            self.verdict.deny(BODIES, why)
             return None
         return self.fill_body(value, cwd, env)
 
@@ -2121,10 +2247,11 @@ class Guards:
                 if tok[k + 1 : k + 2] == "=":
                     break  # `-d=t`: the switch's own value, and no more options after it
         if fill and not given and words in {("pr", "create"), ("pr", "new")}:
-            self.verdict.denies.append(
+            why = (
                 "phylax: --fill builds this PR body from the commit messages, whose length "
                 "this check cannot see first. Pass the body with --body-file instead."
             )
+            self.verdict.deny(BODIES, why)
         if file_given and words in {
             ("pr", "create"),
             ("pr", "new"),
@@ -2184,12 +2311,16 @@ def check(data: dict, raw: str) -> int:
     return the hook's exit code."""
     if not data.get("cwd"):
         # python3 starts in the plugin's folder, so its own cwd says nothing about the repo.
-        print("phylax git guard error: the hook input names no folder", file=sys.stderr)
+        why = "the hook input names no folder"
+        print(f"phylax git guard error: {why}", file=sys.stderr)
+        if not blocking_on():
+            json.dump(hook_output.warn(unchecked(why), hook_output.from_agy(data)), sys.stdout)
         return failed()
     cwd = Path(data["cwd"])
     stripped, bodies = strip_heredocs(raw)
     tokens = tokenize(stripped)
     guards = Guards(bodies, str(data.get("agent_type") or data.get("agent_id") or ""))
+    guards.verdict.agy = hook_output.from_agy(data)
     errored = False
     try:
         if tokens is None:
@@ -2204,6 +2335,17 @@ def check(data: dict, raw: str) -> int:
     for error in guards.errors:
         print(f"phylax git guard error: {error}", file=sys.stderr)
         errored = True
+    if errored and not guards.verdict.denies and not blocking_on():
+        # exit 0 drops stderr, so the reason reaches Claude and the mod as a warning.
+        guards.verdict.warnings.append(unchecked(guards.errors[0]))
+    if guards.verdict.denies:
+        try:
+            import denial_log
+
+            verdict = guards.verdict
+            denial_log.record_denial(data, verdict.guards[0], verdict.reason())
+        except Exception:
+            pass
     guards.verdict.emit()
     if not errored or guards.verdict.denies:
         return 0

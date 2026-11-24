@@ -1,6 +1,6 @@
 ---
 name: paper
-description: Scaffold a new research paper in a papers-style monorepo (a repo of LaTeX paper directories that share one bibliography): the LaTeX skeleton, a results-harvest script, the shared-bib wiring, and a portfolio row, built once so it compiles on day one. Use when starting a new paper: "scaffold a paper", "start a new paper", "set up a paper dir", "new paper from a sister repo", "add a paper to papers/". Not for editing an existing paper's prose or for one-off documents outside such a repo.
+description: "Scaffold a new research paper in a papers-style monorepo (a repo of LaTeX paper directories that share one bibliography): the LaTeX skeleton, a results-harvest script, the shared-bib wiring, and a portfolio row, built once so it compiles on day one. Use when starting a new paper: \"scaffold a paper\", \"start a new paper\", \"set up a paper dir\", \"new paper from a sister repo\", \"add a paper to papers/\". Not for editing an existing paper's prose or for one-off documents outside such a repo."
 disable-model-invocation: false
 allowed-tools: Bash Glob Grep Read Edit Write
 ---
@@ -8,6 +8,8 @@ allowed-tools: Bash Glob Grep Read Edit Write
 # Paper Scaffold
 
 `<plugin-root>` is the plugin's root directory, two levels above the directory holding this SKILL.md.
+
+Before starting, read `<plugin-root>/_shared/lessons/common.md` and `<plugin-root>/_shared/lessons/paper.md`: they hold what past papers taught and name the reference to beat.
 
 ## Overview
 

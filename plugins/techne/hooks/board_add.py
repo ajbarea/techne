@@ -44,7 +44,7 @@ def run(payload: dict) -> str | None:
     # code loads only for one that does.
     if not isinstance(command, str) or "gh" not in command:
         return None
-    import project_board as pb  # ty: ignore[unresolved-import]
+    import project_board as pb  # ty: ignore[import-not-found]
 
     if not pb.creates_item(command):
         return None

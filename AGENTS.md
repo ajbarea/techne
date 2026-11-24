@@ -9,7 +9,7 @@ Docs for agents: <https://ajbarea.github.io/techne/llms.txt> lists every page wi
 | The user wants to | Plugin | Setup skill |
 | --- | --- | --- |
 | Audit a build, review CI or a change before merge, plan commits, catch up on GitHub threads, check docs against code, keep linked repos in step | `techne` | `/techne:setup` |
-| Build LaTeX, render markdown to PDF, make a talk deck, scaffold or review a paper | `graphe` | `/graphe:setup` |
+| Build LaTeX, render markdown to PDF, make a talk deck or a Google Vids video, scaffold or review a paper | `graphe` | `/graphe:setup` |
 | Verify a bibliography against arXiv and Crossref | `dokimasia` | none (needs only uv) |
 | Capture an idea and check it against prior work | `heuresis` | `/heuresis:setup` |
 | Search, read and draft Gmail across accounts, catch up on mail | `epistole` | `/epistole:setup` |
@@ -42,6 +42,7 @@ make build      # strict Zensical build of the docs site
 - Work in a git worktree, not the main checkout, and open a pull request; `main` is protected.
 - Never commit `site/` (build output) or `COMMITS.md` (a local scratchpad).
 - Name a private repo by what it is ("a private plugin installer"), never by its name. `make guards` checks everything a commit or push can carry against the owner's private repo names from `gh`; a name that is also an ordinary word goes in the clone's `.git/info/private-words`, after which it matches only as `owner/name` or `name#N`.
+- A decided quality lesson goes in `plugins/*/_shared/lessons/` through `/techne:lessons`, not in a memory note or a doc.
 - A skill's `SKILL.md` frontmatter `description:` is the canonical summary; README rows and `docs/skills/*.md` pages summarize it in their own words. A new skill needs its own page in the nav, titled with the skill's name, and each page's `description:` front matter is what `llms.txt` shows for it (`tests/test_docs_coverage.py` checks both).
 - Do not write skill or plugin counts into prose. README's per-skill tables carry the inventory.
 - `.claude/skill-context.md` holds the facts the techne skills read for this repo.

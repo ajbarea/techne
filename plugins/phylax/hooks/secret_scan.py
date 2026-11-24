@@ -22,11 +22,9 @@ import json
 import os
 import shutil
 import subprocess
-import time
 from pathlib import Path
 
 SCAN_TIMEOUT = 20
-LOG_MAX = 256 * 1024
 
 
 class ScanError(Exception):
@@ -77,12 +75,15 @@ def scan(
 
 
 def _run(argv: list[str], cwd: Path, env: dict[str, str]) -> subprocess.CompletedProcess:
+    from git_options import time_left
+
     try:
-        return subprocess.run(
-            argv, cwd=cwd, env=env, capture_output=True, text=True, timeout=SCAN_TIMEOUT
-        )
+        limit = time_left(SCAN_TIMEOUT)
+        return subprocess.run(argv, cwd=cwd, env=env, capture_output=True, text=True, timeout=limit)
+    except TimeoutError as exc:
+        raise ScanError(str(exc)) from exc
     except subprocess.TimeoutExpired as exc:
-        raise ScanError(f"{Path(argv[0]).name} timed out after {SCAN_TIMEOUT}s") from exc
+        raise ScanError(f"{Path(argv[0]).name} timed out after {exc.timeout:g}s") from exc
     except OSError as exc:
         raise ScanError(f"{Path(argv[0]).name} could not run: {exc}") from exc
 
@@ -170,19 +171,8 @@ def log_path() -> Path:
 
 
 def log_event(event: dict) -> None:
-    """Append one JSON line (a catch or a scan that gave no verdict); the file stays under
-    LOG_MAX by moving it to .1 first. A log that cannot be written never changes the verdict."""
-    path = log_path()
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        if path.exists() and path.stat().st_size > LOG_MAX:
-            try:
-                os.replace(path, path.with_suffix(".jsonl.1"))
-            except FileNotFoundError:
-                pass  # another agent rotated it first
-        line = json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), **event})
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-        with os.fdopen(fd, "a", encoding="utf-8") as fh:
-            fh.write(line + "\n")
-    except OSError:
-        pass
+    """Append one JSON line (a catch or a scan that gave no verdict) under jsonl_log's size
+    cap. A log that cannot be written never changes the verdict."""
+    import jsonl_log
+
+    jsonl_log.append(str(log_path()), event)

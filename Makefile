@@ -4,7 +4,7 @@
 ## that techne itself documents at docs/conventions.md.
 ##
 
-.PHONY: help check-env setup manifests citation plugin-validate plugin-test test-hooks-oldest frontmatter fix lint shellcheck guards test-unit test-sandboxed sandbox-warm zizmor test validate build ci clean docs evals evals-bash quality quality-trial quality-skills install-probe heuresis-gold freshness mod-types bench bench-compare
+.PHONY: help check-env setup manifests citation plugin-validate plugin-test test-hooks-oldest frontmatter fix lint shellcheck guards test-unit test-sandboxed sandbox-warm actionlint zizmor test validate build ci clean docs evals evals-bash quality quality-trial quality-skills install-probe heuresis-gold freshness mod-types bench bench-compare
 .DEFAULT_GOAL := help
 
 check-env:              ## Verify required tools are on PATH
@@ -50,7 +50,7 @@ lint:                   ## ruff check + format check + ty on scripts/ and skill-
 	@uv run ty check scripts/ plugins/ tests/ bench/
 
 shellcheck:             ## shellcheck on repo and skill-shipped shell scripts (shellcheck-py binary)
-	@uv run shellcheck --severity=warning scripts/*.sh $(wildcard plugins/*/_shared/*.sh plugins/*/skills/*/scripts/*.sh plugins/*/bin/*)
+	@uv run shellcheck --severity=warning scripts/*.sh $(wildcard plugins/*/_shared/*.sh plugins/*/skills/*/scripts/*.sh plugins/*/hooks/*.sh plugins/*/bin/*)
 
 # Skill names are derived from the directory listing, so a new skill is guarded
 # the day it lands rather than when someone remembers to extend the pattern.
@@ -82,7 +82,7 @@ guards:                 ## Stale-path + legacy-name + shared-copy + plugin-path 
 # TECHNE_NO_POPPLER / TECHNE_NO_OFFICE declares the opt-out; without the declaration the suite
 # fails rather than skipping them unnoticed. The wheels are pulled per-run at the pins the skills use, rather than held as
 # dev dependencies.
-TEST_WITH := --with 'typst>=0.15,<0.16' --with playwright==1.63.0 --with axe-playwright-python==0.1.8 --with pillow --with python-pptx==1.0.2
+TEST_WITH := --with 'typst>=0.15,<0.16' --with playwright==1.63.0 --with axe-playwright-python==0.1.8 --with pillow --with python-pptx==1.0.2 --with colorspacious==1.1.2 --with numpy
 test-unit:              ## pytest over skill-shipped Python
 	@uv run $(TEST_WITH) pytest
 
@@ -102,12 +102,15 @@ sandbox-warm:
 # The hooks and the setup doctors run on the user's system python3, not the project venv.
 # 3.9 is macOS's.
 HOOKS_OLDEST_PYTHON := 3.9
-HOOK_TESTS := tests/test_git_guards.py tests/test_secret_guard.py tests/test_body_gate.py tests/test_model_guard.py tests/test_email_greeting.py tests/test_elenchus_ledger.py tests/test_budget.py tests/test_phylax_options.py tests/test_board_hook.py tests/test_repo_kind.py tests/test_repo_meta.py tests/test_resume_brief.py tests/test_sisters_hygiene_hook.py tests/test_stale_restart.py tests/test_plugin_keys.py tests/test_plugin_key_manifests.py $(wildcard tests/test_*doctor*.py)
+HOOK_TESTS := tests/test_git_guards.py tests/test_command_shapes.py tests/test_command_shapes_golden.py tests/test_phylax_conformance.py tests/test_secret_guard.py tests/test_body_gate.py tests/test_model_guard.py tests/test_email_greeting.py tests/test_elenchus_ledger.py tests/test_seele.py tests/test_budget.py tests/test_phylax_options.py tests/test_board_hook.py tests/test_repo_kind.py tests/test_repo_meta.py tests/test_resume_brief.py tests/test_sisters_hygiene_hook.py tests/test_stale_restart.py tests/test_plugin_keys.py tests/test_plugin_key_manifests.py $(wildcard tests/test_*doctor*.py)
 
 test-hooks-oldest:      ## Hook and doctor tests with the code under test run on the oldest python3
 	@py="$$(uv python find --no-project $(HOOKS_OLDEST_PYTHON) 2>/dev/null || { uv python install -q $(HOOKS_OLDEST_PYTHON) && uv python find --no-project $(HOOKS_OLDEST_PYTHON); })"; \
 	[ -n "$$py" ] || { echo "FAIL: no Python $(HOOKS_OLDEST_PYTHON) from uv" >&2; exit 1; }; \
 	TECHNE_GUARD_PYTHON="$$py" uv run pytest $(HOOK_TESTS)
+
+actionlint:             ## actionlint GHA workflow validator (.github/workflows/), pinned in uv.lock
+	@uv run actionlint
 
 zizmor:                 ## zizmor GHA security scan (.github/workflows/)
 	@uv run zizmor .github/workflows/
@@ -121,7 +124,7 @@ test: manifests frontmatter guards citation test-unit  ## Structural checks + py
 # `build` belongs here: a dependency bump can leave lint and tests green and
 # still abort the site build, and docs.yml only runs on push to main, so
 # nothing else would catch it before it landed.
-validate: lint shellcheck zizmor plugin-validate plugin-test test test-hooks-oldest build  ## Fast pre-push gate
+validate: lint shellcheck zizmor actionlint plugin-validate plugin-test test test-hooks-oldest build  ## Fast pre-push gate
 
 # Whole-command timing of each hook beside the python3 floor (bench/README.md). It times this
 # machine, so run nothing else heavy meanwhile. BENCH_OUT and BENCH_LABEL name the summary; a

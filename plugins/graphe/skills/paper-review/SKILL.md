@@ -1,6 +1,6 @@
 ---
 name: paper-review
-description: Run a pre-submission novelty and reviewer pass on a draft research paper, grounding every verdict in prior work retrieved this run: whether its contributions are actually new, what related work it misses, whether its claims hold up, whether its own citations are real, and whether it overlaps a lab or co-author line that must be disclosed. Use when a draft is nearing submission: "review my paper for novelty", "is this contribution novel", "novelty check before submitting", "what related work am I missing", "verify my citations are real", "paper-review" followed by a paper name. Advisory only; never edits the paper.
+description: "Run a pre-submission novelty and reviewer pass on a draft research paper, grounding every verdict in prior work retrieved this run: whether its contributions are actually new, what related work it misses, whether its claims hold up, whether its own citations are real, and whether it overlaps a lab or co-author line that must be disclosed. Use when a draft is nearing submission: \"review my paper for novelty\", \"is this contribution novel\", \"novelty check before submitting\", \"what related work am I missing\", \"verify my citations are real\", \"paper-review\" followed by a paper name. Advisory only; never edits the paper."
 disable-model-invocation: false
 allowed-tools: Bash Glob Grep Read Edit WebSearch WebFetch Agent
 ---
@@ -8,6 +8,8 @@ allowed-tools: Bash Glob Grep Read Edit WebSearch WebFetch Agent
 # Paper Review
 
 `<plugin-root>` is the plugin's root directory, two levels above the directory holding this SKILL.md.
+
+Before starting, read `<plugin-root>/_shared/lessons/common.md` and `<plugin-root>/_shared/lessons/paper.md`: they hold what past papers taught and name the reference to beat.
 
 ## Overview
 

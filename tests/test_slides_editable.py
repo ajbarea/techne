@@ -73,7 +73,7 @@ def test_runs_collapse_whitespace_and_join_one_style(sl):
 
 @pytest.fixture(scope="module")
 def export(sl, tmp_path_factory) -> types.SimpleNamespace:
-    from pptx import Presentation  # ty: ignore[unresolved-import]
+    from pptx import Presentation  # ty: ignore[import-not-found]
 
     out = tmp_path_factory.mktemp("editable")
     target, images = out / "deck.pptx", out / "images"
@@ -187,7 +187,7 @@ def test_notes_carry_over_one_line_per_paragraph(export):
 
 
 def _background(slide):
-    from PIL import Image  # ty: ignore[unresolved-import]
+    from PIL import Image  # ty: ignore[import-not-found]
 
     bg = slide._element.find(f"{P}cSld/{P}bg")
     blip = bg.find(f".//{A}blip") if bg is not None else None
@@ -222,7 +222,7 @@ def test_the_background_keeps_decoration_but_no_glyphs_and_no_deck_controls(expo
 
 @needs_browser
 def test_the_starter_reveal_deck_exports_editable(sl, web, tmp_path):  # noqa: F811
-    from pptx import Presentation  # ty: ignore[unresolved-import]
+    from pptx import Presentation  # ty: ignore[import-not-found]
 
     target = tmp_path / "starter.pptx"
     assert sl.pptx_html(web.index, target, editable=True) == 0
@@ -234,6 +234,28 @@ def test_the_starter_reveal_deck_exports_editable(sl, web, tmp_path):  # noqa: F
 
 
 @needs_browser
+def test_an_editable_export_keeps_the_notes_off_the_slide(sl, web, tmp_path):  # noqa: F811
+    from pptx import Presentation  # ty: ignore[import-not-found]
+    from pptx.enum.shapes import MSO_SHAPE_TYPE  # ty: ignore[import-not-found]
+
+    def pictures(target):
+        assert sl.pptx_html(web.index, target, editable=True) == 0
+        prs = Presentation(str(target))
+        notes = [s.notes_slide.notes_text_frame.text for s in prs.slides]
+        return [
+            [p.image.blob for p in s.shapes if p.shape_type == MSO_SHAPE_TYPE.PICTURE]
+            for s in prs.slides
+        ], notes
+
+    clean, _ = pictures(tmp_path / "clean.pptx")
+    web("Reveal.initialize({", "Reveal.initialize({ showNotes: true,", "deck.js")
+    noted, notes = pictures(tmp_path / "noted.pptx")
+    # The backgrounds and figures are the pixels of a deck that never asked for notes.
+    assert noted == clean
+    assert any("Walk the figure" in n for n in notes)
+
+
+@needs_browser
 def test_a_page_that_is_not_a_deck_is_refused(sl, tmp_path):
     page = tmp_path / "page.html"
     page.write_text("<!doctype html><title>t</title><h1>Hello</h1>")
@@ -242,7 +264,7 @@ def test_a_page_that_is_not_a_deck_is_refused(sl, tmp_path):
 
 
 def _picture(shape):
-    from PIL import Image  # ty: ignore[unresolved-import]
+    from PIL import Image  # ty: ignore[import-not-found]
 
     return Image.open(io.BytesIO(shape.image.blob)).convert("RGB")
 
@@ -352,7 +374,7 @@ def test_tablecell_borders_come_before_the_fill_as_the_schema_orders_them(export
 
 @needs_browser
 def test_a_slide_larger_than_the_window_is_captured_whole(sl, tmp_path):
-    from pptx import Presentation  # ty: ignore[unresolved-import]
+    from pptx import Presentation  # ty: ignore[import-not-found]
 
     deck = tmp_path / "tall.html"
     deck.write_text(
@@ -377,7 +399,7 @@ def test_a_slide_larger_than_the_window_is_captured_whole(sl, tmp_path):
 
 @needs_browser
 def test_a_centred_slide_wider_than_the_window_is_read_after_the_window_grows(sl, tmp_path):
-    from pptx import Presentation  # ty: ignore[unresolved-import]
+    from pptx import Presentation  # ty: ignore[import-not-found]
 
     deck = tmp_path / "wide.html"
     deck.write_text(
@@ -408,7 +430,7 @@ def test_a_slide_that_never_fits_is_exported_as_far_as_it_shows_and_named(sl, tm
         "background:linear-gradient(90deg,#ffffff,#000000)}</style>"
         '<section class="slide active"><p>Always wider</p></section>'
     )
-    from pptx import Presentation  # ty: ignore[unresolved-import]
+    from pptx import Presentation  # ty: ignore[import-not-found]
 
     target = tmp_path / "out.pptx"
     assert sl.pptx_html(deck, target, editable=True) == 0
@@ -423,7 +445,7 @@ def test_a_slide_that_never_fits_is_exported_as_far_as_it_shows_and_named(sl, tm
 
 @needs_browser
 def test_a_tall_slide_in_a_fit_to_window_deck_is_captured_whole(sl, tmp_path):
-    from pptx import Presentation  # ty: ignore[unresolved-import]
+    from pptx import Presentation  # ty: ignore[import-not-found]
 
     deck = tmp_path / "fit.html"
     deck.write_text(
@@ -462,7 +484,7 @@ def test_an_office_renderer_is_present_or_its_absence_is_declared(sl):
 
 def _distance(a, b) -> float:
     """Mean absolute grey-level difference of two pictures at 320x180, from 0 to 1."""
-    from PIL import ImageChops, ImageStat  # ty: ignore[unresolved-import]
+    from PIL import ImageChops, ImageStat  # ty: ignore[import-not-found]
 
     small = [im.convert("L").resize((320, 180)) for im in (a, b)]
     return ImageStat.Stat(ImageChops.difference(*small)).mean[0] / 255
@@ -472,7 +494,7 @@ def _distance(a, b) -> float:
 def test_each_slide_renders_in_office_as_the_browser_shows_it(sl, export, tmp_path):
     if NO_OFFICE or not _office(sl):
         pytest.skip("no PowerPoint or LibreOffice (declared by TECHNE_NO_OFFICE)")
-    from PIL import Image  # ty: ignore[unresolved-import]
+    from PIL import Image  # ty: ignore[import-not-found]
 
     out = tmp_path / "render"
     assert sl.render(export.path, out, "auto", 96) == 0

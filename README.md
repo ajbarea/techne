@@ -46,9 +46,11 @@ Install only the ones you use: every enabled plugin's skill list sits in the age
 | `techne:docs-site` | Maintains the Zensical-powered docs site: config, deploy pipeline, theming, link integrity. |
 | `techne:docsync` | Verifies documentation claims (CLI commands, paths, config keys, signatures) and the GitHub description, homepage and topics against the actual code. |
 | `techne:elenchus` | Adversarial pre-merge review: an independent reviewer sized to the change's risk (plus `/code-review` for risky changes) reproduces the load-bearing claim, traces every consumer across the whole repo, and walks a bug-class rubric for reachable destructive ops, unmirrored parallel-path guards, migration crashes, and dead-but-green features. |
+| `techne:lessons` | Reads, adds and retires the decided quality lessons that carry forward to the next deck, paper, docs site or app. |
 | `techne:logging` | Checks a repo's logging against techne's standard (linter gates, secrets in log calls, uncapped log files, errors on stdout, CI logs lost on failure) and fixes what falls short. |
 | `techne:research-grounded` | Flags decisions (technology, data release, study design, access rules, claim wording) in IMPL, ROADMAP and decision records that lack `# research(YYYY-MM):` provenance, then web-searches to ground them. |
 | `techne:reslop` | Rewrites docstrings grounded in the implementation rather than deleting them outright. |
+| `techne:seele` | Puts a decision (a title, a name, a wording, a design choice, a review) to a blind panel of models: each seat answers alone, the pooled answers are ranked blind, a chair rules, and the report shows the vote and every dissent. |
 | `techne:sisters` | Cross-repo drift audit across the sister repos listed in `~/.claude/techne.toml`. |
 | `techne:theoros` | Starts an observed live dev session: Claude drives the REPL in a named `tmux` session; you spectate read-only via `tmux attach -r`. |
 | `techne:setup` | Checks what the techne skills need on this machine and prints the install command for each gap. |
@@ -62,6 +64,7 @@ Install only the ones you use: every enabled plugin's skill list sits in the age
 | `graphe:paper-review` | Pre-submission novelty + reviewer pass for a draft paper: grounds every novelty/claim verdict in retrieved prior work, flags related-work gaps, and surfaces lab-overlap for disclosure. |
 | `graphe:pdf` | Renders markdown to print-quality PDFs through a Typst template, then verifies fonts and content against the source. |
 | `graphe:slides` | Builds and gates a talk deck: an animated web deck on GitHub Pages from a starter, checked for titles, contrast, alt text, missing files and phone fit, then rendered and published. |
+| `graphe:vids` | Makes a short video in Google Vids with the user's AI avatar: script and lint, two takes per clip checked without playback, a Vids song, mix, export and a disclosed YouTube upload. |
 | `graphe:setup` | Checks the document tools (TeX Live, poppler, Chromium, uv) and prints the install command for each gap. |
 
 ### dokimasia
@@ -111,9 +114,29 @@ Invoke a skill as `/techne:<name>`, `/graphe:<name>`, `/dokimasia:check`, `/heur
 
 After installing, run each plugin's setup skill: `/techne:setup`, `/graphe:setup`, `/heuresis:setup`, `/phylax:setup`, `/epistole:setup`, `/schole:setup`. Each checks what the plugin needs and prints the install command for anything missing. The techne skills follow a few conventions (Makefile pattern, dev-runner archive, `.claude/skill-context.md`); [Conventions](docs/conventions.md) lists the minimum each skill needs.
 
-### Codex, Copilot CLI and Antigravity CLI
+### Antigravity CLI
 
-techne, graphe and dokimasia run in these agent CLIs too. Codex and Copilot CLI read this repo's marketplace; Antigravity CLI installs one plugin from its folder URL:
+Antigravity natively converts and installs Claude Code plugins via `agy plugin`:
+
+```bash
+# Recommended: install the core techne plugin for code-repo skills
+agy plugin install https://github.com/ajbarea/techne/tree/main/plugins/techne
+
+# Or install the entire marketplace (all 7 plugins) at once
+agy plugin install https://github.com/ajbarea/techne
+```
+
+If you already use Claude Code on this machine, import every plugin installed in `~/.claude` without re-downloading:
+
+```bash
+agy plugin import claude
+```
+
+Run `agy plugin list` to verify installed plugins. Antigravity loads skills dynamically on demand: call a skill by name (e.g. `audit`, `auto-commit`, `dokimasia:check`) or describe the task. Run `python3 ~/.gemini/config/plugins/techne/skills/setup/scripts/doctor.py` to confirm your local tools (`gh`, `uv`, `tmux`) are ready.
+
+### Codex and Copilot CLI
+
+techne, graphe and dokimasia run in these agent CLIs too. Codex and Copilot CLI read this repo's marketplace:
 
 ```bash
 codex plugin marketplace add ajbarea/techne
@@ -121,11 +144,9 @@ codex plugin add techne@techne
 
 copilot plugin marketplace add ajbarea/techne
 copilot plugin install techne@techne
-
-agy plugin install https://github.com/ajbarea/techne/tree/main/plugins/techne
 ```
 
-Swap `techne` for `graphe` or `dokimasia` to add those. Ask for a skill by name ("use the techne audit skill") or describe the task. graphe's optional OpenAlex and Semantic Scholar keys come from Claude Code's plugin settings; in other CLIs, export `OPENALEX_API_KEY` and `S2_API_KEY` in your shell instead. techne's opt-in cleanup at session start is a Claude Code hook, and several techne skills (elenchus, docs-site, deslop, reslop, docsync, research-grounded) hand part of their work to Claude Code subagents or `/code-review`; in other CLIs that step depends on what the agent offers. The other plugins rely on Claude Code's hooks, plugin settings or subagents and run there alone for now.
+Swap `techne` for `graphe` or `dokimasia` to add those. Ask for a skill by name ("use the techne audit skill") or describe the task. graphe's optional OpenAlex and Semantic Scholar keys come from Claude Code's plugin settings; in other CLIs, export `OPENALEX_API_KEY` and `S2_API_KEY` in your shell instead. techne's opt-in cleanup at session start is a Claude Code hook, and several techne skills (elenchus, seele, docs-site, deslop, reslop, docsync, research-grounded) hand part of their work to Claude Code subagents or `/code-review`; in other CLIs that step depends on what the agent offers. The other plugins rely on Claude Code's hooks, plugin settings or subagents and run there alone for now.
 
 ## Configuration
 
@@ -171,6 +192,7 @@ techne (marketplace: ajbarea/techne)
 │   ├── logging           ── logs that name the cause, locally and in CI
 │   ├── research-grounded ── flags un-grounded design decisions
 │   ├── reslop            ── rewrites docstrings from code
+│   ├── seele             ── a blind panel of models decides; dissents reported
 │   ├── sisters           ── cross-repo drift across sisters
 │   ├── theoros           ── observed tmux REPL session
 │   └── setup             ── checks prerequisites, prints each fix
@@ -180,6 +202,7 @@ techne (marketplace: ajbarea/techne)
 │   ├── paper-review      ── grounded novelty + reviewer pass for a draft
 │   ├── pdf               ── markdown to print PDF via Typst, verified
 │   ├── slides            ── talk deck gated and rendered, presenter briefed
+│   ├── vids              ── Google Vids video with the user's avatar, checked
 │   └── setup             ── checks prerequisites, prints each fix
 ├── dokimasia (plugin, plugins/dokimasia)
 │   └── check             ── lints, verifies and render-checks a .bib
