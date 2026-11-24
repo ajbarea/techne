@@ -100,7 +100,15 @@ The active TODO list for whatever's in flight right now. Queued specs live in [R
   model_guard-agent 2.024 / 2.806 / 2.371 before the all-of triggers (phylax's own reason
   "pass model:" still fired three patterns; now none); email_greeting-draft 2.556 / 3.327 / 2.645.
   bench/run.py now also reports means.
-- 📋 Next: re-bench, fresh Opus verify (over-redaction is a Nit), CI green, merge.
+- ✅ Re-bench (mean of 20, instructions vs floor, main/after): model_guard-agent 2.024/2.116,
+  email_greeting-draft 2.558/2.651, git_guards-no-git 1.199/1.216: all within 15%.
+- ✅ GitGuardian: both incidents were fake values (a fixture; IMPL.md quoting a sample password);
+  fixtures now build CLI secrets at runtime, and the branch is squashed onto main as one commit
+  (tree unchanged; old history in local branch backup/denied-calls-399-presquash), so no commit
+  in the PR carries either. Check green on 93d2042.
+- 📋 Next: fix the last verify's items (CPU-time timing tests; segment-based anchored patterns for
+  a flag >200 chars after curl/mysql; cookies, http.extraHeader, npm set), fresh Opus verify
+  (over-redaction is a Nit), CI green, merge.
 - Verify: `uv run pytest tests/test_denial_log.py tests/test_phylax_doctor.py tests/test_git_guards.py
   tests/test_model_guard.py tests/test_email_greeting.py tests/test_command_shapes.py tests/bench`;
   `make plugin-test`; `uv run pytest tests/test_hook_latency.py` under the heavy lock.
