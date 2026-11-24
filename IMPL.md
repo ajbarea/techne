@@ -27,6 +27,9 @@ The active TODO list for whatever's in flight right now. Queued specs live in [R
 - ✅ Verify pass (fresh Opus): round-3 fixes confirmed (action ran on a real runner, path test red when
   broken). Fixed its two findings: checks.md check 17 names actionlint and the `./`/`$/` skip; the
   action now fails on a workflows folder with no workflow file (was OK), with a test that fails without it.
-- 📋 Next: CI green on the fix, merge (squash, delete branch).
+- ✅ Verify 2 (fresh Opus) found the early exit skipped an unpinned starter beside a README-only
+  workflows folder, and (older) a workflow with only `run:` steps stopped the script silently
+  (grep exit 1 under pipefail). Both fixed, each with a test that fails on the previous script.
+- 📋 Next: verify 3 on that commit, CI green, merge (squash, delete branch).
 - Verify: `uv run pytest tests/test_check_action_pins.py tests/test_sisters_security_floor.py`;
   `make actionlint zizmor guards`.

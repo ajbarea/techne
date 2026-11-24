@@ -30,19 +30,20 @@ fi
 
 shopt -s nullglob
 live_files=("$WORKFLOWS"/*.yml "$WORKFLOWS"/*.yaml)
-if [[ ${#live_files[@]} -eq 0 ]]; then
-    # The composite action sets PIN_REQUIRE_WORKFLOWS: there, no workflow file means the caller
-    # forgot actions/checkout or pointed `directory` elsewhere, and a pass would check nothing.
-    if [[ -n "${PIN_REQUIRE_WORKFLOWS:-}" ]]; then
-        printf 'FAIL: no workflow file in %s/.github/workflows/ (run actions/checkout first)\n' "$ROOT" >&2
-        exit 1
-    fi
-    printf 'OK: no .github/workflows/ to check\n'
+template_files=("$TEMPLATES"/*.yml "$TEMPLATES"/*.yaml)
+# The composite action sets PIN_REQUIRE_WORKFLOWS: there, no workflow file means the caller
+# forgot actions/checkout or pointed `directory` elsewhere, and a pass would check nothing.
+if [[ ${#live_files[@]} -eq 0 && -n "${PIN_REQUIRE_WORKFLOWS:-}" ]]; then
+    printf 'FAIL: no workflow file in %s/.github/workflows/ (run actions/checkout first)\n' "$ROOT" >&2
+    exit 1
+fi
+if [[ ${#live_files[@]} -eq 0 && ${#template_files[@]} -eq 0 && ${#SKILL_TEMPLATES[@]} -eq 0 ]]; then
+    printf 'OK: no workflow file to check\n'
     exit 0
 fi
 
 violations=0
-for f in "$WORKFLOWS"/*.yml "$WORKFLOWS"/*.yaml "$TEMPLATES"/*.yml "$TEMPLATES"/*.yaml "${SKILL_TEMPLATES[@]}"; do
+for f in "${live_files[@]}" "${template_files[@]}" "${SKILL_TEMPLATES[@]}"; do
     lineno=0
     while IFS= read -r line; do
         lineno=$((lineno + 1))
@@ -69,9 +70,10 @@ if [[ "$violations" -gt 0 ]]; then
     exit 1
 fi
 
-uses_refs() { grep -ohE 'uses:[[:space:]]*[^[:space:]#]+' "$@" | sed -E 's/uses:[[:space:]]*//' | sort -u; }
+# A file with no `uses:` line (only `run:` steps) lists nothing; grep's exit 1 is not an error.
+uses_refs() { { grep -ohE 'uses:[[:space:]]*[^[:space:]#]+' "$@" || true; } | sed -E 's/uses:[[:space:]]*//' | sort -u; }
 
-for t in "$TEMPLATES"/*.yml "$TEMPLATES"/*.yaml; do
+for t in "${template_files[@]}"; do
     live="$WORKFLOWS/$(basename "$t")"
     [[ -f "$live" ]] || continue
     if ! drift="$(diff <(uses_refs "$live") <(uses_refs "$t"))"; then
@@ -81,7 +83,8 @@ for t in "$TEMPLATES"/*.yml "$TEMPLATES"/*.yaml; do
     fi
 done
 
-live_pins="$(uses_refs "${live_files[@]}")"
+live_pins=""
+[[ ${#live_files[@]} -eq 0 ]] || live_pins="$(uses_refs "${live_files[@]}")"
 for t in "${SKILL_TEMPLATES[@]}"; do
     while IFS= read -r pin; do
         [[ -n "$pin" ]] || continue

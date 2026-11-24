@@ -94,7 +94,7 @@ def test_check_action_pins_no_workflows(tmp_path: Path) -> None:
     repo.mkdir()
     res = run_check(repo)
     assert res.returncode == 0
-    assert "OK: no .github/workflows/ to check" in res.stdout
+    assert "OK: no workflow file to check" in res.stdout
 
 
 def test_check_action_pins_template_drift(tmp_path: Path) -> None:
@@ -185,3 +185,17 @@ def test_the_action_fails_on_a_workspace_with_no_workflows(tmp_path: Path) -> No
     assert "uses: $/.github/actions/check-action-pins" in validate
     script = action.split("run: bash ")[1].split()[0].strip('"').replace("$GITHUB_ACTION_PATH", "")
     assert (ROOT / ".github/actions/check-action-pins" / script.lstrip("/")).resolve().is_file()
+
+
+def test_a_starter_is_checked_beside_a_workflows_folder_with_no_workflow(tmp_path: Path) -> None:
+    repo = make_repo(
+        tmp_path, {}, {"ci.yml": "jobs:\n  a:\n    steps:\n      - uses: actions/checkout@v4\n"}
+    )
+    (repo / ".github/workflows/README.md").write_text("notes\n")
+    res = run_check(repo)
+    assert res.returncode == 1 and "actions/checkout@v4" in res.stderr
+
+
+def test_a_workflow_with_only_run_steps_passes(tmp_path: Path) -> None:
+    res = run_check(make_repo(tmp_path, {"ci.yml": "jobs:\n  a:\n    steps:\n      - run: make\n"}))
+    assert res.returncode == 0 and res.stdout.startswith("OK: all GitHub Actions"), res.stderr
