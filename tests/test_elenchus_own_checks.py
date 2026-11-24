@@ -719,3 +719,32 @@ def test_odd_file_names_neither_crash_nor_shift_the_gate_reads(tmp_path):
     assert "tools/a.py" in listed and "tools/b.py" not in listed
     assert "tools/c.py" in listed  # read through the gate file whose name is not UTF-8
     assert "caf\\udce9.toml" in listed  # printed escaped, never mangled
+
+
+OID = "a" * 40
+
+
+@pytest.mark.parametrize(
+    ("answer", "why"),
+    [
+        (b"HEAD:sub missing\n", "missing, git 2.43"),
+        (f"{OID} submodule\n".encode(), "a gitlink, newer git"),
+        (b"HEAD:x ambiguous\n", "ambiguous"),
+        (b"HEAD:a b c missing\n", "a name with spaces"),
+        (f"{OID} tree 12\n".encode() + b"x" * 12 + b"\n", "a tree: content skipped"),
+        (b"\n", "an empty line"),
+        (b"garbage that is no header\n", "an unknown answer"),
+    ],
+)
+def test_every_cat_file_answer_keeps_the_names_after_it_in_step(answer, why):
+    blob = f"{OID} blob 5\n".encode() + b"hello\n"
+    got = own_checks.parse_batch(answer + blob, ["odd", "next"])
+    assert got == {"next": b"hello"}, why
+
+
+def test_cat_file_output_that_ends_early_is_read_up_to_its_end():
+    blob = f"{OID} blob 5\n".encode() + b"hello\n"
+    assert own_checks.parse_batch(blob, ["a", "b", "c"]) == {"a": b"hello"}
+    assert own_checks.parse_batch(f"{OID} blob 5".encode(), ["a"]) == {}
+    sha256 = "b" * 64
+    assert own_checks.parse_batch(f"{sha256} blob 2\n".encode() + b"hi\n", ["a"]) == {"a": b"hi"}

@@ -199,15 +199,29 @@ def read_base(repo: str, base: str, names: list[str]) -> dict[str, bytes]:
     )
     if out.returncode != 0:
         raise SystemExit(f"own_checks: git cat-file failed: {out.stderr.decode(errors='replace')}")
-    found, at, data = {}, 0, out.stdout
+    return parse_batch(out.stdout, names)
+
+
+OBJECT_HEADER = re.compile(rb"^[0-9a-f]{40}(?:[0-9a-f]{24})? (\w+) (\d+)$")
+
+
+def parse_batch(data: bytes, names: list[str]) -> dict[str, bytes]:
+    """`git cat-file --batch` output for NAMES, in order: each blob's content by name. Only an
+    `<oid> <type> <size>` header is followed by content; any other answer (`missing`,
+    `ambiguous`, `<oid> submodule`, by git version) is one line naming nothing, and output
+    that ends early stops the read rather than shifting the names after it."""
+    found: dict[str, bytes] = {}
+    at = 0
     for name in names:
-        end = data.index(b"\n", at)
-        header = data[at:end].split()
-        if header[-1] == b"missing":
+        end = data.find(b"\n", at)
+        if end < 0:
+            break
+        header = OBJECT_HEADER.match(data[at:end])
+        if header is None:
             at = end + 1
             continue
-        size = int(header[2])
-        if header[1] == b"blob":
+        size = int(header.group(2))
+        if header.group(1) == b"blob":
             found[name] = data[end + 1 : end + 1 + size]
         at = end + 2 + size
     return found
