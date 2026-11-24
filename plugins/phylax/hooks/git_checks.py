@@ -34,6 +34,74 @@ from git_options import (
     unchecked,
 )
 
+# The private-names push check's name in the denied-calls log; no option switches it, since a
+# repo turns it on by shipping scripts/check_private_names.py (techne#396).
+PRIVATE_NAMES = "private_repo_names"
+SCANNER = Path("scripts") / "check_private_names.py"
+# A line every hook file techne installs carries, or one a chained hook calls it by; sisters
+# check 17 holds the same pair (a test keeps them equal).
+HOOK_MARKS = ("techne pre-push hook (#396)", "scripts/git-hooks/pre-push")
+
+
+# The variables that say where a repo, its config or its hooks are.
+LOCATES = {
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_COMMON_DIR",
+    "GIT_CEILING_DIRECTORIES",
+    "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+    "HOME",
+    "XDG_CONFIG_HOME",
+}
+CONFIG_READS = {"--get", "--get-all", "--get-regexp", "--get-urlmatch", "--list", "-l"}
+
+
+def locates(name: str) -> bool:
+    return name in LOCATES or name.startswith("GIT_CONFIG")
+
+
+def config_reads(args: list[str]) -> bool:
+    """Whether `git config ARGS` only reads (--get, --list, the get and list subcommands)."""
+    named = [a for a in args if not a.startswith("-")]
+    return (
+        any(a in CONFIG_READS for a in args)
+        or bool(args and args[0] in {"get", "list"})
+        or len(named) == 1  # `git config KEY` prints it
+    )
+
+
+def real_paths(paths: list[str]) -> list[str]:
+    """PATHS with symlinks resolved, and a glob replaced by what it names (`.gi?/config`)."""
+    import glob
+
+    out = []
+    for path in paths:
+        names = glob.glob(path) if glob.has_magic(path) else [path]
+        out += [os.path.realpath(n) for n in names] or [path]
+    return out
+
+
+def under(path: str, folders: tuple[Path, ...]) -> bool:
+    return any(path == str(f) or path.startswith(str(f) + os.sep) for f in folders)
+
+
+def is_git_config(path: str) -> bool:
+    """A user or system git config file (~/.gitconfig, $XDG_CONFIG_HOME/git/config)."""
+    return path.endswith(("/.gitconfig", "/git/config")) or path.startswith("/etc/gitconfig")
+
+
+def hook_marked(hook: Path) -> bool:
+    """Whether HOOK is an executable file git would run that is, or calls, techne's hook."""
+    if not os.access(hook, os.X_OK) or not hook.is_file():
+        return False
+    try:
+        with open(hook, encoding="utf-8", errors="replace") as fh:
+            text = fh.read(65536)
+    except OSError:
+        return False
+    return any(mark in text for mark in HOOK_MARKS)
+
+
 ATTRIBUTION_RE = re.compile(
     r"Claude-Session|claude\.ai/code/session|Co-Authored-By\s*[:=]\s*Claude"
     r"|Generated with \[?Claude Code",
@@ -47,6 +115,11 @@ GIT_TIMEOUT = 5
 FALSE_VALUES = {"false", "no", "off", "0"}
 # Never run a repo's fsmonitor, and print paths raw so a basename check sees them.
 GIT_BASE = ("git", "-c", "core.fsmonitor=false", "-c", "core.quotePath=false")
+NO_TRACE = {"GIT_TRACE": "0", "GIT_TRACE2": "0", "GIT_TRACE2_EVENT": "0", "GIT_TRACE2_PERF": "0"}
+# Subcommands that send refs to a remote without running the pre-push hook.
+HOOKLESS_PUSHES = {"send-pack", "http-push"}
+# A `cd` or `-C` target that names this repo's top, whatever it holds.
+SAFE_DIRS = {"$(git rev-parse --show-toplevel)"}
 
 # shlex joins adjacent punctuation, so a separator is any run of these, such as "&&\n".
 SEPARATOR_RE = re.compile(r"^[;&|()\n]+$")
@@ -114,6 +187,26 @@ CAT_SUBST_RE = re.compile(r"\$\(\s*(?:cat\s+|<\s*)([^\s()<]+)\s*\)")
 # Redirections and commands that create the file they name.
 CREATE_REDIRECTS = {">", ">>", ">|", "&>", "&>>"}
 CREATORS = {"touch", "tee", "cp", "mv", "install"}
+# Commands that change a file's mode, owner or existence (a hook git would skip or not find).
+CHANGERS = {"chmod", "chown", "chgrp", "rm", "rmdir", "unlink", "ln", "truncate", "chattr", "mv"}
+# A push argument that names the current branch, whatever it holds.
+# In a hooked repo the only words in a push call that may hold `$(`, a backtick or `$'`: a
+# simple substitution in double quotes (the whole word, or a NAME= value), which the tokenizer
+# reads as one word, or a bare SAFE_REFS one with only redirections and then a separator or
+# the end after it, so no word follows it into git. shell_tokens() finds the words as bash does.
+# A heredoc message, its body out (strip_heredocs, as_bash), reads `"$(cat <<SENTINEL)"`,
+# which this form takes as it is.
+QUOTED_SIMPLE_SUBSTITUTION = re.compile(r'(?:[A-Za-z_]\w*=)?"\$\([^"\'`\\$()]*\)"')
+BARE_SAFE_REF = re.compile(
+    r"(?:[A-Za-z_]\w*=)?\$\(git (?:branch --show-current|rev-parse --abbrev-ref HEAD"
+    r"|symbolic-ref --short HEAD)\)"
+)
+REDIRECTION = re.compile(r"[<>]{1,2}[&|]?(?:\d+|-)?")
+SAFE_REFS = {
+    "$(git branch --show-current)",
+    "$(git rev-parse --abbrev-ref HEAD)",
+    "$(git symbolic-ref --short HEAD)",
+}
 # Commands whose arguments become file content, for a message file the command writes.
 WRITERS = {"echo", "printf"}
 GH_GLOBAL_VALUE_FLAGS = {"-R", "--repo"}
@@ -364,6 +457,7 @@ def run_git(
     check: bool = True,
     env: dict[str, str] | None = None,
     timeout: float = GIT_TIMEOUT,
+    codes: list[int] | None = None,
 ) -> str | None:
     """Stdout of a git call, or None when git exits non-zero; `check=False` keeps stdout on any
     exit; `env` adds variables such as GIT_INDEX_FILE. Raises GitUnavailable when git cannot
@@ -379,7 +473,9 @@ def run_git(
     except TimeoutError as exc:
         raise GitUnavailable(str(exc)) from exc
 
-    env = {**os.environ, "GIT_OPTIONAL_LOCKS": "0", **(env or {})}
+    # Trace variables win over trace2.* config, so a config the command names never makes
+    # phylax's own git write a file before the permission prompt.
+    env = {**os.environ, "GIT_OPTIONAL_LOCKS": "0", **(env or {}), **NO_TRACE}
     try:
         proc = subprocess.run(
             [*GIT_BASE, "-C", str(cwd), *repo_args, *args],
@@ -396,6 +492,8 @@ def run_git(
     except OSError as exc:
         _git_down = f"git could not run: {exc}"
         raise GitUnavailable(_git_down) from exc
+    if codes is not None:
+        codes.append(proc.returncode)
     return proc.stdout if proc.returncode == 0 or not check else None
 
 
@@ -411,18 +509,33 @@ def in_arithmetic(stack: list[str]) -> bool:
     return False
 
 
-def is_arith(text: str, start: int) -> bool:
-    """Whether the `((` at TEXT[START] opens arithmetic: its inner paren closes right before the
-    outer one (`((1+1))`, `((a*(b+c)))`), not earlier (`((cd a); (cd b))` is two subshells)."""
+def arith_reading(text: str, start: int) -> bool | None:
+    """How the `((` at TEXT[START] reads: True arithmetic (its inner paren closes right before
+    the outer one: `((1+1))`, `((a*(b+c)))`), False subshells (`((cd a); (cd b))`), None when
+    the scan cannot tell (past ARITH_SCAN, a quote that does not close). Escapes, quotes and a
+    subshell's comments are skipped as strip_heredocs skips them."""
     depth, inner, j = 0, None, start
     # Arithmetic is short; looking no further than ARITH_SCAN keeps deep nesting linear.
     stop = min(len(text), start + ARITH_SCAN)
     while j < stop:
         char = text[j]
-        if char in "'\"":  # a paren in quotes is text: skip to the closing quote
-            j = text.find(char, j + 1)
+        if char == "\\":
+            j += 2
+            continue
+        if char == "'":  # a paren in quotes is text: skip to the closing quote
+            j = text.find("'", j + 1)
             if j < 0:
-                break
+                return None
+        elif char == '"':
+            j += 1
+            while j < stop and text[j] != '"':
+                j += 2 if text[j] == "\\" else 1
+            if j >= stop:
+                return None
+        elif char == "#" and text[j - 1] in " \t\n;":  # a subshell's comment
+            j = text.find("\n", j)
+            if j < 0:
+                return None
         elif char == "(":
             depth += 1
         elif char == ")":
@@ -432,12 +545,22 @@ def is_arith(text: str, start: int) -> bool:
             if depth == 0:
                 return inner == j - 1
         j += 1
-    # Past the scan, or never closed: read it as arithmetic. The other mistake, taking
-    # arithmetic for subshells, would read its `<<` as a heredoc and hide the lines after it.
-    return True
+    return None
 
 
-def strip_heredocs(text: str) -> tuple[str, list[tuple[str, str, bool]]]:
+def is_arith(text: str, start: int) -> bool:
+    """arith_reading, with an undecided `((` read as arithmetic: the other mistake, taking
+    arithmetic for subshells, would read its `<<` as a heredoc and hide the lines after it. A
+    call that names a push and a hook skip refuses an undecided one instead (undecided_arith)."""
+    return arith_reading(text, start) is not False
+
+
+def undecided_arith(text: str) -> bool:
+    """Whether some `((` in TEXT reads as neither arithmetic nor subshells for certain."""
+    return any(arith_reading(text, m.start()) is None for m in re.finditer(r"\(\(", text))
+
+
+def strip_heredocs(text: str, as_bash: bool = False) -> tuple[str, list[tuple[str, str, bool]]]:
     """Remove heredoc bodies and line continuations so the command tokenizes.
 
     Tracks quoting as bash does: `<<` inside quotes is literal, except inside a
@@ -446,20 +569,31 @@ def strip_heredocs(text: str) -> tuple[str, list[tuple[str, str, bool]]]:
     Each heredoc's delimiter becomes a NUL-wrapped sentinel naming its index, so
     the value or redirection that opened it says which body is its own.
     Returns the stripped text and each heredoc as (the line that opened it, its body,
-    whether its delimiter was quoted).
+    whether its delimiter was quoted). AS_BASH takes out only the bodies (and line
+    continuations, which bash joins too): comments and `$'...'` stay as written.
     """
     out: list[str] = []
     bodies: list[tuple[str, str, bool]] = []
-    pending: list[tuple[str, bool, str, bool]] = []
-    stack: list[str] = []  # "'", '"' or "$(" for each open quoting context
+    pending: list[tuple[str, bool, str, bool, int]] = []  # ..., the stack depth at <<
+    stack: list[str] = []  # "'", '"', "$(", "${", "(" or "`" for each open context
+    last_opener: tuple[int, str] | None = None
+    plain = 0  # how many frames are a subshell's or a group's `(`, which bash does not wait on
     i, n = 0, len(text)
     while i < n:
         ch = text[i]
         top = stack[-1] if stack else ""
-        if ch == "\n" and pending:
+        if (
+            ch == "\n"
+            and pending
+            and top not in ("'", '"', "$'")
+            and len(stack) - plain <= pending[0][4]
+        ):
+            # bash reads the bodies after the line the command ends on: a quote, `$(`, a
+            # backtick, `<(`, `${` or arithmetic opened after the << carries the newline into
+            # itself; a subshell's `(` does not.
             out.append(ch)
             i += 1
-            for delim, dash, opener, quoted in pending:
+            for delim, dash, opener, quoted, _ in pending:
                 body: list[str] = []
                 while i < n:
                     j = text.find("\n", i)
@@ -488,7 +622,11 @@ def strip_heredocs(text: str) -> tuple[str, list[tuple[str, str, bool]]]:
         if top == "$'":
             if ch == "\\" and i + 1 < n:
                 nxt = text[i + 1]
-                out.append({"n": "\n", "t": "\t", "'": "'\\''"}.get(nxt, nxt))
+                out.append(
+                    text[i : i + 2]
+                    if as_bash
+                    else {"n": "\n", "t": "\t", "'": "'\\''"}.get(nxt, nxt)
+                )
                 i += 2
                 continue
             if ch == "'":
@@ -504,25 +642,39 @@ def strip_heredocs(text: str) -> tuple[str, list[tuple[str, str, bool]]]:
         if top == '"':
             if ch == '"':
                 stack.pop()
-            elif text.startswith("$(", i):
-                stack.append("$(")
-                out.append("$(")
+            elif text.startswith("$(", i) or text.startswith("${", i):
+                # ${...} in double quotes opens a frame of its own, where quotes nest.
+                stack.append(text[i : i + 2])
+                out.append(text[i : i + 2])
                 i += 2
                 continue
+            elif ch == "`":
+                stack.append("`")
             out.append(ch)
             i += 1
             continue
         if ch == "#" and top != "${" and (i == 0 or text[i - 1] in " \t\n;&|()"):
             j = text.find("\n", i)
+            if top == "`":  # a comment inside backticks ends at the closing one
+                # looked for within the comment's own line only, so the scan stays linear
+                b = text.find("`", i, n if j < 0 else j)
+                j = b if b >= 0 else j
+            if as_bash:
+                out.append(text[i : n if j < 0 else j])
             i = n if j < 0 else j
             continue
         if text.startswith("$'", i):
             stack.append("$'")
-            out.append("'")
+            out.append("$'" if as_bash else "'")
             i += 2
             continue
         if ch in "'\"":
             stack.append(ch)
+        elif ch == "`":
+            if top == "`":
+                stack.pop()
+            else:
+                stack.append("`")
         elif text.startswith("$(", i):
             stack.append("$(")
             out.append("$(")
@@ -540,28 +692,37 @@ def strip_heredocs(text: str) -> tuple[str, list[tuple[str, str, bool]]]:
             # of their own, so the `))` that closes it pops both. Any other `(` is a subshell,
             # a group or a process substitution that its own `)` closes.
             if text[i - 1 : i] == "(" and top in ("(", "$(") and is_arith(text, i - 1):
+                plain -= top == "("
                 stack[-1] = "(("
                 stack.append("((")
+            elif text[i - 1 : i] in ("<", ">"):
+                stack.append("<(")  # process substitution: bash waits for it, like $(
             else:
                 stack.append("(")
-        elif ch == ")" and top in ("$(", "(", "(("):
+                plain += 1
+        elif ch == ")" and top in ("$(", "(", "((", "<("):
+            plain -= top == "("
             stack.pop()
         elif ch == "<" and in_arithmetic(stack):
             pass  # a shift, not a heredoc
-        elif ch == "<":
+        elif ch == "<" and top != "${":  # inside ${...}, << is text
             m = HEREDOC_RE.match(text, i)
             if m and not text.startswith("<<<", i) and not text.endswith("<", 0, i):
-                start = text.rfind("\n", 0, i) + 1
-                while start >= 2 and text[start - 2] == "\\":  # back over continued lines
-                    start = text.rfind("\n", 0, start - 1) + 1
-                stop = text.find("\n", i)
-                opener = text[start : n if stop < 0 else stop]
+                if last_opener and text.find("\n", last_opener[0], i) < 0:
+                    opener = last_opener[1]  # the same line: one copy, however many heredocs
+                else:
+                    start = text.rfind("\n", 0, i) + 1
+                    while start >= 2 and text[start - 2] == "\\":  # back over continued lines
+                        start = text.rfind("\n", 0, start - 1) + 1
+                    stop = text.find("\n", i)
+                    opener = text[start : n if stop < 0 else stop]
+                last_opener = (i, opener)
                 # A quoted delimiter (`'EOF'`, `"EOF"`, `\EOF`) keeps the body literal;
                 # bash expands an unquoted one's `$VAR` and `$(...)`.
                 quoted = bool(m.group(2)) or "\\" in m.group(0)
                 # A CRLF opener's delimiter is `EOF\r`, as bash reads it.
                 delim = m.group(3) + ("\r" if text[m.end() : m.end() + 2] == "\r\n" else "")
-                pending.append((delim, m.group(1) == "-", opener, quoted))
+                pending.append((delim, m.group(1) == "-", opener, quoted, len(stack) - plain))
                 out.append(f"<<{m.group(1)}\x00H{len(bodies) + len(pending) - 1}\x00")
                 i = m.end()
                 continue
@@ -702,6 +863,46 @@ def unwrap(argv: list[str]) -> tuple[list[str], list[str]]:
     return out, chdirs
 
 
+ENV_LONG = (
+    "chdir",
+    "unset",
+    "split-string",
+    "ignore-environment",
+    "null",
+    "debug",
+    "block-signal",
+    "default-signal",
+    "ignore-signal",
+    "list-signal-handling",
+)
+
+
+def env_option(took: list[str], out: list[str], chdirs: list[str]) -> None:
+    """Read env's option TOOK[-1] as GNU env's getopt does: short options bundle (-iC DIR) and
+    take an attached value (-CDIR); a long one is any unique prefix (--chd=DIR). A folder goes
+    to CHDIRS, and a value taken from OUT to TOOK."""
+    tok = took[-1]
+    if tok.startswith("--"):
+        name, eq, value = tok[2:].partition("=")
+        full = [o for o in ENV_LONG if o.startswith(name)] if name else []
+        if len(full) == 1 and full[0] in ("chdir", "unset", "split-string"):
+            arg = value if eq else (out.pop(0) if out else "")
+            if not eq and arg:
+                took.append(arg)
+            if full[0] == "chdir":
+                chdirs.append(arg)
+        return
+    letters = tok[1:]
+    for n, c in enumerate(letters):
+        if c in "CuS":
+            arg = letters[n + 1 :] or (out.pop(0) if out else "")
+            if not letters[n + 1 :] and arg:
+                took.append(arg)
+            if c == "C":
+                chdirs.append(arg)
+            return
+
+
 def unwrap_wrappers(argv: list[str]) -> tuple[list[str], list[str], list[tuple[str, list[str]]]]:
     """As unwrap, and each wrapper it stripped: its name and the words it took (its options and
     their values, and for `timeout` its duration, last)."""
@@ -722,6 +923,9 @@ def unwrap_wrappers(argv: list[str]) -> tuple[list[str], list[str], list[tuple[s
             flag, eq, value = took[-1].partition("=")
             if flag == "--":
                 break
+            if word == "env":  # getopt: bundled (-iC DIR), attached (-CDIR), --chd=DIR
+                env_option(took, out, chdirs)
+                continue
             if flag in chdir_flags and (eq or out):
                 chdirs.append(value if eq else out.pop(0))
             elif flag in value_flags and not eq and out:
@@ -738,6 +942,272 @@ def expand(text: str, env: dict[str, str], unknown: str | None = "") -> str:
         lambda m: env.get(m.group(1) or m.group(2), m.group(0) if unknown is None else unknown),
         text,
     )
+
+
+def command_expansion(inner: str) -> bool:
+    """Whether INNER holds a backtick or a `$(` that runs a command: `$((` is arithmetic only
+    when arith_reading is sure of it (`$((cd a) )` is a subshell; undecided runs a command)."""
+    if "`" in inner:
+        return True
+    for m in re.finditer(r"\$\(", inner):
+        if not (inner[m.end() : m.end() + 1] == "(" and arith_reading(inner, m.end() - 1)):
+            return True
+    return False
+
+
+def _construct_end(text: str, k: int) -> int | None:
+    """The index just past the `$(...)`, `"..."` or backtick construct that opens at K,
+    with the quotes and substitutions nested in it, or None when it does not close. One
+    loop with its own stack, so nesting depth costs no recursion."""
+    n = len(text)
+    if text.startswith("$(", k):
+        stack, i = [")"], k + 2
+    elif text.startswith("${", k):
+        stack, i = ["}"], k + 2
+    else:
+        stack, i = [text[k]], k + 1
+    while i < n:
+        c, top = text[i], stack[-1]
+        if top == "`":
+            if c == "\\":
+                i += 2
+                continue
+            if c == "`":
+                stack.pop()
+            i += 1
+        elif c == "\\":
+            i += 2
+            continue
+        elif top == '"':
+            if c == '"':
+                stack.pop()
+                i += 1
+            elif text.startswith("$(", i):
+                stack.append(")")
+                i += 2
+            elif text.startswith("${", i):
+                stack.append("}")
+                i += 2
+            elif c == "`":
+                stack.append("`")
+                i += 1
+            else:
+                i += 1
+        else:  # inside $( ... ), a ( it holds, or ${ ... }
+            if c == "#" and top == ")" and text[i - 1] in " \t\n;&|(":
+                # a comment inside $( ... ) runs to its line's end: a ) in it closes nothing
+                q = text.find("\n", i)
+                i = n if q < 0 else q
+                continue
+            if c == "'":
+                q = text.find("'", i + 1)
+                if q < 0:
+                    return None
+                i = q + 1
+            elif c in '"`':
+                stack.append(c)
+                i += 1
+            elif text.startswith("$(", i):
+                stack.append(")")
+                i += 2
+            elif text.startswith("${", i):
+                stack.append("}")
+                i += 2
+            elif c == "(" and top == ")":
+                stack.append(")")
+                i += 1
+            elif c == top:
+                stack.pop()
+                i += 1
+            else:
+                i += 1
+        if not stack:
+            return i
+    return None
+
+
+def shell_tokens(text: str) -> list[tuple[str, str, bool]] | None:
+    """TEXT as bash splits it at the top level: ("word", raw, expands), ("redir", op, False)
+    or ("sep", op, False), with comments dropped and a word's quotes and substitutions kept as
+    written. EXPANDS: the word holds `$(`, a backtick or `$'` outside single quotes. A `#`
+    inside a word, as after a substitution's `)`, stays in the word, as in bash. None when a
+    quote or a substitution does not close. Linear in TEXT."""
+    tokens: list[tuple[str, str, bool]] = []
+    start: int | None = None
+    expands = False
+    i, n = 0, len(text)
+
+    def end(at: int) -> None:
+        nonlocal start, expands
+        if start is not None:
+            tokens.append(("word", text[start:at], expands))
+            start, expands = None, False
+
+    while i < n:
+        c = text[i]
+        if start is None and c in " \t":
+            i += 1
+            continue
+        if start is None and c == "#":
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+            continue
+        if c in " \t":
+            end(i)
+            continue
+        if c in "\n;|&()" and not (c == "&" and text.startswith(">", i + 1)):
+            end(i)
+            op = text[i : i + 2] if text[i : i + 2] in ("&&", "||", "|&", ";;") else c
+            tokens.append(("sep", op, False))
+            i += len(op)
+            continue
+        if c in "<>&":
+            if start is not None and text[start:i].isdigit():
+                start = None  # an fd number: part of the redirection
+            end(i)
+            m = REDIRECTION.match(text, i + (c == "&"))
+            op = ("&" if c == "&" else "") + (m.group() if m else c)
+            tokens.append(("redir", op, False))
+            i += len(op)
+            continue
+        if start is None:
+            start = i
+        if c == "\\":
+            i += 2
+        elif c == "'":
+            # $'...' reads as $ then a quote; its escapes are bash's to decode.
+            expands = expands or text[i - 1 : i] == "$"
+            j = text.find("'", i + 1)
+            if j < 0:
+                return None
+            i = j + 1
+        elif c in '"`' or text.startswith("$(", i) or text.startswith("${", i):
+            j = _construct_end(text, i)
+            if j is None:
+                return None
+            inner = re.sub(r"\\.", "", text[i:j])  # an escaped $( or backtick is literal
+            # $(( is arithmetic and ${ a parameter: they expand a command only inside.
+            expands = expands or command_expansion(inner)
+            i = j
+        else:
+            i += 1
+    end(n)
+    return tokens
+
+
+def unreadable_substitution(text: str) -> bool:
+    """Whether TEXT holds a `(` or `)` of its own (a subshell, a group, a process
+    substitution), or a word with `$(`, a backtick or `$'` outside single quotes that is not
+    one of the forms QUOTED_SIMPLE_SUBSTITUTION and BARE_SAFE_REF name, or does not parse."""
+    if re.search(r"[<>]\(", text):
+        return True  # <( or >( anywhere: words past it go unread, however it is quoted
+    try:
+        tokens = shell_tokens(strip_heredocs(text, as_bash=True)[0])
+    except Exception:
+        return True  # a check that cannot finish refuses
+    if tokens is None:
+        return True
+    for k, (kind, raw, expands) in enumerate(tokens):
+        if kind == "sep" and raw in "()":
+            return True  # a subshell, a group or <(...) / >(...): words past it go unread
+        if kind != "word" or not expands:
+            continue
+        if QUOTED_SIMPLE_SUBSTITUTION.fullmatch(raw):
+            continue
+        if not BARE_SAFE_REF.fullmatch(raw):
+            return True
+        j = k + 1
+        while j < len(tokens) and tokens[j][0] == "redir":
+            # >&N and >&- name no file; any other redirection takes the next word
+            j += 1 if re.search(r"[<>]&(?:\d+|-)$", tokens[j][1]) else 2
+        if j < len(tokens) and tokens[j][0] != "sep":
+            return True
+    return False
+
+
+# A call that sets IFS changes how bash splits every unquoted expansion after it.
+IFS_SET = re.compile(r"\bIFS\b")  # IFS=, IFS+=, read IFS, printf -v IFS: any mention
+# What a push needs to skip its pre-push hook, in any spelling git takes. In a hooked repo,
+# a call that names a push and holds one of these anywhere (quotes and backslashes out, so
+# no shell construct can hide it: a heredoc body, a comment the parser misreads, a variable)
+# is refused. The parsed checks above read the shapes; this reads the letters.
+HOOK_SKIPS = ("no-veri", "hookspath", "include.path", "includeif", "git_config_", "config-env")
+PUSH_WORDS = ("push", "send-pack")
+
+
+def _push_letters(text: str) -> int:
+    """How many times TEXT, with quotes and backslashes out, spells push or send-pack."""
+    return len(re.findall(r"push|send-pack", re.sub(r"[\"'\\]", "", text.lower())))
+
+
+def names_a_hook_skip(raw: str, parser_words: list[str]) -> bool:
+    """Whether RAW holds a push that bash runs but the parser never read (PARSER_WORDS are
+    the words it tokenized), and, anywhere, a way to skip a hook (HOOK_SKIPS). A push bash
+    runs is a command word, or text inside a substitution, in a word or in an unquoted
+    heredoc's body; a quoted heredoc's body and quoted prose never run, so they never count."""
+    flat = re.sub(r"[\"'\\]", "", raw.lower())
+    if not any(w in flat for w in PUSH_WORDS) or not any(w in flat for w in HOOK_SKIPS):
+        return False
+    if undecided_arith(raw):
+        return True  # a (( the scan cannot place: either reading could hide a push
+    stripped, bodies = strip_heredocs(raw, as_bash=True)
+    tokens = shell_tokens(stripped)
+    if tokens is None:
+        return True  # does not parse as bash does: cannot tell, so refuse
+    seen = sum(w in PUSH_WORDS for w in parser_words)
+    words = [re.sub(r"[\"'\\]", "", raw_word) for kind, raw_word, _ in tokens if kind == "word"]
+    if sum(w in PUSH_WORDS for w in words) > seen:
+        return True  # a command word the parser misread
+    if any(_push_letters(raw_word) for kind, raw_word, expands in tokens if expands):
+        return True  # a push inside a substitution
+    return any(
+        not quoted and ("$(" in body or "`" in body) and _push_letters(body)
+        for _, body, quoted in bodies
+    )
+
+
+def hooked_repo(cwd: Path) -> bool:
+    """Whether CWD is in a repo that ships the scanner or has techne's pre-push hook."""
+    if not cwd.is_dir():
+        return False
+    where = run_git(
+        cwd,
+        [],
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-common-dir",
+        "--git-path",
+        "hooks",
+        "--show-toplevel",
+        env={},
+    )
+    lines = (where or "").splitlines()
+    if len(lines) != 3:
+        return False
+    common, hooks, top = (Path(x) for x in lines)
+    return (
+        (top / SCANNER).is_file()
+        or hook_marked(common / "hooks" / "pre-push")
+        or hook_marked(hooks / "pre-push")
+    )
+
+
+def safe_ref(word: str) -> bool:
+    """Whether WORD is the current branch's name by a SAFE_REFS substitution, alone or as the
+    source of a `src:dst` refspec."""
+    src = re.sub(r" #\d+\)", ")", word)
+    end = src.find(")") + 1
+    if src.startswith("$(") and end and src[end : end + 1] in ("", ":"):
+        src = src[:end]
+    return src in SAFE_REFS
+
+
+def unreadable_dir(target: str, env: dict[str, str]) -> bool:
+    """Whether a `cd` or `-C` TARGET holds an expansion this check cannot read."""
+    expanded = expand(target, env, unknown=None)
+    return ("$" in expanded or "`" in expanded) and re.sub(
+        r" #\d+\)$", ")", expanded
+    ) not in SAFE_DIRS
 
 
 def resolve_dir(cwd: Path, target: str, env: dict[str, str]) -> Path:
@@ -814,6 +1284,9 @@ class Command:
     def __init__(self, cwd: Path):
         self.cwd = cwd
         self.repo_args: list[str] = []
+        self.config: list[str] = []  # -c and --config-env options, flag then value, for git
+        self.alias_unread = False  # git could not read this command's alias config
+        self.cwd_unread = False  # a -C target this check cannot expand
         self.sub = ""
         self.args: list[str] = []
 
@@ -826,7 +1299,10 @@ def parse_git(argv: list[str], cwd: Path, env: dict[str, str]) -> Command | None
         if tok in GIT_GLOBAL_VALUE and i + 1 < len(argv):
             value = argv[i + 1]
             if tok == "-C":
+                cmd.cwd_unread = cmd.cwd_unread or unreadable_dir(value, env)
                 cmd.cwd = resolve_dir(cmd.cwd, value, env)
+            elif tok in {"-c", "--config-env"}:
+                cmd.config += [tok, value]
             elif tok in {"--git-dir", "--work-tree"}:
                 cmd.repo_args += [tok, str(cmd.cwd / os.path.expanduser(value))]
             i += 2
@@ -834,6 +1310,8 @@ def parse_git(argv: list[str], cwd: Path, env: dict[str, str]) -> Command | None
         if tok.startswith(("--git-dir=", "--work-tree=")):
             name, _, value = tok.partition("=")
             cmd.repo_args += [name, str(cmd.cwd / os.path.expanduser(value))]
+        elif tok.startswith("--config-env="):
+            cmd.config += ["--config-env", tok.partition("=")[2]]
         elif not tok.startswith("-"):
             cmd.sub = tok
             cmd.args = argv[i + 1 :]
@@ -857,27 +1335,54 @@ ALIAS_OPTIONS = {
 ALIAS_OPTION_PREFIXES = ("--config-env=", "--exec-path=")
 
 
-def resolve_alias(cmd: Command) -> None:
+def is_builtin(cmd: Command) -> bool:
+    """Whether CMD's subcommand is one of git's own, which no alias can shadow."""
+    global _builtins
+    if cmd.sub in KNOWN_SUBS:
+        return True
+    if _builtins is None:
+        listed = run_git(cmd.cwd, [], "--list-cmds=builtins,main,others")
+        if listed is not None:
+            _builtins = set(listed.split())
+    return cmd.sub in (_builtins or ())
+
+
+def resolve_alias(
+    cmd: Command, env: dict[str, str] | None = None, config: list[str] | None = None
+) -> None:
     """Expand `git <alias>` to the command it stands for (`alias.ci = commit` makes `git ci`
     a commit), following an alias of an alias as git does, until a loop. git ignores an alias
     that shadows one of its own commands, and a shell alias (`!...`) is left as it is. A git
     call that fails here raises GitUnavailable, so the check fails closed."""
-    global _builtins
     seen: set[str] = set()
     while cmd.sub and cmd.sub not in KNOWN_SUBS and cmd.sub not in seen:
         seen.add(cmd.sub)
-        alias = run_git(cmd.cwd, cmd.repo_args, "config", "--get", f"alias.{cmd.sub}")
+        # A `-c alias.x=...` on this command defines an alias too.
+        codes: list[int] = []
+        alias = run_git(
+            cmd.cwd,
+            [*cmd.repo_args, *(cmd.config if config is None else config)],
+            "config",
+            "--get",
+            f"alias.{cmd.sub}",
+            env=env,
+            codes=codes,
+        )
+        if alias is None and codes[-1:] != [1]:  # 1 is "no such key"; others, an error
+            cmd.alias_unread = not is_builtin(cmd)
+            return
         if not alias or alias.lstrip().startswith("!"):
             return
-        if _builtins is None:
-            listed = run_git(cmd.cwd, [], "--list-cmds=builtins,main,others")
-            if listed is not None:
-                _builtins = set(listed.split())
-        if cmd.sub in (_builtins or ()):
+        if is_builtin(cmd):
             return
         words = shlex.split(alias)
         while words and (words[0] in ALIAS_OPTIONS or words[0].startswith(ALIAS_OPTION_PREFIXES)):
-            words = words[1 + ALIAS_OPTIONS.get(words[0], False) :]
+            takes = ALIAS_OPTIONS.get(words[0], False)
+            if words[0] in {"-c", "--config-env"} and len(words) > 1:
+                cmd.config += words[:2]  # an alias's own options reach the push check too
+            elif words[0].startswith("--config-env="):
+                cmd.config += ["--config-env", words[0].partition("=")[2]]
+            words = words[1 + takes :]
         if not words or words[0].startswith("-"):
             return  # an option git refuses before an alias's command
         cmd.sub, cmd.args = words[0], words[1:] + cmd.args
@@ -1081,6 +1586,17 @@ class Guards:
         self.writer_text = ""
         self.errors: list[str] = []
         self.verdict = Verdict()
+        self.words: list[str] = []
+        self.hooks_changed = False
+        self.text = ""  # the command as written, heredoc bodies out
+        self.as_written = ""  # the command as written, before strip_heredocs
+        self.commands_before = 0  # commands this call ran before the one being checked
+        self.wrap_cwd_unread = False
+        self.groups: list[list[str]] = []
+        self.k = 0
+        self.cwd_unread = False  # a `cd` in this line went where this check cannot read
+        # Files an earlier command changed the mode, owner or existence of (not their text).
+        self.changed: list[str] = []
         self._repo_off: dict[tuple[str, tuple[str, ...]], set[str]] = {}
 
     def enabled(self, key: str, cmd: Command, local: bool = True) -> bool:
@@ -1347,6 +1863,224 @@ class Guards:
         with tempfile.TemporaryDirectory(prefix="phylax-secrets-") as tmp:
             self.scan_secrets(what, "push", top, repo_env(cmd), log_opts, Path(tmp))
 
+    def config_file_fresh(self, lookup: tuple[dict[str, str], list[str]]) -> bool:
+        """Whether this command reads a config file (GIT_CONFIG_*, an include) while an earlier
+        command in the same call wrote or changed a file: that file may be the config, which
+        does not exist yet when this check reads it."""
+        genv, cfg = lookup
+        reads = any(k.startswith("GIT_CONFIG") for k in genv) or any(
+            c.lower().startswith(("include.path=", "includeif.")) for c in cfg[1::2]
+        )
+        return reads and (bool(self.written or self.changed) or self.commands_before > 0)
+
+    def prefix(self, env: dict[str, str]) -> dict[str, str]:
+        """This command's prefix assignments (`NAME=value git ...`), expanded where known."""
+        known = {**env, **self.raw}
+        out: dict[str, str] = {}
+        for tok in self.words:
+            if not ASSIGNMENT_RE.match(tok):
+                if Path(tok).name == "git":
+                    break
+                continue
+            name, _, value = tok.partition("=")
+            out[name] = expand(value, known, unknown=None)
+        return out
+
+    def git_lookup(
+        self, env: dict[str, str], cmd: Command
+    ) -> tuple[dict[str, str], list[str]] | None:
+        """What phylax's own git lookups for CMD run with: the variables that locate its repo
+        and config (LOCATES), from the line and this command's prefix assignments, and its
+        config options, each `--config-env=KEY=VAR` turned into `-c KEY=<value>` so no other
+        variable ever reaches phylax's git (a PATH or a GIT_TRACE_* names nothing here). None
+        when a value this check needs cannot be read."""
+        prefix = self.prefix(env)
+        genv = {k: v for k, v in {**env, **prefix}.items() if locates(k)}
+        args: list[str] = []
+        for k in range(0, len(cmd.config) - 1, 2):
+            flag, value = cmd.config[k], cmd.config[k + 1]
+            if flag == "--config-env":
+                key, _, var = value.partition("=")
+                held = prefix.get(var, env.get(var))
+                if held is None:
+                    return None
+                flag, value = "-c", f"{key}={held}"
+            args += [flag, value]
+        if any("$" in v or "`" in v for v in [*genv.values(), *args]):
+            return None
+        return genv, args
+
+    def check_push_hook(self, cmd: Command, env: dict[str, str]) -> None:
+        """_check_push_hook, refusing the push when the check itself fails: an error there
+        must not let a push out unscanned, whatever the blocking options say."""
+        try:
+            self._check_push_hook(cmd, env)
+        except Exception as e:
+            self.verdict.deny(
+                PRIVATE_NAMES,
+                f"phylax: the pre-push hook check failed ({type(e).__name__}), so this push "
+                "was not let out unscanned. Run the push as a command of its own.",
+            )
+
+    def _check_push_hook(self, cmd: Command, env: dict[str, str]) -> None:
+        """Make sure a push in a repo that ships scripts/check_private_names.py runs its
+        pre-push hook, which scans exactly the refs git sends for the owner's private repo
+        names (techne#396). Where the repo, its config and its hooks are is asked of git, with
+        this command's -c options and locating variables (GENV), so every config source
+        counts; the hook there must be techne's. A push after an earlier command in the same
+        call wrote git config or a file under the git dir or hooks waits, and so does
+        --no-verify. It runs none of the repo's code."""
+
+        def refuse(why: str) -> None:
+            self.verdict.deny(PRIVATE_NAMES, f"phylax: {why}")
+
+        if cmd.alias_unread:
+            refuse(
+                f"git could not read what `git {cmd.sub}` stands for with the options and "
+                "variables this command sets, so the check cannot tell whether it is a push. "
+                "Write the git command out in full."
+            )
+            return
+        lookup = self.git_lookup(env, cmd)  # again: an alias may have added options
+        if lookup is None:
+            refuse(
+                "this command sets a git variable or option from a value this check cannot "
+                "read, so it cannot see which repo or pre-push hook it uses. Set it to a plain "
+                "value."
+            )
+            return
+        genv, cfg = lookup
+        if cmd.cwd_unread or self.cwd_unread or self.wrap_cwd_unread:
+            refuse(
+                "this push runs in a folder this check cannot read (a `cd` or `-C` to a value "
+                "it cannot expand), so it cannot see which repo's pre-push hook would run. Use "
+                "a plain path."
+            )
+            return
+        if not cmd.cwd.is_dir():
+            refuse(
+                f"this push runs in {cmd.cwd}, which does not exist yet, so the check cannot "
+                "see whether its pre-push hook will run. Run the push as a command of its own "
+                "once the folder exists."
+            )
+            return
+        args = [*cmd.repo_args, *cfg]
+        where = run_git(
+            cmd.cwd,
+            args,
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-common-dir",
+            "--absolute-git-dir",
+            "--git-path",
+            "hooks",
+            env=genv,
+        )
+        lines = (where or "").splitlines()
+        if len(lines) != 3:
+            steered = (
+                cmd.config or cmd.repo_args or any(os.environ.get(k) != v for k, v in genv.items())
+            )
+            if steered:
+                refuse(
+                    "git could not read this command's repo or config with the options and "
+                    "variables it sets, so the check cannot see which pre-push hook would run. "
+                    "Run the push with plain values, or as a command of its own."
+                )
+            return  # otherwise not a repository: git refuses the push itself
+        common, gitdir, hooks = (Path(x) for x in lines)
+        top = run_git(cmd.cwd, args, "rev-parse", "--show-toplevel", env=genv)
+        ships = bool(top and top.strip()) and (Path(top.strip()) / SCANNER).is_file()
+        if not (
+            ships or hook_marked(common / "hooks" / "pre-push") or hook_marked(hooks / "pre-push")
+        ):
+            return
+        if cmd.sub in HOOKLESS_PUSHES:
+            refuse(
+                f"`git {cmd.sub}` sends refs without running the pre-push hook, which scans "
+                "for the owner's private repo names. Use `git push`."
+            )
+            return
+        if cmd.sub != "push":
+            return  # an alias that resolved to something else
+        reads_fd = any(re.match(r"^\d*<", t) for t in self.words) or self.stdin_heredoc is not None
+        names_dev = any("/dev/" in v or "/proc/" in v for v in [*genv.values(), *cfg[1::2]])
+        if reads_fd or names_dev:
+            refuse(
+                "this push reads input (a `<` redirection, a heredoc, or config from /dev or "
+                "/proc), which can feed git a config this check never sees. Push without it."
+            )
+            return
+        folders = (common, gitdir, hooks)  # git's absolute paths have symlinks resolved
+        changed = (
+            self.hooks_changed
+            or self.config_file_fresh(lookup)
+            or any(
+                under(path, folders) or is_git_config(path)
+                for path in real_paths([*self.written, *self.changed])
+            )
+        )
+        if changed:
+            refuse(
+                "this push runs after a command in the same call that changes git's config or "
+                "hooks, so the check cannot see which pre-push hook will run. Run the push as "
+                "a command of its own."
+            )
+            return
+        if unreadable_substitution(self.as_written or self.text):
+            refuse(
+                "this push's call holds a subshell, a group or a command substitution this "
+                "check cannot read, so it cannot tell which words reach git. Name the branch "
+                '(or write "$(git branch --show-current)" in double quotes) and run the rest '
+                "in a call of its own."
+            )
+            return
+        skip = False
+        for arg in cmd.args:
+            word = expand(arg, {**env, **self.raw}, unknown=None)
+            if word == "--":
+                break
+            if (
+                word == "$"
+                and cmd.args.count("$") == 1
+                and self.groups[self.k + 1 : self.k + 2] == [[PUSH]]
+            ):
+                # A bare $(...), which unreadable_substitution() says no word follows.
+                word = self.substitution(self.groups, self.k, cmd.cwd, env)
+            if safe_ref(word):
+                continue  # the current branch's name: never an option
+            if "$" in arg and (any(c.isspace() for c in word) or IFS_SET.search(self.text)):
+                refuse(
+                    "this push takes a variable that bash may split into more words (its value "
+                    "holds a space, or the call sets IFS), so the check cannot tell which words "
+                    "reach git. Write the push's words out in full."
+                )
+                return
+            if "$" in word or "`" in word:
+                refuse(
+                    "this push takes an argument this check cannot read, so it cannot tell "
+                    "whether it skips the pre-push hook. Write the push out in full."
+                )
+                return
+            # git takes any unique prefix of a long option (--no-veri); the last one wins.
+            if len(word) >= len("--no-veri") and "--no-verify".startswith(word):
+                skip = True
+            elif len(word) >= len("--veri") and "--verify".startswith(word):
+                skip = False
+        if skip:
+            refuse(
+                "--no-verify skips this repo's pre-push hook, which scans the push for the "
+                "owner's private repo names. Push without it."
+            )
+            return
+        if not hook_marked(hooks / "pre-push"):
+            refuse(
+                f"this push would run without techne's pre-push hook (git would run "
+                f"{hooks / 'pre-push'}), so it would go out unscanned for the owner's private "
+                "repo names. Run `bash scripts/install_git_hooks.sh` (or `make setup`) and "
+                "push without overriding core.hooksPath."
+            )
+
     def default_remote(self, cmd: Command) -> str:
         """The remote a bare `git push` uses: pushRemote, pushDefault, the branch's remote,
         else origin."""
@@ -1479,8 +2213,16 @@ class Guards:
             if name not in {"git", "gh"}:
                 self.note_created(group, argv, cwd)
             run_cwd = cwd
+            self.wrap_cwd_unread = False  # an `env -C` or `sudo -D` to an unreadable folder
             for target in chdirs:
+                self.wrap_cwd_unread = self.wrap_cwd_unread or unreadable_dir(target, env)
                 run_cwd = resolve_dir(run_cwd, target, env)
+            if name == "unset":  # a later git no longer sees these
+                for var in argv[1:]:
+                    if not var.startswith("-"):
+                        env.pop(var, None)
+                        raw.pop(var, None)
+                continue
             if name in {"cd", "pushd", "popd"}:
                 args = [a for a in argv[1:] if a not in CD_FLAGS]
                 args = args[1:] if args[:1] == ["--"] else args
@@ -1492,7 +2234,12 @@ class Guards:
                 elif name == "pushd" and not args:
                     continue
                 else:
-                    cwd = resolve_dir(cwd, args[0] if args else "~", env)
+                    target = args[0] if args else "~"
+                    if unreadable_dir(target, env):
+                        self.cwd_unread = True
+                    elif os.path.expanduser(expand(target, env, unknown=None)).startswith("/"):
+                        self.cwd_unread = False  # an absolute folder: known again
+                    cwd = resolve_dir(cwd, target, env)
                 if name == "pushd":
                     dirstack.append(old)
                 env["OLDPWD"], env["PWD"] = str(old), str(cwd)
@@ -1517,6 +2264,9 @@ class Guards:
                 and self.stdin_other[1][:1] in {"<", "&", "("}
             )
             self.raw = raw
+            self.words = group  # this command's tokens, prefix assignments included
+            self.commands_before = sum(1 for g in groups[:k] if g and g[0] not in (PUSH, POP))
+            self.groups, self.k = groups, k  # for a `$(...)` argument's text
             try:
                 if name == "git":
                     self.check_git(argv, run_cwd, env)
@@ -1527,6 +2277,16 @@ class Guards:
             self.note_written(group, argv, run_cwd, env)
             if name not in {"git", "gh"}:
                 self.note_touched(argv, run_cwd, env)
+            # A later push's hook check reads config and hooks as they are now: a command that
+            # names core.hooksPath (or writes git config, in check_git) makes that push wait;
+            # a file written under the git dir or hooks is caught from self.written.
+            if any("hookspath" in t.lower() for t in group):
+                self.hooks_changed = True
+            if Path(argv[0]).name in CHANGERS:  # mode, owner or existence, not text
+                for arg in argv[1:]:
+                    if not arg.startswith("-"):
+                        path = os.path.expanduser(expand(arg, env, unknown=None))
+                        self.changed.append(os.path.normpath(run_cwd / path))
 
     def note_written(
         self, group: list[str], argv: list[str], cwd: Path, env: dict[str, str]
@@ -1591,12 +2351,22 @@ class Guards:
         cmd = parse_git(argv, cwd, env)
         if cmd is None:
             return
-        resolve_alias(cmd)
+        lookup = self.git_lookup(env, cmd)
+        resolve_alias(cmd, *(lookup or ({}, cmd.config)))
+        if lookup and not is_builtin(cmd) and self.config_file_fresh(lookup):
+            cmd.alias_unread = True  # an alias from a config file this call writes first
+        if cmd.sub == "config" and not config_reads(cmd.args):
+            self.hooks_changed = True  # may set core.hooksPath or an include before a push
+        if (lookup is None or cmd.alias_unread) and not is_builtin(cmd):
+            self.check_push_hook(cmd, env)  # an alias git could not read: maybe a push
         if cmd.sub in ADD_SUBCOMMANDS:
             self.pending_adds.append(cmd)
             self.check_add(cmd)
         elif cmd.sub == "push":
             self.check_push_secrets(cmd)
+            self.check_push_hook(cmd, env)
+        elif cmd.sub in HOOKLESS_PUSHES:
+            self.check_push_hook(cmd, env)
         elif cmd.sub == "commit":
             commit = parse_commit(cmd.args)
             if self.enabled(ATTRIBUTION, cmd):
@@ -2059,6 +2829,8 @@ def check(data: dict, raw: str) -> int:
     tokens = tokenize(stripped)
     guards = Guards(bodies, str(data.get("agent_type") or data.get("agent_id") or ""))
     guards.verdict.agy = hook_output.from_agy(data)
+    guards.text = stripped
+    guards.as_written = raw
     errored = False
     try:
         if tokens is None:
@@ -2068,6 +2840,15 @@ def check(data: dict, raw: str) -> int:
                 guards.check_attribution("this command", [raw], [], cwd, "", [], {})
             tokens = rough_tokenize(stripped)
         guards.run(split_subcommands(tokens), cwd)
+        if not guards.verdict.denies and names_a_hook_skip(raw, list(tokens)) and hooked_repo(cwd):
+            guards.verdict.deny(
+                PRIVATE_NAMES,
+                "phylax: this call runs a push the check could not read (in a substitution, a "
+                "heredoc or past a misread quote) and names a way to skip its pre-push hook "
+                "(--no-verify, core.hooksPath, an include or a GIT_CONFIG_ variable), which "
+                "scans the push for the owner's private repo names. Run the push as a plain "
+                "command of its own; text that only mentions these goes in a call of its own.",
+            )
     except Exception as exc:
         guards.errors.append(str(exc))
     for error in guards.errors:

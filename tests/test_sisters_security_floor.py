@@ -308,3 +308,51 @@ jobs:
 """
     out = run(tmp_path, make_repo(tmp_path, {"ci.yml": text}))
     assert "security floor ✓" in out
+
+
+def test_pre_push_hook_missing_when_repo_ships_check_private_names_is_a_gap(tmp_path):
+    repo = make_repo(tmp_path, {"ci.yml": GOOD})
+    scripts = repo / "scripts"
+    scripts.mkdir()
+    (scripts / "check_private_names.py").write_text("#!/usr/bin/env python3\n")
+    out = run(tmp_path, repo)
+    assert "pre-push hook not installed (run make setup)" in out
+
+
+def test_pre_push_hook_installed_with_check_private_names_passes(tmp_path):
+    repo = make_repo(tmp_path, {"ci.yml": GOOD})
+    scripts = repo / "scripts"
+    scripts.mkdir()
+    (scripts / "check_private_names.py").write_text("#!/usr/bin/env python3\n")
+    hook = repo / ".git" / "hooks" / "pre-push"
+    hook.parent.mkdir(parents=True, exist_ok=True)
+    hook.write_text(
+        "#!/bin/sh\n"
+        "[ -f scripts/check_private_names.py ] && exec python3 scripts/check_private_names.py\n"
+    )
+    hook.chmod(0o755)
+    assert "pre-push hook is not techne's push scan" in run(tmp_path, repo)  # the HEAD scan
+    hook.write_text("#!/bin/sh\n# techne pre-push hook (#396)\n")
+    out = run(tmp_path, repo)
+    assert "pre-push hook" not in out
+    assert out.endswith("security floor ✓")
+
+
+def test_a_hook_that_chains_techne_s_pre_push_passes(tmp_path):
+    repo = make_repo(tmp_path, {"ci.yml": GOOD})
+    (repo / "scripts").mkdir()
+    (repo / "scripts" / "check_private_names.py").write_text("#!/usr/bin/env python3\n")
+    hook = repo / ".git" / "hooks" / "pre-push"
+    hook.parent.mkdir(parents=True, exist_ok=True)
+    hook.write_text('#!/bin/sh\nmy-checks || exit 1\nexec scripts/git-hooks/pre-push "$@"\n')
+    hook.chmod(0o755)
+    assert "pre-push hook" not in run(tmp_path, repo)
+
+
+def test_the_hook_marks_match_phylax_s():
+    def marks(rel: str) -> str:
+        src = (ROOT / rel).read_text()
+        return next(line for line in src.splitlines() if line.startswith("HOOK_MARKS = "))
+
+    phylax = marks("plugins/phylax/hooks/git_checks.py")
+    assert phylax == marks("plugins/techne/skills/sisters/scripts/security_floor.py")

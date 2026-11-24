@@ -67,6 +67,7 @@ extra-paths = ["tests", "plugins/epistole", "plugins/heuresis", "plugins/schole"
     "tests/test_body_gate.py",
     "tests/test_command_shapes.py",
     "tests/test_denial_log.py",
+    "tests/test_private_names.py",
 ]
 "plugins/phylax/hooks/body_gate.py" = ["tests/test_body_gate.py"]
 "plugins/phylax/hooks/command_shapes.py" = [

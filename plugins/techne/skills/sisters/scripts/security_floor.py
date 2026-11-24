@@ -268,6 +268,36 @@ def workflow_gaps(root: Path) -> list[str]:
     return gaps
 
 
+# What phylax's check_push_hook accepts as techne's pre-push hook (a test keeps them equal).
+HOOK_MARKS = ("techne pre-push hook (#396)", "scripts/git-hooks/pre-push")
+
+
+def hook_gaps(root: Path) -> list[str]:
+    """If the repo ships scripts/check_private_names.py, verify pre-push hook is installed."""
+    if not (root / "scripts" / "check_private_names.py").exists():
+        return []
+    try:
+        res = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--git-path", "hooks/pre-push"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if res.returncode != 0:
+            return ["could not determine git hooks path"]
+        hook_path = Path(res.stdout.strip())
+        if not hook_path.is_absolute():
+            hook_path = (root / hook_path).resolve()
+        if not hook_path.is_file() or not os.access(hook_path, os.X_OK):
+            return ["pre-push hook not installed (run make setup)"]
+        content = hook_path.read_text(encoding="utf-8", errors="replace")
+        if not any(mark in content for mark in HOOK_MARKS):
+            return ["pre-push hook is not techne's push scan (run make setup)"]
+    except (OSError, subprocess.TimeoutExpired):
+        return ["could not verify pre-push hook"]
+    return []
+
+
 def check(root: Path) -> tuple[list[str], list[str]]:
     if not (root / ".git").exists():
         return [f"not a git repository at {root}"], []
@@ -279,6 +309,7 @@ def check(root: Path) -> tuple[list[str], list[str]]:
         gaps = remote + gaps
     else:
         notes.append("no GitHub origin, settings not checked")
+    gaps = gaps + hook_gaps(root)
     return gaps, notes
 
 

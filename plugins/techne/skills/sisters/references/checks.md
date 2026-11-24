@@ -439,7 +439,9 @@ call), Dependabot alerts on, zizmor and actionlint run in CI (a `run:` step, or
 dependency lockfile `.github/workflows/actions.lock` (GitHub onboards workflows one by one; a
 reusable workflow call needs a SHA either way; Docker refs and the repo's own `./` and `$/` refs
 are out of scope), and least-privilege `permissions:`
-in every workflow (at the top or on every job, never `write-all` at either level). Sources: GitHub's
+in every workflow (at the top or on every job, never `write-all` at either level), and an
+executable `pre-push` hook installed (running `scripts/check_private_names.py`) whenever the
+repo ships that scanner script (#396). Sources: GitHub's
 [secure use reference](https://docs.github.com/en/actions/reference/security/secure-use) and
 [workflow dependency lockfiles](https://docs.github.com/en/actions/concepts/security/workflow-dependency-lockfiles).
 

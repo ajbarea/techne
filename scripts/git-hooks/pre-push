@@ -1,0 +1,24 @@
+#!/bin/sh
+# techne pre-push hook (#396), installed by `make setup` (scripts/install_git_hooks.sh):
+# refuses a push whose commits, messages or ref names carry one of the owner's private repo
+# names. git passes the remote and its URL as arguments and one line per pushed ref on stdin.
+# The scanner comes from the work tree, else from HEAD (a bare clone, --work-tree elsewhere);
+# with neither the push is refused, since an installed hook means the repo ships the scan.
+# git's ref lines are saved first and every git call here reads /dev/null, so a config that
+# reads stdin (include.path=/dev/stdin) can neither eat them nor be fed by them.
+refs=$(mktemp) || exit 1
+tmp=""
+trap 'rm -f -- "$refs" ${tmp:+"$tmp"}' EXIT
+cat >"$refs"
+top=$(git rev-parse --show-toplevel 2>/dev/null </dev/null) || top="" # a bare repo has no work tree
+script="$top/scripts/check_private_names.py"
+if [ -z "$top" ] || [ ! -f "$script" ]; then
+    tmp=$(mktemp) || exit 1
+    if ! git show HEAD:scripts/check_private_names.py >"$tmp" 2>/dev/null </dev/null; then
+        echo "pre-push: scripts/check_private_names.py is in neither the work tree nor HEAD;" \
+            "push from a checkout that has it, or remove this hook" >&2
+        exit 1
+    fi
+    script=$tmp
+fi
+python3 "$script" --pre-push "$@" <"$refs"

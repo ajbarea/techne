@@ -1,171 +1,144 @@
-# techne — Implementation scratchpad (feat/denied-calls-399)
+# techne — Implementation scratchpad (fix/private-names-push-396)
 
 The active TODO list for whatever's in flight right now. Queued specs live in [ROADMAP.md](./ROADMAP.md).
 
-## phylax denied-calls log (issue #399, PR #404)
+## Private-names guard blocks the push itself (issue #396, PR #403)
 
-- Slice: each phylax deny is one row in `~/.local/state/phylax/denied-calls.jsonl`; the same session's
-  next call a phylax hook sees is logged under the same id. Local only, 0600, redacted, 1,000-char cap.
-- ✅ agy's first pass (squashed into this branch's single commit).
-- ✅ Opus review fixes:
-  - Latency: CI's email_greeting went 2.03x to 2.60x of the python3 floor (eager pathlib, uuid and regex
-    compiles on every call), and CodSpeed's triage benches doubled (a scandir and an exception on every
-    Bash call). Now the pending folder exists only while a record waits; git_guards checks it with one
-    `access()` and imports nothing; denial_log imports no pathlib/uuid and compiles its patterns lazily.
-  - Guard names: each git_checks refusal records its guard (`Verdict.deny(guard, why)`) and the shape
-    check names the shape (`command_shapes.guard_of`), replacing a guess from the reason text and a
-    "first option alphabetically" pick.
-  - register.ts now passes `session_id`: main-thread denials all landed in one shared "default" session.
-  - The logged command is the command, not the whole hook JSON; Agent prompts and email bodies are cut.
-  - Redaction adds Anthropic, OpenAI project, AWS, Slack, Google keys, URL credentials, `--password X`;
-    `gh auth login` and similar look-alikes are kept (gh auth login, --with-token < file). Reasons are redacted too.
-  - `same_effect` renamed `same_action` and documented as a word-overlap guess; `seconds_after` added.
-  - One JSONL appender (`hooks/jsonl_log.py`) shared with secret_scan's log. Doctor counts deny and
-    next_call rows of the last 7 days across the rotated file.
-  - GitGuardian 40877600 was a fake fixture (`supersecret123`) in eb59726; the squash drops that commit.
-- ✅ Gate trimmed to 3.4 us (39aaabd): no expanduser/join. Local latency: email_greeting 2.30x, model_guard
-  1.96x, git_guards 1.21x/1.72x, all within budget; `make plugin-test` clean (17 mod tests, tsc).
-- ✅ Bench red (CI git_guards-no-git wall 1.27x vs 1.09x): wall is noise-dominated (main alone 1.05-1.22x
-  locally), but hyperfine's instructions ratio showed a real +0.033: `git_guards.py` runs as __main__,
-  which Python never caches, so its 31 new lines recompiled on every Bash call (~130 us). The slow path
-  moved into denial_log (`next_bash_call`, `shapes_denied`) and the path into git_options (both cached):
-  instructions now main 1.199 vs branch 1.208, compile +17 us. Wider fix for every hook filed: #409.
-- ✅ Abandoned records: a session that ended after a deny kept the folder, and every session's slow path,
-  forever. A deny now sweeps records older than an hour; another session's record costs one access()
-  and no JSON parse (`_raw_session_id`, differential-tested against the full parse).
-- ✅ Never-block: the git_guards slow path was unwrapped after the move; a broken or missing denial_log
-  refused every Bash command. Restored try/except, with a test (missing and raising module).
-- ✅ Test isolation: hook tests and mutation runs wrote 574 rows and mutant-named files into the real
-  ~/.local/state/phylax. conftest now gives every test its own XDG_STATE_HOME; junk moved to scratch.
-- ✅ Round 2 (fresh restart, Opus): CI mutation red (88 survivors) and bench red.
-  - Most survivors were refusal-message lines the PR only re-wrapped (ruff's trailing comma put
-    them in the diff); refusals now keep main's lines (`why = (...)`, then `deny(KEY, why)`).
-  - Real gaps killed: each refusal site's guard (16 sites, one command each), file modes on both
-    open paths and the folder race, same_action's pr/issue branch, raw_value and stale-age
-    boundaries, rotation at the cap, clip's scan window, HOME unset, the inline gates vs
-    pending_any. Redundant `str(tool_input)` args and the "git_guard" fallback removed.
-  - 8 strict equivalents in mutation/equivalent.toml, each with its proof.
-  - Perf: model_guard and email_greeting imported denial_log on every call (2.2 ms warm vs a
-    12.5 ms floor); agy's commit had widened their bench ratios to hide it. Baseline restored to
-    main's; both now gate on one access(). CodSpeed's -16% is in-process repeated main() calls
-    (one more os.environ lookup + access per call, cProfile); per process it is a few us.
-- ✅ CI round 2: validate green; one survivor left (the first open, flags dropped), killed by a repeated-deny test. Local latency budgets pass (email_greeting 2.34x of 2.6x). Interleaved hyperfine, instructions vs the python3 floor, main/branch: git_guards-no-git 1.199/1.216, model_guard-agent 2.024/2.304, email_greeting-draft 2.558/2.832; the last two are refusal cases, so that is the cost of logging a denial (import 0.7 ms warm + two writes), paid only on a refusal.
-- ✅ Verify round 3 (fresh Opus, 1 Blocking + 3 Should-fix): the `rb` equivalence proof was false (bytes json.loads reads UTF-16): entry dropped, mutant killed by a UTF-16 record test; clip drops the word its window cuts, so a token cut short can never slide into view after a long redaction; the never-block test runs over all four hook paths; docs say gone-folder refusals are logged and what Agent and email refusals log.
-- ✅ Verify round 4 (fresh Opus, 3 Should-fix): two equivalence hashes went stale with a docstring
-  edit (recomputed; CI's mutation shard fails on any stale entry); JSON/dict-repr keys and an
-  unclosed quote at the cut leaked (both redacted now); the redactor gained private key blocks,
-  JWTs, Stripe, Hugging Face, Authorization values and command-line credentials.
-- ✅ Verify round 5 (fresh Opus, 4 Should-fix): `-u`/`--user` fired outside curl (docker, sudo):
-  now curl-only; the JWT and mysql patterns were quadratic on repeated input: anchored and
-  bounded; `gh secret set --body` and `docker login -p` redacted; docs state redaction is best
-  effort. Weak-redaction recurred four rounds, so two property tests now sweep every pattern:
-  adversarial repeats under a time budget, and 50+ ordinary commands left unchanged.
-- ✅ Verify round 6 (fresh Opus, 2 Should-fix): the timing test barely separated linear from
-  quadratic, so it now asserts on scaling (4x input, under 9x time; quadratic shows 16x); ordinary
-  commit text was mangled ("Bearer support", "auth: handle", `--secret id=`, `--with-token <`,
-  `$(gh auth token)`): Bearer/Basic need token-shaped values, a bare `key:` needs a
-  secret-looking value, flag values skip references and redirects; PyPI and npm tokens added.
-- ✅ Verify round 7 (fresh Opus, 1 Blocking + 1 Should-fix): the new `key: value` rule was
-  quadratic (an unbounded lookahead) and the hand-picked fragment list missed it; routine commit
-  text was still mangled. Values now pass one shape gate (SECRET_WORD, case-sensitive, every
-  lookahead bounded), Bearer/Basic one credential shape; the adversarial sweep is generated from
-  every keyword x separator (catches the unbounded lookahead: 18 failures).
-- ✅ Verify round 8 (fresh Opus, 1 Blocking + 1 Should-fix): a prose `key: value` secret cannot be
-  told from a code identifier (getAccessToken2), so that rule and the bare Authorization one are
-  gone (a missed prose secret is the stated limit); Bearer/Basic need mixed case plus a digit or
-  base64 symbol; bounded runs gained an unbounded tail, so a token over 255 characters is
-  replaced whole. The reader's 9 mangled commit lines joined the ordinary corpus.
-- ✅ Verify round 9 (fresh Opus, 2 Blocking): the `--flag value` rule rewrote commit and PR titles
-  naming a flag ("add --token flag"), and `KEY=` read a search pattern's closing quote as a value
-  (`grep "api_key="`): a flag value must be more than a plain lower-case word, and a KEY= value
-  cannot start at a quote then a space, or be None/null/true. 11 lines joined ORDINARY.
-- ✅ Verify round 10 (fresh Opus): each over-redaction fix opened an under-redaction (the
-  lower-case flag-word exemption let `docker login --password <word>` through). Decided:
-  privacy over readability in a local log, so over-redaction is the accepted direction (docs say
-  so); the exemption is reverted; `KEY=` needs a value right after `=` (bash `GH_TOKEN= gh`);
-  the `"key":` rule mirrors the search-pattern quote guard.
-- ✅ Verify round 11 (fresh Opus, 5 Blocking): the curl rule was quadratic on a long `=` tail
-  (classes overlapped after `-u`), which the repeat-fragment sweep never tried, so a head plus
-  long-tail sweep now runs over every pattern; `KEY=` matched only a keyword at the end of the
-  name (AWS_SECRET_ACCESS_KEY, SECRET_KEY_BASE, GH_PAT now redact); credential headers, curl
-  --proxy-user/-U/--oauth2-bearer, uv/twine -p/-t, npm _authToken and token-only URL userinfo
-  added; command-anchored patterns repeat (bounded) to catch a second flag. The PR was
-  CONFLICTING after #405/#406, so no CI ran: main merged in. GitGuardian's flag was IMPL.md
-  quoting a sample password: replaced.
-- ✅ Bench red (Heph, run 45349496741: model_guard-agent +22.6%, email_greeting-draft +20.8%): both
-  cases are refusals, and each refusal compiled every redaction pattern in a fresh process
-  (clip ~4.2 ms). Each pattern now has literal triggers (TRIGGERS; a property test holds them
-  conservative, another that a secret-free refusal runs no pattern), so a refusal compiles only
-  what its text can match. Mean of 20, interleaved, instructions vs floor (main / before / after):
-  model_guard-agent 2.024 / 2.806 / 2.371 before the all-of triggers (phylax's own reason
-  "pass model:" still fired three patterns; now none); email_greeting-draft 2.556 / 3.327 / 2.645.
-  bench/run.py now also reports means.
-- ✅ Re-bench (mean of 20, instructions vs floor, main/after): model_guard-agent 2.024/2.116,
-  email_greeting-draft 2.558/2.651, git_guards-no-git 1.199/1.216: all within 15%.
-- ✅ GitGuardian: both incidents were fake values (a fixture; IMPL.md quoting a sample password);
-  fixtures now build CLI secrets at runtime, and the branch is squashed onto main as one commit
-  (tree unchanged; old history in local branch backup/denied-calls-399-presquash), so no commit
-  in the PR carries either. Check green on 93d2042.
-- ✅ Last verify's items: the timing sweeps use CPU time (median of 3), so load no longer fails
-  them; command-anchored flags moved to ANCHORED, run per quote-aware shell segment that names
-  the command, so a flag any distance away is seen in one linear pass (no bounded gap, no
-  repeat loop); cookies, http.extraHeader, subscription-key and Cookie headers, npm set and
-  _password, attached forms (-ualice:x, -pX, -bX). Sweeps cover the anchored flag patterns and
-  redact() as a whole; the sweep caught an unanchored npm pattern before commit.
-- ✅ Verify on b8bc147 (3 Blocking, 1 Should-fix): segments split on false separators (`2>&1`,
-  `\&`, `$(a; b)`), so command flags now run on the whole call once all its words appear
-  (segments() gone); Authorization after -H is redacted (scheme word kept); the prefilter test
-  patched re.subn, which redact() no longer calls (now re.sub, plus a positive control);
-  docker/uv/npm/gh/aws words checked apart, so global options do not hide them. Nits taken:
-  quoted curl -u, -HName:, --pass, -E/--cert, aws configure; the next-call record is claimed
-  by a rename, so two calls at once log one row; docs note the parallel-batch case.
-  4 mutants red (prefilter, all-of words, claim, scheme).
-- ✅ Verify on 2553a05 (2 Blocking, 1 Should-fix): aws `--secret-string` (a flag name holding
-  the word not at its end) and its escaped-JSON example (the key trigger missed `password\"`),
-  `ssm put-parameter --value`, bundled `curl -su`; Nits taken: quoted npm key, `curl -x u:p@`.
-- CodSpeed (advisory; only validate is required): in-process the pending check is 3.1 us
-  (access() 1.7 us, the path 1.1 us), -18 to -20% on a triage that does almost nothing else;
-  whole-process hyperfine stays within 15%.
-- ✅ Verify on 8d6b300 (1 Blocking, 1 Should-fix): az forms from Microsoft's docs (`az login
-  --service-principal -u app -p X`, `az acr login -p`, `az keyvault secret set --value`,
-  `--account-key`) and attached `curl -bX`/`-EX`, which the docs called covered.
-- ✅ Closed-list sweep on 05d10ec (14 tools, one pass): quoted values with spaces in every
-  anchored rule; new entries for git (user:pass@ proxy, smtp pass), wget, kubectl, gcloud,
-  psql, ssh-keygen and every mysql* tool (-p, password X, user:pass@host, SQL that sets a
-  password); aws --value/--sse-c keys/ParameterValue, az key flags, curl proxy pass/cert, uv
-  auth; sshpass -p anywhere (the docs said so); KEY= learns passphrase. Each entry's triggers
-  name what its patterns need, so an ordinary git refusal runs none (the trigger test now
-  checks pattern matches, not command words). 49-template sweep test, 8 keep lines.
-- ✅ Heph: x_safe_id__mutmut_9 registered as equivalent ('X' already passes isalnum()); key
-  recomputed locally and matches CI's.
-- ✅ Verify on 35759c2 (2 Should-fix): the long-tail sweep flaked under CI load (USERINFO
-  started a match after every `=` and scanned 256 characters: `=` is out of the user part,
-  now ~20x cheaper); MySQL's SET PASSWORD FOR, IDENTIFIED WITH ... BY and PASSWORD('X') forms
-  (each gap bounded, so a run of spaces stays linear). The trigger test reads SWEEP too.
-- ✅ Verify on c20f6f3 (2 Should-fix): the SQL gaps stopped at a newline, so multi-line SQL in a
-  heredoc leaked again, and a quoted plugin name (IDENTIFIED WITH '...' BY) leaked: gaps now
-  stop at `;`. Nits taken: an empty proxy user (`:X@host`), whitespace gaps to 200.
-- ✅ Verify on 28e3bde (1 Should-fix): a `;` inside a quoted account name ('a;b'@h) ended the
-  gap: gaps now step over a quoted string whole (two branches on different first characters,
-  so linear: 3.0-4.4x time at 4x input). Two Nit cases pinned in SWEEP.
-- ✅ Verify on 176b1c2 (1 Should-fix, a regression of the bounds): a quoted host longer than 64,
-  more than 100 spaces, and a backslash-escaped quote leaked; _sql_gap() now takes 200 steps
-  and a quoted name ('...', "...", `...`) up to 255 characters with escapes, linear (worst
-  5.5x time at 4x input).
-- ✅ Verify on bc57636: clean (no Blocking or Should-fix; 638-text diff against 28e3bde shows
-  only leaks closed; linear). Its Nit that no test pinned the escape step or the 255 bound for
-  "..." and `...` is closed with three SWEEP rows (all three mutants red).
-- ✅ CI on 8264915: validate and 5 of 6 mutation shards green; shard 3 reported one mutant it
-  could not judge, x__sql_gap__mutmut_1: _sql_gap() ran only at import, where no test calls it.
-  The gap is now two constants (the built pattern is byte-identical).
-- ✅ Heph: the mutation run's error was the unmutated tests timing out (58 s) on re-run:
-  tests/test_denial_log.py took 64 s, 20 s of it the long-tail sweep on runs of `-` (the
-  secret-flag rule started a 64-character scan at every dash). The flag rule now needs a
-  name character after `--`, the sweeps reject a fast pattern after one run (median of 3 only
-  when measured) and time each distinct pattern once: 64 s -> 14 s. Deterministic: 736 passed
-  in two shuffled orders, three loops and under two CPU busy loops; the sweep still fails a
-  planted quadratic pattern (140 cells red).
-- 📋 Next: CI green incl. mutation on this head, then merge.
-- Verify: `uv run pytest tests/test_denial_log.py tests/test_phylax_doctor.py tests/test_git_guards.py
-  tests/test_model_guard.py tests/test_email_greeting.py tests/test_command_shapes.py tests/bench`;
-  `make plugin-test`; `uv run pytest tests/test_hook_latency.py` under the heavy lock.
+- Slice: the repo's pre-push hook (`scripts/git-hooks/pre-push`, installed by `make setup` via
+  `scripts/install_git_hooks.sh`) runs `check_private_names.py --pre-push`, which scans exactly
+  the refs git sends (commits, messages, annotated tags, ref names) against the target remote's
+  tracking refs. phylax's `check_push_hook` makes sure the hook runs: it refuses `--no-verify`, a
+  per-command `core.hooksPath` (`-c`, `--config-env`, `GIT_CONFIG_*`), a missing or foreign hook,
+  and a push into a folder that does not exist yet. It runs none of the repo's code.
+- ✅ agy's first pass: kept the sisters check 17 hook gap (now also accepts a chained hook).
+- ✅ Round 1 (on #396) and round 2 (fresh Opus, 1 Blocking + 5 Should-fix): phylax's own model of
+  a push kept missing what git sends (bare `git push` of a private-named branch, `--follow-tags`),
+  so the scan moved wholly to the hook, which reads git's real ref list; phylax only enforces
+  that it runs (fixes the repo-code execution, the over-broad same-command refusal, and the
+  check-time folder gap). The hook excludes only the target remote's refs. Scanner is 3.9-safe.
+  Installer: skips outside a repo, any core.hooksPath, a foreign or symlinked hook; works from a
+  worktree. 15 hand mutants red; test_private_names runs on TECHNE_GUARD_PYTHON (3.9 too).
+- ✅ Round 3 (fresh Opus, 1 Blocking + 4 Should-fix): phylax string-matched where hooks live
+  (GIT_CONFIG_GLOBAL files, `-c alias.p='push --no-verify'` got past); now it asks git
+  (`rev-parse --git-path hooks` with the push's -c and environment) and checks the hook there;
+  the alias lookup sees -c; a push after a `git config` or any word naming hooks in the same call
+  waits; an installed techne hook proves the repo ships the scan (bare clones, --work-tree); the
+  hook reads the scanner from HEAD and fails closed without it; a URL push uses the remote that
+  URL belongs to, else scans all history; sisters and phylax share one mark list. 11 more hand
+  mutants red.
+- ✅ Round 4 (fresh Opus, 2 Should-fix): the word rule held ordinary pushes ("webhook" in a
+  message, `make test-hooks-oldest`) yet missed `printf >> .git/config`: a push now waits only for
+  an earlier write or mode/existence change under the git dir, common dir, hooks folder or a git
+  config file, a `core.hooksPath` token, or a `git config` write. One `git_env` (only the
+  variables that locate repo and config, so no GIT_TRACE file) feeds the alias, repo and hooks
+  lookups; flags in variables are expanded; an unreadable push argument refuses. 13 more mutants.
+- ✅ Round 5 (fresh Opus, 1 Blocking + 5 Should-fix): a `--config-env` variable set on the line
+  never reached phylax's lookup, so git errored and phylax took that for "no repo" (also an
+  attribution-guard regression through aliases). Now: --config-env variables join the lookup
+  env; a failed lookup on a command that sets config, repo options or locating variables
+  refuses; an alias git could not read refuses; trace2 is forced off in every phylax git call;
+  same-call paths are compared through symlinks and globs, and `mv` counts both sides; known
+  variables are expanded and `$(git branch --show-current)` (directly or through a variable)
+  passes. 9 more mutants red; redundant guards removed rather than left untested.
+- ✅ Round 6 (fresh Opus, 3 Blocking + 2 Should-fix): passing each `--config-env` variable into
+  phylax's git let a PATH or GIT_TRACE_PERFORMANCE steer phylax's own subprocess: now each
+  `--config-env=K=VAR` becomes `-c K=<value>` and only locating variables pass; an alias's own
+  -c/--config-env options are kept and checked; a push whose folder (`cd`/`-C` to a value this
+  check cannot expand) or repo variable cannot be read is refused in any repo, with
+  `$(git rev-parse --show-toplevel)` accepted; `send-pack` and `http-push` refused in a hooked
+  repo. 11 mutants red; a dead fsmonitor ordering option removed.
+- ✅ Round 7 (fresh Opus, 2 Blocking + 5 Should-fix): git takes unique prefixes (`--no-veri`):
+  now read as git reads them; a config file written earlier in the call and read through
+  GIT_CONFIG_* or an include holds the push (and an alias from it); `env -C`/`--chdir` targets
+  are checked like `cd`; `unset` is followed and `env -i`/`-u` on a push refused; a push setting
+  GH_*/GITHUB_*/PATH (which can make the scan skip) refused; unquoted and `src:dst` current-branch
+  substitutions pass; a test for a lookup that fails with only -c options. 10 mutants red.
+- ✅ Round 8 (fresh Opus, 1 Blocking + 4 Should-fix): `$(git branch --show-current) --no-verify`
+  hid the flag in the substitution's trailing group: an unquoted substitution counts only when a
+  separator or the end follows it. Structural for the recurring "make the scan skip" class: the
+  hook now fails closed when gh cannot list the private repos, with the owner taken from the
+  push URL, so phylax's GH_*/PATH and env -i/-u refusals are gone (also the over-broad refusals
+  in plain repos). A push reading a config file after any earlier command in the call waits
+  (git writes files too); env options parse as getopt does, and an unread spelling is refused;
+  `git config KEY` is a read. 8 mutants red.
+- 📋 Deferred: `bash -c` / `eval` / pipe-into-`sh` wrappers and `!` shell aliases skip every guard: #410.
+- 📋 Built on #404's branch (`wip/private-names-on-404`); after #404 squash-merges, rebase onto
+  main, resolve #406's checks.md/SKILL.md row-17 edits, force-push to fix/private-names-push-396.
+- 🔧 Round 9 (fresh Opus, 1 Blocking + 2 Should-fix) fixes in this commit, NOT yet re-reviewed:
+  push reading input (`<`, `N<`, heredoc, /dev or /proc config) refused in a hooked repo; the
+  hook saves git's ref lines and runs git with /dev/null stdin; the scanner's own git/gh read
+  /dev/null and gh ignores GH_REPO; owner = union of the repo owner and a properly parsed URL
+  owner; the substitution check reads only the push's own words, redirections allowed; the
+  env-option refusal removed (getopt parsing + fail-closed hook cover it).
+- ✅ Round 10 (fresh Opus, 1 Blocking + 1 Should-fix): an alias hid `--no-verify` after the branch
+  substitution (the check anchored on the word push): it now reads the whole call; in hook mode
+  an empty private listing refuses unless gh is signed in as the owner (another account of the
+  same person hides the names); the hook's message says how to install gh or sign in; a test
+  for /dev/stdin config without a redirection. 3 mutants red.
+- ✅ Round 11 (1 Blocking, 1 Should-fix): `$(git branch --show-current) &>/dev/null --no-verify`
+  passed (the regex read `&` of `&>` as a separator; quote tricks too). Third time for this
+  class, so the regex model is gone: in a hooked repo a push call may hold only a simple
+  double-quoted substitution or an unquoted SAFE_REFS one followed by file redirections or
+  N>&M and then a separator or the end (READABLE_SUBSTITUTION); any other `$(` or backtick is
+  refused, pointing at the quoted form. A differential test runs 126 lines through bash with a
+  git stand-in and fails if any line hands git --no-verify and phylax allows it. The hook now
+  refuses whenever gh's login is not an owner (a partial listing from a collaborator account
+  passed). 3 mutants red.
+- ✅ Round 12 (2 Blocking, same class, 4th time): the regex matched `""$(...)""` across a closing
+  quote and missed `$(...)#` (bash keeps the #), and $'\x2d-no-verify' was decoded wrongly by
+  strip_heredocs. Structural fix: shell_tokens(), a one-pass quote-aware lexer over the command
+  as written (before strip_heredocs), splits words, redirections and separators as bash does;
+  in a hooked push call every word holding `$(`, a backtick or `$'` must be a whole simple
+  quoted substitution or a bare SAFE_REFS one followed only by redirections and a separator.
+  Bash differential widened (quote-across, `#`, `>&2`, escaped and prefix spellings of the
+  flag); a 21-row lexer table; 9 mutants red, one equivalent branch deleted.
+- ✅ Round 13 (1 Blocking, 2 Should-fix): process substitution (`2> >(cat >&2) --no-verify`,
+  `--repo >(true)`) put the words after `)` out of reach (5th time for the class): a `(` or
+  `)` of the call's own (subshell, group, <( ), >( )) now refuses a hooked push. The heredoc
+  commit and `gh pr create --body "$(cat <<'EOF'...)"` were refused: the lexer now reads
+  strip_heredocs(as_bash=True), bodies out, comments and $'...' kept. Deep `"$(` nesting
+  raised RecursionError and could fail open: one loop with its own stack, and any exception
+  in the push check refuses. Expansions count only outside single quotes. 7 mutants red, one
+  redundant form deleted.
+- ✅ Round 14 (1 Blocking, 3 Should-fix): `x="main --no-verify"; git push origin $x` (the flag
+  loop expanded a variable to one word; 6th time for the class): a variable whose value holds
+  a space, or any IFS assignment, refuses. Pushes hidden from the parser (a heredoc body, a
+  backtick comment, `${...}` quotes): a backstop reads the letters, not the shapes; in a
+  hooked repo, a call naming more pushes than the parser checked and holding a hook skip
+  (no-veri, hookspath, include.path, includeif, git_config_, config-env, quotes and
+  backslashes out) refuses. Escaped backticks no longer count as expansions; one opener copy
+  per line in strip_heredocs (was quadratic). 10 mutants red; hidden lines checked with bash.
+- ✅ Round 15 (4 Should-fix): the backstop counted "push" in prose and refused 8 of this branch's
+  own commit messages; it now counts only pushes bash runs that the parser did not read:
+  command words (the lexer's against the parser's own words, which also closes the alias
+  case) and push text inside a substitution or an unquoted heredoc's substitution. IFS refuses
+  on any mention (IFS+=, read IFS, printf -v IFS). strip_heredocs now matches bash on three
+  lines bash confirmed: a body starts after a quote the opener's line left open, << inside
+  ${...} is text, and ${...} in double quotes nests quotes (all guards share it; every suite
+  green). 9 of 9 mutants red after pinning.
+- ✅ Round 16 (2 Blocking): a bare `${x:+ #}` hid the rest of the line from the lexer (its #
+  read as a comment); a heredoc body began inside a `$(` or backtick opened after `<<` on the
+  same line, and `# )` inside `$(` closed it. The lexer sends a bare `${` through
+  _construct_end with a `}` frame, which skips comments inside `$(`; strip_heredocs starts a
+  body only at the depth `<<` was read, with backtick frames, and ends a comment at a closing
+  backtick (every guard suite green); `<(`/`>(` text refuses on its own; `$((` no longer
+  counts as a command substitution. 7 mutants red.
+- ✅ Round 17 (3 Should-fix, all (b) lines built to hide a skip): the heredoc depth rule counted a
+  subshell's `(`, which bash does not wait on (`cat <<EOF | (cat`); every `$((` read as
+  arithmetic though `$((cmd) )` is a subshell; a comment in an open backtick rescanned the
+  text. strip_heredocs gives `<(` its own frame and compares only the frames bash waits on (a
+  running count, linear); the lexer decides `$((` with the shared is_arith; a backtick
+  comment looks for its end within its own line. Round 16's two untested lines (the `${`
+  frame in double quotes, `(` only inside `$(`) and this round's are pinned: 7 mutants red.
+- ✅ Round 18 (1 Should-fix, (b); mergeable under the stated rule): is_arith said "arithmetic"
+  when it could not tell (past ARITH_SCAN, an unclosed quote), the safe side for `<<` but not
+  for its two new callers. arith_reading() now answers True, False or None, skipping escapes,
+  quotes and a subshell's comments as strip_heredocs does; is_arith keeps the old default for
+  the other guards; command_expansion treats undecided as a command; the backstop refuses an
+  undecided `((`. The plain-frame counter is pinned (bash-checked bodies), and the refusal
+  message names subshells. 7 mutants red.
+- 📋 Next: rebase onto main (#404 merged as caefd65), force-push to fix/private-names-push-396,
+  PR body, CI, one verify on the rebased head, merge.
+- Verify: `uv run pytest tests/test_private_names.py tests/test_secret_guard.py
+  tests/test_git_guards.py tests/test_denial_log.py tests/test_sisters_security_floor.py`, also with
+  `TECHNE_GUARD_PYTHON=$(uv python find --no-project 3.9)`; `make lint`.
