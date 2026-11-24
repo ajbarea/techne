@@ -2089,33 +2089,33 @@ def test_dangling_cut_boundaries_and_formatting():
 
 def test_span_hazard_link_targets_and_underlines():
     mod = load_module()
-    scan, _ = cut_spans(mod, "[Done]:\n===\n- x\n", [(1, 3, "[Done]:")])
-    assert mod.span_hazard(scan, 1, 3) == (
+    scan, [(a, b, _)] = cut_spans(mod, "[Done]:\n===\n- x\n", [(1, 3, "[Done]:")])
+    assert mod.span_hazard(scan, a, b) == (
         "line 1 defines a link target ('[Done]:') that links outside the cut may use; "
         "move it above the done-log first"
     )
 
     text = "# Done\n```\ncode\n```\n[target]: https://example.com/url\n"
-    scan, _ = cut_spans(mod, text, [(1, 5, "Done")])
-    hazard = mod.span_hazard(scan, 1, 5)
+    scan, [(a, b, _)] = cut_spans(mod, text, [(1, 5, "Done")])
+    hazard = mod.span_hazard(scan, a, b)
     assert hazard is not None and "line 5 defines a link target" in hazard
 
     long_link = "[target]: https://example.com/path/to/very/long/target/url"
     assert len(long_link) > 41
-    scan, _ = cut_spans(mod, f"# Done\n{long_link}\n", [(1, 2, "Done")])
-    hazard = mod.span_hazard(scan, 1, 2)
+    scan, [(a, b, _)] = cut_spans(mod, f"# Done\n{long_link}\n", [(1, 2, "Done")])
+    hazard = mod.span_hazard(scan, a, b)
     assert hazard is not None
     assert f"({long_link[:40]!r})" in hazard
     assert f"({long_link[:41]!r})" not in hazard
     assert hazard.endswith("cut may use; move it above the done-log first")
 
     # A setext title whose own first line is an underline.
-    scan, _ = cut_spans(mod, "# Top\n==\nDone\n---\n- x\n", [(2, 5, "== Done")])
-    assert mod.span_hazard(scan, 2, 5) == (
+    scan, [(a, b, _)] = cut_spans(mod, "# Top\n==\nDone\n---\n- x\n", [(2, 5, "== Done")])
+    assert mod.span_hazard(scan, a, b) == (
         "line 2 underlines the line above it, which a reader may take for a heading"
     )
-    scan, _ = cut_spans(mod, "==\nDone\n---\n- x\n", [(1, 4, "== Done")])
-    assert mod.span_hazard(scan, 1, 4) == (
+    scan, [(a, b, _)] = cut_spans(mod, "==\nDone\n---\n- x\n", [(1, 4, "== Done")])
+    assert mod.span_hazard(scan, a, b) == (
         "line 3 underlines the line above it, which a reader may take for a heading"
     )
 
