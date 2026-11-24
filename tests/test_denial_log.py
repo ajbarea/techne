@@ -1301,6 +1301,7 @@ def test_every_pattern_has_triggers_that_never_hide_a_match(dl):
     assert len(dl.TRIGGERS) == len(dl.TOKEN_PATTERNS)
     texts = [*ORDINARY, *ADVERSARIAL, *_HEADS]
     texts += [t for t, _, _ in REDACT_CASES]
+    texts += [t.replace("%", "-").format(v=FAKE) for t in SWEEP]
     for text in texts:
         for (pattern, _), triggers in zip(dl.TOKEN_PATTERNS, dl.TRIGGERS, strict=True):
             if re.search(pattern, text):
@@ -1397,6 +1398,10 @@ SWEEP = [
     "psql %c \"ALTER USER u PASSWORD '{v}'\"",
     "mysql %e \"SET PASSWORD = '{v}'\"",
     "mysql %e \"CREATE USER u IDENTIFIED BY '{v}'\"",
+    "mysql %e \"SET PASSWORD FOR 'u'@'h' = '{v}'\"",
+    "mysql %e \"ALTER USER u IDENTIFIED WITH caching_sha2_password BY '{v}'\"",
+    "mysql %e \"SET PASSWORD FOR u = PASSWORD('{v}')\"",
+    "psql %c \"CREATE ROLE r LOGIN PASSWORD '{v}'\"",
 ]
 
 

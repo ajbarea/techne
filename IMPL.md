@@ -138,7 +138,11 @@ The active TODO list for whatever's in flight right now. Queued specs live in [R
   checks pattern matches, not command words). 49-template sweep test, 8 keep lines.
 - ✅ Heph: x_safe_id__mutmut_9 registered as equivalent ('X' already passes isalnum()); key
   recomputed locally and matches CI's.
-- 📋 Next: one verify on this round only (no new tools), CI green incl. mutation, merge.
+- ✅ Verify on 35759c2 (2 Should-fix): the long-tail sweep flaked under CI load (USERINFO
+  started a match after every `=` and scanned 256 characters: `=` is out of the user part,
+  now ~20x cheaper); MySQL's SET PASSWORD FOR, IDENTIFIED WITH ... BY and PASSWORD('X') forms
+  (each gap bounded, so a run of spaces stays linear). The trigger test reads SWEEP too.
+- 📋 Next: verify on this fix only, CI green incl. mutation, merge.
 - Verify: `uv run pytest tests/test_denial_log.py tests/test_phylax_doctor.py tests/test_git_guards.py
   tests/test_model_guard.py tests/test_email_greeting.py tests/test_command_shapes.py tests/bench`;
   `make plugin-test`; `uv run pytest tests/test_hook_latency.py` under the heavy lock.
