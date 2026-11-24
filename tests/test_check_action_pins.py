@@ -172,6 +172,12 @@ def test_the_action_fails_on_a_workspace_with_no_workflows(tmp_path: Path) -> No
     assert run_check(tmp_path).returncode == 0
     res = run_check(tmp_path, {"PIN_REQUIRE_WORKFLOWS": "1"})
     assert res.returncode == 1 and "actions/checkout" in res.stderr
+    # A workflows folder with no workflow file in it checks nothing either.
+    (tmp_path / ".github/workflows").mkdir(parents=True)
+    (tmp_path / ".github/workflows/README.md").write_text("notes\n")
+    assert run_check(tmp_path).returncode == 0
+    res = run_check(tmp_path, {"PIN_REQUIRE_WORKFLOWS": "1"})
+    assert res.returncode == 1 and "actions/checkout" in res.stderr
     action = (ROOT / ".github/actions/check-action-pins/action.yml").read_text()
     assert 'PIN_REQUIRE_WORKFLOWS: "1"' in action
     # techne's own CI runs the action, so a wrong script path fails a real runner.

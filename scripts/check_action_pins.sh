@@ -28,11 +28,13 @@ if [[ -d "$ROOT/plugins" ]]; then
     )
 fi
 
-if [[ ! -d "$WORKFLOWS" ]]; then
-    # The composite action sets PIN_REQUIRE_WORKFLOWS: there, no workflows means the caller
-    # forgot actions/checkout, and a pass would check nothing.
+shopt -s nullglob
+live_files=("$WORKFLOWS"/*.yml "$WORKFLOWS"/*.yaml)
+if [[ ${#live_files[@]} -eq 0 ]]; then
+    # The composite action sets PIN_REQUIRE_WORKFLOWS: there, no workflow file means the caller
+    # forgot actions/checkout or pointed `directory` elsewhere, and a pass would check nothing.
     if [[ -n "${PIN_REQUIRE_WORKFLOWS:-}" ]]; then
-        printf 'FAIL: no .github/workflows/ in %s (run actions/checkout first)\n' "$ROOT" >&2
+        printf 'FAIL: no workflow file in %s/.github/workflows/ (run actions/checkout first)\n' "$ROOT" >&2
         exit 1
     fi
     printf 'OK: no .github/workflows/ to check\n'
@@ -40,7 +42,6 @@ if [[ ! -d "$WORKFLOWS" ]]; then
 fi
 
 violations=0
-shopt -s nullglob
 for f in "$WORKFLOWS"/*.yml "$WORKFLOWS"/*.yaml "$TEMPLATES"/*.yml "$TEMPLATES"/*.yaml "${SKILL_TEMPLATES[@]}"; do
     lineno=0
     while IFS= read -r line; do
@@ -80,9 +81,7 @@ for t in "$TEMPLATES"/*.yml "$TEMPLATES"/*.yaml; do
     fi
 done
 
-live_files=("$WORKFLOWS"/*.yml "$WORKFLOWS"/*.yaml)
-live_pins=""
-[[ ${#live_files[@]} -eq 0 ]] || live_pins="$(uses_refs "${live_files[@]}")"
+live_pins="$(uses_refs "${live_files[@]}")"
 for t in "${SKILL_TEMPLATES[@]}"; do
     while IFS= read -r pin; do
         [[ -n "$pin" ]] || continue

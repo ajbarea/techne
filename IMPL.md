@@ -24,6 +24,9 @@ The active TODO list for whatever's in flight right now. Queued specs live in [R
 - ✅ Round 3 (mergeable after a docs line): sisters SKILL row names actionlint; validate.yml runs the
   composite action itself (`$/` ref), so a runner exercises its script path; `$GITHUB_ACTION_PATH`;
   the linter-action test asserts the other tool's gap stays.
-- 📋 Next: verify pass of round-3 fixes, CI green, merge.
+- ✅ Verify pass (fresh Opus): round-3 fixes confirmed (action ran on a real runner, path test red when
+  broken). Fixed its two findings: checks.md check 17 names actionlint and the `./`/`$/` skip; the
+  action now fails on a workflows folder with no workflow file (was OK), with a test that fails without it.
+- 📋 Next: CI green on the fix, merge (squash, delete branch).
 - Verify: `uv run pytest tests/test_check_action_pins.py tests/test_sisters_security_floor.py`;
   `make actionlint zizmor guards`.
