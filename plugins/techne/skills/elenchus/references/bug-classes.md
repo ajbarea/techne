@@ -170,7 +170,7 @@ A class whose guard became a mechanical check (a lint rule, test or hook) gets a
 - **Symptom:** a check passes everywhere, including on the case it was written to reject, while tests are green and the prose calls it enforced.
 - **Question:** what input makes this guard fail, and has anyone switched off the thing it protects and watched a test go red?
 - **Guard:** a mutation check: flip each guard condition in turn and confirm a test fails (mutmut for Python, Stryker for JS and TS, or by hand for a few conditions); assert that edit scripts changed the file. A budget read from a tool (strace, a profiler) also runs with the tool stubbed (`STRACE=false`) and on the old code: zero or an unchanged count fails ([Tessl](https://tessl.io/registry/testland/perf-budget-gate/quality)).
-- **Incidents:** a private rm-approval hook r9 (2026-10-21): tests stayed green with the guard logic off until r10's mutation check; techne#201 r2 (2026-10-24): reverting two doctor `is True` gates to `bool` left every test green; klepsydra#497 r1 (2026-11-20): a fork budget passed with `STRACE=false` and on main, whose prefilter cost the same forks on its two-file fixture.
+- **Incidents:** a private rm-approval hook r9 (2026-10-21): tests stayed green with the guard logic off until r10's mutation check; techne#201 r2 (2026-10-24): reverting two doctor `is True` gates to `bool` left every test green; klepsydra#497 r1 (2026-11-20): a fork budget passed with `STRACE=false` and on main, which forked as often on its two-file fixture.
 
 ### instance-patch: The same fix again instead of a guard
 
@@ -202,10 +202,10 @@ A class whose guard became a mechanical check (a lint rule, test or hook) gets a
 
 ### rebase-arms-live-test: A test reaches a live target
 
-- **Symptom:** a test asserting "X is refused" makes a real call after a rebase changes its precondition, or a child process the code starts reads an environment the test restored after import and falls back to the live default; the suite passes, or hangs near 0% CPU with an ESTABLISHED socket.
-- **Question:** which hosts, paths and credentials does each subprocess or call see during the tests, and what is its default when a variable is unset?
-- **Guard:** a suite-level socket guard with an allow-list of hosts; pass targets to children explicitly (`env=os.environ | {...}`); set sandbox values for the whole suite at import (a failing recording `gh` stub, a fake slug); run the suite offline after every rebase (`unshare -rn`).
-- **Incidents:** sphragis#39 (2026-09-23): a `fetch --org chromium` test, rebased onto a branch that added a REST host, queried chromium-review during a declared collection stop; klepsydra#514 (2026-11-20): in-process report tests ran the real `prune_shots.py --apply` against the live briefing and real `gh`.
+- **Symptom:** after a rebase changes its precondition, a test asserting "X is refused" makes a real call, or a child process falls back to the live default because the test restored its environment after import; the suite passes, or hangs idle on an ESTABLISHED socket.
+- **Question:** which hosts, paths and credentials does each call or subprocess see in tests, and what does it use when a variable is unset?
+- **Guard:** a suite-level socket guard with an allow-list of hosts; pass targets to children explicitly (`env=os.environ | {...}`); set sandbox values suite-wide at import (a failing recording `gh` stub, a fake slug); rerun offline after every rebase (`unshare -rn`).
+- **Incidents:** sphragis#39 (2026-09-23): a `fetch --org chromium` test, rebased onto a branch that added a REST host, queried chromium-review during a declared collection stop; klepsydra#514 (2026-11-20): report tests ran the real `prune_shots.py --apply` on the live briefing with real `gh`.
 
 ### async-flake-excluded-not-awaited: Racing async fields hidden by exclusion
 
