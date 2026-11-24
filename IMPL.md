@@ -160,6 +160,12 @@ The active TODO list for whatever's in flight right now. Queued specs live in [R
   asks git for every include and includeIf path (nested too, with the push's own options and
   environment), resolved as git does, and config_changed() watches them. The refusal names
   the alias as typed.
+- ✅ Verify on 4e1f92a (2 Blocking, real pushes): include_targets split git's text output at a
+  space and read quoted origins as written (`includeIf "gitdir:.../My Code/"`, a non-ASCII
+  HOME), and git listed a nested include only while its parent's condition held, so a
+  `git remote add` later in the call could make `hasconfig:remote` true. It now reads -z
+  output (never quoted), follows `-C` for relative origins, and reads each included file with
+  --file, which lists its includes whatever their conditions say (depth 10, as git). 3 mutants red.
 - 📋 Next: CI green (validate, mutation shards), one verify on this fix, merge.
 - Verify: `uv run pytest tests/test_private_names.py tests/test_secret_guard.py
   tests/test_git_guards.py tests/test_denial_log.py tests/test_sisters_security_floor.py`, also with

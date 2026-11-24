@@ -1944,3 +1944,45 @@ def test_the_alias_refusal_names_what_was_typed(hooked):
     _git(hooked, "config", "alias.st", "status")
     reason = guard(hooked, "git config alias.st 'push --no-verify' && git st origin main")[1]
     assert "`git st` runs after" in reason, reason
+
+
+def test_include_targets_read_spaces_quotes_and_conditions(monkeypatch, tmp_path):
+    (git_checks,) = load_phylax_hooks(monkeypatch, "git_checks")
+    home = tmp_path / "josé"
+    home.mkdir()
+    repo = home / "My Code" / "r"
+    repo.mkdir(parents=True)
+    _git(repo, "init", "-q")
+    _git(repo, "config", "include.path", "../a.cfg")
+    _git(repo, "config", f"includeIf.gitdir:{home}/My Code/.path", "~/w.cfg")
+    (repo / "a.cfg").write_text(
+        '[includeIf "hasconfig:remote.*.url:https://e/**"]\n path = b.cfg\n'
+    )
+    names = {str(t) for t in git_checks.include_targets(repo, [], {"HOME": str(home)})}
+    assert names == {str(repo / "a.cfg"), str(repo / "b.cfg"), str(home / "w.cfg")}
+
+
+def test_a_nested_include_behind_a_condition_the_call_makes_true_is_seen(hooked):
+    (hooked.parent / "stash.cfg").write_text("[core]\n hooksPath = /dev/null\n")
+    (hooked / "a.cfg").write_text("[include]\n path = b.cfg\n")
+    _git(
+        hooked,
+        "config",
+        "includeIf.hasconfig:remote.*.url:https://evil.example/**.path",
+        "../a.cfg",
+    )
+    command = (
+        "cp ../stash.cfg b.cfg && git remote add z https://evil.example/x && git push origin main"
+    )
+    assert guard(hooked, command)[0] == "deny"
+
+
+def test_include_targets_follow_dash_c_to_the_repo(monkeypatch, tmp_path):
+    # git prints a repo config's origin relative to the folder -C moved it to
+    (git_checks,) = load_phylax_hooks(monkeypatch, "git_checks")
+    repo = tmp_path / "r"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "config", "include.path", "../a.cfg")
+    names = {str(t) for t in git_checks.include_targets(tmp_path, ["-C", "r"], {})}
+    assert names == {str(repo / "a.cfg")}

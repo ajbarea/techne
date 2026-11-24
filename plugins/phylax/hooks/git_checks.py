@@ -85,33 +85,62 @@ def under(path: str, folders: tuple[Path, ...]) -> bool:
     return any(path == str(f) or path.startswith(str(f) + os.sep) for f in folders)
 
 
+INCLUDE_KEYS = r"^include(if\..*)?\.path$"
+INCLUDE_DEPTH = 10  # git's own limit on nested includes
+
+
 def include_targets(cwd: Path, args: list[str], env: dict[str, str]) -> tuple[Path, ...]:
-    """The files git's config includes (include.path, includeIf.*.path, nested ones too, as git
-    reads them with ARGS and ENV), resolved as git resolves them: `~/` against HOME, a relative
-    path against the folder of the file that names it. A file not there yet is listed too: a
-    write earlier in the call may be what creates it."""
-    out = run_git(
-        cwd,
-        args,
-        "config",
-        "--show-origin",
-        "--get-regexp",
-        r"^include(if\..*)?\.path$",
-        check=False,
-        env=env,
-    )
+    """The files git's config can include (include.path, includeIf.*.path), resolved as git
+    resolves them: `~/` against HOME, a relative path against the folder of the file that
+    names it. Git's own view lists the includes its config files name; each included file is
+    then read with --file, which lists its includes whatever their conditions say, so a
+    condition a later command makes true (`hasconfig:remote`, a branch) hides no file. A file
+    not there yet is listed too: a write earlier in the call may be what creates it. Output is
+    read with -z, which git never quotes."""
     home = env.get("HOME") or os.environ.get("HOME", "")
-    targets = []
-    for line in (out or "").splitlines():
-        origin, _, rest = line.partition("\t")
-        value = rest.partition(" ")[2]
-        if not origin.startswith("file:") or not value:
-            continue
-        base = os.path.dirname(os.path.join(str(cwd), origin[len("file:") :]))
-        if value.startswith("~/"):
-            value = os.path.join(home, value[2:])
-        targets.append(Path(os.path.realpath(os.path.join(base, value))))
-    return tuple(targets)
+    git_cwd = str(cwd)
+    for k, arg in enumerate(args[:-1]):
+        if arg == "-C":
+            git_cwd = os.path.join(git_cwd, args[k + 1])
+
+    def listed(file: str | None) -> list[tuple[str, str]]:
+        """(the file naming it, the include path) for each include in git's view or FILE."""
+        where = ["--file", file] if file else []
+        out = run_git(
+            cwd,
+            [] if file else args,
+            "config",
+            *where,
+            "--show-origin",
+            "-z",
+            "--get-regexp",
+            INCLUDE_KEYS,
+            check=False,
+            env=env,
+        )
+        fields = (out or "").split("\0")
+        pairs = []
+        for origin, entry in zip(fields[0::2], fields[1::2]):  # noqa: B905  # a trailing ""
+            value = entry.partition("\n")[2]
+            if origin.startswith("file:") and value:
+                pairs.append((os.path.join(git_cwd, origin[len("file:") :]), value))
+        return pairs
+
+    targets: list[str] = []
+    todo, depth = listed(None), 0
+    while todo and depth <= INCLUDE_DEPTH:
+        found = []
+        for origin, value in todo:
+            if value.startswith("~/"):
+                value = os.path.join(home, value[2:])
+            target = os.path.realpath(os.path.join(os.path.dirname(origin), value))
+            if target in targets:
+                continue
+            targets.append(target)
+            if os.path.isfile(target):
+                found += listed(target)
+        todo, depth = found, depth + 1
+    return tuple(Path(t) for t in targets)
 
 
 def is_git_config(path: str) -> bool:
