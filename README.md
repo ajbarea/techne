@@ -48,6 +48,7 @@ Install only the ones you use: every enabled plugin's skill list sits in the age
 | `techne:elenchus` | Adversarial pre-merge review: an independent reviewer sized to the change's risk (plus `/code-review` for risky changes) reproduces the load-bearing claim, traces every consumer across the whole repo, and walks a bug-class rubric for reachable destructive ops, unmirrored parallel-path guards, migration crashes, and dead-but-green features. |
 | `techne:lessons` | Reads, adds and retires the decided quality lessons that carry forward to the next deck, paper, docs site or app. |
 | `techne:logging` | Checks a repo's logging against techne's standard (linter gates, secrets in log calls, uncapped log files, errors on stdout, CI logs lost on failure) and fixes what falls short. |
+| `techne:periegesis` | Walks the user through a live app feature by feature in a shared browser to find UX friction, keeps a friction log apart from machine checks, and files one ranked issue per class. |
 | `techne:research-grounded` | Flags decisions (technology, data release, study design, access rules, claim wording) in IMPL, ROADMAP and decision records that lack `# research(YYYY-MM):` provenance, then web-searches to ground them. |
 | `techne:reslop` | Rewrites docstrings grounded in the implementation rather than deleting them outright. |
 | `techne:seele` | Puts a decision (a title, a name, a wording, a design choice, a review) to a blind panel of models: each seat answers alone, the pooled answers are ranked blind, a chair rules, and the report shows the vote and every dissent. |
@@ -190,6 +191,7 @@ techne (marketplace: ajbarea/techne)
 │   ├── docsync           ── doc claims ↔ implementation
 │   ├── elenchus          ── adversarial pre-merge review (reproduce + trace + rubric)
 │   ├── logging           ── logs that name the cause, locally and in CI
+│   ├── periegesis        ── guided live browser tour that logs UX friction
 │   ├── research-grounded ── flags un-grounded design decisions
 │   ├── reslop            ── rewrites docstrings from code
 │   ├── seele             ── a blind panel of models decides; dissents reported
