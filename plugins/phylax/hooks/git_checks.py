@@ -92,8 +92,8 @@ INCLUDE_DEPTH = 10  # git's own limit on nested includes
 def include_targets(cwd: Path, args: list[str], env: dict[str, str]) -> tuple[Path, ...]:
     """The files git's config can include (include.path, includeIf.*.path), resolved as git
     resolves them: `~/` against HOME, `~login/` against that user's home, a relative path
-    against the folder of the file that names it (`%(prefix)/`, git's install prefix, is not
-    resolved: writing there needs root). Git's own view lists the includes its config files
+    against the folder of the file that names it (`%(prefix)/`, git's install prefix, is
+    skipped: writing there needs root). Git's own view lists the includes its config files
     name; each included file is then read with --file, which lists its includes whatever their
     conditions say, so a
     condition a later command makes true (`hasconfig:remote`, a branch) hides no file. A file
@@ -137,6 +137,8 @@ def include_targets(cwd: Path, args: list[str], env: dict[str, str]) -> tuple[Pa
     while todo and depth <= INCLUDE_DEPTH:
         found = []
         for origin, value in todo:
+            if value.startswith("%(prefix)/"):
+                continue  # git's install prefix: writing there needs root
             if value.startswith("~"):
                 # `~/` is HOME; `~login/` that user's home, from the password database as git
                 # reads it (git refuses a config naming an unknown login)
@@ -2080,7 +2082,18 @@ class Guards:
                     "variables it sets, so the check cannot see which pre-push hook would run. "
                     "Run the push with plain values, or as a command of its own."
                 )
-            return  # otherwise not a repository: git refuses the push itself
+            # Not a repository, or one whose config git cannot read: git refuses this push, but
+            # a later command in the call may repair the config first. In a repo that ships
+            # the scan or has techne's hook (found without git), refuse.
+            top = next((d for d in (cmd.cwd, *cmd.cwd.parents) if (d / ".git").exists()), None)
+            if top is not None and (
+                (top / SCANNER).is_file() or hook_marked(top / ".git" / "hooks" / "pre-push")
+            ):
+                refuse(
+                    "git could not read this repo's config, so the check cannot see which "
+                    "pre-push hook will run. Fix the config in a call of its own, then push."
+                )
+            return
         common, gitdir, hooks = (Path(x) for x in lines)
         top = run_git(cmd.cwd, args, "rev-parse", "--show-toplevel", env=genv)
         ships = bool(top and top.strip()) and (Path(top.strip()) / SCANNER).is_file()

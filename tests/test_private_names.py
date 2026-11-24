@@ -2027,3 +2027,31 @@ def test_a_login_tilde_include_written_in_the_call_is_seen(hooked, tmp_path):
         f"printf '[alias]\\n p = push --no-verify\\n' > {tmp_path}/work.cfg && git p origin main"
     )
     assert guard(hooked, command)[0] == "deny"
+
+
+@pytest.mark.parametrize("bad", ["~no-such-login-xyz/x", None])
+def test_a_push_in_a_hooked_repo_whose_config_git_cannot_read_is_refused(hooked, bad):
+    if bad:
+        _git(hooked, "config", "include.path", bad)
+    else:
+        with open(hooked / ".git" / "config", "a") as fh:
+            fh.write("[broken\n")
+    command = "sed -i '/no-such-login\\|broken/d' .git/config && git push --no-verify origin main"
+    decision, reason = guard(hooked, command)
+    assert decision == "deny" and "could not read this repo's config" in reason, reason
+
+
+def test_include_targets_skip_the_install_prefix(monkeypatch, tmp_path):
+    (git_checks,) = load_phylax_hooks(monkeypatch, "git_checks")
+    repo = tmp_path / "r"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "config", "include.path", "%(prefix)/etc/x.cfg")
+    assert git_checks.include_targets(repo, [], {}) == ()
+
+
+def test_a_plain_repo_with_a_broken_config_is_left_to_git(repo, tmp_path):
+    published(repo, tmp_path)
+    with open(repo / ".git" / "config", "a") as fh:
+        fh.write("[broken\n")
+    assert guard(repo, "git push origin main")[0] is None

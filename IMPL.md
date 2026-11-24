@@ -171,6 +171,12 @@ The active TODO list for whatever's in flight right now. Queued specs live in [R
   include_targets expands it as git does, and fails closed (the push check refuses) when git
   cannot list the includes, rather than reading an error as none (an unknown login makes git
   refuse the config). `%(prefix)/` is left unresolved and said so: writing there needs root.
+- ✅ Verify on 0781dfd (closed scope: git-config's documented include forms; 45 form x file
+  combinations resolve as git reads them, 90 write-then-push lines refused). 1 Blocking, older
+  than this round: when git cannot read a repo's config, rev-parse failed and the check took
+  it for no repository, so a later `sed -i` in the call could repair the config and push. In a
+  repo that ships the scan or has techne's hook (found by walking to `.git`, without git), the
+  push is now refused; a plain repo is left to git. `%(prefix)/` includes are skipped.
 - 📋 Next: CI green (validate, mutation shards), one verify on this fix, merge.
 - Verify: `uv run pytest tests/test_private_names.py tests/test_secret_guard.py
   tests/test_git_guards.py tests/test_denial_log.py tests/test_sisters_security_floor.py`, also with
