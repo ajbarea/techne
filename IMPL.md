@@ -137,8 +137,11 @@ The active TODO list for whatever's in flight right now. Queued specs live in [R
   the other guards; command_expansion treats undecided as a command; the backstop refuses an
   undecided `((`. The plain-frame counter is pinned (bash-checked bodies), and the refusal
   message names subshells. 7 mutants red.
-- 📋 Next: rebase onto main (#404 merged as caefd65), force-push to fix/private-names-push-396,
-  PR body, CI, one verify on the rebased head, merge.
+- ✅ Rebased onto main (#404 merged as caefd65) as one commit, force-pushed to
+  fix/private-names-push-396 (own files byte-identical; sisters check 17 row and checks.md
+  merged with #406's actionlint wording); PR body rewritten. Local backup branch
+  backup/private-names-pre-rebase holds the 19-commit history.
+- 📋 Next: CI green (validate, mutation shards), one verify on the rebased head, merge.
 - Verify: `uv run pytest tests/test_private_names.py tests/test_secret_guard.py
   tests/test_git_guards.py tests/test_denial_log.py tests/test_sisters_security_floor.py`, also with
   `TECHNE_GUARD_PYTHON=$(uv python find --no-project 3.9)`; `make lint`.
