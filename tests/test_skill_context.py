@@ -403,7 +403,7 @@ def test_base_ignores_variables_that_point_git_elsewhere(tmp_path, var):
 def test_base_after_the_target_is_refused(tmp_path):
     clone = _pr_clone(tmp_path)
     base, _ = _ids(clone)
-    for flag in (f"--base={base}", f"--head={base}"):
+    for flag in (f"--base={base}", f"--head={base}", "--file=x.md"):
         out = _run(clone, ".", flag)
         assert out.startswith(f"({flag} must come before the target") and "SOFT" not in out
 
@@ -520,3 +520,13 @@ def test_standing_on_the_base_says_to_check_out_the_change(tmp_path):
     _git(clone, "checkout", "-q", "-f", "--detach", base)
     out = _run(clone, f"--base={base}")
     assert "holds this checkout's HEAD" in out and "--head=<headRefOid>" in out
+
+
+@pytest.mark.parametrize(
+    "path", ["/etc/passwd", "../x", "a/../README", ":(top)README", "-x", ".claude"]
+)
+def test_an_odd_or_folder_file_path_is_refused(tmp_path, path):
+    clone = _pr_clone(tmp_path)
+    base, head = _ids(clone)
+    out = _run(clone, f"--base={base}", f"--head={head}", f"--file={path}")
+    assert out.startswith("(") and "nothing read" in out and "SOFT" not in out

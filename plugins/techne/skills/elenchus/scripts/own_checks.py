@@ -6,8 +6,8 @@ names. A review flags each as "edits its own check" and confirms the change weak
     own_checks.py [--repo DIR] [--head HEAD] BASE
 
 BASE and HEAD are full commit ids (the default branch's commit from the host, and the PR's
-headRefOid; HEAD defaults to the checkout's HEAD), checked by
-`_shared/skill_context.sh --base-sha`. Files come from
+headRefOid), checked by `_shared/skill_context.sh --base-sha`. Without --head it reviews the
+checkout: HEAD plus its uncommitted and untracked files. Files come from
 `git diff -z --no-renames BASE...HEAD`, so a renamed or deleted check is listed by its old
 path too. Prints `head <commit>`, then one path per line (a file only named in a gate file
 is marked, the weaker signal), or `none`.
@@ -28,8 +28,6 @@ sys.path.insert(0, str(SHARED))
 from git_env import without_repo_overrides  # noqa: E402  # ty: ignore[unresolved-import]
 
 RESOLVER = SHARED / "skill_context.sh"
-# Files whose text names the gates a repo runs; a changed file they name is a check too.
-GATE_FILES = ("Makefile", "GNUmakefile", ".pre-commit-config.yaml", ".pre-commit-config.yml")
 
 # A path is a check when any of its folders is one of these...
 DIRS = {".github", ".githooks", ".husky", ".circleci", ".claude", "tests", "test", "spec"}
@@ -87,12 +85,13 @@ SCRIPT_RE = re.compile(r"^(check_.*|install_.*|validate_.*|mutation\.py|.*_guard
 PARTS = (("skills", "elenchus"), ("plugins", "phylax"))
 
 
-# A file at the repo root is tool config (.lighthouserc.json, .prettierignore, Cargo.toml)
-# unless it is prose, an image or app source: listing too much is the safe direction.
+# A file at the repo root is tool config (.lighthouserc.json, vitest.setup.ts, Cargo.toml,
+# requirements.txt) unless it is prose, an image, content or a known non-config name:
+# listing too much is the safe direction.
 ROOT_PROSE = re.compile(
-    r"(?i)^(.*\.(md|rst|txt|png|jpe?g|gif|svg|ico|webp|py|[cm]?[jt]sx?|go|rs|rb|java|kt|swift"
-    r"|c|h|cc|cpp|hpp|cs|php|vue|svelte|html|css)|readme|licen[cs]e.*|copying.*|notice.*"
-    r"|authors.*|changelog|citation\.cff)$"
+    r"(?i)^(.*\.(md|rst|adoc|png|jpe?g|gif|svg|ico|webp|pdf|tex|bib|log)|readme(\..*)?"
+    r"|licen[cs]e(\..*)?|copying(\..*)?|notice(\..*)?|authors(\..*)?|changelog(\..*)?"
+    r"|citation\.cff|cname|\.env\.example)$"
 )
 
 
@@ -156,14 +155,16 @@ GLOB_WITH_FOLDER = re.compile(r"^[\w.-]+/")
 
 
 def gate_names(repo: str, base: str) -> tuple[set[str], list[str]]:
-    """The path tokens and the glob tokens in the base's Makefile, pre-commit config and
-    workflows, comments left out."""
-    names = list(GATE_FILES)
+    """The path tokens and the glob tokens in the base's gate files, comments left out: its
+    workflows and every root tool-config file (Makefile, pre-commit, package.json,
+    vitest.config.ts, pyproject.toml, .gitlab-ci.yml, ...), so a file a check names is
+    listed too, one hop deep."""
     listed = git(repo, "ls-tree", "-r", "-z", "--name-only", "--full-tree", base)
-    names += [
+    names = [
         n
         for n in listed.split("\0")
-        if n.startswith(".github/workflows/") and n.endswith((".yml", ".yaml"))
+        if (n.startswith(".github/workflows/") and n.endswith((".yml", ".yaml")))
+        or (n and "/" not in n and is_check(n))
     ]
     paths: set[str] = set()
     globs: list[str] = []
@@ -214,6 +215,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     paths, globs = gate_names(args.repo, base)
     files = {p for p in changed.split("\0") if p}
+    if args.head is None:  # a local review: uncommitted edits are part of the change
+        status = git(args.repo, "status", "--porcelain", "-z", "--no-renames", "--untracked-files")
+        files |= {entry[3:] for entry in status.split("\0") if len(entry) > 3}
     strong = sorted(p for p in files if is_check(p))
     named = sorted(
         p

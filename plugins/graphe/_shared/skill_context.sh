@@ -126,6 +126,13 @@ if [ "$base_mode" -ne 0 ]; then
     printf '%s %s\n' "$sha" "$head"
     exit 0
   fi
+  case "$read_path" in
+    /* | *..* | *:* | -*) printf '(--file=%s: give a plain path inside the repo; nothing read)\n' "$read_path"; exit 0 ;;
+  esac
+  if [ "$(g cat-file -t "${sha}:${read_path}" 2>/dev/null)" = tree ]; then
+    printf '(%s is a folder on base %s, not a file; nothing read)\n' "$read_path" "$sha"
+    exit 0
+  fi
   if [ -z "$(g ls-tree --name-only "$sha" -- "$read_path" 2>/dev/null)" ]; then
     printf '(no %s on base %s in %s)\n' "$read_path" "$sha" "$root"
     exit 0

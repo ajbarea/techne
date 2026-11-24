@@ -51,10 +51,12 @@ The author's pre-flight, before the first round:
 
 A change must not edit the rules that judge it, so elenchus never loads the working tree's `.claude/skill-context.md`, which a PR can edit. It reads the file as committed on the **default branch's commit**. Both ids come from the host as full commit ids, never a ref name, since a local ref can be the change wearing the base's name; the base is the default branch even for a stacked PR, whose own base is a branch its author controls:
 ```bash
-base=$(gh api repos/{owner}/{repo}/commits/HEAD --jq .sha)
-head=$(gh pr view <N> --json headRefOid --jq .headRefOid)   # before a PR: head=$(git rev-parse HEAD)
+repo=<owner/name>   # the repo under review, which may not be the current folder's
+base=$(gh api "repos/$repo/commits/HEAD" --jq .sha)
+head=$(gh pr view <N> -R "$repo" --json headRefOid --jq .headRefOid)
 bash "<plugin-root>/_shared/skill_context.sh" --base="$base" --head="$head" <target-path>
 ```
+Before a PR, review the checkout itself: drop `--head` (and pass no head to `own_checks.py`, which then adds the uncommitted and untracked files).
 A base that holds the head is refused, since it is the change itself, and so is one whose shared history a shallow clone hides. When the script says a commit is missing, `git fetch origin <id>` (or `git fetch --unshallow`) and run it again; when it says the base has no `.claude/skill-context.md`, review without hints and say so in the report. Any other file from the base goes through the same guarded read, such as the catalog when reviewing techne itself: `bash "<plugin-root>/_shared/skill_context.sh" --base="$base" --head="$head" --file=plugins/techne/skills/elenchus/references/bug-classes.md <target-path>`.
 
 No context file: elenchus still runs with no hints; infer the test and run commands from the Makefile or ask. Add an optional `## elenchus` block for repo-specific hints; see Scaffolding below.
@@ -70,7 +72,7 @@ Run the phases your role covers (see **The cardinal rule**), in order. Do not sk
 ### Phase 0 — Frame the load-bearing claim
 State, in one sentence, the single claim the change rests on ("this fix makes X portable", "this feature lets the model cite summaries", "this refactor is behavior-preserving"). That claim is your hypothesis to break. Everything after is an attempt to find the input, state, or path that falsifies it.
 
-**Edits its own check:** run `python3 "<plugin-root>/skills/elenchus/scripts/own_checks.py" --repo <repo> --head "$head" "$base"` (the same ids; it prints the head it read, and marks a file only named by a gate file as the weaker signal). It lists the changed files that are part of the change's own checks (CI and hooks, tests, tool config such as `pyproject.toml` and `Makefile`, `.claude/`, review rules, the guard plugin, and any file the base's Makefile, workflows or pre-commit config names). Report each under **Edits its own check** and confirm the change weakens none of them: no test deleted or loosened, no gate skipped, no budget widened.
+**Edits its own check:** run `python3 "<plugin-root>/skills/elenchus/scripts/own_checks.py" --repo <target-path> --head "$head" "$base"` (the same ids; it prints the head it read, and marks a file only named by a gate file as the weaker signal). It lists the changed files that are part of the change's own checks (CI and hooks, tests, tool config such as `pyproject.toml` and `Makefile`, `.claude/`, review rules, the guard plugin, and any file the base's Makefile, workflows or pre-commit config names). Report each under **Edits its own check** and confirm the change weakens none of them: no test deleted or loosened, no gate skipped, no budget widened.
 
 ### Phase 1 — Drive the engine
 - **Author:** in the high tier, run `/code-review high` on the change first. Then dispatch the reader with `model` set explicitly to the strongest model the session can dispatch: `opus`, or the session's own model when it is stronger, such as `fable` (an unset model falls back to a default, usually the author's session model, which may be a cheaper one; review is the step that most needs the strongest reasoner), this prompt, and the `/code-review` findings, if any, and **no authorship narrative**: "You are the dispatched reader for techne:elenchus. Read <path to this SKILL.md>, then its bug-class catalog. Review <PR number or branch> as the dispatched reader. Tier run: <high or light>. Deferred-findings ledger: <where it is, or none>. Classes found in earlier rounds: <slugs, or none>. Open findings from earlier rounds: <each with its class and file:line, or none>. Run Phases 0 to 4 once and return the report. Do not dispatch another reviewer, post, or run a review loop." Relay its report as Phase 4.

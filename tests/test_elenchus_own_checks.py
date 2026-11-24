@@ -76,6 +76,18 @@ import own_checks  # noqa: E402  # ty: ignore[unresolved-import]
         "renovate.json",
         "lefthook.yml",
         ".secrets.baseline",
+        # Root code that configures tools (round 7).
+        "vitest.setup.ts",
+        ".eslintrc.js",
+        ".prettierrc.js",
+        "karma.conf.js",
+        "setup.py",
+        "build.rs",
+        "requirements.txt",
+        "requirements-dev.txt",
+        "CMakeLists.txt",
+        "Dockerfile",
+        "uv.lock",
     ],
 )
 def test_a_check_is_listed(path):
@@ -90,19 +102,24 @@ def test_a_check_is_listed(path):
         "plugins/schole/schole/d2l.py",
         "plugins/techne/skills/sisters/SKILL.md",
         "src/testing_utils.py",
-        "contest.py",
+        "src/contest.py",
         "scripts/checker.sh",
         "hooksmith/notes.md",
         "src/hooks/useAuth.ts",
         "app/hooks/session.py",
         "docs/hooks/intro.md",
         "src/check_balance.py",
-        "app.py",
+        "src/app.py",
         "README",
         "README.md",
         "LICENSE",
         "logo.png",
-        "index.html",
+        "site/index.html",
+        "cv.tex",
+        "references.bib",
+        "sweep_run.log",
+        "CNAME",
+        ".env.example",
     ],
 )
 def test_other_files_are_not(path):
@@ -142,7 +159,8 @@ def clone(tmp_path):
     _git(up, "init", "-q", "-b", "main")
     (up / "tests").mkdir()
     (up / "tests" / "test_a.py").write_text("def test_a():\n    assert 1\n")
-    (up / "app.py").write_text("x = 1\n")
+    (up / "src").mkdir()
+    (up / "src" / "app.py").write_text("x = 1\n")
     (up / "Makefile").write_text("lint:\n\tpython tools/lint_rules.py\n")
     (up / "tools").mkdir()
     (up / "tools" / "lint_rules.py").write_text("RULES = 1\n")
@@ -155,10 +173,10 @@ def clone(tmp_path):
     _git(up, "commit", "-qm", "base moves on")
     _git(c, "fetch", "-q")
     _git(c, "checkout", "-q", "-b", "pr")
-    _git(c, "mv", "tests/test_a.py", "kept.py")
+    _git(c, "mv", "tests/test_a.py", "src/kept.py")
     (c / "tools" / "lint_rules.py").write_text("RULES = 0\n")
     _git(c, "commit", "-qam", "move the test out, loosen the lint the Makefile runs")
-    (c / "app.py").write_text("x = 2\n")
+    (c / "src" / "app.py").write_text("x = 2\n")
     _git(c, "commit", "-qam", "app change")
     return c
 
@@ -348,14 +366,15 @@ def test_a_replacement_object_or_graft_cannot_hide_a_change(tmp_path):
     (up / "tests").mkdir(parents=True)
     _git(up, "init", "-q", "-b", "main")
     (up / "tests" / "test_a.py").write_text("x = 1\n")
-    (up / "app.py").write_text("1\n")
+    (up / "src").mkdir()
+    (up / "src" / "app.py").write_text("1\n")
     _git(up, "add", ".")
     _git(up, "commit", "-qm", "base")
     base = _rev(up, "HEAD")
     _git(up, "checkout", "-q", "-b", "pr")
-    _git(up, "mv", "tests/test_a.py", "kept.py")
+    _git(up, "mv", "tests/test_a.py", "src/kept.py")
     _git(up, "commit", "-qm", "move the test out")
-    (up / "app.py").write_text("2\n")
+    (up / "src" / "app.py").write_text("2\n")
     _git(up, "commit", "-qam", "app")
     head = _rev(up, "HEAD")
     _git(up, "replace", base, f"{head}~1")
@@ -377,13 +396,14 @@ def test_a_lowered_budget_in_root_tool_config_is_listed(tmp_path):
     up.mkdir()
     _git(up, "init", "-q", "-b", "main")
     (up / ".lighthouserc.json").write_text('{"assert": {"minScore": 0.95}}\n')
-    (up / "app.py").write_text("x = 1\n")
+    (up / "src").mkdir()
+    (up / "src" / "app.py").write_text("x = 1\n")
     _git(up, "add", ".")
     _git(up, "commit", "-qm", "base")
     base = _rev(up, "HEAD")
     _git(up, "checkout", "-q", "-b", "pr")
     (up / ".lighthouserc.json").write_text('{"assert": {"minScore": 0.5}}\n')
-    (up / "app.py").write_text("x = 2\n")
+    (up / "src" / "app.py").write_text("x = 2\n")
     _git(up, "commit", "-qam", "loosen the budget")
     assert _listed(_own(up, base)) == [".lighthouserc.json"]
 
@@ -404,3 +424,41 @@ def test_a_path_after_an_environment_variable_is_read(tmp_path):
     (up / "tools" / "g.py").write_text("x = 0\n")
     _git(up, "commit", "-qam", "loosen it")
     assert _listed(_own(up, base)) == ["tools/g.py"]
+
+
+def test_a_file_a_root_tool_config_names_is_listed_one_hop_deep(tmp_path):
+    up = tmp_path / "up"
+    (up / "test").mkdir(parents=True)
+    _git(up, "init", "-q", "-b", "main")
+    (up / "vitest.config.ts").write_text(
+        "export default { test: { setupFiles: ['./test/setup/env.ts'] } }\n"
+    )
+    (up / "test" / "README.md").write_text("x\n")
+    (up / "src").mkdir()
+    (up / "src" / "env.ts").write_text("x\n")
+    (up / "src" / "setup").mkdir()
+    _git(up, "add", ".")
+    _git(up, "commit", "-qm", "base")
+    base = _rev(up, "HEAD")
+    _git(up, "checkout", "-q", "-b", "pr")
+    (up / "src" / "setup" / "env.ts").write_text("loosened\n")
+    (up / "src" / "env.ts").write_text("y\n")
+    _git(up, "add", ".")
+    _git(up, "commit", "-qm", "edit")
+    assert _listed(_own(up, base)) == ["none"]  # neither path is the one the config names
+    (up / "test" / "setup").mkdir()
+    (up / "test" / "setup" / "env.ts").write_text("loosened\n")
+    _git(up, "add", ".")
+    _git(up, "commit", "-qm", "edit the named setup file")
+    assert _listed(_own(up, base)) == ["test/setup/env.ts"]
+
+
+def test_a_local_review_lists_uncommitted_and_untracked_edits(clone):
+    base = _rev(clone, "origin/main")
+    (clone / "Makefile").write_text("lint:\n\t@true\n")  # tracked, uncommitted
+    (clone / "tests" / "test_new.py").write_text("x = 1\n")  # untracked
+    (clone / "src" / "app.py").write_text("x = 3\n")  # app code: not a check
+    listed = _listed(_own(clone, base))
+    assert {"Makefile", "tests/test_new.py"} <= set(listed) and "src/app.py" not in listed
+    head = _rev(clone, "pr")
+    assert "Makefile" not in _listed(_own(clone, base, "--head", head))  # a PR is its commits

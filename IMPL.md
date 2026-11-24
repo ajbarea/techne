@@ -27,5 +27,10 @@ The active TODO list for whatever's in flight right now. Queued specs live in [R
   name list had grown in three commits); `--file=PATH` reads any path from the base through the same
   guarded read (catalog recipe uses it; blob-level replace tested); elenchus no longer loads the
   working tree's hints at all; refusals name the commits/HEAD recipe; `--no-relative`; `$VAR/` paths.
-- 📋 Next: fresh Opus round 7, CI, merge.
+- ✅ Round 7 (hold on 1, then mergeable): the root rule excludes only prose, images, content and
+  named docs, so root code config (vitest.setup.ts, .eslintrc.js, requirements.txt) counts; every
+  root tool config and workflow is a gate file, one hop deep; a local review (no --head) adds
+  uncommitted and untracked files; the recipe names the repo (`-R`); odd or folder `--file` paths
+  are refused.
+- 📋 Next: verify pass of the round-7 fixes, CI, merge.
 - Verify: `uv run pytest tests/test_skill_context.py tests/test_elenchus_own_checks.py`; `make guards`.
