@@ -32,5 +32,11 @@ The active TODO list for whatever's in flight right now. Queued specs live in [R
   root tool config and workflow is a gate file, one hop deep; a local review (no --head) adds
   uncommitted and untracked files; the recipe names the repo (`-R`); odd or folder `--file` paths
   are refused.
-- 📋 Next: verify pass of the round-7 fixes, CI, merge.
+- ✅ Round 8 (fresh Opus verify): round 6-7 fixes confirmed, 22 hand mutants all red; one
+  Should-fix: subfolder tool config (src-tauri/Cargo.toml, web/tsconfig.json) listed as none, the
+  name list's fifth miss. Structural fix: any folder holding a package manifest (on the base or
+  added by the change) is a root, its own non-prose files are checks and gate files (tokens also
+  read from that folder), and dotfiles count at any depth; .githooks/ and .husky/ are gate files.
+  Live: klepsydra and myo-lever repros now list the loosened config; 4 hand mutants red.
+- 📋 Next: verify pass of round 8, CI, merge.
 - Verify: `uv run pytest tests/test_skill_context.py tests/test_elenchus_own_checks.py`; `make guards`.

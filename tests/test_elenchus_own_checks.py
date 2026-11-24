@@ -462,3 +462,70 @@ def test_a_local_review_lists_uncommitted_and_untracked_edits(clone):
     assert {"Makefile", "tests/test_new.py"} <= set(listed) and "src/app.py" not in listed
     head = _rev(clone, "pr")
     assert "Makefile" not in _listed(_own(clone, base, "--head", head))  # a PR is its commits
+
+
+def _monorepo(tmp_path, base_files: dict[str, str], edits: dict[str, str]) -> list[str]:
+    """own_checks' list for a PR that writes EDITS over a base holding BASE_FILES."""
+    up = tmp_path / "up"
+    up.mkdir()
+    _git(up, "init", "-q", "-b", "main")
+    for name, text in base_files.items():
+        (up / name).parent.mkdir(parents=True, exist_ok=True)
+        (up / name).write_text(text)
+    _git(up, "add", ".")
+    _git(up, "commit", "-qm", "base")
+    base = _rev(up, "HEAD")
+    _git(up, "checkout", "-q", "-b", "pr")
+    for name, text in edits.items():
+        (up / name).parent.mkdir(parents=True, exist_ok=True)
+        (up / name).write_text(text)
+    _git(up, "add", ".")
+    _git(up, "commit", "-qm", "edit")
+    return _listed(_own(up, base))
+
+
+MONOREPO = {
+    "src-tauri/Cargo.toml": '[package]\nname = "a"\n[lints.clippy]\nall = "deny"\n',
+    "src-tauri/clippy.toml": "too-many-lines-threshold = 80\n",
+    "src-tauri/src/main.rs": "fn main() {}\n",
+    "web/package.json": '{"scripts": {"lint": "node ./tools/lint.js"}}\n',
+    "web/tsconfig.json": '{"compilerOptions": {"strict": true}}\n',
+    "web/tools/lint.js": "x\n",
+    "web/README.md": "x\n",
+    "web/src/app.ts": "x\n",
+    "apps/web/.eslintrc.json": "{}\n",
+    "notes/data.json": "{}\n",
+}
+
+
+@pytest.mark.parametrize(
+    ("path", "listed"),
+    [
+        ("src-tauri/Cargo.toml", "src-tauri/Cargo.toml"),
+        ("src-tauri/clippy.toml", "src-tauri/clippy.toml"),
+        ("web/tsconfig.json", "web/tsconfig.json"),
+        ("apps/web/.eslintrc.json", "apps/web/.eslintrc.json"),
+        ("web/tools/lint.js", "web/tools/lint.js"),  # only through web/package.json
+        ("web/README.md", "none"),
+        ("web/src/app.ts", "none"),
+        ("src-tauri/src/main.rs", "none"),
+        ("notes/data.json", "none"),
+    ],
+)
+def test_a_package_roots_own_config_is_listed(tmp_path, path, listed):
+    assert _monorepo(tmp_path, MONOREPO, {path: "loosened\n"}) == [listed]
+
+
+def test_a_package_the_change_adds_counts_its_config(tmp_path):
+    edits = {"pkg/pyproject.toml": "[tool.x]\n", "pkg/requirements-dev.txt": "pytest\n"}
+    assert _monorepo(tmp_path, {"a.txt": "x\n"}, edits) == sorted(edits)
+
+
+def test_a_script_a_git_hook_runs_is_listed(tmp_path):
+    base = {
+        ".githooks/pre-commit": "#!/bin/sh\npython3 scripts/lint_all.py\n",
+        "scripts/lint_all.py": "x\n",
+    }
+    assert _monorepo(tmp_path, base, {"scripts/lint_all.py": "loosened\n"}) == [
+        "scripts/lint_all.py"
+    ]

@@ -95,13 +95,46 @@ ROOT_PROSE = re.compile(
 )
 
 
-def is_check(path: str) -> bool:
+# A folder holding one of these is a package root: its own files are tool config the way the
+# repo root's are (web/tsconfig.json, src-tauri/clippy.toml), so no name list has to know them.
+MANIFESTS = {
+    "package.json",
+    "deno.json",
+    "deno.jsonc",
+    "Cargo.toml",
+    "pyproject.toml",
+    "setup.cfg",
+    "setup.py",
+    "go.mod",
+    "composer.json",
+    "Gemfile",
+    "pom.xml",
+    "build.gradle",
+    "build.gradle.kts",
+    "Package.swift",
+    "mix.exs",
+}
+REPO_ROOT = frozenset({""})
+
+
+def folder_of(path: str) -> str:
+    """PATH's folder relative to the repo root; "" for a file at the root."""
+    return "/".join(PurePosixPath(path).parts[:-1])
+
+
+def package_roots(paths) -> frozenset[str]:
+    """The repo root and the folder of every manifest among PATHS."""
+    return REPO_ROOT | {folder_of(p) for p in paths if PurePosixPath(p).name in MANIFESTS}
+
+
+def is_check(path: str, roots: frozenset[str] = REPO_ROOT) -> bool:
     p = PurePosixPath(path)
     folders = p.parts[:-1]
     if DIRS.intersection(folders) or p.name in NAMES or NAME_RE.match(p.name):
         return True
-    if not folders and not ROOT_PROSE.match(p.name):
-        return True
+    prose = ROOT_PROSE.match(p.name)
+    if not prose and (folder_of(path) in roots or p.name.startswith(".")):
+        return True  # a package root's own file, or dotfile config at any depth
     if "scripts" in folders and SCRIPT_RE.match(p.name):
         return True
     # hooks/ counts at the repo root and in a plugin, not as an app's folder (src/hooks/).
@@ -154,17 +187,18 @@ FILTER_KEY = re.compile(r"^(\s*)(paths|paths-ignore|branches|branches-ignore|tag
 GLOB_WITH_FOLDER = re.compile(r"^[\w.-]+/")
 
 
-def gate_names(repo: str, base: str) -> tuple[set[str], list[str]]:
+def gate_names(repo: str, base: str, listed: list[str], roots: frozenset[str]):
     """The path tokens and the glob tokens in the base's gate files, comments left out: its
-    workflows and every root tool-config file (Makefile, pre-commit, package.json,
-    vitest.config.ts, pyproject.toml, .gitlab-ci.yml, ...), so a file a check names is
-    listed too, one hop deep."""
-    listed = git(repo, "ls-tree", "-r", "-z", "--name-only", "--full-tree", base)
+    workflows, its git hooks and every tool-config file of the repo root or a package root (Makefile,
+    pre-commit, package.json, vitest.config.ts, pyproject.toml, .gitlab-ci.yml, ...), so a
+    file a check names is listed too, one hop deep. A package's tokens also count from its
+    folder (web/package.json's `scripts/lint.js` names web/scripts/lint.js)."""
     names = [
         n
-        for n in listed.split("\0")
+        for n in listed
         if (n.startswith(".github/workflows/") and n.endswith((".yml", ".yaml")))
-        or (n and "/" not in n and is_check(n))
+        or n.startswith((".githooks/", ".husky/"))
+        or (folder_of(n) in roots and is_check(n, roots))
     ]
     paths: set[str] = set()
     globs: list[str] = []
@@ -177,6 +211,7 @@ def gate_names(repo: str, base: str) -> tuple[set[str], list[str]]:
         )
         if out.returncode != 0:
             continue  # this gate file is not on the base
+        package = folder_of(name)
         yaml = name.endswith((".yml", ".yaml"))
         filter_indent = -1  # inside a YAML filter key's block list while >= 0
         for line in out.stdout.splitlines():
@@ -195,11 +230,12 @@ def gate_names(repo: str, base: str) -> tuple[set[str], list[str]]:
                     token = token[2:] if token.startswith("./") else token[1:]
                 if token in ("", ".", ".."):
                     continue
+                tokens = [token, f"{package}/{token}"] if package else [token]
                 if any(c in token for c in "*?["):
                     if GLOB_WITH_FOLDER.match(token):
-                        globs.append(token)
+                        globs += tokens
                 else:
-                    paths.add(token)
+                    paths.update(tokens)
     return paths, globs
 
 
@@ -213,12 +249,21 @@ def main(argv: list[str] | None = None) -> int:
     changed = git(
         args.repo, "diff", "-z", "--no-renames", "--no-relative", "--name-only", f"{base}...{head}"
     )
-    paths, globs = gate_names(args.repo, base)
     files = {p for p in changed.split("\0") if p}
     if args.head is None:  # a local review: uncommitted edits are part of the change
         status = git(args.repo, "status", "--porcelain", "-z", "--no-renames", "--untracked-files")
         files |= {entry[3:] for entry in status.split("\0") if len(entry) > 3}
-    strong = sorted(p for p in files if is_check(p))
+    listed = [
+        n
+        for n in git(args.repo, "ls-tree", "-r", "-z", "--name-only", "--full-tree", base).split(
+            "\0"
+        )
+        if n
+    ]
+    # A manifest the change adds makes its folder a package root too (listing more is safe).
+    roots = package_roots([*listed, *files])
+    paths, globs = gate_names(args.repo, base, listed, roots)
+    strong = sorted(p for p in files if is_check(p, roots))
     named = sorted(
         p
         for p in files - set(strong)
