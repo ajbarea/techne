@@ -2056,6 +2056,82 @@ def test_slug_matches_github_anchors():
     mod = load_module()
     assert mod.slug("Completed (2026)") == "completed-2026"
     assert mod.slug("Done `this` week") == "done-this-week"
+    assert mod.slug("done_this_week") == "donethisweek"
+
+
+def test_dangling_limits_and_boundaries():
+    mod = load_module()
+    lines = (
+        [f"Item {i} Done\n" for i in range(1, 6)]
+        + ["## Done\n", "- cut item\n"]
+        + [f"After {i} Done\n" for i in range(1, 5)]
+    )
+    text = "".join(lines)
+    scan = mod.Scan(text)
+    spans = [(6, 7, "Done")]
+    found = list(mod.dangling(scan, spans))
+    assert len(found) == 8
+    assert [n for n, _ in found] == [1, 2, 3, 4, 5, 8, 9, 10]
+
+
+def test_dangling_cut_boundaries_and_formatting():
+    mod = load_module()
+    text = "See Done\n## **Done**\n- Done item\nNormal text\n"
+    scan = mod.Scan(text)
+    spans = [(2, 3, "**Done**")]
+    found = list(mod.dangling(scan, spans))
+    assert found == [(1, "Done")]
+
+
+def test_span_hazard_fence_and_doubt_boundaries():
+    mod = load_module()
+    text_open = "```\nLine 2\n"
+    scan_open = mod.Scan(text_open)
+    assert mod.span_hazard(scan_open, 1, 2) == "line 1 opens a code fence that never closes"
+    assert mod.span_hazard(scan_open, 2, 2) is None
+
+    text_after = "# R\n- item\n```\n"
+    scan_after = mod.Scan(text_after)
+    h_fence = mod.span_hazard(scan_after, 1, 2)
+    assert h_fence is not None and "opens a code fence that never closes" not in h_fence
+
+    text_doubt = "# R\n- item\n  ```\n  code\n"
+    scan_doubt = mod.Scan(text_doubt)
+    h_doubt = mod.span_hazard(scan_doubt, 1, 2)
+    assert h_doubt is not None and "opens a block CommonMark may end elsewhere" not in h_doubt
+
+
+def test_span_hazard_link_targets_and_underlines():
+    mod = load_module()
+    text_link_a = "# R\n[target]: https://example.com/url\n- content\n"
+    scan_link_a = mod.Scan(text_link_a)
+    h_link_a = mod.span_hazard(scan_link_a, 2, 3)
+    assert h_link_a is not None and "line 2 defines a link target" in h_link_a
+
+    text_link_fenced = "# R\n```\ncode\n```\n[target]: https://example.com/url\n"
+    scan_link_fenced = mod.Scan(text_link_fenced)
+    h_link_fenced = mod.span_hazard(scan_link_fenced, 1, 5)
+    assert h_link_fenced is not None and "line 5 defines a link target" in h_link_fenced
+
+    long_link = "[target]: https://example.com/path/to/very/long/target/url"
+    assert len(long_link) > 41
+    text_long = f"# R\n{long_link}\n"
+    scan_long = mod.Scan(text_long)
+    h_long = mod.span_hazard(scan_long, 1, 2)
+    assert h_long is not None
+    assert f"({long_link[:40]!r})" in h_long
+    assert f"({long_link[:41]!r})" not in h_long
+    assert h_long.endswith("cut may use; move it above the done-log first")
+
+    text_setext_a = "Title\n===\nMore\n"
+    scan_setext_a = mod.Scan(text_setext_a)
+    assert mod.span_hazard(scan_setext_a, 2, 3) == (
+        "line 2 underlines the line above it, which a reader may take for a heading"
+    )
+
+    text_setext_first = "===\nTitle\nMore\n"
+    scan_setext_first = mod.Scan(text_setext_first)
+    assert mod.span_hazard(scan_setext_first, 1, 2) is None
 
 
 @pytest.mark.parametrize("registered", [True, False])
