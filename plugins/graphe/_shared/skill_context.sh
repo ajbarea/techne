@@ -1,32 +1,30 @@
 #!/usr/bin/env bash
 # Print .claude/skill-context.md from the repo that owns TARGET, headed by the repo root.
-# Usage: skill_context.sh [--base[=BASE] | --base-sha[=BASE]] [--head=HEAD] [target]
+# Usage: skill_context.sh [--base=BASE [--head=HEAD] | --base-sha=BASE [--head=HEAD]] [target]
 # TARGET is a file or directory, and need not exist yet: it resolves from its
 # nearest existing parent. A bare word (PR number, branch, effort level) has
 # none, so it resolves to the current directory's repo.
-# --base prints the file as committed on the base instead of the working tree's, so
-# a change under review cannot edit the hints that judge it. BASE is a full commit id
-# (a PR's baseRefOid), a full ref (refs/remotes/origin/main), or a short name found as
-# exactly one of refs/remotes/NAME, refs/heads/NAME, refs/tags/NAME; anything else
-# (an expression, FETCH_HEAD, a short id) is refused. No BASE: the remote's default
-# branch (refs/remotes/origin/HEAD, else refs/remotes/origin/main). HEAD (default:
-# the checkout's HEAD; a PR's headRefOid) is the commit under review: a base that
-# is HEAD or contains it is refused, since it is the change itself. Nothing stands
-# in for a refused or missing base or file.
-# --base-sha prints only "<base> <base commit> <head commit>", or a reason on
-# stderr and exit 1 (elenchus's own_checks.py resolves through it).
+# --base prints the file as committed on BASE instead of the working tree's, so a
+# change under review cannot edit the hints that judge it. BASE and HEAD are full
+# commit ids, nothing else: a PR's baseRefOid and headRefOid, or before a PR the
+# default branch's commit from the host (see elenchus's SKILL.md). A ref name is
+# refused, since a local ref can be the change wearing the base's name. HEAD
+# defaults to the checkout's HEAD. A base that is HEAD or contains it is refused.
+# Nothing stands in for a refused or missing base or file.
+# --base-sha prints only "<base commit> <head commit>", or a reason on stderr and
+# exit 1 (elenchus's own_checks.py resolves through it).
 set -u
 
 base_mode=0
 base_ref=""
 head_ref=""
+head_given=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --base) base_mode=1 ;;
+    --base | --base-sha) base_mode=-1 ;;
     --base=*) base_mode=1; base_ref=${1#--base=} ;;
-    --base-sha) base_mode=2 ;;
     --base-sha=*) base_mode=2; base_ref=${1#--base-sha=} ;;
-    --head=*) head_ref=${1#--head=} ;;
+    --head=*) head_ref=${1#--head=}; head_given=1; [ "$base_mode" -ne 0 ] || base_mode=-2 ;;
     *) break ;;
   esac
   shift
@@ -36,6 +34,10 @@ for a in "$@"; do
     --base* | --head*) printf '(%s must come before the target; nothing read)\n' "$a"; exit 0 ;;
   esac
 done
+case "$base_mode" in
+  -1) printf '(--base needs a full commit id: --base=<baseRefOid>; nothing read)\n'; exit 0 ;;
+  -2) printf '(--head works only with --base; nothing read)\n'; exit 0 ;;
+esac
 
 arg="${1:-.}"
 target=$arg
@@ -58,52 +60,41 @@ root=$(env -u GIT_DIR -u GIT_WORK_TREE git -C "$target" rev-parse --show-topleve
 ctx="$root/.claude/skill-context.md"
 
 if [ "$base_mode" -ne 0 ]; then
-  g() { env -u GIT_DIR -u GIT_WORK_TREE git -C "$root" "$@"; }
-  # resolve NAME: set r_full and r_sha, or why when NAME is not exactly one commit id or
-  # ref. It runs in this shell (never in $(...)), so why reaches the caller.
-  resolve() {
-    local name=$1 full="" kind hash
-    r_full="" r_sha=""
-    if [[ $name =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]]; then
-      hash=$(g rev-parse -q --verify --end-of-options "${name}^{commit}" 2>/dev/null) \
-        || { why="$name is not a commit in $root: git fetch it"; return; }
-      r_full=$name r_sha=$hash
+  # Strip every variable git says points it at another repository, not only GIT_DIR.
+  strip=()
+  while IFS= read -r v; do strip+=(-u "$v"); done < <(env -u GIT_DIR -u GIT_WORK_TREE git rev-parse --local-env-vars 2>/dev/null)
+  # ${strip[@]+...}: bash 3.2 (macOS) treats an empty array as unset under set -u.
+  g() { env -u GIT_DIR -u GIT_WORK_TREE ${strip[@]+"${strip[@]}"} git -C "$root" "$@"; }
+  why="" r_sha=""
+  g rev-parse --git-dir >/dev/null 2>&1 || why="$root is not in a git repository"
+  hexlen=40
+  [ -n "$why" ] || [ "$(g rev-parse --show-object-format 2>/dev/null)" != sha256 ] || hexlen=64
+  # commit ID: set r_sha when ID is a full id of a commit in this repo, else why.
+  commit() {
+    r_sha=""
+    if ! [[ $1 =~ ^[0-9a-f]+$ && ${#1} -eq $hexlen ]]; then
+      why="'$1' is not a full commit id: pass a PR's baseRefOid and headRefOid (gh pr view <N> --json baseRefOid,headRefOid)"
       return
     fi
-    if [[ $name == refs/* ]]; then
-      full=$name
-    else
-      for kind in remotes heads tags; do
-        g show-ref --verify -q "refs/$kind/$name" || continue
-        [ -z "$full" ] || { why="$name is ambiguous ($full and refs/$kind/$name): pass the full name"; return; }
-        full="refs/$kind/$name"
-      done
-      [ -n "$full" ] || { why="$name is not a ref in $root: git fetch it, or pass a full commit id"; return; }
+    r_sha=$(g rev-parse -q --verify --end-of-options "${1}^{commit}" 2>/dev/null)
+    if [ "$r_sha" != "$1" ]; then
+      r_sha=""
+      why="$1 is not a commit in $root: git fetch origin $1"
     fi
-    hash=$(g show-ref --verify --hash "$full" 2>/dev/null) \
-      || { why="$full not found in $root: git fetch +refs/heads/<branch>:$full, or pass a full commit id"; return; }
-    hash=$(g rev-parse -q --verify "${hash}^{commit}" 2>/dev/null) \
-      || { why="$full is not a commit"; return; }
-    r_full=$full r_sha=$hash
   }
-  why=""
-  if [ -z "$base_ref" ]; then
-    base_ref=$(g symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null) || base_ref=refs/remotes/origin/main
-  fi
-  resolve "$base_ref"
-  full=$r_full sha=$r_sha head=""
+  [ -n "$why" ] || commit "$base_ref"
+  sha=$r_sha head=""
   if [ -z "$why" ]; then
-    if [ -n "$head_ref" ]; then
-      resolve "$head_ref"
+    if [ "$head_given" -eq 1 ]; then
+      commit "$head_ref"
       head=$r_sha
     else
-      head=$(g rev-parse -q --verify HEAD 2>/dev/null) || why="no HEAD in $root: pass --head=<the reviewed commit>"
+      head=$(g rev-parse -q --verify HEAD 2>/dev/null) || why="no HEAD in $root: pass --head=<headRefOid>"
     fi
   fi
-  # The base must not hold the change: a single-branch clone of the PR points origin/HEAD
-  # at it, and a checkout standing on the base reviews nothing.
+  # The base must not hold the change (a base at or past the reviewed commit).
   if [ -z "$why" ] && g merge-base --is-ancestor "$head" "$sha" 2>/dev/null; then
-    why="base $full holds the commit under review ${head:0:12}: pass --base=<baseRefOid> --head=<headRefOid>"
+    why="base ${sha:0:12} holds the commit under review ${head:0:12}: pass --base=<baseRefOid> --head=<headRefOid>"
   fi
   if [ -n "$why" ]; then
     [ "$base_mode" -eq 2 ] && { printf '%s\n' "$why" >&2; exit 1; }
@@ -111,14 +102,14 @@ if [ "$base_mode" -ne 0 ]; then
     exit 0
   fi
   if [ "$base_mode" -eq 2 ]; then
-    printf '%s %s %s\n' "$full" "$sha" "$head"
+    printf '%s %s\n' "$sha" "$head"
     exit 0
   fi
   if ! g cat-file -e "${sha}:.claude/skill-context.md" 2>/dev/null; then
-    printf '(no .claude/skill-context.md on base %s %.12s in %s)\n' "$full" "$sha" "$root"
+    printf '(no .claude/skill-context.md on base %s in %s)\n' "$sha" "$root"
     exit 0
   fi
-  printf '<!-- skill-context: %s (base %s %.12s) -->\n' "$root" "$full" "$sha"
+  printf '<!-- skill-context: %s (base %s) -->\n' "$root" "$sha"
   g show "${sha}:.claude/skill-context.md"
   exit 0
 fi

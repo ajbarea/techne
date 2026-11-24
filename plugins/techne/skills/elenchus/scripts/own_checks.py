@@ -3,18 +3,18 @@
 tool config, review rules, and any file the base's Makefile, workflows or pre-commit config
 names. A review flags each as "edits its own check" and confirms the change weakens none.
 
-    own_checks.py [--repo DIR] [--head HEAD] [BASE]
+    own_checks.py [--repo DIR] [--head HEAD] BASE
 
-BASE and HEAD resolve exactly as `_shared/skill_context.sh --base=BASE --head=HEAD` resolves
-them: a full commit id (a PR's baseRefOid and headRefOid), a full ref, or a short name that
-is exactly one ref; default the remote's default branch and the checkout's HEAD. Files come
-from `git diff -z --no-renames BASE...HEAD`, so a renamed or deleted check is listed by its
-old path too. Prints `head <commit>`, then one path per line, or `none`.
+BASE and HEAD are full commit ids (a PR's baseRefOid and headRefOid; HEAD defaults to the
+checkout's HEAD), checked by `_shared/skill_context.sh --base-sha`. Files come from
+`git diff -z --no-renames BASE...HEAD`, so a renamed or deleted check is listed by its old
+path too. Prints `head <commit>`, then one path per line, or `none`.
 """
 
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import re
 import subprocess
 import sys
@@ -107,9 +107,9 @@ def git(repo: str, *args: str) -> str:
     return out.stdout
 
 
-def resolve(repo: str, base: str | None, head: str | None) -> tuple[str, str]:
-    """(base commit, head commit), resolved the way skill_context.sh --base resolves them."""
-    argv = ["bash", str(RESOLVER), "--base-sha" if base is None else f"--base-sha={base}"]
+def resolve(repo: str, base: str, head: str | None) -> tuple[str, str]:
+    """(base commit, head commit), checked the way skill_context.sh --base checks them."""
+    argv = ["bash", str(RESOLVER), f"--base-sha={base}"]
     if head is not None:
         argv.append(f"--head={head}")
     out = subprocess.run(
@@ -117,16 +117,32 @@ def resolve(repo: str, base: str | None, head: str | None) -> tuple[str, str]:
     )
     if out.returncode != 0:
         raise SystemExit(f"own_checks: {out.stderr.strip()}")
-    _, base_sha, head_sha = out.stdout.split()
+    base_sha, head_sha = out.stdout.split()
     return base_sha, head_sha
 
 
-def gate_text(repo: str, base: str) -> str:
-    """The base's Makefile, pre-commit config and workflows, as one text."""
+# A gate file's text splits into tokens at whitespace, quotes and shell or YAML punctuation,
+# so $(CURDIR)/x and ${{ github.workspace }}/x leave /x behind; ./ and / are then stripped.
+TOKEN_SPLIT = re.compile(r"[\s\"'`=,;:()\[\]{}|&<>]+")
+COMMENT = re.compile(r"(^|\s)#.*$")
+# A YAML filter list (on.push.paths, branches, a bare list scalar) says when CI runs, not
+# what it runs; a glob counts only with a literal leading folder (tools/*.py, not * or **).
+YAML_FILTER = re.compile(r"^\s*(-\s+[^:]*|(paths|paths-ignore|branches|branches-ignore|tags):.*)$")
+GLOB_WITH_FOLDER = re.compile(r"^[\w.-]+/")
+
+
+def gate_names(repo: str, base: str) -> tuple[set[str], list[str]]:
+    """The path tokens and the glob tokens in the base's Makefile, pre-commit config and
+    workflows, comments left out."""
     names = list(GATE_FILES)
-    listed = git(repo, "ls-tree", "-r", "-z", "--name-only", base, "--", ".github/workflows")
-    names += [n for n in listed.split("\0") if n.endswith((".yml", ".yaml"))]
-    texts = []
+    listed = git(repo, "ls-tree", "-r", "-z", "--name-only", "--full-tree", base)
+    names += [
+        n
+        for n in listed.split("\0")
+        if n.startswith(".github/workflows/") and n.endswith((".yml", ".yaml"))
+    ]
+    paths: set[str] = set()
+    globs: list[str] = []
     for name in names:
         out = subprocess.run(
             ["git", "-C", repo, "show", f"{base}:{name}"],
@@ -134,25 +150,39 @@ def gate_text(repo: str, base: str) -> str:
             text=True,
             env=without_repo_overrides(),
         )
-        texts.append(out.stdout if out.returncode == 0 else "")
-    return "\n".join(texts)
+        if out.returncode != 0:
+            continue  # this gate file is not on the base
+        yaml = name.endswith((".yml", ".yaml"))
+        for line in out.stdout.splitlines():
+            if yaml and YAML_FILTER.match(line):
+                continue
+            for token in TOKEN_SPLIT.split(COMMENT.sub("", line)):
+                while token.startswith(("./", "/")):
+                    token = token[2:] if token.startswith("./") else token[1:]
+                if token in ("", ".", ".."):
+                    continue
+                if any(c in token for c in "*?["):
+                    if GLOB_WITH_FOLDER.match(token):
+                        globs.append(token)
+                else:
+                    paths.add(token)
+    return paths, globs
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
-    ap.add_argument("base", nargs="?")
+    ap.add_argument("base", help="the base's full commit id (baseRefOid)")
     ap.add_argument("--repo", default=".")
-    ap.add_argument("--head")
+    ap.add_argument("--head", help="the reviewed full commit id (headRefOid); default HEAD")
     args = ap.parse_args(argv)
     base, head = resolve(args.repo, args.base, args.head)
     changed = git(args.repo, "diff", "-z", "--no-renames", "--name-only", f"{base}...{head}")
-    gates = gate_text(args.repo, base)
-    paths = {p for p in changed.split("\0") if p}
-
-    def named(path: str) -> bool:  # the whole path as a token, not part of a longer one
-        return re.search(rf"(?<![\w./-]){re.escape(path)}(?![\w/-])", gates) is not None
-
-    hits = sorted(p for p in paths if is_check(p) or named(p))
+    paths, globs = gate_names(args.repo, base)
+    hits = sorted(
+        p
+        for p in {p for p in changed.split("\0") if p}
+        if is_check(p) or p in paths or any(fnmatch.fnmatchcase(p, g) for g in globs)
+    )
     print(f"head {head}")
     print("\n".join(hits) if hits else "none")
     return 0

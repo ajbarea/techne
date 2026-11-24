@@ -267,172 +267,147 @@ def _says_no(out: str) -> bool:
     return out.startswith("(") and "SOFT" not in out and "BASE_RULES" not in out
 
 
-@pytest.mark.parametrize(
-    ("setup", "args", "ref"),
-    [
-        ({}, ["--base=origin/main"], "refs/remotes/origin/main"),
-        ({}, ["--base"], "refs/remotes/origin/main"),
-        ({}, ["--base=refs/remotes/origin/main"], "refs/remotes/origin/main"),
-        ({"default": "master"}, ["--base"], "refs/remotes/origin/master"),
-        ({"remote": "upstream"}, ["--base=upstream/main"], "refs/remotes/upstream/main"),
-    ],
-)
-def test_base_reads_the_hints_committed_on_the_base(tmp_path, setup, args, ref):
+def _ids(clone: pathlib.Path) -> tuple[str, str]:
+    return _sha(clone, "origin/main"), _sha(clone, "pr")
+
+
+@pytest.mark.parametrize("setup", [{}, {"default": "master"}, {"remote": "upstream"}])
+def test_base_reads_the_hints_committed_on_the_base_commit(tmp_path, setup):
     clone = _pr_clone(tmp_path, **setup)
-    out = _run(clone, *args).splitlines()
-    assert out[0].startswith(f"<!-- skill-context: {clone} (base {ref} ")
-    assert out[1:] == ["## BASE_RULES"]
-    full, base, head = _run(clone, args[0].replace("--base", "--base-sha")).split()
-    assert full == ref and out[0].endswith(f" {base[:12]}) -->") and head == _sha(clone, "HEAD")
+    base = _sha(clone, f"{setup.get('remote', 'origin')}/{setup.get('default', 'main')}")
+    out = _run(clone, f"--base={base}").splitlines()
+    assert out == [f"<!-- skill-context: {clone} (base {base}) -->", "## BASE_RULES"]
+    assert _run(clone, f"--base-sha={base}").split() == [base, _sha(clone, "HEAD")]
 
 
 def test_the_pr_recipe_reads_by_commit_from_any_checkout(tmp_path):
-    # gh's baseRefOid and headRefOid: no ref name is read, and the checkout may stand
-    # anywhere, the base itself included.
     clone = _pr_clone(tmp_path)
-    base, head = _sha(clone, "origin/main"), _sha(clone, "pr")
+    base, head = _ids(clone)
     _git(clone, "checkout", "-q", "-f", "--detach", "origin/main")
     out = _run(clone, f"--base={base}", f"--head={head}")
     assert out.splitlines()[1:] == ["## BASE_RULES"]
 
 
 @pytest.mark.parametrize(
-    "shadow",
+    "value",
     [
-        ["tag", "origin/main"],
-        ["branch", "origin/main"],
+        "",
+        "origin/main",
+        "refs/remotes/origin/main",
+        "main",
+        "HEAD",
+        "HEAD~1",
+        "FETCH_HEAD",
+        "SHORT",
+        "UPPER",
+        "--all",
     ],
 )
-def test_a_short_name_that_is_also_a_tag_or_branch_is_refused(tmp_path, shadow):
+def test_anything_but_a_full_commit_id_is_refused(tmp_path, value):
+    # Every ref name is refused, so no local ref, tag or symref can wear the base's name.
     clone = _pr_clone(tmp_path)
-    _git(clone, *shadow, "pr~1")
-    out = _run(clone, "--base=origin/main")
-    assert out.startswith("(origin/main is ambiguous") and _says_no(out)
-    assert "## BASE_RULES" in _run(clone, "--base")  # the full name from origin/HEAD
+    base, _ = _ids(clone)
+    value = {"SHORT": base[:12], "UPPER": base.upper()}.get(value, value)
+    out = _run(clone, f"--base={value}")
+    assert out.startswith(f"('{value}' is not a full commit id") and _says_no(out)
+    out = _run(clone, f"--base={base}", f"--head={value}")
+    assert out.startswith(f"('{value}' is not a full commit id") and _says_no(out)
 
 
-@pytest.mark.parametrize("kind", ["tag", "branch"])
-def test_a_full_ref_is_read_exactly_even_when_shadowed(tmp_path, kind):
-    # A tag or branch literally named refs/remotes/origin/main, with the remote ref absent
-    # (a single-branch clone of the PR), must not stand in for it.
+def test_bare_base_and_lone_head_are_refused(tmp_path):
     clone = _pr_clone(tmp_path)
-    _git(clone, kind, "refs/remotes/origin/main", "pr~1")
-    one = tmp_path / "one"
-    _git(tmp_path, "clone", "-q", "--single-branch", "-b", "pr", f"file://{clone}", str(one))
-    if kind == "branch":
-        _git(one, "branch", "refs/remotes/origin/main", "HEAD~1")
-    for args in (["--base=refs/remotes/origin/main"], ["--base"]):
-        out = _run(one, *args)
-        assert _says_no(out), (args, out)
+    base, _ = _ids(clone)
+    assert _run(clone, "--base").startswith("(--base needs a full commit id")
+    assert _run(clone, "--base-sha").startswith("(--base needs a full commit id")
+    out = _run(clone, f"--head={base}")
+    assert out.startswith("(--head works only with --base") and "SOFT" not in out
 
 
-def test_a_base_that_moved_past_a_detached_review_is_refused(tmp_path):
-    # Single-branch clone of the PR, detached at the reviewed commit; the author pushes and
-    # the reviewer fetches: origin/HEAD (origin/pr) now holds the reviewed commit.
+def test_an_id_that_is_not_a_commit_is_refused(tmp_path):
     clone = _pr_clone(tmp_path)
-    one = tmp_path / "one"
-    _git(tmp_path, "clone", "-q", "--single-branch", "-b", "pr", f"file://{clone}", str(one))
-    _git(one, "remote", "set-head", "origin", "pr")
-    _git(one, "checkout", "-q", "--detach")
-    _git(clone, "checkout", "-q", "-f", "pr")
-    (clone / ".claude" / "skill-context.md").write_text("## SOFT9\n")
-    _git(clone, "commit", "-qam", "soften again")
-    _git(one, "fetch", "-q")
-    out = _run(one, "--base")
-    assert out.startswith("(base refs/remotes/origin/pr holds the commit under review")
-    assert _says_no(out)
+    tree = _sha(clone, "origin/main^{tree}")
+    missing = "0" * 40
+    for value in (tree, missing):
+        out = _run(clone, f"--base={value}")
+        assert out.startswith(f"({value} is not a commit in") and _says_no(out)
+    base, _ = _ids(clone)
+    _git(clone, "tag", "-a", "-m", "t", "annotated", "origin/main")
+    tag_object = _sha(clone, "annotated")
+    assert _says_no(_run(clone, f"--base={tag_object}"))  # a tag object, not the commit
+    assert _says_no(_run(clone, f"--base={base}", f"--head={missing}"))
+
+
+def test_a_sha256_repo_wants_64_hex(tmp_path):
+    repo = tmp_path / "sha256"
+    repo.mkdir()
+    _git(repo, "init", "-q", "--object-format=sha256", "-b", "main")
+    (repo / ".claude").mkdir()
+    (repo / ".claude" / "skill-context.md").write_text("## BASE_RULES\n")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "base")
+    base = _sha(repo, "HEAD")
+    (repo / "x").write_text("x\n")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "change")
+    assert len(base) == 64 and "## BASE_RULES" in _run(repo, f"--base={base}")
+    assert _run(repo, f"--base={base[:40]}").startswith(f"('{base[:40]}' is not a full commit id")
+
+
+@pytest.mark.parametrize("where", ["at", "past"])
+def test_a_base_that_holds_the_reviewed_commit_is_refused(tmp_path, where):
+    clone = _pr_clone(tmp_path)
+    _, head = _ids(clone)
+    if where == "at":
+        args = [f"--base={head}", f"--head={head}"]
+    else:
+        _git(clone, "checkout", "-q", "-f", "pr")
+        (clone / "more").write_text("m\n")
+        _git(clone, "add", "more")
+        _git(clone, "commit", "-qm", "more")
+        args = [f"--base={_sha(clone, 'HEAD')}", f"--head={head}"]
+    out = _run(clone, *args)
+    assert "holds the commit under review" in out and _says_no(out)
 
 
 @pytest.mark.parametrize(
-    "case",
-    [
-        "main-checkout",
-        "fork-main-tracks-upstream",
-        "same-name-under-a-folder",
-        "worktree-from-base",
-    ],
+    "var", ["GIT_DIR", "GIT_WORK_TREE", "GIT_OBJECT_DIRECTORY", "GIT_COMMON_DIR", "GIT_INDEX_FILE"]
 )
-def test_legitimate_setups_read_the_base(tmp_path, case):
-    clone = _pr_clone(tmp_path, remote="upstream" if case.startswith("fork") else "origin")
-    remote = "upstream" if case.startswith("fork") else "origin"
-    head = _sha(clone, "pr")
-    args = [f"--base=refs/remotes/{remote}/main", f"--head={head}"]
-    if case == "main-checkout":
-        _git(clone, "checkout", "-q", "-f", "--detach", f"{remote}/main")
-    elif case == "fork-main-tracks-upstream":
-        _git(clone, "checkout", "-q", "-f", "-B", "main", "upstream/main")
-    elif case == "same-name-under-a-folder":
-        _git(clone, "update-ref", "refs/remotes/origin/team/pr", "origin/main")
-        args = ["--base=refs/remotes/origin/team/pr"]
-    else:
-        _git(clone, "checkout", "-q", "-f", "-b", "feat", "origin/main")
-        (clone / ".claude" / "skill-context.md").write_text("## SOFT4\n")
-        _git(clone, "commit", "-qam", "soften on feat")
-        args = ["--base"]
-    out = _run(clone, *args)
-    assert "## BASE_RULES" in out and "SOFT" not in out, out
-
-
-@pytest.mark.parametrize("rev", ["HEAD~1", "pr~1", "HEAD@{1}", "FETCH_HEAD", "origin/main~0"])
-def test_a_revision_expression_is_not_a_base(tmp_path, rev):
+def test_base_ignores_variables_that_point_git_elsewhere(tmp_path, var):
     clone = _pr_clone(tmp_path)
-    _git(clone, "fetch", "-q", "origin")
-    assert _says_no(_run(clone, f"--base={rev}"))
-
-
-def test_a_short_commit_id_is_not_a_base(tmp_path):
-    clone = _pr_clone(tmp_path)
-    assert _says_no(_run(clone, f"--base={_sha(clone, 'origin/main')[:12]}"))
-
-
-def test_base_ignores_an_exported_git_dir(tmp_path):
-    clone = _pr_clone(tmp_path)
+    base, _ = _ids(clone)
     other = tmp_path / "other"
     other.mkdir()
     _git(other, "init", "-q")
-    env = {**os.environ, "GIT_DIR": str(other / ".git"), "GIT_WORK_TREE": str(other)}
-    assert "## BASE_RULES" in _run(clone, "--base", env=env)
+    value = {"GIT_WORK_TREE": str(other)}.get(var, str(other / ".git" / "objects"))
+    if var in ("GIT_DIR", "GIT_COMMON_DIR"):
+        value = str(other / ".git")
+    env = {**os.environ, var: value}
+    assert "## BASE_RULES" in _run(clone, f"--base={base}", env=env)
 
 
 def test_base_after_the_target_is_refused(tmp_path):
     clone = _pr_clone(tmp_path)
-    for flag in ("--base=origin/main", "--head=HEAD"):
+    base, _ = _ids(clone)
+    for flag in (f"--base={base}", f"--head={base}"):
         out = _run(clone, ".", flag)
         assert out.startswith(f"({flag} must come before the target") and "SOFT" not in out
 
 
-def test_base_reads_the_base_from_another_folder(tmp_path):
+def test_base_reads_the_base_from_another_folder_and_says_when_there_is_no_repo(tmp_path):
     clone = _pr_clone(tmp_path)
+    base, _ = _ids(clone)
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
-    out = _run(elsewhere, "--base", str(clone / ".claude"))
+    out = _run(elsewhere, f"--base={base}", str(clone / ".claude"))
     assert "## BASE_RULES" in out and "SOFT" not in out
+    assert "is not in a git repository" in _run(elsewhere, f"--base={base}")
 
 
-@pytest.mark.parametrize(
-    ("setup", "prepare", "args", "says"),
-    [
-        (
-            {"base_file": False},
-            None,
-            ["--base"],
-            "(no .claude/skill-context.md on base refs/remotes/origin/main",
-        ),
-        (
-            {"default": "master"},
-            ["remote", "set-head", "origin", "-d"],
-            ["--base"],
-            "(refs/remotes/origin/main not found",
-        ),
-        ({}, None, ["--base=nope"], "(nope is not a ref"),
-    ],
-)
-def test_a_missing_base_is_said_and_nothing_stands_in(tmp_path, setup, prepare, args, says):
-    clone = _pr_clone(tmp_path, **setup)
-    if prepare:
-        _git(clone, *prepare)
-    out = _run(clone, *args)
-    assert out.startswith(says) and _says_no(out)
+def test_a_base_without_the_file_is_said(tmp_path):
+    clone = _pr_clone(tmp_path, base_file=False)
+    base, _ = _ids(clone)
+    out = _run(clone, f"--base={base}")
+    assert out.startswith(f"(no .claude/skill-context.md on base {base}") and _says_no(out)
 
 
 def test_without_base_the_working_tree_is_read_as_before(tmp_path):

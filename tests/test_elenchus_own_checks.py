@@ -151,27 +151,30 @@ def clone(tmp_path):
 EXPECTED = ["tests/test_a.py", "tools/lint_rules.py"]
 
 
-@pytest.mark.parametrize("args", [["origin/main"], [], ["refs/remotes/origin/main"]])
-def test_it_lists_the_whole_branchs_checks_and_not_the_bases(clone, args):
+def _rev(repo, rev):
+    return subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", rev], capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+
+def test_it_lists_the_whole_branchs_checks_and_not_the_bases(clone):
     # Both commits of the branch, not the base's own later change; the file the base's
     # Makefile runs counts, though no name rule matches it.
-    out = _own(clone, *args)
+    out = _own(clone, _rev(clone, "origin/main"))
     assert out.returncode == 0 and _listed(out) == EXPECTED
 
 
-def test_it_reads_by_commit_from_any_checkout(clone):
-    head = subprocess.run(
-        ["git", "-C", str(clone), "rev-parse", "pr"], capture_output=True, text=True, check=True
-    ).stdout.strip()
-    base = subprocess.run(
-        ["git", "-C", str(clone), "rev-parse", "origin/main"],
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip()
+def test_it_reads_by_commit_from_any_checkout_or_subfolder(clone):
+    head, base = _rev(clone, "pr"), _rev(clone, "origin/main")
     _git(clone, "checkout", "-q", "--detach", "origin/main")
-    out = _own(clone, base, "--head", head)
+    out = _own(clone / "tests", base, "--head", head)
     assert out.stdout.startswith(f"head {head}") and _listed(out) == EXPECTED
+
+
+@pytest.mark.parametrize("value", ["origin/main", "main", "HEAD", ""])
+def test_a_ref_name_is_refused(clone, value):
+    out = _own(clone, value)
+    assert out.returncode != 0 and "not a full commit id" in out.stderr and out.stdout == ""
 
 
 def test_an_exported_git_dir_does_not_redirect_it(clone, tmp_path):
@@ -179,7 +182,7 @@ def test_an_exported_git_dir_does_not_redirect_it(clone, tmp_path):
     other.mkdir()
     _git(other, "init", "-q")
     env = {**os.environ, "GIT_DIR": str(other / ".git"), "GIT_WORK_TREE": str(other)}
-    assert _listed(_own(clone, env=env)) == EXPECTED
+    assert _listed(_own(clone, _rev(clone, "origin/main"), env=env)) == EXPECTED
 
 
 def test_quoted_paths_are_read_as_paths(clone):
@@ -189,14 +192,48 @@ def test_quoted_paths_are_read_as_paths(clone):
     (clone / "tests" / 'test_"q".py').write_text("x = 1\n")
     _git(clone, "add", ".")
     _git(clone, "commit", "-qm", "odd names")
-    listed = _listed(_own(clone))
+    listed = _listed(_own(clone, _rev(clone, "origin/main")))
     assert ".github/workflows/ci-\u00e9.yml" in listed and 'tests/test_"q".py' in listed
 
 
-def test_a_shadowing_tag_is_refused_not_used(clone):
-    _git(clone, "tag", "origin/main")
-    out = _own(clone, "origin/main")
-    assert out.returncode != 0 and "ambiguous" in out.stderr and out.stdout == ""
+@pytest.mark.parametrize(
+    ("gate", "text", "named"),
+    [
+        ("Makefile", "lint:\n\tpython ./tools/g.py\n", True),
+        ("Makefile", "lint:\n\tpython $(CURDIR)/tools/g.py\n", True),
+        ("Makefile", 'lint:\n\tpython "tools/g.py" --strict\n', True),
+        ("Makefile", "lint:\n\truff check tools/*.py\n", True),
+        ("Makefile", "# tools/g.py is old\nlint:\n\techo ok\n", False),
+        ("Makefile", "lint:\n\truff check *\n", False),
+        (
+            ".github/workflows/ci.yml",
+            "jobs:\n  t:\n    steps:\n      - run: python tools/g.py\n",
+            True,
+        ),
+        (
+            ".github/workflows/ci.yml",
+            "jobs:\n  t:\n    steps:\n      - run: python ${{ github.workspace }}/tools/g.py\n",
+            True,
+        ),
+        (".github/workflows/ci.yml", "on:\n  push:\n    paths:\n      - 'tools/**'\n", False),
+        (".github/workflows/ci.yml", "on:\n  push:\n    paths: ['tools/g.py']\n", False),
+        (".pre-commit-config.yaml", "repos:\n  - hooks:\n      - entry: python tools/g.py\n", True),
+    ],
+)
+def test_a_file_a_gate_runs_is_listed_however_it_is_named(tmp_path, gate, text, named):
+    up = tmp_path / "up"
+    (up / "tools").mkdir(parents=True)
+    _git(up, "init", "-q", "-b", "main")
+    (up / gate).parent.mkdir(parents=True, exist_ok=True)
+    (up / gate).write_text(text)
+    (up / "tools" / "g.py").write_text("x = 1\n")
+    _git(up, "add", ".")
+    _git(up, "commit", "-qm", "base")
+    base = _rev(up, "HEAD")
+    _git(up, "checkout", "-q", "-b", "pr")
+    (up / "tools" / "g.py").write_text("x = 0\n")
+    _git(up, "commit", "-qam", "loosen it")
+    assert (_listed(_own(up, base)) == ["tools/g.py"]) is named
 
 
 def test_no_merge_base_is_said_in_one_line(clone, tmp_path):
@@ -212,8 +249,9 @@ def test_no_merge_base_is_said_in_one_line(clone, tmp_path):
         f"file://{clone}",
         str(shallow),
     )
-    _git(shallow, "fetch", "-q", "--depth=1", "origin", "+refs/heads/main:refs/remotes/origin/main")
-    out = _own(shallow, "refs/remotes/origin/main")
+    base = _rev(clone, "origin/main")
+    _git(shallow, "fetch", "-q", "--depth=1", "origin", base)
+    out = _own(shallow, base)
     assert out.returncode != 0 and out.stderr.startswith("own_checks:")
     assert "Traceback" not in out.stderr
 
@@ -223,5 +261,23 @@ def test_a_branch_with_no_checks_prints_none(clone):
     (clone / "README").write_text("x\n")
     _git(clone, "add", ".")
     _git(clone, "commit", "-qm", "docs")
-    out = _own(clone)
+    out = _own(clone, _rev(clone, "origin/main"))
     assert out.stdout.split("\n")[1] == "none"
+
+
+def test_a_workflow_named_file_is_listed_from_a_subfolder(tmp_path):
+    up = tmp_path / "up"
+    (up / "tools").mkdir(parents=True)
+    (up / ".github" / "workflows").mkdir(parents=True)
+    _git(up, "init", "-q", "-b", "main")
+    (up / ".github" / "workflows" / "ci.yml").write_text(
+        "jobs:\n  t:\n    steps:\n      - run: python tools/g.py\n"
+    )
+    (up / "tools" / "g.py").write_text("x = 1\n")
+    _git(up, "add", ".")
+    _git(up, "commit", "-qm", "base")
+    base = _rev(up, "HEAD")
+    _git(up, "checkout", "-q", "-b", "pr")
+    (up / "tools" / "g.py").write_text("x = 0\n")
+    _git(up, "commit", "-qam", "loosen it")
+    assert _listed(_own(up / "tools", base)) == ["tools/g.py"]
