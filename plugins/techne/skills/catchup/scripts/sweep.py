@@ -24,8 +24,8 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True  # the plugin cache stays as installed
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "_shared"))
-import doctor_lib  # noqa: E402  # ty: ignore[unresolved-import]
-import techne_config as tc  # noqa: E402  # ty: ignore[unresolved-import]
+import doctor_lib  # noqa: E402  # ty: ignore[import-not-found]
+import techne_config as tc  # noqa: E402  # ty: ignore[import-not-found]
 
 # Stock macOS python3 is 3.9; stop with the fix before the 3.11-only imports below.
 doctor_lib.require_python((3, 11), "catchup", "/techne:setup")

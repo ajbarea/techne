@@ -52,7 +52,7 @@ import tomllib
 
 sys.dont_write_bytecode = True  # the plugin cache stays as installed
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "_shared"))
-from git_env import without_repo_overrides  # noqa: E402  # ty: ignore[unresolved-import]
+from git_env import without_repo_overrides  # noqa: E402  # ty: ignore[import-not-found]
 
 RULES = (
     "lint-python",

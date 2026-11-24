@@ -15,8 +15,8 @@ from pathlib import Path
 sys.dont_write_bytecode = True  # a doctor leaves no file behind, not even in the plugin cache
 PLUGIN = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PLUGIN / "_shared"))
-import doctor_lib as d  # noqa: E402  # ty: ignore[unresolved-import]
-import plugin_keys as pk  # noqa: E402  # ty: ignore[unresolved-import]
+import doctor_lib as d  # noqa: E402  # ty: ignore[import-not-found]
+import plugin_keys as pk  # noqa: E402  # ty: ignore[import-not-found]
 
 POPPLER = ("pdftotext", "pdfinfo", "pdffonts", "pdftoppm")
 PPTX_ONLY = "only for a deck that must be a .pptx"

@@ -1304,14 +1304,14 @@ def _polite():
     which lives in the plugin's `_shared` folder (parents[3] is the plugin root).
     """
     try:
-        import polite_http  # ty: ignore[unresolved-import]
+        import polite_http  # ty: ignore[import-not-found]
 
         return polite_http
     except ImportError:
         pass
     sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "_shared"))
     try:
-        import polite_http  # ty: ignore[unresolved-import]
+        import polite_http  # ty: ignore[import-not-found]
     except ImportError:
         raise SystemExit(
             "dokimasia: verify needs polite_http.py, which was not found. Fetch it from "

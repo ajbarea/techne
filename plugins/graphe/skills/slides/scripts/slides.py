@@ -52,7 +52,7 @@ from html.parser import HTMLParser
 # The install table and the PowerPoint lookup ship in the plugin's _shared/ directory.
 sys.dont_write_bytecode = True  # a missing-tool exit leaves no file behind in the plugin cache
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "_shared"))
-import doctor_lib  # noqa: E402  # ty: ignore[unresolved-import]
+import doctor_lib  # noqa: E402  # ty: ignore[import-not-found]
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import pptx_editable  # noqa: E402
@@ -1395,7 +1395,7 @@ class DeckError(Exception):
 
 def _playwright():
     try:
-        from playwright.sync_api import sync_playwright  # ty: ignore[unresolved-import]
+        from playwright.sync_api import sync_playwright  # ty: ignore[import-not-found]
     except ImportError:
         sys.exit(f"a web deck needs Playwright: run this command through `{WITH_BROWSER}`")
     return sync_playwright
@@ -2160,8 +2160,8 @@ def pptx_html(
     if images is not None and target.resolve().is_relative_to(images.resolve()):
         sys.exit(f"{images}: the images folder cannot hold the .pptx it exports")
     try:
-        from pptx import Presentation  # ty: ignore[unresolved-import]
-        from pptx.util import Emu  # ty: ignore[unresolved-import]
+        from pptx import Presentation  # ty: ignore[import-not-found]
+        from pptx.util import Emu  # ty: ignore[import-not-found]
     except ImportError:
         sys.exit(f"exporting a .pptx needs python-pptx: run this command through `{WITH_BROWSER}`")
     if editable:
@@ -2243,7 +2243,7 @@ def _open_any(browser, deck: pathlib.Path, viewport: dict, **context):
 def _pptx_editable(deck: pathlib.Path, target: pathlib.Path, images: pathlib.Path | None) -> int:
     """Export a web deck as a .pptx whose text and tables can be edited: see pptx_editable."""
     try:
-        import PIL  # noqa: F401  # ty: ignore[unresolved-import]
+        import PIL  # noqa: F401  # ty: ignore[import-not-found]
     except ImportError:
         sys.exit(f"--editable needs Pillow: run this command through `{WITH_BROWSER}`")
     with _playwright()() as pw:
@@ -2334,8 +2334,8 @@ def palette_scores(colours: list[str], room: float) -> dict[str, tuple[float, st
     """For each vision type, the closest pair of COLOURS in CAM02-UCS with room light added at
     ROOM of projector white, as (distance, colour, colour)."""
     try:
-        import numpy as np  # ty: ignore[unresolved-import]
-        from colorspacious import cspace_convert  # ty: ignore[unresolved-import]
+        import numpy as np  # ty: ignore[import-not-found]
+        from colorspacious import cspace_convert  # ty: ignore[import-not-found]
     except ImportError:
         sys.exit(f"palette needs colorspacious: run this command through `{WITH_PALETTE}`")
 
@@ -2521,7 +2521,7 @@ def contact_sheets(
 ) -> list[pathlib.Path]:
     """Images tiled cols across and two down, so a whole deck can be looked at in a few reads."""
     try:
-        from PIL import Image  # ty: ignore[unresolved-import]
+        from PIL import Image  # ty: ignore[import-not-found]
     except ImportError:
         return []
     sheets = []

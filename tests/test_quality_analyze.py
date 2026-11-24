@@ -10,7 +10,7 @@ import sys
 import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "quality"))
-import analyze as a  # ty: ignore[unresolved-import]
+import analyze as a  # ty: ignore[import-not-found]
 
 
 @pytest.mark.parametrize(
