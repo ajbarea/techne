@@ -26,15 +26,15 @@ import sys
 # The prose check and the install table ship in the plugin's _shared/ directory.
 sys.dont_write_bytecode = True  # a missing-tool exit leaves no file behind in the plugin cache
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "_shared"))
-import doctor_lib  # noqa: E402  # ty: ignore[unresolved-import]
+import doctor_lib  # noqa: E402  # ty: ignore[import-not-found]
 
 try:
-    import prose_check  # ty: ignore[unresolved-import]
+    import prose_check  # ty: ignore[import-not-found]
 except ImportError:  # an install without prose_check.py
     prose_check = None
 
 try:
-    import length_budget  # ty: ignore[unresolved-import]
+    import length_budget  # ty: ignore[import-not-found]
 except ImportError:  # an install without length_budget.py
     length_budget = None
 

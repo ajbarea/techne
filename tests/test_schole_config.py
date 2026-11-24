@@ -184,7 +184,7 @@ def fake_playwright(monkeypatch, ctx):
         yield types.SimpleNamespace(chromium=Chromium())
 
     api = types.ModuleType("playwright.sync_api")
-    api.sync_playwright = sync_playwright  # ty: ignore[unresolved-attribute]
+    api.sync_playwright = sync_playwright  # ty: ignore[missing-attribute]
     monkeypatch.setitem(sys.modules, "playwright", types.ModuleType("playwright"))
     monkeypatch.setitem(sys.modules, "playwright.sync_api", api)
 

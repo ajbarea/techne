@@ -25,9 +25,9 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True  # the plugin cache stays as installed
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "_shared"))
-import doctor_lib  # noqa: E402  # ty: ignore[unresolved-import]
-from git_env import github_slug, without_repo_overrides  # noqa: E402  # ty: ignore[unresolved-import]
-from repo_kind import TIMEOUT, as_directory, decode, sh  # noqa: E402  # ty: ignore[unresolved-import]
+import doctor_lib  # noqa: E402  # ty: ignore[import-not-found]
+from git_env import github_slug, without_repo_overrides  # noqa: E402  # ty: ignore[import-not-found]
+from repo_kind import TIMEOUT, as_directory, decode, sh  # noqa: E402  # ty: ignore[import-not-found]
 
 MAX_PARAGRAPHS = 3
 # GitHub shows the README from .github/ first, then the root, then docs/ (docs.github.com,

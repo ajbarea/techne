@@ -263,18 +263,22 @@ def sweep(get: Get, term: str, since: datetime, now: datetime, tz: tzinfo) -> li
             if when and when > since:
                 seen = "UNREAD" if t.get("Unread") else "seen"
                 lines.append(f"CONTENT {name} :: {clean(t.get('Title'))} :: {fmt(when)} :: {seen}")
+        due_items: list[tuple[str, datetime]] = []
         past: list[tuple[str, datetime]] = []
         for d in dbx or []:
             due = parse_time((d or {}).get("DueDate"))
             if not due:
                 continue
             if now < due <= now + DUE_AHEAD:
-                lines.append(f"DUE {name} :: {clean(d.get('Name'))} :: {fmt(due)}")
+                due_items.append((str(d.get("Name") or ""), due))
             elif since < due <= now:
                 past.append((str(d.get("Name") or ""), due))
-        if past:
+        if due_items or past:
             status, body = get(f"/d2l/lms/dropbox/user/folders_list.d2l?ou={c.ou}")
             listing = rows(body) if status == 200 else None
+            for folder, due in due_items:
+                state = submission_state(listing, folder, status)
+                lines.append(f"DUE {name} :: {clean(folder)} :: {fmt(due)} :: {state}")
             for folder, due in past:
                 state = submission_state(listing, folder, status)
                 lines.append(f"PASTDUE {name} :: {clean(folder)} :: {fmt(due)} :: {state}")
