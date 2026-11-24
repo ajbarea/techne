@@ -569,13 +569,15 @@ ADVERSARIAL = sorted(
 def test_every_redaction_pattern_stays_linear(dl, fragment):
     # Time each pattern at two sizes, best of three: four times the input takes about four
     # times as long when linear and sixteen when quadratic, whatever the machine's speed.
-    def took(n: int, pattern: str, repl: str) -> float:
+    def took(n: int, pattern: str, repl: str, times: int = 3) -> float:
         text = fragment * max(1, n // len(fragment))
-        return cpu_median(lambda: re.sub(pattern, repl, text))
+        return cpu_median(lambda: re.sub(pattern, repl, text), times)
 
     for pattern, repl in all_patterns(dl):
-        small, large = took(5000, pattern, repl), took(20000, pattern, repl)
-        assert large < 0.01 or large / max(small, 1e-6) < 9, (pattern, fragment, small, large)
+        if took(20000, pattern, repl, times=1) < 0.005:
+            continue  # fast at the large size: no growth worth measuring
+        large, small = took(20000, pattern, repl), took(5000, pattern, repl)
+        assert large / max(small, 1e-6) < 9, (pattern, fragment, small, large)
 
 
 def test_the_two_pending_paths_agree_and_ignore_a_relative_state_home(monkeypatch, tmp_path):
@@ -1261,8 +1263,11 @@ def cpu_median(run, times: int = 3) -> float:
 
 
 def all_patterns(dl):
-    """Every redaction pattern: the general ones and each command-anchored flag pattern."""
-    return [*dl.TOKEN_PATTERNS, *(f for _, _, flags in dl.ANCHORED for f in flags)]
+    """Every redaction pattern, each once: the general ones and each command-anchored flag
+    pattern (USERINFO and SQL_PASSWORD serve several commands)."""
+    return list(
+        dict.fromkeys([*dl.TOKEN_PATTERNS, *(f for _, _, flags in dl.ANCHORED for f in flags)])
+    )
 
 
 @pytest.mark.parametrize("head", ["curl ", "curl -u ", "mysql -p", "npm set a_auth ", "x;", "'"])
@@ -1285,14 +1290,16 @@ _HEADS = [k + sep for k in _KEYWORDS for sep in ("", " ", "=", ":", " -u ", " -p
 
 @pytest.mark.parametrize("tail", ["=", " ", "a", ":", "-", "'", "a:"])
 def test_every_redaction_pattern_stays_linear_on_a_long_tail(dl, tail):
-    def took(n: int, text_head: str, pattern: str, repl: str) -> float:
+    def took(n: int, text_head: str, pattern: str, repl: str, times: int = 3) -> float:
         text = text_head + tail * n
-        return cpu_median(lambda: re.sub(pattern, repl, text))
+        return cpu_median(lambda: re.sub(pattern, repl, text), times)
 
     for head in _HEADS:
         for pattern, repl in all_patterns(dl):
-            small, large = took(2500, head, pattern, repl), took(10000, head, pattern, repl)
-            assert large < 0.01 or large / max(small, 1e-6) < 9, (pattern, head, tail, large)
+            if took(10000, head, pattern, repl, times=1) < 0.005:
+                continue  # fast at the large size: no growth worth measuring
+            large, small = took(10000, head, pattern, repl), took(2500, head, pattern, repl)
+            assert large / max(small, 1e-6) < 9, (pattern, head, tail, small, large)
 
 
 def test_every_pattern_has_triggers_that_never_hide_a_match(dl):

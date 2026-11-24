@@ -158,6 +158,13 @@ The active TODO list for whatever's in flight right now. Queued specs live in [R
 - ✅ CI on 8264915: validate and 5 of 6 mutation shards green; shard 3 reported one mutant it
   could not judge, x__sql_gap__mutmut_1: _sql_gap() ran only at import, where no test calls it.
   The gap is now two constants (the built pattern is byte-identical).
+- ✅ Heph: the mutation run's error was the unmutated tests timing out (58 s) on re-run:
+  tests/test_denial_log.py took 64 s, 20 s of it the long-tail sweep on runs of `-` (the
+  secret-flag rule started a 64-character scan at every dash). The flag rule now needs a
+  name character after `--`, the sweeps reject a fast pattern after one run (median of 3 only
+  when measured) and time each distinct pattern once: 64 s -> 14 s. Deterministic: 736 passed
+  in two shuffled orders, three loops and under two CPU busy loops; the sweep still fails a
+  planted quadratic pattern (140 cells red).
 - 📋 Next: CI green incl. mutation on this head, then merge.
 - Verify: `uv run pytest tests/test_denial_log.py tests/test_phylax_doctor.py tests/test_git_guards.py
   tests/test_model_guard.py tests/test_email_greeting.py tests/test_command_shapes.py tests/bench`;

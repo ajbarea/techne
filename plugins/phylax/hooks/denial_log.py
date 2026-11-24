@@ -90,7 +90,9 @@ TOKEN_PATTERNS = (
     (
         # A value that is a reference (docker's `--secret id=...`) or a redirect stays. Prose
         # naming the flag ("add --token flag") loses the next word: the safe direction.
-        r"(?i)(--[a-z0-9_-]{0,64}(?:api[_-]?key|passw(?:or)?d|secret|token|bearer)[a-z0-9_-]{0,64})"
+        # A flag's name starts after `--` with no third dash, so a run of dashes starts no scan.
+        r"(?i)(--(?=[a-z0-9_])[a-z0-9_-]{0,64}(?:api[_-]?key|passw(?:or)?d|secret|token|bearer)"
+        r"[a-z0-9_-]{0,64})"
         r"(?:=|\s+)(?!id=|src=)"
         r"(?:'[^']*(?:'|\Z)|\"[^\"]*(?:\"|\Z)|[^-\s<>|$]\S*)",
         r"\1 [REDACTED]",
