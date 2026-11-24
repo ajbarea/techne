@@ -57,29 +57,14 @@ TOKEN_PATTERNS = (
     (r"(?i)\b(Bearer|Basic)\s+" + CREDENTIAL, r"\1 [REDACTED]"),
     (r"(?i)(://)[^\s/@:]{1,256}:[^\s/@]{1,256}@", r"\1[REDACTED]@"),
     (r"(?i)(://)[^\s/@:]{16,256}@", r"\1[REDACTED]@"),  # a token as the whole userinfo
-    (
-        r"(\bcurl\b[^|;&\n]{0,200}?\s(?:-u|--user|-U|--proxy-user)(?:=|\s+))(['\"]?)"
-        r"(?!\[REDACTED)[^\s:'\"=]+:[^\s'\"]*\2",
-        r"\1[REDACTED]",
-    ),
-    (r"(\b(?:mysql|mariadb|mysqldump)\b[^|;&\n]{0,200}?\s-p)[^\s-]\S*", r"\1[REDACTED]"),
-    (r"(\bdocker\s+login\b[^|;&\n]{0,200}?\s-p[\s=]+)\S+", r"\1[REDACTED]"),
-    (
-        r"(\bgh\s+secret\s+set\b[^|;&\n]{0,200}?\s(?:-b|--body)[\s=]+)"
-        r"(?:'[^']*(?:'|\Z)|\"[^\"]*(?:\"|\Z)|\S+)",
-        r"\1[REDACTED]",
-    ),
     (r"(?i)(\bsshpass\s+-p\s*)\S+", r"\1[REDACTED]"),
     (
-        r"(\b(?:uv\s+publish|twine\s+upload)\b[^|;&\n]{0,200}?\s-[pt](?:=|\s+))(?!\[REDACTED)\S+",
-        r"\1[REDACTED]",
-    ),
-    (r"(\bnpm\s+config\s+set\s+\S{0,200}_auth(?:Token)?\s+)\S+", r"\1[REDACTED]"),
-    (
-        # A credential header after -H: PRIVATE-TOKEN, X-API-Key, X-Auth-Token.
+        # A credential header after -H or in http.extraHeader: PRIVATE-TOKEN, X-API-Key, a
+        # subscription key, Cookie. The value runs to its quote (a cookie holds spaces).
         # Authorization has a rule of its own, which knows its scheme word.
-        r"(?i)((?:-H|--header)(?:=|\s+)['\"]?(?!(?:proxy-)?authorization\b)[A-Za-z0-9-]{0,64}"
-        r"(?:token|api-?key|auth|secret|passw(?:or)?d)[A-Za-z0-9-]{0,64}\s*:\s*)(?!\$)[^\s'\"]+",
+        r"(?i)((?:-H|--header|extraheader)(?:=|\s+)['\"]?(?!(?:proxy-)?authorization\b)"
+        r"[A-Za-z0-9-]{0,64}(?:token|key|auth|secret|passw(?:or)?d|cookie)[A-Za-z0-9-]{0,64}"
+        r"\s*:\s*)(?!\$)[^'\"\n]+",
         r"\1[REDACTED]",
     ),
     (
@@ -137,14 +122,8 @@ TRIGGERS: tuple[tuple[str | tuple[str, ...], ...], ...] = (
     ("bearer", "basic"),
     ("://",),
     ("://",),
-    ("curl",),
-    ("mysql", "mariadb"),
-    ("docker",),
-    ("secret",),
     ("sshpass",),
-    ("publish", "twine"),
-    ("_auth",),
-    ("-h", "--header"),
+    ("-h", "--header", "extraheader"),
     tuple((k, "=") for k in _KEY_WORDS),
     tuple(k + q for k in _QUOTED_KEYS for q in "'\""),
     tuple(("--", k) for k in ("key", "pass", "secret", "token", "bearer")),
@@ -156,10 +135,75 @@ def triggered(low: str, triggers: tuple[str | tuple[str, ...], ...]) -> bool:
     return any(t in low if isinstance(t, str) else all(x in low for x in t) for t in triggers)
 
 
-# Patterns anchored on a command name (curl, uv publish) find one flag per pass, so they run
-# again, up to 8 passes (more credential flags than a real command carries); their values
-# never match [REDACTED] again.
-REPEATED = frozenset(p for p, _ in TOKEN_PATTERNS if p.startswith(r"(\bcurl\b") or "publish" in p)
+# Flags whose value is a secret only for one command: (that command, its triggers, the flag
+# patterns). The text is cut at shell separators, and each segment that names the command gets
+# its flag patterns, so a flag any distance after the command is seen, and each segment is read
+# once per pattern.
+ANCHORED: tuple[tuple[str, tuple[str, ...], tuple[tuple[str, str], ...]], ...] = (
+    (
+        r"\bcurl\b",
+        ("curl",),
+        (
+            (
+                r"(\s(?:-u|--user|-U|--proxy-user)(?:=|\s+)|\s-[uU](?=[^\s=-]))(['\"]?)"
+                r"[^\s:'\"=]*:[^\s'\"]*\2",
+                r"\1[REDACTED]",
+            ),
+            (
+                r"(\s(?:-b|--cookie)(?:=|\s+))(?:'[^']*(?:'|\Z)|\"[^\"]*(?:\"|\Z)|\S+)",
+                r"\1[REDACTED]",
+            ),
+        ),
+    ),
+    (
+        r"\b(?:mysql|mariadb|mysqldump)\b",
+        ("mysql", "mariadb"),
+        ((r"(\s-p)[^\s-]\S*", r"\1[REDACTED]"),),
+    ),
+    (
+        r"\bdocker\s+login\b",
+        ("docker",),
+        ((r"(\s-p(?:=|\s+|(?=[^\s=-])))\S+", r"\1[REDACTED]"),),
+    ),
+    (
+        r"\bgh\s+secret\s+set\b",
+        ("secret",),
+        (
+            (
+                r"(\s(?:-b|--body)(?:=|\s+|(?=[^\s=-])))(?:'[^']*(?:'|\Z)|\"[^\"]*(?:\"|\Z)|\S+)",
+                r"\1[REDACTED]",
+            ),
+        ),
+    ),
+    (
+        r"\b(?:uv\s+publish|twine\s+upload)\b",
+        ("publish", "twine"),
+        ((r"(\s-[pt](?:=|\s+|(?=[^\s=-])))\S+", r"\1[REDACTED]"),),
+    ),
+    (
+        r"\bnpm\s+(?:config\s+)?set\b",
+        ("npm",),
+        # From a word's start only, so a long run without spaces is read once.
+        ((r"(?<!\S)(\S{0,500}?_(?:auth(?:Token)?|password)(?:=|\s+))\S+", r"\1[REDACTED]"),),
+    ),
+)
+
+
+def segments(text: str) -> list[str]:
+    """TEXT cut at the shell separators |, ;, & and newline outside quotes, each separator
+    kept with the part before it; "".join() gives TEXT back. One pass, so linear."""
+    parts, start, quote = [], 0, ""
+    for k, c in enumerate(text):
+        if quote:
+            if c == quote:
+                quote = ""
+        elif c in "'\"":
+            quote = c
+        elif c in "|;&\n":
+            parts.append(text[start : k + 1])
+            start = k + 1
+    parts.append(text[start:])
+    return parts
 
 
 def redact(text: str) -> str:
@@ -169,12 +213,18 @@ def redact(text: str) -> str:
     for (pattern, repl), triggers in zip(TOKEN_PATTERNS, TRIGGERS):  # noqa: B905  # 3.9; a test pins the lengths
         if not triggered(low, triggers):
             continue
-        text, n = re.subn(pattern, repl, text)
-        passes = 1
-        while n and pattern in REPEATED and passes < 8:  # bounded: still linear
-            text, n = re.subn(pattern, repl, text)
-            passes += 1
-    return text
+        text = re.sub(pattern, repl, text)
+    anchored = [a for a in ANCHORED if any(t in low for t in a[1])]
+    if not anchored:
+        return text
+    parts = segments(text)
+    for k, part in enumerate(parts):
+        for command, _, flags in anchored:
+            if re.search(command, part):
+                for pattern, repl in flags:
+                    part = re.sub(pattern, repl, part)
+        parts[k] = part
+    return "".join(parts)
 
 
 def clip(text: str) -> str:

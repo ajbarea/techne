@@ -334,6 +334,17 @@ REDACT_CASES = [
     ("twine upload " + "-p " + FAKE + " dist/x", "dist/x", FAKE),
     ("npm config set //r/:_auth" + "Token " + FAKE, "_authToken", FAKE),
     ("git clone https://" + FAKE + "abcdefghij@dev.azure.com/o/p", "@dev.azure.com", FAKE),
+    ("curl -sS '" + "x" * 300 + "' " + "-u" + " alice:" + FAKE, "curl -sS", FAKE),
+    ("mysql -h db " + "-x " * 120 + "-p" + FAKE, "mysql -h db", FAKE),
+    ("curl " + "-u" + "alice:" + FAKE + " x", "curl", FAKE),
+    ('curl -b "session=' + FAKE + "; id=" + FAKE + '" x', "curl -b", FAKE),
+    ("git -c http.extra" + "Header='PRIVATE-" + "TOKEN: " + FAKE + "' clone x", "clone x", FAKE),
+    ("curl -H 'Ocp-Apim-Subscription-" + "Key: " + FAKE + "' x", "Subscription-Key", FAKE),
+    ("curl -H 'Cookie: session=" + FAKE + "; a=b' x", "Cookie:", FAKE),
+    ("npm set //r/:_auth" + "Token " + FAKE, "npm set", FAKE),
+    ("npm config set //r/:_pass" + "word " + FAKE, "npm config set", FAKE),
+    (DOCKER_LOGIN + " -p" + FAKE + " ghcr.io", "ghcr.io", FAKE),
+    ("gh secret set A " + "-b" + FAKE, "gh secret set A", FAKE),
     (DOCKER_LOGIN + " ghcr.io -u aj " + PASSWORD_FLAG + " " + FAKE_WORD, "ghcr.io", FAKE_WORD),
     ("uv publish -t pypi-AgE" + "p" * 30, "uv publish -t", "pypi-AgE"),
     ("npm_" + "n" * 36, "[REDACTED]", "npm_"),
@@ -511,14 +522,9 @@ def test_every_redaction_pattern_stays_linear(dl, fragment):
     # times as long when linear and sixteen when quadratic, whatever the machine's speed.
     def took(n: int, pattern: str, repl: str) -> float:
         text = fragment * max(1, n // len(fragment))
-        best = float("inf")
-        for _ in range(3):
-            start = time.perf_counter()
-            re.sub(pattern, repl, text)
-            best = min(best, time.perf_counter() - start)
-        return best
+        return cpu_median(lambda: re.sub(pattern, repl, text))
 
-    for pattern, repl in dl.TOKEN_PATTERNS:
+    for pattern, repl in all_patterns(dl):
         small, large = took(5000, pattern, repl), took(20000, pattern, repl)
         assert large < 0.01 or large / max(small, 1e-6) < 9, (pattern, fragment, small, large)
 
@@ -1194,6 +1200,29 @@ def test_prose_naming_a_flag_loses_the_next_word_by_design(dl):
     assert dl.redact("feat: add --token flag") == "feat: add --token [REDACTED]"
 
 
+def cpu_median(run, times: int = 3) -> float:
+    """The median CPU time of RUN: CPU time, unlike wall time, does not count the moments
+    another process holds the core, so a loaded machine does not fail the sweep."""
+    took = []
+    for _ in range(times):
+        start = time.process_time()
+        run()
+        took.append(time.process_time() - start)
+    return sorted(took)[len(took) // 2]
+
+
+def all_patterns(dl):
+    """Every redaction pattern: the general ones and each command-anchored flag pattern."""
+    return [*dl.TOKEN_PATTERNS, *(f for _, _, flags in dl.ANCHORED for f in flags)]
+
+
+@pytest.mark.parametrize("head", ["curl ", "curl -u ", "mysql -p", "npm set a_auth ", "x;", "'"])
+def test_redact_as_a_whole_stays_linear(dl, head):
+    small = cpu_median(lambda: dl.redact(head * 5000))
+    large = cpu_median(lambda: dl.redact(head * 20000))
+    assert large < 0.01 or large / max(small, 1e-6) < 9, (head, small, large)
+
+
 # A keyword's head, then one long run: a pattern whose classes overlap after its head (curl's
 # `-u` and `=`) retries from every character of the run.
 _HEADS = [k + sep for k in _KEYWORDS for sep in ("", " ", "=", ":", " -u ", " -p ")] + [
@@ -1209,15 +1238,10 @@ _HEADS = [k + sep for k in _KEYWORDS for sep in ("", " ", "=", ":", " -u ", " -p
 def test_every_redaction_pattern_stays_linear_on_a_long_tail(dl, tail):
     def took(n: int, text_head: str, pattern: str, repl: str) -> float:
         text = text_head + tail * n
-        best = float("inf")
-        for _ in range(2):
-            start = time.perf_counter()
-            re.sub(pattern, repl, text)
-            best = min(best, time.perf_counter() - start)
-        return best
+        return cpu_median(lambda: re.sub(pattern, repl, text))
 
     for head in _HEADS:
-        for pattern, repl in dl.TOKEN_PATTERNS:
+        for pattern, repl in all_patterns(dl):
             small, large = took(2500, head, pattern, repl), took(10000, head, pattern, repl)
             assert large < 0.01 or large / max(small, 1e-6) < 9, (pattern, head, tail, large)
 
@@ -1232,6 +1256,9 @@ def test_every_pattern_has_triggers_that_never_hide_a_match(dl):
         for (pattern, _), triggers in zip(dl.TOKEN_PATTERNS, dl.TRIGGERS, strict=True):
             if re.search(pattern, text):
                 assert dl.triggered(text.lower(), triggers), (pattern, text[:80])
+        for command, triggers, _ in dl.ANCHORED:
+            if re.search(command, text):
+                assert any(t in text.lower() for t in triggers), (command, text[:80])
 
 
 def test_a_refusal_naming_no_secret_runs_no_pattern(dl, monkeypatch):

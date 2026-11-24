@@ -106,9 +106,13 @@ The active TODO list for whatever's in flight right now. Queued specs live in [R
   fixtures now build CLI secrets at runtime, and the branch is squashed onto main as one commit
   (tree unchanged; old history in local branch backup/denied-calls-399-presquash), so no commit
   in the PR carries either. Check green on 93d2042.
-- 📋 Next: fix the last verify's items (CPU-time timing tests; segment-based anchored patterns for
-  a flag >200 chars after curl/mysql; cookies, http.extraHeader, npm set), fresh Opus verify
-  (over-redaction is a Nit), CI green, merge.
+- ✅ Last verify's items: the timing sweeps use CPU time (median of 3), so load no longer fails
+  them; command-anchored flags moved to ANCHORED, run per quote-aware shell segment that names
+  the command, so a flag any distance away is seen in one linear pass (no bounded gap, no
+  repeat loop); cookies, http.extraHeader, subscription-key and Cookie headers, npm set and
+  _password, attached forms (-ualice:x, -pX, -bX). Sweeps cover the anchored flag patterns and
+  redact() as a whole; the sweep caught an unanchored npm pattern before commit.
+- 📋 Next: fresh Opus verify (over-redaction is a Nit), CI green, merge.
 - Verify: `uv run pytest tests/test_denial_log.py tests/test_phylax_doctor.py tests/test_git_guards.py
   tests/test_model_guard.py tests/test_email_greeting.py tests/test_command_shapes.py tests/bench`;
   `make plugin-test`; `uv run pytest tests/test_hook_latency.py` under the heavy lock.
