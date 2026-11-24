@@ -91,3 +91,10 @@ jobs:
         run: make zizmor
         env:
           GH_TOKEN: ${{ github.token }}
+
+      - name: GHA workflow lint (actionlint)
+        run: make actionlint
+
+      # The shared pin check sisters call, run through the runner as they run it.
+      - name: Shared action-pin check (composite action)
+        uses: $/.github/actions/check-action-pins

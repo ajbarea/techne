@@ -432,11 +432,13 @@ repo, one PR per repo.
 
 Each sister meets the security floor (#241): secret scanning and push protection on (free on
 public repos; a private repo needs GitHub Secret Protection, a paid add-on, so it is the user's
-call), Dependabot alerts on, zizmor run in CI (a `run:` step or `zizmorcore/zizmor-action`), every
-action in a workflow or in the repo's own composite actions (`.github/actions/**/action.yml`)
-pinned to a full commit SHA, or the workflow named in the dependency lockfile
-`.github/workflows/actions.lock` (GitHub onboards workflows one by one; a reusable workflow
-call needs a SHA either way; Docker refs are out of scope), and least-privilege `permissions:`
+call), Dependabot alerts on, zizmor and actionlint run in CI (a `run:` step, or
+`zizmorcore/zizmor-action`; `raven-actions/actionlint`, `reviewdog/action-actionlint` or
+`docker://rhysd/actionlint`), every action in a workflow or in the repo's own composite actions
+(`.github/actions/**/action.yml`) pinned to a full commit SHA, or the workflow named in the
+dependency lockfile `.github/workflows/actions.lock` (GitHub onboards workflows one by one; a
+reusable workflow call needs a SHA either way; Docker refs and the repo's own `./` and `$/` refs
+are out of scope), and least-privilege `permissions:`
 in every workflow (at the top or on every job, never `write-all` at either level). Sources: GitHub's
 [secure use reference](https://docs.github.com/en/actions/reference/security/secure-use) and
 [workflow dependency lockfiles](https://docs.github.com/en/actions/concepts/security/workflow-dependency-lockfiles).
