@@ -87,6 +87,13 @@ def probe_long_bodies(tmp):
     return bash(f"gh pr create --title t --body '{body}'", tmp)
 
 
+def probe_gh_implicit_repo(tmp):
+    repo = new_repo(tmp)
+    _git(repo, "remote", "add", "origin", "https://github.com/me/tool.git")
+    _git(repo, "remote", "add", "upstream", "https://github.com/parent/tool.git")
+    return bash("gh pr create --title t --body b", repo)
+
+
 def probe_secrets(tmp):
     repo = new_repo(tmp)
     alphabet = string.ascii_letters + string.digits
@@ -119,6 +126,7 @@ PROBES = {
     "block_commits_md": (probe_commits_md, "deny"),
     "warn_main_checkout_commit": (probe_main_checkout, "warn"),
     "block_long_bodies": (probe_long_bodies, "deny"),
+    "block_gh_implicit_repo": (probe_gh_implicit_repo, "deny"),
     "block_secrets": (probe_secrets, "deny"),
     "block_background_loops": (probe_background_loops, "deny"),
     "block_pkill_full": (probe_pkill_full, "deny"),
