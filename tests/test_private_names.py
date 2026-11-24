@@ -1906,3 +1906,41 @@ def test_routine_config_then_git_lines_pass_in_a_plain_repo(repo, tmp_path, comm
 def test_an_alias_after_writing_an_ordinary_file_passes_in_a_hooked_repo(hooked):
     _git(hooked, "config", "alias.co", "checkout")
     assert guard(hooked, "echo notes > notes.txt && git co main")[0] is None
+
+
+@pytest.mark.parametrize(
+    ("include", "command"),
+    [
+        (
+            "../.gitconfig.local",
+            "printf '[alias]\\n p = push --no-verify\\n' > .gitconfig.local && git p origin main",
+        ),
+        (
+            "../../inc.cfg",
+            "printf '[alias]\\n p = push --no-verify\\n' > ../inc.cfg && git p origin main",
+        ),
+        ("../.gitconfig.local", "cp ../stash.cfg .gitconfig.local && git push origin main"),
+        (
+            "~/inc.cfg",
+            "printf '[alias]\\n p = push --no-verify\\n' > ~/inc.cfg && git p origin main",
+        ),
+    ],
+)
+def test_a_file_the_config_includes_written_in_the_call_is_seen(hooked, tmp_path, include, command):
+    home = tmp_path / "home"
+    home.mkdir()
+    (hooked.parent / "stash.cfg").write_text("[core]\n hooksPath = /dev/null\n")
+    _git(hooked, "config", "include.path", include)
+    decision, reason = guard(hooked, command, {"HOME": str(home)})
+    assert decision == "deny" and "changes git's config" in reason, (command, reason)
+
+
+def test_a_write_beside_an_include_still_passes(hooked):
+    _git(hooked, "config", "include.path", "../.gitconfig.local")
+    assert guard(hooked, "echo notes > notes.txt && git push origin main")[0] is None
+
+
+def test_the_alias_refusal_names_what_was_typed(hooked):
+    _git(hooked, "config", "alias.st", "status")
+    reason = guard(hooked, "git config alias.st 'push --no-verify' && git st origin main")[1]
+    assert "`git st` runs after" in reason, reason

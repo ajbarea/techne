@@ -85,6 +85,35 @@ def under(path: str, folders: tuple[Path, ...]) -> bool:
     return any(path == str(f) or path.startswith(str(f) + os.sep) for f in folders)
 
 
+def include_targets(cwd: Path, args: list[str], env: dict[str, str]) -> tuple[Path, ...]:
+    """The files git's config includes (include.path, includeIf.*.path, nested ones too, as git
+    reads them with ARGS and ENV), resolved as git resolves them: `~/` against HOME, a relative
+    path against the folder of the file that names it. A file not there yet is listed too: a
+    write earlier in the call may be what creates it."""
+    out = run_git(
+        cwd,
+        args,
+        "config",
+        "--show-origin",
+        "--get-regexp",
+        r"^include(if\..*)?\.path$",
+        check=False,
+        env=env,
+    )
+    home = env.get("HOME") or os.environ.get("HOME", "")
+    targets = []
+    for line in (out or "").splitlines():
+        origin, _, rest = line.partition("\t")
+        value = rest.partition(" ")[2]
+        if not origin.startswith("file:") or not value:
+            continue
+        base = os.path.dirname(os.path.join(str(cwd), origin[len("file:") :]))
+        if value.startswith("~/"):
+            value = os.path.join(home, value[2:])
+        targets.append(Path(os.path.realpath(os.path.join(base, value))))
+    return tuple(targets)
+
+
 def is_git_config(path: str) -> bool:
     """A user or system git config file (~/.gitconfig, $XDG_CONFIG_HOME/git/config)."""
     return path.endswith(("/.gitconfig", "/git/config")) or path.startswith("/etc/gitconfig")
@@ -1287,6 +1316,7 @@ class Command:
         self.config: list[str] = []  # -c and --config-env options, flag then value, for git
         self.alias_unread = False  # git could not read this command's alias config
         self.alias_after_config = False  # an alias read before an earlier `git config` ran
+        self.typed = ""  # the subcommand as typed, before an alias resolved it
         self.cwd_unread = False  # a -C target this check cannot expand
         self.sub = ""
         self.args: list[str] = []
@@ -1915,8 +1945,9 @@ class Guards:
         self, lookup: tuple[dict[str, str], list[str]], folders: tuple[Path, ...]
     ) -> bool:
         """Whether an earlier command in this call changed git's config or a file under its
-        FOLDERS (common dir, git dir, hooks; git's absolute paths have symlinks resolved): a
-        `git config`, a hooks-path word, a config file it wrote, or a write or change there."""
+        FOLDERS (common dir, git dir, hooks, the files its config includes; git's absolute paths
+        have symlinks resolved): a `git config`, a hooks-path word, a config file it wrote, or a
+        write or change there."""
         return (
             self.hooks_changed
             or self.config_file_fresh(lookup)
@@ -2017,11 +2048,12 @@ class Guards:
                 "for the owner's private repo names. Use `git push`."
             )
             return
-        if cmd.alias_after_config and self.config_changed(lookup, (common, gitdir, hooks)):
+        folders = (common, gitdir, hooks, *include_targets(cmd.cwd, args, genv))
+        if cmd.alias_after_config and self.config_changed(lookup, folders):
             refuse(
-                f"`git {cmd.sub}` runs after a command in the same call that changes git's config "
-                "or files under its folder, which may make it a push that skips the pre-push "
-                "hook. Run that command and this one in calls of their own."
+                f"`git {cmd.typed or cmd.sub}` runs after a command in the same call that changes "
+                "git's config or files under its folder, which may make it a push that skips the "
+                "pre-push hook. Run that command and this one in calls of their own."
             )
             return
         if cmd.sub != "push":
@@ -2034,7 +2066,7 @@ class Guards:
                 "/proc), which can feed git a config this check never sees. Push without it."
             )
             return
-        if self.config_changed(lookup, (common, gitdir, hooks)):
+        if self.config_changed(lookup, folders):
             refuse(
                 "this push runs after a command in the same call that changes git's config or "
                 "hooks, so the check cannot see which pre-push hook will run. Run the push as "
@@ -2366,6 +2398,7 @@ class Guards:
         if cmd is None:
             return
         typed_builtin = is_builtin(cmd)  # the name as typed: an alias can stand for anything
+        cmd.typed = cmd.sub
         lookup = self.git_lookup(env, cmd)
         resolve_alias(cmd, *(lookup or ({}, cmd.config)))
         if lookup and not is_builtin(cmd) and self.config_file_fresh(lookup):
