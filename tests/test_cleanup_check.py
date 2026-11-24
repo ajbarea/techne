@@ -2059,62 +2059,62 @@ def test_slug_matches_github_anchors():
     assert mod.slug("_Done_ this week") == "done-this-week"
 
 
+def cut_spans(mod, text, want):
+    """TEXT's Scan and its done_sections spans, asserted to be WANT: prune hands
+    dangling and span_hazard only spans done_sections yields, so the tests do too."""
+    scan = mod.Scan(text)
+    spans = mod.done_sections(text, scan)
+    assert spans == want
+    return scan, spans
+
+
 def test_dangling_limits_and_boundaries():
     mod = load_module()
     lines = (
         [f"Item {i} Done\n" for i in range(1, 6)]
-        + ["## Done\n", "- cut item\n"]
+        + ["## Done\n", "- cut item\n", "## Next\n"]
         + [f"After {i} Done\n" for i in range(1, 5)]
     )
-    text = "".join(lines)
-    scan = mod.Scan(text)
-    spans = [(6, 7, "Done")]
+    scan, spans = cut_spans(mod, "".join(lines), [(6, 7, "Done")])
     found = list(mod.dangling(scan, spans))
-    assert len(found) == 8
-    assert [n for n, _ in found] == [1, 2, 3, 4, 5, 8, 9, 10]
+    assert [n for n, _ in found] == [1, 2, 3, 4, 5, 9, 10, 11]
 
 
 def test_dangling_cut_boundaries_and_formatting():
     mod = load_module()
-    text = "See Done\n## **Done**\n- Done item\nNormal text\n"
-    scan = mod.Scan(text)
-    spans = [(2, 3, "**Done**")]
-    found = list(mod.dangling(scan, spans))
-    assert found == [(1, "Done")]
+    text = "See Done\n## **Done**\n- Done item\n## Next\nDone here\n"
+    scan, spans = cut_spans(mod, text, [(2, 3, "**Done**")])
+    assert list(mod.dangling(scan, spans)) == [(1, "Done"), (5, "Done")]
 
 
 def test_span_hazard_link_targets_and_underlines():
     mod = load_module()
-    text_link_a = "# R\n[target]: https://example.com/url\n- content\n"
-    scan_link_a = mod.Scan(text_link_a)
-    h_link_a = mod.span_hazard(scan_link_a, 2, 3)
-    assert h_link_a is not None and "line 2 defines a link target" in h_link_a
+    scan, _ = cut_spans(mod, "[Done]:\n===\n- x\n", [(1, 3, "[Done]:")])
+    assert mod.span_hazard(scan, 1, 3) == (
+        "line 1 defines a link target ('[Done]:') that links outside the cut may use; "
+        "move it above the done-log first"
+    )
 
-    text_link_fenced = "# R\n```\ncode\n```\n[target]: https://example.com/url\n"
-    scan_link_fenced = mod.Scan(text_link_fenced)
-    h_link_fenced = mod.span_hazard(scan_link_fenced, 1, 5)
-    assert h_link_fenced is not None and "line 5 defines a link target" in h_link_fenced
+    text = "# Done\n```\ncode\n```\n[target]: https://example.com/url\n"
+    scan, _ = cut_spans(mod, text, [(1, 5, "Done")])
+    hazard = mod.span_hazard(scan, 1, 5)
+    assert hazard is not None and "line 5 defines a link target" in hazard
 
     long_link = "[target]: https://example.com/path/to/very/long/target/url"
     assert len(long_link) > 41
-    text_long = f"# R\n{long_link}\n"
-    scan_long = mod.Scan(text_long)
-    h_long = mod.span_hazard(scan_long, 1, 2)
-    assert h_long is not None
-    assert f"({long_link[:40]!r})" in h_long
-    assert f"({long_link[:41]!r})" not in h_long
-    assert h_long.endswith("cut may use; move it above the done-log first")
+    scan, _ = cut_spans(mod, f"# Done\n{long_link}\n", [(1, 2, "Done")])
+    hazard = mod.span_hazard(scan, 1, 2)
+    assert hazard is not None
+    assert f"({long_link[:40]!r})" in hazard
+    assert f"({long_link[:41]!r})" not in hazard
+    assert hazard.endswith("cut may use; move it above the done-log first")
 
-    # A setext title whose own first line is an underline: real done_sections spans.
-    text = "# Top\n==\nDone\n---\n- x\n"
-    scan = mod.Scan(text)
-    assert mod.done_sections(text, scan) == [(2, 5, "== Done")]
+    # A setext title whose own first line is an underline.
+    scan, _ = cut_spans(mod, "# Top\n==\nDone\n---\n- x\n", [(2, 5, "== Done")])
     assert mod.span_hazard(scan, 2, 5) == (
         "line 2 underlines the line above it, which a reader may take for a heading"
     )
-    text = "==\nDone\n---\n- x\n"
-    scan = mod.Scan(text)
-    assert mod.done_sections(text, scan) == [(1, 4, "== Done")]
+    scan, _ = cut_spans(mod, "==\nDone\n---\n- x\n", [(1, 4, "== Done")])
     assert mod.span_hazard(scan, 1, 4) == (
         "line 3 underlines the line above it, which a reader may take for a heading"
     )
