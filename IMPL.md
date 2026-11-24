@@ -59,5 +59,6 @@ The active TODO list for whatever's in flight right now. Queued specs live in [R
   read; its name prints escaped), and root prose like LICENSE.txt no longer a strong check.
   Nits left for a follow-up: prose rule files in dot-folders (.cursor/rules, .gemini) are not
   listed; a name with a newline prints on two lines; CMakeLists.txt as a manifest.
-- 📋 Next: verify round 12, CI, merge.
+- ✅ Round 12 (fresh Opus): clean; its wording Nit fixed in SKILL.md. Follow-up Nits: see the issue linked in the PR.
+- 📋 Next: CI green, merge (squash, delete branch); #392 stays open for the SHA gate.
 - Verify: `uv run pytest tests/test_skill_context.py tests/test_elenchus_own_checks.py`; `make guards`.
