@@ -189,9 +189,9 @@ GLOB_WITH_FOLDER = re.compile(r"^[\w.-]+/")
 
 def gate_names(repo: str, base: str, listed: list[str], roots: frozenset[str]):
     """The path tokens and the glob tokens in the base's gate files, comments left out: its
-    workflows, its git hooks and every tool-config file of the repo root or a package root (Makefile,
-    pre-commit, package.json, vitest.config.ts, pyproject.toml, .gitlab-ci.yml, ...), so a
-    file a check names is listed too, one hop deep. A package's tokens also count from its
+    workflows, its git hooks and every tool-config file of the repo root or a package root
+    (Makefile, pre-commit, package.json, vitest.config.ts, pyproject.toml, .gitlab-ci.yml, ...),
+    so a file a check names is listed too, one hop deep. A package's tokens also count from its
     folder (web/package.json's `scripts/lint.js` names web/scripts/lint.js)."""
     names = [
         n
