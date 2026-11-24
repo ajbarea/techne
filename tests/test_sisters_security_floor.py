@@ -27,6 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@{SHA} # v6
       - run: uvx zizmor .github/workflows/
+      - run: uvx --from actionlint-py actionlint
 """
 LOCK_CI = "version: 1\nworkflows:\n  .github/workflows/ci.yml:\n    actions: {}\n"
 SA_ON = {
@@ -228,20 +229,82 @@ def test_the_lockfile_names_a_workflow_exactly(tmp_path):
     assert "1 action refs not pinned" in out and "ci.yml: actions/checkout@v6" in out
 
 
+LINT_STEP = {
+    "zizmor": "uvx zizmor .github/workflows/",
+    "actionlint": "uvx --from actionlint-py actionlint",
+}
+
+
+@pytest.mark.parametrize("tool", ["zizmor", "actionlint"])
 @pytest.mark.parametrize(
     "step,counts",
     [
-        ("      - run: |\n          uvx zizmor .\n", True),
-        ("      - run: make zizmor\n", True),
-        ("      - run: echo 'add zizmor later'\n", False),
-        ("      - name: zizmor someday\n        run: make lint\n", False),
-        ("      - uses: actions/checkout@" + SHA + " # zizmor: ignore[artipacked]\n", False),
-        ("      - run: make lint\n        env:\n          zizmor-version: 1\n", False),
-        ("      - uses: other/zizmor-wrapper@" + SHA + "\n", False),
-        ("      - uses: zizmorcore/zizmor-action@" + SHA + "\n", True),
+        ("      - run: |\n          uvx TOOL .\n", True),
+        ("      - run: make TOOL\n", True),
+        ("      - run: echo 'add TOOL later'\n", False),
+        ("      - name: TOOL someday\n        run: make lint\n", False),
+        ("      - uses: actions/checkout@" + SHA + " # TOOL: ignore[artipacked]\n", False),
+        ("      - run: make lint\n        env:\n          TOOL-version: 1\n", False),
+        ("      - uses: other/TOOL-wrapper@" + SHA + "\n", False),
+        ("      - uses: ./.github/actions/TOOL-config\n", False),
+        ("      # - run: TOOL .\n", False),
     ],
 )
-def test_zizmor_counts_only_when_a_step_runs_it(tmp_path, step, counts):
-    text = GOOD.replace("      - run: uvx zizmor .github/workflows/\n", step)
+def test_a_linter_counts_only_when_a_step_runs_it(tmp_path, tool, step, counts):
+    other = "actionlint" if tool == "zizmor" else "zizmor"
+    text = GOOD.replace(f"      - run: {LINT_STEP[tool]}\n", step.replace("TOOL", tool))
     out = run(tmp_path, make_repo(tmp_path, {"ci.yml": text}))
-    assert ("no zizmor in CI" not in out) == counts, out
+    assert (f"no {tool} in CI" not in out) == counts, out
+    assert f"no {other} in CI" not in out
+
+
+@pytest.mark.parametrize(
+    "action",
+    [
+        "zizmorcore/zizmor-action@" + SHA,
+        "raven-actions/actionlint@" + SHA,
+        "reviewdog/action-actionlint@" + SHA,
+        "docker://rhysd/actionlint:1.7.12",
+    ],
+)
+def test_a_linters_own_action_counts(tmp_path, action):
+    tool = "zizmor" if "zizmor" in action else "actionlint"
+    other = "actionlint" if tool == "zizmor" else "zizmor"
+    text = GOOD.replace(f"      - run: {LINT_STEP[tool]}\n", f"      - uses: {action}\n")
+    text = text.replace(f"      - run: {LINT_STEP[other]}\n", "")
+    out = run(tmp_path, make_repo(tmp_path, {"ci.yml": text}))
+    assert f"no {tool} in CI" not in out and f"no {other} in CI" in out
+
+
+def test_missing_actionlint_is_a_gap(tmp_path):
+    text = f"""name: ci
+on: [push]
+permissions:
+  contents: read
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@{SHA} # v6
+      - run: uvx zizmor .github/workflows/
+"""
+    out = run(tmp_path, make_repo(tmp_path, {"ci.yml": text}))
+    assert "1 security floor gap: no actionlint in CI" in out
+
+
+def test_local_action_with_dollar_slash_is_exempt(tmp_path):
+    text = f"""name: ci
+on: [push]
+permissions:
+  contents: read
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@{SHA} # v6
+      - uses: $/.github/actions/my-action
+      - run: uvx zizmor .github/workflows/
+      - run: uvx --from actionlint-py actionlint
+"""
+    out = run(tmp_path, make_repo(tmp_path, {"ci.yml": text}))
+    assert "security floor ✓" in out
