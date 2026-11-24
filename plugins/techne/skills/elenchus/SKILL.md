@@ -166,6 +166,8 @@ gh api user --jq .login                              # the account the comment p
 gh pr view <N> --json author --jq .author.login      # who opened the PR
 ```
 
+**A PR another engine wrote under the owner's account counts as someone else's.** agy and Copilot open PRs as the account owner. When the branch, the PR body or the invoker names such an engine as the author, treat the engine as the author: post the Phase 5 comment and address the engine by name, since it is the one that fixes the findings.
+
 **Author == account owner → do not post.** The report stays in-session for the account owner to act on (Blocking or Should-fix findings still open when the review loop ends go to its linked issue, when one exists; see **When the review loop ends**): fix the findings on the branch, and let the squash carry the result. A review comment on your own PR is the author talking to themselves in front of the reviewer, who reads the final diff, not the branch's history; it clutters the thread, and a verdict there pre-empts the human reviewer this entire method depends on.
 
 **Author ≠ account owner** — the comment is, in order:
