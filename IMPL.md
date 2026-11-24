@@ -112,7 +112,15 @@ The active TODO list for whatever's in flight right now. Queued specs live in [R
   repeat loop); cookies, http.extraHeader, subscription-key and Cookie headers, npm set and
   _password, attached forms (-ualice:x, -pX, -bX). Sweeps cover the anchored flag patterns and
   redact() as a whole; the sweep caught an unanchored npm pattern before commit.
-- 📋 Next: fresh Opus verify (over-redaction is a Nit), CI green, merge.
+- ✅ Verify on b8bc147 (3 Blocking, 1 Should-fix): segments split on false separators (`2>&1`,
+  `\&`, `$(a; b)`), so command flags now run on the whole call once all its words appear
+  (segments() gone); Authorization after -H is redacted (scheme word kept); the prefilter test
+  patched re.subn, which redact() no longer calls (now re.sub, plus a positive control);
+  docker/uv/npm/gh/aws words checked apart, so global options do not hide them. Nits taken:
+  quoted curl -u, -HName:, --pass, -E/--cert, aws configure; the next-call record is claimed
+  by a rename, so two calls at once log one row; docs note the parallel-batch case.
+  4 mutants red (prefilter, all-of words, claim, scheme).
+- 📋 Next: fresh Opus verify (over-redaction is a Nit), CI green incl. mutation, merge.
 - Verify: `uv run pytest tests/test_denial_log.py tests/test_phylax_doctor.py tests/test_git_guards.py
   tests/test_model_guard.py tests/test_email_greeting.py tests/test_command_shapes.py tests/bench`;
   `make plugin-test`; `uv run pytest tests/test_hook_latency.py` under the heavy lock.

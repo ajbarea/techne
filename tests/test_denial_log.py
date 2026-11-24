@@ -345,6 +345,21 @@ REDACT_CASES = [
     ("npm config set //r/:_pass" + "word " + FAKE, "npm config set", FAKE),
     (DOCKER_LOGIN + " -p" + FAKE + " ghcr.io", "ghcr.io", FAKE),
     ("gh secret set A " + "-b" + FAKE, "gh secret set A", FAKE),
+    ("curl https://x/api?a=1\\&b=2 " + "-u" + " alice:" + FAKE, "curl https", FAKE),
+    ("curl -s https://x 2>&1 " + "-u" + " alice:" + FAKE, "2>&1", FAKE),
+    ("curl -s https://x &>log " + "-u" + " alice:" + FAKE, "&>log", FAKE),
+    ("curl $(echo a; echo b) " + "-u" + " alice:" + FAKE, "echo b", FAKE),
+    ("mysql db 2>&1 " + "-p" + FAKE, "mysql db 2>&1", FAKE),
+    ("curl -H 'Authori" + "zation: " + FAKE + "' u", "curl -H", FAKE),
+    ("gh api -H 'Authori" + "zation: " + FAKE + "' /user", "/user", FAKE),
+    ("wget --header='Proxy-Authori" + "zation: " + FAKE + "' u", "wget", FAKE),
+    ("curl -HX-Api-" + "Key:" + FAKE + " u", "curl", FAKE),
+    ("docker --config /c " + "login -p " + FAKE, "--config /c", FAKE),
+    ("docker -H tcp://x " + "login -p " + FAKE, "tcp://x", FAKE),
+    ("curl " + "-u" + " 'alice:pass with " + FAKE + "' u", "curl", FAKE),
+    ("curl -E cert.pem:" + FAKE + " u", "curl -E", FAKE),
+    ("curl --pa" + "ss " + FAKE + " u", "curl", FAKE),
+    ("aws configure set aws_secret_" + "access_key " + FAKE, "aws configure set", FAKE),
     (DOCKER_LOGIN + " ghcr.io -u aj " + PASSWORD_FLAG + " " + FAKE_WORD, "ghcr.io", FAKE_WORD),
     ("uv publish -t pypi-AgE" + "p" * 30, "uv publish -t", "pypi-AgE"),
     ("npm_" + "n" * 36, "[REDACTED]", "npm_"),
@@ -380,6 +395,11 @@ def test_redact_removes_each_secret_shape(dl, text, kept, gone):
         "git push -u origin main",
         "mkdir -p build && tar -pxf a.tar",
         "git log -p -1",
+        "docker run -p 8080:80 nginx",
+        "gh pr create -b 'a body' -t title",
+        "uv run -p 3.12 pytest",
+        "npm run build -- -p x",
+        "aws s3 ls s3://bucket",
     ],
 )
 def test_redact_leaves_look_alikes_alone(dl, text):
@@ -1256,17 +1276,39 @@ def test_every_pattern_has_triggers_that_never_hide_a_match(dl):
         for (pattern, _), triggers in zip(dl.TOKEN_PATTERNS, dl.TRIGGERS, strict=True):
             if re.search(pattern, text):
                 assert dl.triggered(text.lower(), triggers), (pattern, text[:80])
-        for command, triggers, _ in dl.ANCHORED:
-            if re.search(command, text):
-                assert any(t in text.lower() for t in triggers), (command, text[:80])
+        for words, triggers, _ in dl.ANCHORED:
+            if all(re.search(w, text) for w in words):
+                assert any(t in text.lower() for t in triggers), (words, text[:80])
 
 
 def test_a_refusal_naming_no_secret_runs_no_pattern(dl, monkeypatch):
     # The refusal path's cost: a fresh hook process would compile every pattern it runs.
     calls = []
-    real = dl.re.subn
-    monkeypatch.setattr(dl.re, "subn", lambda *a, **k: calls.append(a[0]) or real(*a, **k))
+    real = dl.re.sub
+    monkeypatch.setattr(dl.re, "sub", lambda *a, **k: calls.append(a[0]) or real(*a, **k))
     dl.clip("{'prompt': 'review the diff and report', 'subagent_type': 'general-purpose'}")
     dl.clip("git add COMMITS.md")
     dl.clip("phylax: name the model it runs on, or pass model: with the call")  # its own reason
     assert calls == []
+    dl.clip("curl " + "-u" + " alice:" + FAKE + " https://x")  # the control: a secret runs its patterns
+    assert calls
+
+
+def test_of_two_calls_at_once_only_the_one_that_claims_the_record_logs(dl, state, monkeypatch):
+    data = {"session_id": SESSION}
+    dl.record_denial(data, "block_commits_md", "no", "git add COMMITS.md")
+    real = dl.os.rename
+
+    def the_other_call_reads_mid_claim(src, dst):
+        real(src, dst)
+        dl.check_next_call(data, "Bash", "git status")  # finds nothing left to claim
+
+    monkeypatch.setattr(dl.os, "rename", the_other_call_reads_mid_claim)
+    dl.check_next_call(data, "Bash", "git log")
+    events = [r["event"] for r in rows(state)]
+    assert events == ["deny", "next_call"]
+    assert (
+        not list(pathlib.Path(dl.pending_dir()).glob("*.claim"))
+        if pathlib.Path(dl.pending_dir()).exists()
+        else True
+    )

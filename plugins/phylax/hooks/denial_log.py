@@ -62,9 +62,9 @@ TOKEN_PATTERNS = (
         # A credential header after -H or in http.extraHeader: PRIVATE-TOKEN, X-API-Key, a
         # subscription key, Cookie. The value runs to its quote (a cookie holds spaces).
         # Authorization has a rule of its own, which knows its scheme word.
-        r"(?i)((?:-H|--header|extraheader)(?:=|\s+)['\"]?(?!(?:proxy-)?authorization\b)"
+        r"(?i)((?:-H|--header|extraheader)(?:=|\s*)['\"]?"
         r"[A-Za-z0-9-]{0,64}(?:token|key|auth|secret|passw(?:or)?d|cookie)[A-Za-z0-9-]{0,64}"
-        r"\s*:\s*)(?!\$)[^'\"\n]+",
+        r"\s*:\s*(?:(?:bearer|basic|token|bot|digest|negotiate)\s+)?)(?!\$)[^'\"\n]+",
         r"\1[REDACTED]",
     ),
     (
@@ -135,75 +135,58 @@ def triggered(low: str, triggers: tuple[str | tuple[str, ...], ...]) -> bool:
     return any(t in low if isinstance(t, str) else all(x in low for x in t) for t in triggers)
 
 
-# Flags whose value is a secret only for one command: (that command, its triggers, the flag
-# patterns). The text is cut at shell separators, and each segment that names the command gets
-# its flag patterns, so a flag any distance after the command is seen, and each segment is read
-# once per pattern.
-ANCHORED: tuple[tuple[str, tuple[str, ...], tuple[tuple[str, str], ...]], ...] = (
+# Flags whose value is a secret only for one command: (words the text must all hold, their
+# triggers, the flag patterns). The words are checked apart, so options between them
+# (`docker --config c login`) do not hide the command. The flag patterns then run on the whole
+# text, wherever the command sits: a shell separator does not stop them, so a flag after a
+# false one (`2>&1`, an escaped `\&`) is still seen, at the price of redacting the same flag
+# on another command in the line.
+QUOTED_OR_WORD = r"(?:'[^']*(?:'|\Z)|\"[^\"]*(?:\"|\Z)|\S+)"
+ANCHORED: tuple[tuple[tuple[str, ...], tuple[str, ...], tuple[tuple[str, str], ...]], ...] = (
     (
-        r"\bcurl\b",
+        (r"\bcurl\b",),
         ("curl",),
         (
             (
-                r"(\s(?:-u|--user|-U|--proxy-user)(?:=|\s+)|\s-[uU](?=[^\s=-]))(['\"]?)"
-                r"[^\s:'\"=]*:[^\s'\"]*\2",
+                r"(\s(?:-u|--user|-U|--proxy-user)(?:=|\s+)|\s-[uU](?=[^\s=-]))"
+                r"(?:'[^']*(?:'|\Z)|\"[^\"]*(?:\"|\Z)|[^\s:'\"=]*:\S*)",
                 r"\1[REDACTED]",
             ),
-            (
-                r"(\s(?:-b|--cookie)(?:=|\s+))(?:'[^']*(?:'|\Z)|\"[^\"]*(?:\"|\Z)|\S+)",
-                r"\1[REDACTED]",
-            ),
+            (r"(\s(?:-b|--cookie|--pass|-E|--cert)(?:=|\s+))" + QUOTED_OR_WORD, r"\1[REDACTED]"),
         ),
     ),
     (
-        r"\b(?:mysql|mariadb|mysqldump)\b",
+        (r"\b(?:mysql|mariadb|mysqldump)\b",),
         ("mysql", "mariadb"),
         ((r"(\s-p)[^\s-]\S*", r"\1[REDACTED]"),),
     ),
     (
-        r"\bdocker\s+login\b",
+        (r"\bdocker\b", r"\blogin\b"),
         ("docker",),
         ((r"(\s-p(?:=|\s+|(?=[^\s=-])))\S+", r"\1[REDACTED]"),),
     ),
     (
-        r"\bgh\s+secret\s+set\b",
+        (r"\bgh\b", r"\bsecret\b"),
         ("secret",),
-        (
-            (
-                r"(\s(?:-b|--body)(?:=|\s+|(?=[^\s=-])))(?:'[^']*(?:'|\Z)|\"[^\"]*(?:\"|\Z)|\S+)",
-                r"\1[REDACTED]",
-            ),
-        ),
+        ((r"(\s(?:-b|--body)(?:=|\s+|(?=[^\s=-])))" + QUOTED_OR_WORD, r"\1[REDACTED]"),),
     ),
     (
-        r"\b(?:uv\s+publish|twine\s+upload)\b",
+        (r"\b(?:uv|twine)\b", r"\b(?:publish|upload)\b"),
         ("publish", "twine"),
         ((r"(\s-[pt](?:=|\s+|(?=[^\s=-])))\S+", r"\1[REDACTED]"),),
     ),
     (
-        r"\bnpm\s+(?:config\s+)?set\b",
+        (r"\bnpm\b", r"\bset\b"),
         ("npm",),
         # From a word's start only, so a long run without spaces is read once.
         ((r"(?<!\S)(\S{0,500}?_(?:auth(?:Token)?|password)(?:=|\s+))\S+", r"\1[REDACTED]"),),
     ),
+    (
+        (r"\baws\b", r"\bconfigure\b"),
+        ("aws",),
+        ((r"(\baws_(?:secret_access_key|session_token)(?:=|\s+))\S+", r"\1[REDACTED]"),),
+    ),
 )
-
-
-def segments(text: str) -> list[str]:
-    """TEXT cut at the shell separators |, ;, & and newline outside quotes, each separator
-    kept with the part before it; "".join() gives TEXT back. One pass, so linear."""
-    parts, start, quote = [], 0, ""
-    for k, c in enumerate(text):
-        if quote:
-            if c == quote:
-                quote = ""
-        elif c in "'\"":
-            quote = c
-        elif c in "|;&\n":
-            parts.append(text[start : k + 1])
-            start = k + 1
-    parts.append(text[start:])
-    return parts
 
 
 def redact(text: str) -> str:
@@ -214,17 +197,11 @@ def redact(text: str) -> str:
         if not triggered(low, triggers):
             continue
         text = re.sub(pattern, repl, text)
-    anchored = [a for a in ANCHORED if any(t in low for t in a[1])]
-    if not anchored:
-        return text
-    parts = segments(text)
-    for k, part in enumerate(parts):
-        for command, _, flags in anchored:
-            if re.search(command, part):
-                for pattern, repl in flags:
-                    part = re.sub(pattern, repl, part)
-        parts[k] = part
-    return "".join(parts)
+    for words, triggers, flags in ANCHORED:
+        if any(t in low for t in triggers) and all(re.search(w, text) for w in words):
+            for pattern, repl in flags:
+                text = re.sub(pattern, repl, text)
+    return text
 
 
 def clip(text: str) -> str:
@@ -414,15 +391,18 @@ def check_next_call(data: dict, tool_name: str, command: str | None = None) -> N
     """When this session has a pending denial, log this call under its id and clear it."""
     try:
         path = _pending_file(actor_of(data))
+        # Claimed by a rename, so of two calls at once only one logs the next call.
+        claim = f"{path}.{os.getpid()}.claim"
         try:
-            with open(path, "rb") as fh:
+            os.rename(path, claim)
+            with open(claim, "rb") as fh:
                 pending = json.loads(fh.read())
         except FileNotFoundError:
             return
         except (OSError, ValueError):
-            _drop_pending(path)
+            _drop_pending(claim)
             return
-        _drop_pending(path)
+        _drop_pending(claim)
         now = time.time()
         # Our own record always holds these keys; any other file is dropped unlogged.
         call_id, ts, guard, denied = (pending[k] for k in ("id", "ts", "guard", "command"))
