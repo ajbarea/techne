@@ -238,6 +238,18 @@ def deny(reason: str) -> None:
     print(json.dumps(out))
 
 
+def _denial_waits() -> bool:
+    """denial_log.pending_any() without importing it, so a call with no denial waiting pays one
+    access() (a test holds the two equal; with HOME unset there is no state folder to read)."""
+    state = os.environ.get("XDG_STATE_HOME", "")
+    if not state.startswith("/"):
+        home = os.environ.get("HOME")
+        if home is None:
+            return False  # no state folder to look in
+        state = home + "/.local/state"
+    return os.access(state + "/phylax/pending-denials", os.F_OK)
+
+
 def main() -> int:
     try:
         payload = json.load(sys.stdin)
@@ -247,6 +259,14 @@ def main() -> int:
     except (ValueError, KeyError, TypeError) as exc:
         print(f"phylax email_greeting: cannot read the call ({exc}); allowed", file=sys.stderr)
         return 0
+
+    if _denial_waits():
+        try:
+            import denial_log
+
+            denial_log.check_next_call(payload, payload["tool_name"])
+        except Exception:
+            pass
     lines = first_lines(tool_input)
     if not lines:
         return 0
@@ -263,6 +283,12 @@ def main() -> int:
     minutes = t.hour * 60 + t.minute
     reason = next((r for r in (verdict(line, minutes) for line in lines) if r), None)
     if reason:
+        try:
+            import denial_log
+
+            denial_log.record_denial(payload, "email_greeting", reason)
+        except Exception:
+            pass
         deny(reason)
     return 0
 

@@ -73,3 +73,62 @@ def failed() -> int:
         print(FAIL_CLOSED, off_switch(BLOCKING), file=sys.stderr)
         return 2
     return 0
+
+
+STALE_PENDING_SEC = 3600
+
+
+def state_home() -> str:
+    """XDG_STATE_HOME, or ~/.local/state when it is unset or relative (the spec says a
+    relative value is to be ignored; the hook's cwd is the user's repo)."""
+    state = os.environ.get("XDG_STATE_HOME", "")
+    return state if state.startswith("/") else os.environ.get("HOME", "") + "/.local/state"
+
+
+def pending_denials() -> str:
+    """denial_log.pending_dir(), here so git_guards checks it without another import or more
+    source of its own to compile on every call (a test holds the two equal)."""
+    return state_home() + "/phylax/pending-denials"
+
+
+def _raw_value(payload: str, key: str) -> str | None:
+    """The plain string value of the first "KEY": "..." in raw hook input, without json:
+    None when absent, "\\" when the value has an escape (the caller then parses fully)."""
+    i = payload.find(f'"{key}"')
+    if i < 0:
+        return None
+    rest = payload[i + len(key) + 2 :].lstrip()
+    if not rest.startswith(":"):
+        return "\\"
+    rest = rest[1:].lstrip()
+    if not rest.startswith('"'):
+        return "\\"
+    end = rest.find('"', 1)
+    value = rest[1:end] if end > 0 else "\\"
+    return "\\" if "\\" in value else value
+
+
+def safe_id(actor: str) -> str:
+    """ACTOR as a file name: ASCII letters, digits, `-` and `_`, at most 64 characters."""
+    keep = "".join(c if c.isascii() and (c.isalnum() or c in "-_") else "_" for c in actor)
+    return keep[:64] or "default"
+
+
+def pending_record(payload: str) -> bool:
+    """Whether this call may have a denial record waiting: its own session's (and agent's)
+    record exists, its ids cannot be read cheaply, or the folder is stale and wants a sweep.
+    False (one access()) while nothing waits; one more access() for another session's."""
+    folder = pending_denials()
+    if not os.access(folder, os.F_OK):
+        return False
+    session = _raw_value(payload, "session_id")
+    agent = _raw_value(payload, "agent_id")
+    if not session or "\\" in session or (agent is not None and "\\" in agent):
+        return True
+    actor = session + ("." + agent if agent else "")
+    if os.access(f"{folder}/{safe_id(actor)}.json", os.F_OK):
+        return True
+    try:
+        return time.time() - os.stat(folder).st_mtime > STALE_PENDING_SEC
+    except OSError:
+        return False

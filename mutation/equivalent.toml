@@ -156,3 +156,31 @@ why = "is_arith: find starts past the opening character, so j is never 0"
 [[mutant]]
 hash = "29a72277415cb783675967e18b92d8ec8518359661b1e78450abdf20a0661d7b"
 why = "is_arith: find starts past the opening character, so j is never 0"
+
+[[mutant]]
+hash = "37c18d2683696035c7ef6c0ab9ca078f6c40db7bdb3b2e1c755281cdd843977a"
+why = 'git_options.state_home: the default is read only through startswith("/"), which "" and "XXXX" both fail'
+
+[[mutant]]
+hash = "77dea2bf368f331c5866634b3a1795b77c53a7c480d0e23e4d2cb50c346373c1"
+why = 'model_guard._denial_waits: the default is read only through startswith("/"), which "" and "XXXX" both fail'
+
+[[mutant]]
+hash = "ed33b4e9e2f70b3c82da898cec4fe6be85b8e0199a525eee687b5142310e13c1"
+why = 'email_greeting._denial_waits: the default is read only through startswith("/"), which "" and "XXXX" both fail'
+
+[[mutant]]
+hash = "608f6007ea4393655aff9c663636946acaebd3acc20e4becaf43c5cdf1988b75"
+why = 'git_options.safe_id: X is already kept by isalnum(), so adding it to the kept set changes nothing'
+
+[[mutant]]
+hash = "256ceca82b1cec1fc65f829cff0a69362afe3799ce1ebb3d101a76af80fef216"
+why = 'git_options._raw_value: find starts at index 1, so end is -1 or at least 1, never 0'
+
+[[mutant]]
+hash = "465f0e9de73905a670f9c9bea7465eb4aafe2141098ecd72c2a7d26b808dad7d"
+why = 'git_options._raw_value: the next line returns a lone backslash whenever the value holds one, as both literals do'
+
+[[mutant]]
+hash = "8e8b87190a8a21922872666b8fcf29baed724ede6ee467b9f9dce0706200cce4"
+why = 'Guards.check_gh: enabled() reads local only as `not local`, and None is as falsy as False'

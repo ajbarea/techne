@@ -44,13 +44,15 @@ export const register: Register = (on, options) => {
     // A subagent's call goes to the hooks.json PreToolUse fallback, which gets its own cwd;
     // $.session.cwd() is the main thread's.
     if (e.agentId !== undefined || !GIT_OR_GH.test(e.command)) return next(e)
-    const cwd = await $.session.cwd()
+    // The session's id lets a deny pair with this session's next call (hooks/denial_log.py);
+    // the guard runs without it rather than not at all.
+    const [cwd, session] = await Promise.all([$.session.cwd(), $.session.id().catch(() => undefined)])
     // The guard takes the folder from stdin and refuses itself when the folder a guarded
     // command runs in is gone, so python3 starts from the plugin: a removed worktree as
     // the session folder would fail the spawn as if python3 were missing.
     const run = await $.process.run(['python3', `${$.plugin.root}/hooks/git_guards.py`], {
       cwd: $.plugin.root,
-      stdin: JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: e.command }, cwd }),
+      stdin: JSON.stringify({ hook_event_name: 'PreToolUse', session_id: session, tool_use_id: e.tool_use_id, tool_name: 'Bash', tool_input: { command: e.command }, cwd }),
       env: Object.fromEntries(GUARDS.map(key => [`CLAUDE_PLUGIN_OPTION_${key.toUpperCase()}`, String(isOn(options, key))])),
       timeoutMs: GUARD_TIMEOUT_MS,
     })

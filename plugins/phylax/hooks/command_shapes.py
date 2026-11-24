@@ -841,6 +841,11 @@ def may_hold(command: str) -> bool:
     return any(word in command for word in SHAPE_WORDS)
 
 
+def guard_of(deny: str) -> str:
+    """The shape option a refusal from check() came from."""
+    return BACKGROUND_LOOPS if deny in (LOOP_DENY, LOOP_DENY_AMP) else PKILL_FULL
+
+
 def check(command: str, background: bool, on: set[str]) -> list[str]:
     """The refusals for COMMAND under the options in ON; BACKGROUND is whether it runs in the
     background."""

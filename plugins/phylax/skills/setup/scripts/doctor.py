@@ -292,6 +292,42 @@ def timezone(name: str) -> d.Check:
     return d.Check(d.OK, "email-timezone", name)
 
 
+def denied_calls(refusing_on: bool) -> d.Check:
+    """Denials and linked next calls logged in the last 7 days (hooks/denial_log.py)."""
+    if not refusing_on:
+        return d.Check(d.NA, "denied-calls", "all guards are off")
+    import json
+
+    state = os.environ.get("XDG_STATE_HOME", "")
+    if not state.startswith("/"):  # unset or relative: the XDG default, as the hooks read it
+        state = os.path.expanduser("~/.local/state")
+    log = Path(state) / "phylax" / "denied-calls.jsonl"
+    since = time.time() - 7 * 86400
+    counts = {"deny": 0, "next_call": 0}
+    for path in (log.with_suffix(".jsonl.1"), log):  # the rotated file may still hold this week
+        try:
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                for line in fh:
+                    try:
+                        row = json.loads(line)
+                    except ValueError:
+                        continue
+                    event = row.get("event") if isinstance(row, dict) else None
+                    epoch = row.get("epoch") if isinstance(row, dict) else None
+                    if event in counts and isinstance(epoch, (int, float)) and epoch >= since:
+                        counts[event] += 1
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            return d.Check(d.MISSING, "denied-calls", f"cannot read {path}: {exc.strerror}")
+    return d.Check(
+        d.OK,
+        "denied-calls",
+        f"{counts['deny']} denials, {counts['next_call']} with the next call, in the last 7 "
+        f"days ({log})",
+    )
+
+
 def checks(
     platform: d.Platform,
     options: dict[str, bool | str | None],
@@ -359,6 +395,7 @@ def checks(
         found.append(d.guarded("budget", False, lambda: budget(values or parse_values(()))))
     else:
         found.append(d.Check(d.NA, "budget", "budget_mode is off"))
+    found.append(d.guarded("denied-calls", False, lambda: denied_calls(refusing_on)))
     return found
 
 

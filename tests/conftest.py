@@ -269,6 +269,13 @@ def _no_inherited_git_repo():
         yield
 
 
+@pytest.fixture(autouse=True)
+def _private_state_home(monkeypatch, tmp_path):
+    """Every test, and every hook it runs (hook_env copies os.environ), writes state under
+    tmp_path, never the user's ~/.local/state (phylax's denied-calls log, secret-gate log)."""
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "xdg-state"))
+
+
 def locked_versions(lock: pathlib.Path) -> dict[str, set[str]]:
     """Package name -> the versions a uv.lock pins for it."""
     out: dict[str, set[str]] = {}

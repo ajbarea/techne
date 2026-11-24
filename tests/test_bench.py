@@ -161,6 +161,8 @@ def test_run_times_each_case_beside_the_floor_and_writes_the_summary(tmp_path, m
         "hook_ms": 25.0,
         "ratio": 2.5,
         "hook_stddev_ms": 0.25,
+        "floor_mean_ms": 10.0,
+        "hook_mean_ms": 25.0,
         "instructions_ratio": 3.0,
     }
     (argv,) = map(json.loads, log.read_text().splitlines())

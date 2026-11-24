@@ -92,6 +92,7 @@ def test_all_off_is_ready_and_checks_nothing_else(tmp_path, env):
         "claude",
         "state-dir",
         "budget",
+        "denied-calls",
     ):
         assert found[name][0] == "n/a", name
 
@@ -127,6 +128,7 @@ def test_a_value_the_hooks_do_not_read_as_true_is_named_and_off(tmp_path, env, o
         "claude",
         "state-dir",
         "budget",
+        "denied-calls",
     ):
         assert found[name][0] == "n/a", (option, name)
 
@@ -546,3 +548,28 @@ def test_email_timezone_is_na_while_the_greeting_is_off():
 def test_fail_closed_line_skips_the_warning_guard_that_never_refuses(tmp_path, env):
     _, found = doctor(tmp_path, args(warn_main_checkout_commit=True), env)
     assert found["fail-closed"][0] == "n/a"
+
+
+def test_denied_calls_counts_this_weeks_denials_and_next_calls(tmp_path, monkeypatch):
+    m = _doctor_module()
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+    assert m.denied_calls(False).status == "n/a"
+    assert m.denied_calls(True).detail.startswith("0 denials, 0 with the next call")
+
+    log = tmp_path / "phylax" / "denied-calls.jsonl"
+    log.parent.mkdir(parents=True)
+    now = 1_000_000_000.0
+    monkeypatch.setattr("time.time", lambda: now)
+    week_old = now - 8 * 86400
+    rows = [
+        {"event": "deny", "epoch": now - 3600},
+        {"event": "next_call", "epoch": now - 3500},
+        {"event": "deny", "epoch": week_old},
+        {"event": "other", "epoch": now},
+        {"event": "deny"},
+    ]
+    log.write_text("\n".join(json.dumps(r) for r in rows) + "\nnot json\n")
+    log.with_suffix(".jsonl.1").write_text(json.dumps({"event": "deny", "epoch": now - 60}) + "\n")
+    check = m.denied_calls(True)
+    assert check.status == "ok"
+    assert check.detail.startswith("2 denials, 1 with the next call, in the last 7 days")
