@@ -1290,7 +1290,8 @@ def test_a_refusal_naming_no_secret_runs_no_pattern(dl, monkeypatch):
     dl.clip("git add COMMITS.md")
     dl.clip("phylax: name the model it runs on, or pass model: with the call")  # its own reason
     assert calls == []
-    dl.clip("curl " + "-u" + " alice:" + FAKE + " https://x")  # the control: a secret runs its patterns
+    # The control: a text holding a secret does run its patterns.
+    dl.clip("curl " + "-u" + " alice:" + FAKE + " https://x")
     assert calls
 
 
