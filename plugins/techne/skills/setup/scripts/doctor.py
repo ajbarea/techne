@@ -136,7 +136,12 @@ def checks(platform: d.Platform, repo: Path) -> list[d.Check]:
         ),
         d.program(platform, "tmux", "tmux", version_argv=("-V",), why="techne:theoros"),
         d.guarded(
-            "chromium", False, lambda: d.chromium(required=False, why="techne:docs-site visual QA")
+            "chromium",
+            False,
+            lambda: d.chromium(
+                required=False,
+                why="techne:docs-site visual QA and techne:periegesis",
+            ),
         ),
         d.guarded("lsof", True, lambda: lsof(platform)),
         d.guarded("skill-context", False, lambda: skill_context(repo)),

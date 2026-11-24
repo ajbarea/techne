@@ -36,7 +36,7 @@ Agree on the tour scope with the user in one short message:
 
 Once agreed:
 
-- Open a shared Playwright browser at `1920` wide (`1920x1080`) so the user watches the same window. Use the Playwright MCP browser (`browser_navigate` and `browser_resize` to `1920` by `1080`) when available; otherwise launch headed Chromium through Playwright (`uv run --no-project --with playwright==1.63.0 python ...`) at `1920x1080`.
+- Open a shared Playwright browser at `1920` wide (`1920x1080`) so the user watches the same window. Use the Playwright MCP browser (`browser_navigate` and `browser_resize` to `1920` by `1080`) when available; otherwise launch headed Chromium in a backgrounded Playwright session (`uv run --no-project --with playwright==1.63.0 python ...`) so the window stays open between steps.
 - Copy `<skill-dir>/templates/friction-log.md` to `docs/friction/<YYYY-MM-DD>-<surface>.md` in the target's repository, fill the **Context** block, and create `docs/friction/<YYYY-MM-DD>-<surface>/` for screenshots.
 - **Optional voice:** if `keryx` is installed and active, narrate each tour step aloud in one short line before the user tries it.
 
@@ -60,22 +60,23 @@ Walk one feature at a time:
 Record each friction the user names as one line in `docs/friction/<YYYY-MM-DD>-<surface>.md` under **Tour log**:
 
 - `step`: step number and feature name
+- `task`: which agreed task was attempted
 - `expected`: what the visitor expected to happen
 - `happened`: what actually happened
 - `severity`: `blocker` (stops the task), `slows` (causes detour or hesitation) or `polish` (visual or wording rough edge)
-- `screenshot`: relative path to the captured PNG
+- `screenshot`: PNG path relative to the log file (`<YYYY-MM-DD>-<surface>/...`)
 
 After the tour tasks finish, run machine checks on the same target and record them in **Machine findings**, never mixed with the user's reactions:
 
 - **Console and page errors:** uncaught exceptions, failed requests and `console.error` lines.
 - **Load time:** initial load and key route or view transitions.
-- **Contrast:** WCAG AA contrast check (`axe-core` via `axe-playwright-python` or computed-style check).
-- **Phone width (`390x844`):** horizontal overflow, clipped controls and readable text at mobile width.
+- **Contrast:** WCAG AA contrast check (`axe-core` via `axe-playwright-python==0.1.8` or computed-style check).
+- **Phone width (`390x844`):** horizontal overflow, clipped controls and readable text at mobile width. Run in a separate headless pass or restore `1920x1080` afterwards so the shared window stays wide.
 
 ## 4. Close
 
 1. Group the logged frictions into classes (for example, missing feedback, hidden control, unclear label) and rank them by `severity x frequency`. Note in the summary that one person's tour is a hypothesis until confirmed across users or sessions.
-2. File one GitHub issue per **class** of friction (not one per instance) with `gh issue create`, labelled appropriately (such as `enhancement` or `ux`), and link each issue from the log's **Ranked classes and issues** table.
+2. File one GitHub issue per **class** of friction (not one per instance) with `gh issue create`, picking labels defined in the target repo (such as `enhancement`; check `gh label list` if unsure), and link each issue from the log's **Ranked classes and issues** table.
 3. When a friction is a pattern that would recur in other projects, invoke `/techne:lessons` to record a decided quality lesson.
 4. Close the shared Playwright browser.
 5. Remind the user that fixes happen through the filed issues afterwards, not during the tour.

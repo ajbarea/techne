@@ -29,7 +29,7 @@ The skill runs a doctor script that only reads, then follows the [setup runbook]
 | `uv` | `docs-site`, `elenchus`, and most repos' make targets. |
 | `python3` | 3.11 or newer for `catchup`, `sisters` and `board`. Below 3.11 the board hook files nothing. |
 | `tmux` | `theoros`. |
-| `chromium` | Optional. Playwright's Chromium for the docs-site visual check. |
+| `chromium` | Optional. Playwright's Chromium for the docs-site visual check and `periegesis`. |
 | `lsof` | macOS only: `sisters` clean mode. |
 | `skill-context` | Optional. The repo's `.claude/skill-context.md`, which most techne skills read; `audit` and `theoros` require it. See the [section reference](../conventions.md#section-reference). The fix line copies the skeleton. |
 | `techne.toml` | Optional. `~/.claude/techne.toml`, read by `sisters` and `catchup`. |
