@@ -13,7 +13,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "plugins" / "techne" / "skills" / "elenchus" / "scripts" / "own_checks.py"
 sys.path.insert(0, str(SCRIPT.parent))
 
-import own_checks  # noqa: E402  # ty: ignore[unresolved-import]
+import own_checks  # noqa: E402  # ty: ignore[import-not-found]
 
 
 @pytest.mark.parametrize(

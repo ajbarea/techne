@@ -25,7 +25,7 @@ from pathlib import Path, PurePosixPath
 sys.dont_write_bytecode = True  # the plugin cache stays as installed
 SHARED = Path(__file__).resolve().parents[3] / "_shared"
 sys.path.insert(0, str(SHARED))
-from git_env import without_repo_overrides  # noqa: E402  # ty: ignore[unresolved-import]
+from git_env import without_repo_overrides  # noqa: E402  # ty: ignore[import-not-found]
 
 RESOLVER = SHARED / "skill_context.sh"
 
