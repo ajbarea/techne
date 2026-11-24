@@ -103,9 +103,9 @@ python3 "<plugin-root>/skills/elenchus/scripts/ledger.py" append --repo <owner/n
 The ledger stays on this machine (`~/.local/state/elenchus/findings.jsonl`), so a private repo's name is fine there; it never reaches the catalog.
 
 ### Phase 5 — Post the distilled summary
-If an open PR exists for the branch under review **and someone else opened it**, post the distilled summary (contract in **Posting the summary** below) as a **single** `gh pr comment`. This is default behavior, not opt-in — the review of record belongs on the PR. Skip when there is no PR, when the account owner opened it, or when the invoker explicitly said to keep it local; the report then stays in-session (Blocking or Should-fix findings still open when the review loop ends go to its linked issue, when one exists; see **When the review loop ends**).
+If an open PR exists for the branch under review and its **Author** (defined under **Only on someone else's PR** below) is not the account owner (`Author ≠ account owner`), post the distilled summary (contract in **Posting the summary** below) as a **single** `gh pr comment`. This is default behavior, not opt-in — the review of record belongs on the PR. Skip when there is no PR, when `Author == account owner`, or when the invoker explicitly said to keep it local; the report then stays in-session (Blocking or Should-fix findings still open when the review loop ends go to its linked issue, when one exists; see **When the review loop ends**).
 
-Derive authorship before posting — never assume.
+Derive the **Author** before posting — never assume.
 
 ## The rubric (load-bearing)
 
@@ -142,7 +142,7 @@ A change often takes several rounds: review, fix, review again. The author's ses
 - **Reproduce before reporting.** Before a round's report, the reader makes one attempt to reproduce each Blocking or Should-fix finding not yet reproduced. One that still fails stays PLAUSIBLE and is recorded as open: it holds the merge, but does not by itself keep the loop going. Open means any Blocking or Should-fix finding not fixed when the loop stops or pauses.
 - **Keep going** while the round has a reproduced Blocking or Should-fix finding (see Output format) on a reachable input: one that a caller in the repo, or a documented usage, can produce, unless a pause below applies.
 - **Stop** in every other case: what remains is Minor, Informational, unreachable, or recorded as open.
-- **Write the stop down.** Open Blocking or Should-fix findings go in the Phase 5 comment on someone else's PR. On a PR the account owner opened, they go in its linked issue when one exists (the issue its body names with `Closes #N` or `Fixes #N`; with several, the first), under the same contract as the Phase 5 comment (account owner's voice, no provenance); with no linked issue, tell the user the PR waits on them. Minor findings stay in-session, and "keep it local" keeps everything in-session.
+- **Write the stop down.** Open Blocking or Should-fix findings go in the Phase 5 comment when `Author ≠ account owner` (defined under **Only on someone else's PR**). When `Author == account owner`, they go in the PR's linked issue when one exists (the issue its body names with `Closes #N` or `Fixes #N`; with several, the first), under the same contract as the Phase 5 comment (account owner's voice, no provenance); with no linked issue, tell the user the PR waits on them. Minor findings stay in-session, and "keep it local" keeps everything in-session.
 - **A class that recurs escalates.** When a Blocking or Should-fix finding's class already had a finding in an earlier round of this loop, do not patch the new instance: name the structural fix (one shared helper every parallel path calls, a canonical format instead of a wider regex, delegating to the real parser instead of modelling it) and make it, with a test that sweeps the class: differential, property-based or mutation (see **Before you ask for review**). The reader names the recurrence and the structural fix in its report.
 - **Deferred findings are ledgered, not re-reported.** A finding the author defers goes in the ledger (PR body, or IMPL.md before a PR) with its class, why, and its tracking issue. Readers read the ledger and leave its items out of their report unless the change made one worse.
 - **Pause when it runs long.** The budget is the one the user set, in rounds or in the reviewer's own working time (not time spent waiting for the owner). Stop and report when the loop passes it, or when two rounds in a row find only bugs the previous fix introduced (then the fix approach is the problem); resume only on the user's go-ahead. With no budget set, the budget follows the stakes. Docs, notes and small edits get three rounds; after the third, report what is open instead of starting a fourth. Substantive code and paper changes stop at the first clean round, with a ceiling of five, then report what is open. Registered study rules, governance and security code, destructive operations, and anything the user asks for are reviewed until clean. When the loop stops with fixes made after its last round, one more fresh reader verifies those fixes.
@@ -159,18 +159,23 @@ Guard: only when `gh pr view --json number,url` resolves an **open** PR for the 
 
 ### Only on someone else's PR
 
-The comment publishes under the invoking developer's GitHub account, so the account owner is the one speaking. Derive authorship live — no config file, and no assuming from the repo you are standing in:
+The comment publishes under the invoking developer's GitHub account, so the account owner is the one speaking. Derive the **Author** live — no config file, and no assuming from the repo you are standing in:
 
 ```bash
 gh api user --jq .login                              # the account the comment posts as
 gh pr view <N> --json author --jq .author.login      # who opened the PR
 ```
 
-**A PR another engine wrote under the owner's account counts as someone else's.** agy and Copilot open PRs as the account owner. When the branch, the PR body or the invoker names such an engine as the author, treat the engine as the author: post the Phase 5 comment and address the engine by name, since it is the one that fixes the findings.
+**Define Author once:** `Author` starts as the PR opener (`author.login`). When the opener is the account owner on a solo repo (`python3 "<plugin-root>/_shared/repo_kind.py" <target-path>` prints `solo:`), an engine that opens PRs under the owner's login (`agy`, or the Copilot CLI; Copilot's cloud agent opens as `copilot-swe-agent` on `copilot/` branches) counts as the `Author` instead **only** when one of these signals holds:
+
+- the invoker explicitly states that the engine authored the PR, or
+- the PR carries a fixed marker written by an engine brief: an `agy/` branch prefix or a standalone `Engine: <engine>` line (such as `Engine: agy`) in the PR body.
+
+A passing mention of an engine in the branch name, title, or PR body does **not** count (a human PR that discusses `agy` or fixes an `agy` skill still has `Author == account owner`). On a team repo (or when `repo_kind.py` prints `team:`), an opener matching the account owner stays `Author == account owner` so a comment under the owner's login never reads as self-approval.
 
 **Author == account owner → do not post.** The report stays in-session for the account owner to act on (Blocking or Should-fix findings still open when the review loop ends go to its linked issue, when one exists; see **When the review loop ends**): fix the findings on the branch, and let the squash carry the result. A review comment on your own PR is the author talking to themselves in front of the reviewer, who reads the final diff, not the branch's history; it clutters the thread, and a verdict there pre-empts the human reviewer this entire method depends on.
 
-**Author ≠ account owner** — the comment is, in order:
+**Author ≠ account owner** — post the Phase 5 comment (when an engine authored the PR under the owner's login, address the engine by name, since it fixes the findings). The comment is, in order:
 
 1. **Merge verdict** — one line: mergeable / hold on finding #N / not mergeable + why, and the short head SHA it applies to (`at abc1234`).
 2. **Findings** — Blocking and Should-fix only, each as: `path:line` — one-line failure scenario — the fix.
