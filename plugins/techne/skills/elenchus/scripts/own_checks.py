@@ -164,7 +164,11 @@ def is_check(path: str, roots: frozenset[str] = REPO_ROOT) -> bool:
         return True
     if not prose and (p.name.startswith(".") or not folders):
         return True  # a dotfile, or any file at the repo root
-    if folder_of(path) in roots and (p.name in MANIFESTS or CONFIG_SHAPED.match(p.name)):
+    if (
+        not prose
+        and folder_of(path) in roots
+        and (p.name in MANIFESTS or CONFIG_SHAPED.match(p.name))
+    ):
         return True  # a package's own config
     if "scripts" in folders and SCRIPT_RE.match(p.name):
         return True

@@ -618,6 +618,8 @@ def test_every_documented_tool_config_location_is_a_check(where, name):
         ".changeset/brave-cats.md",  # prose in a dot-folder
         "net/Program.cs",
         "app/lib/main.dart",
+        "LICENSE.txt",  # prose at the repo root, itself a package root
+        "web/README.txt",
     ],
 )
 def test_source_and_noise_beside_a_package_are_not_checks(path):
@@ -697,21 +699,23 @@ def test_odd_file_names_neither_crash_nor_shift_the_gate_reads(tmp_path):
     up.mkdir()
     _git(up, "init", "-q", "-b", "main")
     (up / "tools").mkdir()
-    (up / os.fsdecode(b"caf\xe9.toml")).write_text("x\n")  # not UTF-8
+    (up / os.fsdecode(b"caf\xe9.toml")).write_text("tools/c.py\n")  # not UTF-8, and a gate
     (up / "odd\nname.toml").write_text("tools/b.py\n")  # a newline cat-file cannot take
     (up / "z.toml").write_text("tools/a.py\n")
-    for name in ("a.py", "b.py"):
+    for name in ("a.py", "b.py", "c.py"):
         (up / "tools" / name).write_text("x\n")
     _git(up, "add", ".")
+    _git(up, "update-index", "--add", "--cacheinfo", f"160000,{'1' * 40},sub")  # a gitlink
     _git(up, "commit", "-qm", "base")
     base = _rev(up, "HEAD")
     _git(up, "checkout", "-q", "-b", "pr")
-    (up / os.fsdecode(b"caf\xe9.toml")).write_text("y\n")
-    for name in ("a.py", "b.py"):
+    (up / os.fsdecode(b"caf\xe9.toml")).write_text("tools/c.py\ny\n")
+    for name in ("a.py", "b.py", "c.py"):
         (up / "tools" / name).write_text("y\n")
     _git(up, "commit", "-qam", "edit")
     out = _own(up, base)
     assert out.returncode == 0, out.stderr
     listed = _listed(out)
     assert "tools/a.py" in listed and "tools/b.py" not in listed
-    assert any(name.startswith("caf") for name in listed)
+    assert "tools/c.py" in listed  # read through the gate file whose name is not UTF-8
+    assert "caf\\udce9.toml" in listed  # printed escaped, never mangled

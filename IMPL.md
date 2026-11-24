@@ -54,6 +54,10 @@ The active TODO list for whatever's in flight right now. Queued specs live in [R
   Rakefile, Dockerfile) and Dart/.NET/CMake/Bazel package roots; UTF-8 BOM; prose in a
   dot-folder is not a check; path_glob's unreachable bracket code removed. SKILL.md states the
   coverage limit: a file the list leaves out is not cleared. 7 hand mutants red.
-- 📋 Next: verify round 11 (the name list is now a stated limit: a missed tool is a follow-up,
-  not a hold), CI, merge.
+- ✅ Round 11 (fresh Opus): 3 Should-fix fixed, each with a test its mutant fails: cat-file's
+  `missing` branch (a root gitlink), the file-name round trip (a non-UTF-8 gate file's token is
+  read; its name prints escaped), and root prose like LICENSE.txt no longer a strong check.
+  Nits left for a follow-up: prose rule files in dot-folders (.cursor/rules, .gemini) are not
+  listed; a name with a newline prints on two lines; CMakeLists.txt as a manifest.
+- 📋 Next: verify round 12, CI, merge.
 - Verify: `uv run pytest tests/test_skill_context.py tests/test_elenchus_own_checks.py`; `make guards`.
