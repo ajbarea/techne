@@ -16,7 +16,7 @@ is marked, the weaker signal), or `none`.
 from __future__ import annotations
 
 import argparse
-import fnmatch
+import posixpath
 import re
 import subprocess
 import sys
@@ -95,8 +95,9 @@ ROOT_PROSE = re.compile(
 )
 
 
-# A folder holding one of these is a package root: its own files are tool config the way the
-# repo root's are (web/tsconfig.json, src-tauri/clippy.toml), so no name list has to know them.
+# A folder holding one of these is a package root: its config-shaped files are tool config the
+# way the repo root's files are (web/tsconfig.json, src-tauri/clippy.toml), so no name list has
+# to know them. setup.py is left out: a flat-layout package's folder is its source.
 MANIFESTS = {
     "package.json",
     "deno.json",
@@ -104,7 +105,6 @@ MANIFESTS = {
     "Cargo.toml",
     "pyproject.toml",
     "setup.cfg",
-    "setup.py",
     "go.mod",
     "composer.json",
     "Gemfile",
@@ -115,6 +115,12 @@ MANIFESTS = {
     "mix.exs",
 }
 REPO_ROOT = frozenset({""})
+# A package root's file counts only in a config format; its source counts when a gate names it.
+CONFIG_SHAPED = re.compile(
+    r"(?i)^.*\.(toml|json|jsonc|json5|ya?ml|ini|cfg|conf|properties|txt|lock|xml|kts)$"
+)
+# Files that hold no rule.
+NOISE = {".gitkeep", ".keep", ".DS_Store"}
 
 
 def folder_of(path: str) -> str:
@@ -130,17 +136,60 @@ def package_roots(paths) -> frozenset[str]:
 def is_check(path: str, roots: frozenset[str] = REPO_ROOT) -> bool:
     p = PurePosixPath(path)
     folders = p.parts[:-1]
+    if p.name in NOISE:
+        return False
     if DIRS.intersection(folders) or p.name in NAMES or NAME_RE.match(p.name):
         return True
+    # Tool config lives in dot-folders and dotfiles at any depth (.cargo/config.toml,
+    # .config/nextest.toml, .devcontainer/, web/.storybook/main.ts, .prettierrc).
+    if any(f.startswith(".") for f in folders):
+        return True
     prose = ROOT_PROSE.match(p.name)
-    if not prose and (folder_of(path) in roots or p.name.startswith(".")):
-        return True  # a package root's own file, or dotfile config at any depth
+    if not prose and (p.name.startswith(".") or not folders):
+        return True  # a dotfile, or any file at the repo root
+    if folder_of(path) in roots and (p.name in MANIFESTS or CONFIG_SHAPED.match(p.name)):
+        return True  # a package's own config
     if "scripts" in folders and SCRIPT_RE.match(p.name):
         return True
     # hooks/ counts at the repo root and in a plugin, not as an app's folder (src/hooks/).
     if folders[:1] == ("hooks",) or (folders[2:3] == ("hooks",) and folders[:1] == ("plugins",)):
         return True
     return any(folders[i : i + len(part)] == part for part in PARTS for i in range(len(folders)))
+
+
+def decode(raw: bytes) -> str | None:
+    """A gate file's text (UTF-16 by its byte-order mark, else UTF-8); None for a binary."""
+    if raw[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        return raw.decode("utf-16", "replace")
+    return None if b"\0" in raw[:8000] else raw.decode("utf-8", "replace")
+
+
+def read_base(repo: str, base: str, names: list[str]) -> dict[str, bytes]:
+    """Each of NAMES as committed on BASE, through one `git cat-file --batch`; a name the
+    base lacks is left out."""
+    names = [n for n in names if "\n" not in n]
+    if not names:
+        return {}
+    out = subprocess.run(
+        ["git", "-C", repo, "cat-file", "--batch"],
+        input=b"".join(f"{base}:{n}\n".encode() for n in names),
+        capture_output=True,
+        env=_env(),
+    )
+    if out.returncode != 0:
+        raise SystemExit(f"own_checks: git cat-file failed: {out.stderr.decode(errors='replace')}")
+    found, at, data = {}, 0, out.stdout
+    for name in names:
+        end = data.index(b"\n", at)
+        header = data[at:end].split()
+        if header[-1] == b"missing" or len(header) != 3:
+            at = end + 1
+            continue
+        size = int(header[2])
+        if header[1] == b"blob":
+            found[name] = data[end + 1 : end + 1 + size]
+        at = end + 2 + size
+    return found
 
 
 def _env() -> dict[str, str]:
@@ -202,19 +251,14 @@ def gate_names(repo: str, base: str, listed: list[str], roots: frozenset[str]):
     ]
     paths: set[str] = set()
     globs: list[str] = []
-    for name in names:
-        out = subprocess.run(
-            ["git", "-C", repo, "show", f"{base}:{name}"],
-            capture_output=True,
-            text=True,
-            env=_env(),
-        )
-        if out.returncode != 0:
-            continue  # this gate file is not on the base
+    for name, raw in read_base(repo, base, names).items():
+        text = decode(raw)
+        if text is None:
+            continue  # a binary names nothing
         package = folder_of(name)
         yaml = name.endswith((".yml", ".yaml"))
         filter_indent = -1  # inside a YAML filter key's block list while >= 0
-        for line in out.stdout.splitlines():
+        for line in text.splitlines():
             if yaml:
                 indent = len(line) - len(line.lstrip())
                 if filter_indent >= 0 and (indent > filter_indent or not line.strip()):
@@ -230,13 +274,46 @@ def gate_names(repo: str, base: str, listed: list[str], roots: frozenset[str]):
                     token = token[2:] if token.startswith("./") else token[1:]
                 if token in ("", ".", ".."):
                     continue
-                tokens = [token, f"{package}/{token}"] if package else [token]
+                tokens = [token]
+                if package:  # a package's paths are relative to its folder: ../x leaves it
+                    tokens.append(posixpath.normpath(f"{package}/{token}"))
+                tokens = [t for t in tokens if t != ".." and not t.startswith("../")]
                 if any(c in token for c in "*?["):
                     if GLOB_WITH_FOLDER.match(token):
                         globs += tokens
                 else:
                     paths.update(tokens)
     return paths, globs
+
+
+def path_glob(glob: str) -> re.Pattern[str]:
+    """GLOB as a path pattern: `**` crosses folders while `*` and `?` stay within one, as in
+    .gitignore, Codecov and GitHub's path filters (fnmatch's `*` would cross them, so a
+    workspace's `agents/*` would name every file under it)."""
+    out, i = [], 0
+    while i < len(glob):
+        if glob.startswith("**/", i):
+            out.append("(?:.*/)?")
+            i += 3
+        elif glob.startswith("**", i):
+            out.append(".*")
+            i += 2
+        elif glob[i] == "*":
+            out.append("[^/]*")
+            i += 1
+        elif glob[i] == "?":
+            out.append("[^/]")
+            i += 1
+        elif glob[i] == "[" and (end := glob.find("]", i + 2)) > 0:
+            inner = glob[i + 1 : end]
+            out.append(
+                "[" + ("^" + inner[1:] if inner[0] in "!^" else inner).replace("\\", "\\\\") + "]"
+            )
+            i = end + 1
+        else:
+            out.append(re.escape(glob[i]))
+            i += 1
+    return re.compile("".join(out) + r"\Z")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -264,10 +341,9 @@ def main(argv: list[str] | None = None) -> int:
     roots = package_roots([*listed, *files])
     paths, globs = gate_names(args.repo, base, listed, roots)
     strong = sorted(p for p in files if is_check(p, roots))
+    patterns = [path_glob(g) for g in dict.fromkeys(globs)]
     named = sorted(
-        p
-        for p in files - set(strong)
-        if p in paths or any(fnmatch.fnmatchcase(p, g) for g in globs)
+        p for p in files - set(strong) if p in paths or any(g.match(p) for g in patterns)
     )
     print(f"head {head}")
     lines = strong + [f"{p}  (named by a gate: read, written or run)" for p in named]

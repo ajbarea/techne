@@ -529,3 +529,128 @@ def test_a_script_a_git_hook_runs_is_listed(tmp_path):
     assert _monorepo(tmp_path, base, {"scripts/lint_all.py": "loosened\n"}) == [
         "scripts/lint_all.py"
     ]
+
+
+# Tool-config locations the tools' own docs name (Cargo, nextest, Dev Containers, Storybook,
+# rustfmt, Clippy, TypeScript, ESLint, Prettier, EditorConfig, Stylelint, Jest, Vite, Vitest,
+# pytest, tox, flake8, Pylint, mypy, Ruff, golangci-lint, Deno, Biome, Turborepo, Nx,
+# Lefthook, lint-staged, Renovate, Dependabot, pip, uv, npm), each at the repo root, in a
+# package and in a crate.
+CONFIG_LOCATIONS = [
+    ".cargo/config.toml",
+    ".config/nextest.toml",
+    ".devcontainer/devcontainer.json",
+    ".storybook/main.ts",
+    "rustfmt.toml",
+    "clippy.toml",
+    "tsconfig.json",
+    ".eslintrc.json",
+    "eslint.config.mjs",
+    ".prettierrc",
+    ".editorconfig",
+    ".stylelintrc.json",
+    "jest.config.js",
+    "vite.config.ts",
+    "vitest.config.mts",
+    "pytest.ini",
+    "tox.ini",
+    ".flake8",
+    ".pylintrc",
+    "mypy.ini",
+    "ruff.toml",
+    ".golangci.yml",
+    "go.mod",
+    "deno.json",
+    "biome.json",
+    "turbo.json",
+    "nx.json",
+    "lefthook.yml",
+    ".lintstagedrc",
+    "renovate.json",
+    ".github/dependabot.yml",
+    "requirements-dev.txt",
+    "uv.lock",
+    "Cargo.lock",
+    "package-lock.json",
+]
+TREE = ["web/package.json", "crates/core/Cargo.toml", "agents/a/pyproject.toml", "old/setup.py"]
+
+
+@pytest.mark.parametrize("where", ["", "web/", "crates/core/"])
+@pytest.mark.parametrize("name", CONFIG_LOCATIONS)
+def test_every_documented_tool_config_location_is_a_check(where, name):
+    roots = own_checks.package_roots(TREE)
+    assert own_checks.is_check(where + name, roots)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "web/src/app.ts",
+        "web/index.html",
+        "agents/a/agent.py",  # a flat-layout package's folder is its source
+        "old/mod.py",  # setup.py alone makes no package root
+        "crates/core/src/lib.rs",
+        "data/.gitkeep",
+        "web/.DS_Store",
+        "docs/guide.md",
+    ],
+)
+def test_source_and_noise_beside_a_package_are_not_checks(path):
+    assert not own_checks.is_check(path, own_checks.package_roots(TREE))
+
+
+def test_a_utf16_or_binary_gate_file_is_read_or_skipped(tmp_path):
+    up = tmp_path / "up"
+    (up / "tools").mkdir(parents=True)
+    _git(up, "init", "-q", "-b", "main")
+    (up / "requirements.txt").write_bytes("-r tools/pins.txt\n".encode("utf-16"))  # has a BOM
+    (up / "logo.bin").write_bytes(b"\x00\x01 tools/other.txt")  # a binary names nothing
+    (up / "tools" / "pins.txt").write_text("a==1\n")
+    (up / "tools" / "other.txt").write_text("x\n")
+    _git(up, "add", ".")
+    _git(up, "commit", "-qm", "base")
+    base = _rev(up, "HEAD")
+    _git(up, "checkout", "-q", "-b", "pr")
+    (up / "tools" / "pins.txt").write_text("a==0\n")
+    (up / "tools" / "other.txt").write_text("y\n")
+    _git(up, "commit", "-qam", "loosen")
+    assert _listed(_own(up, base)) == ["tools/pins.txt"]
+
+
+def test_a_package_token_that_leaves_its_folder_is_resolved(tmp_path):
+    base = {
+        "web/package.json": '{"scripts": {"lint": "node ../shared/lint.js"}}\n',
+        "shared/lint.js": "x\n",
+    }
+    assert _monorepo(tmp_path, base, {"shared/lint.js": "loosened\n"}) == ["shared/lint.js"]
+
+
+@pytest.mark.parametrize(
+    ("glob", "path", "want"),
+    [
+        ("agents/*", "agents/aidos", True),
+        ("agents/*", "agents/aidos/agent.py", False),  # a workspace's members are folders
+        ("hosts/**", "hosts/cli/rendering.py", True),
+        ("tools/*.py", "tools/g.py", True),
+        ("tools/*.py", "tools/sub/g.py", False),
+        ("src/**/*.ts", "src/a.ts", True),
+        ("src/**/*.ts", "src/x/y/a.ts", True),
+        ("test/setup?.ts", "test/setup1.ts", True),
+        ("test/setup?.ts", "test/setup/.ts", False),
+        ("cfg/[ab].toml", "cfg/a.toml", True),
+        ("cfg/[!ab].toml", "cfg/a.toml", False),
+        ("cfg/[!ab].toml", "cfg/c.toml", True),
+        ("a.b/*", "aXb/c", False),
+    ],
+)
+def test_a_gate_glob_matches_paths_folder_by_folder(glob, path, want):
+    assert bool(own_checks.path_glob(glob).match(path)) is want
+
+
+def test_a_workspace_member_glob_does_not_name_its_source(tmp_path):
+    base = {
+        "pyproject.toml": '[tool.uv.workspace]\nmembers = ["agents/*"]\n',
+        "agents/a/agent.py": "x\n",
+    }
+    assert _monorepo(tmp_path, base, {"agents/a/agent.py": "y\n"}) == ["none"]

@@ -38,5 +38,14 @@ The active TODO list for whatever's in flight right now. Queued specs live in [R
   added by the change) is a root, its own non-prose files are checks and gate files (tokens also
   read from that folder), and dotfiles count at any depth; .githooks/ and .husky/ are gate files.
   Live: klepsydra and myo-lever repros now list the loosened config; 4 hand mutants red.
-- 📋 Next: verify pass of round 8, CI, merge.
+- ✅ Round 9 (fresh Opus): 3 Should-fix fixed structurally: a UTF-16 root gate file crashed the
+  script (gate files now read as bytes through one `cat-file --batch`, UTF-16 by BOM, binaries
+  skipped); a flat-layout package listed its source (a package folder now counts only its
+  config-shaped files and manifests; setup.py is no manifest); dot-folder config was missed (any
+  dot-folder or dotfile at any depth counts). Package tokens are normalized (`../shared/x`).
+  Gate globs match folder by folder (`agents/*` names folders, not every file under them).
+  Locked by a sweep table of 35 documented tool-config locations x 3 places, negatives, and 6
+  hand mutants. Live: kourai agent edits no longer strong; fl-execution UTF-16 no crash;
+  myo-lever and klepsydra config listed.
+- 📋 Next: verify round 10, CI, merge.
 - Verify: `uv run pytest tests/test_skill_context.py tests/test_elenchus_own_checks.py`; `make guards`.
