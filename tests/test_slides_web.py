@@ -29,7 +29,7 @@ HAVE_LIBS = all(
 def _chromium_runs() -> bool:
     if not HAVE_LIBS:
         return False
-    from playwright.sync_api import sync_playwright  # ty: ignore[unresolved-import]
+    from playwright.sync_api import sync_playwright  # ty: ignore[import-not-found]
 
     try:
         with sync_playwright() as pw:
@@ -104,7 +104,7 @@ def web(tmp_path):
         path.write_text(text.replace(old, new, 1))
         return deck / "index.html"
 
-    edit.index = deck / "index.html"  # ty: ignore[unresolved-attribute]
+    edit.index = deck / "index.html"  # ty: ignore[missing-attribute]
     return edit
 
 
@@ -507,8 +507,8 @@ def test_render_prints_one_pdf_page_per_slide(sl, web, tmp_path):
 
 @needs_browser
 def test_pptx_exports_every_slide_as_a_picture_with_its_script(sl, web, tmp_path):
-    from pptx import Presentation  # ty: ignore[unresolved-import]
-    from pptx.enum.shapes import MSO_SHAPE_TYPE  # ty: ignore[unresolved-import]
+    from pptx import Presentation  # ty: ignore[import-not-found]
+    from pptx.enum.shapes import MSO_SHAPE_TYPE  # ty: ignore[import-not-found]
 
     out = tmp_path / "deck.pptx"
     assert sl.pptx_html(web.index, out, tmp_path / "images") == 0
@@ -962,8 +962,8 @@ def test_a_phone_failure_is_not_blamed_on_files_missing_everywhere(sl, tmp_path)
 
 @needs_browser
 def test_pptx_alt_text_carries_the_body_and_skips_web_only_text(sl, web, tmp_path):
-    from pptx import Presentation  # ty: ignore[unresolved-import]
-    from pptx.enum.shapes import MSO_SHAPE_TYPE  # ty: ignore[unresolved-import]
+    from pptx import Presentation  # ty: ignore[import-not-found]
+    from pptx.enum.shapes import MSO_SHAPE_TYPE  # ty: ignore[import-not-found]
 
     index = web(
         CLAIM, CLAIM + '<p>Body sentence one.</p><p class="web-only">Hover for a summary.</p>'
@@ -1075,7 +1075,7 @@ def test_render_and_pptx_pictures_leave_the_speaker_notes_out(sl, web, tmp_path,
     # The pictures are the same pixels as a deck that never asked for notes.
     assert _pictures(noted_render) == _pictures(clean_render)
     assert _pictures(noted_pptx) == _pictures(clean_pptx)
-    from pptx import Presentation  # ty: ignore[unresolved-import]
+    from pptx import Presentation  # ty: ignore[import-not-found]
 
     # The script still reaches PowerPoint's notes, where the presenter reads it.
     notes = [s.notes_slide.notes_text_frame.text for s in Presentation(str(out)).slides]
@@ -1160,7 +1160,7 @@ def test_alt_text_is_cut_at_a_word(sl):
 def test_the_sideways_check_fires_only_when_a_phone_pans(sl, viewport_tag, width, sideways):
     """A page with a viewport tag and content wider than the phone pans; a page without one is
     zoomed out to fit, so it does not."""
-    from playwright.sync_api import sync_playwright  # ty: ignore[unresolved-import]
+    from playwright.sync_api import sync_playwright  # ty: ignore[import-not-found]
 
     meta = "<meta name=viewport content='width=device-width,initial-scale=1'>" * viewport_tag
     page_html = f"<!doctype html><head>{meta}</head><body><div style='width:{width}px'>x</div>"

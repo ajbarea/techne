@@ -731,7 +731,7 @@ def _on_screen(box: dict, frame: dict, view: dict) -> dict | None:
 def _pad(png: bytes, visible: dict, frame: dict) -> bytes:
     """A picture of the visible part of a slide placed on a canvas the slide's size, the rest
     filled with the colour at the visible part's corner."""
-    from PIL import Image  # ty: ignore[unresolved-import]
+    from PIL import Image  # ty: ignore[import-not-found]
 
     with Image.open(io.BytesIO(png)) as part:
         scale = part.width / visible["width"]
@@ -802,27 +802,27 @@ def _hex(c) -> str:
 
 def _alpha(srgb, alpha: float) -> None:
     """Set a colour element's opacity (DrawingML counts it in thousandths of a percent)."""
-    from lxml import etree  # ty: ignore[unresolved-import]
-    from pptx.oxml.ns import qn  # ty: ignore[unresolved-import]
+    from lxml import etree  # ty: ignore[import-not-found]
+    from pptx.oxml.ns import qn  # ty: ignore[import-not-found]
 
     etree.SubElement(srgb, qn("a:alpha"), {"val": str(round(alpha * 100000))})
 
 
 def rpr_colour(run):
-    from pptx.oxml.ns import qn  # ty: ignore[unresolved-import]
+    from pptx.oxml.ns import qn  # ty: ignore[import-not-found]
 
     return run._r.get_or_add_rPr().find(f"{qn('a:solidFill')}/{qn('a:srgbClr')}")
 
 
 def _rgb(c):
-    from pptx.dml.color import RGBColor  # ty: ignore[unresolved-import]
+    from pptx.dml.color import RGBColor  # ty: ignore[import-not-found]
 
     return RGBColor(*c[:3])
 
 
 def uniform_colour(png: bytes) -> tuple[int, int, int] | None:
     """The one colour a picture is filled with, or None."""
-    from PIL import Image  # ty: ignore[unresolved-import]
+    from PIL import Image  # ty: ignore[import-not-found]
 
     with Image.open(io.BytesIO(png)) as im:
         rgb = im.convert("RGB")
@@ -834,8 +834,8 @@ def uniform_colour(png: bytes) -> tuple[int, int, int] | None:
 
 def _set_background_picture(slide, png: bytes) -> None:
     """Put png in the slide's background, where it cannot be selected or dragged."""
-    from lxml import etree  # ty: ignore[unresolved-import]
-    from pptx.oxml.ns import qn  # ty: ignore[unresolved-import]
+    from lxml import etree  # ty: ignore[import-not-found]
+    from pptx.oxml.ns import qn  # ty: ignore[import-not-found]
 
     _, rid = slide.part.get_or_add_image_part(io.BytesIO(png))
     c_sld = slide._element.find(qn("p:cSld"))
@@ -883,7 +883,7 @@ _NUMBERING = {
 
 
 def _alignment(css: str, rtl: bool):
-    from pptx.enum.text import PP_ALIGN  # ty: ignore[unresolved-import]
+    from pptx.enum.text import PP_ALIGN  # ty: ignore[import-not-found]
 
     if css == "start":
         css = "right" if rtl else "left"
@@ -922,7 +922,7 @@ def _collapse(runs: list[dict]) -> list[dict]:
 
 def _fill_text(tf, runs: list[dict], pt_per_px: float, block: dict, fonts: dict) -> None:
     """Write runs into a text frame: one paragraph, a line break per newline."""
-    from pptx.util import Pt  # ty: ignore[unresolved-import]
+    from pptx.util import Pt  # ty: ignore[import-not-found]
 
     tf.clear()
     p = tf.paragraphs[0]
@@ -966,8 +966,8 @@ def _fill_text(tf, runs: list[dict], pt_per_px: float, block: dict, fonts: dict)
 
 def _bullet(p, info: dict, pt_per_px: float, emu_per_px: float) -> None:
     """A native bullet or number with a hanging indent, as PowerPoint draws its own lists."""
-    from lxml import etree  # ty: ignore[unresolved-import]
-    from pptx.oxml.ns import qn  # ty: ignore[unresolved-import]
+    from lxml import etree  # ty: ignore[import-not-found]
+    from pptx.oxml.ns import qn  # ty: ignore[import-not-found]
 
     ppr = p._p.get_or_add_pPr()
     indent = int(info["indent"] * emu_per_px)
@@ -985,7 +985,7 @@ def _bullet(p, info: dict, pt_per_px: float, emu_per_px: float) -> None:
 
 
 def _text_box(shapes, item: dict, geo: Geometry, fonts: dict, placeholder=None):
-    from pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE  # ty: ignore[unresolved-import]
+    from pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE  # ty: ignore[import-not-found]
 
     x, y, w, h = item["x"], item["y"], item["w"], item["h"]
     bullet = item.get("bullet")
@@ -1013,8 +1013,8 @@ def _text_box(shapes, item: dict, geo: Geometry, fonts: dict, placeholder=None):
 
 
 def _cell_border(cell, side: str, border: dict, geo: Geometry) -> None:
-    from lxml import etree  # ty: ignore[unresolved-import]
-    from pptx.oxml.ns import qn  # ty: ignore[unresolved-import]
+    from lxml import etree  # ty: ignore[import-not-found]
+    from pptx.oxml.ns import qn  # ty: ignore[import-not-found]
 
     tag = {"left": "a:lnL", "right": "a:lnR", "top": "a:lnT", "bottom": "a:lnB"}[side]
     tc_pr = cell._tc.get_or_add_tcPr()
@@ -1043,9 +1043,9 @@ def _cell_border(cell, side: str, border: dict, geo: Geometry) -> None:
 
 
 def _table(shapes, item: dict, geo: Geometry, fonts: dict) -> None:
-    from pptx.enum.text import MSO_ANCHOR  # ty: ignore[unresolved-import]
-    from pptx.oxml.ns import qn  # ty: ignore[unresolved-import]
-    from pptx.util import Emu  # ty: ignore[unresolved-import]
+    from pptx.enum.text import MSO_ANCHOR  # ty: ignore[import-not-found]
+    from pptx.oxml.ns import qn  # ty: ignore[import-not-found]
+    from pptx.util import Emu  # ty: ignore[import-not-found]
 
     rows = item["rows"]
     # Lay cells on a grid, as HTML's table model does with row and column spans.
@@ -1146,8 +1146,8 @@ class Geometry:
 
 def build(slides: list[Captured], title_only_layout: int, alt_text) -> tuple[Any, dict]:
     """The Presentation, and a tally of what it holds."""
-    from pptx import Presentation  # ty: ignore[unresolved-import]
-    from pptx.util import Emu  # ty: ignore[unresolved-import]
+    from pptx import Presentation  # ty: ignore[import-not-found]
+    from pptx.util import Emu  # ty: ignore[import-not-found]
 
     prs = Presentation()
     first = slides[0].frame

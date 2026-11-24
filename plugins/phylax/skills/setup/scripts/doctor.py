@@ -19,7 +19,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True  # a doctor leaves no file behind, not even in the plugin cache
 PLUGIN = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PLUGIN / "_shared"))
-import doctor_lib as d  # noqa: E402  # ty: ignore[unresolved-import]
+import doctor_lib as d  # noqa: E402  # ty: ignore[import-not-found]
 
 HOOKS = PLUGIN / "hooks"
 OPTIONS = (
@@ -212,7 +212,7 @@ def budget(values: dict[str, str]) -> d.Check:
 
 def stale_restart():
     sys.path.insert(0, str(HOOKS))
-    import stale_restart as module  # ty: ignore[unresolved-import]
+    import stale_restart as module  # ty: ignore[import-not-found]
 
     return module
 

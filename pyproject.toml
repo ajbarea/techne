@@ -9,18 +9,18 @@ dependencies = []
 dev = [
     "pytest>=9.2.0",
     "pytest-subprocess>=1.5",
-    "ruff>=0.17.3",
-    "ty>=0.0.95,<0.1",
-    "zensical>=0.0.74",
+    "ruff>=0.17.5",
+    "ty>=0.0.104,<0.1",
+    "zensical>=0.1.1",
     "shellcheck-py>=0.11",
-    "zizmor>=1.31.1",
+    "zizmor>=1.32.0",
     "pytest-codspeed>=5.0.4,<5.1",
     "mutmut==3.8.1",
 ]
 epistole = [
     "mcp>=2.3,<3",
-    "google-api-python-client>=2.180",
-    "google-auth>=2.62.0",
+    "google-api-python-client>=2.202.0",
+    "google-auth>=2.62.2",
     "google-auth-oauthlib>=1.2",
 ]
 heuresis = ["pyyaml>=6.0.2"]
