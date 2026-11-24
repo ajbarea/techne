@@ -572,11 +572,32 @@ CONFIG_LOCATIONS = [
     "uv.lock",
     "Cargo.lock",
     "package-lock.json",
+    "karma.conf.js",
+    "wdio.conf.ts",
+    "stryker.conf.js",
+    "Gruntfile.js",
+    "phpstan.neon",
+    "phpunit.xml.dist",
+    "rust-toolchain",
+    "Rakefile",
+    "analysis_options.yaml",
+    "Directory.Build.props",
+    "stylecop.json",
+    "CMakeLists.txt",
+    "BUILD.bazel",
+    "Dockerfile",
 ]
-TREE = ["web/package.json", "crates/core/Cargo.toml", "agents/a/pyproject.toml", "old/setup.py"]
+TREE = [
+    "web/package.json",
+    "crates/core/Cargo.toml",
+    "agents/a/pyproject.toml",
+    "old/setup.py",
+    "app/pubspec.yaml",
+    "net/App.csproj",
+]
 
 
-@pytest.mark.parametrize("where", ["", "web/", "crates/core/"])
+@pytest.mark.parametrize("where", ["", "web/", "crates/core/", "app/", "net/"])
 @pytest.mark.parametrize("name", CONFIG_LOCATIONS)
 def test_every_documented_tool_config_location_is_a_check(where, name):
     roots = own_checks.package_roots(TREE)
@@ -594,6 +615,9 @@ def test_every_documented_tool_config_location_is_a_check(where, name):
         "data/.gitkeep",
         "web/.DS_Store",
         "docs/guide.md",
+        ".changeset/brave-cats.md",  # prose in a dot-folder
+        "net/Program.cs",
+        "app/lib/main.dart",
     ],
 )
 def test_source_and_noise_beside_a_package_are_not_checks(path):
@@ -638,9 +662,6 @@ def test_a_package_token_that_leaves_its_folder_is_resolved(tmp_path):
         ("src/**/*.ts", "src/x/y/a.ts", True),
         ("test/setup?.ts", "test/setup1.ts", True),
         ("test/setup?.ts", "test/setup/.ts", False),
-        ("cfg/[ab].toml", "cfg/a.toml", True),
-        ("cfg/[!ab].toml", "cfg/a.toml", False),
-        ("cfg/[!ab].toml", "cfg/c.toml", True),
         ("a.b/*", "aXb/c", False),
     ],
 )
@@ -654,3 +675,43 @@ def test_a_workspace_member_glob_does_not_name_its_source(tmp_path):
         "agents/a/agent.py": "x\n",
     }
     assert _monorepo(tmp_path, base, {"agents/a/agent.py": "y\n"}) == ["none"]
+
+
+def test_prose_is_never_a_gate_file(tmp_path):
+    base = {"AGENTS.md": "Run `python3 src/x.py` to lint.\n", "src/x.py": "x\n"}
+    assert _monorepo(tmp_path, base, {"src/x.py": "y\n"}) == ["none"]
+
+
+def test_a_folderless_glob_names_nothing(tmp_path):
+    base = {".pre-commit-config.yaml": "repos: []\nfiles: '**/*.py'\n", "src/x.py": "x\n"}
+    assert _monorepo(tmp_path, base, {"src/x.py": "y\n"}) == ["none"]
+
+
+def test_a_utf8_bom_on_a_gate_file_keeps_its_first_token(tmp_path):
+    base = {"lint-paths.txt": "\ufefftools/pins.txt\n", "tools/pins.txt": "a==1\n"}
+    assert _monorepo(tmp_path, base, {"tools/pins.txt": "a==0\n"}) == ["tools/pins.txt"]
+
+
+def test_odd_file_names_neither_crash_nor_shift_the_gate_reads(tmp_path):
+    up = tmp_path / "up"
+    up.mkdir()
+    _git(up, "init", "-q", "-b", "main")
+    (up / "tools").mkdir()
+    (up / os.fsdecode(b"caf\xe9.toml")).write_text("x\n")  # not UTF-8
+    (up / "odd\nname.toml").write_text("tools/b.py\n")  # a newline cat-file cannot take
+    (up / "z.toml").write_text("tools/a.py\n")
+    for name in ("a.py", "b.py"):
+        (up / "tools" / name).write_text("x\n")
+    _git(up, "add", ".")
+    _git(up, "commit", "-qm", "base")
+    base = _rev(up, "HEAD")
+    _git(up, "checkout", "-q", "-b", "pr")
+    (up / os.fsdecode(b"caf\xe9.toml")).write_text("y\n")
+    for name in ("a.py", "b.py"):
+        (up / "tools" / name).write_text("y\n")
+    _git(up, "commit", "-qam", "edit")
+    out = _own(up, base)
+    assert out.returncode == 0, out.stderr
+    listed = _listed(out)
+    assert "tools/a.py" in listed and "tools/b.py" not in listed
+    assert any(name.startswith("caf") for name in listed)

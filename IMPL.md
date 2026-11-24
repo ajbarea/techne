@@ -47,5 +47,13 @@ The active TODO list for whatever's in flight right now. Queued specs live in [R
   Locked by a sweep table of 35 documented tool-config locations x 3 places, negatives, and 6
   hand mutants. Live: kourai agent edits no longer strong; fl-execution UTF-16 no crash;
   myo-lever and klepsydra config listed.
-- 📋 Next: verify round 10, CI, merge.
+- ✅ Round 10 (fresh Opus): 4 Should-fix fixed: git output read as bytes and decoded as file
+  names (a non-UTF-8 name crashed ls-tree), output printed escaped; prose (AGENTS.md, CLAUDE.md)
+  is never a gate file; the folderless-glob guard and cat-file's newline-name filter now have
+  tests; config by shape (`*.conf.js`, `.neon`, `.dist`, `.props`, `*.csproj`, Bazel, CMake,
+  Rakefile, Dockerfile) and Dart/.NET/CMake/Bazel package roots; UTF-8 BOM; prose in a
+  dot-folder is not a check; path_glob's unreachable bracket code removed. SKILL.md states the
+  coverage limit: a file the list leaves out is not cleared. 7 hand mutants red.
+- 📋 Next: verify round 11 (the name list is now a stated limit: a missed tool is a follow-up,
+  not a hold), CI, merge.
 - Verify: `uv run pytest tests/test_skill_context.py tests/test_elenchus_own_checks.py`; `make guards`.

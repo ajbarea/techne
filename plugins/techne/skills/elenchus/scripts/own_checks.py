@@ -16,6 +16,8 @@ is marked, the weaker signal), or `none`.
 from __future__ import annotations
 
 import argparse
+import io
+import os
 import posixpath
 import re
 import subprocess
@@ -113,11 +115,19 @@ MANIFESTS = {
     "build.gradle.kts",
     "Package.swift",
     "mix.exs",
+    "pubspec.yaml",
+    "CMakeLists.txt",
+    "MODULE.bazel",
+    "WORKSPACE",
+    "Directory.Build.props",
 }
 REPO_ROOT = frozenset({""})
 # A package root's file counts only in a config format; its source counts when a gate names it.
 CONFIG_SHAPED = re.compile(
-    r"(?i)^.*\.(toml|json|jsonc|json5|ya?ml|ini|cfg|conf|properties|txt|lock|xml|kts)$"
+    r"(?i)^(.*\.(toml|json|jsonc|json5|ya?ml|ini|cfg|conf|properties|txt|lock|xml|kts|neon|dist"
+    r"|props|targets|csproj|fsproj|vbproj|sln|cabal|gradle|bazel|bzl|cmake)"
+    r"|.*\.conf\.[cm]?[jt]s|(grunt|gulp)file\.[cm]?[jt]s|rakefile|rust-toolchain|build|workspace"
+    r"|dockerfile|containerfile|procfile)$"
 )
 # Files that hold no rule.
 NOISE = {".gitkeep", ".keep", ".DS_Store"}
@@ -128,9 +138,16 @@ def folder_of(path: str) -> str:
     return "/".join(PurePosixPath(path).parts[:-1])
 
 
+PROJECT_FILE = re.compile(r"(?i)^.*\.(csproj|fsproj|vbproj|cabal|gemspec)$")
+
+
 def package_roots(paths) -> frozenset[str]:
-    """The repo root and the folder of every manifest among PATHS."""
-    return REPO_ROOT | {folder_of(p) for p in paths if PurePosixPath(p).name in MANIFESTS}
+    """The repo root and the folder of every manifest or project file among PATHS."""
+    return REPO_ROOT | {
+        folder_of(p)
+        for p in paths
+        if PurePosixPath(p).name in MANIFESTS or PROJECT_FILE.match(PurePosixPath(p).name)
+    }
 
 
 def is_check(path: str, roots: frozenset[str] = REPO_ROOT) -> bool:
@@ -142,9 +159,9 @@ def is_check(path: str, roots: frozenset[str] = REPO_ROOT) -> bool:
         return True
     # Tool config lives in dot-folders and dotfiles at any depth (.cargo/config.toml,
     # .config/nextest.toml, .devcontainer/, web/.storybook/main.ts, .prettierrc).
-    if any(f.startswith(".") for f in folders):
-        return True
     prose = ROOT_PROSE.match(p.name)
+    if not prose and any(f.startswith(".") for f in folders):
+        return True
     if not prose and (p.name.startswith(".") or not folders):
         return True  # a dotfile, or any file at the repo root
     if folder_of(path) in roots and (p.name in MANIFESTS or CONFIG_SHAPED.match(p.name)):
@@ -161,7 +178,7 @@ def decode(raw: bytes) -> str | None:
     """A gate file's text (UTF-16 by its byte-order mark, else UTF-8); None for a binary."""
     if raw[:2] in (b"\xff\xfe", b"\xfe\xff"):
         return raw.decode("utf-16", "replace")
-    return None if b"\0" in raw[:8000] else raw.decode("utf-8", "replace")
+    return None if b"\0" in raw[:8000] else raw.decode("utf-8-sig", "replace")
 
 
 def read_base(repo: str, base: str, names: list[str]) -> dict[str, bytes]:
@@ -172,7 +189,7 @@ def read_base(repo: str, base: str, names: list[str]) -> dict[str, bytes]:
         return {}
     out = subprocess.run(
         ["git", "-C", repo, "cat-file", "--batch"],
-        input=b"".join(f"{base}:{n}\n".encode() for n in names),
+        input=b"".join(os.fsencode(f"{base}:{n}\n") for n in names),
         capture_output=True,
         env=_env(),
     )
@@ -182,7 +199,7 @@ def read_base(repo: str, base: str, names: list[str]) -> dict[str, bytes]:
     for name in names:
         end = data.index(b"\n", at)
         header = data[at:end].split()
-        if header[-1] == b"missing" or len(header) != 3:
+        if header[-1] == b"missing":
             at = end + 1
             continue
         size = int(header[2])
@@ -203,11 +220,15 @@ def _env() -> dict[str, str]:
 
 
 def git(repo: str, *args: str) -> str:
-    out = subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True, env=_env())
+    """git's stdout, decoded as the OS decodes file names, so a name that is not UTF-8 survives
+    (os.fsencode gives its bytes back)."""
+    out = subprocess.run(["git", "-C", repo, *args], capture_output=True, env=_env())
     if out.returncode != 0:
-        first = (out.stderr.strip().splitlines() or ["no output"])[0]
-        raise SystemExit(f"own_checks: git {args[0]} failed: {first}")
-    return out.stdout
+        err = out.stderr.decode(errors="replace").strip()
+        raise SystemExit(
+            f"own_checks: git {args[0]} failed: {(err.splitlines() or ['no output'])[0]}"
+        )
+    return os.fsdecode(out.stdout)
 
 
 def resolve(repo: str, base: str, head: str | None) -> tuple[str, str]:
@@ -247,7 +268,7 @@ def gate_names(repo: str, base: str, listed: list[str], roots: frozenset[str]):
         for n in listed
         if (n.startswith(".github/workflows/") and n.endswith((".yml", ".yaml")))
         or n.startswith((".githooks/", ".husky/"))
-        or (folder_of(n) in roots and is_check(n, roots))
+        or (folder_of(n) in roots and is_check(n, roots) and not ROOT_PROSE.match(n))
     ]
     paths: set[str] = set()
     globs: list[str] = []
@@ -304,12 +325,6 @@ def path_glob(glob: str) -> re.Pattern[str]:
         elif glob[i] == "?":
             out.append("[^/]")
             i += 1
-        elif glob[i] == "[" and (end := glob.find("]", i + 2)) > 0:
-            inner = glob[i + 1 : end]
-            out.append(
-                "[" + ("^" + inner[1:] if inner[0] in "!^" else inner).replace("\\", "\\\\") + "]"
-            )
-            i = end + 1
         else:
             out.append(re.escape(glob[i]))
             i += 1
@@ -322,6 +337,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--repo", default=".")
     ap.add_argument("--head", help="the reviewed full commit id (headRefOid); default HEAD")
     args = ap.parse_args(argv)
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        sys.stdout.reconfigure(errors="backslashreplace")  # a name that is not UTF-8 prints escaped
     base, head = resolve(args.repo, args.base, args.head)
     changed = git(
         args.repo, "diff", "-z", "--no-renames", "--no-relative", "--name-only", f"{base}...{head}"
