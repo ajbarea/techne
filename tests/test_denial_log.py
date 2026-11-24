@@ -360,6 +360,23 @@ REDACT_CASES = [
     ("curl -E cert.pem:" + FAKE + " u", "curl -E", FAKE),
     ("curl --pa" + "ss " + FAKE + " u", "curl", FAKE),
     ("aws configure set aws_secret_" + "access_key " + FAKE, "aws configure set", FAKE),
+    ("aws secretsmanager create-secret --name n --secret-" + "string " + FAKE, "--name n", FAKE),
+    (
+        "aws secretsmanager create-secret --secret-"
+        + 'string "{\\"user\\":\\"diegor\\",'
+        + '\\"pass'
+        + 'word\\":\\"'
+        + FAKE
+        + '\\"}"',
+        "diegor",
+        FAKE,
+    ),
+    ("aws ssm put-parameter --name /x --va" + 'lue "' + FAKE + '" --type SecureString', "/x", FAKE),
+    ("curl -su alice:" + FAKE + " h", "curl -su", FAKE),
+    ("curl -vU alice:" + FAKE + " h", "curl -vU", FAKE),
+    ("npm config set '//r/:_auth" + "Token' " + FAKE, "npm config set", FAKE),
+    ("curl -x u:" + FAKE + "@proxy:8080 h", "@proxy:8080", FAKE),
+    ("curl --client-secret=" + FAKE + " x", "--client-secret", FAKE),
     (DOCKER_LOGIN + " ghcr.io -u aj " + PASSWORD_FLAG + " " + FAKE_WORD, "ghcr.io", FAKE_WORD),
     ("uv publish -t pypi-AgE" + "p" * 30, "uv publish -t", "pypi-AgE"),
     ("npm_" + "n" * 36, "[REDACTED]", "npm_"),
@@ -400,6 +417,8 @@ def test_redact_removes_each_secret_shape(dl, text, kept, gone):
         "uv run -p 3.12 pytest",
         "npm run build -- -p x",
         "aws s3 ls s3://bucket",
+        "curl -x http://proxy:8080 h",
+        "aws ssm get-parameter --name /x",
     ],
 )
 def test_redact_leaves_look_alikes_alone(dl, text):

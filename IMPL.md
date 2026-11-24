@@ -120,6 +120,12 @@ The active TODO list for whatever's in flight right now. Queued specs live in [R
   quoted curl -u, -HName:, --pass, -E/--cert, aws configure; the next-call record is claimed
   by a rename, so two calls at once log one row; docs note the parallel-batch case.
   4 mutants red (prefilter, all-of words, claim, scheme).
+- ✅ Verify on 2553a05 (2 Blocking, 1 Should-fix): aws `--secret-string` (a flag name holding
+  the word not at its end) and its escaped-JSON example (the key trigger missed `password\"`),
+  `ssm put-parameter --value`, bundled `curl -su`; Nits taken: quoted npm key, `curl -x u:p@`.
+- CodSpeed (advisory; only validate is required): in-process the pending check is 3.1 us
+  (access() 1.7 us, the path 1.1 us), -18 to -20% on a triage that does almost nothing else;
+  whole-process hyperfine stays within 15%.
 - 📋 Next: fresh Opus verify (over-redaction is a Nit), CI green incl. mutation, merge.
 - Verify: `uv run pytest tests/test_denial_log.py tests/test_phylax_doctor.py tests/test_git_guards.py
   tests/test_model_guard.py tests/test_email_greeting.py tests/test_command_shapes.py tests/bench`;

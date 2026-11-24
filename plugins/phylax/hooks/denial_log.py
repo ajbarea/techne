@@ -83,14 +83,16 @@ TOKEN_PATTERNS = (
     (
         # "key": "value" in JSON or a dict's repr: the key is quoted, so prose like
         # "auth: fix" stays.
-        r"(?i)(['\"][A-Za-z0-9_-]{0,64}(?:api[_-]?key|passw(?:or)?d|secret|token|auth)['\"])"
-        r"\s*:\s*(?:'(?![\s)]|\Z)[^']*(?:'|\Z)|\"(?![\s)]|\Z)[^\"]*(?:\"|\Z)|[^\s'\",})]+)",
+        r"(?i)(\\?['\"][A-Za-z0-9_-]{0,64}(?:api[_-]?key|passw(?:or)?d|secret|token|auth)\\?['\"])"
+        r"\s*:\s*(?:\\\"[^\"\\]*(?:\\?\"|\Z)|'(?![\s)]|\Z)[^']*(?:'|\Z)"
+        r"|\"(?![\s)]|\Z)[^\"]*(?:\"|\Z)|[^\s'\",})\\]+)",
         r"\1: [REDACTED]",
     ),
     (
         # A value that is a reference (docker's `--secret id=...`) or a redirect stays. Prose
         # naming the flag ("add --token flag") loses the next word: the safe direction.
-        r"(?i)(--[a-z0-9_-]{0,64}(?:api[_-]?key|passw(?:or)?d|secret|token|bearer))\s+(?!id=|src=)"
+        r"(?i)(--[a-z0-9_-]{0,64}(?:api[_-]?key|passw(?:or)?d|secret|token|bearer)[a-z0-9_-]{0,64})"
+        r"(?:=|\s+)(?!id=|src=)"
         r"(?:'[^']*(?:'|\Z)|\"[^\"]*(?:\"|\Z)|[^-\s<>|$]\S*)",
         r"\1 [REDACTED]",
     ),
@@ -125,7 +127,7 @@ TRIGGERS: tuple[tuple[str | tuple[str, ...], ...], ...] = (
     ("sshpass",),
     ("-h", "--header", "extraheader"),
     tuple((k, "=") for k in _KEY_WORDS),
-    tuple(k + q for k in _QUOTED_KEYS for q in "'\""),
+    tuple(k + q for k in _QUOTED_KEYS for q in "'\"\\"),  # a backslash: JSON in a shell string
     tuple(("--", k) for k in ("key", "pass", "secret", "token", "bearer")),
 )
 
@@ -148,11 +150,12 @@ ANCHORED: tuple[tuple[tuple[str, ...], tuple[str, ...], tuple[tuple[str, str], .
         ("curl",),
         (
             (
-                r"(\s(?:-u|--user|-U|--proxy-user)(?:=|\s+)|\s-[uU](?=[^\s=-]))"
+                r"(\s(?:-[A-Za-z]{0,8}[uU]|--user|--proxy-user)(?:=|\s+)|\s-[uU](?=[^\s=-]))"
                 r"(?:'[^']*(?:'|\Z)|\"[^\"]*(?:\"|\Z)|[^\s:'\"=]*:\S*)",
                 r"\1[REDACTED]",
             ),
             (r"(\s(?:-b|--cookie|--pass|-E|--cert)(?:=|\s+))" + QUOTED_OR_WORD, r"\1[REDACTED]"),
+            (r"(\s(?:-x|--proxy)(?:=|\s+)['\"]?)[^\s:@'\"/]*:[^\s@'\"]*(?=@)", r"\1[REDACTED]"),
         ),
     ),
     (
@@ -179,7 +182,12 @@ ANCHORED: tuple[tuple[tuple[str, ...], tuple[str, ...], tuple[tuple[str, str], .
         (r"\bnpm\b", r"\bset\b"),
         ("npm",),
         # From a word's start only, so a long run without spaces is read once.
-        ((r"(?<!\S)(\S{0,500}?_(?:auth(?:Token)?|password)(?:=|\s+))\S+", r"\1[REDACTED]"),),
+        ((r"(?<!\S)(\S{0,500}?_(?:auth(?:Token)?|password)['\"]?(?:=|\s+))\S+", r"\1[REDACTED]"),),
+    ),
+    (
+        (r"\baws\b", r"\bput-parameter\b"),
+        ("put-parameter",),
+        ((r"(\s--value(?:=|\s+))" + QUOTED_OR_WORD, r"\1[REDACTED]"),),
     ),
     (
         (r"\baws\b", r"\bconfigure\b"),
