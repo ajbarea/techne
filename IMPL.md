@@ -147,6 +147,13 @@ The active TODO list for whatever's in flight right now. Queued specs live in [R
   The two `is_arith` equivalent keys went stale (is_arith is a wrapper now): dropped; any
   arith_reading survivors get registered from CI's keys. Docs: the stale `env` option claim
   is gone; the parser-limit and backstop refusals and unwrapped wrappers (uv run, flock) named.
+- ✅ Verify on 8d08822 (2 Blocking, real pushes): a redefined alias that named a built-in
+  (`alias.co = checkout`, then `git config alias.co 'push --no-verify' && git co`) passed, since
+  the built-in test ran on the resolved name; and the alias path watched only `git config`,
+  not a config file written by `printf >>`, `echo >>` or `sed -i`. Built-in is now decided on
+  the name as typed, and both paths share config_changed() (git config, a hooks-path word, a
+  written config file, a write under the git folder). 4 mutants red; an alias after writing an
+  ordinary file still passes.
 - 📋 Next: CI green (validate, mutation shards), one verify on this fix, merge.
 - Verify: `uv run pytest tests/test_private_names.py tests/test_secret_guard.py
   tests/test_git_guards.py tests/test_denial_log.py tests/test_sisters_security_floor.py`, also with

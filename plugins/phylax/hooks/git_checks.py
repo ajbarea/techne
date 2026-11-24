@@ -1911,6 +1911,21 @@ class Guards:
             return None
         return genv, args
 
+    def config_changed(
+        self, lookup: tuple[dict[str, str], list[str]], folders: tuple[Path, ...]
+    ) -> bool:
+        """Whether an earlier command in this call changed git's config or a file under its
+        FOLDERS (common dir, git dir, hooks; git's absolute paths have symlinks resolved): a
+        `git config`, a hooks-path word, a config file it wrote, or a write or change there."""
+        return (
+            self.hooks_changed
+            or self.config_file_fresh(lookup)
+            or any(
+                under(path, folders) or is_git_config(path)
+                for path in real_paths([*self.written, *self.changed])
+            )
+        )
+
     def check_push_hook(self, cmd: Command, env: dict[str, str]) -> None:
         """_check_push_hook, refusing the push when the check itself fails: an error there
         must not let a push out unscanned, whatever the blocking options say."""
@@ -2002,11 +2017,11 @@ class Guards:
                 "for the owner's private repo names. Use `git push`."
             )
             return
-        if cmd.alias_after_config:
+        if cmd.alias_after_config and self.config_changed(lookup, (common, gitdir, hooks)):
             refuse(
-                f"`git {cmd.sub}` runs after a `git config` in the same call, which may define "
-                "it as a push that skips the pre-push hook. Run the config and the command in "
-                "calls of their own."
+                f"`git {cmd.sub}` runs after a command in the same call that changes git's config "
+                "or files under its folder, which may make it a push that skips the pre-push "
+                "hook. Run that command and this one in calls of their own."
             )
             return
         if cmd.sub != "push":
@@ -2019,16 +2034,7 @@ class Guards:
                 "/proc), which can feed git a config this check never sees. Push without it."
             )
             return
-        folders = (common, gitdir, hooks)  # git's absolute paths have symlinks resolved
-        changed = (
-            self.hooks_changed
-            or self.config_file_fresh(lookup)
-            or any(
-                under(path, folders) or is_git_config(path)
-                for path in real_paths([*self.written, *self.changed])
-            )
-        )
-        if changed:
+        if self.config_changed(lookup, (common, gitdir, hooks)):
             refuse(
                 "this push runs after a command in the same call that changes git's config or "
                 "hooks, so the check cannot see which pre-push hook will run. Run the push as "
@@ -2359,17 +2365,18 @@ class Guards:
         cmd = parse_git(argv, cwd, env)
         if cmd is None:
             return
+        typed_builtin = is_builtin(cmd)  # the name as typed: an alias can stand for anything
         lookup = self.git_lookup(env, cmd)
         resolve_alias(cmd, *(lookup or ({}, cmd.config)))
         if lookup and not is_builtin(cmd) and self.config_file_fresh(lookup):
             cmd.alias_unread = True  # an alias from a config file this call writes first
-        if self.hooks_changed and not is_builtin(cmd):
-            # an earlier `git config` in this call may have defined this alias: the lookup read
-            # the config before it ran
+        if not typed_builtin and (self.hooks_changed or self.written or self.changed):
+            # an earlier command in this call may have (re)defined this alias: the lookup read
+            # the config before it ran (_check_push_hook decides whether it touched git's)
             cmd.alias_after_config = True
         if cmd.sub == "config" and not config_reads(cmd.args):
             self.hooks_changed = True  # may set core.hooksPath or an include before a push
-        if (lookup is None or cmd.alias_unread or cmd.alias_after_config) and not is_builtin(cmd):
+        if ((lookup is None or cmd.alias_unread) and not is_builtin(cmd)) or cmd.alias_after_config:
             self.check_push_hook(cmd, env)  # an alias git could not read: maybe a push
         if cmd.sub in ADD_SUBCOMMANDS:
             self.pending_adds.append(cmd)

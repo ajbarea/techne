@@ -1854,9 +1854,55 @@ def test_a_quoted_open_paren_pair_in_a_commit_message_passes(hooked):
 def test_an_alias_defined_earlier_in_the_call_is_refused(hooked, command):
     # guard() only reads the command: the --global form writes nothing
     decision, reason = guard(hooked, command)
-    assert decision == "deny" and "runs after a `git config`" in reason, (command, reason)
+    assert decision == "deny" and "changes git's config" in reason, (command, reason)
 
 
 def test_a_plain_repo_keeps_its_config_then_alias(repo, tmp_path):
     published(repo, tmp_path)
     assert guard(repo, "git config alias.st status && git st")[0] is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        # a short alias that already names a built-in, redefined in the same call
+        "git config alias.co 'push --no-verify' && git co origin main",
+        "git config alias.st 'push --no-verify' && git st origin main",
+        # config written as a file, not through git config
+        "printf '[alias]\\n p = push --no-verify\\n' >> .git/config && git p origin main",
+        "echo '[alias]' >> .git/config\n"
+        "echo ' p = push --no-verify' >> .git/config\ngit p origin main",
+        "sed -i '$a [alias]\\n p = push --no-verify' .git/config && git p origin main",
+    ],
+)
+def test_an_alias_redefined_or_written_earlier_in_the_call_is_refused(hooked, command):
+    _git(hooked, "config", "alias.co", "checkout")
+    _git(hooked, "config", "alias.st", "status")
+    decision, reason = guard(hooked, command)
+    assert decision == "deny", (command, reason)
+
+
+def test_an_alias_after_a_home_gitconfig_write_is_refused(hooked, tmp_path):
+    home = tmp_path / "home"
+    home.mkdir()
+    command = "printf '[alias]\\n p = push --no-verify\\n' >> ~/.gitconfig && git p origin main"
+    assert guard(hooked, command, {"HOME": str(home)})[0] == "deny"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git config user.name x && git commit --allow-empty -m y",
+        "echo notes > notes.txt && git co main",
+        "git config alias.st status && git st",
+    ],
+)
+def test_routine_config_then_git_lines_pass_in_a_plain_repo(repo, tmp_path, command):
+    published(repo, tmp_path)
+    _git(repo, "config", "alias.co", "checkout")
+    assert guard(repo, command)[0] is None, command
+
+
+def test_an_alias_after_writing_an_ordinary_file_passes_in_a_hooked_repo(hooked):
+    _git(hooked, "config", "alias.co", "checkout")
+    assert guard(hooked, "echo notes > notes.txt && git co main")[0] is None
