@@ -8,7 +8,8 @@ names. A review flags each as "edits its own check" and confirms the change weak
 BASE and HEAD are full commit ids (a PR's baseRefOid and headRefOid; HEAD defaults to the
 checkout's HEAD), checked by `_shared/skill_context.sh --base-sha`. Files come from
 `git diff -z --no-renames BASE...HEAD`, so a renamed or deleted check is listed by its old
-path too. Prints `head <commit>`, then one path per line, or `none`.
+path too. Prints `head <commit>`, then one path per line (a file only named in a gate file
+is marked, the weaker signal), or `none`.
 """
 
 from __future__ import annotations
@@ -97,10 +98,18 @@ def is_check(path: str) -> bool:
     return any(folders[i : i + len(part)] == part for part in PARTS for i in range(len(folders)))
 
 
+def _env() -> dict[str, str]:
+    """No variable pointing git elsewhere, and no replacement objects or grafts, which would
+    let a local ref swap the base's content under its own id (as in skill_context.sh)."""
+    return {
+        **without_repo_overrides(),
+        "GIT_NO_REPLACE_OBJECTS": "1",
+        "GIT_GRAFT_FILE": "/nonexistent-elenchus-graft",
+    }
+
+
 def git(repo: str, *args: str) -> str:
-    out = subprocess.run(
-        ["git", "-C", repo, *args], capture_output=True, text=True, env=without_repo_overrides()
-    )
+    out = subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True, env=_env())
     if out.returncode != 0:
         first = (out.stderr.strip().splitlines() or ["no output"])[0]
         raise SystemExit(f"own_checks: git {args[0]} failed: {first}")
@@ -123,11 +132,11 @@ def resolve(repo: str, base: str, head: str | None) -> tuple[str, str]:
 
 # A gate file's text splits into tokens at whitespace, quotes and shell or YAML punctuation,
 # so $(CURDIR)/x and ${{ github.workspace }}/x leave /x behind; ./ and / are then stripped.
-TOKEN_SPLIT = re.compile(r"[\s\"'`=,;:()\[\]{}|&<>]+")
+TOKEN_SPLIT = re.compile(r"[\s\"'`=,;:()\[\]{}|&<>\\]+")
 COMMENT = re.compile(r"(^|\s)#.*$")
 # A YAML filter list (on.push.paths, branches, a bare list scalar) says when CI runs, not
 # what it runs; a glob counts only with a literal leading folder (tools/*.py, not * or **).
-YAML_FILTER = re.compile(r"^\s*(-\s+[^:]*|(paths|paths-ignore|branches|branches-ignore|tags):.*)$")
+FILTER_KEY = re.compile(r"^(\s*)(paths|paths-ignore|branches|branches-ignore|tags)\s*:(.*)$")
 GLOB_WITH_FOLDER = re.compile(r"^[\w.-]+/")
 
 
@@ -148,14 +157,23 @@ def gate_names(repo: str, base: str) -> tuple[set[str], list[str]]:
             ["git", "-C", repo, "show", f"{base}:{name}"],
             capture_output=True,
             text=True,
-            env=without_repo_overrides(),
+            env=_env(),
         )
         if out.returncode != 0:
             continue  # this gate file is not on the base
         yaml = name.endswith((".yml", ".yaml"))
+        filter_indent = -1  # inside a YAML filter key's block list while >= 0
         for line in out.stdout.splitlines():
-            if yaml and YAML_FILTER.match(line):
-                continue
+            if yaml:
+                indent = len(line) - len(line.lstrip())
+                if filter_indent >= 0 and (indent > filter_indent or not line.strip()):
+                    continue
+                filter_indent = -1
+                key = FILTER_KEY.match(line)
+                if key:
+                    if not key.group(3).strip():
+                        filter_indent = len(key.group(1))
+                    continue
             for token in TOKEN_SPLIT.split(COMMENT.sub("", line)):
                 while token.startswith(("./", "/")):
                     token = token[2:] if token.startswith("./") else token[1:]
@@ -178,13 +196,16 @@ def main(argv: list[str] | None = None) -> int:
     base, head = resolve(args.repo, args.base, args.head)
     changed = git(args.repo, "diff", "-z", "--no-renames", "--name-only", f"{base}...{head}")
     paths, globs = gate_names(args.repo, base)
-    hits = sorted(
+    files = {p for p in changed.split("\0") if p}
+    strong = sorted(p for p in files if is_check(p))
+    named = sorted(
         p
-        for p in {p for p in changed.split("\0") if p}
-        if is_check(p) or p in paths or any(fnmatch.fnmatchcase(p, g) for g in globs)
+        for p in files - set(strong)
+        if p in paths or any(fnmatch.fnmatchcase(p, g) for g in globs)
     )
     print(f"head {head}")
-    print("\n".join(hits) if hits else "none")
+    lines = strong + [f"{p}  (named by a gate: read, written or run)" for p in named]
+    print("\n".join(lines) if lines else "none")
     return 0
 
 

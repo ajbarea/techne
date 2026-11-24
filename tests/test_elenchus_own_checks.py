@@ -115,7 +115,7 @@ def _own(repo, *args, env=None):
 def _listed(out):
     lines = out.stdout.split("\n")
     assert lines[0].startswith("head "), out.stderr
-    return [line for line in lines[1:] if line]
+    return [line.split("  (")[0] for line in lines[1:] if line]
 
 
 @pytest.fixture
@@ -281,3 +281,71 @@ def test_a_workflow_named_file_is_listed_from_a_subfolder(tmp_path):
     (up / "tools" / "g.py").write_text("x = 0\n")
     _git(up, "commit", "-qam", "loosen it")
     assert _listed(_own(up / "tools", base)) == ["tools/g.py"]
+
+
+def test_a_file_only_named_by_a_gate_is_marked_as_the_weaker_signal(clone):
+    out = _own(clone, _rev(clone, "origin/main")).stdout.split("\n")[1:]
+    assert "tests/test_a.py" in out  # a name rule: listed plain
+    assert "tools/lint_rules.py  (named by a gate: read, written or run)" in out
+
+
+@pytest.mark.parametrize(
+    ("text", "named"),
+    [
+        ("lint:\n\tpython tools/g.py\\\n\t  --strict\n", True),
+        (
+            "on:\n  push:\n    branches:\n      - main\njobs:\n  t:\n    steps:\n"
+            "      - run: |\n          python tools/g.py\n",
+            True,
+        ),
+        (
+            "on:\n  push:\n    paths:\n      - tools/g.py\n      - docs/**\njobs:\n  t:\n"
+            "    steps:\n      - run: echo ok\n",
+            False,
+        ),
+        (
+            "jobs:\n  t:\n    strategy:\n      matrix:\n        script:\n          - tools/g.py\n",
+            True,
+        ),
+    ],
+)
+def test_filters_are_skipped_by_key_and_continued_lines_join(tmp_path, text, named):
+    up = tmp_path / "up"
+    (up / "tools").mkdir(parents=True)
+    _git(up, "init", "-q", "-b", "main")
+    gate = ".github/workflows/ci.yml" if text.startswith(("on:", "jobs:")) else "Makefile"
+    (up / gate).parent.mkdir(parents=True, exist_ok=True)
+    (up / gate).write_text(text)
+    (up / "tools" / "g.py").write_text("x = 1\n")
+    _git(up, "add", ".")
+    _git(up, "commit", "-qm", "base")
+    base = _rev(up, "HEAD")
+    _git(up, "checkout", "-q", "-b", "pr")
+    (up / "tools" / "g.py").write_text("x = 0\n")
+    _git(up, "commit", "-qam", "loosen it")
+    assert (_listed(_own(up, base)) == ["tools/g.py"]) is named
+
+
+def test_a_replacement_object_or_graft_cannot_hide_a_change(tmp_path):
+    # Without the guard, git reads the replaced base (a PR commit) and the diff loses the
+    # PR's first commit, or fails with no merge base.
+    up = tmp_path / "up"
+    (up / "tests").mkdir(parents=True)
+    _git(up, "init", "-q", "-b", "main")
+    (up / "tests" / "test_a.py").write_text("x = 1\n")
+    (up / "app.py").write_text("1\n")
+    _git(up, "add", ".")
+    _git(up, "commit", "-qm", "base")
+    base = _rev(up, "HEAD")
+    _git(up, "checkout", "-q", "-b", "pr")
+    _git(up, "mv", "tests/test_a.py", "kept.py")
+    _git(up, "commit", "-qm", "move the test out")
+    (up / "app.py").write_text("2\n")
+    _git(up, "commit", "-qam", "app")
+    head = _rev(up, "HEAD")
+    _git(up, "replace", base, f"{head}~1")
+    assert _listed(_own(up, base, "--head", head)) == ["tests/test_a.py"]
+    _git(up, "replace", "-d", base)
+    (up / ".git" / "info").mkdir(exist_ok=True)
+    (up / ".git" / "info" / "grafts").write_text(f"{_rev(up, head + '~1')}\n")  # cut the PR off
+    assert _listed(_own(up, base, "--head", head)) == ["tests/test_a.py"]

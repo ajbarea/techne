@@ -318,7 +318,14 @@ def test_bare_base_and_lone_head_are_refused(tmp_path):
     clone = _pr_clone(tmp_path)
     base, _ = _ids(clone)
     assert _run(clone, "--base").startswith("(--base needs a full commit id")
-    assert _run(clone, "--base-sha").startswith("(--base needs a full commit id")
+    proc = subprocess.run(
+        ["bash", str(RESOLVER), "--base-sha"],
+        cwd=clone,
+        capture_output=True,
+        text=True,
+        env=_fenced(clone),
+    )
+    assert proc.returncode == 1 and proc.stderr.startswith("--base-sha needs a full commit id")
     out = _run(clone, f"--head={base}")
     assert out.startswith("(--head works only with --base") and "SOFT" not in out
 
@@ -400,7 +407,7 @@ def test_base_reads_the_base_from_another_folder_and_says_when_there_is_no_repo(
     elsewhere.mkdir()
     out = _run(elsewhere, f"--base={base}", str(clone / ".claude"))
     assert "## BASE_RULES" in out and "SOFT" not in out
-    assert "is not in a git repository" in _run(elsewhere, f"--base={base}")
+    assert "is not a git repository git can read" in _run(elsewhere, f"--base={base}")
 
 
 def test_a_base_without_the_file_is_said(tmp_path):
@@ -413,3 +420,53 @@ def test_a_base_without_the_file_is_said(tmp_path):
 def test_without_base_the_working_tree_is_read_as_before(tmp_path):
     clone = _pr_clone(tmp_path)
     assert "## SOFT3" in _run(clone)
+
+
+def test_a_replacement_object_cannot_swap_the_base(tmp_path):
+    clone = _pr_clone(tmp_path)
+    base, head = _ids(clone)
+    _git(clone, "replace", base, f"{head}~1")
+    for env in (None, {**os.environ, "GIT_NO_REPLACE_OBJECTS": "1"}):
+        out = _run(clone, f"--base={base}", f"--head={head}", env=env)
+        assert out.splitlines()[1:] == ["## BASE_RULES"], out
+
+
+def test_unproven_history_in_a_shallow_clone_is_refused(tmp_path):
+    # main already merged the PR, but a depth-1 clone cannot show that the base holds it.
+    clone = _pr_clone(tmp_path)
+    _, head = _ids(clone)
+    up = tmp_path / "up"
+    _git(up, "fetch", "-q", str(clone), "pr")
+    _git(up, "merge", "-q", "--no-ff", "-m", "merge pr", "FETCH_HEAD")
+    shallow = tmp_path / "shallow"
+    _git(tmp_path, "clone", "-q", "--depth=1", f"file://{up}", str(shallow))
+    _git(shallow, "fetch", "-q", "--depth=1", "origin", head)
+    base = _sha(shallow, "HEAD")
+    out = _run(shallow, f"--base={base}", f"--head={head}")
+    assert "share no history here" in out and _says_no(out)
+
+
+def test_injected_git_config_reaches_every_read(tmp_path):
+    # GIT_CONFIG_COUNT carries a container's safe.directory: it must survive the strip.
+    clone = _pr_clone(tmp_path)
+    base, _ = _ids(clone)
+    shim = tmp_path / "shim"
+    shim.mkdir()
+    log = tmp_path / "seen"
+    real = subprocess.run(
+        ["bash", "-c", "command -v git"], capture_output=True, text=True
+    ).stdout.strip()
+    (shim / "git").write_text(
+        f'#!/bin/sh\necho "${{GIT_CONFIG_COUNT:-none}}" >> {log}\nexec {real} "$@"\n'
+    )
+    (shim / "git").chmod(0o755)
+    env = {
+        **os.environ,
+        "PATH": f"{shim}:{os.environ['PATH']}",
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": "safe.directory",
+        "GIT_CONFIG_VALUE_0": "*",
+    }
+    assert "## BASE_RULES" in _run(clone, f"--base={base}", env=env)
+    seen = log.read_text().split()
+    assert seen and set(seen) == {"1"}, seen

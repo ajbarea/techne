@@ -21,7 +21,8 @@ head_ref=""
 head_given=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --base | --base-sha) base_mode=-1 ;;
+    --base) base_mode=-1 ;;
+    --base-sha) base_mode=-3 ;;
     --base=*) base_mode=1; base_ref=${1#--base=} ;;
     --base-sha=*) base_mode=2; base_ref=${1#--base-sha=} ;;
     --head=*) head_ref=${1#--head=}; head_given=1; [ "$base_mode" -ne 0 ] || base_mode=-2 ;;
@@ -35,7 +36,8 @@ for a in "$@"; do
   esac
 done
 case "$base_mode" in
-  -1) printf '(--base needs a full commit id: --base=<baseRefOid>; nothing read)\n'; exit 0 ;;
+  -1) printf '(--base needs a full commit id: --base=<base id>; nothing read)\n'; exit 0 ;;
+  -3) printf -- '--base-sha needs a full commit id: --base-sha=<base id>\n' >&2; exit 1 ;;
   -2) printf '(--head works only with --base; nothing read)\n'; exit 0 ;;
 esac
 
@@ -60,13 +62,21 @@ root=$(env -u GIT_DIR -u GIT_WORK_TREE git -C "$target" rev-parse --show-topleve
 ctx="$root/.claude/skill-context.md"
 
 if [ "$base_mode" -ne 0 ]; then
-  # Strip every variable git says points it at another repository, not only GIT_DIR.
+  # Strip what git says points it at another repository, keeping injected config
+  # (GIT_CONFIG*: a container's safe.directory), as _shared/git_env.py does.
   strip=()
-  while IFS= read -r v; do strip+=(-u "$v"); done < <(env -u GIT_DIR -u GIT_WORK_TREE git rev-parse --local-env-vars 2>/dev/null)
-  # ${strip[@]+...}: bash 3.2 (macOS) treats an empty array as unset under set -u.
-  g() { env -u GIT_DIR -u GIT_WORK_TREE ${strip[@]+"${strip[@]}"} git -C "$root" "$@"; }
+  while IFS= read -r v; do
+    case "$v" in "" | GIT_CONFIG | GIT_CONFIG_PARAMETERS | GIT_CONFIG_COUNT) ;; *) strip+=(-u "$v") ;; esac
+  done < <(env -u GIT_DIR -u GIT_WORK_TREE git rev-parse --local-env-vars 2>/dev/null)
+  # A replacement object would let a local ref swap the base's content under its own id,
+  # and a graft would bend the history the ancestry checks read, so every read runs with
+  # both off. ${strip[@]+...}: bash 3.2 (macOS) treats an empty array as unset under set -u.
+  g() {
+    env -u GIT_DIR -u GIT_WORK_TREE ${strip[@]+"${strip[@]}"} GIT_NO_REPLACE_OBJECTS=1 \
+      GIT_GRAFT_FILE=/nonexistent-elenchus-graft git -C "$root" "$@"
+  }
   why="" r_sha=""
-  g rev-parse --git-dir >/dev/null 2>&1 || why="$root is not in a git repository"
+  err=$(g rev-parse --git-dir 2>&1 >/dev/null) || why="$root is not a git repository git can read (${err%%$'\n'*})"
   hexlen=40
   [ -n "$why" ] || [ "$(g rev-parse --show-object-format 2>/dev/null)" != sha256 ] || hexlen=64
   # commit ID: set r_sha when ID is a full id of a commit in this repo, else why.
@@ -94,7 +104,10 @@ if [ "$base_mode" -ne 0 ]; then
   fi
   # The base must not hold the change (a base at or past the reviewed commit).
   if [ -z "$why" ] && g merge-base --is-ancestor "$head" "$sha" 2>/dev/null; then
-    why="base ${sha:0:12} holds the commit under review ${head:0:12}: pass --base=<baseRefOid> --head=<headRefOid>"
+    why="base ${sha:0:12} holds the commit under review ${head:0:12}: pass the default branch's commit as --base"
+  elif [ -z "$why" ] && ! g merge-base "$sha" "$head" >/dev/null 2>&1; then
+    # A shallow clone can hide that the base already holds the head: unproven is refused.
+    why="base ${sha:0:12} and head ${head:0:12} share no history here: git fetch --unshallow, then run it again"
   fi
   if [ -n "$why" ]; then
     [ "$base_mode" -eq 2 ] && { printf '%s\n' "$why" >&2; exit 1; }
@@ -105,12 +118,13 @@ if [ "$base_mode" -ne 0 ]; then
     printf '%s %s\n' "$sha" "$head"
     exit 0
   fi
-  if ! g cat-file -e "${sha}:.claude/skill-context.md" 2>/dev/null; then
+  if [ -z "$(g ls-tree --name-only "$sha" -- .claude/skill-context.md 2>/dev/null)" ]; then
     printf '(no .claude/skill-context.md on base %s in %s)\n' "$sha" "$root"
     exit 0
   fi
   printf '<!-- skill-context: %s (base %s) -->\n' "$root" "$sha"
-  g show "${sha}:.claude/skill-context.md"
+  g show "${sha}:.claude/skill-context.md" 2>/dev/null \
+    || printf '(.claude/skill-context.md is on base %s but could not be read: git fetch origin %s)\n' "$sha" "$sha"
   exit 0
 fi
 
