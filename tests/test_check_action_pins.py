@@ -199,3 +199,14 @@ def test_a_starter_is_checked_beside_a_workflows_folder_with_no_workflow(tmp_pat
 def test_a_workflow_with_only_run_steps_passes(tmp_path: Path) -> None:
     res = run_check(make_repo(tmp_path, {"ci.yml": "jobs:\n  a:\n    steps:\n      - run: make\n"}))
     assert res.returncode == 0 and res.stdout.startswith("OK: all GitHub Actions"), res.stderr
+
+
+def test_a_skill_template_is_checked_with_no_live_workflow(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    tpl = repo / "plugins/x/skills/y/templates"
+    tpl.mkdir(parents=True)
+    (tpl / "ci.yml").write_text(
+        "jobs:\n  a:\n    steps:\n      - uses: actions/checkout@" + "a" * 40 + "\n"
+    )
+    res = run_check(repo)
+    assert res.returncode == 1 and "no live workflow uses" in res.stderr
