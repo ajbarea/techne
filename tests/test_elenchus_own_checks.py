@@ -734,12 +734,24 @@ OID = "a" * 40
         (f"{OID} tree 12\n".encode() + b"x" * 12 + b"\n", "a tree: content skipped"),
         (b"\n", "an empty line"),
         (b"garbage that is no header\n", "an unknown answer"),
+        (b"HEAD:x blob 3 missing\n", "a missing name that looks like a header"),
     ],
 )
 def test_every_cat_file_answer_keeps_the_names_after_it_in_step(answer, why):
     blob = f"{OID} blob 5\n".encode() + b"hello\n"
     got = own_checks.parse_batch(answer + blob, ["odd", "next"])
     assert got == {"next": b"hello"}, why
+
+
+def test_an_empty_blob_and_one_that_looks_like_a_header_keep_their_place():
+    fake = f"{OID} blob 99\n".encode()
+    data = f"{OID} blob 0\n\n".encode() + f"{OID} blob {len(fake)}\n".encode() + fake + b"\n"
+    data += f"{OID} blob 2\n".encode() + b"ok\n"
+    assert own_checks.parse_batch(data, ["empty", "fake", "last"]) == {
+        "empty": b"",
+        "fake": fake,
+        "last": b"ok",
+    }
 
 
 def test_cat_file_output_that_ends_early_is_read_up_to_its_end():
