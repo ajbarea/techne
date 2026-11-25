@@ -462,20 +462,24 @@ a Zenodo DOI in its README or `CITATION.cff`) follows the
 [citation convention](https://ajbarea.github.io/techne/conventions/#citation-metadata-and-zenodo):
 one `CITATION.cff` and no `.zenodo.json`, since Zenodo ignores `CITATION.cff` when both exist.
 The file's title is `<name>: <tagline>` (the repo's name or its README title); every author has
-given and family names, an ORCID URL and an affiliation; keywords are lowercase except acronyms;
-`license` and `repository-code` are set; the concept DOI is there once the repo has a release;
-a `version` is no older than the latest release tag. The live Zenodo record the DOI resolves to
-must carry the same title, creators (`Family, Given` with ORCID and affiliation) and keywords,
-and one ORCID must carry the same names and affiliation in every sister. Source:
+given and family names, an ORCID URL with a valid checksum and an affiliation (an entity
+author needs only its name); keywords are lowercase strings except acronyms; `license` and
+`repository-code` are set; the concept DOI is there once the repo has a published (not draft)
+release; a quoted `version` is no older than the latest published release. The DOI must resolve
+to a Zenodo record, must be the concept DOI rather than one version's, and that record must
+carry the same title, creators (`Family, Given` with ORCID and affiliation) and keywords. One
+ORCID must carry the same names and affiliation in every sister. Source:
 <https://help.zenodo.org/docs/github/describe-software/citation-file/>.
 
 ```
 uv run --no-project --quiet --with pyyaml python3 <citation script> "$WORKSPACE" $SISTERS   # the citation.py path SKILL.md names
 ```
 
-It prints one line per sister, `<repo>: citation ✓`, `<repo>: Zenodo off (skipped)` or
-`<repo>: N citation gaps: <gap>; ...`, with notes in parentheses for what it could not read
-(webhooks without admin access, a Zenodo record it could not fetch, no release yet), then one
-line per ORCID whose names or affiliation differ between sisters. It always exits 0. Report
-each gap line and each ORCID line. Fix the file by PR; a released record that differs is fixed
+It prints one line per sister, `<repo>: citation ✓`, `<repo>: Zenodo off (skipped)`,
+`<repo>: citation not checked (...)` (GitHub could not be read and nothing local names a Zenodo
+DOI, or the check itself failed) or `<repo>: N citation gaps: <gap>; ...`, with notes in
+parentheses for what it could not read (webhooks or releases with gh's own error, a Zenodo record
+it could not fetch, no release yet), then one line per ORCID whose names or affiliation differ
+between sisters. It always exits 0, and one sister's failure never stops the others. Report each
+gap line, each not-checked line and each ORCID line. Fix the file by PR; a released record that differs is fixed
 in Zenodo's edit form, which keeps its DOI, never by a new version.

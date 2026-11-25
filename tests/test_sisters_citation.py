@@ -37,6 +37,7 @@ keywords:
 """
 RECORD: dict = {
     "id": 101,
+    "conceptrecid": "100",
     "metadata": {
         "title": "tool: a thing that does one job",
         "creators": [
@@ -76,6 +77,7 @@ def run(
     fake = tmp_path / "gh"
     fake.write_text(
         "#!/bin/sh\n"
+        f"printf '%s\\n' \"$*\" >> {tmp_path / 'gh.log'}\n"
         'case "$*" in\n'
         + (
             "  */hooks*) echo 'HTTP 404: Not Found' >&2; exit 1 ;;\n"
@@ -117,9 +119,10 @@ def test_unread_webhooks_fall_back_to_a_readme_doi(tmp_path):
     assert "webhooks not read" in line
 
 
-def test_unread_webhooks_and_no_doi_is_off_with_a_note(tmp_path):
+def test_unread_webhooks_and_no_doi_is_not_checked_never_off(tmp_path):
     [line] = run(tmp_path, make_repo(tmp_path, cff=None), hook=None)
-    assert line.startswith("tool: Zenodo off (skipped)") and "treated as off" in line
+    assert line.startswith("tool: citation not checked (webhooks not read (HTTP 404: Not Found)")
+    assert "no Zenodo DOI" in line
 
 
 def test_zenodo_json_is_a_gap(tmp_path):
@@ -173,8 +176,8 @@ def test_bare_orcid_is_not_a_url(tmp_path):
 def test_capitalized_keyword_is_a_gap_but_acronyms_pass(tmp_path):
     cff = GOOD.replace("  - code review\n", "  - Code Review\n")
     [line] = run(tmp_path, make_repo(tmp_path, cff=cff), record=None)
-    assert "keywords not lowercase: Code Review" in line
-    assert "agentic AI" not in line.split("lowercase:")[1]
+    assert "keywords not lowercase strings: Code Review" in line
+    assert "agentic AI" not in line.split("strings:")[1]
 
 
 def test_missing_keywords_license_and_repo(tmp_path):
@@ -251,3 +254,123 @@ def test_not_cloned(tmp_path):
         [sys.executable, str(SCRIPT), str(tmp_path / "ws"), "gone"], capture_output=True, text=True
     )
     assert out.stdout.startswith("gone: not cloned at")
+
+
+def test_releases_read_skips_drafts(tmp_path):
+    run(tmp_path, make_repo(tmp_path))
+    calls = (tmp_path / "gh.log").read_text()
+    assert "select(.draft | not)" in calls
+
+
+def test_non_string_keyword_is_a_gap_not_a_crash(tmp_path):
+    cff = GOOD.replace("  - LaTeX\n", "  - LaTeX\n  - 2026\n")
+    [line] = run(tmp_path, make_repo(tmp_path, cff=cff))
+    assert "keywords not lowercase strings: 2026" in line
+    assert "keywords differ" in line
+
+
+def test_entity_author_matches_its_zenodo_creator(tmp_path):
+    cff = GOOD.replace("repository-code", "  - name: The Lab\nrepository-code")
+    record = json.loads(json.dumps(RECORD))
+    record["metadata"]["creators"].append({"name": "The Lab"})
+    assert run(tmp_path, make_repo(tmp_path, cff=cff), record=record) == ["tool: citation ✓"]
+    nameless = GOOD.replace("repository-code", "  - name: ''\nrepository-code")
+    [line] = run(tmp_path, make_repo(tmp_path, name="t3", cff=nameless.replace("tool:", "t3:")))
+    assert "author 2 has no name" in line
+
+
+def test_version_doi_is_a_gap(tmp_path):
+    cff = GOOD.replace("zenodo.100", "zenodo.101")
+    api = tmp_path / "zenodo" / "records"
+    api.mkdir(parents=True)
+    (api / "101").write_text(json.dumps(RECORD))
+    [line] = run(tmp_path, make_repo(tmp_path, cff=cff), record=None)
+    assert "doi is version DOI 101, not the concept DOI 10.5281/zenodo.100" in line
+
+
+def test_missing_record_is_a_gap_and_other_http_errors_are_notes(monkeypatch):
+    import email.message
+    import importlib.util
+    import urllib.error
+
+    spec = importlib.util.spec_from_file_location("citation_under_test", SCRIPT)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    def raiser(code):
+        def urlopen(url, timeout):
+            raise urllib.error.HTTPError(url, code, "x", email.message.Message(), None)
+
+        return urlopen
+
+    monkeypatch.setattr(mod.urllib.request, "urlopen", raiser(404))
+    assert (
+        mod.zenodo_record("404404")[1] == "DOI 10.5281/zenodo.404404 resolves to no Zenodo record"
+    )
+    monkeypatch.setattr(mod.urllib.request, "urlopen", raiser(503))
+    record, gap, note = mod.zenodo_record("7")
+    assert (record, gap, note) == (None, None, "Zenodo record 7 not read (HTTP 503)")
+
+
+def test_one_failing_sister_never_stops_the_others(monkeypatch, capsys):
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("citation_under_test2", SCRIPT)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    def check(workspace, repo):
+        if repo == "bad":
+            raise TypeError("boom")
+        return f"{repo}: citation ✓", []
+
+    monkeypatch.setattr(mod, "check", check)
+    assert mod.main(["/nowhere", "bad", "good"]) == 0
+    assert capsys.readouterr().out.splitlines() == [
+        "bad: citation not checked (TypeError: boom)",
+        "good: citation ✓",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("version", "tag", "want"),
+    [
+        ('"1.2"', "v1.2.0", None),
+        ("1.10", "v1.10.0", "is a YAML number"),
+        ('"1.2.0-rc1"', "v1.2.0", "not compared with release"),
+    ],
+)
+def test_version_shapes(tmp_path, version, tag, want):
+    cff = GOOD.replace("version: 1.2.0", f"version: {version}")
+    [line] = run(tmp_path, make_repo(tmp_path, cff=cff), tag=tag)
+    if want is None:
+        assert line == "tool: citation ✓"
+    else:
+        assert want in line
+
+
+def test_orcid_checksum(tmp_path):
+    cff = GOOD.replace(ORCID, "0000-0000-0000-0002")
+    [line] = run(tmp_path, make_repo(tmp_path, cff=cff), record=None)
+    assert "ORCID 0000-0000-0000-0002 fails its checksum" in line
+    good = GOOD.replace(ORCID, "0000-0002-1825-009X".replace("009X", "0097"))
+    [line] = run(
+        tmp_path, make_repo(tmp_path, name="t4", cff=good.replace("tool:", "t4:")), record=None
+    )
+    assert "checksum" not in line
+
+
+def test_title_name_is_spelled_exactly(tmp_path):
+    cff = GOOD.replace('"tool: a', '"TOOL: a')
+    [line] = run(tmp_path, make_repo(tmp_path, cff=cff), record=None)
+    assert "with <name> spelled tool" in line
+
+
+def test_zenodo_json_and_no_cff_report_both(tmp_path):
+    repo = make_repo(tmp_path, cff=None)
+    (repo / ".zenodo.json").write_text("{}")
+    [line] = run(tmp_path, repo)
+    assert line.startswith("tool: 2 citation gaps: .zenodo.json present")
+    assert "no CITATION.cff" in line
