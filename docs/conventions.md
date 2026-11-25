@@ -225,6 +225,25 @@ SHA-pinned workflow runs exactly the code you reviewed.
 **Enforced by:** `make guards` (techne dogfoods this in its own `validate.yml`).
 **Audited by:** `techne:sisters` (action-pin consistency across the fleet).
 
+## Citation metadata and Zenodo
+
+A repo that archives its releases on Zenodo describes itself in one `CITATION.cff` at its root. Zenodo reads it at each GitHub release, and GitHub turns it into the **Cite this repository** button. Keep no `.zenodo.json` beside it: Zenodo then ignores `CITATION.cff` entirely.
+
+| Field | Convention |
+|---|---|
+| `title` | `<name>: <one-line tagline>`, the name spelled as the README title spells it, the tagline in lowercase unless it opens on a proper noun, no closing period. A paper uploaded by hand keeps the paper's exact title. |
+| `authors` | `given-names` and `family-names` (Zenodo shows `Family, Given`), an `orcid` URL and an `affiliation`, spelled the same in every repo. |
+| `version` | `X.Y.Z`, in step with the release. Zenodo records the tag, `vX.Y.Z`. |
+| `keywords` | Lowercase, except acronyms (AI, LLM, LaTeX). |
+| `license` | An SPDX id, such as `MIT`. |
+| `doi` | The concept DOI, which resolves to the latest version, also listed under `identifiers`. Add it once the first release mints it. |
+| `repository-code`, `url` | The GitHub repo and the docs site. |
+| `abstract` | What the work does. Zenodo shows it as the description. |
+
+Zenodo reads only the title, version, license, type, abstract, authors and keywords from the file, and links each version to its GitHub tag itself. A related identifier it cannot read from the file, such as the DOI of a paper the code supports, goes in the record's edit form, which keeps the record's DOI. A paper uploaded by hand follows the same creator, keyword and license rules, with version `v1` and a related identifier to its code repository.
+
+**Audited by:** `techne:sisters` check 18, on every sister with Zenodo on. It also compares the live Zenodo record with the file. research(2026-11): Zenodo's [CITATION.cff](https://help.zenodo.org/docs/github/describe-software/citation-file/) and [.zenodo.json](https://help.zenodo.org/docs/github/describe-software/zenodo-json/) pages, the [CFF 1.2.0 schema guide](https://github.com/citation-file-format/citation-file-format/blob/1.2.0/schema-guide.md), and DataCite's [creator property](https://datacite-metadata-schema.readthedocs.io/en/4.5/properties/creator/).
+
 ## Adopting incrementally
 
 You don't need all conventions at once. Common starting points:

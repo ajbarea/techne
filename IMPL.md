@@ -1,6 +1,23 @@
-# techne — Implementation scratchpad (feat/denied-calls-399)
+# techne — Implementation scratchpad (feat/citation-convention)
 
 The active TODO list for whatever's in flight right now. Queued specs live in [ROADMAP.md](./ROADMAP.md).
+
+## Citation convention + sisters check 18 (issue #428)
+
+Slice: one citation convention for Zenodo records, written in `docs/conventions.md` and enforced by `techne:sisters` check 18 (`scripts/citation.py`), which also compares the live Zenodo record with CITATION.cff.
+
+✅ Done
+- `docs/conventions.md`: "Citation metadata and Zenodo" section (sources cited).
+- `plugins/techne/skills/sisters/scripts/citation.py` + `tests/test_sisters_citation.py` (23 cases; 10 guard mutations each caught).
+- SKILL.md table row + output block, `references/checks.md` section 18, `docs/skills/sisters.md`.
+- `CITATION.cff`: affiliation Rochester Institute of Technology.
+
+📋 Next
+- After merge, the live record 23480982 carries the affiliation (edited in Zenodo by hand); check 18 then reads ✓ for techne.
+
+## Verify
+- `uv run --no-project --with pyyaml python3 plugins/techne/skills/sisters/scripts/citation.py ~/ajsoftworks techne keryx sphragis pharos`
+- `make lint test`
 
 ## phylax denied-calls log (issue #399, PR #404)
 
