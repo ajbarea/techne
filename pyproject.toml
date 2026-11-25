@@ -16,6 +16,7 @@ dev = [
     "zizmor>=1.32.0",
     "pytest-codspeed>=5.0.4,<5.1",
     "mutmut==3.8.1",
+    "pytest-xdist>=3.8",
     "actionlint-py==1.7.12.*",
 ]
 epistole = [

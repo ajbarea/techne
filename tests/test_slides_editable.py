@@ -251,8 +251,28 @@ def test_an_editable_export_keeps_the_notes_off_the_slide(sl, web, tmp_path):  #
     web("Reveal.initialize({", "Reveal.initialize({ showNotes: true,", "deck.js")
     noted, notes = pictures(tmp_path / "noted.pptx")
     # The backgrounds and figures are the pixels of a deck that never asked for notes.
-    assert noted == clean
+    assert [len(s) for s in noted] == [len(s) for s in clean]
+    for number, (ours, theirs) in enumerate(zip(noted, clean, strict=True), 1):
+        for a, b in zip(ours, theirs, strict=True):
+            assert _pixel_drift(a, b) <= RASTER_DRIFT, f"slide {number}"
     assert any("Walk the figure" in n for n in notes)
+
+
+# Chromium rasterizes a figure a few levels apart from run to run under CPU load (up to 3 of 255
+# seen with 4 test workers); a note drawn on the slide changes whole glyphs, far past this.
+RASTER_DRIFT = 8
+
+
+def _pixel_drift(a: bytes, b: bytes) -> int:
+    """The largest per-channel difference between two pictures; 256 when their sizes differ."""
+    from PIL import Image, ImageChops  # ty: ignore[import-not-found]
+
+    if a == b:
+        return 0
+    x, y = (Image.open(io.BytesIO(blob)).convert("RGBA") for blob in (a, b))
+    if x.size != y.size:
+        return 256
+    return max(hi for _, hi in ImageChops.difference(x, y).getextrema())
 
 
 @needs_browser
