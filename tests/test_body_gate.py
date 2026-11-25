@@ -1215,3 +1215,20 @@ def test_check_reads_the_body_as_its_parts_do(kind, monkeypatch):
         assert any(f"has {n} visible words" in d for d in denies) == (n > 0), body
         assert (warnings != []) == (long != []), body
         assert not long or f"{len(long)} sentence(s)" in warnings[0], body
+
+
+def test_gh_api_reads_every_spelling_of_a_body_field(repo):
+    (repo / "long.md").write_text(LONG)
+    for command in (
+        "gh api -X PATCH repos/o/r/pulls/1 --field body=@long.md",
+        f"gh api -X PATCH repos/o/r/pulls/1 --field body=@- <<'EOF'\n{LONG}\nEOF",
+        f"gh api -X PATCH repos/o/r/pulls/1 -f body='a=b {LONG}'",
+        f'B=\'{LONG}\'; gh api -X PATCH repos/o/r/pulls/1 --input - <<EOF\n{{"body": "$B"}}\nEOF',
+    ):
+        assert "visible words" in (refused(run_guard(command, repo)) or ""), command
+
+
+@pytest.mark.parametrize("payload", ['{"title": "t"}', "[1, 2]", '{"body": 3}'])
+def test_gh_api_input_with_no_body_text_passes_quietly(repo, payload):
+    (repo / "in.json").write_text(payload)
+    assert run_guard("gh api -X PATCH repos/o/r/pulls/1 --input in.json", repo) is None

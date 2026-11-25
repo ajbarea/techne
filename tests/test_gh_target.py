@@ -398,3 +398,122 @@ def test_whenever_the_guard_passes_gh_acts_on_that_repo(monkeypatch, tmp_path):
         if (s or "").lower() != want
     ]
     assert not wrong and len(passed) >= 15 and refused >= 15, (len(passed), refused, wrong)
+
+
+# --- the parsers, case by case ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("url", "repo"),
+    [
+        ("ssh://git@gitlab.example/o/r", "ssh:gitlab.example/o/r"),
+        ("SSH://git@gitlab.example/o/r", "ssh:gitlab.example/o/r"),
+        ("ssh://git@gitlab.example:22/o/r", "ssh:gitlab.example/o/r"),
+        ("git+ssh://git@h.example/o/r", "ssh:h.example/o/r"),
+        ("ssh+git://h.example/o/r", "ssh:h.example/o/r"),
+        ("https://h.example/o/r", "h.example/o/r"),
+        ("ssh://git@ssh.github.com:443/o/r", "github.com/o/r"),
+        ("https://github.com/Xavier/toolX", "github.com/xavier/toolx"),
+        ("https://github.com//o/r/", "github.com/o/r"),
+        ("not a url", ""),
+        ("https://github.com/o", ""),
+        ("/srv/mirror.git", None),
+    ],
+)
+def test_a_remote_url_reads_as_its_repo(monkeypatch, url, repo):
+    (git_checks,) = load_phylax_hooks(monkeypatch, "git_checks")
+    assert git_checks.remote_repo(url) == repo
+
+
+@pytest.mark.parametrize(
+    ("args", "parsed"),
+    [
+        (["-XPOST", "repos/o/r"], ("repos/o/r", [("-X", "POST")])),
+        (["-fa", "repos/o/r"], ("repos/o/r", [("-f", "a")])),
+        (["--method=POST", "repos/o/r"], ("repos/o/r", [("--method", "POST")])),
+        (["-X", "POST", "repos/o/r"], ("repos/o/r", [("-X", "POST")])),
+        (["repos/o/r", "-X"], ("repos/o/r", [("-X", "")])),
+        (["repos/o/r", "--paginate"], ("repos/o/r", [])),
+        (["repos/a/b", "repos/c/d"], ("repos/a/b", [])),
+        (["--paginate", "repos/o/r"], ("repos/o/r", [])),
+    ],
+)
+def test_gh_api_reads_its_endpoint_and_value_options(monkeypatch, args, parsed):
+    (git_checks,) = load_phylax_hooks(monkeypatch, "git_checks")
+    assert git_checks.parse_gh_api(args) == parsed
+
+
+def test_a_clone_with_no_remote_leaves_gh_to_stop_on_its_own(monkeypatch, tmp_path):
+    (git_checks,) = load_phylax_hooks(monkeypatch, "git_checks")
+    assert git_checks.implicit_repo(clone(tmp_path, {})) == ("", "", "")
+
+
+def test_a_remote_url_with_a_space_is_read_whole(monkeypatch, tmp_path):
+    (git_checks,) = load_phylax_hooks(monkeypatch, "git_checks")
+    repo = clone(tmp_path, {"origin": "https://github.com/me/my tool.git"})
+    assert git_checks.implicit_repo(repo) == ("github.com/me/my tool", "", "github.com/me/my tool")
+
+
+def test_a_remote_with_a_push_url_alone_or_no_url_still_counts(tmp_path):
+    (tmp_path / "a").mkdir()
+    repo = clone(tmp_path / "a", {"origin": FORK})
+    _git(repo, "config", "remote.p.pushurl", PARENT)
+    assert "github.com/org/tool" in (refusal("gh pr create -t T -b B", repo) or "")
+    (tmp_path / "b").mkdir()
+    repo = clone(tmp_path / "b", {"origin": FORK})
+    _git(repo, "config", "remote.q.fetch", "+refs/heads/*:refs/remotes/q/*")
+    assert "remote `q` (a URL it cannot read)" in (refusal("gh pr create -t T -b B", repo) or "")
+
+
+@pytest.mark.parametrize(
+    ("remotes", "marks"),
+    [
+        ({"origin": FORK}, {"origin": "org tool"}),  # a mark is its whole value, spaces and all
+        ({"origin": "https://github.com/x/me/tool.git"}, {"origin": ""}),  # an unreadable remote
+    ],
+)
+def test_a_mark_that_cannot_name_the_one_remote_refuses(tmp_path, remotes, marks):
+    assert refusal("gh pr create -t T -b B", clone(tmp_path, remotes, marks))
+
+
+def test_the_refusal_says_what_gh_would_weigh_and_never_suggests_an_unreadable_origin(tmp_path):
+    repo = clone(tmp_path, {"origin": "https://github.com/x/me/tool.git", "b": FORK})
+    why = refusal("gh pr create -t T -b B", repo) or ""
+    assert "`gh pr create` names no repo" in why
+    assert "depends on its remote order, `gh repo set-default`" in why
+    assert "add `-R HOST/OWNER/NAME`" in why
+
+
+def test_the_denial_log_names_this_guard(tmp_path):
+    repo = clone(tmp_path, {"origin": FORK, "upstream": PARENT})
+    state = tmp_path / "state"
+    assert refusal("gh pr create -t T -b B", repo, XDG_STATE_HOME=str(state))
+    rows = [json.loads(line) for line in (state / "phylax" / "denied-calls.jsonl").open()]
+    assert [r["guard"] for r in rows] == [KEY]
+
+
+@pytest.mark.parametrize(
+    ("command", "refused", "env"),
+    [
+        ("gh pr create -a -R me/tool -t T -b B", True, {}),  # -R is -a's value
+        ("gh pr create -t T -b B -R", True, {}),  # -R with no value names nothing
+        ("gh pr create -Rx/tool -t T -b B", False, {}),
+        ("gh pr create -Rx -t T -b B", True, {"GH_REPO": "me/tool"}),  # -R wins over GH_REPO
+        ("GH_REPO=x=y gh pr create -t T -b B", True, {"GH_REPO": "me/tool"}),
+        ("X=a=b gh pr create -t T -b B", True, {}),
+        ("export FOO; gh pr create -t T -b B", True, {}),
+        ("gh pr merge https://github.com/me/tool/pull/3", False, {}),
+        ("gh pr create -t T -b B -l bug", True, {}),  # -l is pr create's --label
+        ("gh issue develop 3", True, {}),
+        ("gh issue develop 3 -l", False, {}),
+        ("gh issue develop 3 --list", False, {}),
+        ("gh mystery help", False, {}),  # help only reads, in a group this check does not know
+        ("gh secret set X --org=myorg -b v", False, {}),
+        ("gh repo deploy-key ls", False, {}),
+        ("gh repo deploy-key -- list", False, {}),
+        ("gh repo autolink view 1", False, {}),
+    ],
+)
+def test_how_a_command_names_its_repo_or_acts_on_none(tmp_path, command, refused, env):
+    repo = clone(tmp_path, {"origin": FORK, "upstream": PARENT})
+    assert bool(refusal(command, repo, **env)) is refused
