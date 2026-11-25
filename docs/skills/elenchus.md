@@ -59,9 +59,11 @@ Every finding is marked CONFIRMED when it was reproduced or PLAUSIBLE when it wa
 
 ## What it posts
 
-When someone else opened the PR, elenchus posts one distilled comment as the review of record: merge verdict, then blocking and should-fix findings, then the verified-clean list. Authorship is derived live from `gh`.
+When someone else is the PR's author, elenchus posts one distilled comment as the review of record: merge verdict, then blocking and should-fix findings, then the verified-clean list. Authorship is derived live from `gh`.
 
-On your own PR it posts nothing on the PR. The report stays in the session for you to act on, and the PR stays free of a thread of you reviewing yourself.
+On a solo repo, a PR written by another coding engine (`agy` or the Copilot CLI) under your GitHub login also counts as someone else's. That applies only when the invoker names the engine as the author or the PR carries a fixed marker (`agy/` branch prefix or a standalone `Engine: <name>` line); a passing mention does not count. Elenchus posts the comment there and addresses the engine by name, while Copilot's cloud agent already opens under `copilot-swe-agent`.
+
+On a PR you wrote yourself (or under your login on a team repo), it posts nothing on the PR. The report stays in the session for you to act on, and the PR stays free of a thread of you reviewing yourself.
 
 The comment publishes the work rather than the machinery. It never claims the review was "independent" and never names the tooling that ran it, because neither is checkable by a teammate.
 
