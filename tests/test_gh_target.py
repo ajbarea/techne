@@ -480,7 +480,7 @@ def test_the_refusal_says_what_gh_would_weigh_and_never_suggests_an_unreadable_o
     repo = clone(tmp_path, {"origin": "https://github.com/x/me/tool.git", "b": FORK})
     why = refusal("gh pr create -t T -b B", repo) or ""
     assert "`gh pr create` names no repo" in why
-    assert "depends on its remote order, `gh repo set-default`" in why
+    assert "so which one gh acts on depends on its remote order, `gh repo set-default`" in why
     assert "add `-R HOST/OWNER/NAME`" in why
 
 

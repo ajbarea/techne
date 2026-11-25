@@ -188,3 +188,75 @@ why = 'Guards.check_gh: enabled() reads local only as `not local`, and None is a
 [[mutant]]
 hash = "d6e456051c608f6ea80ab89ae856fd64b24e20fa4d87d4bb0d0852e0e543719c"
 why = "safe_id: 'X' already passes isalnum(), so adding it to the kept set changes no output"
+
+[[mutant]]
+hash = "db38980d52fdd585a9a8cef07f1749a8b8d37a880c43fad986b4aec95927ad61"
+why = "implicit_repo: git config --get-regexp lowercases a pattern's first and last segments, so the uppercase pattern matches the same keys"
+
+[[mutant]]
+hash = "51e8efc26e72bb976d70d64a0644e5a600f7defdcf74d86b29e2a946e99acffc"
+why = "implicit_repo: with no gh-resolved mark, a line XXXX names no remote, so no mark is read"
+
+[[mutant]]
+hash = "c7273d3b56bc65d3f53b80b11ffe36155472f2723d00fb6f5ee93073f47e7b5b"
+why = "implicit_repo: a remote with no (fetch) line reads its fetch URL as empty, and remote_repo reads XXXX as empty too"
+
+[[mutant]]
+hash = "3807b92c719242b02e98f8044f05e4cae4334c6eb4d775fd3f87512f26156bc6"
+why = "implicit_repo: a remote with no (push) line reads its push URL as empty, and remote_repo reads XXXX as empty too"
+
+[[mutant]]
+hash = "e1edc4a410b267962d766a0ce932114631f01a81995e6cd7e73c96085e9fdd9c"
+why = "parse_gh_api: eq is only tested for truth"
+
+[[mutant]]
+hash = "378395203110d73cab421585a07c7ad86392bd9d731df88d01affaac65dcd2d3"
+why = "remote_repo: the first part of split(':', 2) is the first part of split(':', 1)"
+
+[[mutant]]
+hash = "7b0e298294540d375add5e30a28c4f4770d74afc379492a2da94d153a06ab104"
+why = "remote_repo: the host is lowercased, and github.com does not end in .github.com, so it stays github.com either way"
+
+[[mutant]]
+hash = "f6487784a0256cd0323a3df32e231be9c560f6fb235a501b998f546504c233c1"
+why = "remote_repo: the host is lowercased, so it never equals GITHUB.COM, and github.com stays github.com either way"
+
+[[mutant]]
+hash = "aac301b9b8d9a10a149e4a08bb1b4ca51daca732a56f989805558f3ebe0ba96a"
+why = "Guards.acts_on_resolved_repo: no nested word and XXXX are both outside list, ls and view"
+
+[[mutant]]
+hash = "7d26f5f847cae71f44d781914968c3204072d0f3575d33d4e4ce9c132f854185"
+why = "Guards.api_body: json.loads('NULL') raises ValueError, which reads as None, as 'null' does"
+
+[[mutant]]
+hash = "1f829050db1446990b501258efcecebb63eeee8c202a45ad09f2c56e257393b8"
+why = "Guards.api_body: '' and None are both not a dict"
+
+[[mutant]]
+hash = "e28c500c64fad5100221ce5ef4208cac6ec653d298fbcaf45a3bc6eb4379c108"
+why = "Guards.names_repo: check_gh collects at most two words, so words[:3] is words[:2]"
+
+[[mutant]]
+hash = "1d1d9882c953da468548f69d53b40205d8dea8a73e02403143de206ed40ab1db"
+why = "Guards.names_repo: XXXX is alphabetic, as a removed hyphen is; only a word of hyphens alone differs, and gh runs no such subcommand"
+
+[[mutant]]
+hash = "1a3aaf81a90e286bab3cd60222998a24428437c21668d6d60c2fe84bbd4bb216"
+why = "Guards.names_repo: argv[0] is gh itself, never an option that takes a value"
+
+[[mutant]]
+hash = "06d7e8fc746cc347d0951b164525fd0b9202a9ad7a26dcd1ad894f0183c53679"
+why = "Guards.names_repo: argv[1] is gh's group or a global option, never a subcommand option that takes a value"
+
+[[mutant]]
+hash = "f4153bb47717f17349d91ef54c542b4b197780b165fb5006b335588c10a54055"
+why = "Guards.names_repo: an -R with no value names nothing, and XXXX is no OWNER/NAME either"
+
+[[mutant]]
+hash = "49d7cd6b1728c955ff262d4a5aeb26f01f8fe3518a9c59ff97953312b0bac574"
+why = "Guards.names_repo: gh_repo_value never reads its env argument"
+
+[[mutant]]
+hash = "49336a3cf4e86507e932c412a72832af8be4fb8924057bef1ce4c2b470d63fcf"
+why = "Guards.run: unset's own options only mark a name no check reads"
