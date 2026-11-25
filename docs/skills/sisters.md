@@ -4,7 +4,7 @@ description: Audit the linked repos listed in ~/.claude/techne.toml for drift in
 
 # `techne:sisters`
 
-Cross-repo drift audit across the sister repos listed in `~/.claude/techne.toml`. Read-only inspection: CI action pins, toolchain pins in `pyproject.toml`, skill-context structural parity, GitHub merge settings + branch protection, Codecov config, `make clean` log-retention, Dependabot config coverage, README header convention, worktree ignore, shared docs-site files and nav coverage, open PRs, and branch, worktree and stash hygiene. A clean mode removes finished branches and worktrees once you approve the list, and an auto mode does it for you.
+Cross-repo drift audit across the sister repos listed in `~/.claude/techne.toml`. Read-only inspection: CI action pins, toolchain pins in `pyproject.toml`, skill-context structural parity, GitHub merge settings + branch protection, Codecov config, `make clean` log-retention, Dependabot config coverage, README header convention, worktree ignore, shared docs-site files and nav coverage, citation metadata against the live Zenodo record, open PRs, and branch, worktree and stash hygiene. A clean mode removes finished branches and worktrees once you approve the list, and an auto mode does it for you.
 
 Part of [techne](../plugins/techne.md): `/plugin install techne@techne`, then `/techne:setup`.
 
@@ -23,7 +23,7 @@ Invoke by name in Claude Code:
 /techne:sisters
 ```
 
-The skill reads the active sister list from `~/.claude/techne.toml`, runs every check in order, and outputs a single audit block grouped by category: merge settings, skill-context parity, action-pin drift, toolchain-pin drift, branch protection, Codecov config, log-retention policy, Dependabot coverage, README header convention, worktree ignore, docs-site shared files, agent instruction file, open PRs, branch and worktree hygiene, and local main sync.
+The skill reads the active sister list from `~/.claude/techne.toml`, runs every check in order, and outputs a single audit block grouped by category: merge settings, skill-context parity, action-pin drift, toolchain-pin drift, branch protection, Codecov config, log-retention policy, Dependabot coverage, README header convention, worktree ignore, docs-site shared files, agent instruction file, logging standard, security floor, citation metadata, open PRs, branch and worktree hygiene, and local main sync.
 
 The audit report is read-only. It surfaces findings; it does not edit files, push branches, or change GitHub settings. Clean mode, below, is the only part that removes anything.
 

@@ -341,6 +341,11 @@ the one the room sees ([reveal.js](https://revealjs.com/speaker-view/)).
   ([VirtualSpeech](https://virtualspeech.com/blog/average-speaking-rate-words-per-minute)).
   `script` prints the total, a guide to the time slot rather than a gate: when
   the talk runs long, cut slides' words and the script's asides, not figures.
+  Before calling a talk the right length, time it: render the script as
+  rehearsal audio where the repo can (the talks repo's `make tts`) and report
+  the measured minutes, before and after a cut. Add the time a live demo takes
+  on top (dragging controls, waiting on a run), and leave a minute or two of
+  the slot for questions. Cut by intent, never by speaking faster.
 - **Figures and answers to likely questions stay out of the script.** They go
   on backup slides and into the briefing.
 

@@ -22,6 +22,7 @@ identifiers:
 authors:
   - given-names: AJ
     family-names: Barea
+    affiliation: Rochester Institute of Technology
     orcid: "https://orcid.org/0009-0001-7938-2376"
 repository-code: "https://github.com/ajbarea/techne"
 url: "https://ajbarea.github.io/techne/"
