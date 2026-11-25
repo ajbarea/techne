@@ -25,7 +25,7 @@ If `~/.claude/techne.toml` is missing or yields zero active sisters, stop and te
 
 ## What to check
 
-Run every check, in order, using the commands in [references/checks.md](references/checks.md). Check 15's script is `<skill-dir>/scripts/agents_md.py`; check 16's is `<plugin-root>/skills/logging/scripts/logcheck.py`; check 17's is `<skill-dir>/scripts/security_floor.py`.
+Run every check, in order, using the commands in [references/checks.md](references/checks.md). Check 15's script is `<skill-dir>/scripts/agents_md.py`; check 16's is `<plugin-root>/skills/logging/scripts/logcheck.py`; check 17's is `<skill-dir>/scripts/security_floor.py`; check 18's is `<skill-dir>/scripts/citation.py`.
 Each check reports per repo; one broken repo never aborts the others.
 
 | # | Check | Drift means | Recommend |
@@ -47,6 +47,7 @@ Each check reports per repo; one broken repo never aborts the others.
 | 15 | Agent instruction file | No committed `AGENTS.md`; any `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md` in the repo (tracked, untracked or ignored, at any depth; check 15 in `references/checks.md` covers ignored folders) or above it; a symlinked `CLAUDE.md` | Move the content into `AGENTS.md` and delete the file; personal notes go to `~/.claude/CLAUDE.md` |
 | 16 | Logging standard | A repo whose logging gates are off, or that logs a secret, writes an uncapped log file, prints errors to stdout, loses CI logs on failure or commits a log file (`techne:logging`'s check) | Run `/techne:logging` in that repo |
 | 17 | Security floor | Secret scanning or push protection off on a public repo, Dependabot alerts off, no zizmor or actionlint in CI, an action not pinned to a full commit SHA (or the `actions.lock` lockfile), or a workflow without least-privilege `permissions:` | Fix by PR, one per repo; a private repo's secret scanning needs paid GitHub Secret Protection, so name it as the user's call |
+| 18 | Citation metadata | A sister with Zenodo on whose `CITATION.cff` is missing, sits beside a `.zenodo.json`, or breaks the [citation convention](https://ajbarea.github.io/techne/conventions/#citation-metadata-and-zenodo) (title, ORCID, affiliation, keywords, license, concept DOI); a live Zenodo record whose title, creators or keywords differ from the file; one ORCID named differently across sisters | Fix the file by PR; fix a released record's metadata in Zenodo's edit form, which keeps its DOI |
 
 ## Output format
 
@@ -133,6 +134,10 @@ A single block, no preamble (concrete repo names below are illustrative — subs
 ### Security floor
 - repo-a: security floor ✓
 - repo-b: 2 security floor gaps: no zizmor in CI; no permissions: in ci.yml
+
+### Citation metadata
+- repo-a: citation ✓
+- repo-b: 2 citation gaps: Ada Lovelace: no affiliation; Zenodo 123 keywords differ
 
 ### Verdict
 

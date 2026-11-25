@@ -22,6 +22,7 @@ Run from the shell after the config preamble in `SKILL.md`, which sets `$SISTERS
 - [15. Agent instruction file](#15-agent-instruction-file)
 - [16. Logging standard](#16-logging-standard)
 - [17. Security floor](#17-security-floor)
+- [18. Citation metadata](#18-citation-metadata)
 
 ## 1. Action-pin drift
 
@@ -454,3 +455,27 @@ the repo; without it (a team or collaborator repo) the line says the settings we
 never that they are off, and the workflow checks still run. Report each line
 that is not ✓; fix each repo by its own PR.
 
+## 18. Citation metadata
+
+Each sister with Zenodo on (a Zenodo webhook on the repo, or, when the webhooks cannot be read,
+a Zenodo DOI in its README or `CITATION.cff`) follows the
+[citation convention](https://ajbarea.github.io/techne/conventions/#citation-metadata-and-zenodo):
+one `CITATION.cff` and no `.zenodo.json`, since Zenodo ignores `CITATION.cff` when both exist.
+The file's title is `<name>: <tagline>` (the repo's name or its README title); every author has
+given and family names, an ORCID URL and an affiliation; keywords are lowercase except acronyms;
+`license` and `repository-code` are set; the concept DOI is there once the repo has a release;
+a `version` is no older than the latest release tag. The live Zenodo record the DOI resolves to
+must carry the same title, creators (`Family, Given` with ORCID and affiliation) and keywords,
+and one ORCID must carry the same names and affiliation in every sister. Source:
+<https://help.zenodo.org/docs/github/describe-software/citation-file/>.
+
+```
+uv run --no-project --quiet --with pyyaml python3 <citation script> "$WORKSPACE" $SISTERS   # the citation.py path SKILL.md names
+```
+
+It prints one line per sister, `<repo>: citation ✓`, `<repo>: Zenodo off (skipped)` or
+`<repo>: N citation gaps: <gap>; ...`, with notes in parentheses for what it could not read
+(webhooks without admin access, a Zenodo record it could not fetch, no release yet), then one
+line per ORCID whose names or affiliation differ between sisters. It always exits 0. Report
+each gap line and each ORCID line. Fix the file by PR; a released record that differs is fixed
+in Zenodo's edit form, which keeps its DOI, never by a new version.
