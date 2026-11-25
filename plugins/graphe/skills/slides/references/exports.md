@@ -67,3 +67,21 @@ For a deck that already exists as a `.pptx` or a PDF:
   text can answer; contrast, alt text and notes live in the source and are
   reported as not checked. `render` rasterises it as built.
 
+
+## A deck the team edits in Google Slides
+
+`# research(2026-11)` When the deliverable is a Google Slides deck, build a `.pptx` (python-pptx, or
+`pptx --editable` from a web deck) and upload it to Drive with conversion. What a 2026-11 build
+taught:
+
+- Google renders any Google Fonts family by name, so `check`'s `font` warning is expected there.
+  Upload a one-slide pilot first and read its thumbnail to confirm the face before building.
+- The Drive connector refuses uploads over about 7 MB: save photos and screenshots as JPEG at
+  about 220 dpi of their size on the slide; keep charts as PNG.
+- Draw charts at the exact size they fill, with a transparent background, so their type keeps its
+  point size and no pale box shows against the slide's ground.
+- python-pptx's default layouts are 4:3: set every title placeholder's position on a 16:9 deck.
+- The Slides API refuses `createVideo` from Drive: put a poster frame linked to the video and
+  insert the video by hand.
+- Read every slide back with `read_slide_page_thumbnail`; that is Google's own render. Stitch the
+  2000 px thumbnails into the PDF backup, which then matches the presented deck.
