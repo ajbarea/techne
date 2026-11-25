@@ -58,11 +58,13 @@ extra-paths = ["tests", "plugins/epistole", "plugins/heuresis", "plugins/schole"
 ]
 "plugins/phylax/hooks/git_options.py" = [
     "tests/test_git_guards.py",
+    "tests/test_gh_target.py",
     "tests/test_command_shapes.py",
     "tests/test_denial_log.py",
 ]
 "plugins/phylax/hooks/git_checks.py" = [
     "tests/test_git_guards.py",
+    "tests/test_gh_target.py",
     "tests/test_secret_guard.py",
     "tests/test_body_gate.py",
     "tests/test_command_shapes.py",
