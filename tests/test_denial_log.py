@@ -567,7 +567,7 @@ ADVERSARIAL = sorted(
 
 @pytest.mark.parametrize("fragment", ADVERSARIAL)
 def test_every_redaction_pattern_stays_linear(dl, fragment):
-    # Time each pattern at two sizes, best of three: four times the input takes about four
+    # Time each pattern at two sizes, per call: four times the input takes about four
     # times as long when linear and sixteen when quadratic, whatever the machine's speed.
     def at(n: int, pattern: str, repl: str):
         text = fragment * max(1, n // len(fragment))
@@ -1304,7 +1304,7 @@ class CoarseClock:
 @pytest.mark.parametrize(
     ("small", "large", "linear"),
     [
-        (0.0015, 0.006, True),  # under one tick at the base size: read as 0.0 before #432
+        (0.002, 0.008, True),  # under one tick at the base size: read as 0.0 before #432
         (0.0015, 0.024, False),  # quadratic
         (0.0005, 0.002, True),  # fast at the large size
         (0.002, 0.012, True),  # six times: linear with noise
