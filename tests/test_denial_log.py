@@ -569,15 +569,15 @@ ADVERSARIAL = sorted(
 def test_every_redaction_pattern_stays_linear(dl, fragment):
     # Time each pattern at two sizes, best of three: four times the input takes about four
     # times as long when linear and sixteen when quadratic, whatever the machine's speed.
-    def took(n: int, pattern: str, repl: str, times: int = 3) -> float:
+    def at(n: int, pattern: str, repl: str):
         text = fragment * max(1, n // len(fragment))
-        return cpu_median(lambda: re.sub(pattern, repl, text), times)
+        return lambda: re.sub(pattern, repl, text)
 
     for pattern, repl in all_patterns(dl):
-        if took(20000, pattern, repl, times=1) < 0.005:
-            continue  # fast at the large size: no growth worth measuring
-        large, small = took(20000, pattern, repl), took(5000, pattern, repl)
-        assert large / max(small, 1e-6) < 9, (pattern, fragment, small, large)
+        assert grows_linearly(at(20000, pattern, repl), at(5000, pattern, repl)), (
+            pattern,
+            fragment,
+        )
 
 
 def test_the_two_pending_paths_agree_and_ignore_a_relative_state_home(monkeypatch, tmp_path):
@@ -1251,15 +1251,70 @@ def test_prose_naming_a_flag_loses_the_next_word_by_design(dl):
     assert dl.redact("feat: add --token flag") == "feat: add --token [REDACTED]"
 
 
-def cpu_median(run, times: int = 3) -> float:
-    """The median CPU time of RUN: CPU time, unlike wall time, does not count the moments
-    another process holds the core, so a loaded machine does not fail the sweep."""
+def cpu_per_call(run, times: int = 3, span: float = 0.02) -> float:
+    """The median CPU seconds one call of RUN takes. CPU time, unlike wall time, does not
+    count the moments another process holds the core, so a loaded machine does not fail
+    the sweep. Each sample repeats RUN until the process clock has moved SPAN seconds, as
+    timeit's autorange does, because a runner's process clock can tick in milliseconds
+    and read a fast call as 0.0 (techne#432)."""
     took = []
     for _ in range(times):
-        start = time.process_time()
-        run()
-        took.append(time.process_time() - start)
+        calls, start = 0, time.process_time()
+        while True:
+            run()
+            calls += 1
+            spent = time.process_time() - start
+            if spent >= span or calls >= 1_000_000:
+                break
+        took.append(spent / calls)
     return sorted(took)[len(took) // 2]
+
+
+def grows_linearly(large, small, fast: float = 0.005) -> bool:
+    """Whether a call on four times the input (LARGE) costs under nine times one on the
+    base input (SMALL): about four when linear, sixteen when quadratic, whatever the
+    machine's speed. One call of LARGE under FAST seconds has no growth worth measuring;
+    a single call cannot read faster than the work it did, so that skip never hides a
+    slow pattern, and a noisy one only sends it to the measured comparison."""
+    start = time.process_time()
+    large()
+    if time.process_time() - start < fast:
+        return True
+    big = cpu_per_call(large)
+    return big < fast or big / max(cpu_per_call(small), 1e-9) < 9
+
+
+class CoarseClock:
+    """A process clock that ticks every 4 ms, like a runner's (techne#432); each call
+    of a fake workload advances the true CPU time by its cost."""
+
+    def __init__(self):
+        self.true = 0.0
+
+    def __call__(self) -> float:
+        return self.true // 0.004 * 0.004
+
+    def work(self, cost: float):
+        def run():
+            self.true += cost
+
+        return run
+
+
+@pytest.mark.parametrize(
+    ("small", "large", "linear"),
+    [
+        (0.0015, 0.006, True),  # under one tick at the base size: read as 0.0 before #432
+        (0.0015, 0.024, False),  # quadratic
+        (0.0005, 0.002, True),  # fast at the large size
+        (0.002, 0.012, True),  # six times: linear with noise
+        (0.002, 0.026, False),  # thirteen times
+    ],
+)
+def test_linearity_reads_a_coarse_clock_right(monkeypatch, small, large, linear):
+    clock = CoarseClock()
+    monkeypatch.setattr(time, "process_time", clock)
+    assert grows_linearly(clock.work(large), clock.work(small)) is linear
 
 
 def all_patterns(dl):
@@ -1272,9 +1327,9 @@ def all_patterns(dl):
 
 @pytest.mark.parametrize("head", ["curl ", "curl -u ", "mysql -p", "npm set a_auth ", "x;", "'"])
 def test_redact_as_a_whole_stays_linear(dl, head):
-    small = cpu_median(lambda: dl.redact(head * 5000))
-    large = cpu_median(lambda: dl.redact(head * 20000))
-    assert large < 0.01 or large / max(small, 1e-6) < 9, (head, small, large)
+    assert grows_linearly(
+        lambda: dl.redact(head * 20000), lambda: dl.redact(head * 5000), fast=0.01
+    ), head
 
 
 # A keyword's head, then one long run: a pattern whose classes overlap after its head (curl's
@@ -1290,16 +1345,17 @@ _HEADS = [k + sep for k in _KEYWORDS for sep in ("", " ", "=", ":", " -u ", " -p
 
 @pytest.mark.parametrize("tail", ["=", " ", "a", ":", "-", "'", "a:"])
 def test_every_redaction_pattern_stays_linear_on_a_long_tail(dl, tail):
-    def took(n: int, text_head: str, pattern: str, repl: str, times: int = 3) -> float:
+    def at(n: int, text_head: str, pattern: str, repl: str):
         text = text_head + tail * n
-        return cpu_median(lambda: re.sub(pattern, repl, text), times)
+        return lambda: re.sub(pattern, repl, text)
 
     for head in _HEADS:
         for pattern, repl in all_patterns(dl):
-            if took(10000, head, pattern, repl, times=1) < 0.005:
-                continue  # fast at the large size: no growth worth measuring
-            large, small = took(10000, head, pattern, repl), took(2500, head, pattern, repl)
-            assert large / max(small, 1e-6) < 9, (pattern, head, tail, small, large)
+            assert grows_linearly(at(10000, head, pattern, repl), at(2500, head, pattern, repl)), (
+                pattern,
+                head,
+                tail,
+            )
 
 
 def test_every_pattern_has_triggers_that_never_hide_a_match(dl):
