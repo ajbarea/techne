@@ -1,4 +1,4 @@
-<!-- budget: 420 words -->
+<!-- budget: 480 words -->
 # Lessons for projects and app UI
 
 Read with `common.md` before building or restyling a project's user-facing surface.
@@ -7,6 +7,13 @@ Read with `common.md` before building or restyling a project's user-facing surfa
 
 - [klepsydra](https://github.com/ajbarea/klepsydra), for a live wall that reads at a glance.
 - Before calling the work done, open the reference and the new work side by side and name one way the new one is better and one way it is worse.
+
+### one-purpose-per-surface: Give each purpose its own surface
+
+- **Rule:** When two lists serve different people or purposes (what waits on the owner, what the agents are doing), give each its own entry point, title and layout; never stack them in one panel.
+- **Why:** A drawer that stacked the owner's to-dos over the agents' work log, under one button and one count, was rejected outright.
+- **Since:** 2026-11-25
+- **Check:** guidance: whether two lists share a purpose is a judgment.
 
 ### cutting-edge-ux: Build motion and character at the level the owner describes
 
