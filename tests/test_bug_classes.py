@@ -237,3 +237,45 @@ def test_every_class_named_in_prose_exists(classes, doc):
     named = set(CLASS_REF_RE.findall(doc.read_text(encoding="utf-8")))
     assert named, f"{doc.name} names no class"
     assert named <= slugs, sorted(named - slugs)
+
+
+def _section(text: str, heading: str) -> str:
+    level = len(heading) - len(heading.lstrip("#"))
+    pattern = rf"^{re.escape(heading)}\n(.*?)(?=^#{{1,{level}}} |\Z)"
+    match = re.search(pattern, text, re.S | re.M)
+    assert match, f"missing section: {heading}"
+    return match.group(1)
+
+
+def test_skill_defines_author_once_and_uses_strict_engine_signals():
+    skill = SKILL.read_text(encoding="utf-8")
+    phase5 = _section(skill, "### Phase 5 — Post the distilled summary")
+    loop = _section(skill, "## When the review loop ends")
+    stop_line = next(ln for ln in loop.splitlines() if ln.startswith("- **Write the stop down.**"))
+    auth = _section(skill, "### Only on someone else's PR")
+
+    # Phase 5 and Write the stop down defer to Author rather than who opened the PR.
+    assert "opened" not in phase5
+    assert "opened" not in stop_line
+    assert "Author" in phase5 and "Only on someone else's PR" in phase5
+    assert "Author" in stop_line and "Only on someone else's PR" in stop_line
+
+    # Engine-author detection uses only the invoker or fixed markers, never bare mentions,
+    # and is scoped to solo repos with Copilot CLI narrowed from cloud agent.
+    assert "names such an engine" not in auth
+    assert "`agy/`" in auth
+    assert "`Engine:" in auth
+    assert "invoker" in auth
+    assert "mention" in auth and "not** count" in auth
+    assert "repo_kind.py" in auth and "solo" in auth
+    assert "Copilot CLI" in auth and "copilot-swe-agent" in auth
+
+
+def test_docs_page_what_it_posts_covers_engine_author():
+    docs = DOCS_PAGE.read_text(encoding="utf-8")
+    posts = _section(docs, "## What it posts")
+    assert "someone else opened the PR" not in posts
+    assert "`agy`" in posts and "Copilot CLI" in posts
+    assert "`agy/`" in posts and "`Engine:" in posts
+    assert "mention does not count" in posts
+    assert "solo repo" in posts and "team repo" in posts
