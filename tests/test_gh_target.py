@@ -503,6 +503,13 @@ def test_the_refusal_says_what_gh_would_weigh_and_never_suggests_an_unreadable_o
     assert "add `-R HOST/OWNER/NAME`" in why
 
 
+def test_the_refusal_offers_gh_repo_for_a_command_with_no_r(tmp_path):
+    repo = clone(tmp_path, {"origin": FORK, "upstream": PARENT})
+    why = refusal("gh skill publish", repo) or ""
+    assert "GH_REPO=github.com/me/tool" in why and "-R github.com/me/tool" in why
+    assert refusal("GH_REPO=github.com/me/tool gh skill publish", repo) is None
+
+
 def test_the_denial_log_names_this_guard(tmp_path):
     repo = clone(tmp_path, {"origin": FORK, "upstream": PARENT})
     state = tmp_path / "state"
@@ -540,6 +547,25 @@ def test_the_denial_log_names_this_guard(tmp_path):
         ("gh repo deploy-key -- list", False, {}),
         ("gh repo autolink view 1", False, {}),
         ("gh repo deploy-key", False, {}),  # the group alone prints its help
+        # Options are read as gh reads them (pflag), wherever they sit.
+        ("gh -d -Rme/tool label create x", True, {}),  # -d is create's --description
+        ("gh -b -Rme/tool pr comment 3", True, {}),  # -b is comment's --body
+        ("gh label create x -fd -Rme/tool", True, {}),  # --force, then --description's value
+        ("gh pr merge 3 -sb -Rme/tool", True, {}),  # --squash, then --body's value
+        ("gh label create -- -Rme/tool", True, {}),  # after --, an argument
+        ("gh workflow run ci.yml -f -Rme/tool", True, {}),  # -f is run's --raw-field
+        # A nested group's subcommand is found as cobra finds it: past an option's value.
+        ("gh repo deploy-key -t list add key.pub", True, {}),
+        ("gh repo deploy-key --title view add key.pub", True, {}),
+        ("gh repo deploy-key '' list", False, {}),  # cobra skips an empty word
+        ("gh issue artifact list 3", False, {}),
+        ("gh issue artifact create 3", True, {}),
+        # gh 2.105 groups: event only reads; skill writes only on publish; repo read-*.
+        ("gh event listen --resource https://github.com/org/tool/pull/1", False, {}),
+        ("gh skill list", False, {}),
+        ("gh skill publish", True, {}),
+        ("gh repo read-file README.md", False, {}),
+        ("gh repo read-dir docs", False, {}),
         ("gh pr create -R=x/tool -t T -b B", False, {}),  # gh drops the = of -R=
         ("R=me/tool; GH_REPO=$R gh pr create -t T -b B", False, {}),
         ("gh issue create -t GH_REPO=me/tool -b B", True, {}),  # an argument, not its env

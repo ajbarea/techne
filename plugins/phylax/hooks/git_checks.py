@@ -124,7 +124,7 @@ GH_GLOBAL_VALUE_FLAGS = {"-R", "--repo"}
 GH_NO_REPO = {
     "auth", "browse", "codespace", "cs", "gist", "org", "alias", "attestation",
     "completion", "config", "copilot", "extension", "ext", "extensions", "gpg-key", "help",
-    "licenses", "preview", "search", "ssh-key", "status", "version", "ruleset", "rs",
+    "licenses", "preview", "search", "ssh-key", "status", "version", "ruleset", "rs", "event",
 }  # fmt: skip
 # In a checked group, the subcommands that never change the resolved repo.
 GH_REPO_READS = {
@@ -139,6 +139,8 @@ GH_REPO_READS = {
     "secret": {"list", "ls"},
     "discussion": {"view", "list", "ls"},
     "agent-task": {"view", "list", "ls"},
+    # publish writes to the resolved repo; the rest install or read skills.
+    "skill": {"install", "list", "ls", "preview", "search", "update"},
     # link and unlink act on the resolved repo; the rest on a project of an owner.
     "project": {
         "close", "copy", "create", "delete", "edit", "field-create", "field-delete", "field-list",
@@ -147,11 +149,17 @@ GH_REPO_READS = {
     },
     "repo": {
         "view", "list", "ls", "clone", "fork", "create", "new", "set-default", "sync",
-        "license", "gitignore", "credits", "garden",
+        "license", "gitignore", "credits", "garden", "read-file", "read-dir",
     },
 }  # fmt: skip
-# Subcommands whose own subcommand decides whether they read (`gh repo deploy-key list`).
-GH_NESTED = {("repo", "deploy-key"), ("repo", "autolink")}
+# Subcommands whose own subcommand decides whether they read (`gh repo deploy-key list`),
+# with those that read; the group alone prints its help.
+_NESTED_READS = {"list", "ls", "view", "download"}
+GH_NESTED = {
+    ("repo", "deploy-key"): _NESTED_READS,
+    ("repo", "autolink"): _NESTED_READS,
+    ("issue", "artifact"): _NESTED_READS,
+}
 # Options of checked subcommands that take a value, besides those GH_TEXT, GH_FILE and
 # GH_VALUE_FLAGS list: their value is never read as -R. Per subcommand, as gh reads them
 # (`-m` takes a value in `pr edit` but is `--merge` in `pr merge`).
@@ -163,6 +171,7 @@ GH_REPO_VALUE_FLAGS = {
     ("label", "create"): _LABEL_VALUES, ("label", "edit"): _LABEL_VALUES | {"-n", "--name"},
     ("release", "create"): {"-n", "--notes", "--notes-file", "--target", "--notes-start-tag"},
     ("release", "edit"): {"-n", "--notes", "--notes-file", "--target", "--tag"},
+    ("workflow", "run"): {"-f", "--raw-field", "-F", "--field", "-r", "--ref"},
 }  # fmt: skip
 GH_ANY_VALUES = set().union(*GH_REPO_VALUE_FLAGS.values())
 # `gh secret` and `gh variable` act on an organization or the user with these, not on a repo.
@@ -1164,6 +1173,55 @@ def implicit_repo(cwd: Path) -> tuple[str | None, str, str]:
     return repo, "", home
 
 
+def cobra_width(tok: str) -> int:
+    """How many words a word before a gh subcommand takes, as cobra finds the subcommand:
+    0 for a plain word (the subcommand), 2 for an option cobra reads with a value there (-R,
+    --repo, a bare --name, a two-letter -x), else 1 (an empty word too, which cobra skips)."""
+    if tok in GH_GLOBAL_VALUE_FLAGS:
+        return 2
+    if tok.startswith("--") and "=" not in tok and tok != "--":
+        return 2
+    if len(tok) == 2 and tok[0] == "-" and tok != "--":
+        return 2
+    return 1 if tok == "" or tok.startswith("-") else 0
+
+
+def pflag_options(args: list[str], values: set[str]):
+    """Each option in ARGS as gh's flag parser (pflag) reads it, as (flag, value): a long
+    option's value after `=` or, for one in VALUES, in the next word; short options grouped in
+    one word (`-fd TEXT`), the first in VALUES taking the rest of the word (dropping a leading
+    `=`) or the next word. A switch's value is None. Reading stops at `--`."""
+    i = 0
+    while i < len(args):
+        tok = args[i]
+        i += 1
+        if tok == "--":
+            return
+        if tok.startswith("--"):
+            name, eq, value = tok.partition("=")
+            if name in values and not eq:
+                value = args[i] if i < len(args) else ""
+                i += 1
+            yield name, value if eq or name in values else None
+            continue
+        if not tok.startswith("-") or tok == "-":
+            continue
+        for k in range(1, len(tok)):
+            flag = "-" + tok[k]
+            if flag in values:
+                value = tok[k + 1 :]
+                if len(value) > 1 and value[0] == "=":  # pflag drops it after any letter
+                    value = value[1:]
+                elif not value:
+                    value = args[i] if i < len(args) else ""
+                    i += 1
+                yield flag, value
+                break
+            yield flag, None
+            if tok[k + 1 : k + 2] == "=":
+                break  # `-d=t`: the switch's own value, and no more options after it
+
+
 def parse_gh_api(args: list[str]) -> tuple[str | None, list[tuple[str, str]]]:
     """A `gh api` command's endpoint (its first plain word) and its value options in order,
     as (name, value): `--name=value`, `--name value`, `-Xvalue` and `-X value` alike."""
@@ -1812,9 +1870,6 @@ class Guards:
         unknown = None  # a word before the subcommand this check cannot know
         while i < len(argv) and len(words) < 2:
             tok = argv[i]
-            if tok == "":
-                i += 1  # cobra skips an empty argument when it looks for the subcommand
-                continue
             # Only where the next word decides the subcommand; `--name=$V` stays one option.
             option = tok.startswith("-") and (
                 "=" in tok or (len(tok) > 2 and tok[1].isalpha())  # `-R$R` is one option
@@ -1822,20 +1877,14 @@ class Guards:
             if ("$" in tok or "`" in tok) and not option and words in ([], ["pr"], ["issue"]):
                 unknown = tok
                 break
-            if tok in GH_GLOBAL_VALUE_FLAGS:
-                i += 2
-                continue
             # Before the subcommand gh (cobra) takes an option it does not know there as
-            # one with a value, `gh pr -b TEXT comment 3`: so does this, and `gh_body`
-            # reads every option in the command as gh then does.
-            long_bare = tok.startswith("--") and "=" not in tok and tok != "--"
-            if long_bare or (len(tok) == 2 and tok[0] == "-" and tok != "--"):
-                i += 2
-                continue
-            if not tok.startswith("-"):
+            # one with a value, `gh pr -b TEXT comment 3`; pflag_options then reads every
+            # option in the command as gh does.
+            width = cobra_width(tok)
+            if width == 0:
                 words.append(tok)
                 at.append(i)
-            i += 1
+            i += width or 1
         # gh (cobra) drops the subcommand words and parses the rest, so an option just
         # before one takes the word after it: `gh pr -b review TEXT 1`.
         rest = [a for j, a in enumerate(argv) if j and j not in at]
@@ -1893,9 +1942,13 @@ class Guards:
             a.split("=")[0] in GH_NOT_REPO_FLAGS for a in argv
         ):
             return False
-        if tuple(words) in GH_NESTED:
-            nested = next((a for a in argv[at[1] + 1 :] if not a.startswith("-")), "")
-            return nested not in ("", "list", "ls", "view")  # "": the group alone prints help
+        reads = GH_NESTED.get((words[0], words[1]))
+        if reads is not None:  # its subcommand is found as cobra finds the others
+            i = at[1] + 1
+            while i < len(argv) and cobra_width(argv[i]):
+                i += cobra_width(argv[i])
+            nested = argv[i] if i < len(argv) else ""  # "": the group alone prints help
+            return nested not in {"", *reads}
         if tuple(words) == ("issue", "develop") and any(a in ("-l", "--list") for a in argv):
             return False
         return words[1] not in GH_REPO_READS.get(words[0], set())
@@ -1912,22 +1965,24 @@ class Guards:
     def names_repo(self, words: list[str], argv: list[str], at: list[int], env: dict[str, str]):
         """Whether the command names its repo as gh reads one: the last -R/--repo value shaped
         [HOST/]OWNER/NAME or a repo URL after expansion, GH_REPO as gh's process gets it, or,
-        as its first argument, an issue or PR URL (pr, issue) or a repo (repo). A word with a
-        space in it is a value of another option (`-b "-R me/tool"`), never an option."""
+        as its first argument, an issue or PR URL (pr, issue) or a repo (repo). Its options
+        are read as gh reads them once cobra drops the subcommand words, so another option's
+        value (`-b "-R me/tool"`, `-fd -Rme/tool`) is never a -R."""
         repo = None
         values = set(GH_TEXT) | set(GH_FILE) | GH_VALUE_FLAGS.get(tuple(words[:2]), set())
         # A subcommand given as a variable or by an alias could be any: read every table.
         known = len(words) == 2 and words[1].replace("-", "").isalpha()
         values |= GH_REPO_VALUE_FLAGS.get(tuple(words), set()) if known else GH_ANY_VALUES
-        for j, tok in enumerate(argv[1:], 1):
-            if any(c.isspace() for c in tok) or (j > 1 and argv[j - 1] in values):
-                continue
-            if tok in GH_GLOBAL_VALUE_FLAGS:
-                repo = argv[j + 1] if j + 1 < len(argv) else ""
-            elif tok.startswith("--repo="):
-                repo = tok[len("--repo=") :]
-            elif tok.startswith("-R") and len(tok) > 2:
-                repo = tok[3:] if tok[2] == "=" else tok[2:]
+        # A word with a space in it names no repo and takes no next word, so it reads as an
+        # argument: a value table this check lacks (`-f "-R x y"`) then misreads nothing.
+        rest = [
+            "_" if any(c.isspace() for c in a) else a
+            for j, a in enumerate(argv)
+            if j and j not in at
+        ]
+        for flag, value in pflag_options(rest, values | GH_GLOBAL_VALUE_FLAGS):
+            if flag in GH_GLOBAL_VALUE_FLAGS:
+                repo = value
         if repo is not None:
             return bool(GH_REPO_RE.match(expand(repo, {**env, **self.raw})))
         value = self.gh_repo_value("GH_REPO", env)
@@ -1956,7 +2011,8 @@ class Guards:
             IMPLICIT_REPO,
             f"phylax: `gh {' '.join(words)}` names no repo, and {why}, so which one gh acts on "
             "depends on its remote order, `gh repo set-default` (which some commands ignore) "
-            f"and the hosts it is signed in to. Name it: add `-R {meant}`. "
+            f"and the hosts it is signed in to. Name it: add `-R {meant}`, or start the "
+            f"command with `GH_REPO={meant}` where it takes no -R. "
             f"To allow this in this repo, run `git config {repo_key(IMPLICIT_REPO)} false`.",
         )
 
@@ -2201,51 +2257,18 @@ class Guards:
         its options read as gh's flag parser (pflag) reads them: a long option's value
         after `=` or in the next word; short options grouped in one word (`-rb TEXT`), the
         first that takes a value taking the rest of the word or the next word."""
-        values = GH_VALUE_FLAGS.get(words, set()) | GH_GLOBAL_VALUE_FLAGS
         body_flags = GH_BODY_TEXT | GH_BODY_FILE
+        values = GH_VALUE_FLAGS.get(words, set()) | GH_GLOBAL_VALUE_FLAGS | body_flags
         body: str | None = None
         from_file: str | None = None  # `create` sends the file whatever the order
         given = file_given = fill = False
-        i = 0
-        while i < len(args):
-            tok = args[i]
-            i += 1
-            if tok == "--":
-                break
-            if tok.startswith("--"):
-                name, eq, value = tok.partition("=")
-                if name in body_flags:
-                    if not eq:
-                        value = args[i] if i < len(args) else ""
-                        i += 1
-                    body, given = self.read_body(name, value, cwd, env), True
-                    if name in GH_BODY_FILE and value:
-                        from_file, file_given = body, True
-                elif name in values and not eq:
-                    i += 1
-                elif name in GH_FILL:
-                    fill = True
-                continue
-            if not tok.startswith("-") or tok == "-":
-                continue
-            for k in range(1, len(tok)):
-                flag = "-" + tok[k]
-                if flag in body_flags or flag in values:
-                    value = tok[k + 1 :]
-                    if len(value) > 1 and value[0] == "=":  # pflag drops it after any letter
-                        value = value[1:]
-                    elif not value:
-                        value = args[i] if i < len(args) else ""
-                        i += 1
-                    if flag in body_flags:
-                        body, given = self.read_body(flag, value, cwd, env), True
-                        if flag in GH_BODY_FILE and value:
-                            from_file, file_given = body, True
-                    break
-                if flag in GH_FILL:
-                    fill = True
-                if tok[k + 1 : k + 2] == "=":
-                    break  # `-d=t`: the switch's own value, and no more options after it
+        for flag, value in pflag_options(args, values):
+            if flag in body_flags:
+                body, given = self.read_body(flag, value, cwd, env), True
+                if flag in GH_BODY_FILE and value:
+                    from_file, file_given = body, True
+            elif flag in GH_FILL:
+                fill = True
         if fill and not given and words in {("pr", "create"), ("pr", "new")}:
             why = (
                 "phylax: --fill builds this PR body from the commit messages, whose length "

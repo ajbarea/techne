@@ -222,10 +222,6 @@ hash = "f6487784a0256cd0323a3df32e231be9c560f6fb235a501b998f546504c233c1"
 why = "remote_repo: the host is lowercased, so it never equals GITHUB.COM, and github.com stays github.com either way"
 
 [[mutant]]
-hash = "aac301b9b8d9a10a149e4a08bb1b4ca51daca732a56f989805558f3ebe0ba96a"
-why = "Guards.acts_on_resolved_repo: no nested word and XXXX are both outside list, ls and view"
-
-[[mutant]]
 hash = "7d26f5f847cae71f44d781914968c3204072d0f3575d33d4e4ce9c132f854185"
 why = "Guards.api_body: json.loads('NULL') raises ValueError, which reads as None, as 'null' does"
 
@@ -244,10 +240,6 @@ why = "Guards.names_repo: XXXX is alphabetic, as a removed hyphen is; only a wor
 [[mutant]]
 hash = "1a3aaf81a90e286bab3cd60222998a24428437c21668d6d60c2fe84bbd4bb216"
 why = "Guards.names_repo: argv[0] is gh itself, never an option that takes a value"
-
-[[mutant]]
-hash = "06d7e8fc746cc347d0951b164525fd0b9202a9ad7a26dcd1ad894f0183c53679"
-why = "Guards.names_repo: argv[1] is gh's group or a global option, never a subcommand option that takes a value"
 
 [[mutant]]
 hash = "f4153bb47717f17349d91ef54c542b4b197780b165fb5006b335588c10a54055"
