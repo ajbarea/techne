@@ -14,14 +14,15 @@ moves to its dated Shipped log. Over ~50 lines means something referential crept
    seven pinned runs (`bench/median.py`); README says how to refresh it.
 4. ✅ #290 mutation (mutmut per PR + weekly sweep) merged.
 5. ✅ #295 phylax parser speed-up merged; ✅ #303 gitleaks retry merged.
-6. 🔄 #304 (#301, this branch, head e291edf): round 4 (~/.local/state/techne-perf/r4-304-report.md,
-   R4-1 to R4-6) answered by a simpler rule: a gh write naming no repo passes only when every
-   remote names one repo and no set-default mark names another; refusal offers host-qualified -R.
-   Deferred shell-parsing cases tracked in #306. Lint + test_gh_target + test_git_guards pass.
-   ⏸ PAUSED 11-05 16:00 (Heph: RIT weekly limit spent, Personal at 9%); resumes after the
-   Wed 11-11 reset. Next: fresh Opus round-5 reader (report ~/.local/state/techne-perf/r5-304-report.md); fix,
-   verify pass, merge when clean; report to Heph; `fleet done` (all four #277 PRs merged).
-Report each merge to Heph (tmux pane in orchestrator.pane); `fleet done` after all four.
+6. 🔄 #304 (#301, this branch, head 9c056a8): rounds 6-8 (11-25, Opus readers) moved options onto one
+   `pflag_options` reader and one `cobra_width` walk, added GH_NO_R (writes with no -R ignore
+   GH_REPO), word expansion with an unknown marker, gh 2.105 groups. Round 8 holds: per-command
+   facts are still guessed (-h is --homepage in repo edit; GH_NO_R skipped for a variable or alias
+   subcommand; -R counted on repo edit; -fR after an unknown word; skill publish DIR; gh api advice).
+   NEXT (fresh session): generate one table per checked command from `gh <cmd> --help` (takes -R,
+   meaning of -h, value options), commit it, test it against the installed gh (skip if absent);
+   count -R/GH_REPO only for a known command that takes -R; read -R only up to the first unknown
+   word. Findings: techne#301 comment 7181286561; #306 holds the rest. Then a fresh reader, to clean.
 
 techne#249 is fixed in PR #252 (branch results/quality-baseline): the task notes state what the
 hidden tests check, `--check-tasks` fails a task with a gap, `quality/DEVIATIONS.md` records it.
