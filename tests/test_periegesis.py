@@ -54,7 +54,9 @@ def test_the_log_stays_out_of_git_until_reviewed() -> None:
     assert "`.periegesis/` and `.playwright-mcp/` to the repo's exclude file" in line
     assert "`$(git rev-parse --git-path info/exclude)`" in line
     assert "Never delete that folder" in line
-    assert "delete `.playwright-mcp/`" not in skill()
+    for other in skill().splitlines():
+        if ".playwright-mcp" in other and "Never delete that folder" not in other:
+            assert not re.search(r"\b(delete|remove|rm|clean)\b", other, re.I), other
     assert "commit only the reviewed `.md` log" in line
     assert "solo private repo" in line
     assert "Commit `.periegesis/` to git" not in skill()
