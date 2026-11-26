@@ -260,3 +260,7 @@ why = "Guards.names_repo: gh_repo_value never reads its env argument"
 [[mutant]]
 hash = "49336a3cf4e86507e932c412a72832af8be4fb8924057bef1ce4c2b470d63fcf"
 why = "Guards.run: unset's own options only mark a name no check reads"
+
+[[mutant]]
+hash = "2285c3a874cfdd782ab308de3cc83ef4abc9cd0d66298a59c5bbcdc67f98ea45"
+why = "parse_gh_api: a token not starting -- whose left of = is a value flag starts with that short flag, so the next line resets name and value"

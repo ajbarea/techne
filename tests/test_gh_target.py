@@ -502,6 +502,10 @@ def test_the_denial_log_names_this_guard(tmp_path):
         ("GH_REPO=x=y gh pr create -t T -b B", True, {"GH_REPO": "me/tool"}),
         ("X=a=b gh pr create -t T -b B", True, {}),
         ("export FOO; gh pr create -t T -b B", True, {}),
+        # unset drops the export: the plain assignment after it never reaches gh
+        ("export GH_REPO=me/tool; unset GH_REPO; GH_REPO=me/tool; gh pr create -t T -b B", True, {}),
+        ("gh pr create -t T -R me/tool -b B", False, {}),  # -R after another option's value
+        ("gh pr create -t 'a b' -R me/tool", False, {}),  # and after a quoted one
         ("gh pr merge https://github.com/me/tool/pull/3", False, {}),
         ("gh pr create -t T -b B -l bug", True, {}),  # -l is pr create's --label
         ("gh issue develop 3", True, {}),
