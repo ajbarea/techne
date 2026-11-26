@@ -14,7 +14,7 @@ disable-model-invocation: false
 
 - **Never fix during the tour.** Fixes go through the filed issues afterwards.
 - **Never defend the design during the tour.** When the user reports hesitation or a misclick, record what happened instead of explaining why the interface works that way.
-- **Keep human reactions apart from machine checks.** The user's reactions live in their own section; console errors, load time, contrast and phone-width layout live in a separate measured section.
+- **Keep human reactions apart from machine checks.** The user's reactions live in their own section; console and page errors, load time, contrast and phone-width layout live in a separate measured section.
 - **One issue per class of friction.** Group repeated instances under one class instead of opening one issue per click.
 
 ## Method
@@ -36,9 +36,10 @@ Agree on the tour scope with the user in one short message:
 
 Once agreed:
 
-- Open a shared Playwright browser window at `1920x1080` using the Playwright MCP tools (`browser_navigate` to target, `browser_resize` to `1920` by `1080`) so the visitor and Claude share the same live view. Periegesis requires the Playwright MCP server (`playwright`); ensure it is running and active before beginning.
+- Open a shared Playwright browser window at `1920x1080` using the Playwright MCP tools (`browser_navigate` to target, `browser_resize` to `1920` by `1080`) so the visitor and Claude share the same live view. Periegesis requires the Playwright MCP server (`playwright`). When its `browser_*` tools are not available, stop before the tour and tell the user to install the `playwright` plugin from the official Claude Code marketplace and restart the session; never tour without the shared view.
 - Write the friction log to a path that never deploys:
-  - When touring an app with a local repository, copy `<skill-dir>/templates/friction-log.md` to `.periegesis/<YYYY-MM-DD>-<surface>.md` and create `.periegesis/<YYYY-MM-DD>-<surface>/` for screenshots at the repository root. Never write to `docs/` or any directory published by documentation site builders. Commit `.periegesis/` to git so friction logs are versioned with the repository history, or add `.periegesis/` to `.gitignore` if the project keeps review drafts untracked.
+  - When touring an app with a local repository, copy `<skill-dir>/templates/friction-log.md` to `.periegesis/<YYYY-MM-DD>-<surface>.md` and create `.periegesis/<YYYY-MM-DD>-<surface>/` for screenshots at the repository root. Never write to `docs/` or any directory published by documentation site builders.
+  - Keep `.periegesis/` out of git while touring: add the line `.periegesis/` to `.git/info/exclude` at setup. Screenshots of a signed-in app show the visitor's data, so after the tour commit only the reviewed `.md` log, if the project keeps logs; commit screenshots only on a solo private repo, after checking each one shows no personal data.
   - When touring an external URL with no local repository, write to `~/.local/state/periegesis/<target-domain>/<YYYY-MM-DD>-<surface>.md` and save screenshots in `~/.local/state/periegesis/<target-domain>/<YYYY-MM-DD>-<surface>/`.
 - Fill the **Context** block in the friction log with the agreed scope.
 - **Optional voice:** if `keryx` is installed and active, narrate each tour step aloud in one short line before the user tries it.
@@ -69,26 +70,28 @@ Record each friction the user names as one line in the log file under **Tour log
 - `severity`: `blocker` (stops the task), `slows` (causes detour or hesitation) or `polish` (visual or wording rough edge)
 - `screenshot`: PNG path relative to the log file (`<YYYY-MM-DD>-<surface>/...`)
 
-After the tour tasks finish, run machine checks using techne's visual QA tool (`docs-site/scripts/visual_qa.py`) or Playwright MCP to measure errors and responsiveness without mixing with user reactions:
+After the tour tasks finish, measure the toured routes, kept apart from the user's reactions. `<tour-dir>` is the screenshot folder chosen at setup. Run techne's visual QA tool once, with one `--path` per toured route (`--path ""` for the root page). Without `--path` it reads the site's `sitemap.xml`, which most apps do not have, and stops with an HTTP 404:
 
 ```bash
 uv run --quiet --no-project --with playwright==1.63.0 \
     --with axe-playwright-python==0.1.8 --with pillow \
-    python "<plugin-root>/skills/docs-site/scripts/visual_qa.py" <target-url> --out .periegesis/qa/ --pages 1
+    python "<plugin-root>/skills/docs-site/scripts/visual_qa.py" <base-url>/ --path "<route>" --out <tour-dir>/qa/
 ```
 
-Record the measured metrics in **Machine findings**:
+Exit status 1 with a summary and `<tour-dir>/qa/report.json` means it found problems; a Python traceback means the run itself failed.
 
-- **Console and page errors:** uncaught exceptions, failed requests and `console.error` lines.
-- **Load time:** initial load and key route transitions.
-- **Contrast:** WCAG AA contrast check (`axe-core` color-contrast rule).
-- **Phone width (`390x844`):** horizontal overflow and clipped controls at mobile viewport.
+Record the measured metrics in **Machine findings**, each from the source named:
+
+- **Console and page errors:** `console.error` lines from the Playwright MCP's `browser_console_messages` on each route; uncaught page errors and failed same-origin requests from `report.json`.
+- **Load time:** on each route, `browser_evaluate` of `performance.getEntriesByType('navigation')[0].duration` (milliseconds) after `browser_navigate`.
+- **Contrast:** WCAG AA, from `report.json` (axe-core's color-contrast rule).
+- **Phone width (`390x844`):** sideways overflow at phone width, from `report.json` and the contact sheets.
 
 ## 4. Close
 
 1. Group the logged frictions into classes (for example, missing feedback, hidden control, unclear label) and rank them by `severity x frequency`. Note in the summary that one person's tour is a hypothesis until confirmed across users or sessions.
 2. Check repository ownership before filing issues: run `python3 "<plugin-root>/_shared/repo_kind.py" <target-repo-path>`.
-   - On a **solo repo** (`solo: ...`), file one GitHub issue per class of friction directly with `gh issue create`, setting an Issue Type (e.g. `--type Issue` or `--type Bug`), picking repo labels (`gh label list`), leaving issues unassigned, and linking each issue from the log.
-   - On a **team repo** (`team: ...` or unsettled), propose the ranked issues (title, class, severity, body, and labels) to the user first for confirmation before filing.
+   - On a **solo repo** (`solo: ...`), file one GitHub issue per class of friction directly with `gh issue create`, setting an Issue Type the repo defines (`--type Bug`, `--type Task` or `--type Feature`), picking repo labels (`gh label list`), leaving each issue unassigned, and linking each issue from the log.
+   - On a **team repo** (`team: ...` or unsettled), propose the ranked issues (title, class, severity, body, and labels) to the user and file none until they confirm.
 3. When a friction represents a recurring pattern that should become a standing rule across projects, propose it to the owner as a decided quality lesson for `/techne:lessons`. Record it with `/techne:lessons` only after the owner agrees and decides.
 4. Close the shared Playwright browser window.

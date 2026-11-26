@@ -34,8 +34,8 @@ Severity: `blocker` (stops the task), `slows` (causes detour or hesitation), `po
 
 Measured after the tour; kept separate from the visitor's reactions.
 
-- **Console and network errors:** <none, or count and messages>
-- **Load time:** <initial load ms and key transitions>
+- **Console and page errors:** <none, or count and messages (browser_console_messages, report.json)>
+- **Load time:** <navigation duration ms per route (browser_evaluate)>
 - **Contrast (WCAG AA):** <pass, or failing selectors and ratios>
 - **Phone width (390x844):** <horizontal overflow px, clipped or wrapping issues>
 
