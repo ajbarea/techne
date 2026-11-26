@@ -1981,7 +1981,7 @@ class Guards:
         known = len(words) == 2 and words[1].replace("-", "").isalpha()
         values |= GH_REPO_VALUE_FLAGS.get(tuple(words), set()) if known else GH_ANY_VALUES
         known_env = {**env, **self.raw}
-        rest, hidden = [], False
+        rest = []
         for j, a in enumerate(argv):
             if not j or j in at:
                 continue
@@ -1990,20 +1990,17 @@ class Guards:
                 a = expand(a, known_env, unknown=None)
                 if "$" in a or "`" in a:
                     # A value this check cannot know may be an option that takes the next
-                    # word, so no -R after it counts.
+                    # word (`-fRme/tool` too), so -R is read only up to it.
                     rest.append("\0")
-                    hidden = True
-                    continue
+                    break
             # A word with a space in it names no repo and takes no next word, so it reads
             # as an argument: a value table this check lacks (`-f "-R x y"`) misreads nothing.
-            if any(c.isspace() for c in a) or (hidden and a.startswith(("-R", "--repo"))):
-                a = "_"
-            rest.append(a)
+            rest.append("_" if any(c.isspace() for c in a) else a)
         for flag, value in pflag_options(rest, values | GH_GLOBAL_VALUE_FLAGS):
             if flag in GH_GLOBAL_VALUE_FLAGS:
                 repo = value
-        if repo is not None:
-            return bool(GH_REPO_RE.match(expand(repo, known_env)))
+        if repo is not None:  # its words are expanded already
+            return bool(GH_REPO_RE.match(repo))
         value = self.gh_repo_value("GH_REPO") if tuple(words[:2]) not in GH_NO_R else None
         if value and GH_REPO_RE.match(expand(value, known_env)):
             return True

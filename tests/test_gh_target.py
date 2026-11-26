@@ -509,7 +509,7 @@ def test_the_refusal_says_what_gh_would_weigh_and_never_suggests_an_unreadable_o
     [
         ("gh repo archive --yes", "gh repo archive github.com/me/tool"),
         ("gh repo edit --description x", "gh repo edit github.com/me/tool"),
-        ("gh skill publish", "run it in a clone of that one repo"),
+        ("gh skill publish", "to. It reads its repo from the remotes alone: run it in a clone"),
     ],
 )
 def test_a_write_with_no_r_reads_no_gh_repo_and_the_refusal_says_how(tmp_path, command, says):
@@ -590,6 +590,10 @@ def test_the_denial_log_names_this_guard(tmp_path):
         ('gh label create x "$UNKNOWN" -Rme/tool', True, {}),  # may be an option
         ('R=me/tool; gh pr create -t T -b B -R "$R"', False, {}),
         ('D=x; gh label create "$D" -Rme/tool', False, {}),
+        # -R is read only up to a word whose value is unknown, grouped options too.
+        ('X=$(printf %s -d); gh label create x "$X" -fRme/tool', True, {}),
+        ("gh label create x `printf %s -d` -Rme/tool", True, {}),
+        ('gh label create x -R "$UNKNOWN" me/tool', True, {}),
         # cobra stops at --, so no subcommand follows it; the guard reads one and refuses.
         ("gh pr -- create -t T -b B", True, {}),
         ("gh label create xd -Rme/tool", False, {}),  # an argument's letters are no options

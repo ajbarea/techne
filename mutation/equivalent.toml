@@ -292,3 +292,11 @@ why = "pflag_options: a long switch's value is read by no caller: names_repo rea
 [[mutant]]
 hash = "8d47471ed69c3c2ebddbdf21a992e27985e35771b2c7c7f53176c5bcad566b47"
 why = "pflag_options: k = 0 yields the switch --, which no caller acts on; it ends a word early only for -=..., which pflag rejects"
+
+[[mutant]]
+hash = "66a314f2e14476680a023ae914ed2232ceb281be8a65cf12dd908bb6cf5564c3"
+why = "check_gh_target: words holds at most two entries (check_gh stops at two, and adds an unknown word only after [], [pr] or [issue]), so words[:3] == words[:2]"
+
+[[mutant]]
+hash = "354a51c0ced39d8a551d6fcf4c0f1680d52d79fb05054126a4682869c3346b63"
+why = "check_gh_target: words holds at most two entries (check_gh stops at two, and adds an unknown word only after [], [pr] or [issue]), so words[:3] == words[:2]"
