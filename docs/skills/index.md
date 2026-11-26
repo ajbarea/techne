@@ -45,6 +45,7 @@ Skills ship as plugins: `techne` for work in a code repo, `graphe` for documents
 
 | Skill | Purpose |
 |---|---|
+| [`techne:periegesis`](periegesis.md) | Walks the user through a live app in a shared browser to find UX friction, records a friction log apart from machine checks, and files ranked issues. |
 | [`techne:theoros`](theoros.md) | Starts an observed live dev session: Claude drives the REPL in a named tmux session; you spectate read-only via `tmux attach -r`. |
 
 ## Documents (graphe)

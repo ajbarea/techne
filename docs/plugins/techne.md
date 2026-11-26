@@ -25,7 +25,7 @@ techne is the plugin for work in a code repo: build audits, CI log review, pre-m
 
 ## Needs
 
-git, the GitHub CLI (`gh`) and its sign-in, uv, and python3 3.11 or newer. tmux is needed by `techne:theoros`. Playwright's Chromium is optional and used by the docs-site visual check. On macOS, `lsof` must be on PATH for the clean mode of `techne:sisters`.
+git, the GitHub CLI (`gh`) and its sign-in, uv, and python3 3.11 or newer. tmux is needed by `techne:theoros`. Playwright's Chromium is optional and used by the docs-site visual check and `techne:periegesis`. On macOS, `lsof` must be on PATH for the clean mode of `techne:sisters`.
 
 ## Set up
 
@@ -53,6 +53,7 @@ Run `/techne:setup`. It checks each item above, the repo's `.claude/skill-contex
 | [`techne:elenchus`](../skills/elenchus.md) | Review a change adversarially before merge. |
 | [`techne:lessons`](../skills/lessons.md) | Keep a decided quality lesson so the next deck, paper, site or app starts ahead. |
 | [`techne:logging`](../skills/logging.md) | Check logging against the standard and fix it. |
+| [`techne:periegesis`](../skills/periegesis.md) | Walk the user through a live app to find UX friction and file ranked issues. |
 | [`techne:research-grounded`](../skills/research-grounded.md) | Ground decisions in current sources. |
 | [`techne:reslop`](../skills/reslop.md) | Rewrite docstrings from the implementation. |
 | [`techne:seele`](../skills/seele.md) | Put a decision to a blind panel of models and see who disagreed. |
