@@ -264,3 +264,27 @@ why = "Guards.run: unset's own options only mark a name no check reads"
 [[mutant]]
 hash = "2285c3a874cfdd782ab308de3cc83ef4abc9cd0d66298a59c5bbcdc67f98ea45"
 why = "parse_gh_api: a token not starting -- whose left of = is a value flag starts with that short flag, so the next line resets name and value"
+
+[[mutant]]
+hash = "ef472a13c8ed1b84f580bd90759708afa0166e59ddc313082a572e8108efa730"
+why = "parse_gh_api: a short token's value is read only when its name is a value flag, and then the next word or its own tail replaces it"
+
+[[mutant]]
+hash = "72b3ca00e7f736291835532296b1afc7479a6b82f9cda4c256510ac3fc2358c6"
+why = "parse_gh_api: a token starting -- has tok[:2] == '--', which no value flag is, so the -- test never decides"
+
+[[mutant]]
+hash = "005b74e69f323a88062e8c12cc4285f3bc4daacb331dff07241c948015115dfb"
+why = "remote_repo: the first piece of split(':') equals the first piece of split(':', 1)"
+
+[[mutant]]
+hash = "dcad2872430a9c2a60be6e58e27e2abdd81e8dcb75e19912c1e2c361dda4c587"
+why = "api_body: json.loads of an invalid string raises ValueError, caught to None, the same result as loading 'null'"
+
+[[mutant]]
+hash = "d27004520a6a5c8ebfcbbb669b999f37dfe4607f5a6a9472814400f88e6172c8"
+why = "names_repo: a bare -R is in GH_GLOBAL_VALUE_FLAGS, taken by the branch before, so the -R prefix branch never sees length 2"
+
+[[mutant]]
+hash = "40ddb5b7e28e0e9fe4d300d3ec1afc212fcef709517a4d7620092c1d1a968cc8"
+why = "names_repo: an empty first word and XXXX both fail GH_ITEM_URL_RE and GH_REPO_RE (no slash)"

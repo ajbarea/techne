@@ -1895,7 +1895,7 @@ class Guards:
             return False
         if tuple(words) in GH_NESTED:
             nested = next((a for a in argv[at[1] + 1 :] if not a.startswith("-")), "")
-            return nested not in ("list", "ls", "view")
+            return nested not in ("", "list", "ls", "view")  # "": the group alone prints help
         if tuple(words) == ("issue", "develop") and any(a in ("-l", "--list") for a in argv):
             return False
         return words[1] not in GH_REPO_READS.get(words[0], set())

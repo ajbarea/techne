@@ -454,6 +454,25 @@ def test_a_remote_url_with_a_space_is_read_whole(monkeypatch, tmp_path):
     assert git_checks.implicit_repo(repo) == ("github.com/me/my tool", "", "github.com/me/my tool")
 
 
+def test_a_remote_url_with_a_tab_is_read_whole(monkeypatch, tmp_path):
+    (git_checks,) = load_phylax_hooks(monkeypatch, "git_checks")
+    repo = clone(tmp_path, {"origin": "https://github.com/me/my\ttool.git"})
+    assert git_checks.implicit_repo(repo) == (
+        "github.com/me/my\ttool",
+        "",
+        "github.com/me/my\ttool",
+    )
+
+
+def test_a_local_fetch_url_with_an_unreadable_push_url_still_counts(tmp_path):
+    repo = clone(
+        tmp_path,
+        {"origin": FORK, "m": "/srv/mirror.git"},
+        push={"m": "https://github.com/x/me/tool.git"},
+    )
+    assert "remote `m` (a URL it cannot read)" in (refusal("gh pr create -t T -b B", repo) or "")
+
+
 def test_a_remote_with_a_push_url_alone_or_no_url_still_counts(tmp_path):
     (tmp_path / "a").mkdir()
     repo = clone(tmp_path / "a", {"origin": FORK})
@@ -520,6 +539,11 @@ def test_the_denial_log_names_this_guard(tmp_path):
         ("gh repo deploy-key ls", False, {}),
         ("gh repo deploy-key -- list", False, {}),
         ("gh repo autolink view 1", False, {}),
+        ("gh repo deploy-key", False, {}),  # the group alone prints its help
+        ("gh pr create -R=x/tool -t T -b B", False, {}),  # gh drops the = of -R=
+        ("R=me/tool; GH_REPO=$R gh pr create -t T -b B", False, {}),
+        ("gh issue create -t GH_REPO=me/tool -b B", True, {}),  # an argument, not its env
+        ("gh pr update-branch -c -R me/tool", False, {}),  # -c takes a value only in close
     ],
 )
 def test_how_a_command_names_its_repo_or_acts_on_none(tmp_path, command, refused, env):

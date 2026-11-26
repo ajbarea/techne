@@ -213,6 +213,10 @@ def test_body_files_are_read(repo):
     # an --input file named by a variable set earlier is read as the shell expands it
     assert refused(run_guard('F=in.json; gh api -X PATCH repos/o/r/pulls/1 --input "$F"', repo))
     assert run_guard('F=short.json; gh api -X PATCH repos/o/r/pulls/1 --input "$F"', repo) is None
+    assert refused(run_guard('F=long.md; gh api -X PATCH repos/o/r/pulls/1 -F body=@"$F"', repo))
+    assert run_guard('F=short.md; gh api -X PATCH repos/o/r/pulls/1 -F body=@"$F"', repo) is None
+    # -f sends its value as written: @long.md is the body, not a file to read
+    assert run_guard("gh api -X PATCH repos/o/r/pulls/1 -f body=@long.md", repo) is None
 
 
 @pytest.mark.parametrize(
