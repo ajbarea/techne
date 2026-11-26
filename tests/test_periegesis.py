@@ -51,7 +51,8 @@ def test_log_paths_sit_outside_the_published_docs_folder() -> None:
 def test_the_log_stays_out_of_git_until_reviewed() -> None:
     """Signed-in screenshots never reach a commit by default."""
     line = bullet("Keep `.periegesis/` out of git")
-    assert "`.git/info/exclude`" in line
+    assert "`.periegesis/` and `.playwright-mcp/` to `.git/info/exclude`" in line
+    assert "then delete `.playwright-mcp/`" in bullet("Close the shared Playwright browser window")
     assert "commit only the reviewed `.md` log" in line
     assert "solo private repo" in line
     assert "Commit `.periegesis/` to git" not in skill()
