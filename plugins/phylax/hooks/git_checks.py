@@ -152,6 +152,12 @@ GH_REPO_READS = {
         "license", "gitignore", "credits", "garden", "read-file", "read-dir",
     },
 }  # fmt: skip
+# Checked writes that take no -R: gh reads no GH_REPO for them either (it reads both in the
+# same place). repo's take the repo as their argument; skill publish reads only the remotes.
+GH_NO_R = {
+    ("repo", "edit"), ("repo", "archive"), ("repo", "unarchive"), ("repo", "delete"),
+    ("skill", "publish"),
+}  # fmt: skip
 # Subcommands whose own subcommand decides whether they read (`gh repo deploy-key list`),
 # with those that read; the group alone prints its help.
 _NESTED_READS = {"list", "ls", "view", "download"}
@@ -1899,7 +1905,8 @@ class Guards:
                 self.verdict.deny(on[0], why)
             elif not (words and words[0] in GH_NO_REPO):
                 # Which subcommand runs is unknown, so it is checked as a write.
-                self.check_gh_target([*words, unknown], argv, at, cwd, env)
+                # The unknown word sits where the subcommand does, never as an option.
+                self.check_gh_target([*words, unknown], argv, [*at, i], cwd, env)
             return
         if self.acts_on_resolved_repo(words, argv, at):
             self.check_gh_target(words, argv, at, cwd, env)
@@ -1953,7 +1960,7 @@ class Guards:
             return False
         return words[1] not in GH_REPO_READS.get(words[0], set())
 
-    def gh_repo_value(self, name: str, env: dict[str, str]) -> str | None:
+    def gh_repo_value(self, name: str) -> str | None:
         """NAME as gh's process would get it: a `NAME=value` prefix, else what this command
         exported, assigned to an exported name or unset, else this hook's environment."""
         if name in self.prefix:
@@ -1973,20 +1980,32 @@ class Guards:
         # A subcommand given as a variable or by an alias could be any: read every table.
         known = len(words) == 2 and words[1].replace("-", "").isalpha()
         values |= GH_REPO_VALUE_FLAGS.get(tuple(words), set()) if known else GH_ANY_VALUES
-        # A word with a space in it names no repo and takes no next word, so it reads as an
-        # argument: a value table this check lacks (`-f "-R x y"`) then misreads nothing.
-        rest = [
-            "_" if any(c.isspace() for c in a) else a
-            for j, a in enumerate(argv)
-            if j and j not in at
-        ]
+        known_env = {**env, **self.raw}
+        rest, hidden = [], False
+        for j, a in enumerate(argv):
+            if not j or j in at:
+                continue
+            # Each word as bash hands it to gh (`D=-d; ... "$D" -Rme/tool` is `-d -Rme/tool`).
+            if "$" in a or "`" in a:
+                a = expand(a, known_env, unknown=None)
+                if "$" in a or "`" in a:
+                    # A value this check cannot know may be an option that takes the next
+                    # word, so no -R after it counts.
+                    rest.append("\0")
+                    hidden = True
+                    continue
+            # A word with a space in it names no repo and takes no next word, so it reads
+            # as an argument: a value table this check lacks (`-f "-R x y"`) misreads nothing.
+            if any(c.isspace() for c in a) or (hidden and a.startswith(("-R", "--repo"))):
+                a = "_"
+            rest.append(a)
         for flag, value in pflag_options(rest, values | GH_GLOBAL_VALUE_FLAGS):
             if flag in GH_GLOBAL_VALUE_FLAGS:
                 repo = value
         if repo is not None:
-            return bool(GH_REPO_RE.match(expand(repo, {**env, **self.raw})))
-        value = self.gh_repo_value("GH_REPO", env)
-        if value and GH_REPO_RE.match(expand(value, {**env, **self.raw})):
+            return bool(GH_REPO_RE.match(expand(repo, known_env)))
+        value = self.gh_repo_value("GH_REPO") if tuple(words[:2]) not in GH_NO_R else None
+        if value and GH_REPO_RE.match(expand(value, known_env)):
             return True
         first = argv[at[1] + 1] if len(at) == 2 and at[1] + 1 < len(argv) else ""
         if words[0] in ("pr", "issue") and GH_ITEM_URL_RE.match(first):
@@ -2007,12 +2026,18 @@ class Guards:
         if repo is not None:
             return
         meant = repo_flag(home) if home else "HOST/OWNER/NAME"
+        cmd = " ".join(words)
+        if tuple(words[:2]) == ("skill", "publish"):
+            fix = "It reads its repo from the remotes alone: run it in a clone of that one repo."
+        elif tuple(words[:2]) in GH_NO_R:
+            fix = f"It takes no -R: name the repo as its argument, `gh {cmd} {meant}`."
+        else:
+            fix = f"Name it: add `-R {meant}`."
         self.verdict.deny(
             IMPLICIT_REPO,
-            f"phylax: `gh {' '.join(words)}` names no repo, and {why}, so which one gh acts on "
-            "depends on its remote order, `gh repo set-default` (which some commands ignore) "
-            f"and the hosts it is signed in to. Name it: add `-R {meant}`, or start the "
-            f"command with `GH_REPO={meant}` where it takes no -R. "
+            f"phylax: `gh {cmd}` names no repo, and {why}, so which one gh acts on depends on "
+            "its remote order, `gh repo set-default` (which some commands ignore) and the "
+            f"hosts it is signed in to. {fix} "
             f"To allow this in this repo, run `git config {repo_key(IMPLICIT_REPO)} false`.",
         )
 

@@ -215,6 +215,11 @@ def test_body_files_are_read(repo):
     assert run_guard('F=short.json; gh api -X PATCH repos/o/r/pulls/1 --input "$F"', repo) is None
     assert refused(run_guard('F=long.md; gh api -X PATCH repos/o/r/pulls/1 -F body=@"$F"', repo))
     assert run_guard('F=short.md; gh api -X PATCH repos/o/r/pulls/1 -F body=@"$F"', repo) is None
+    (repo / "a").write_text(LONG)
+    assert refused(run_guard("gh pr create -t t -F=a", repo))  # pflag drops the = of -F=a
+    assert refused(run_guard("gh pr create -t t -F", repo))  # a body file with no name
+    # -d=false sets --draft and ends its word: no f in it reads as --fill
+    assert not refused(run_guard("gh pr create -t t -d=false", repo))
     # -f sends its value as written: @long.md is the body, not a file to read
     assert run_guard("gh api -X PATCH repos/o/r/pulls/1 -f body=@long.md", repo) is None
 

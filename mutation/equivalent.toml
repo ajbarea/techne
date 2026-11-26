@@ -280,3 +280,15 @@ why = "names_repo: a bare -R is in GH_GLOBAL_VALUE_FLAGS, taken by the branch be
 [[mutant]]
 hash = "40ddb5b7e28e0e9fe4d300d3ec1afc212fcef709517a4d7620092c1d1a968cc8"
 why = "names_repo: an empty first word and XXXX both fail GH_ITEM_URL_RE and GH_REPO_RE (no slash)"
+
+[[mutant]]
+hash = "732f765827e51cf0baae0e82e2c2f9a558e26a0d01ca4f3d6e60943f00540042"
+why = "pflag_options: a lone - reaching the short-option loop runs range(1, 1), which yields nothing"
+
+[[mutant]]
+hash = "9e62db3d7b54cbfd65fe56354f125918ae64740d8fb0402ca97d86d87bf487a8"
+why = "pflag_options: a long switch's value is read by no caller: names_repo reads only -R/--repo, which take values, and gh_body only tests GH_FILL by name"
+
+[[mutant]]
+hash = "8d47471ed69c3c2ebddbdf21a992e27985e35771b2c7c7f53176c5bcad566b47"
+why = "pflag_options: k = 0 yields the switch --, which no caller acts on; it ends a word early only for -=..., which pflag rejects"

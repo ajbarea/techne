@@ -128,7 +128,8 @@ def test_a_fork_clone_with_an_upstream_remote_refuses_a_post_with_no_repo(tmp_pa
     repo = clone(tmp_path, {"origin": FORK, "upstream": PARENT})
     why = refusal(command, repo)
     assert why and "name github.com/me/tool, github.com/org/tool" in why
-    assert "add `-R github.com/me/tool`" in why
+    no_r = command.split()[1:3] in (["repo", "edit"], ["repo", "delete"], ["repo", "archive"])
+    assert ("as its argument" in why) if no_r else ("add `-R github.com/me/tool`" in why)
 
 
 def test_a_subcommand_this_check_cannot_know_is_refused(tmp_path):
@@ -503,11 +504,28 @@ def test_the_refusal_says_what_gh_would_weigh_and_never_suggests_an_unreadable_o
     assert "add `-R HOST/OWNER/NAME`" in why
 
 
-def test_the_refusal_offers_gh_repo_for_a_command_with_no_r(tmp_path):
+@pytest.mark.parametrize(
+    ("command", "says"),
+    [
+        ("gh repo archive --yes", "gh repo archive github.com/me/tool"),
+        ("gh repo edit --description x", "gh repo edit github.com/me/tool"),
+        ("gh skill publish", "run it in a clone of that one repo"),
+    ],
+)
+def test_a_write_with_no_r_reads_no_gh_repo_and_the_refusal_says_how(tmp_path, command, says):
+    # gh reads GH_REPO only where it takes -R, so following -R or GH_REPO advice here would
+    # still act on the parent.
     repo = clone(tmp_path, {"origin": FORK, "upstream": PARENT})
-    why = refusal("gh skill publish", repo) or ""
-    assert "GH_REPO=github.com/me/tool" in why and "-R github.com/me/tool" in why
-    assert refusal("GH_REPO=github.com/me/tool gh skill publish", repo) is None
+    why = refusal(command, repo) or ""
+    assert says in why and "-R github.com/me/tool" not in why
+    assert refusal(f"GH_REPO=github.com/me/tool {command}", repo)
+    assert refusal(f"export GH_REPO=github.com/me/tool; {command}", repo)
+    assert refusal(command, repo, GH_REPO="github.com/me/tool")
+
+
+def test_a_repo_write_named_by_its_argument_passes(tmp_path):
+    repo = clone(tmp_path, {"origin": FORK, "upstream": PARENT})
+    assert refusal("gh repo archive me/tool --yes", repo) is None
 
 
 def test_the_denial_log_names_this_guard(tmp_path):
@@ -566,6 +584,16 @@ def test_the_denial_log_names_this_guard(tmp_path):
         ("gh skill publish", True, {}),
         ("gh repo read-file README.md", False, {}),
         ("gh repo read-dir docs", False, {}),
+        # A word is read as bash hands it to gh: a variable may hold an option.
+        ('D=-d; gh label create x "$D" -Rme/tool', True, {}),
+        ("D=-d; gh label create x ${D} -Rme/tool", True, {}),
+        ('gh label create x "$UNKNOWN" -Rme/tool', True, {}),  # may be an option
+        ('R=me/tool; gh pr create -t T -b B -R "$R"', False, {}),
+        ('D=x; gh label create "$D" -Rme/tool', False, {}),
+        # cobra stops at --, so no subcommand follows it; the guard reads one and refuses.
+        ("gh pr -- create -t T -b B", True, {}),
+        ("gh label create xd -Rme/tool", False, {}),  # an argument's letters are no options
+        ("gh pr create -d=t -Rme/tool -b B", False, {}),  # -d=t ends that word's options
         ("gh pr create -R=x/tool -t T -b B", False, {}),  # gh drops the = of -R=
         ("R=me/tool; GH_REPO=$R gh pr create -t T -b B", False, {}),
         ("gh issue create -t GH_REPO=me/tool -b B", True, {}),  # an argument, not its env
