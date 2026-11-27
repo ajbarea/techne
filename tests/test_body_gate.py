@@ -209,6 +209,19 @@ def test_body_files_are_read(repo):
     assert refused(run_guard("gh api -X PATCH repos/o/r/pulls/1 -F body=@long.md", repo))
     assert refused(run_guard("gh api -X PATCH repos/o/r/pulls/1 --input in.json", repo))
     assert run_guard("gh pr create -t t --body-file short.md", repo) is None
+    (repo / "short.json").write_text(json.dumps({"body": SHORT}))
+    # an --input file named by a variable set earlier is read as the shell expands it
+    assert refused(run_guard('F=in.json; gh api -X PATCH repos/o/r/pulls/1 --input "$F"', repo))
+    assert run_guard('F=short.json; gh api -X PATCH repos/o/r/pulls/1 --input "$F"', repo) is None
+    assert refused(run_guard('F=long.md; gh api -X PATCH repos/o/r/pulls/1 -F body=@"$F"', repo))
+    assert run_guard('F=short.md; gh api -X PATCH repos/o/r/pulls/1 -F body=@"$F"', repo) is None
+    (repo / "a").write_text(LONG)
+    assert refused(run_guard("gh pr create -t t -F=a", repo))  # pflag drops the = of -F=a
+    assert refused(run_guard("gh pr create -t t -F", repo))  # a body file with no name
+    # -d=false sets --draft and ends its word: no f in it reads as --fill
+    assert not refused(run_guard("gh pr create -t t -d=false", repo))
+    # -f sends its value as written: @long.md is the body, not a file to read
+    assert run_guard("gh api -X PATCH repos/o/r/pulls/1 -f body=@long.md", repo) is None
 
 
 @pytest.mark.parametrize(
@@ -1215,3 +1228,20 @@ def test_check_reads_the_body_as_its_parts_do(kind, monkeypatch):
         assert any(f"has {n} visible words" in d for d in denies) == (n > 0), body
         assert (warnings != []) == (long != []), body
         assert not long or f"{len(long)} sentence(s)" in warnings[0], body
+
+
+def test_gh_api_reads_every_spelling_of_a_body_field(repo):
+    (repo / "long.md").write_text(LONG)
+    for command in (
+        "gh api -X PATCH repos/o/r/pulls/1 --field body=@long.md",
+        f"gh api -X PATCH repos/o/r/pulls/1 --field body=@- <<'EOF'\n{LONG}\nEOF",
+        f"gh api -X PATCH repos/o/r/pulls/1 -f body='a=b {LONG}'",
+        f'B=\'{LONG}\'; gh api -X PATCH repos/o/r/pulls/1 --input - <<EOF\n{{"body": "$B"}}\nEOF',
+    ):
+        assert "visible words" in (refused(run_guard(command, repo)) or ""), command
+
+
+@pytest.mark.parametrize("payload", ['{"title": "t"}', "[1, 2]", '{"body": 3}'])
+def test_gh_api_input_with_no_body_text_passes_quietly(repo, payload):
+    (repo / "in.json").write_text(payload)
+    assert run_guard("gh api -X PATCH repos/o/r/pulls/1 --input in.json", repo) is None

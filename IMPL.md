@@ -1,188 +1,135 @@
-# techne — Implementation scratchpad (feat/citation-convention)
+# techne — Implementation scratchpad
 
-The active TODO list for whatever's in flight right now. Queued specs live in [ROADMAP.md](./ROADMAP.md).
+The active TODO list for whatever's in flight **right now**: current PR, open design question,
+immediate next pickup. Queued specs and ordering live in [ROADMAP.md](./ROADMAP.md); landed work
+moves to its dated Shipped log. Over ~50 lines means something referential crept in.
 
-## Citation convention + sisters check 18 (issue #428)
+## In flight
 
-Slice: one citation convention for Zenodo records, written in `docs/conventions.md` and enforced by `techne:sisters` check 18 (`scripts/citation.py`), which also compares the live Zenodo record with CITATION.cff.
+**techne#277 performance + mutation testing**, four PRs in order, each reviewed with
+/techne:elenchus (Opus readers); worktrees under `.claude/worktrees/`:
+1. ✅ #282 latency budgets + git_guards 48.6→15.8 ms on a non-git call.
+2. ✅ #284 CodSpeed (simulation, parsers only).
+3. ✅ #287 hyperfine weekly bench: wall gate 1.15x against `bench/baseline-ci.json`, the median of
+   seven pinned runs (`bench/median.py`); README says how to refresh it.
+4. ✅ #290 mutation (mutmut per PR + weekly sweep) merged.
+5. ✅ #295 phylax parser speed-up merged; ✅ #303 gitleaks retry merged.
+6. 🔄 #304 (#301, this branch, head 9c056a8): rounds 6-8 (11-25, Opus readers) moved options onto one
+   `pflag_options` reader and one `cobra_width` walk, added GH_NO_R (writes with no -R ignore
+   GH_REPO), word expansion with an unknown marker, gh 2.105 groups. Round 8 holds: per-command
+   facts are still guessed (-h is --homepage in repo edit; GH_NO_R skipped for a variable or alias
+   subcommand; -R counted on repo edit; -fR after an unknown word; skill publish DIR; gh api advice).
+   NEXT (fresh session): generate one table per checked command from `gh <cmd> --help` (takes -R,
+   meaning of -h, value options), commit it, test it against the installed gh (skip if absent);
+   count -R/GH_REPO only for a known command that takes -R; read -R only up to the first unknown
+   word. Findings: techne#301 comment 7181286561; #306 holds the rest. Then a fresh reader, to clean.
 
-✅ Done
-- `docs/conventions.md`: "Citation metadata and Zenodo" section (sources cited).
-- `plugins/techne/skills/sisters/scripts/citation.py` + `tests/test_sisters_citation.py` (23 cases; 10 guard mutations each caught).
-- SKILL.md table row + output block, `references/checks.md` section 18, `docs/skills/sisters.md`.
-- `CITATION.cff`: affiliation Rochester Institute of Technology.
+techne#249 is fixed in PR #252 (branch results/quality-baseline): the task notes state what the
+hidden tests check, `--check-tasks` fails a task with a gap, `quality/DEVIATIONS.md` records it.
+Seven reader rounds plus a verify pass, clean; `--check-tasks` 10/10 ok on 5ec4dc0. Old runs stay
+in `quality/results/2026-10-29-baseline-void/`.
 
-📋 Next
-- After merge, the live record 23480982 carries the affiliation (edited in Zenodo by hand); check 18 then reads ✓ for techne.
+Next, in order:
+1. Merge #252 on green.
+2. Restart the Opus baseline from main in a fresh worktree on the RIT account (the default config
+   folder): point `~/.local/state/techne-quality/resume.sh`'s `cd` at that worktree and its
+   QUALITY_OUT at `quality/results/2026-10-29-baseline-2`, then
+   `tmux new-session -d -s quality-resume -e CLAUDE_CONFIG_DIR="$HOME/.claude" "bash
+   ~/.local/state/techne-quality/resume.sh"`. Rerunning resumes; always pass `-e CLAUDE_CONFIG_DIR`.
+   Progress: `grep tests= ~/.local/state/techne-quality/baseline.log`.
+3. Commit the results under `quality/results/` by PR, then start techne#226 measured on them.
+Never wrap `run.py` or `make quality` in `flock /tmp/fleet-heavy.lock`: run.py takes that lock
+itself, so the wrapper deadlocks. A lock held long after every job ended is likely an orphan that
+inherited the fd (klepsydra#193): `lsof /tmp/fleet-heavy.lock`. A skill suite with any "ended on
+an API error" run is invalid: delete its JSON and rerun.
 
-## Verify
-- `uv run --no-project --with pyyaml python3 plugins/techne/skills/sisters/scripts/citation.py ~/ajsoftworks techne keryx sphragis pharos`
-- `make lint test`
+Owed by AJ: from #209, the status line step `/phylax:setup` prints and the global CLAUDE.md
+routing line; GitGuardian incidents 39081601 (techne #215), 39247473 and 39249419 (ariadne #76),
+fake test credentials, to mark as false positives.
 
-## phylax denied-calls log (issue #399, PR #404)
+## Resume: quality evals, hooks, review-loop ledger (techne-evals brief, 10-29)
 
-- Slice: each phylax deny is one row in `~/.local/state/phylax/denied-calls.jsonl`; the same session's
-  next call a phylax hook sees is logged under the same id. Local only, 0600, redacted, 1,000-char cap.
-- ✅ agy's first pass (squashed into this branch's single commit).
-- ✅ Opus review fixes:
-  - Latency: CI's email_greeting went 2.03x to 2.60x of the python3 floor (eager pathlib, uuid and regex
-    compiles on every call), and CodSpeed's triage benches doubled (a scandir and an exception on every
-    Bash call). Now the pending folder exists only while a record waits; git_guards checks it with one
-    `access()` and imports nothing; denial_log imports no pathlib/uuid and compiles its patterns lazily.
-  - Guard names: each git_checks refusal records its guard (`Verdict.deny(guard, why)`) and the shape
-    check names the shape (`command_shapes.guard_of`), replacing a guess from the reason text and a
-    "first option alphabetically" pick.
-  - register.ts now passes `session_id`: main-thread denials all landed in one shared "default" session.
-  - The logged command is the command, not the whole hook JSON; Agent prompts and email bodies are cut.
-  - Redaction adds Anthropic, OpenAI project, AWS, Slack, Google keys, URL credentials, `--password X`;
-    `gh auth login` and similar look-alikes are kept (gh auth login, --with-token < file). Reasons are redacted too.
-  - `same_effect` renamed `same_action` and documented as a word-overlap guess; `seconds_after` added.
-  - One JSONL appender (`hooks/jsonl_log.py`) shared with secret_scan's log. Doctor counts deny and
-    next_call rows of the last 7 days across the rotated file.
-  - GitGuardian 40877600 was a fake fixture (`supersecret123`) in eb59726; the squash drops that commit.
-- ✅ Gate trimmed to 3.4 us (39aaabd): no expanduser/join. Local latency: email_greeting 2.30x, model_guard
-  1.96x, git_guards 1.21x/1.72x, all within budget; `make plugin-test` clean (17 mod tests, tsc).
-- ✅ Bench red (CI git_guards-no-git wall 1.27x vs 1.09x): wall is noise-dominated (main alone 1.05-1.22x
-  locally), but hyperfine's instructions ratio showed a real +0.033: `git_guards.py` runs as __main__,
-  which Python never caches, so its 31 new lines recompiled on every Bash call (~130 us). The slow path
-  moved into denial_log (`next_bash_call`, `shapes_denied`) and the path into git_options (both cached):
-  instructions now main 1.199 vs branch 1.208, compile +17 us. Wider fix for every hook filed: #409.
-- ✅ Abandoned records: a session that ended after a deny kept the folder, and every session's slow path,
-  forever. A deny now sweeps records older than an hour; another session's record costs one access()
-  and no JSON parse (`_raw_session_id`, differential-tested against the full parse).
-- ✅ Never-block: the git_guards slow path was unwrapped after the move; a broken or missing denial_log
-  refused every Bash command. Restored try/except, with a test (missing and raising module).
-- ✅ Test isolation: hook tests and mutation runs wrote 574 rows and mutant-named files into the real
-  ~/.local/state/phylax. conftest now gives every test its own XDG_STATE_HOME; junk moved to scratch.
-- ✅ Round 2 (fresh restart, Opus): CI mutation red (88 survivors) and bench red.
-  - Most survivors were refusal-message lines the PR only re-wrapped (ruff's trailing comma put
-    them in the diff); refusals now keep main's lines (`why = (...)`, then `deny(KEY, why)`).
-  - Real gaps killed: each refusal site's guard (16 sites, one command each), file modes on both
-    open paths and the folder race, same_action's pr/issue branch, raw_value and stale-age
-    boundaries, rotation at the cap, clip's scan window, HOME unset, the inline gates vs
-    pending_any. Redundant `str(tool_input)` args and the "git_guard" fallback removed.
-  - 8 strict equivalents in mutation/equivalent.toml, each with its proof.
-  - Perf: model_guard and email_greeting imported denial_log on every call (2.2 ms warm vs a
-    12.5 ms floor); agy's commit had widened their bench ratios to hide it. Baseline restored to
-    main's; both now gate on one access(). CodSpeed's -16% is in-process repeated main() calls
-    (one more os.environ lookup + access per call, cProfile); per process it is a few us.
-- ✅ CI round 2: validate green; one survivor left (the first open, flags dropped), killed by a repeated-deny test. Local latency budgets pass (email_greeting 2.34x of 2.6x). Interleaved hyperfine, instructions vs the python3 floor, main/branch: git_guards-no-git 1.199/1.216, model_guard-agent 2.024/2.304, email_greeting-draft 2.558/2.832; the last two are refusal cases, so that is the cost of logging a denial (import 0.7 ms warm + two writes), paid only on a refusal.
-- ✅ Verify round 3 (fresh Opus, 1 Blocking + 3 Should-fix): the `rb` equivalence proof was false (bytes json.loads reads UTF-16): entry dropped, mutant killed by a UTF-16 record test; clip drops the word its window cuts, so a token cut short can never slide into view after a long redaction; the never-block test runs over all four hook paths; docs say gone-folder refusals are logged and what Agent and email refusals log.
-- ✅ Verify round 4 (fresh Opus, 3 Should-fix): two equivalence hashes went stale with a docstring
-  edit (recomputed; CI's mutation shard fails on any stale entry); JSON/dict-repr keys and an
-  unclosed quote at the cut leaked (both redacted now); the redactor gained private key blocks,
-  JWTs, Stripe, Hugging Face, Authorization values and command-line credentials.
-- ✅ Verify round 5 (fresh Opus, 4 Should-fix): `-u`/`--user` fired outside curl (docker, sudo):
-  now curl-only; the JWT and mysql patterns were quadratic on repeated input: anchored and
-  bounded; `gh secret set --body` and `docker login -p` redacted; docs state redaction is best
-  effort. Weak-redaction recurred four rounds, so two property tests now sweep every pattern:
-  adversarial repeats under a time budget, and 50+ ordinary commands left unchanged.
-- ✅ Verify round 6 (fresh Opus, 2 Should-fix): the timing test barely separated linear from
-  quadratic, so it now asserts on scaling (4x input, under 9x time; quadratic shows 16x); ordinary
-  commit text was mangled ("Bearer support", "auth: handle", `--secret id=`, `--with-token <`,
-  `$(gh auth token)`): Bearer/Basic need token-shaped values, a bare `key:` needs a
-  secret-looking value, flag values skip references and redirects; PyPI and npm tokens added.
-- ✅ Verify round 7 (fresh Opus, 1 Blocking + 1 Should-fix): the new `key: value` rule was
-  quadratic (an unbounded lookahead) and the hand-picked fragment list missed it; routine commit
-  text was still mangled. Values now pass one shape gate (SECRET_WORD, case-sensitive, every
-  lookahead bounded), Bearer/Basic one credential shape; the adversarial sweep is generated from
-  every keyword x separator (catches the unbounded lookahead: 18 failures).
-- ✅ Verify round 8 (fresh Opus, 1 Blocking + 1 Should-fix): a prose `key: value` secret cannot be
-  told from a code identifier (getAccessToken2), so that rule and the bare Authorization one are
-  gone (a missed prose secret is the stated limit); Bearer/Basic need mixed case plus a digit or
-  base64 symbol; bounded runs gained an unbounded tail, so a token over 255 characters is
-  replaced whole. The reader's 9 mangled commit lines joined the ordinary corpus.
-- ✅ Verify round 9 (fresh Opus, 2 Blocking): the `--flag value` rule rewrote commit and PR titles
-  naming a flag ("add --token flag"), and `KEY=` read a search pattern's closing quote as a value
-  (`grep "api_key="`): a flag value must be more than a plain lower-case word, and a KEY= value
-  cannot start at a quote then a space, or be None/null/true. 11 lines joined ORDINARY.
-- ✅ Verify round 10 (fresh Opus): each over-redaction fix opened an under-redaction (the
-  lower-case flag-word exemption let `docker login --password <word>` through). Decided:
-  privacy over readability in a local log, so over-redaction is the accepted direction (docs say
-  so); the exemption is reverted; `KEY=` needs a value right after `=` (bash `GH_TOKEN= gh`);
-  the `"key":` rule mirrors the search-pattern quote guard.
-- ✅ Verify round 11 (fresh Opus, 5 Blocking): the curl rule was quadratic on a long `=` tail
-  (classes overlapped after `-u`), which the repeat-fragment sweep never tried, so a head plus
-  long-tail sweep now runs over every pattern; `KEY=` matched only a keyword at the end of the
-  name (AWS_SECRET_ACCESS_KEY, SECRET_KEY_BASE, GH_PAT now redact); credential headers, curl
-  --proxy-user/-U/--oauth2-bearer, uv/twine -p/-t, npm _authToken and token-only URL userinfo
-  added; command-anchored patterns repeat (bounded) to catch a second flag. The PR was
-  CONFLICTING after #405/#406, so no CI ran: main merged in. GitGuardian's flag was IMPL.md
-  quoting a sample password: replaced.
-- ✅ Bench red (Heph, run 45349496741: model_guard-agent +22.6%, email_greeting-draft +20.8%): both
-  cases are refusals, and each refusal compiled every redaction pattern in a fresh process
-  (clip ~4.2 ms). Each pattern now has literal triggers (TRIGGERS; a property test holds them
-  conservative, another that a secret-free refusal runs no pattern), so a refusal compiles only
-  what its text can match. Mean of 20, interleaved, instructions vs floor (main / before / after):
-  model_guard-agent 2.024 / 2.806 / 2.371 before the all-of triggers (phylax's own reason
-  "pass model:" still fired three patterns; now none); email_greeting-draft 2.556 / 3.327 / 2.645.
-  bench/run.py now also reports means.
-- ✅ Re-bench (mean of 20, instructions vs floor, main/after): model_guard-agent 2.024/2.116,
-  email_greeting-draft 2.558/2.651, git_guards-no-git 1.199/1.216: all within 15%.
-- ✅ GitGuardian: both incidents were fake values (a fixture; IMPL.md quoting a sample password);
-  fixtures now build CLI secrets at runtime, and the branch is squashed onto main as one commit
-  (tree unchanged; old history in local branch backup/denied-calls-399-presquash), so no commit
-  in the PR carries either. Check green on 93d2042.
-- ✅ Last verify's items: the timing sweeps use CPU time (median of 3), so load no longer fails
-  them; command-anchored flags moved to ANCHORED, run per quote-aware shell segment that names
-  the command, so a flag any distance away is seen in one linear pass (no bounded gap, no
-  repeat loop); cookies, http.extraHeader, subscription-key and Cookie headers, npm set and
-  _password, attached forms (-ualice:x, -pX, -bX). Sweeps cover the anchored flag patterns and
-  redact() as a whole; the sweep caught an unanchored npm pattern before commit.
-- ✅ Verify on b8bc147 (3 Blocking, 1 Should-fix): segments split on false separators (`2>&1`,
-  `\&`, `$(a; b)`), so command flags now run on the whole call once all its words appear
-  (segments() gone); Authorization after -H is redacted (scheme word kept); the prefilter test
-  patched re.subn, which redact() no longer calls (now re.sub, plus a positive control);
-  docker/uv/npm/gh/aws words checked apart, so global options do not hide them. Nits taken:
-  quoted curl -u, -HName:, --pass, -E/--cert, aws configure; the next-call record is claimed
-  by a rename, so two calls at once log one row; docs note the parallel-batch case.
-  4 mutants red (prefilter, all-of words, claim, scheme).
-- ✅ Verify on 2553a05 (2 Blocking, 1 Should-fix): aws `--secret-string` (a flag name holding
-  the word not at its end) and its escaped-JSON example (the key trigger missed `password\"`),
-  `ssm put-parameter --value`, bundled `curl -su`; Nits taken: quoted npm key, `curl -x u:p@`.
-- CodSpeed (advisory; only validate is required): in-process the pending check is 3.1 us
-  (access() 1.7 us, the path 1.1 us), -18 to -20% on a triage that does almost nothing else;
-  whole-process hyperfine stays within 15%.
-- ✅ Verify on 8d6b300 (1 Blocking, 1 Should-fix): az forms from Microsoft's docs (`az login
-  --service-principal -u app -p X`, `az acr login -p`, `az keyvault secret set --value`,
-  `--account-key`) and attached `curl -bX`/`-EX`, which the docs called covered.
-- ✅ Closed-list sweep on 05d10ec (14 tools, one pass): quoted values with spaces in every
-  anchored rule; new entries for git (user:pass@ proxy, smtp pass), wget, kubectl, gcloud,
-  psql, ssh-keygen and every mysql* tool (-p, password X, user:pass@host, SQL that sets a
-  password); aws --value/--sse-c keys/ParameterValue, az key flags, curl proxy pass/cert, uv
-  auth; sshpass -p anywhere (the docs said so); KEY= learns passphrase. Each entry's triggers
-  name what its patterns need, so an ordinary git refusal runs none (the trigger test now
-  checks pattern matches, not command words). 49-template sweep test, 8 keep lines.
-- ✅ Heph: x_safe_id__mutmut_9 registered as equivalent ('X' already passes isalnum()); key
-  recomputed locally and matches CI's.
-- ✅ Verify on 35759c2 (2 Should-fix): the long-tail sweep flaked under CI load (USERINFO
-  started a match after every `=` and scanned 256 characters: `=` is out of the user part,
-  now ~20x cheaper); MySQL's SET PASSWORD FOR, IDENTIFIED WITH ... BY and PASSWORD('X') forms
-  (each gap bounded, so a run of spaces stays linear). The trigger test reads SWEEP too.
-- ✅ Verify on c20f6f3 (2 Should-fix): the SQL gaps stopped at a newline, so multi-line SQL in a
-  heredoc leaked again, and a quoted plugin name (IDENTIFIED WITH '...' BY) leaked: gaps now
-  stop at `;`. Nits taken: an empty proxy user (`:X@host`), whitespace gaps to 200.
-- ✅ Verify on 28e3bde (1 Should-fix): a `;` inside a quoted account name ('a;b'@h) ended the
-  gap: gaps now step over a quoted string whole (two branches on different first characters,
-  so linear: 3.0-4.4x time at 4x input). Two Nit cases pinned in SWEEP.
-- ✅ Verify on 176b1c2 (1 Should-fix, a regression of the bounds): a quoted host longer than 64,
-  more than 100 spaces, and a backslash-escaped quote leaked; _sql_gap() now takes 200 steps
-  and a quoted name ('...', "...", `...`) up to 255 characters with escapes, linear (worst
-  5.5x time at 4x input).
-- ✅ Verify on bc57636: clean (no Blocking or Should-fix; 638-text diff against 28e3bde shows
-  only leaks closed; linear). Its Nit that no test pinned the escape step or the 255 bound for
-  "..." and `...` is closed with three SWEEP rows (all three mutants red).
-- ✅ CI on 8264915: validate and 5 of 6 mutation shards green; shard 3 reported one mutant it
-  could not judge, x__sql_gap__mutmut_1: _sql_gap() ran only at import, where no test calls it.
-  The gap is now two constants (the built pattern is byte-identical).
-- ✅ Heph: the mutation run's error was the unmutated tests timing out (58 s) on re-run:
-  tests/test_denial_log.py took 64 s, 20 s of it the long-tail sweep on runs of `-` (the
-  secret-flag rule started a 64-character scan at every dash). The flag rule now needs a
-  name character after `--`, the sweeps reject a fast pattern after one run (median of 3 only
-  when measured) and time each distinct pattern once: 64 s -> 14 s. Deterministic: 736 passed
-  in two shuffled orders, three loops and under two CPU busy loops; the sweep still fails a
-  planted quadratic pattern (140 cells red).
-- 📋 Next: CI green incl. mutation on this head, then merge.
-- Verify: `uv run pytest tests/test_denial_log.py tests/test_phylax_doctor.py tests/test_git_guards.py
-  tests/test_model_guard.py tests/test_email_greeting.py tests/test_command_shapes.py tests/bench`;
-  `make plugin-test`; `uv run pytest tests/test_hook_latency.py` under the heavy lock.
+- ✅ #235 `scripts/review_loop_mine.py` + `quality/review-loop/2026-10-29.md`: 95.3% of
+  class-tagged review findings (60.8% of all) since the catalog existed were classes it
+  already held; no class added after its first commit. Five rounds + verify.
+- ✅ #237 phylax `email_greeting` (+ `email_timezone`): Good morning/afternoon/evening by
+  the clock, never Hi/Dear, on epistole and Gmail-connector drafts, sends and replies.
+- ✅ #238 elenchus findings ledger + `checklist` + daily `foldback.sh` (catalog PR, one
+  "Mechanical check" issue at 3 PRs/week, Retired field). Seven rounds. Timer installed on
+  this PC: `~/.config/systemd/user/elenchus-foldback.{service,timer}` (06:30) running
+  `~/.local/bin/elenchus-foldback`, which resolves the installed plugin path.
+- 📋 #236: two hook proposals (skipped git hooks; commits gated on a piped verify); AJ picks.
+- ✅ #239 (issue #244) pre-registration of the budget-trial quality evals: `quality/`
+  (PREREGISTRATION.md, run.py, analyze.py, tasks.toml with 10 replayed PRs, gold-tests.json,
+  judge.md, sandbox.json) and the `quality-*` skill eval cases. Each results folder's
+  `set.json` pins phase, version and input hashes; a differing resume is refused. File tools
+  are denied /home (but the run's saved outputs), /tmp, /mnt, /root. `--check-tasks` (all 10
+  ok 10-29) and `--smoke` (Haiku) validate it; one run.py process at a time. Recorded minors:
+  two redundant resolve() checks in read_denials; the store add-dir also allows writes; a
+  session could write `.claude/settings.local.json` (globally gitignored), judged inert by
+  reading the binary, not probed; `--setting-sources` would close it.
+- 📋 Baseline, in order: `make quality MODE=normal PHASE=baseline QUALITY_OUT=...` (Opus,
+  3 repeats, judge pass, analysis) and `make quality-skills` (Opus) → commit results under
+  `quality/results/`; then techne#226 (fold-or-keep audit) measured on them. The
+  sonnet/opus comparison (pilot → sizing → confirmatory) runs only when AJ schedules the
+  budget trial. Stretch: 10 DeepSWE tasks on TIGRIS, never this PC.
+- 📋 #234 step 5: rerun `review_loop_mine.py` a week after #238 (from 2026-11-05), now
+  reading the ledger too, and report the change in repeat-class share.
+
+## Open Minors (recorded, not scheduled)
+
+- #287 bench: median.py has no test merging two patch releases of one python3 minor, or runs
+  where only some carry instruction counts; the docs-threshold test matches a bare `1.05x`
+  substring (assert on `past 1.05x`); compare notes "baseline on None" when neither summary has
+  a cpu; median.py trusts the first summary's cpus/runs/warmup, raises KeyError on a missing key,
+  and duplicates compare.minor().
+- #215 repo_meta: a 1-2 word subtitle under the title hides the lead; a 3+ word section heading
+  before any prose reads as a tagline; `*args and **kwargs`, `> ## Warning` and pipe-less tables
+  are read as prose.
+- #216: the poppler guard lives in test_slides_web.py, so test_pdf_render_e2e.py run alone has
+  none; `HAVE_POPPLER` ignores pdffonts and pdftoppm; test_latex_e2e ignores `TECHNE_NO_POPPLER`.
+- #217: a ::before space in right-to-left text is lost in PowerPoint; rotated text lands in a
+  narrow box; `system-ui` maps to Arial, so a deck drawn in another system face shifts.
+- slides.py `_READ_SLIDE`'s screen-reader check compares screen pixels with 1px, so at a deck
+  scale above 1 it misses sr-only text (pptx_editable measures offsetWidth instead).
+
+- #230 logcheck: `lint-js` passes once a `noConsole` or `no-console` rule exists, without checking
+  that it covers the code (periplus's first `biome.json` missed the inline scripts in `index.html`);
+  a one-line `log() { echo "$*"; }` before `exit 1`, `printf -v`, and `{ echo` split from
+  `exit 1; } >&2` are flagged; `raise SystemExit(-1)` is not read.
+- #214 logcheck: an awk `}'` line closes an enclosing `{ ... } >&2` group; a Rust appender
+  builder split over two statements is flagged; a JS ternary branch (`c ? token : "x"`) and a
+  TS arrow parameter (`(token: string) =>`) are read as object fields; `$(( (a) << b ))` and
+  `<<\EOF` are misread; `outside_quotes` ignores `\"` inside double quotes.
+
+- #198 scan: overlapping names report one; an acronym-boundary name (`ABCTool`) is not split;
+  tag messages and author names are not scanned.
+- #201: `hook_env` keeps `GIT_CONFIG_COUNT`/`KEY_n`/`VALUE_n`/`PARAMETERS`, and two in-process
+  git-guard tests read the developer's global git config.
+- #204: a cygwin or msys python3 looks for managed agents at the Linux path.
+- #208: check 15 keeps an inherited `GIT_DIR` or `GIT_INDEX_FILE` (hygiene.py strips them).
+- #209: the frugal table text in budget.py says "Opus or Fable"; the guard also moves `best`.
+- #209: `/phylax:budget off 1e-9` is accepted (a pause already over); two accounts active at
+  once in one config folder make the snapshot alternate; a symlink loop at the snapshot path
+  is replaced by a file.
+
+## Then
+
+- #96 commit guards on Git 2.54 config hooks: needs git 2.54 or newer here (WSL has 2.43).
+- #129 onboarding follow-ups; #87 flaky behavior-deslop eval gate; #86 `make test` red on macOS;
+  #118 and #119 dokimasia matching bugs.
+
+## Skill collection state
+
+The directory listing of `plugins/*/skills/` is the source of truth; README's per-skill tables
+carry the inventory, and ROADMAP's Shipped log records each addition.
+
+## Resume: shared footer brand mark (Review #2, done 2026-10-28)
+
+- #224 merged: the shared stylesheet draws the mark (`.footer-brand`, a text-colored mask);
+  `extra.brand_mark` is retired. Cause of the gap: only the partial was shared, the image and its
+  dark-mode rule were per-site.
+- Synced and merged: ariadne#75, keryx#63, pharos#100, periplus#61, phalanx-fl#137,
+  sphragis#222, Hackathon#13. Live re-check 10-28: every inner page shows the mark and its own
+  repo's GitHub icon, light and dark; hero landings hide the footer by design (as kourai does).
+- kourai-khryseai and velocity-fl keep the old partial (harvest-only; they already show the mark).

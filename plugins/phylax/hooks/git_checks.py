@@ -25,6 +25,7 @@ from git_options import (
     BLOCKING,
     BODIES,
     COMMITS_MD,
+    IMPLICIT_REPO,
     MAIN_CHECKOUT,
     SECRETS,
     blocking_on,
@@ -117,6 +118,82 @@ CREATORS = {"touch", "tee", "cp", "mv", "install"}
 # Commands whose arguments become file content, for a message file the command writes.
 WRITERS = {"echo", "printf"}
 GH_GLOBAL_VALUE_FLAGS = {"-R", "--repo"}
+# gh command groups that never act on the repo gh resolves, or only read it (none of their
+# subcommands calls BaseRepo to write); every other group is checked, so a group this list does
+# not know (a newer gh, an extension) is checked too.
+GH_NO_REPO = {
+    "auth", "browse", "codespace", "cs", "gist", "org", "alias", "attestation",
+    "completion", "config", "copilot", "extension", "ext", "extensions", "gpg-key", "help",
+    "licenses", "preview", "search", "ssh-key", "status", "version", "ruleset", "rs", "event",
+}  # fmt: skip
+# In a checked group, the subcommands that never change the resolved repo.
+GH_REPO_READS = {
+    "pr": {"view", "list", "ls", "status", "checks", "diff", "checkout", "co"},
+    "issue": {"view", "list", "ls", "status"},
+    "label": {"list", "ls"},
+    "release": {"view", "list", "ls", "download", "verify", "verify-asset"},
+    "workflow": {"view", "list", "ls"},
+    "run": {"view", "list", "ls", "watch", "download"},
+    "cache": {"list", "ls"},
+    "variable": {"list", "ls", "get"},
+    "secret": {"list", "ls"},
+    "discussion": {"view", "list", "ls"},
+    "agent-task": {"view", "list", "ls"},
+    # publish writes to the resolved repo; the rest install or read skills.
+    "skill": {"install", "list", "ls", "preview", "search", "update"},
+    # link and unlink act on the resolved repo; the rest on a project of an owner.
+    "project": {
+        "close", "copy", "create", "delete", "edit", "field-create", "field-delete", "field-list",
+        "item-add", "item-archive", "item-create", "item-delete", "item-edit", "item-list",
+        "list", "ls", "mark-template", "view",
+    },
+    "repo": {
+        "view", "list", "ls", "clone", "fork", "create", "new", "set-default", "sync",
+        "license", "gitignore", "credits", "garden", "read-file", "read-dir",
+    },
+}  # fmt: skip
+# Checked writes that take no -R: gh reads no GH_REPO for them either (it reads both in the
+# same place). repo's take the repo as their argument; skill publish reads only the remotes.
+GH_NO_R = {
+    ("repo", "edit"), ("repo", "archive"), ("repo", "unarchive"), ("repo", "delete"),
+    ("skill", "publish"),
+}  # fmt: skip
+# Subcommands whose own subcommand decides whether they read (`gh repo deploy-key list`),
+# with those that read; the group alone prints its help.
+_NESTED_READS = {"list", "ls", "view", "download"}
+GH_NESTED = {
+    ("repo", "deploy-key"): _NESTED_READS,
+    ("repo", "autolink"): _NESTED_READS,
+    ("issue", "artifact"): _NESTED_READS,
+}
+# Options of checked subcommands that take a value, besides those GH_TEXT, GH_FILE and
+# GH_VALUE_FLAGS list: their value is never read as -R. Per subcommand, as gh reads them
+# (`-m` takes a value in `pr edit` but is `--merge` in `pr merge`).
+_CLOSE_VALUES = {"-c", "--comment"}
+_LABEL_VALUES = {"-c", "--color", "-d", "--description"}
+GH_REPO_VALUE_FLAGS = {
+    ("pr", "close"): _CLOSE_VALUES, ("pr", "reopen"): _CLOSE_VALUES,
+    ("issue", "close"): _CLOSE_VALUES, ("issue", "reopen"): _CLOSE_VALUES,
+    ("label", "create"): _LABEL_VALUES, ("label", "edit"): _LABEL_VALUES | {"-n", "--name"},
+    ("release", "create"): {"-n", "--notes", "--notes-file", "--target", "--notes-start-tag"},
+    ("release", "edit"): {"-n", "--notes", "--notes-file", "--target", "--tag"},
+    ("workflow", "run"): {"-f", "--raw-field", "-F", "--field", "-r", "--ref"},
+}  # fmt: skip
+GH_ANY_VALUES = set().union(*GH_REPO_VALUE_FLAGS.values())
+# `gh secret` and `gh variable` act on an organization or the user with these, not on a repo.
+GH_NOT_REPO_FLAGS = {"-o", "--org", "-u", "--user"}
+# A repo as -R or GH_REPO names it: [HOST/]OWNER/NAME, or its URL.
+GH_REPO_RE = re.compile(r"^(?:https?://)?(?:[\w.-]+/)?[\w.-]+/[\w.-]+?(?:\.git)?/?$")
+OWNER_NAME_RE = re.compile(r"^[\w.-]+/[\w.-]+$")
+# An issue or PR URL as the first argument names its repo itself.
+GH_ITEM_URL_RE = re.compile(r"^https?://[^/\s]+/[^/\s]+/[^/\s]+/(?:pull|issues)/\d+(?:[/#?]\S*)?$")
+# gh api fills these from the resolved repo; a request with fields or --input is a POST.
+GH_API_PLACEHOLDER_RE = re.compile(r"\{owner\}|\{repo\}|:owner\b|:repo\b")
+GH_API_FIELDS = {"-f", "--raw-field", "-F", "--field", "--input"}
+SCHEME_URL_RE = re.compile(r"^[A-Za-z][\w+.-]*://(?:[^@/]*@)?([^/:]+)(?::\d*)?/(.*)$")
+SCP_URL_RE = re.compile(r"^(?:[^@/:]*@)?([^/:]+):(?!//)(.*)$")
+# A remote URL that is a local path or file://, which gh skips.
+LOCAL_URL_RE = re.compile(r"^(?:[/.~]|file:|[A-Za-z]:[\\/])", re.IGNORECASE)
 ADD_INTERACTIVE = {"-p", "--patch", "-i", "--interactive", "-e", "--edit"}
 # gh pr subcommands that write a PR title/body, or (merge) the squash commit message.
 GH_PR_WRITERS = {"create", "new", "edit", "merge"}
@@ -1026,6 +1103,153 @@ def parse_gh_pr(args: list[str], words: tuple[str, ...] = ()) -> tuple[list[str]
     return texts, files
 
 
+def remote_repo(url: str) -> str | None:
+    """The repo a remote URL names, as HOST/OWNER/NAME lowercased; "" when it names none gh
+    can read (its path is not exactly OWNER/NAME, or its spelling is one this check does not
+    parse); None for a local path or a file:// URL, which gh skips. A github.com subdomain
+    (www., ssh.) reads as github.com, as gh folds it. gh resolves an ssh URL's host through
+    ssh config, so any other ssh host reads as `ssh:HOST`, never the https host spelled alike."""
+    if LOCAL_URL_RE.match(url):
+        return None
+    m = SCHEME_URL_RE.match(url)
+    ssh = bool(m) and url.split(":", 1)[0].lower() in ("ssh", "git+ssh", "ssh+git")
+    if not m:
+        m = SCP_URL_RE.match(url)
+        ssh = bool(m)
+    if not m:
+        return ""
+    host = m.group(1).lower()
+    host = "github.com" if host == "github.com" or host.endswith(".github.com") else host
+    host = f"ssh:{host}" if ssh and host != "github.com" else host
+    path = m.group(2).strip("/")
+    path = path[:-4] if path.endswith(".git") else path
+    parts = path.split("/")
+    if len(parts) != 2 or not all(parts):
+        return ""
+    return f"{host}/{'/'.join(parts).lower()}"
+
+
+def repo_flag(repo: str) -> str:
+    """A repo key as `-R` takes it: HOST/OWNER/NAME, so gh does not read it on its default
+    host; OWNER/NAME for an ssh alias, which gh cannot take as a host."""
+    host, _, rest = repo.partition("/")
+    return rest if host.startswith("ssh:") else repo
+
+
+def implicit_repo(cwd: Path) -> tuple[str | None, str, str]:
+    """The one repo a gh command naming none can act on in `cwd`, read from git config alone:
+    every remote gh can read names it, and no `gh repo set-default` mark names another. gh
+    picks among several remotes by an order, a mark only some commands read and the hosts it
+    is signed in to, so several repos, or a remote this check cannot read, refuse instead of
+    a guess. Returns that repo ("" when no remote is readable: gh stops on its own), or None,
+    why, and the repo to suggest (origin's, else "")."""
+    listing = run_git(cwd, [], "remote", "-v") or ""
+    urls: dict[str, dict[str, str]] = {}
+    for line in listing.splitlines():
+        name, _, rest = line.partition("\t")
+        url, _, kind = rest.rpartition(" ")
+        urls.setdefault(name, {})[kind] = url
+    remotes: dict[str, str] = {}
+    for name, u in urls.items():
+        fetch, push = remote_repo(u.get("(fetch)", "")), remote_repo(u.get("(push)", ""))
+        repo = fetch or push  # gh reads the push URL when the fetch URL names no repo
+        if repo:
+            remotes[name] = repo
+        elif fetch is not None or push is not None:
+            remotes[name] = f"?{name}"
+    home = next((r for n, r in remotes.items() if n.lower() == "origin"), "")
+    home = "" if home.startswith("?") else home
+    repos = sorted(set(remotes.values()))
+    if len(repos) > 1:
+        named = ", ".join(
+            f"remote `{r[1:]}` (a URL it cannot read)" if r.startswith("?") else repo_flag(r)
+            for r in repos
+        )
+        return None, f"this clone's remotes name {named}", home
+    if not repos:
+        return "", "", ""
+    repo = repos[0]
+    marks = run_git(cwd, [], "config", "--get-regexp", r"^remote\..*\.gh-resolved$") or ""
+    for line in marks.splitlines():
+        key, _, value = line.partition(" ")
+        name, value = key[len("remote.") : -len(".gh-resolved")], value.strip()
+        own = repo.partition("/")[2]
+        if name in remotes and value != "base" and (repo.startswith("?") or value.lower() != own):
+            return None, f"`gh repo set-default` set remote `{name}` to {value}", home
+    return repo, "", home
+
+
+def cobra_width(tok: str) -> int:
+    """How many words a word before a gh subcommand takes, as cobra finds the subcommand:
+    0 for a plain word (the subcommand), 2 for an option cobra reads with a value there (-R,
+    --repo, a bare --name, a two-letter -x), else 1 (an empty word too, which cobra skips)."""
+    if tok in GH_GLOBAL_VALUE_FLAGS:
+        return 2
+    if tok.startswith("--") and "=" not in tok and tok != "--":
+        return 2
+    if len(tok) == 2 and tok[0] == "-" and tok != "--":
+        return 2
+    return 1 if tok == "" or tok.startswith("-") else 0
+
+
+def pflag_options(args: list[str], values: set[str]):
+    """Each option in ARGS as gh's flag parser (pflag) reads it, as (flag, value): a long
+    option's value after `=` or, for one in VALUES, in the next word; short options grouped in
+    one word (`-fd TEXT`), the first in VALUES taking the rest of the word (dropping a leading
+    `=`) or the next word. A switch's value is None. Reading stops at `--`."""
+    i = 0
+    while i < len(args):
+        tok = args[i]
+        i += 1
+        if tok == "--":
+            return
+        if tok.startswith("--"):
+            name, eq, value = tok.partition("=")
+            if name in values and not eq:
+                value = args[i] if i < len(args) else ""
+                i += 1
+            yield name, value if eq or name in values else None
+            continue
+        if not tok.startswith("-") or tok == "-":
+            continue
+        for k in range(1, len(tok)):
+            flag = "-" + tok[k]
+            if flag in values:
+                value = tok[k + 1 :]
+                if len(value) > 1 and value[0] == "=":  # pflag drops it after any letter
+                    value = value[1:]
+                elif not value:
+                    value = args[i] if i < len(args) else ""
+                    i += 1
+                yield flag, value
+                break
+            yield flag, None
+            if tok[k + 1 : k + 2] == "=":
+                break  # `-d=t`: the switch's own value, and no more options after it
+
+
+def parse_gh_api(args: list[str]) -> tuple[str | None, list[tuple[str, str]]]:
+    """A `gh api` command's endpoint (its first plain word) and its value options in order,
+    as (name, value): `--name=value`, `--name value`, `-Xvalue` and `-X value` alike."""
+    endpoint = None
+    options: list[tuple[str, str]] = []
+    i = 0
+    while i < len(args):
+        tok = args[i]
+        name, eq, value = tok.partition("=") if tok.startswith("--") else (tok, "", "")
+        if not tok.startswith("--") and len(tok) > 2 and tok[:2] in GH_API_VALUE:
+            name, eq, value = tok[:2], "=", tok[2:]
+        if name in GH_API_VALUE:
+            if not eq:
+                value = args[i + 1] if i + 1 < len(args) else ""
+                i += 1
+            options.append((name, value))
+        elif endpoint is None and not tok.startswith("-"):
+            endpoint = tok
+        i += 1
+    return endpoint, options
+
+
 class Verdict:
     def __init__(self, agy: bool = False) -> None:
         self.denies: list[str] = []
@@ -1066,6 +1290,10 @@ class Guards:
         self.stdin_redirects = 0
         # The variables as written, before heredocs and files (`run`'s `raw`).
         self.raw: dict[str, str] = {}
+        self.prefix: dict[str, str] = {}
+        # What this command changed in the environment of what it runs: a value an `export`
+        # set or an assignment to an exported name changed, or None for an `unset`.
+        self.child_env: dict[str, str | None] = {}
         # Each file's text as `resolve` read it, which READ_RE sentinels name.
         self.captured: list[str] = []
         # The agent the call came from ("" for the main thread), for the catch log.
@@ -1445,16 +1673,16 @@ class Guards:
         # Each variable as written before its heredocs are filled in and its files read,
         # for the body check alone (`raw_value`); `env` holds what bash would.
         raw: dict[str, str] = {}
-        stack: list[tuple[Path, dict[str, str], dict[str, str]]] = []
+        stack: list[tuple[Path, dict[str, str], dict[str, str], dict[str, str | None]]] = []
         dirstack: list[Path] = []
         for k, (argv, chdirs) in enumerate(unwrapped):
             group = groups[k]
             if group == [PUSH]:
-                stack.append((cwd, dict(env), dict(raw)))
+                stack.append((cwd, dict(env), dict(raw), dict(self.child_env)))
                 continue
             if group == [POP]:
                 if stack:
-                    cwd, env, raw = stack.pop()
+                    cwd, env, raw, self.child_env = stack.pop()
                 continue
             words = group[group[0] in DECLARERS :] if group else []
             if words and all(ASSIGNMENT_RE.match(t) for t in words):
@@ -1471,6 +1699,14 @@ class Guards:
                         written = self.resolve(expand(value, {**env, **raw}), cwd, env, k)
                     written = held + written
                     raw[name] = written
+                    # bash keeps a name exported when it is assigned again.
+                    held_export = (
+                        self.child_env[name] is not None
+                        if name in self.child_env
+                        else name in os.environ
+                    )
+                    if group[0] == "export" or held_export:
+                        self.child_env[name] = written
                     env[name] = self.fill(written)
                 continue
             if not argv:
@@ -1481,6 +1717,16 @@ class Guards:
             run_cwd = cwd
             for target in chdirs:
                 run_cwd = resolve_dir(run_cwd, target, env)
+            if name == "export":  # `export NAME`, naming a variable set earlier
+                for a in argv[1:]:
+                    if a in raw:
+                        self.child_env[a] = raw[a]
+                continue
+            if name == "unset":
+                for a in argv[1:]:
+                    if not a.startswith("-"):
+                        self.child_env[a] = None
+                continue
             if name in {"cd", "pushd", "popd"}:
                 args = [a for a in argv[1:] if a not in CD_FLAGS]
                 args = args[1:] if args[:1] == ["--"] else args
@@ -1517,6 +1763,11 @@ class Guards:
                 and self.stdin_other[1][:1] in {"<", "&", "("}
             )
             self.raw = raw
+            # The `NAME=value` words before the command: its environment, not this shell's.
+            plain = drop_redirections(group)
+            self.prefix = dict(
+                t.split("=", 1) for t in plain[: len(plain) - len(argv)] if ASSIGNMENT_RE.match(t)
+            )
             try:
                 if name == "git":
                     self.check_git(argv, run_cwd, env)
@@ -1625,9 +1876,6 @@ class Guards:
         unknown = None  # a word before the subcommand this check cannot know
         while i < len(argv) and len(words) < 2:
             tok = argv[i]
-            if tok == "":
-                i += 1  # cobra skips an empty argument when it looks for the subcommand
-                continue
             # Only where the next word decides the subcommand; `--name=$V` stays one option.
             option = tok.startswith("-") and (
                 "=" in tok or (len(tok) > 2 and tok[1].isalpha())  # `-R$R` is one option
@@ -1635,20 +1883,14 @@ class Guards:
             if ("$" in tok or "`" in tok) and not option and words in ([], ["pr"], ["issue"]):
                 unknown = tok
                 break
-            if tok in GH_GLOBAL_VALUE_FLAGS:
-                i += 2
-                continue
             # Before the subcommand gh (cobra) takes an option it does not know there as
-            # one with a value, `gh pr -b TEXT comment 3`: so does this, and `gh_body`
-            # reads every option in the command as gh then does.
-            long_bare = tok.startswith("--") and "=" not in tok and tok != "--"
-            if long_bare or (len(tok) == 2 and tok[0] == "-" and tok != "--"):
-                i += 2
-                continue
-            if not tok.startswith("-"):
+            # one with a value, `gh pr -b TEXT comment 3`; pflag_options then reads every
+            # option in the command as gh does.
+            width = cobra_width(tok)
+            if width == 0:
                 words.append(tok)
                 at.append(i)
-            i += 1
+            i += width or 1
         # gh (cobra) drops the subcommand words and parses the rest, so an option just
         # before one takes the word after it: `gh pr -b review TEXT 1`.
         rest = [a for j, a in enumerate(argv) if j and j not in at]
@@ -1661,7 +1903,13 @@ class Guards:
                     "what it sends. Write the gh command out in full."
                 )
                 self.verdict.deny(on[0], why)
+            elif not (words and words[0] in GH_NO_REPO):
+                # Which subcommand runs is unknown, so it is checked as a write.
+                # The unknown word sits where the subcommand does, never as an option.
+                self.check_gh_target([*words, unknown], argv, [*at, i], cwd, env)
             return
+        if self.acts_on_resolved_repo(words, argv, at):
+            self.check_gh_target(words, argv, at, cwd, env)
         writer = len(words) == 2 and words[0] == "pr" and words[1] in GH_PR_WRITERS
         if writer and self.enabled(ATTRIBUTION, Command(cwd), local=False):
             texts, files = parse_gh_pr(rest, tuple(words))
@@ -1681,6 +1929,114 @@ class Guards:
                 for why in denies:
                     self.verdict.deny(BODIES, why)
                 self.verdict.warnings.extend(warnings)
+
+    def acts_on_resolved_repo(self, words: list[str], argv: list[str], at: list[int]) -> bool:
+        """Whether this gh command may change something on the repo gh resolves when none is
+        named: any subcommand of a group outside GH_NO_REPO except the reads GH_REPO_READS
+        lists, and a `gh api` write whose endpoint has an {owner} or {repo} placeholder. Help
+        (`-h`, `--help`, `gh pr help`) only reads."""
+        if not words or words[0] in GH_NO_REPO or any(a in ("-h", "--help") for a in argv):
+            return False
+        if words[0] == "api":
+            endpoint, options = parse_gh_api(argv[at[0] + 1 :])
+            methods = [v.upper() for n, v in options if n in ("-X", "--method")]
+            fields = any(n in GH_API_FIELDS for n, _ in options)
+            writes = methods[-1] != "GET" if methods else fields
+            return bool(endpoint and writes and GH_API_PLACEHOLDER_RE.search(endpoint))
+        if len(words) < 2 or words[1] == "help":
+            return len(words) < 2 and words[0] not in GH_REPO_READS
+        if words[0] in ("secret", "variable") and any(
+            a.split("=")[0] in GH_NOT_REPO_FLAGS for a in argv
+        ):
+            return False
+        reads = GH_NESTED.get((words[0], words[1]))
+        if reads is not None:  # its subcommand is found as cobra finds the others
+            i = at[1] + 1
+            while i < len(argv) and cobra_width(argv[i]):
+                i += cobra_width(argv[i])
+            nested = argv[i] if i < len(argv) else ""  # "": the group alone prints help
+            return nested not in {"", *reads}
+        if tuple(words) == ("issue", "develop") and any(a in ("-l", "--list") for a in argv):
+            return False
+        return words[1] not in GH_REPO_READS.get(words[0], set())
+
+    def gh_repo_value(self, name: str) -> str | None:
+        """NAME as gh's process would get it: a `NAME=value` prefix, else what this command
+        exported, assigned to an exported name or unset, else this hook's environment."""
+        if name in self.prefix:
+            return self.prefix[name]
+        if name in self.child_env:
+            return self.child_env[name]
+        return os.environ.get(name)
+
+    def names_repo(self, words: list[str], argv: list[str], at: list[int], env: dict[str, str]):
+        """Whether the command names its repo as gh reads one: the last -R/--repo value shaped
+        [HOST/]OWNER/NAME or a repo URL after expansion, GH_REPO as gh's process gets it, or,
+        as its first argument, an issue or PR URL (pr, issue) or a repo (repo). Its options
+        are read as gh reads them once cobra drops the subcommand words, so another option's
+        value (`-b "-R me/tool"`, `-fd -Rme/tool`) is never a -R."""
+        repo = None
+        values = set(GH_TEXT) | set(GH_FILE) | GH_VALUE_FLAGS.get(tuple(words[:2]), set())
+        # A subcommand given as a variable or by an alias could be any: read every table.
+        known = len(words) == 2 and words[1].replace("-", "").isalpha()
+        values |= GH_REPO_VALUE_FLAGS.get(tuple(words), set()) if known else GH_ANY_VALUES
+        known_env = {**env, **self.raw}
+        rest = []
+        for j, a in enumerate(argv):
+            if not j or j in at:
+                continue
+            # Each word as bash hands it to gh (`D=-d; ... "$D" -Rme/tool` is `-d -Rme/tool`).
+            if "$" in a or "`" in a:
+                a = expand(a, known_env, unknown=None)
+                if "$" in a or "`" in a:
+                    # A value this check cannot know may be an option that takes the next
+                    # word (`-fRme/tool` too), so -R is read only up to it.
+                    rest.append("\0")
+                    break
+            # A word with a space in it names no repo and takes no next word, so it reads
+            # as an argument: a value table this check lacks (`-f "-R x y"`) misreads nothing.
+            rest.append("_" if any(c.isspace() for c in a) else a)
+        for flag, value in pflag_options(rest, values | GH_GLOBAL_VALUE_FLAGS):
+            if flag in GH_GLOBAL_VALUE_FLAGS:
+                repo = value
+        if repo is not None:  # its words are expanded already
+            return bool(GH_REPO_RE.match(repo))
+        value = self.gh_repo_value("GH_REPO") if tuple(words[:2]) not in GH_NO_R else None
+        if value and GH_REPO_RE.match(expand(value, known_env)):
+            return True
+        first = argv[at[1] + 1] if len(at) == 2 and at[1] + 1 < len(argv) else ""
+        if words[0] in ("pr", "issue") and GH_ITEM_URL_RE.match(first):
+            return True
+        return words[0] == "repo" and bool(GH_REPO_RE.match(first) or GH_ITEM_URL_RE.match(first))
+
+    def check_gh_target(
+        self, words: list[str], argv: list[str], at: list[int], cwd: Path, env: dict[str, str]
+    ) -> None:
+        """Refuse a gh write that names no repo unless every remote of the clone names one repo
+        (implicit_repo): in a fork clone with an `upstream` remote, or with a default set on
+        the parent, gh acts on the parent."""
+        if self.names_repo(words, argv, at, env):
+            return
+        if not self.enabled(IMPLICIT_REPO, Command(cwd)):
+            return
+        repo, why, home = implicit_repo(cwd)
+        if repo is not None:
+            return
+        meant = repo_flag(home) if home else "HOST/OWNER/NAME"
+        cmd = " ".join(words)
+        if tuple(words[:2]) == ("skill", "publish"):
+            fix = "It reads its repo from the remotes alone: run it in a clone of that one repo."
+        elif tuple(words[:2]) in GH_NO_R:
+            fix = f"It takes no -R: name the repo as its argument, `gh {cmd} {meant}`."
+        else:
+            fix = f"Name it: add `-R {meant}`."
+        self.verdict.deny(
+            IMPLICIT_REPO,
+            f"phylax: `gh {cmd}` names no repo, and {why}, so which one gh acts on depends on "
+            "its remote order, `gh repo set-default` (which some commands ignore) and the "
+            f"hosts it is signed in to. {fix} "
+            f"To allow this in this repo, run `git config {repo_key(IMPLICIT_REPO)} false`.",
+        )
 
     def substitution(self, groups: list[list[str]], k: int, cwd: Path, env: dict[str, str]) -> str:
         """What an unquoted `NAME=$(...)` assigns, as `resolve` leaves it: the tokenizer
@@ -1923,51 +2279,18 @@ class Guards:
         its options read as gh's flag parser (pflag) reads them: a long option's value
         after `=` or in the next word; short options grouped in one word (`-rb TEXT`), the
         first that takes a value taking the rest of the word or the next word."""
-        values = GH_VALUE_FLAGS.get(words, set()) | GH_GLOBAL_VALUE_FLAGS
         body_flags = GH_BODY_TEXT | GH_BODY_FILE
+        values = GH_VALUE_FLAGS.get(words, set()) | GH_GLOBAL_VALUE_FLAGS | body_flags
         body: str | None = None
         from_file: str | None = None  # `create` sends the file whatever the order
         given = file_given = fill = False
-        i = 0
-        while i < len(args):
-            tok = args[i]
-            i += 1
-            if tok == "--":
-                break
-            if tok.startswith("--"):
-                name, eq, value = tok.partition("=")
-                if name in body_flags:
-                    if not eq:
-                        value = args[i] if i < len(args) else ""
-                        i += 1
-                    body, given = self.read_body(name, value, cwd, env), True
-                    if name in GH_BODY_FILE and value:
-                        from_file, file_given = body, True
-                elif name in values and not eq:
-                    i += 1
-                elif name in GH_FILL:
-                    fill = True
-                continue
-            if not tok.startswith("-") or tok == "-":
-                continue
-            for k in range(1, len(tok)):
-                flag = "-" + tok[k]
-                if flag in body_flags or flag in values:
-                    value = tok[k + 1 :]
-                    if len(value) > 1 and value[0] == "=":  # pflag drops it after any letter
-                        value = value[1:]
-                    elif not value:
-                        value = args[i] if i < len(args) else ""
-                        i += 1
-                    if flag in body_flags:
-                        body, given = self.read_body(flag, value, cwd, env), True
-                        if flag in GH_BODY_FILE and value:
-                            from_file, file_given = body, True
-                    break
-                if flag in GH_FILL:
-                    fill = True
-                if tok[k + 1 : k + 2] == "=":
-                    break  # `-d=t`: the switch's own value, and no more options after it
+        for flag, value in pflag_options(args, values):
+            if flag in body_flags:
+                body, given = self.read_body(flag, value, cwd, env), True
+                if flag in GH_BODY_FILE and value:
+                    from_file, file_given = body, True
+            elif flag in GH_FILL:
+                fill = True
         if fill and not given and words in {("pr", "create"), ("pr", "new")}:
             why = (
                 "phylax: --fill builds this PR body from the commit messages, whose length "
@@ -1995,42 +2318,26 @@ class Guards:
         self, args: list[str], cwd: Path, env: dict[str, str]
     ) -> tuple[str | None, str | None]:
         """The kind and `body` field of a `gh api` write to an issue, PR or comment."""
-        endpoint = None
+        endpoint, options = parse_gh_api(args)
         body: str | None = None
-        i = 0
-        while i < len(args):
-            tok = args[i]
-            name, eq, value = tok.partition("=") if tok.startswith("--") else (tok, "", "")
-            if not tok.startswith("--") and len(tok) > 2 and tok[:2] in GH_API_VALUE:
-                name, eq, value = tok[:2], "=", tok[2:]
-            if name in GH_API_VALUE:
-                if not eq:
-                    value = args[i + 1] if i + 1 < len(args) else ""
-                    i += 1
-                if name in {"-f", "--raw-field", "-F", "--field"}:
-                    key, _, field = value.partition("=")
-                    if key == "body":
-                        if name in {"-F", "--field"} and field == "@-":
-                            body = self.stdin_body(cwd, env)
-                        elif name in {"-F", "--field"} and field.startswith("@"):
-                            body = self.body_file(field[1:], cwd, env)
-                        else:
-                            body = self.body_value(field, cwd, env)
-                elif name == "--input":
-                    raw = (
-                        self.stdin_body(cwd, env)
-                        if value == "-"
-                        else self.body_file(value, cwd, env)
-                    )
-                    try:
-                        loaded = json.loads(raw or "null")
-                    except ValueError:
-                        loaded = None
-                    if isinstance(loaded, dict) and isinstance(loaded.get("body"), str):
-                        body = loaded["body"]
-            elif endpoint is None and not tok.startswith("-"):
-                endpoint = tok
-            i += 1
+        for name, value in options:
+            if name in {"-f", "--raw-field", "-F", "--field"}:
+                key, _, field = value.partition("=")
+                if key == "body":
+                    if name in {"-F", "--field"} and field == "@-":
+                        body = self.stdin_body(cwd, env)
+                    elif name in {"-F", "--field"} and field.startswith("@"):
+                        body = self.body_file(field[1:], cwd, env)
+                    else:
+                        body = self.body_value(field, cwd, env)
+            elif name == "--input":
+                raw = self.stdin_body(cwd, env) if value == "-" else self.body_file(value, cwd, env)
+                try:
+                    loaded = json.loads(raw or "null")
+                except ValueError:
+                    loaded = None
+                if isinstance(loaded, dict) and isinstance(loaded.get("body"), str):
+                    body = loaded["body"]
         if endpoint is None or body is None:
             return None, None
         path = expand(endpoint, env, unknown=None).split("?")[0]

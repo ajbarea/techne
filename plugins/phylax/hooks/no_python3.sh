@@ -47,6 +47,7 @@ add "${CLAUDE_PLUGIN_OPTION_BLOCK_ATTRIBUTION_TRAILERS:-}" block_attribution_tra
 add "${CLAUDE_PLUGIN_OPTION_BLOCK_COMMITS_MD:-}" block_commits_md
 add "${CLAUDE_PLUGIN_OPTION_BLOCK_SECRETS:-}" block_secrets
 add "${CLAUDE_PLUGIN_OPTION_BLOCK_LONG_BODIES:-}" block_long_bodies
+add "${CLAUDE_PLUGIN_OPTION_BLOCK_GH_IMPLICIT_REPO:-}" block_gh_implicit_repo
 if [ -n "$names" ]; then
 	# git or gh as a word, close to git_guards.py's \b(git|gh)\b on the decoded command: JSON
 	# writes a newline, tab or return before it as \n, \t or \r, so those count as a break.
