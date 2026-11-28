@@ -53,11 +53,16 @@ extra-paths = ["tests", "plugins/epistole", "plugins/heuresis", "plugins/schole"
 [tool.techne.mutation]
 "plugins/phylax/hooks/git_guards.py" = [
     "tests/test_git_guards.py",
+    "tests/test_secret_guard.py",
+    "tests/test_body_gate.py",
     "tests/test_command_shapes.py",
     "tests/test_denial_log.py",
+    "tests/test_phylax_conformance.py",
+    "tests/test_phylax_options.py",
 ]
 "plugins/phylax/hooks/git_options.py" = [
     "tests/test_git_guards.py",
+    "tests/test_secret_guard.py",
     "tests/test_command_shapes.py",
     "tests/test_denial_log.py",
 ]
@@ -67,17 +72,31 @@ extra-paths = ["tests", "plugins/epistole", "plugins/heuresis", "plugins/schole"
     "tests/test_body_gate.py",
     "tests/test_command_shapes.py",
     "tests/test_denial_log.py",
+    "tests/test_phylax_conformance.py",
 ]
 "plugins/phylax/hooks/body_gate.py" = ["tests/test_body_gate.py"]
 "plugins/phylax/hooks/command_shapes.py" = [
+    "tests/test_git_guards.py",
     "tests/test_command_shapes.py",
     "tests/test_command_shapes_golden.py",
     "tests/test_denial_log.py",
 ]
-"plugins/phylax/hooks/secret_scan.py" = ["tests/test_secret_guard.py", "tests/test_denial_log.py"]
+"plugins/phylax/hooks/secret_scan.py" = [
+    "tests/test_git_guards.py",
+    "tests/test_secret_guard.py",
+    "tests/test_denial_log.py",
+]
 "plugins/phylax/hooks/jsonl_log.py" = ["tests/test_denial_log.py"]
-"plugins/phylax/hooks/model_guard.py" = ["tests/test_model_guard.py", "tests/test_denial_log.py"]
-"plugins/phylax/hooks/email_greeting.py" = ["tests/test_email_greeting.py", "tests/test_denial_log.py"]
+"plugins/phylax/hooks/model_guard.py" = [
+    "tests/test_model_guard.py",
+    "tests/test_denial_log.py",
+    "tests/test_phylax_conformance.py",
+]
+"plugins/phylax/hooks/email_greeting.py" = [
+    "tests/test_email_greeting.py",
+    "tests/test_denial_log.py",
+    "tests/test_phylax_conformance.py",
+]
 "plugins/phylax/hooks/denial_log.py" = ["tests/test_denial_log.py"]
 "plugins/techne/hooks/board_add.py" = ["tests/test_board_hook.py"]
 "plugins/techne/_shared/project_board.py" = ["tests/test_board_hook.py"]
