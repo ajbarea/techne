@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 import json
 import os
 import pathlib
+import re
 import shutil
 import signal
 import subprocess
 import sys
 import textwrap
 import time
+from collections.abc import Iterable
 
 import pytest
 
@@ -96,6 +99,111 @@ def test_the_configured_modules_and_their_tests_exist():
     for module, tests in config.items():
         assert (ROOT / module).is_file(), module
         assert tests and all((ROOT / t).is_file() for t in tests), module
+
+
+# Tests that only measure hook speed rather than checking hook behavior.
+NON_MUTATION_TESTS = {"tests/test_bench.py", "tests/test_hook_latency.py"}
+_RUNNER_CALLS = {"run", "Popen", "run_path", "spec_from_file_location", "_load", "run_hook_handler"}
+
+
+def _referenced_mapped_modules(source: str, mapped: Iterable[str]) -> set[str]:
+    """Return the mapped module paths imported, loaded, or executed by SOURCE."""
+    modules = list(mapped)
+    by_stem = {pathlib.Path(m).stem: m for m in modules}
+    by_file = {pathlib.Path(m).name: m for m in modules}
+    by_dotted = {m[:-3].replace("/", "."): m for m in modules}
+    by_path = set(modules)
+    tree = ast.parse(source)
+    found: set[str] = set()
+    has_runner = False
+
+    def resolve_name(name: str) -> None:
+        if name in by_stem:
+            found.add(by_stem[name])
+        elif name in by_dotted:
+            found.add(by_dotted[name])
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                resolve_name(alias.name)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            resolve_name(node.module)
+            for alias in node.names:
+                resolve_name(f"{node.module}.{alias.name}")
+        elif isinstance(node, ast.Call):
+            fn = node.func
+            name = (
+                fn.id
+                if isinstance(fn, ast.Name)
+                else fn.attr
+                if isinstance(fn, ast.Attribute)
+                else ""
+            )
+            if name == "load_phylax_hooks":
+                for arg in node.args[1:]:
+                    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                        resolve_name(arg.value)
+            elif name == "import_module" and node.args:
+                arg0 = node.args[0]
+                if isinstance(arg0, ast.Constant) and isinstance(arg0.value, str):
+                    resolve_name(arg0.value)
+            if name in _RUNNER_CALLS:
+                has_runner = True
+        elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+            if isinstance(node.right, ast.Constant) and isinstance(node.right.value, str):
+                if node.right.value in by_file:
+                    found.add(by_file[node.right.value])
+                elif node.right.value in by_path:
+                    found.add(node.right.value)
+
+    if has_runner:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                text = node.value
+                for fname, mod in by_file.items():
+                    stem = fname[:-3]
+                    if not text.startswith("plugins/") and re.search(
+                        rf"(?<![\w/.-]){re.escape(fname)}\b", text
+                    ):
+                        found.add(mod)
+                    elif re.search(rf"\b(?:import|from)\s+{re.escape(stem)}\b", text):
+                        found.add(mod)
+    return found
+
+
+def test_every_test_that_imports_or_runs_a_mapped_module_is_mapped():
+    config = mutation.load_config()
+    missing: list[tuple[str, str]] = []
+    for path in sorted((ROOT / "tests").rglob("test_*.py")):
+        rel = path.relative_to(ROOT).as_posix()
+        if rel in NON_MUTATION_TESTS or rel.startswith("tests/bench/"):
+            continue
+        for module in sorted(_referenced_mapped_modules(path.read_text(), config)):
+            if rel not in config[module]:
+                missing.append((rel, module))
+    assert not missing, (
+        "Tests exercising mapped modules must be listed in [tool.techne.mutation] in "
+        f"pyproject.toml: {missing}"
+    )
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("import guard\n", {"hooks/guard.py"}),
+        ("from hooks.guard import check\n", {"hooks/guard.py"}),
+        ('load_phylax_hooks(monkeypatch, "guard")\n', {"hooks/guard.py"}),
+        ('importlib.import_module("guard")\n', {"hooks/guard.py"}),
+        ('HOOK = ROOT / "hooks" / "guard.py"\n', {"hooks/guard.py"}),
+        ('HOOK = ROOT / "hooks/guard.py"\n', {"hooks/guard.py"}),
+        ('subprocess.run(["python3", str(p)])\nSCRIPT = "guard.py"\n', {"hooks/guard.py"}),
+        ('subprocess.run(["python3", "-c", "import guard"])\n', {"hooks/guard.py"}),
+        ('PATHS = ["hooks/guard.py"]\n', set()),
+    ],
+)
+def test_referenced_mapped_modules_detects_imports_loads_and_runs(source, expected):
+    assert _referenced_mapped_modules(source, ["hooks/guard.py"]) == expected
 
 
 def test_mutmut_is_the_version_generate_was_written_for():
