@@ -164,10 +164,10 @@ def toy(tmp_path):
 def test_a_subprocess_test_kills_the_mutants_it_reaches(toy, tmp_path):
     out = tmp_path / "results.json"
     code = mutation.main(["--root", str(toy), "--workers", "2", "--out", str(out)])
-    results = json.loads(out.read_text())
+    results = mutation.read_results(out).results
     by_function: dict[str, set[str]] = {}
     for r in results:
-        by_function.setdefault(r["function"], set()).add(r["status"])
+        by_function.setdefault(r.function, set()).add(r.status)
     assert by_function["refuses"] == {"killed"}
     assert by_function["main"] == {"killed"}
     # Nothing calls unreached(): its mutants run against all of the module's tests and survive.
@@ -178,13 +178,13 @@ def test_a_subprocess_test_kills_the_mutants_it_reaches(toy, tmp_path):
 def test_an_equivalent_survivor_is_listed_and_does_not_fail(toy, tmp_path):
     out = tmp_path / "results.json"
     mutation.main(["--root", str(toy), "--workers", "1", "--out", str(out)])
-    survivors = [r for r in json.loads(out.read_text()) if r["status"] == "survived"]
+    survivors = [r for r in mutation.read_results(out).results if r.status == "survived"]
     (toy / "mutation").mkdir()
     (toy / "mutation" / "equivalent.toml").write_text(
-        "".join(f'[[mutant]]\nhash = "{r["key"]}"\nwhy = "nothing calls it"\n\n' for r in survivors)
+        "".join(f'[[mutant]]\nhash = "{r.key}"\nwhy = "nothing calls it"\n\n' for r in survivors)
     )
     assert mutation.main(["--root", str(toy), "--workers", "1", "--out", str(out)]) == 0
-    assert {r["status"] for r in json.loads(out.read_text()) if r["function"] == "unreached"} == {
+    assert {r.status for r in mutation.read_results(out).results if r.function == "unreached"} == {
         "equivalent"
     }
 
@@ -196,7 +196,7 @@ def test_changed_since_runs_only_the_changed_functions(toy, tmp_path):
     )
     out = tmp_path / "results.json"
     mutation.main(["--root", str(toy), "--changed-since", "HEAD", "--out", str(out)])
-    assert {r["function"] for r in json.loads(out.read_text())} == {"refuses"}
+    assert {r.function for r in mutation.read_results(out).results} == {"refuses"}
 
 
 def test_red_unmutated_tests_stop_the_run(toy):
@@ -397,11 +397,11 @@ def test_every_mutant_of_a_function_gets_its_own_key(tmp_path):
     repo = _toy_repo(tmp_path, TIGHT_HOOK, TOY_TEST.replace("rm -rf /", "rm -rf /x"))
     out = tmp_path / "results.json"
     mutation.main(["--root", str(repo), "--workers", "1", "--out", str(out), "--report-only"])
-    results = json.loads(out.read_text())
+    results = mutation.read_results(out).results
     for function in ("resolve", "G.check"):
-        mine = [r for r in results if r["function"] == function]
-        assert len(mine) > 1 and len({r["key"] for r in mine}) == len(mine), function
-        assert all(r["diff"].startswith("-") and "\n+" in r["diff"] for r in mine)
+        mine = [r for r in results if r.function == function]
+        assert len(mine) > 1 and len({r.key for r in mine}) == len(mine), function
+        assert all(r.diff.startswith("-") and "\n+" in r.diff for r in mine)
 
 
 @pytest.mark.parametrize(
@@ -446,8 +446,8 @@ def test_a_subset_that_fails_on_its_own_does_not_kill(tmp_path):
     repo = _toy_repo(tmp_path, TOY_HOOK, ORDER_TEST)
     out = tmp_path / "results.json"
     mutation.main(["--root", str(repo), "--workers", "1", "--out", str(out), "--report-only"])
-    results = json.loads(out.read_text())
-    assert results and {r["status"] for r in results} == {"survived"}
+    results = mutation.read_results(out).results
+    assert results and {r.status for r in results} == {"survived"}
 
 
 @pytest.mark.parametrize(
@@ -472,9 +472,9 @@ def test_changed_since_counts_only_mutants_on_changed_lines(toy, tmp_path):
     )
     out = tmp_path / "results.json"
     mutation.main(["--root", str(toy), "--changed-since", "HEAD", "--out", str(out)])
-    results = json.loads(out.read_text())
-    assert results and {r["function"] for r in results} == {"unreached"}
-    assert all("y = x" in r["diff"] for r in results), [r["diff"] for r in results]
+    results = mutation.read_results(out).results
+    assert results and {r.function for r in results} == {"unreached"}
+    assert all("y = x" in r.diff for r in results), [r.diff for r in results]
 
 
 def _two_file_repo(tmp_path: pathlib.Path, files: dict[str, str], order: list[str]) -> pathlib.Path:
@@ -726,7 +726,7 @@ def test_a_mutant_run_error_carries_pytests_cause_to_the_report(toy, tmp_path, m
     out, summary = tmp_path / "results.json", tmp_path / "summary.md"
     code = mutation.main(["--root", str(toy), "--out", str(out), "--summary", str(summary)])
     assert code == 1
-    assert {r["reason"] for r in json.loads(out.read_text())} == {said}
+    assert {r.reason for r in mutation.read_results(out).results} == {said}
     assert "> pytest exited 4:" in summary.read_text()
     assert "  `-a`" in summary.read_text()  # the mutant that erred
     assert "> ERROR: not found" in summary.read_text()
@@ -745,11 +745,11 @@ def test_a_timeout_counts_only_when_the_unmutated_tests_finish_in_time(
     calls = _fake_mutant_runs(monkeypatch, outcome, unmutated)
     out = tmp_path / "results.json"
     mutation.main(["--root", str(toy), "--workers", "1", "--out", str(out), "--report-only"])
-    results = json.loads(out.read_text())
-    assert results and {r["status"] for r in results} == {status}
+    results = mutation.read_results(out).results
+    assert results and {r.status for r in results} == {status}
     assert calls and {budget for _, budget in calls} == {40.0}  # the limit the mutant had
     if status == "error":
-        assert all("also fail within 40 s" in r["reason"] for r in results)
+        assert all("also fail within 40 s" in r.reason for r in results)
 
 
 @pytest.mark.parametrize(("status", "limit"), [("killed", 3000.0), ("timeout", 1000.0)])
@@ -765,9 +765,9 @@ def test_a_detected_mutant_is_rechecked_unmutated_and_keeps_no_output(
     calls = _fake_mutant_runs(monkeypatch, outcome, ("passed", 0.1, ""))
     out = tmp_path / "results.json"
     mutation.main(["--root", str(toy), "--workers", "1", "--out", str(out), "--report-only"])
-    results = json.loads(out.read_text())
-    assert results and {r["status"] for r in results} == {status}
-    assert {r["reason"] for r in results} == {""}
+    results = mutation.read_results(out).results
+    assert results and {r.status for r in results} == {status}
+    assert {r.reason for r in results} == {""}
     assert calls and {budget for _, budget in calls} == {limit}
 
 
@@ -798,7 +798,7 @@ def test_a_timeout_is_not_judged_by_an_unmutated_run_at_a_longer_limit(toy, tmp_
     monkeypatch.setattr(mutation, "run_mutant", run_mutant)
     out = tmp_path / "results.json"
     mutation.main(["--root", str(toy), "--workers", "1", "--out", str(out), "--report-only"])
-    statuses = {r["key"]: r["status"] for r in json.loads(out.read_text())}
+    statuses = {r.key: r.status for r in mutation.read_results(out).results}
     assert statuses["a"] == "killed" and statuses["b"] == "error"
 
 
@@ -849,3 +849,190 @@ def test_each_survivor_is_annotated_at_the_line_its_mutant_changed(tmp_path):
         "::error file=g.py,line=3::survived g.x_f__mutmut_4: -return x <= 0 / +return x < 0",
         "::error file=g.py::survived g.x_h__mutmut_1: -pass",
     ]
+
+
+def _sample_result_dict(name: str = "m.x_f__mutmut_1", status: str = "killed") -> dict:
+    return {
+        "name": name,
+        "module": "m.py",
+        "function": "f",
+        "status": status,
+        "key": "k" * 64,
+        "seconds": 1.0,
+        "tests": 1,
+        "diff": "-a\n+b",
+        "reason": "",
+    }
+
+
+def test_out_file_records_planned_count_and_final_complete_record(toy, tmp_path):
+    out = tmp_path / "results.json"
+    code = mutation.main(["--root", str(toy), "--workers", "1", "--out", str(out), "--report-only"])
+    assert code == 0
+    raw = json.loads(out.read_text())
+    assert isinstance(raw, list) and len(raw) >= 3
+    assert raw[0] == {"planned": len(raw) - 2}
+    assert raw[-1].get("complete") is True
+    assert raw[-1].get("planned") == raw[0]["planned"]
+    loaded = mutation.read_results(out)
+    assert loaded.complete is True
+    assert loaded.planned == raw[0]["planned"]
+    assert len(loaded.results) == raw[0]["planned"]
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected_complete", "expected_planned", "expected_count"),
+    [
+        ([], False, None, 0),
+        ([_sample_result_dict()], False, None, 1),
+        ([{"planned": True}], False, None, 0),
+        ([{"planned": 5}], False, 5, 0),
+        ([{"planned": 5}, _sample_result_dict()], False, 5, 1),
+        ([{"planned": 5, "outside": 2}, _sample_result_dict()], False, 5, 1),
+        ([{"planned": 1}, _sample_result_dict(), {"complete": False}], False, 1, 1),
+        ([{"planned": 1}, _sample_result_dict(), {"complete": 1}], False, 1, 1),
+        ([{"planned": 1}, {"complete": True}, _sample_result_dict()], False, 1, 1),
+        (
+            [{"planned": 0}, {"complete": True, "planned": 0, "results": 0, "outside": 0}],
+            True,
+            0,
+            0,
+        ),
+        (
+            [
+                {"planned": 4},
+                _sample_result_dict(),
+                {"complete": True, "planned": 4, "results": 1, "outside": 3},
+            ],
+            True,
+            4,
+            1,
+        ),
+    ],
+)
+def test_read_results_parses_complete_incomplete_and_legacy_files(
+    tmp_path, payload, expected_complete, expected_planned, expected_count
+):
+    path = tmp_path / "out.json"
+    path.write_text(json.dumps(payload))
+    loaded = mutation.read_results(path)
+    assert loaded.complete is expected_complete
+    assert loaded.planned == expected_planned
+    assert len(loaded.results) == expected_count
+
+
+def test_read_results_handles_zero_byte_and_invalid_json(tmp_path):
+    empty = tmp_path / "empty.json"
+    empty.write_text("")
+    assert mutation.read_results(empty) == mutation.LoadedResults([], False, None, 0)
+
+    bad = tmp_path / "bad.json"
+    bad.write_text("{not json")
+    with pytest.raises(SystemExit, match="invalid JSON"):
+        mutation.read_results(bad)
+
+
+def test_merge_reports_incomplete_with_outside_counts(tmp_path, capsys):
+    partial = tmp_path / "partial.json"
+    partial.write_text(
+        json.dumps([{"planned": 5, "outside": 2}, _sample_result_dict("m.x_f__mutmut_1", "killed")])
+    )
+    assert mutation.main(["--merge", str(partial), "--report-only"]) == 0
+    out = capsys.readouterr().out
+    assert "incomplete" in out and "3/5 planned" in out
+
+
+def test_merge_reports_incomplete_and_complete_runs(tmp_path, capsys):
+    complete = tmp_path / "complete.json"
+    complete.write_text(
+        json.dumps(
+            [
+                {"planned": 1},
+                _sample_result_dict("m.x_f__mutmut_1", "killed"),
+                {"complete": True, "planned": 1, "results": 1, "outside": 0},
+            ]
+        )
+    )
+    summary_ok = tmp_path / "summary_ok.md"
+    assert mutation.main(["--merge", str(complete), "--summary", str(summary_ok)]) == 0
+    stdout_ok = capsys.readouterr().out
+    assert "complete" in stdout_ok and "incomplete" not in stdout_ok
+    assert "complete" in summary_ok.read_text() and "incomplete" not in summary_ok.read_text()
+
+    cutoff = tmp_path / "cutoff.json"
+    cutoff.write_text(
+        json.dumps([{"planned": 5}, _sample_result_dict("m.x_f__mutmut_2", "killed")])
+    )
+    summary_bad = tmp_path / "summary_bad.md"
+    assert (
+        mutation.main(["--merge", str(complete), str(cutoff), "--summary", str(summary_bad)]) == 1
+    )
+    stdout_bad = capsys.readouterr().out
+    assert "incomplete" in stdout_bad and "cutoff.json" in stdout_bad
+    assert "incomplete" in summary_bad.read_text() and "cutoff.json" in summary_bad.read_text()
+    assert mutation.main(["--merge", str(complete), str(cutoff), "--report-only"]) == 0
+    capsys.readouterr()
+
+    legacy = tmp_path / "legacy.json"
+    legacy.write_text(json.dumps([_sample_result_dict("m.x_f__mutmut_3", "killed")]))
+    assert mutation.main(["--merge", str(legacy), "--report-only"]) == 0
+    stdout_legacy = capsys.readouterr().out
+    assert "incomplete" in stdout_legacy
+    assert "| `m.py` | 1 | 1 | 0 | 0 | 0 | 100.0% |" in stdout_legacy
+
+
+def test_sigterm_after_partial_progress_leaves_out_incomplete(tmp_path, capsys):
+    out = tmp_path / "partial.json"
+    pidfile = tmp_path / "child.pid"
+    test = textwrap.dedent(
+        f"""\
+        import json, os, pathlib, subprocess, sys, time
+
+        HOOK = pathlib.Path(__file__).resolve().parent.parent / "hooks" / "guard.py"
+        OUT = pathlib.Path({str(out)!r})
+
+        def test_refuses_only_the_wipe():
+            if not os.environ.get("MUTATION_TRACE_DIR") and OUT.exists():
+                if len(json.loads(OUT.read_text())) >= 2:
+                    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)"])
+                    pathlib.Path({str(pidfile)!r}).write_text(str(child.pid))
+                    time.sleep(600)
+            run = lambda text: subprocess.run([sys.executable, str(HOOK)], input=text, text=True)
+            assert run("rm -rf /").returncode == 2
+            assert run("ls").returncode == 0
+        """
+    )
+    repo = _toy_repo(tmp_path, TOY_HOOK, test)
+    script = str(ROOT / "scripts" / "mutation.py")
+    driver = (
+        "import importlib.util, sys\n"
+        f"spec = importlib.util.spec_from_file_location('m', {script!r})\n"
+        "m = importlib.util.module_from_spec(spec); sys.modules['m'] = m\n"
+        "spec.loader.exec_module(m)\n"
+        f"sys.exit(m.main(['--root', {str(repo)!r}, '--workers', '1', '--out', {str(out)!r}]))\n"
+    )
+    proc = subprocess.Popen(
+        [sys.executable, "-c", driver],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        deadline = time.monotonic() + 120
+        while not pidfile.exists() or not pidfile.read_text():
+            assert proc.poll() is None and time.monotonic() < deadline
+            time.sleep(0.1)
+        proc.send_signal(signal.SIGTERM)
+        assert proc.wait(timeout=15) == 128 + signal.SIGTERM
+    finally:
+        proc.kill()
+    raw = json.loads(out.read_text())
+    assert "planned" in raw[0] and raw[0]["planned"] > 1
+    assert raw[-1].get("complete") is not True
+    loaded = mutation.read_results(out)
+    assert loaded.complete is False
+    assert loaded.planned == raw[0]["planned"]
+    assert len(loaded.results) >= 1
+    assert mutation.main(["--merge", str(out)]) == 1
+    assert "incomplete" in capsys.readouterr().out
+    assert mutation.main(["--merge", str(out), "--report-only"]) == 0
+    assert "incomplete" in capsys.readouterr().out

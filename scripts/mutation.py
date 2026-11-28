@@ -38,8 +38,11 @@ otherwise the mutant is judged by its module's tests, and a timeout those share 
 Exit 0 when no mutant survived, 1 when one did (0 with --report-only), and 1 on any error, even
 with --report-only: a mutant that could not be applied or run, or a timeout the unmutated tests
 share. --changed-since reads only the configured modules' lines, so a change to the mapping,
-this script or the workflow alone mutates nothing; the weekly full run covers it. --merge reads
-the --out files of several shards and prints their combined table.
+this script or the workflow alone mutates nothing; the weekly full run covers it. --out starts
+with `{"planned": N}` and ends with `{"complete": true, ...}` only when all planned mutants
+finish; a cut-off run lacks the final record. --merge reads the --out files of several shards,
+prints their combined table, and reports "incomplete" (and exits 1 without --report-only) when
+any file lacks the final complete record.
 """
 
 # research(2026-11): mutmut 3 runs mutants from a trampolined copy and selects tests by in-process
@@ -115,6 +118,17 @@ class Outcome(NamedTuple):
     decided: list[str]
     limit: float = 0.0
     reason: str = ""
+
+
+class LoadedResults(NamedTuple):
+    """What an --out JSON file holds: its RESULT rows, whether its final complete record is
+    present, the PLANNED mutant count from its first record (None for legacy bare lists), and
+    the OUTSIDE count skipped by --changed-since."""
+
+    results: list[Result]
+    complete: bool
+    planned: int | None = None
+    outside: int = 0
 
 
 def load_config(root: pathlib.Path = ROOT) -> dict[str, list[str]]:
@@ -508,8 +522,25 @@ def main(argv: list[str] | None = None) -> int:
         missing = [str(f) for f in args.merge if not f.is_file()]
         if missing:  # an unmatched shell glob arrives as its own text
             raise SystemExit(f"no results file at {', '.join(missing)}: no shard wrote one")
-        merged = [Result(**r) for f in args.merge for r in json.loads(f.read_text())]
-        return report(merged, args.summary, args.report_only)
+        merged: list[Result] = []
+        incomplete_notes: list[str] = []
+        for f in args.merge:
+            loaded = read_results(f)
+            merged.extend(loaded.results)
+            if not loaded.complete:
+                if loaded.planned is not None:
+                    done = len(loaded.results) + loaded.outside
+                    incomplete_notes.append(f"{f.name} ({done}/{loaded.planned} planned)")
+                else:
+                    incomplete_notes.append(f"{f.name} (no complete record)")
+        return report(
+            merged,
+            args.summary,
+            args.report_only,
+            incomplete=incomplete_notes,
+            file_count=len(args.merge),
+            complete_run=not incomplete_notes,
+        )
     root = args.root.resolve()
     config = load_config(root)
     unknown = [m for m in args.module if m not in config]
@@ -542,6 +573,9 @@ def main(argv: list[str] | None = None) -> int:
         handlers = {sig: signal.signal(sig, stop) for sig in STOP_SIGNALS}
     base = pathlib.Path(tempfile.mkdtemp(prefix="mutation-"))
     results: list[Result] = []
+    planned = 0
+    outside = 0
+    write_results(args.out, results, complete=False)
     try:
         scratch = base / "w0"
         scratch_copy(scratch, root)
@@ -556,6 +590,8 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             jobs.append((name, module, function))
         jobs = jobs[shard - 1 :: of]
+        planned = len(jobs)
+        write_results(args.out, results, planned=planned, complete=False)
         workers = [scratch]
         for i in range(1, min(args.workers, len(jobs) or 1)):
             workers.append(base / f"w{i}")
@@ -625,6 +661,10 @@ def main(argv: list[str] | None = None) -> int:
                     free.append(pending.pop(fut))
                     r = fut.result()
                     if r.status == "outside":
+                        outside += 1
+                        write_results(
+                            args.out, results, planned=planned, complete=False, outside=outside
+                        )
                         continue
                     results.append(r)
                     print(
@@ -633,35 +673,117 @@ def main(argv: list[str] | None = None) -> int:
                     )
                     # Rewritten after each mutant, so a shard whose runner is stopped keeps
                     # what it finished.
-                    write_results(args.out, results)
+                    write_results(
+                        args.out, results, planned=planned, complete=False, outside=outside
+                    )
     finally:
         for sig, previous in handlers.items():
             signal.signal(sig, previous)
         shutil.rmtree(base, ignore_errors=True)
-    write_results(args.out, results)
-    return report(results, args.summary, args.report_only)
+    write_results(args.out, results, planned=planned, complete=True, outside=outside)
+    return report(results, args.summary, args.report_only, incomplete=[], complete_run=True)
 
 
-def write_results(out: pathlib.Path | None, results: list[Result]) -> None:
+def read_results(path: pathlib.Path) -> LoadedResults:
+    """Read an --out JSON file, tolerating both the current [planned, ..., complete] layout and
+    legacy bare lists of Result objects."""
+    text = path.read_text().strip()
+    if not text:
+        return LoadedResults([], False, None)
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as e:
+        raise SystemExit(f"{path}: invalid JSON: {e}") from e
+    if not isinstance(data, list):
+        raise SystemExit(f"{path}: expected a JSON list")
+    planned: int | None = None
+    outside = 0
+    if data and isinstance(data[0], dict) and "name" not in data[0] and "planned" in data[0]:
+        raw_planned = data[0]["planned"]
+        if isinstance(raw_planned, int) and not isinstance(raw_planned, bool):
+            planned = raw_planned
+        raw_outside = data[0].get("outside", 0)
+        if isinstance(raw_outside, int) and not isinstance(raw_outside, bool):
+            outside = raw_outside
+    complete = bool(
+        data
+        and isinstance(data[-1], dict)
+        and "name" not in data[-1]
+        and data[-1].get("complete") is True
+    )
+    if (
+        complete
+        and isinstance(data[-1].get("outside"), int)
+        and not isinstance(data[-1].get("outside"), bool)
+    ):
+        outside = data[-1]["outside"]
+    results = [Result(**r) for r in data if isinstance(r, dict) and "name" in r]
+    return LoadedResults(results, complete, planned, outside)
+
+
+def write_results(
+    out: pathlib.Path | None,
+    results: list[Result],
+    *,
+    planned: int | None = None,
+    complete: bool = False,
+    outside: int = 0,
+) -> None:
     if out is None:
         return
+    payload: list[dict[str, object]] = []
+    if planned is not None:
+        head: dict[str, object] = {"planned": planned}
+        if outside:
+            head["outside"] = outside
+        payload.append(head)
+    payload.extend(asdict(r) for r in results)
+    if complete:
+        end: dict[str, object] = {"complete": True}
+        if planned is not None:
+            end["planned"] = planned
+        end["results"] = len(results)
+        end["outside"] = outside
+        payload.append(end)
     partial = out.with_name(out.name + ".partial")
-    partial.write_text(json.dumps([asdict(r) for r in results], indent=1) + "\n")
+    partial.write_text(json.dumps(payload, indent=1) + "\n")
     partial.replace(out)
 
 
-def report(results: list[Result], summary: pathlib.Path | None, report_only: bool) -> int:
+def report(
+    results: list[Result],
+    summary: pathlib.Path | None,
+    report_only: bool,
+    *,
+    incomplete: list[str] | None = None,
+    file_count: int = 0,
+    complete_run: bool = False,
+) -> int:
+    status_line = ""
+    if incomplete:
+        status_line = f"Status: incomplete ({'; '.join(incomplete)})\n"
+    elif complete_run:
+        n_res = len(results)
+        res_word = "result" if n_res == 1 else "results"
+        if file_count:
+            file_word = "file" if file_count == 1 else "files"
+            status_line = f"Status: complete ({n_res} {res_word} across {file_count} {file_word})\n"
+        else:
+            status_line = f"Status: complete ({n_res} {res_word})\n"
     table = score_table(results)
-    print(table)
+    output = f"{status_line}{table}"
+    print(output)
     if not report_only:  # the gating run only: a --report-only merge would repeat each line
         for line in survivor_annotations(results, pathlib.Path(".")):
             print(line)
     if summary:
         with summary.open("a") as out:
-            out.write(table + "\n")
+            out.write(output + "\n")
     if any(r.status == "error" for r in results):
         return 1  # a broken run, not a score: fails even with --report-only
-    return 0 if report_only else int(any(r.status == "survived" for r in results))
+    if report_only:
+        return 0
+    return int(bool(incomplete) or any(r.status == "survived" for r in results))
 
 
 def survivor_annotations(results: list[Result], root: pathlib.Path) -> list[str]:
