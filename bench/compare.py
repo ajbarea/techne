@@ -3,13 +3,13 @@
 Usage: uv run python bench/compare.py BASELINE NEW [--threshold X] [--wall-threshold X]
 
 Each case is judged by its ratio to the python3 floor, so a slower or faster machine moves both
-sides alike. A case fails when its wall-clock ratio grew past WALL_THRESHOLD, or, when both
-summaries carry retired-instruction counts, when its instruction ratio grew past the tighter
-THRESHOLD: instructions hardly move from run to run, but they do not count time spent waiting
-(a sleep, a lock, a network call), so wall time is always checked too. Both summaries must come
-from the same python3 minor version: a faster-starting python3 has a lower floor, so its ratios
-run higher. Exit 0 when no case regressed, 1 when one did or the new
-summary lacks a baseline case, 2 when the two cannot be compared.
+sides alike. When both summaries carry retired-instruction counts, a case fails when its instruction
+ratio grew past the tighter THRESHOLD (instructions hardly move from run to run, avoiding false
+positives from CI runner jitter), and wall time is reported as information. When either summary
+lacks instruction counts, a case fails when its wall-clock ratio grew past WALL_THRESHOLD. Both
+summaries must come from the same python3 minor version: a faster-starting python3 has a lower
+floor, so its ratios run higher. Exit 0 when no case regressed, 1 when one did or the new summary
+lacks a baseline case, 2 when the two cannot be compared.
 """
 
 from __future__ import annotations
@@ -32,13 +32,15 @@ def judge(
     base: dict, row: dict, threshold: float, wall_threshold: float
 ) -> list[tuple[str, float, bool]]:
     """Per metric checked: its name, the growth of its ratio, and whether that is past its limit.
-    Wall time always; instructions too when both sides counted them."""
-    growth = row["ratio"] / base["ratio"]
-    checked = [("wall", growth, growth > wall_threshold)]
+    Instructions decide when both sides counted them; otherwise wall time decides."""
+    wall_growth = row["ratio"] / base["ratio"]
     if "instructions_ratio" in base and "instructions_ratio" in row:
-        growth = row["instructions_ratio"] / base["instructions_ratio"]
-        checked.append(("instructions", growth, growth > threshold))
-    return checked
+        instr_growth = row["instructions_ratio"] / base["instructions_ratio"]
+        return [
+            ("wall", wall_growth, False),
+            ("instructions", instr_growth, instr_growth > threshold),
+        ]
+    return [("wall", wall_growth, wall_growth > wall_threshold)]
 
 
 def compare(

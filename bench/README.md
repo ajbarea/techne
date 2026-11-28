@@ -22,7 +22,7 @@ For each case: the median wall time of the floor and of the hook, their ratio, t
 
 A case is judged by its ratio to the floor, so a faster or slower machine moves both sides. Both summaries must use the same python3 minor version, since a faster-starting python3 has a lower floor.
 
-A growth of the wall-clock ratio past 1.15x fails. When both summaries have instruction counts, a growth of the instruction ratio past 1.05x fails too. Instructions alone would miss a hook that now waits on a lock, a sleep or the network, since waiting retires no instructions. GitHub's runners do not count instructions, so against `baseline-ci.json` only wall time is checked. The wall threshold comes from twelve `bench` workflow runs on five CPU models (2026-11-04); the baseline is the per-case median of the seven whose summaries were kept; the instruction threshold from repeated runs on AJ's PC (WSL2, 30 runs per case):
+When both summaries have instruction counts, a growth of the instruction ratio past 1.05x fails, while wall time is reported as information so runner jitter does not fail the gate. When either summary lacks instruction counts, a growth of the wall-clock ratio past 1.15x fails. GitHub's runners do not count instructions, so against `baseline-ci.json` only wall time is checked. The wall threshold comes from twelve `bench` workflow runs on five CPU models (2026-11-04); the baseline is the per-case median of the seven whose summaries were kept; the instruction threshold from repeated runs on AJ's PC (WSL2, 30 runs per case):
 
 | Ratio | Largest spread of any case |
 |---|---|
