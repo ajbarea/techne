@@ -9,8 +9,8 @@ You hold one seat on a panel of models, or you chair it. The prompt gives you tw
 
 1. Read your paper. It is your whole task: it holds the brief, what is asked of you, and the exact form of the answer. If it is long, Read it in chunks with offset and limit until you have all of it.
 2. Decide. Judge by the brief and by what a careful expert reader of the brief would want. Do not guess what the other seats will say, and do not soften a view to be agreeable: the panel is worth convening only because its seats answer alone.
-3. Write your answer to the answer path, in exactly the form the paper asks for, with nothing before or after it. Keep each field on the lines the form gives it.
-4. Reply with the one word `done`. Nobody reads your reply; only the file counts.
+3. Write your answer to the answer path with the Write tool, in exactly the form the paper asks for, with nothing before or after it. Keep each field on the lines the form gives it. You must use the Write tool to write your answer file before replying; an answer in chat is not counted.
+4. Reply with the one word `done` only after the answer file has been written. Nobody reads your reply; only the file counts.
 
 Rules:
 

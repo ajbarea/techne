@@ -707,6 +707,163 @@ def seat_status(seat: dict, rnd: int, parsed: bool) -> tuple[bool, str]:
     return False, "no answer"
 
 
+def extract_assistant_reply(lines: list[str]) -> str | None:
+    """Extract the last assistant reply text from a subagent transcript's lines."""
+    last_text = None
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except (ValueError, json.JSONDecodeError):
+            continue
+        msg = entry.get("message")
+        if isinstance(msg, dict) and msg.get("role") == "assistant":
+            content = msg.get("content")
+            if isinstance(content, str) and content.strip():
+                last_text = content
+            elif isinstance(content, list):
+                parts = [
+                    b.get("text", "")
+                    for b in content
+                    if isinstance(b, dict) and b.get("type") == "text" and b.get("text")
+                ]
+                if parts:
+                    last_text = "\n".join(parts)
+    return last_text
+
+
+def find_subagent_reply(paper_path: str, answer_path: str) -> str | None:
+    """Search project subagent transcripts for one matching this seat's paper or answer path."""
+    env_dir = os.environ.get("CLAUDE_PROJECTS_DIR") or os.environ.get("SEELE_TRANSCRIPTS_DIR")
+    roots = [pathlib.Path(env_dir)] if env_dir else [pathlib.Path.home() / ".claude" / "projects"]
+    candidates: list[pathlib.Path] = []
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for p in root.glob("*/*/subagents/agent-*.jsonl"):
+            candidates.append(p)
+        for p in root.glob("*/subagents/agent-*.jsonl"):
+            candidates.append(p)
+        for p in root.glob("agent-*.jsonl"):
+            candidates.append(p)
+    seen: set[pathlib.Path] = set()
+    unique: list[pathlib.Path] = []
+    for p in candidates:
+        if p not in seen and p.is_file():
+            seen.add(p)
+            unique.append(p)
+    unique.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+
+    for p in unique:
+        try:
+            with open(p, encoding="utf-8") as f:
+                first = f.readline()
+                if paper_path not in first and answer_path not in first:
+                    continue
+                reply = extract_assistant_reply([first, *f.readlines()])
+                if reply:
+                    return reply
+        except OSError:
+            continue
+    return None
+
+
+def sanitize_blind(text: str, seat: dict, data: dict) -> str:
+    """Strip greetings, conversational chatter, model/author names, and seat names."""
+    signoff_re = re.compile(
+        r"(?:\n\s*[-*\u2013\u2014]?\s*(?:(?:best\s+)?regards|sincerely|cheers|thanks|warmly"
+        r"|signed,?|yours|i hope this helps|let me know|overall recommendation[:\s])\b[\s\S]*$)",
+        re.I,
+    )
+    text = signoff_re.sub("", text)
+
+    allowed = set(re.findall(r"\w+", (data.get("brief", "") + " " + data.get("topic", "")).lower()))
+
+    model = (seat.get("model") or "").strip()
+    family = (seat.get("family") or "").strip()
+    label = (seat.get("label") or "").strip()
+    seat_n = seat.get("n", 0)
+
+    phrases = [
+        r"\b(?:as an? (?:ai|language model|assistant))\b",
+        r"\b(?:in my view as|from the perspective of)\s+(?:claude|sonnet|opus|haiku|fable)\b",
+        r"\b(?:i am|i'm|this is)\s+(?:a\s+)?(?:claude|sonnet|opus|haiku|fable|gpt|gemini|ollama)\b",
+    ]
+    for pattern in phrases:
+        text = re.sub(pattern, "", text, flags=re.I)
+
+    if seat_n:
+        text = re.sub(rf"\bSEELE\s*0?{seat_n}\b", "", text, flags=re.I)
+        text = re.sub(rf"\bseat\s*0?{seat_n}\b", "", text, flags=re.I)
+
+    candidates_to_strip = {
+        model,
+        family,
+        "claude",
+        "sonnet",
+        "opus",
+        "haiku",
+        "fable",
+        "anthropic",
+        "chatgpt",
+        "openai",
+        "gemini",
+    }
+    for part in re.findall(r"\w+", label):
+        candidates_to_strip.add(part)
+
+    for word in candidates_to_strip:
+        w = word.strip().lower()
+        if w and len(w) > 2 and w not in allowed:
+            text = re.sub(rf"\b{re.escape(word)}\b", "", text, flags=re.I)
+
+    cleaned_lines = []
+    for line in text.splitlines():
+        line = re.sub(r"[ \t]+", " ", line)
+        line = re.sub(r",\s*,+", ",", line)
+        line = re.sub(r"\.\s*,\s*", ". ", line)
+        line = re.sub(r"\(\s*\)", "", line)
+        cleaned_lines.append(line.strip())
+    return "\n".join(cleaned_lines)
+
+
+def recover_answer(
+    seat: dict, rnd: int, data: dict, answer_name: str | None = None, paper_name: str | None = None
+) -> pathlib.Path | None:
+    """Recover an answer from answer.md, chat/reply files, or subagent transcripts."""
+    ans_name = answer_name or FILES[rnd][1]
+    pap_name = paper_name or FILES[rnd][0]
+    base = pathlib.Path(seat["dir"]) if rnd in (0, 1) else seat_dir(seat, rnd)
+    primary = base / ans_name
+    if primary.is_file():
+        return primary
+
+    text = None
+    alt_files = [base / "answer.md", base / "chat.md", base / "reply.md"]
+    for alt in alt_files:
+        if alt.is_file():
+            text = read_capped(alt)
+            break
+
+    if text is None:
+        t_file = base / "transcript.jsonl"
+        if t_file.is_file():
+            try:
+                text = extract_assistant_reply(t_file.read_text(encoding="utf-8").splitlines())
+            except OSError:
+                pass
+
+    if text is None:
+        paper_path = str(base / pap_name)
+        answer_path = str(primary)
+        text = find_subagent_reply(paper_path, answer_path)
+
+    if text is not None and text.strip():
+        sanitized = sanitize_blind(text, seat, data)
+        write_text(primary, sanitized)
+        return primary
+    return None
+
+
 # ---------------------------------------------------------------- pool
 
 
@@ -797,7 +954,10 @@ def write_ballots(data: dict) -> None:
 
 
 def voting_started(data: dict) -> bool:
-    return any((seat_dir(s, 2) / FILES[2][1]).exists() for s in data["seats"])
+    return any(
+        (seat_dir(s, 2) / FILES[2][1]).exists() or (seat_dir(s, 2) / "answer.md").exists()
+        for s in data["seats"]
+    )
 
 
 def cmd_pool(args: argparse.Namespace) -> int:
@@ -817,6 +977,8 @@ def cmd_pool(args: argparse.Namespace) -> int:
     answered = 0
     for seat in data["seats"]:
         path = pathlib.Path(seat["dir"]) / FILES[1][1]
+        if not path.is_file():
+            recover_answer(seat, 1, data)
         got = parse_proposal(read_capped(path), data["proposals"]) if path.is_file() else None
         ok, reason = seat_status(seat, 1, bool(got and got["proposals"]))
         if got and got["long"] and not got["proposals"]:
@@ -1050,6 +1212,8 @@ def cmd_tally(args: argparse.Namespace) -> int:
         if not ballot:
             continue
         path = seat_dir(seat, 2) / FILES[2][1]
+        if not path.is_file():
+            recover_answer(seat, 2, data)
         vote = parse_vote(read_capped(path), ballot["codes"]) if path.is_file() else None
         ok, reason = seat_status(seat, 2, bool(vote and vote["ranking"]))
         seat["r2"] = {"ok": ok, "reason": reason}
@@ -1258,6 +1422,15 @@ def cmd_report(args: argparse.Namespace) -> int:
     if len(cands) > 1 and not tally:
         raise Stop("the ballots are not counted yet: run `tally` first")
     ruling_path = pathlib.Path(data["chair"]["dir"]) / "ruling.md"
+    if not ruling_path.is_file():
+        chair_seat = {
+            "dir": data["chair"]["dir"],
+            "kind": "claude",
+            "model": args.chair_model or "fable",
+            "n": 1,
+            "label": "Chair",
+        }
+        recover_answer(chair_seat, 0, data, answer_name="ruling.md", paper_name="docket.md")
     texts = {cid: c["text"] for cid, c in by_id.items()}
     ruling = None
     if ruling_path.is_file():

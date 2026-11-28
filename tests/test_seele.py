@@ -785,6 +785,188 @@ def test_one_ballot_is_not_a_count(tmp_path):
     assert panel("report").returncode == 1
 
 
+# ---------------------------------------------------------------- chat fallback and answer recovery
+
+
+def test_seat_wrote_answer_md_is_accepted(tmp_path):
+    """When a seat writes answer.md instead of proposal.md, the clerk accepts it."""
+    panel = Panel(tmp_path)
+    panel.propose(2, "Council", "Quorum")
+    # Seat 3 writes answer.md instead of proposal.md
+    (panel.seat(3) / "answer.md").write_text(
+        "PROPOSAL 1: Monolith\nWHY 1: Solid monolithic architecture\n", encoding="utf-8"
+    )
+    panel.propose(4, "Chamber")
+    out = panel("pool")
+    assert out.returncode == 0, out.stderr
+    assert "Monolith" in panel.ids()
+    assert (panel.seat(3) / "proposal.md").is_file()
+
+
+def test_seat_replied_in_chat_is_recovered_blind(tmp_path):
+    """A seat that only replied in chat is recovered with author identity stripped."""
+    projects_dir = tmp_path / "claude_projects"
+    panel = Panel(tmp_path)
+    panel.propose(2, "Council")
+    # Seat 3 writes neither proposal.md nor answer.md, only replying in chat
+    paper_path = str(panel.seat(3) / "round1.md")
+    answer_path = str(panel.seat(3) / "proposal.md")
+    subagent_dir = projects_dir / "proj" / "sess-1" / "subagents"
+    subagent_dir.mkdir(parents=True)
+    transcript = subagent_dir / "agent-a123.jsonl"
+    transcript.write_text(
+        json.dumps(
+            {
+                "type": "user",
+                "message": {
+                    "role": "user",
+                    "content": f"Your paper: {paper_path}\nWrite your answer to: {answer_path}",
+                },
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": (
+                                "Hello! I am Claude Sonnet (SEELE 03). Here are my proposals:\n\n"
+                                "PROPOSAL 1: Monolith\n"
+                                "WHY 1: Solid monolithic architecture. "
+                                "In my view as Claude Sonnet, it fits best.\n\n"
+                                "I hope this helps!\n"
+                                "Sincerely,\n"
+                                "Claude Sonnet"
+                            ),
+                        }
+                    ],
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    # Seat 4 has neither and is silent
+    env = {"CLAUDE_PROJECTS_DIR": str(projects_dir)}
+    out = panel("pool", env=env)
+    assert out.returncode == 0, out.stderr
+    assert "Monolith" in panel.ids()
+    assert (panel.seat(3) / "proposal.md").is_file()
+
+    cand_monolith = next(c for c in panel.data["candidates"] if c["text"] == "Monolith")
+    why = cand_monolith["why"]["3"]
+    # Blind review: author identity, model names, seat numbers, greetings and signoffs are stripped
+    assert "Claude" not in why
+    assert "Sonnet" not in why
+    assert "SEELE 03" not in why
+    assert "Sincerely" not in why
+    assert "I hope this helps" not in why
+    assert "Solid monolithic architecture" in why
+
+
+def test_seat_with_neither_reported_missing_and_panel_goes_on(tmp_path):
+    """A seat with neither answer file nor chat reply is reported NO SIGNAL and panel continues."""
+    panel = Panel(tmp_path)
+    panel.propose(2, "Council")
+    panel.propose(3, "Monolith")
+    # Seat 4 is untouched: no proposal.md, no answer.md, no transcript
+    out = panel("pool")
+    assert out.returncode == 0, out.stderr
+    assert "SEELE 04 round 1: NO SIGNAL: no answer" in out.stdout
+    assert len(panel.data["candidates"]) == 2
+    assert "Council" in panel.ids()
+    assert "Monolith" in panel.ids()
+
+
+def test_seat_local_chat_md_recovered(tmp_path):
+    """A seat with a local chat.md file in its folder is recovered."""
+    panel = Panel(tmp_path)
+    panel.propose(2, "Council")
+    (panel.seat(3) / "chat.md").write_text("PROPOSAL 1: Monolith\nWHY 1: Rock\n", encoding="utf-8")
+    panel.propose(4, "Chamber")
+    out = panel("pool")
+    assert out.returncode == 0, out.stderr
+    assert "Monolith" in panel.ids()
+    assert (panel.seat(3) / "proposal.md").is_file()
+
+
+def test_seat_local_reply_md_recovered(tmp_path):
+    """A seat with a local reply.md file in its folder is recovered."""
+    panel = Panel(tmp_path)
+    panel.propose(2, "Council")
+    (panel.seat(3) / "reply.md").write_text("PROPOSAL 1: Monolith\nWHY 1: Rock\n", encoding="utf-8")
+    panel.propose(4, "Chamber")
+    out = panel("pool")
+    assert out.returncode == 0, out.stderr
+    assert "Monolith" in panel.ids()
+    assert (panel.seat(3) / "proposal.md").is_file()
+
+
+def test_round2_vote_recovered_from_chat_blind(tmp_path):
+    """In round 2, a seat that only voted in chat is recovered blind."""
+    projects_dir = tmp_path / "claude_projects"
+    panel = Panel(tmp_path)
+    panel.propose(2, "Council")
+    panel.propose(3, "Monolith")
+    panel.propose(4, "Chamber")
+    assert panel("pool").returncode == 0
+
+    c = panel.ids()
+    panel.vote(2, c["Council"] + c["Monolith"] + c["Chamber"])
+    # Seat 3 votes in chat only
+    ballot_codes = panel.data["ballots"]["3"]["codes"]
+    label = {cid: code for code, cid in ballot_codes.items()}
+    paper_path = str(panel.seat(3, 2) / "ballot.md")
+    answer_path = str(panel.seat(3, 2) / "vote.md")
+    subagent_dir = projects_dir / "proj" / "sess-1" / "subagents"
+    subagent_dir.mkdir(parents=True, exist_ok=True)
+    transcript = subagent_dir / "agent-v3.jsonl"
+    ranking = [c["Monolith"], c["Council"], c["Chamber"]]
+    ranking_str = " > ".join(label[cid] for cid in ranking)
+    assess_lines = "".join(f"ASSESS {label[cid]}: strong proposal\n" for cid in ranking)
+    transcript.write_text(
+        json.dumps(
+            {
+                "type": "user",
+                "message": {
+                    "role": "user",
+                    "content": f"Your paper: {paper_path}\nWrite your answer to: {answer_path}",
+                },
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "role": "assistant",
+                    "content": (
+                        f"As Claude Sonnet, my ballot is:\n\n"
+                        f"{assess_lines}"
+                        f"RANKING: {ranking_str}\n"
+                        f"REJECT: none\n"
+                        f"OBJECTION: none\n\n"
+                        f"-- Claude Sonnet"
+                    ),
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    # Seat 4 has no vote
+    env = {"CLAUDE_PROJECTS_DIR": str(projects_dir)}
+    out = panel("tally", env=env)
+    assert out.returncode == 0, out.stderr
+    assert "SEELE 03 round 2: SOUND ONLY" in out.stdout
+    assert "SEELE 04 round 2: NO SIGNAL: no answer" in out.stdout
+    assert (panel.seat(3, 2) / "vote.md").is_file()
+
+
 @pytest.mark.parametrize(
     "spec",
     [

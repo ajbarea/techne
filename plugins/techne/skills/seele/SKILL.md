@@ -111,6 +111,7 @@ When the user has candidates of their own, write them to a file, one per line, a
 
 `pool` prints each seat's status, the candidates, and the round 2 lines. It pools two proposals as one only when their words match (case, spacing, surrounding quotes and final punctuation aside), leaves out any proposal over 2,000 characters and says so, and writes each seat a ballot: the candidates only, with no authors and no pitches, in a different order for each seat, under labels that mean nothing to any other seat.
 
+- If a Claude seat replied in chat without writing its answer file, `pool` (and `tally`) recovers the final reply from its session transcript or an `answer.md` or `reply.md` file in the seat folder, stripping author identity so blind review stays intact.
 - A seat shown `NO SIGNAL` in round 1 gets one more try. Dispatch a Claude seat again with the same prompt; for a CLI seat run `ask --run <run> --round 1 --seat <number> --again`. Then run `pool` again.
 - `pool` refuses when fewer than two seats answered. One answer is not a panel: fix the lanes or tell the user.
 - When every seat proposed the same thing, `pool` says to skip round 2. Go to step 7.
