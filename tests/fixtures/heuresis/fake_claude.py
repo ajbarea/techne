@@ -64,7 +64,19 @@ RESULT = {
 if mode == "interim":
     # An orchestrator that reports as each background scout returns: a result before the verdict.
     print(json.dumps({**RESULT, "num_turns": 2}), flush=True)
-    time.sleep(float(os.environ["FAKE_INTERIM_WAIT"]))
+    wait_target = os.environ.get("FAKE_INTERIM_EVENT") or os.environ.get("FAKE_INTERIM_WAIT")
+    if wait_target:
+        try:
+            time.sleep(float(wait_target))
+        except ValueError:
+            target = Path(wait_target)
+            for _ in range(1000):
+                if target.exists():
+                    break
+                time.sleep(0.01)
+            else:
+                print(f"fake_claude: timed out waiting for {target}", file=sys.stderr)
+                sys.exit(1)
 if mode == "guard":
     guard = Path(os.environ["FAKE_CLAUDE_GUARD"])
     (guard / "ideas" / "stray.md").write_text("written by mistake")
