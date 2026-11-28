@@ -1,15 +1,17 @@
 """Compare a bench/run.py summary with a baseline and fail when a hook got slower.
 
 Usage: uv run python bench/compare.py BASELINE NEW [--threshold X] [--wall-threshold X]
+                                                   [--wall-backstop X]
 
 Each case is judged by its ratio to the python3 floor, so a slower or faster machine moves both
-sides alike. A case fails when its wall-clock ratio grew past WALL_THRESHOLD, or, when both
-summaries carry retired-instruction counts, when its instruction ratio grew past the tighter
-THRESHOLD: instructions hardly move from run to run, but they do not count time spent waiting
-(a sleep, a lock, a network call), so wall time is always checked too. Both summaries must come
-from the same python3 minor version: a faster-starting python3 has a lower floor, so its ratios
-run higher. Exit 0 when no case regressed, 1 when one did or the new
-summary lacks a baseline case, 2 when the two cannot be compared.
+sides alike. When both summaries carry retired-instruction counts, a case fails when its instruction
+ratio grew past the tighter THRESHOLD (instructions hardly move from run to run, avoiding false
+positives from CI runner jitter), or when its wall-clock ratio grew past the loose WALL_BACKSTOP
+(since waiting on a sleep, lock, subprocess, or network call retires no instructions). When either
+summary lacks instruction counts, a case fails when its wall-clock ratio grew past WALL_THRESHOLD.
+Both summaries must come from the same python3 minor version: a faster-starting python3 has a lower
+floor, so its ratios run higher. Exit 0 when no case regressed, 1 when one did or the new summary
+lacks a baseline case, 2 when the two cannot be compared.
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ import sys
 # Measured spreads behind both thresholds are in bench/README.md.
 THRESHOLD = 1.05
 WALL_THRESHOLD = 1.15
+WALL_BACKSTOP = 2.0
 
 
 def minor(version: str) -> str:
@@ -29,20 +32,31 @@ def minor(version: str) -> str:
 
 
 def judge(
-    base: dict, row: dict, threshold: float, wall_threshold: float
+    base: dict,
+    row: dict,
+    threshold: float,
+    wall_threshold: float,
+    wall_backstop: float = WALL_BACKSTOP,
 ) -> list[tuple[str, float, bool]]:
     """Per metric checked: its name, the growth of its ratio, and whether that is past its limit.
-    Wall time always; instructions too when both sides counted them."""
-    growth = row["ratio"] / base["ratio"]
-    checked = [("wall", growth, growth > wall_threshold)]
+    Instructions decide when both sides counted them, with a loose wall backstop for waiting;
+    otherwise wall time decides."""
+    wall_growth = row["ratio"] / base["ratio"]
     if "instructions_ratio" in base and "instructions_ratio" in row:
-        growth = row["instructions_ratio"] / base["instructions_ratio"]
-        checked.append(("instructions", growth, growth > threshold))
-    return checked
+        instr_growth = row["instructions_ratio"] / base["instructions_ratio"]
+        return [
+            ("wall", wall_growth, wall_growth > wall_backstop),
+            ("instructions", instr_growth, instr_growth > threshold),
+        ]
+    return [("wall", wall_growth, wall_growth > wall_threshold)]
 
 
 def compare(
-    baseline: dict, new: dict, threshold: float = THRESHOLD, wall_threshold: float = WALL_THRESHOLD
+    baseline: dict,
+    new: dict,
+    threshold: float = THRESHOLD,
+    wall_threshold: float = WALL_THRESHOLD,
+    wall_backstop: float = WALL_BACKSTOP,
 ) -> tuple[int, list[str]]:
     """The exit code and the report lines for NEW against BASELINE."""
     if minor(baseline["python"]) != minor(new["python"]):
@@ -68,7 +82,7 @@ def compare(
             lines.append(f"{case_id:30} {base['ratio']:8.2f}x {'-':>7} not measured")
             code = 1
             continue
-        checked = judge(base, row, threshold, wall_threshold)
+        checked = judge(base, row, threshold, wall_threshold, wall_backstop)
         change = ", ".join(
             f"{growth - 1:+.1%} {metric}{' SLOWER' if past else ''}"
             for metric, growth, past in checked
@@ -79,8 +93,9 @@ def compare(
         lines.append(f"{case_id:30} {'-':>9} {new['cases'][case_id]['ratio']:6.2f}x no baseline")
     if code:
         lines.append(
-            f"FAIL: a case grew past {wall_threshold:g}x its baseline wall-clock ratio or "
-            f"{threshold:g}x its instruction ratio, or was not measured"
+            f"FAIL: a case grew past {wall_threshold:g}x its baseline wall-clock ratio "
+            f"(or {wall_backstop:g}x backstop), {threshold:g}x its instruction ratio, "
+            "or was not measured"
         )
     return code, lines
 
@@ -91,14 +106,16 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("new", type=pathlib.Path)
     ap.add_argument("--threshold", type=float, default=THRESHOLD)
     ap.add_argument("--wall-threshold", type=float, default=WALL_THRESHOLD)
+    ap.add_argument("--wall-backstop", type=float, default=WALL_BACKSTOP)
     args = ap.parse_args(argv)
-    if min(args.threshold, args.wall_threshold) < 1:
+    if min(args.threshold, args.wall_threshold, args.wall_backstop) < 1:
         ap.error("a threshold is a growth factor, 1 or more")
     code, lines = compare(
         json.loads(args.baseline.read_text()),
         json.loads(args.new.read_text()),
         args.threshold,
         args.wall_threshold,
+        args.wall_backstop,
     )
     print("\n".join(lines), file=sys.stderr if code == 2 else sys.stdout)
     return code

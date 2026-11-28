@@ -68,15 +68,59 @@ def test_wall_time_decides_when_one_side_has_no_counts():
     assert compare.compare(base, summary(a=2.6))[0] == 1
 
 
+def test_wall_time_decides_when_new_has_counts_but_base_lacks_them():
+    base = summary(a=2.0)
+    got, lines = compare.compare(base, summary(instructions=True, a=2.2))
+    assert got == 0 and any(" wall" in line for line in lines)
+    (row,) = [line for line in lines if line.startswith("a ")]
+    assert "wall" in row and "instructions" not in row
+    assert compare.compare(base, summary(instructions=True, a=2.6))[0] == 1
+
+
+def test_noisy_wall_growth_passes_when_instructions_held_still():
+    # Wall-clock time on CI runners jitters (1.05-1.22x on unchanged main), so when
+    # instructions_ratio is present on both summaries, the gate decides from instructions
+    # and reports wall time as information without failing or marking wall SLOWER,
+    # provided wall growth stays within the loose backstop (WALL_BACKSTOP = 2.0).
+    base = summary(instructions=True, a=2.0)
+    new = summary(instructions=True, a=2.0)
+    new["cases"]["a"]["ratio"] = 3.0  # 1.5x wall growth, below 2.0x backstop
+    got, lines = compare.compare(base, new)
+    assert got == 0
+    assert any("+50.0% wall" in line and "+0.0% instructions" in line for line in lines)
+    assert not any("SLOWER" in line for line in lines)
+
+
+@pytest.mark.parametrize(("ratio", "code"), [(4.0, 0), (4.02, 1)])
+def test_wall_growth_at_backstop_passes_and_past_it_fails(ratio, code):
+    # A hook that now waits (a sleep, a lock, a network call) retires about the same
+    # instructions but takes longer; the loose wall backstop (2.0x) catches this.
+    base = summary(instructions=True, a=2.0)
+    new = summary(instructions=True, a=2.0)
+    new["cases"]["a"]["ratio"] = ratio
+    got, lines = compare.compare(base, new)
+    assert got == code
+    assert any("wall" in line and ("SLOWER" in line) is bool(code) for line in lines)
+
+
 def test_wall_growth_fails_even_when_instructions_held_still():
     # A hook that now waits (a sleep, a lock, a network call) retires about the same
     # instructions but takes longer; the instruction counts must not hide that.
     base = summary(instructions=True, a=2.0)
     new = summary(instructions=True, a=2.0)
-    new["cases"]["a"]["ratio"] = 6.0
+    new["cases"]["a"]["ratio"] = 6.0  # 3.0x wall growth > 2.0x backstop
     got, lines = compare.compare(base, new)
     assert got == 1
     assert any("wall SLOWER" in line and "+0.0% instructions" in line for line in lines)
+
+
+def test_instruction_regression_fails_when_wall_time_held_still():
+    base = summary(instructions=True, a=2.0)
+    new = summary(instructions=True, a=2.0)
+    new["cases"]["a"]["instructions_ratio"] = 2.12  # > 2.0 * 1.05
+    got, lines = compare.compare(base, new)
+    assert got == 1
+    assert any("+0.0% wall" in line and "instructions SLOWER" in line for line in lines)
 
 
 def test_a_baseline_case_the_run_did_not_measure_fails():
@@ -114,9 +158,16 @@ def test_cli_exit_code_and_thresholds(tmp_path, capsys):
     new.write_text(json.dumps(summary(a=3.0)))
     assert compare.main([str(base), str(new)]) == 1
     assert compare.main([str(base), str(new), "--wall-threshold", "1.6"]) == 0
-    for flag in ("--threshold", "--wall-threshold"):
+    for flag in ("--threshold", "--wall-threshold", "--wall-backstop"):
         with pytest.raises(SystemExit):
             compare.main([str(base), str(new), flag, "0.9"])
+    base_inst, new_inst = tmp_path / "base_inst.json", tmp_path / "new_inst.json"
+    base_inst.write_text(json.dumps(summary(instructions=True, a=2.0)))
+    new_summary = summary(instructions=True, a=2.0)
+    new_summary["cases"]["a"]["ratio"] = 5.0  # 2.5x wall growth, instructions unchanged
+    new_inst.write_text(json.dumps(new_summary))
+    assert compare.main([str(base_inst), str(new_inst)]) == 1
+    assert compare.main([str(base_inst), str(new_inst), "--wall-backstop", "3.0"]) == 0
     capsys.readouterr()
 
 
