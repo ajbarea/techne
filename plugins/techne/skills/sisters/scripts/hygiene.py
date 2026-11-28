@@ -19,7 +19,8 @@ the --repo names, and sorts what it finds into three groups per repo:
            locked, busy, recently active or ignored-work-holding worktree, a
            remote branch with no PR or someone else's. A dirty, idle worktree whose
            IMPL.md is unchanged since its branch left the default branch is marked
-           not resumable.
+           not resumable; an idle worktree whose index still matches an earlier
+           commit after its branch ref moved elsewhere is flagged as a stale index.
   info     branches of open PRs, stashes, uncommitted changes in the main checkout
 
 Squash merges leave a branch's own commits outside main forever, so "ahead of
@@ -390,9 +391,87 @@ UNCOMMITTED = " uncommitted change(s)"
 ACTIVITY_UNKNOWN = "too many ignored files"
 BUSY_LIVE = "a live process is using it"
 ACTIVE_PREFIX = "active "
+STALE_INDEX = "stale index on branch "
 
 
-def worktree_blockers(wpath: str, others: list[str], busy: list[str] | None) -> list[str]:
+def _git_ok(path: str, *args: str) -> str | None:
+    proc = sp(["git", "--no-optional-locks", "-C", path, *args])
+    return proc.stdout if proc.returncode == 0 else None
+
+
+def stale_index(
+    wpath: str, branch: str | None, changes: list[str], last: float | None, idle: float
+) -> str:
+    """Flag a worktree whose index matches an earlier commit because its branch ref moved elsewhere.
+
+    When another checkout updates the shared branch ref, this worktree's HEAD advances while its
+    index and files stay at the old commit, so `git status` shows inverse staged diffs and a later
+    `git add -A` would revert newer work. Returns "" when there are no staged diffs, the worktree
+    has recent edits, it is detached, or the staged diffs are real edits made in this worktree.
+    """
+    if last is None or idle < IDLE_SECONDS:
+        return ""
+    if not any(len(ln) >= 2 and ln[0] not in (" ", "?") for ln in changes):
+        return ""
+    if branch is None:
+        branch = (_git_ok(wpath, "branch", "--show-current") or "").strip()
+    if not branch:
+        return ""
+    head = (_git_ok(wpath, "rev-parse", "--verify", "--quiet", "HEAD") or "").strip()
+    head_tree = (_git_ok(wpath, "rev-parse", "--verify", "--quiet", "HEAD^{tree}") or "").strip()
+    index_tree = (_git_ok(wpath, "write-tree") or "").strip()
+    if not head or not head_tree or not index_tree or index_tree == head_tree:
+        return ""
+    # Each worktree keeps its own HEAD reflog; external update-ref leaves HEAD@{0} at old tip.
+    has_reflog = _git_ok(wpath, "reflog", "exists", "HEAD") is not None
+    prev = (
+        (_git_ok(wpath, "rev-parse", "--verify", "--quiet", "HEAD@{0}") or "").strip()
+        if has_reflog
+        else ""
+    )
+    if prev:
+        if prev == head:
+            return ""
+        prev_tree = (
+            _git_ok(wpath, "rev-parse", "--verify", "--quiet", f"{prev}^{{tree}}") or ""
+        ).strip()
+        if index_tree != prev_tree:
+            return ""
+    else:
+        ancestors = (_git_ok(wpath, "log", "--format=%T", "-n", "100", "HEAD~1") or "").splitlines()
+        if index_tree not in ancestors:
+            return ""
+    unstaged_raw = _git_ok(wpath, "diff", "--name-only", "-z") or ""
+    unstaged = [p for p in unstaged_raw.split("\0") if p]
+    cutoff = time.time() - IDLE_SECONDS
+    for rel in unstaged:
+        try:
+            if os.lstat(os.path.join(wpath, rel)).st_mtime > cutoff:
+                return ""
+        except OSError:
+            pass
+    staged_raw = _git_ok(wpath, "diff", "--cached", "--name-only", "-z") or ""
+    staged = [p for p in staged_raw.split("\0") if p]
+    if not staged:
+        return ""
+    staged_set = set(staged)
+    untracked = [unquote(ln[3:]) for ln in changes if ln.startswith("?? ")]
+    has_local_edits = bool(unstaged) or any(p in staged_set for p in untracked)
+    if has_local_edits:
+        step = (
+            "inspect working-tree edits with `git diff` before resetting or removing the worktree"
+        )
+    else:
+        step = "run `git reset --hard HEAD` or remove the worktree"
+    return (
+        f"{STALE_INDEX}`{branch}` ({len(staged)} file(s) differ from HEAD; "
+        f"ref moved elsewhere, so do not run `git add -A`; {step})"
+    )
+
+
+def worktree_blockers(
+    wpath: str, others: list[str], busy: list[str] | None, branch: str | None = None
+) -> list[str]:
     """Why a worktree must not be removed now; empty when nothing holds it."""
     # Explicit flags: a user's status.showUntrackedFiles=no must not hide work.
     lines = git(
@@ -408,10 +487,14 @@ def worktree_blockers(wpath: str, others: list[str], busy: list[str] | None) -> 
     ignored = [ln[3:].strip() for ln in lines if ln.startswith("!!")]
     last = last_activity(wpath, ignored)
     idle = IDLE_SECONDS if last is None else time.time() - last
+    stale = stale_index(wpath, branch, changes, last, idle)
+    if stale:
+        changes = [ln for ln in changes if len(ln) >= 2 and ln[1] != " "]
     blockers = [
         f"{ACTIVITY_UNKNOWN} (over {ACTIVITY_FILE_CAP}) to tell whether it was used recently"
         if last is None
         else "",
+        stale,
         f"{len(changes)}{UNCOMMITTED}" if changes else "",
         f"ignored files that are not build output: {', '.join(kept[:3])}" if kept else "",
         f"{len(nested)} worktree(s) inside it" if nested else "",
@@ -501,7 +584,7 @@ def collect(name: str, path: str, slug: str, me: str, prs: dict[str, dict]) -> l
             group, reason = "review", "detached with commits not in " + default
         others = [t["worktree"] for t in trees if t["worktree"] != wpath]
         blockers = ["locked"] if "locked" in wt else []
-        blockers += worktree_blockers(wpath, others, busy)
+        blockers += worktree_blockers(wpath, others, busy, branch)
         merged = bool(prs.get(branch) and prs[branch]["state"] == "MERGED")
         if blockers:
             group, reason = "review", reason + "; " + ", ".join(blockers)
@@ -763,7 +846,7 @@ def execute(repo: Repo, item: Item) -> str:
         # Checked again at the last moment: a session may have started in it since
         # the survey. No --force, so git refuses on its own if a file lands after this.
         others = [t["worktree"] for t in worktrees(repo.path) if t["worktree"] != item.path]
-        held = worktree_blockers(item.path, others, busy_paths())
+        held = worktree_blockers(item.path, others, busy_paths(), item.branch)
         if held:
             raise RuntimeError("held: " + ", ".join(held))
         git(repo.path, "worktree", "remove", item.path)

@@ -103,7 +103,7 @@ python3 <hygiene script>   # the hygiene.py path SKILL.md names
 One run covers every active sister: local branches, remote branches, worktrees, stashes and uncommitted changes in the main checkout. Each item lands in one of three groups:
 
 - **Safe to remove**: its PR merged into the default branch at this tip, or (a local branch with no PR) it is already in the default branch; a worktree on it is clean, unlocked, idle, not in use, and holds nothing ignored but build output.
-- **Needs a look**: unmerged commits, commits added after the merge, a PR merged into another branch, a closed-unmerged PR, a worktree that is dirty, busy, recently active or holding ignored work, a remote branch with no PR or someone else's.
+- **Needs a look**: unmerged commits, commits added after the merge, a PR merged into another branch, a closed-unmerged PR, a worktree that is dirty, busy, recently active, holding ignored work, or holding a stale index (branch ref moved elsewhere while idle, leaving inverse staged diffs against `HEAD`), a remote branch with no PR or someone else's.
 - **Info**: branches of open PRs, stashes, uncommitted changes in the main checkout.
 
 "Ahead of `origin/main`" is not used: a squash merge leaves every merged branch ahead forever. Report the groups per repo, and if anything is safe to remove, offer clean mode (SKILL.md).

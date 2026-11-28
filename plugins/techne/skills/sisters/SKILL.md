@@ -34,7 +34,7 @@ Each check reports per repo; one broken repo never aborts the others.
 | 2 | Skill-context parity | A repo missing a required `##` section, or carrying one the others lack | Surface; extra sections may be deliberate |
 | 3 | Merge settings | Anything but squash-only, delete-on-merge, auto-merge on | The canonical settings |
 | 4 | Open PRs | Open longer than 14 days, or not mergeable | Name it; `techne:ci-audit` reads failing checks |
-| 5 | Branch and worktree hygiene | A branch, worktree or stash left behind: judged by its PR's state, not by ahead counts, which squash merges make meaningless | Offer [clean mode](#clean-mode) for the safe-to-remove items; for a worktree marked not resumable, say its branch needs an `IMPL.md` before a restart |
+| 5 | Branch and worktree hygiene | A branch, worktree or stash left behind: judged by its PR's state, not by ahead counts, which squash merges make meaningless | Offer [clean mode](#clean-mode) for the safe-to-remove items; for a worktree marked not resumable, say its branch needs an `IMPL.md` before a restart; for a stale-index worktree whose branch ref moved elsewhere, warn against `git add -A` and point to `git reset --hard HEAD` (after checking local diffs) or removal |
 | 6 | Local `main` sync | Local `main` ahead of or behind `origin/main` | Pull, or investigate unpushed commits |
 | 7 | Toolchain pins | `requires-python`, ruff `target-version`, or ruff/ty/pytest specifiers differ | Newest for tools; ask the user for Python envelopes |
 | 8 | Branch protection | `main` unprotected, no required check, force-push or deletion allowed | Protect it |

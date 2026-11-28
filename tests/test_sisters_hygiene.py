@@ -297,6 +297,166 @@ def test_a_worktree_whose_directory_is_gone_is_pruned(fleet):
     assert fleet.survey()[("prune", ".claude/worktrees/gone")].group == "remove"
 
 
+# ---------------------------------------------------------- stale index --
+
+
+def advance_branch_elsewhere(fleet, branch: str, files: dict[str, str]) -> str:
+    """Commit FILES onto BRANCH from a detached HEAD in the main checkout and update-ref."""
+    old = sh(fleet.path, "rev-parse", branch)
+    sh(fleet.path, "checkout", "-q", "--detach", old)
+    for name, text in files.items():
+        (fleet.path / name).write_text(text)
+        sh(fleet.path, "add", name)
+    sh(fleet.path, "commit", "-q", "-m", f"advance {branch}")
+    new = sh(fleet.path, "rev-parse", "HEAD")
+    sh(fleet.path, "checkout", "-q", "main")
+    sh(fleet.path, "update-ref", f"refs/heads/{branch}", new)
+    return new
+
+
+def test_stale_index_flags_only_ref_moved_worktree(fleet, hy):
+    fleet.prs["feat/clean"] = pr(1, "MERGED", fleet.branch("feat/clean", "c1"))
+    add_worktree(fleet, "clean", "feat/clean")
+
+    fleet.branch("feat/staged", "s1")
+    staged_wt = add_worktree(fleet, "staged", "feat/staged")
+    (staged_wt / "s1").write_text("real staged edit")
+    sh(staged_wt, "add", "s1")
+
+    fleet.branch("feat/moved", "m1", "m2")
+    moved_wt = add_worktree(fleet, "moved", "feat/moved")
+    advance_branch_elsewhere(fleet, "feat/moved", {"m1": "updated", "m3": "added"})
+
+    items = fleet.survey()
+
+    clean_item = items[("worktree", ".claude/worktrees/clean")]
+    assert clean_item.group == "remove"
+    assert hy.STALE_INDEX not in clean_item.reason
+
+    staged_item = items[("worktree", ".claude/worktrees/staged")]
+    assert staged_item.group == "review"
+    assert "1 uncommitted change(s)" in staged_item.reason
+    assert hy.STALE_INDEX not in staged_item.reason
+
+    moved_item = items[("worktree", ".claude/worktrees/moved")]
+    assert moved_item.group == "review"
+    assert hy.STALE_INDEX in moved_item.reason
+    assert "feat/moved" in moved_item.reason
+    assert "2 file(s) differ" in moved_item.reason
+    assert "git add -A" in moved_item.reason
+    assert "git reset --hard HEAD" in moved_item.reason
+    assert hy.UNCOMMITTED not in moved_item.reason
+    assert hy.UNRESUMABLE not in moved_item.reason
+    assert moved_wt.exists()
+    assert (moved_wt / "m1").read_text() == "m1"
+    assert not (moved_wt / "m3").exists()
+
+
+def test_stale_index_skips_recently_active_worktrees_and_fires_once_idle(fleet, hy, monkeypatch):
+    monkeypatch.setattr(hy, "IDLE_SECONDS", 3600)
+    fleet.branch("feat/moved", "m1")
+    wt = add_worktree(fleet, "moved", "feat/moved")
+    advance_branch_elsewhere(fleet, "feat/moved", {"m1": "updated"})
+
+    active = fleet.survey()[("worktree", ".claude/worktrees/moved")]
+    assert active.group == "review"
+    assert "active 0 min ago" in active.reason
+    assert hy.STALE_INDEX not in active.reason
+
+    make_idle(wt)
+    idle = fleet.survey()[("worktree", ".claude/worktrees/moved")]
+    assert idle.group == "review"
+    assert hy.STALE_INDEX in idle.reason
+    assert "1 file(s) differ" in idle.reason
+
+
+def test_stale_index_works_without_reflog_via_ancestor_tree(fleet, hy):
+    fleet.branch("feat/moved", "m1")
+    moved_wt = add_worktree(fleet, "moved", "feat/moved")
+    advance_branch_elsewhere(fleet, "feat/moved", {"m1": "updated"})
+    gitdir = Path(sh(moved_wt, "rev-parse", "--absolute-git-dir"))
+    (gitdir / "logs" / "HEAD").unlink()
+
+    fleet.branch("feat/staged", "s1")
+    staged_wt = add_worktree(fleet, "staged", "feat/staged")
+    (staged_wt / "s1").write_text("real staged edit")
+    sh(staged_wt, "add", "s1")
+    staged_gitdir = Path(sh(staged_wt, "rev-parse", "--absolute-git-dir"))
+    (staged_gitdir / "logs" / "HEAD").unlink()
+
+    items = fleet.survey()
+    assert hy.STALE_INDEX in items[("worktree", ".claude/worktrees/moved")].reason
+    assert hy.STALE_INDEX not in items[("worktree", ".claude/worktrees/staged")].reason
+
+
+def test_stale_index_detects_non_ancestor_ref_move_such_as_rebase(fleet, hy):
+    c1 = fleet.branch("feat/rebased", "r1")
+    wt = add_worktree(fleet, "rebased", "feat/rebased")
+    sh(fleet.path, "checkout", "-q", "--detach", f"{c1}~1")
+    commit(fleet.path, "r2")
+    new = sh(fleet.path, "rev-parse", "HEAD")
+    sh(fleet.path, "checkout", "-q", "main")
+    sh(fleet.path, "update-ref", "refs/heads/feat/rebased", new)
+
+    item = fleet.survey()[("worktree", ".claude/worktrees/rebased")]
+    assert hy.STALE_INDEX in item.reason
+    assert "2 file(s) differ" in item.reason
+    assert wt.exists()
+
+
+def test_stale_index_warns_before_reset_when_unstaged_edits_coexist(fleet, hy):
+    fleet.branch("feat/moved", "m1", "m2")
+    wt = add_worktree(fleet, "moved", "feat/moved")
+    advance_branch_elsewhere(fleet, "feat/moved", {"m1": "updated", "m2": "updated"})
+    (wt / "m1").write_text("local unsaved edit")
+
+    item = fleet.survey()[("worktree", ".claude/worktrees/moved")]
+    assert hy.STALE_INDEX in item.reason
+    assert "2 file(s) differ" in item.reason
+    assert "1 uncommitted change(s)" in item.reason
+    assert "git reset --hard HEAD" not in item.reason
+    assert "git diff" in item.reason
+
+
+def test_stale_index_holds_merged_worktree_in_auto_and_execute(fleet, auto, hy):
+    fleet.branch("feat/moved", "m1")
+    wt = add_worktree(fleet, "moved", "feat/moved")
+    new = advance_branch_elsewhere(fleet, "feat/moved", {"m1": "updated"})
+    fleet.prs["feat/moved"] = pr(7, "MERGED", new)
+
+    text = auto()
+    assert wt.exists()
+    assert "Held after merge (1):" in text
+    assert hy.STALE_INDEX in text
+    assert "Removed" not in text
+
+    repo = hy.Repo("repo", f"{ME}/repo", str(fleet.path))
+    item = hy.Item(
+        "worktree",
+        ".claude/worktrees/moved",
+        "remove",
+        "",
+        sha=new,
+        path=str(wt),
+        branch="feat/moved",
+    )
+    with pytest.raises(RuntimeError, match=hy.STALE_INDEX):
+        hy.execute(repo, item)
+    assert wt.exists()
+
+
+def test_stale_index_ignores_intentional_checkout_of_ancestor_tree(fleet, hy):
+    fleet.branch("feat/local", "f1")
+    wt = add_worktree(fleet, "local", "feat/local")
+    write_and_commit(wt, "f1", "v2")
+    sh(wt, "checkout", "HEAD~1", "--", "f1")
+
+    item = fleet.survey()[("worktree", ".claude/worktrees/local")]
+    assert item.group == "review"
+    assert "1 uncommitted change(s)" in item.reason
+    assert hy.STALE_INDEX not in item.reason
+
+
 # --------------------------------------------------------- remote, info --
 
 
