@@ -351,9 +351,11 @@ def test_timeout_is_an_error_and_kills_the_session_children(fake, monkeypatch):
     assert not alive(child)
 
 
-def settle_run(fake, monkeypatch, mode: str, **env: str) -> tuple[float, list[dict]]:
+def settle_run(
+    fake, monkeypatch, mode: str, settle_seconds: float = 1, **env: str
+) -> tuple[float, list[dict]]:
     """Run bib-checker once with a short settle grace; returns the seconds taken and the grades."""
-    monkeypatch.setattr(r, "SETTLE_SECONDS", 1)
+    monkeypatch.setattr(r, "SETTLE_SECONDS", settle_seconds)
     monkeypatch.setenv("FAKE_CLAUDE_MODE", mode)
     for key, value in env.items():
         monkeypatch.setenv(key, value)
@@ -380,8 +382,24 @@ def test_a_session_that_never_exits_after_its_final_result_is_stopped_and_finish
 
 
 def test_an_interim_result_before_the_verdict_does_not_end_the_session(fake, monkeypatch):
-    elapsed, (g,) = settle_run(fake, monkeypatch, "interim", FAKE_INTERIM_WAIT="3")
-    assert elapsed >= 3
+    resume = fake / "resume"
+    checked = []
+    real_verdict = r.gold.verdict_applied
+
+    def check_and_release(ideas_root, idea_id):
+        applied = real_verdict(ideas_root, idea_id)
+        checked.append(applied)
+        resume.write_text("1")
+        monkeypatch.setattr(r, "SETTLE_SECONDS", 60)
+        return applied
+
+    monkeypatch.setattr(r.gold, "verdict_applied", check_and_release)
+    monkeypatch.setattr(r, "POLL_SECONDS", 0.01)
+    elapsed, (g,) = settle_run(
+        fake, monkeypatch, "interim", settle_seconds=0.05, FAKE_INTERIM_EVENT=str(resume)
+    )
+    assert elapsed < 10
+    assert checked == [False]
     assert g["error"] == "" and g["state"] == "trash" and g["accepted"] is True
     assert g["stopped_after_result"] is False
     assert g["turns"] == 4  # the final result, not the interim one
