@@ -399,6 +399,22 @@ def _git_ok(path: str, *args: str) -> str | None:
     return proc.stdout if proc.returncode == 0 else None
 
 
+def _head_reflog_tip(wpath: str) -> str:
+    """Last recorded commit in this worktree's own HEAD reflog, or "" if absent."""
+    gitdir = (_git_ok(wpath, "rev-parse", "--absolute-git-dir") or "").strip()
+    if not gitdir:
+        return ""
+    log = Path(gitdir, "logs", "HEAD")
+    try:
+        lines = [ln for ln in log.read_text(errors="replace").splitlines() if ln.strip()]
+    except OSError:
+        return ""
+    if not lines:
+        return ""
+    parts = lines[-1].split()
+    return parts[1] if len(parts) >= 2 else ""
+
+
 def stale_index(
     wpath: str, branch: str | None, changes: list[str], last: float | None, idle: float
 ) -> str:
@@ -422,13 +438,8 @@ def stale_index(
     index_tree = (_git_ok(wpath, "write-tree") or "").strip()
     if not head or not head_tree or not index_tree or index_tree == head_tree:
         return ""
-    # Each worktree keeps its own HEAD reflog; external update-ref leaves HEAD@{0} at old tip.
-    has_reflog = _git_ok(wpath, "reflog", "exists", "HEAD") is not None
-    prev = (
-        (_git_ok(wpath, "rev-parse", "--verify", "--quiet", "HEAD@{0}") or "").strip()
-        if has_reflog
-        else ""
-    )
+    # Read logs/HEAD directly: git 2.46+ changed rev-parse HEAD@{0} when HEAD's symref moved.
+    prev = _head_reflog_tip(wpath)
     if prev:
         if prev == head:
             return ""
