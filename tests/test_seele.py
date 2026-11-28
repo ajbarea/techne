@@ -1081,6 +1081,235 @@ def test_the_lineup_takes_what_the_machine_has_and_never_needs_more_than_claude(
     assert "lineup: claude:opus claude:sonnet claude:haiku" in kept
 
 
+def load_seele_module():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("seele_under_test", SCRIPT)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def meminfo_stub(
+    tmp_path: pathlib.Path, avail_mb: int | None, name: str = "meminfo"
+) -> pathlib.Path:
+    target = tmp_path / name
+    if avail_mb is None:
+        return target
+    target.write_text(
+        f"MemTotal:       16384000 kB\nMemAvailable:   {avail_mb * 1024} kB\n",
+        encoding="utf-8",
+    )
+    return target
+
+
+def run_with_meminfo(
+    state: pathlib.Path,
+    meminfo: pathlib.Path,
+    *args: str,
+    path: str | None = None,
+    env: dict | None = None,
+) -> subprocess.CompletedProcess:
+    run_env = dict(os.environ, XDG_STATE_HOME=str(state), **(env or {}))
+    if path is not None:
+        run_env["PATH"] = path
+    code = (
+        "import pathlib, sys\n"
+        f"sys.path.insert(0, {str(SCRIPT.parent)!r})\n"
+        "import seele\n"
+        f"seele.MEMINFO = pathlib.Path({str(meminfo)!r})\n"
+        f"sys.exit(seele.main({list(args)!r}))\n"
+    )
+    return subprocess.run(
+        [HOOK_PYTHON, "-c", code],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        env=run_env,
+        timeout=120,
+        check=False,
+    )
+
+
+def test_fleet_mem_warning_via_path_arg_and_monkeypatch(tmp_path, monkeypatch):
+    mod = load_seele_module()
+    monkeypatch.delenv("FLEET_MIN_AVAIL_MB", raising=False)
+
+    assert mod.mem_available_mb(meminfo_stub(tmp_path, 4096, "m_high")) == 4096
+    assert mod.mem_available_mb(tmp_path / "missing-meminfo") is None
+    no_avail = tmp_path / "m_no_avail"
+    no_avail.write_text("MemTotal: 1000 kB\n", encoding="utf-8")
+    assert mod.mem_available_mb(no_avail) is None
+
+    assert mod.fleet_mem_warning(meminfo_stub(tmp_path, 3000, "m_floor")) is None
+    warn = mod.fleet_mem_warning(meminfo_stub(tmp_path, 2999, "m_below"))
+    assert warn is not None and "\n" not in warn
+    assert "2999 MiB" in warn and "3000 MiB" in warn and "FLEET_MIN_AVAIL_MB" in warn
+
+    monkeypatch.setattr(mod, "MEMINFO", meminfo_stub(tmp_path, 2500, "m_2500"))
+    assert mod.fleet_mem_warning() is not None
+    monkeypatch.setenv("FLEET_MIN_AVAIL_MB", "2000")
+    assert mod.fleet_mem_warning() is None
+    monkeypatch.setenv("FLEET_MIN_AVAIL_MB", "4000")
+    override_warn = mod.fleet_mem_warning(meminfo_stub(tmp_path, 3500, "m_3500"))
+    assert override_warn is not None and "3500 MiB" in override_warn and "4000 MiB" in override_warn
+    monkeypatch.setenv("FLEET_MIN_AVAIL_MB", "")
+    empty_warn = mod.fleet_mem_warning()
+    assert empty_warn is not None and "3000 MiB" in empty_warn
+
+    monkeypatch.setattr(mod, "MEMINFO", tmp_path / "no-proc-meminfo")
+    assert mod.fleet_mem_warning() is None
+
+
+def test_seats_warns_below_fleet_memory_floor_only_for_fleet_seats(tmp_path, lanes, monkeypatch):
+    monkeypatch.delenv("FLEET_MIN_AVAIL_MB", raising=False)
+    bin_dir, _ = lanes
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    fleet_path = f"{bin_dir}{os.pathsep}{bare}"
+
+    above = run_with_meminfo(
+        tmp_path, meminfo_stub(tmp_path, 3000, "m_3000"), "seats", path=fleet_path
+    )
+    assert above.returncode == 0
+    assert "warning:" not in above.stdout and "warning:" not in above.stderr
+
+    below = run_with_meminfo(
+        tmp_path, meminfo_stub(tmp_path, 2500, "m_2500"), "seats", path=fleet_path
+    )
+    assert below.returncode == 0
+    warnings = [line for line in below.stdout.splitlines() if line.startswith("warning:")]
+    assert len(warnings) == 1
+    assert "2500 MiB" in warnings[0] and "3000 MiB" in warnings[0]
+    assert "FLEET_MIN_AVAIL_MB" in warnings[0] and "--claude-only" in warnings[0]
+
+    env_low = run_with_meminfo(
+        tmp_path,
+        meminfo_stub(tmp_path, 2500, "m_2500"),
+        "seats",
+        path=fleet_path,
+        env={"FLEET_MIN_AVAIL_MB": "2000"},
+    )
+    assert env_low.returncode == 0 and "warning:" not in env_low.stdout
+
+    env_high = run_with_meminfo(
+        tmp_path,
+        meminfo_stub(tmp_path, 3500, "m_3500"),
+        "seats",
+        path=fleet_path,
+        env={"FLEET_MIN_AVAIL_MB": "4000"},
+    )
+    assert env_high.returncode == 0
+    assert "3500 MiB" in env_high.stdout and "4000 MiB" in env_high.stdout
+
+    no_proc = run_with_meminfo(tmp_path, tmp_path / "missing-meminfo", "seats", path=fleet_path)
+    assert no_proc.returncode == 0 and "warning:" not in no_proc.stdout and no_proc.stderr == ""
+
+    low_mem = meminfo_stub(tmp_path, 1000, "m_1000")
+    claude_only = run_with_meminfo(tmp_path, low_mem, "seats", "--claude-only", path=fleet_path)
+    assert claude_only.returncode == 0 and "warning:" not in claude_only.stdout
+    no_fleet = run_with_meminfo(tmp_path, low_mem, "seats", path=str(bare))
+    assert no_fleet.returncode == 0 and "warning:" not in no_fleet.stdout
+
+
+def test_ask_warns_before_starting_fleet_seats_when_below_memory_floor(
+    tmp_path, lanes, monkeypatch
+):
+    monkeypatch.delenv("FLEET_MIN_AVAIL_MB", raising=False)
+    bin_dir, _ = lanes
+    path = f"{bin_dir}{os.pathsep}{os.environ['PATH']}"
+
+    panel = Panel(tmp_path / "s", "--seat", "claude:opus", "--seat", "fleet:agy", path=path)
+    above = run_with_meminfo(
+        tmp_path / "s",
+        meminfo_stub(tmp_path, 3000, "m_3000"),
+        "ask",
+        "--run",
+        str(panel.dir),
+        "--round",
+        "1",
+        path=path,
+    )
+    assert above.returncode == 0 and "warning:" not in above.stdout
+    assert "SEELE 03 fleet:agy round 1: SOUND ONLY" in above.stdout
+
+    already = run_with_meminfo(
+        tmp_path / "s",
+        meminfo_stub(tmp_path, 1000, "m_1000"),
+        "ask",
+        "--run",
+        str(panel.dir),
+        "--round",
+        "1",
+        path=path,
+    )
+    assert already.returncode == 0 and "already answered" in already.stdout
+    assert "warning:" not in already.stdout
+
+    below = run_with_meminfo(
+        tmp_path / "s",
+        meminfo_stub(tmp_path, 2500, "m_2500"),
+        "ask",
+        "--run",
+        str(panel.dir),
+        "--round",
+        "1",
+        "--again",
+        path=path,
+    )
+    assert below.returncode == 0
+    lines = below.stdout.splitlines()
+    warn_idx = [i for i, line in enumerate(lines) if line.startswith("warning:")]
+    seat_idx = [
+        i for i, line in enumerate(lines) if "SEELE 03 fleet:agy round 1: SOUND ONLY" in line
+    ]
+    assert len(warn_idx) == 1 and len(seat_idx) == 1 and warn_idx[0] < seat_idx[0]
+    assert "2500 MiB" in lines[warn_idx[0]] and "3000 MiB" in lines[warn_idx[0]]
+    assert "FLEET_MIN_AVAIL_MB" in lines[warn_idx[0]]
+
+    env_low = run_with_meminfo(
+        tmp_path / "s",
+        meminfo_stub(tmp_path, 2500, "m_2500"),
+        "ask",
+        "--run",
+        str(panel.dir),
+        "--round",
+        "1",
+        "--again",
+        path=path,
+        env={"FLEET_MIN_AVAIL_MB": "2000"},
+    )
+    assert env_low.returncode == 0 and "warning:" not in env_low.stdout
+
+    no_proc = run_with_meminfo(
+        tmp_path / "s",
+        tmp_path / "missing-meminfo",
+        "ask",
+        "--run",
+        str(panel.dir),
+        "--round",
+        "1",
+        "--again",
+        path=path,
+    )
+    assert no_proc.returncode == 0 and "warning:" not in no_proc.stdout and no_proc.stderr == ""
+
+    direct = Panel(tmp_path / "d", "--seat", "claude:opus", "--seat", "agy", path=path)
+    direct_low = run_with_meminfo(
+        tmp_path / "d",
+        meminfo_stub(tmp_path, 1000, "m_1000"),
+        "ask",
+        "--run",
+        str(direct.dir),
+        "--round",
+        "1",
+        path=path,
+    )
+    assert direct_low.returncode == 0 and "warning:" not in direct_low.stdout
+    assert "SEELE 03 agy round 1: SOUND ONLY" in direct_low.stdout
+
+
 # ---------------------------------------------------------------- the skill and its agent
 
 

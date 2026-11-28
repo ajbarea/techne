@@ -43,7 +43,9 @@ MAX_CANDIDATE = 2000  # characters: every candidate goes on every ballot
 MAX_NOTE = 1000  # characters kept of a pitch, an assessment or an objection
 MAX_ANSWER = 256 * 1024  # bytes read from one answer
 FLEET_CAP = 65536  # fleet delegate refuses a larger task file
+FLEET_MIN_AVAIL_MB = 3000  # fleet delegate's default MemAvailable floor (MiB)
 ARGV_CAP = 120000  # one argv string on Linux holds 128 KiB
+MEMINFO = pathlib.Path("/proc/meminfo")
 CODE_LETTERS = "BCDFGHJKMNPQRSTVWXZ"
 CODE_DIGITS = "23456789"
 MODEL_OK = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]*$")
@@ -278,6 +280,47 @@ def lineup(claude_only: bool = False) -> tuple[list[str], list[str]]:
     return seats, notes
 
 
+def fleet_mem_floor_mb() -> int:
+    raw = os.environ.get("FLEET_MIN_AVAIL_MB", "").strip()
+    if not raw:
+        return FLEET_MIN_AVAIL_MB
+    try:
+        return int(raw)
+    except ValueError:
+        return FLEET_MIN_AVAIL_MB
+
+
+def mem_available_mb(path: pathlib.Path | str | None = None) -> int | None:
+    """Available RAM in MiB from /proc/meminfo, or None when absent or unreadable."""
+    target = MEMINFO if path is None else pathlib.Path(path)
+    try:
+        text = target.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    for line in text.splitlines():
+        if line.startswith("MemAvailable:"):
+            parts = line.split()
+            if len(parts) >= 2:
+                try:
+                    return int(parts[1]) // 1024
+                except ValueError:
+                    return None
+    return None
+
+
+def fleet_mem_warning(path: pathlib.Path | str | None = None) -> str | None:
+    """One-line warning when MemAvailable is below fleet delegate's floor, else None."""
+    avail = mem_available_mb(path)
+    floor = fleet_mem_floor_mb()
+    if avail is None or avail >= floor:
+        return None
+    return (
+        f"warning: MemAvailable is {avail} MiB, below fleet delegate's {floor} MiB floor "
+        "(FLEET_MIN_AVAIL_MB); fleet seats may hold or stall "
+        "(free memory, raise --timeout, or use --claude-only or direct agy/copilot seats)"
+    )
+
+
 def cmd_seats(args: argparse.Namespace) -> int:
     seats, notes = lineup(args.claude_only)
     print("lineup: " + " ".join(seats))
@@ -287,6 +330,10 @@ def cmd_seats(args: argparse.Namespace) -> int:
         print("leaves this machine's Claude session: the brief goes to " + ", ".join(outside))
     for note in notes:
         print(f"note: {note}")
+    if any(s.startswith("fleet:") for s in seats):
+        warn = fleet_mem_warning()
+        if warn:
+            print(warn)
     return 0
 
 
@@ -560,6 +607,10 @@ def cmd_ask(args: argparse.Namespace) -> int:
 
     if not todo:
         print(f"no CLI seat to ask in round {args.round}")
+    elif any(seat["kind"] == "fleet" for seat in todo):
+        warn = fleet_mem_warning()
+        if warn:
+            print(warn, flush=True)
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
         for seat, ok, text, _ in pool.map(work, todo):
             what = ANSWERED if ok else f"{SILENT}: {' '.join(text.split())}"
